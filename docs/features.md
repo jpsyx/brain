@@ -105,31 +105,30 @@ a direct keystroke show it dimmed in `[…]`):
   long, elides the *middle* keeping the tail (`resources/.../final/parts`).
 1. **Message brain** `[^M]` — open the brain panel (resume your latest
    session), or focus it if already open. Shown **only while the panel is
-   closed**. In the one-shot picker it instead cd's into `~/brain` and opens
-   claude.
-2. **Open tasks** `[^T]` — run the `tasks` TUI (task management, agenda, triage).
-3. **Go to brain root directory** `[^B]` — cd into the configured root.
-4. **Search projects** — rescope search to `~/brain/projects`.
-5. **Search areas** — rescope search to `~/brain/areas`.
-6. **Search resources** — rescope search to `~/brain/resources`.
-7. **Search archive** — rescope search to `~/brain/archive` (retired material).
-8. **Global search** — search across projects, areas, resources, and archive.
-9. **Move brain panel to the left / right** — swap the layout (label names
-   the direction the panel would move; persistent shell only).
+   closed**.
+2. **Open tasks** `[^T]` — switch to the tasks main view (task management,
+   agenda, triage), in-process.
+3. **Search projects** — rescope search to `~/brain/projects`.
+4. **Search areas** — rescope search to `~/brain/areas`.
+5. **Search resources** — rescope search to `~/brain/resources`.
+6. **Search archive** — rescope search to `~/brain/archive` (retired material).
+7. **Global search** — search across projects, areas, resources, and archive.
+8. **Move brain panel to the left / right** — swap the layout (label names
+   the direction the panel would move).
 - **Delete '<file>'** `[^D]` — move the highlighted entry (file **or**
   directory) to the Trash. **Shown whenever something is highlighted**, and it
   **trails** the list (never default-selected) so a stray `Enter` on open
   can't delete; the label is elided with the same threshold as the PDF row.
   See "Delete an entry" below.
 
-In the persistent shell, the search rows rescope the left panel **in
-place**; "Go to root" and "Open tasks" deliberately leave brain (handing a
-plan to the parent shell). The keystrokes (`Ctrl-g`, `Ctrl-d`, `Ctrl-m`,
-`Ctrl-t`, `Ctrl-b`) also fire directly without opening the palette first —
-`Ctrl-g` and `Ctrl-d` open a confirmation modal (see below); the rest run
-their action. `Ctrl-R` **refreshes** the search list (re-walks the current
-scope, keeping the query); the list also auto-refreshes after a PDF is
-created or an entry is deleted, so the change shows without a manual refresh.
+The search rows rescope the left panel **in place**; "Open tasks" switches
+to the tasks main view in-process (the same as `Ctrl-T`). The keystrokes
+(`Ctrl-g`, `Ctrl-d`, `Ctrl-m`, `Ctrl-t`) also fire directly without opening
+the palette first — `Ctrl-g` and `Ctrl-d` open a confirmation modal (see
+below); the rest run their action. `Ctrl-R` **refreshes** the search list
+(re-walks the current scope, keeping the query); the list also auto-refreshes
+after a PDF is created or an entry is deleted, so the change shows without a
+manual refresh.
 
 The palette is a filterable text input: typing narrows the rows. Each
 row's matchable text includes its 1-based number, so you can type a digit
@@ -142,19 +141,21 @@ overlay and returns to the underlying search (no cd, no claude, no error).
 
 ## Subcommands
 
-| Command | Aliases | No-arg behavior | With-query behavior |
-| --- | --- | --- | --- |
-| `brain pr [q]` | `project`, `projects` | cd into `~/brain/projects` | picker scoped to projects, seeded with `q` |
-| `brain ar [q]` | `area`, `areas` | cd into `~/brain/areas` | picker scoped to areas |
-| `brain re [q]` | `resource`, `resources` | cd into `~/brain/resources` | picker scoped to resources |
-| `brain s [q]` | `search` | picker across all buckets (empty) | picker across all buckets, seeded with `q` |
-| `brain cd` | — | cd into the brain root | — |
-| `brain msg <prompt>` | — | cd into `~/brain`, open claude empty | cd + open claude with `<prompt>` |
-| `brain tasks` | — | run the `tasks` TUI | — |
-| `brain config` | — | list config (see below) | `get`/`set` subcommands |
+There are only two subcommands; everything else lives inside the persistent
+shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 
-Bare positional input with no matching subcommand becomes a global search:
-`brain rust borrow` is equivalent to `brain s rust borrow`.
+| Command | Behavior |
+| --- | --- |
+| `brain` | Open the persistent shell on the tasks view (the startup default). |
+| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. |
+| `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
+| `brain tasks complete <id>` | Mark a task complete (`mark_done.py`), no TUI. |
+| `brain tasks doctor` | Run the state/hook health check, no TUI. |
+| `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
+| `brain config [list\|get\|set]` | Read or change persistent config (see below). |
+
+`brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
+before clap parses it.
 
 ### `brain config`
 
@@ -179,10 +180,9 @@ see [config.md](config.md).
 
 ## The fuzzy picker
 
-The search panel of the persistent shell, and the whole screen for the
-one-shot search subcommands. It collects entries under the relevant bucket
-roots and renders a filterable, grouped list. The matching, navigation, and
-rendering are identical in both; what differs is what `Enter` does.
+The search panel of the persistent shell (the brain-directory main view). It
+collects entries under the bucket roots and renders a filterable, grouped
+list.
 
 - **Typing** filters live. Matching is substring-based: every
   whitespace-separated word in the query must appear as a contiguous run
@@ -196,14 +196,10 @@ rendering are identical in both; what differs is what `Enter` does.
   are mapped back from the normalized string to the original display
   bytes so they line up exactly.
 - **Selecting**:
-  - `Enter` → **open directly**.
-    - In the **persistent shell**: text-like files open in a **new iTerm2
-      tab** (cd'd to the file's directory, then `$VISUAL`/`$EDITOR`/`nvim`);
-      everything else hands off to the system `open`; a directory reveals in
-      Finder. The brain shell stays open in all cases.
-    - In a **one-shot picker**: text files become an `edit=` directive (run
-      in the current terminal), blobs an `open=`, dirs a Finder reveal; the
-      parent shell `cd`s into the file's directory.
+  - `Enter` → **open directly, in place**. Text-like files open in a **new
+    iTerm2 tab** (cd'd to the file's directory, then `$VISUAL`/`$EDITOR`/`nvim`);
+    everything else hands off to the system `open`; a directory reveals in
+    Finder. The brain shell stays open in all cases.
   - `Ctrl-Enter` → **reveal in Finder**. Files resolve to their parent
     directory.
 - **Command palette**: `Ctrl-p` opens the top-level command palette (the
@@ -252,25 +248,23 @@ appear:
 
 Confirming moves the file or directory to the **Trash** (via Finder, so it's a
 recoverable, user-style delete — a `Put Back` away, not an `rm`), then the
-search list refreshes so the entry disappears. In the persistent shell this
-happens **in place** and the shell stays up; in a one-shot picker the entry is
-dropped from the list and the picker stays open. The label elides a long
-filename with the same threshold as the "Create PDF" row.
+search list refreshes so the entry disappears. This happens **in place** and
+the shell stays up. The label elides a long filename with the same threshold
+as the "Create PDF" row.
 
 ## Open tasks
 
-`brain tasks`, palette item 2, or `Ctrl-t`, hands off to the user's `tasks` CLI: the
-ratatui task-management TUI backed by `~/brain/tasks/{tasks,habits}.csv`
-(today / MIT / past-due / week / habits views, agenda, triage). `brain`
-doesn't reimplement any of that; it emits a `tasks=1` directive and the
-zsh wrapper runs the `tasks` function (sourced alongside `brain` in the
-user's rc). This is what makes `brain` a true *dispatch*: task work lives
-in `tasks`, knowledge work lives in `brain`, and `brain` is the one door
-into both. See [integrations.md](integrations.md).
+`Ctrl-t` (or palette item "Open tasks") switches to the **tasks main view**,
+the ratatui task-management surface backed by `~/brain/tasks/{tasks,habits}.csv`
+(today / MIT / past-due / week / habits views, agenda, triage). It is the
+startup default and `brain tasks` opens straight onto it. The tasks view is
+in-process — a main view of the same shell, not a separate binary — so the
+switch is instant and the brain panel stays open beside it. See
+[integrations.md](integrations.md) for the tasks-view shell-outs
+(`mark_done.py`, agenda / habits).
 
 ## Help and version
 
 `brain --help` / `brain -h` print the clap-generated usage (with the
 long-form command descriptions and the TUI key summary). `brain --version`
-prints the crate version. Both flow through the wrapper as passthrough
-output.
+prints the crate version. Both are printed by clap straight to stdout.

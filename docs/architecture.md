@@ -6,7 +6,7 @@ entry point for the user's knowledge and task workflows.
 
 As of the tasks↔brain merge, `brain` is the single CLI for both the second
 brain and the task system; the standalone `tasks` binary is gone. It has two
-faces:
+surfaces:
 
 - **Bare `brain`** (and `brain tasks …`) opens a **persistent shell**
   (`tui/`) with **two main views** — the **tasks view** (task management,
@@ -18,39 +18,37 @@ faces:
   process owns the terminal until you quit and keeps a little SQLite state so
   it resumes the right Claude session and remembers the panel layout. See
   [glossary.md](glossary.md) for the main-view / sub-view / panel vocabulary.
-- **The one-shot subcommands** (`brain pr|ar|re|s|cd|msg`, and
-  `brain <freeform>`) are short-lived: they decide *what* should happen, print
-  a tiny **plan** to stdout, and the zsh wrapper executes the parent-shell
-  effects. `brain tasks {complete|doctor|search|--no-tui …}` are tasks
-  utilities (mutations / health-check / plain output) that also stay
-  short-lived.
+- **The tasks utilities** (`brain tasks {complete|doctor|search|--no-tui …}`)
+  and **`brain config {list|get|set}`** are short-lived: they mutate the CSVs,
+  run a health-check, print plain output, or read/write config, then exit.
 
-Effects that must happen in the *parent shell* (changing directory, running
-the `tasks` zsh function) are never performed by the binary; it emits the
-plan and the wrapper executes it. The persistent shell emits a plan only on
-exit, and only for the two palette actions that deliberately leave brain
-("Go to root" → `cd=`, "Open tasks" → `tasks=1`).
+There are **no** shell-mutating one-shot commands: no `cd`, `msg`, or
+per-bucket search subcommand, and no freeform note search. Everything the
+user does happens *inside* the persistent shell, which performs its own
+file-open, Finder-reveal, PDF, trash, and `claude`-launch actions by
+spawning processes. So the binary needs no parent-shell cooperation, no
+wrapper, and no plan protocol.
 
-## Two halves: the binary and the wrapper
+## One binary, run directly
 
 ```
 user types `brain …`
-  └─→ brain() zsh function (file: ./brain)
-       ├─ rebuilds the binary if any src/*.rs is newer (cargo build --release)
-       ├─ runs target/release/brain "$@", capturing STDOUT into `plan`
-       │    (the TUI renders to /dev/tty, so stdout stays clean)
-       └─ parses `plan` line-by-line and applies shell-side effects:
-            cd=<path>    → cd
-            open=<path>  → open
-            edit=<path>  → $VISUAL/$EDITOR/vi
-            claude=<msg> → the `cl` alias (claude)
-            tasks=1      → the `tasks` zsh function
-            anything else → printed verbatim (clap help, errors)
+  └─→ run.sh
+       ├─ rebuilds the binary if any src/*.rs (or Cargo.toml) is newer
+       │    (cargo build --release; build chatter → stderr)
+       └─ exec target/release/brain "$@"   (forwards every argument)
+
+the binary:
+  ├─ `brain config …`  → prints the config table / a value to stdout
+  ├─ `brain tasks … --no-tui | complete | doctor` → plain output / mutate / check
+  └─ everything else   → opens the persistent TUI on /dev/tty
 ```
 
-The binary never `cd`s, never calls `cl`, never runs `tasks`. Those need
-the parent shell. See [decisions.md](decisions.md) for *why*, and
-[integrations.md](integrations.md) for the full wire protocol.
+The TUI renders to `/dev/tty`, so the binary's **stdout** is only what
+`brain config` prints plus clap's help/errors. The binary opens files, cds
+its own PTY, launches `claude`, and reveals in Finder itself, from inside the
+running shell. See [decisions.md](decisions.md) for *why* it is a pure TUI
+binary, and [integrations.md](integrations.md) for the launch/handoff detail.
 
 ## High-level data flow (inside the binary)
 
@@ -59,61 +57,48 @@ argv
  └─→ Cli::parse                          (cli.rs)
       ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
       └─→ settings::ensure_markdown_to_pdf (prereq gate: config path, else discover; red ❌ + exit if unresolved)
-      └─→ paths::brain_root              (store's root → else $HOME/brain)
-           ├─ no subcommand, no args ─→ tasks_launch(default)  → tui::run_tui (MERGED SHELL)
-           ├─ no subcommand + args   ─→ search(all buckets)    (one-shot picker)
-           ├─ Cmd::Pr/Ar/Re          ─→ bucket(): cd (no query) | search (query)
-           ├─ Cmd::S                 ─→ search(all buckets)    (one-shot picker)
-           ├─ Cmd::Cd                ─→ plan::cd(root)
-           ├─ Cmd::Msg               ─→ plan::claude(root, msg)
+           ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
            └─ Cmd::Tasks(rest)       ─→ TasksCli::parse_from(rest) → tasks_launch:
                                           complete → complete::run (exec mark_done.py)
                                           doctor   → doctor::run_doctor
                                           --no-tui → plain::print_plain
-                                          else     → tui::run_tui (MERGED SHELL, tasks view)
+                                          else     → tui::run_tui (MERGED SHELL)
 
-brain_shell(root, initial_query)            (the persistent default)
- ├─→ entry::collect(brain, all buckets)     (initial global search set)
- └─→ tui::run(root, entries, query) → Exit  (two panels: search + claude PTY)
+tui::run_tui(view, cli, …)                  (the persistent shell)
+ ├─→ paths::brain_root()                     (config `root` → else $HOME/brain)
+ ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)
+ └─→ App event loop (tasks view + search view + claude PTY)
        ├─ state::Db: reap dead locks, pick_resume / claim or register_fresh
-       ├─ session::build_claude_command + env_for → PtyPane spawns `claude`
-       ├─ Alt+H/L switch focus; palette (Ctrl-p) reuses menu::MenuApp
-       ├─ Enter on a file opens it WITHOUT quitting (open_target spawners)
-       └─ Exit::{Quit | Cd(root) | Tasks} → main emits the matching plan
-
-search(roots, query)                         (one-shot subcommand path)
- ├─→ entry::collect(brain, roots)            (walkdir + hidden filter → Vec<Entry>)
- ├─→ picker::run(entries, query)             (ratatui fuzzy picker → Outcome)
- │     └─ Ctrl-p opens menu::MenuApp as a modal overlay *inside* the loop
- ├─→ Outcome::Selected(Reveal) → open_in_finder
- ├─→ Outcome::Selected(Open)   → open_directly  (is_textlike → edit= vs open=)
- └─→ Outcome::Choice(choice)   → dispatch(Choice)
+       ├─ session::build_claude_command(root, config.claude_command(), …) + env_for
+       │    → PtyPane spawns the configured `claude …`
+       ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
+       ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp)
+       ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
+       └─ quit → the loop just returns (no plan, no wrapper handoff)
 ```
 
-The two paths share the pure picker logic (`picker::App` matching /
-navigation, rendered via `picker::draw_into`) and the `menu` palette. The
-difference is the shell around them: the one-shot picker owns the whole
-screen and exits on selection; `tui` embeds the same search panel in a
-bordered half alongside the live brain panel and stays up.
+Both main views share the pure picker logic (`picker::App` matching /
+navigation, rendered via `picker::draw_into`) and the `menu` palette in the
+search view. The search panel lives in a bordered half of the shell alongside
+the live brain panel; opening a file or rescoping a bucket happens in place
+and the shell stays up.
 
 ## Modules
 
 ### `main.rs`
-Owns argv → `Cli` and the top-level `match` over `Cmd`. Bare `brain`
-(with or without an initial query) calls `brain_shell()`, which collects the
-global entry set and runs `tui::run`, then maps the returned `tui::Exit`
-onto a plan (`Cd` → `plan::cd`, `Tasks` → `plan::tasks`, `Quit` → nothing).
-The one-shot subcommands keep the old flow: `dispatch()` maps each palette
-`Choice` to the same primitives, `search()` is the shared pipeline (collect
-→ pick → act), and `open_in_finder` / `open_directly` translate a picked
-path into plan directives.
+Owns argv → `Cli` and the top-level `match` over `Cmd`. `brain config …` is
+dispatched first (before the `markdown-to-pdf` gate). Bare `brain` and
+`brain tasks …` both flow into `tasks_launch`, which either runs a tasks
+utility (`complete` → exec `mark_done.py`; `doctor` → `run_doctor`; `--no-tui`
+→ `plain::print_plain`) or opens the merged shell via `tui::run_tui`. There is
+no plan and no `Exit` mapping: the shell just returns when the user quits.
 
 ### `cli.rs`
-The clap derive surface. `Cli` has free-form `args` plus an optional
-`Cmd`. `Cmd` covers `Pr` / `Ar` / `Re` (each with visible aliases),
-`S` (search), `Cd`, `Msg`, `Tasks`, and `Config` (with a `list`/`get`/`set`
-subcommand). `QueryArgs` is a `Vec<String>` joined with spaces into the initial
-picker query / claude message.
+The clap derive surface. `Cli` is a single optional `Cmd`. `Cmd` has just two
+variants: `Tasks(TasksArgs)` (all args after `tasks` forwarded verbatim to the
+tasks CLI parser) and `Config(ConfigArgs)` (with a `list`/`get`/`set`
+subcommand). Bare `brain` (no `Cmd`) is equivalent to `brain tasks` — the
+tasks view is the startup default.
 
 ### `paths.rs`
 Brain-root resolution. `brain_root()` reads the config store's `root`
@@ -149,19 +134,17 @@ sorts matches by bucket then score then walk order, and rebuilds the
 section-grouped rows. Navigation (`move_up`/`down`, `page_*`,
 `ensure_visible`) keeps the cursor and its section header on screen.
 Rendering is delegated to `render.rs` and exposed as `draw_into(f, app,
-area)` so both the full-screen one-shot picker and `tui`'s embedded panel
-share it. `App` also holds an optional `palette: Option<menu::MenuApp>`
-overlay. The one-shot `run()` returns an `Outcome` — `Selected(Open)` on
-Enter (a directory match falls back to reveal), `Selected(Reveal)` on
-Ctrl-Enter, `Choice` when a palette row is confirmed, or `CreatePdf(path)`
-when the markdown→PDF action is confirmed (`Ctrl-G` modal or the palette
-row) — or `None` on Esc / Ctrl-c. `App` also owns an optional
+area)` so `tui`'s embedded search panel paints it. `App` also holds an
+optional `palette: Option<menu::MenuApp>` overlay and an optional
 `confirm: Option<confirm::Confirm>` overlay (routed before the palette) that
-serves both the "Create PDF" and "Delete" confirmations. **Delete** never
-becomes an `Outcome`: the one-shot picker trashes in place on `Accept` and
-`drop_path`s the entry (`reload_entries` keeps the query), staying open.
-In `tui`, the same `App` is driven key-by-key (Enter opens in place
-rather than quitting).
+serves both the "Create PDF" and "Delete" confirmations. The `App` is driven
+key-by-key by the search view (`tui/search_view.rs`): `Enter` opens the
+selection in place (a directory falls back to a Finder reveal), `Ctrl-Enter`
+reveals, `Ctrl-G` confirms a markdown→PDF conversion, `Ctrl-D` confirms a
+trash, and a confirmed palette row runs its action. Every action happens in
+place; the shell never tears down on a selection. On `Accept`, Delete trashes
+the path and `drop_path`s the entry (`reload_entries` keeps the query), and
+the picker stays open.
 
 ### `menu.rs`
 The command palette (the top-level menu). It has **no screen of its own**:
@@ -184,10 +167,8 @@ view; `filter_indices` /
 `item_matches` are **pure** matchers (each row's matchable text includes its
 1-based number), and `handle_key` is a **pure** key handler (returns
 `Continue`/`Confirm`/`Cancel`). `Cancel` (Esc) tells the host to drop the
-overlay, not to exit. The same `Choice` can mean different things by context:
-in the persistent shell `Msg` opens/focuses the brain panel and
-`ToggleLayout` swaps sides; in the one-shot picker `Msg` launches claude via
-a plan and `ToggleLayout` is a no-op.
+overlay, not to exit. In the persistent shell `Msg` opens/focuses the brain
+panel and `ToggleLayout` swaps which side it sits on.
 
 ### `confirm.rs`
 The shared yes/no confirmation modal. Like `menu`, it has **no screen of its
@@ -197,8 +178,8 @@ it with `draw_modal` as a centered overlay. `ConfirmKind` selects the flavor:
 **Pdf** (green, defaults to Yes; opened by `Ctrl-G` on a `.md` file) and
 **Delete** (red, defaults to **No** because it's destructive; opened by
 `Ctrl-D` on any entry). The pure `accent`/`title`/`question` helpers key off
-`kind`; on `Accept` the host converts (Pdf) or trashes (Delete). The key
-handling, the kind-keyed chrome, and the button styling are unit-tested.
+`kind`; on `Accept` the host converts (Pdf) or trashes (Delete) in place. The
+key handling, the kind-keyed chrome, and the button styling are unit-tested.
 
 ### `render.rs`
 Pure functions that build styled ratatui `Line`s for the picker (header,
@@ -232,11 +213,14 @@ The app-level main-view axis: the `MainView` enum (`Tasks` / `BrainSearch`),
 the results.
 
 ### `config.rs`
-Typed view of the tasks-shell knobs, deserialized from the shared config store
+Typed view of the runtime knobs, deserialized from the shared config store
 (see `settings.rs`). Fields: `daily_triage_name_pattern`, `linear_workspace`,
-`day_rollover_hour`; `linear_base_url()` interpolates the workspace slug into
-the full issue-URL prefix. Missing file/fields fall back to defaults, and
-unknown keys (`root`, `markdown_to_pdf_path`, read elsewhere) are ignored.
+`day_rollover_hour`, and `claude_cmd`; `linear_base_url()` interpolates the
+workspace slug into the full issue-URL prefix, and `claude_command()` returns
+the configured brain-panel launch command (or the default `claude
+--dangerously-skip-permissions` when blank). Missing file/fields fall back to
+defaults, and unknown keys (`root`, `markdown_to_pdf_path`, read elsewhere)
+are ignored.
 
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`
@@ -245,7 +229,7 @@ crate under one namespace: `task` (CSV model + load), `view` (sub-views +
 markdown), `shortcuts` (the help/footer catalogue), `complete` (exec
 `mark_done.py`), `doctor` (health check), `plain` (`--no-tui` printer), and
 `cli` (the tasks clap args, nested under `brain tasks`). Reuses the crate-level
-`session` / `state` / `pty_pane` / `plan` shared with the brain-search view.
+`session` / `state` / `pty_pane` shared with the brain-search view.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the
@@ -285,10 +269,14 @@ rendering. Reader / writer / waiter threads; `send` / `resize` /
 
 ### `session.rs`
 Pure launch planning: `Plan::{Resume,Fresh}` (chosen from the DB's resume
-candidate + a fresh UUID), `build_claude_command` (`cd <root> && claude
---resume <id>` or `--session-id <id>`, using bare `claude` to control the
-flag), and `env_for` (the `BRAIN_INSTANCE_ID` / `BRAIN_PID` /
-`BRAIN_STATE_DB` env handed to the child for the SessionStart hook).
+candidate + a fresh UUID), `build_claude_command` (`cd <root> && <claude_cmd>
+--resume <id>` or `--session-id <id>`), and `env_for` (the
+`BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` env handed to the child
+for the SessionStart hook). `claude_cmd` is the user-configurable launch
+command (`config::Config::claude_command`, default `claude
+--dangerously-skip-permissions`) spliced in verbatim so it may carry its own
+flags; brain always appends the `--resume` / `--session-id` flag it controls,
+so it never depends on a shell alias.
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `~/.cache/brain/state.db`.
@@ -299,12 +287,6 @@ resume model is **lock + recency** (`reap_dead_locks`, `pick_resume`,
 it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
-### `plan.rs`
-The wire protocol. Each `cd` / `claude` / `open` / `edit` / `tasks`
-helper writes one or two `key=value` lines to stdout. Each has a `*_to`
-variant that writes to an arbitrary `io::Write` so the exact protocol
-strings are a checked contract in tests.
-
 ### `lib.rs`
 Re-exports the modules so integration tests in `tests/` can link against
 them. The binary (`main.rs`) declares the same modules privately; with a
@@ -313,9 +295,10 @@ them. The binary (`main.rs`) declares the same modules privately; with a
 
 ## Build / run loop
 
-The `brain` zsh function rebuilds `target/release/brain` whenever
-`Cargo.toml` or any `src/**/*.rs` is newer than the binary, then execs it.
-The user never types `cargo run`. Manual rebuild:
+`run.sh` rebuilds `target/release/brain` whenever `Cargo.toml` or any
+`src/**/*.rs` is newer than the binary, then `exec`s it (build chatter goes
+to stderr so stdout stays clean). The user never types `cargo run`. Manual
+rebuild:
 
 ```sh
 ( cd path/to/brain && cargo build --release )
@@ -326,9 +309,9 @@ The user never types `cargo run`. Manual rebuild:
 - **`Bucket` declaration order is the display order** (Projects → Areas →
   Resources → Archive). The picker's `sort_by` and `build_display_rows`
   rely on the derived `Ord`.
-- **The binary's stdout is *only* the plan.** Any other stdout would be
-  parsed as directives or echoed by the wrapper. Diagnostics go to stderr;
-  the TUI goes to `/dev/tty`.
+- **The binary's stdout is *only* `brain config` output** (plus clap
+  help/errors). No other path prints to stdout. Diagnostics go to stderr; the
+  TUI goes to `/dev/tty`.
 - **Every `Choice` has exactly one palette row** (guarded by a test on
   `items(side, …)`) so the menu can't silently drop an action.
 - **The brain panel is open at startup but closeable.** `tui` spawns the
@@ -342,8 +325,9 @@ The user never types `cargo run`. Manual rebuild:
 
 ## Dependencies
 
-The persistent shell pulls in four crates beyond the one-shot picker's set,
-all mirroring the `tasks` sibling so the two projects share a stack:
+Beyond the picker's core (clap, ratatui, crossterm, nucleo, walkdir,
+anyhow), the persistent shell pulls in four crates, all mirroring the `tasks`
+sibling so the two projects share a stack:
 
 - `portable-pty` + `vt100` + `tui-term` — spawn, parse, and render the
   embedded `claude` PTY.

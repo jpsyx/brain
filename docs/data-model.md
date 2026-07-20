@@ -20,7 +20,7 @@ still searchable but stays out of the way of live work.
 
 ```rust
 struct Entry {
-    path: PathBuf,   // absolute path on disk; handed to `open` / plan
+    path: PathBuf,   // absolute path on disk; handed to `open` / the editor / trash
     display: String, // `~/brain/...` form, for the UI and fuzzy matching
     bucket: Bucket,  // which section it renders under
 }
@@ -96,9 +96,9 @@ picker itself:
 - `confirm: Option<confirm::Confirm>` — the shared yes/no modal, holding the
   target `path`, a `ConfirmKind` (`Pdf` → green, defaults Yes; `Delete` → red,
   defaults No), and which button is highlighted. It routes **before** the
-  palette. On `Accept`: Pdf resolves to `Outcome::CreatePdf(path)` (one-shot)
-  or an in-place conversion (`tui`); Delete trashes the path in place (both
-  surfaces stay open, dropping/refreshing the entry).
+  palette. On `Accept` (driven by `tui/search_view.rs`): Pdf converts the file
+  in place and Delete trashes the path, then the entry is dropped/refreshed and
+  the shell stays open.
 
 ## Persistent state (`state.rs`, `~/.cache/brain/state.db`)
 
@@ -142,9 +142,10 @@ hook frees the instance's others on every start, handling `/new`). The
 `PanelSide` enum (`Left` / `Right`, default `Right`) lives in `state.rs`
 because it's the persisted layout value.
 
-## Plan directives (the output "schema")
+## Binary stdout (the output "schema")
 
-The binary's only stdout output (one-shot paths, and the persistent shell's
-`Cd` / `Tasks` exits) is the plan — see [integrations.md](integrations.md)
-for the `cd` / `claude` / `open` / `edit` / `tasks` line grammar that the
-wrapper consumes.
+The binary's stdout carries only `brain config` output (the config table, or a
+single value) plus clap's help / version / errors. There is no plan protocol:
+the TUI renders to `/dev/tty` and performs its file-open, Finder, PDF, trash,
+and `claude`-launch effects by spawning processes itself. See
+[integrations.md](integrations.md).

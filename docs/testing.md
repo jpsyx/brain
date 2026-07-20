@@ -51,19 +51,16 @@ first move is a failing test that reproduces it, *then* the fix.
   `Esc`/`Ctrl-c` cancel; plus each `ConfirmKind` carries its own accent
   (green/red), title, and question, the selected button carries the accent
   fill, and the modal shows just the file name.
-- **The picker's confirm wiring** (`picker.rs`). `Ctrl-G` opens the PDF modal
-  on a `.md` selection (no-op otherwise), confirming quits with
-  `Outcome::CreatePdf(path)`; `Ctrl-D` opens the Delete modal on any selection,
-  confirming trashes in place and `drop_path`s the entry (staying open); both
-  palette rows route to the same modals, and `reload_entries`/`drop_path`
-  keep the query while updating the list.
+- **The picker's confirm wiring** (`picker.rs`). `open_confirm` /
+  `open_delete_confirm` raise the PDF modal on a `.md` selection (no-op
+  otherwise) and the Delete modal on any selection; confirming converts a PDF
+  in place or trashes and `drop_path`s the entry (the shell stays open), and
+  `reload_entries` / `drop_path` keep the query while updating the list.
 - **The palette layout label** (`menu.rs`). `layout_choice_label` names the
   opposite side; the toggle row is searchable and appears exactly once.
 - **Render helpers.** That `entry_line` preserves the full text, coalesces
   a highlighted run into one correctly-colored span, and paints the
   selection background; that headers/empty-states carry the right text.
-- **The wire protocol.** `plan::*_to` emit exactly the bytes the wrapper
-  parses (`cd=…\n`, `claude=…\n` even when empty, `tasks=1\n`).
 - **Filesystem collection** (integration). `entry::collect` against real
   temp trees: bucket tagging, `~/brain/...` rewriting, hidden-file
   skipping, root-skipping, tolerance of a missing bucket.
@@ -93,11 +90,11 @@ first move is a failing test that reproduces it, *then* the fix.
 
 ## What we deliberately don't test
 
-- **The interactive event loops.** `picker::run` and `tui::run` open
-  `/dev/tty`, toggle raw mode, push kitty flags, and (for `tui`) spawn the
-  claude PTY and run the panel loop. We test the *pure* logic they call
-  (`handle_key`, `App::*`, `focus_*`, `panel_borders`, `key_to_bytes`, the
-  render helpers); we don't drive a real terminal or a real claude.
+- **The interactive event loop.** `tui::run_tui` opens `/dev/tty`, toggles raw
+  mode, pushes kitty flags, spawns the claude PTY, and runs the panel loop. We
+  test the *pure* logic it calls (`handle_key`, `App::*`, `focus_*`,
+  `panel_borders`, `key_to_bytes`, the render helpers); we don't drive a real
+  terminal or a real claude.
 - **Ratatui frame output.** We assert on the `Line`s we build, not on
   which cell ratatui painted them into.
 - **`std::process::Command` / system `open` / `osascript`.** Spawning
@@ -116,7 +113,7 @@ first move is a failing test that reproduces it, *then* the fix.
 
 | Location | Scope |
 | --- | --- |
-| `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, plan, entry). |
+| `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 
@@ -136,8 +133,9 @@ logic to a pure function over mocking:
 - **No mock for the terminal.** Instead of mocking crossterm, the
   navigation/matching logic is pure (`handle_key`, `App`), and only the
   thin `run()` shell touches `/dev/tty`.
-- **No mock for stdout.** `plan::*_to` take an `io::Write`; tests pass a
-  `Vec<u8>`. That's a sink seam, not a mock.
+- **No mock for the config store.** `settings` schema resolution runs against
+  an explicit in-memory map, never the real `~/.config/brain/config.json`.
+  That's a value seam, not a mock.
 
 **Production modules don't get test-only methods.** Setup helpers live in
 the `#[cfg(test)]` block (unit) or inside the integration test file.
@@ -170,5 +168,5 @@ cargo test --release -- --nocapture
    push the logic to a pure function and test that instead.
 4. Setup helpers go under `#[cfg(test)]` or in the test file, never as
    `pub fn make_test_*` on a production module.
-5. If the behavior is user-visible (a new directive, key, or menu item),
-   update the relevant `docs/` file in the same change.
+5. If the behavior is user-visible (a new key, menu item, or config
+   variable), update the relevant `docs/` file in the same change.

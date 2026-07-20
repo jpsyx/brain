@@ -1,7 +1,7 @@
 //! Library surface for `brain`. The binary at `src/main.rs` is the
 //! user-facing entry point; this file exists so integration tests in
 //! `tests/` can reach the pure modules (entry collection, path resolution,
-//! plan protocol, render helpers) without going through argv or a TUI.
+//! render helpers) without going through argv or a TUI.
 //!
 //! `picker` and `menu` run a real ratatui frontend against `/dev/tty`, so
 //! their *interactive* halves are not driven from tests; their pure logic
@@ -17,7 +17,6 @@ pub mod menu;
 pub mod open_target;
 pub mod paths;
 pub mod picker;
-pub mod plan;
 pub mod pty_pane;
 pub mod render;
 pub mod session;

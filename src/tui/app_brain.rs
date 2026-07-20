@@ -100,7 +100,8 @@ impl App<'_> {
             None
         };
 
-        let command = session::build_claude_command(&self.brain_root, &plan, prompt);
+        let command =
+            session::build_claude_command(&self.brain_root, self.config.claude_command(), &plan, prompt);
         let env = session::env_for(&self.instance, pid, &self.db_path);
         // Placeholder size; the first draw resizes the PTY to the real panel.
         self.brain =

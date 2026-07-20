@@ -46,7 +46,7 @@ These are deliberately distinct and use different modifiers:
 
 | Plain English | What it is | Code |
 | --- | --- | --- |
-| **the plan** | The `key=value` lines the binary prints to stdout for the zsh wrapper to execute (`cd=`, `open=`, `edit=`, `claude=`). | `src/plan.rs`, the `brain` wrapper |
+| **the launch command** / **`claude_cmd`** | The configured command the brain panel runs for its `claude` session (default `claude --dangerously-skip-permissions`); brain appends `--resume`/`--session-id`. | `config::Config::claude_command`, `session::build_claude_command` |
 | **session store** / **state DB** | The SQLite DB (`~/.cache/brain/state.db`) that tracks which `claude` session the brain panel resumes (lock + recency). | `src/state.rs` |
 | **the hook** | The Claude `SessionStart` hook that attributes new sessions to this shell instance. | `scripts/claude_session_start_hook.py` |
-| **the wrapper** | The `brain` zsh function that rebuilds the binary and applies the plan. | `./brain` |
+| **run.sh** | The entry-point script that rebuilds the binary when the sources change, then `exec`s it (no plan, no shell-side effects). | `run.sh` |

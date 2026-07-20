@@ -1,29 +1,24 @@
 //! `brain` — the central terminal dispatch for the user's second brain and
 //! task system.
 //!
-//! `brain` is the one command to reach everything the user does from the
-//! terminal around `~/brain`: cd between PARA buckets, fuzzy-pick a note
-//! across them, hand a prompt to claude, or jump straight into the `tasks`
-//! TUI (task management, agenda, triage). Bare `brain` opens a menu of all
-//! of these.
+//! `brain` opens a persistent shell (`tui/`) with two main views: the tasks
+//! view (task management, agenda, triage; the startup default) and the
+//! brain-directory search view (fuzzy-pick over `~/brain`), plus an app-level
+//! brain panel (an interactive `claude` session in a PTY). Everything the user
+//! does happens inside that shell; there are no shell-mutating one-shot
+//! subcommands, so the binary needs no wrapper. It is exec'd directly.
 //!
 //! Layout (mirrors `tasks/`):
 //!   - `cli`         — clap surface (Cli + Cmd)
-//!   - `plan`        — emit shell-side directives (`cd=`, `claude=`, `tasks=`…)
 //!   - `entry`       — directory walker (walkdir + hidden-file filter)
 //!   - `picker`      — ratatui fuzzy-picker over collected entries
-//!   - `menu`        — ratatui top-level menu (shown on bare `brain`)
+//!   - `menu`        — command-palette modal shared by the search view
 //!   - `render`      — palette + styled line helpers for the picker
 //!   - `paths`       — brain-root resolution (config.json / $HOME)
 //!   - `open_target` — pure "how to open this path" decisions
 //!
-//! Why the binary doesn't `cd`, call `cl`, or run `tasks` itself:
-//!   Those effects need the parent zsh shell (cd mutates the caller's CWD;
-//!   `cl` and `tasks` are zsh functions/aliases, not binaries on PATH). So
-//!   this process prints a tiny plan to stdout and the wrapper executes it.
-//!   Interactive work (TUI, opening Finder) is fully self-contained here,
-//!   with the TUI rendering to `/dev/tty` so the wrapper can capture stdout
-//!   cleanly.
+//! The TUI renders to `/dev/tty`; the binary's stdout carries only the small
+//! amount of text emitted by `brain config` (and clap's help/errors).
 
 mod cli;
 mod config;
@@ -34,7 +29,6 @@ mod menu;
 mod open_target;
 mod paths;
 mod picker;
-mod plan;
 mod pty_pane;
 mod render;
 mod session;
@@ -43,17 +37,13 @@ mod state;
 mod tasks;
 mod tui;
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use chrono::{Local, NaiveDate};
 use clap::Parser;
 
-use crate::cli::{Cli, Cmd, ConfigAction, ConfigArgs, QueryArgs};
-use crate::entry::Bucket;
-use crate::menu::Choice;
-use crate::picker::{Outcome, Selection};
+use crate::cli::{Cli, Cmd, ConfigAction, ConfigArgs};
 use crate::tasks::cli::{Cli as TasksCli, Command as TasksCommand};
 use crate::tasks::selector::{Selector, parse_selector};
 use crate::tasks::view::View;
@@ -73,26 +63,11 @@ fn main() -> Result<()> {
     // persisted on first run; fail fast with a helpful message if it can't be
     // resolved. Runs after clap has handled `--help`/`--version`.
     settings::ensure_markdown_to_pdf();
-    let brain = paths::brain_root()?;
 
     match cli.command {
         // Bare `brain` opens the merged persistent shell in its default
-        // (tasks) view with the brain panel already open. `brain <freeform>`
-        // stays a one-shot global note search (fast "find a note" flow).
-        None if cli.args.is_empty() => tasks_launch(TasksCli::parse_from(["brain"])),
-        None => search(&brain, &all_buckets(&brain), &cli.args.join(" ")),
-        Some(Cmd::Pr(args)) => bucket(&brain, Bucket::Projects, &brain.join("projects"), &args),
-        Some(Cmd::Ar(args)) => bucket(&brain, Bucket::Areas, &brain.join("areas"), &args),
-        Some(Cmd::Re(args)) => bucket(&brain, Bucket::Resources, &brain.join("resources"), &args),
-        Some(Cmd::S(args)) => search(&brain, &all_buckets(&brain), &args.query.join(" ")),
-        Some(Cmd::Cd) => {
-            plan::cd(&brain);
-            Ok(())
-        }
-        Some(Cmd::Msg(args)) => {
-            plan::claude(&brain, &args.query.join(" "));
-            Ok(())
-        }
+        // (tasks) view with the brain panel already open.
+        None => tasks_launch(TasksCli::parse_from(["brain"])),
         // `brain tasks …` — delegate everything after `tasks` to the tasks
         // CLI parser (positional view/date/search, filter flags, and the
         // complete / doctor / search subcommands), after the natural-language
@@ -110,9 +85,8 @@ fn main() -> Result<()> {
     }
 }
 
-/// Handle `brain config {list|get|set}`. Output goes to stdout (the wrapper
-/// passes non-plan lines straight through); `get` on an unset variable notes
-/// so on stderr. Bare `brain config` lists.
+/// Handle `brain config {list|get|set}`. Output goes to stdout; `get` on an
+/// unset variable notes so on stderr. Bare `brain config` lists.
 fn config_command(args: &ConfigArgs) -> Result<()> {
     match args.action.as_ref().unwrap_or(&ConfigAction::List) {
         ConfigAction::List => {
@@ -141,45 +115,6 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Run the action behind a command-palette choice. The palette itself is a
-/// modal overlay inside the picker (`Ctrl-p`); the picker hands back the
-/// confirmed `Choice` as `Outcome::Choice`, and dismissing the overlay with
-/// Esc never reaches here.
-fn dispatch(brain: &Path, choice: Choice) -> Result<()> {
-    match choice {
-        // "Open tasks" from the one-shot picker launches the merged shell in
-        // its default (tasks) view — the old cross-process `tasks` handoff is
-        // gone now that tasks is a main view of this binary.
-        Choice::OpenTasks => tasks_launch(TasksCli::parse_from(["brain"])),
-        Choice::SearchProjects => {
-            search(brain, &[(Bucket::Projects, brain.join("projects"))], "")
-        }
-        Choice::SearchAreas => search(brain, &[(Bucket::Areas, brain.join("areas"))], ""),
-        Choice::SearchResources => {
-            search(brain, &[(Bucket::Resources, brain.join("resources"))], "")
-        }
-        Choice::SearchArchive => {
-            search(brain, &[(Bucket::Archive, brain.join("archive"))], "")
-        }
-        Choice::GlobalSearch => search(brain, &all_buckets(brain), ""),
-        Choice::Msg => {
-            plan::claude(brain, "");
-            Ok(())
-        }
-        // Layout-swap only means something in the persistent shell (handled
-        // there); from the one-shot picker it's a no-op. The other conditional
-        // rows never reach `dispatch`: the picker resolves "Create PDF" to
-        // `Outcome::CreatePdf(path)`, "Open file" / "Open directory" to an
-        // `Outcome::Selected` (Open / Reveal), and handles "Delete" inline via
-        // the confirmation modal — all needing the highlighted path.
-        Choice::ToggleLayout
-        | Choice::CreatePdf
-        | Choice::OpenFile
-        | Choice::OpenDir
-        | Choice::Delete => Ok(()),
-    }
 }
 
 /// Launch (or dispatch a utility for) the tasks view of the merged shell.
@@ -296,74 +231,4 @@ fn rewrite_mark_grammar(args: Vec<String>) -> Vec<String> {
     out.push(args[id_pos].clone());
     out.extend_from_slice(&args[id_pos + 1 + consume..]);
     out
-}
-
-fn all_buckets(brain: &Path) -> Vec<(Bucket, PathBuf)> {
-    vec![
-        (Bucket::Projects, brain.join("projects")),
-        (Bucket::Areas, brain.join("areas")),
-        (Bucket::Resources, brain.join("resources")),
-        (Bucket::Archive, brain.join("archive")),
-    ]
-}
-
-fn bucket(brain: &Path, bucket: Bucket, dir: &Path, args: &QueryArgs) -> Result<()> {
-    if args.query.is_empty() {
-        plan::cd(dir);
-        return Ok(());
-    }
-    search(brain, &[(bucket, dir.to_path_buf())], &args.query.join(" "))
-}
-
-fn search(brain: &Path, roots: &[(Bucket, PathBuf)], query: &str) -> Result<()> {
-    let entries = entry::collect(brain, roots)?;
-    match picker::run(&entries, query)? {
-        None => Ok(()),
-        Some(Outcome::Selected(Selection::Reveal(path))) => open_in_finder(&path),
-        Some(Outcome::Selected(Selection::Open(path))) => open_directly(&path),
-        // The user confirmed a command-palette row (Ctrl-p → Enter).
-        Some(Outcome::Choice(choice)) => dispatch(brain, choice),
-        // Convert a markdown file to a colocated PDF, then open it.
-        Some(Outcome::CreatePdf(path)) => create_pdf_and_open(&path),
-    }
-}
-
-/// Build the colocated PDF for a markdown file and hand it to the wrapper's
-/// `open=` directive so the parent shell opens it after `brain` exits.
-fn create_pdf_and_open(md: &Path) -> Result<()> {
-    let pdf = open_target::create_pdf(md)?;
-    plan::open(&pdf);
-    Ok(())
-}
-
-fn open_in_finder(path: &Path) -> Result<()> {
-    let target = open_target::finder_target(path, path.is_file());
-    let status = Command::new("open").arg(target).status()?;
-    if !status.success() {
-        bail!("open exited with status {status}");
-    }
-    // Also hand the directory to the wrapper so the parent shell ends up
-    // cd'd there after `brain` exits.
-    plan::cd(target);
-    Ok(())
-}
-
-/// Ctrl-/Cmd-Enter path: open the selection itself. Directories still get
-/// revealed in Finder (no useful "open dir in editor" behavior). Text-like
-/// files hand off to the wrapper's `edit=` directive so the user's
-/// configured editor runs in the existing terminal. Everything else is
-/// handed to the system `open` so the OS picks the default app.
-fn open_directly(path: &Path) -> Result<()> {
-    if path.is_dir() {
-        return open_in_finder(path);
-    }
-    if let Some(parent) = path.parent() {
-        plan::cd(parent);
-    }
-    if open_target::is_textlike(path) {
-        plan::edit(path);
-    } else {
-        plan::open(path);
-    }
-    Ok(())
 }

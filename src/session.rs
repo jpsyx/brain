@@ -34,13 +34,15 @@ pub fn shell_quote(s: &str) -> String {
 }
 
 /// Build the shell command handed to the PTY:
-/// `cd <root> && claude --resume <id> [<prompt>]` (resume) or
-/// `cd <root> && claude --session-id <id> [<prompt>]` (fresh).
+/// `cd <root> && <claude_cmd> --resume <id> [<prompt>]` (resume) or
+/// `cd <root> && <claude_cmd> --session-id <id> [<prompt>]` (fresh).
 ///
 /// We cd into the brain root so claude resolves that directory's
-/// `.claude/settings.json` (where the SessionStart hook is wired), and we
-/// invoke `claude` directly rather than the `cl` alias so we control the
-/// `--resume` / `--session-id` flag.
+/// `.claude/settings.json` (where the SessionStart hook is wired). `claude_cmd`
+/// is the user-configurable launch command (`config::Config::claude_command`),
+/// spliced in verbatim so it may carry its own flags; brain always appends the
+/// `--resume` / `--session-id` flag it controls. brain never relies on a shell
+/// alias for this.
 ///
 /// When `prompt` is `Some(non-empty)`, it's appended as a single quoted
 /// argument; claude submits it on launch and stays interactive, so the
@@ -49,12 +51,17 @@ pub fn shell_quote(s: &str) -> String {
 /// The brain-search view always passes `None` — its panel is typed into by
 /// hand.
 #[must_use]
-pub fn build_claude_command(brain_root: &Path, plan: &Plan, prompt: Option<&str>) -> String {
+pub fn build_claude_command(
+    brain_root: &Path,
+    claude_cmd: &str,
+    plan: &Plan,
+    prompt: Option<&str>,
+) -> String {
     let mut parts = vec![
         "cd".to_owned(),
         shell_quote(&brain_root.display().to_string()),
         "&&".to_owned(),
-        "claude".to_owned(),
+        claude_cmd.trim().to_owned(),
     ];
     match plan {
         Plan::Resume(id) => {
@@ -124,6 +131,7 @@ mod tests {
     fn fresh_command_uses_session_id_flag() {
         let cmd = build_claude_command(
             &PathBuf::from("/Users/x/brain"),
+            "claude",
             &Plan::Fresh("uuid-1".to_owned()),
             None,
         );
@@ -136,6 +144,7 @@ mod tests {
     fn resume_command_uses_resume_flag() {
         let cmd = build_claude_command(
             &PathBuf::from("/Users/x/brain"),
+            "claude",
             &Plan::Resume("sess-9".to_owned()),
             None,
         );
@@ -144,9 +153,27 @@ mod tests {
     }
 
     #[test]
+    fn configured_command_is_spliced_in_before_brains_own_flags() {
+        // The configured command may carry its own flags; brain's --resume must
+        // come after them, and the command is not shell-quoted (the shell
+        // interprets its flags).
+        let cmd = build_claude_command(
+            &PathBuf::from("/Users/x/brain"),
+            "claude --dangerously-skip-permissions",
+            &Plan::Resume("sess-9".to_owned()),
+            None,
+        );
+        assert_eq!(
+            cmd,
+            "cd '/Users/x/brain' && claude --dangerously-skip-permissions --resume 'sess-9'"
+        );
+    }
+
+    #[test]
     fn prompt_is_appended_as_a_quoted_arg() {
         let cmd = build_claude_command(
             &PathBuf::from("/Users/x/brain"),
+            "claude",
             &Plan::Fresh("uuid-1".to_owned()),
             Some("Defer T123 by 7 days"),
         );
@@ -157,6 +184,7 @@ mod tests {
     fn empty_prompt_adds_no_trailing_arg() {
         let cmd = build_claude_command(
             &PathBuf::from("/Users/x/brain"),
+            "claude",
             &Plan::Resume("sess-9".to_owned()),
             Some("   "),
         );
@@ -168,6 +196,7 @@ mod tests {
     fn prompt_with_a_single_quote_is_escaped() {
         let cmd = build_claude_command(
             &PathBuf::from("/Users/x/brain"),
+            "claude",
             &Plan::Fresh("u".to_owned()),
             Some("don't break"),
         );

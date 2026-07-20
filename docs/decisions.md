@@ -38,33 +38,28 @@ Decisions taken during the merge (see the conversation that produced it):
 - **The tasks tui was the merge base**, not brain's: it was the richer,
   default surface, so the merged `App` is the ported tasks `App` extended with
   a `MainView` axis and brain's `picker` embedded as the second view. brain's
-  shared `session`/`state`/`pty_pane`/`plan` (near-identical ports) were kept
+  shared `session`/`state`/`pty_pane` (near-identical ports) were kept
   as the single copy.
 
 ## Why `brain` is a "central dispatch", not a single-purpose tool
 
 The user lives in the terminal and wants **one command** to reach
-everything around `~/brain`: jump to a note, search across PARA buckets,
-start a claude conversation rooted in the brain, or open the task TUI.
-Rather than memorize `brain`, `tasks`, `agenda`, `cl`, etc. as separate
-entry points, `brain` is the front door that routes to the right tool.
-That's why bare `brain` drops straight into global search (the common
-case) with the full **command palette** of actions one `Ctrl-p` away, and
-why "Open tasks" exists as a first-class palette item even though the
-actual work lives in a different binary. New top-level capabilities should
-be added as a palette row + a subcommand, not as a separate command the
-user has to discover.
+everything around `~/brain`: manage tasks, jump to a note, search across PARA
+buckets, or think with a claude session rooted in the brain. Rather than
+memorize several separate entry points, `brain` is the front door: a single
+persistent shell with two main views (tasks and brain-directory search) and an
+always-on brain panel. New top-level capabilities should be added as a main
+view, a palette row, or a keybinding inside that shell, not as a separate
+command (or a shell-mutating one-shot subcommand) the user has to discover.
 
-## Why bare `brain` is global search, with the palette behind `Ctrl-p`
+## Why the command palette lives behind `Ctrl-p`
 
-The single most common thing the user wants is to find a note, so bare
-`brain` opens global search directly rather than making them pick "Global
-search" out of a menu first. The menu didn't go away — it became the
-**command palette**, reachable with `Ctrl-p` from any picker, so every
-other action (cd to root, per-bucket search, message brain, open tasks)
-is still one keystroke from the search box. `Ctrl-p` is the palette hotkey
-(matching the `tasks` TUI), which is why it is no longer an up-motion
-alias in the picker (up is `↑` / `Ctrl-k`).
+Every non-default action (per-bucket search, message brain, open tasks, move
+the panel, create a PDF, delete) lives in the **command palette**, reachable
+with `Ctrl-p` from the search view, so it is one keystroke from the search box
+without cluttering the screen. `Ctrl-p` is the palette hotkey (matching the
+`tasks` TUI), which is why it is no longer an up-motion alias in the picker (up
+is `↑` / `Ctrl-k`).
 
 ## Why the palette is a modal overlay, not its own screen
 
@@ -77,9 +72,9 @@ were in. As an overlay, `Esc` just closes the box and the picker is still
 right there underneath — the same back-out-of-a-modal behavior the `tasks`
 TUI has. This is why `menu.rs` has no `run()`/event loop of its own; it
 exposes pure state (`MenuApp`, `handle_key`) plus `draw_modal`, and the
-picker owns the loop. A confirmed row leaves the picker via
-`Outcome::Choice`, which `main` routes through the same `dispatch` the old
-flow used.
+search view owns the loop. A confirmed row returns a `Choice`, which
+`tui/search_view.rs` runs in place (rescope, message brain, open tasks,
+PDF/delete) without leaving the shell.
 
 ## Why archive is browsable now (it wasn't before)
 
@@ -87,23 +82,22 @@ Archive (`~/brain/archive`) is retired PARA material, and originally `brain`
 left it out of every search on purpose. In practice the user still needs to
 dig things back out of the archive, so it's now a first-class bucket:
 "Search archive" is its own palette row and the `Archive` bucket is part of
-global search (and bare `brain`). It sorts **last** in every grouped result
-so live Projects/Areas/Resources stay on top and retired material doesn't
-crowd the common case. There's deliberately no `brain ar`-style subcommand
-for it — the palette row and global search cover the need without adding a
-fourth bucket verb to the CLI surface.
+global search. It sorts **last** in every grouped result so live
+Projects/Areas/Resources stay on top and retired material doesn't crowd the
+common case. Rescoping to any single bucket (Archive included) is a palette
+row in the search view, never a CLI subcommand.
 
 ## Why the palette's top rows carry direct keystrokes
 
-The three actions the user reaches for most — message brain, open tasks, go
-to brain root — sit at the top of the palette and also fire directly from
-any picker via `Ctrl-m` / `Ctrl-t` / `Ctrl-b`, so the common cases don't
-even require opening the palette. The keystrokes are surfaced as dim `[…]`
-hints on their palette rows (the `tasks` convention, via
-`menu::shortcut_for`) so they're discoverable without cluttering the layout.
-`Ctrl-m` shares Enter's byte (`0x0D`), so it depends on the kitty protocol
-we already push to stay distinct; without the protocol it degrades to a
-plain `Enter` (open the selection), the same safe fallback as `Ctrl-Enter`.
+The two actions the user reaches for most — message brain, open tasks — sit at
+the top of the palette and also fire directly from the search view via
+`Ctrl-m` / `Ctrl-t`, so the common cases don't even require opening the
+palette. The keystrokes are surfaced as dim `[…]` hints on their palette rows
+(the `tasks` convention, via `menu::shortcut_for`) so they're discoverable
+without cluttering the layout. `Ctrl-m` shares Enter's byte (`0x0D`), so it
+depends on the kitty protocol we already push to stay distinct; without the
+protocol it degrades to a plain `Enter` (open the selection), the same safe
+fallback as `Ctrl-Enter`.
 
 ## Why `Enter` opens and `Ctrl-Enter` reveals (the swap)
 
@@ -113,29 +107,29 @@ the rarer case and takes the `Ctrl-Enter` chord. A directory match has no
 file to open, so `Enter` on one falls back to revealing the directory
 (identical to `Ctrl-Enter`), which keeps `Enter` from ever being a no-op.
 
-## Why the binary doesn't `cd`, call `cl`, or run `tasks` itself
+## Why `brain` is a pure TUI binary (no plan, no wrapper)
 
-These effects must happen in the **parent shell**:
-
-- `cd` mutates the caller's working directory; a child process can't.
-- `cl` is a zsh alias and `tasks` is a zsh function — neither is a binary
-  on `PATH`, so the child can't exec them and have them behave like the
-  user's configured versions.
-
-So the binary prints a small **plan** (`cd=`, `claude=`, `tasks=`, …) to
-stdout and the `brain` zsh wrapper executes it in the parent shell. This
-keeps the Rust side pure and testable (it just decides *what* should
-happen) and confines shell coupling to one readable wrapper. See
-[integrations.md](integrations.md) for the protocol.
+`brain` used to have shell-mutating one-shot subcommands (`cd`, `msg`, the
+per-bucket search verbs). Those effects had to happen in the **parent shell**
+(a child process can't `cd` the caller or exec a zsh alias/function), so the
+binary printed a small `key=value` **plan** to stdout and a `brain` zsh wrapper
+executed it. That whole mechanism is **gone**. Every capability now lives
+*inside* the persistent shell, which performs its own file-open, Finder-reveal,
+PDF, trash, and `claude`-launch actions by spawning processes; nothing needs to
+mutate the parent shell. So there is no plan protocol and no wrapper: `run.sh`
+just builds the binary when the sources change and `exec`s it directly. The
+`claude` launch that once relied on the `cl` alias is now driven by the
+configurable `claude_cmd`. See [integrations.md](integrations.md).
 
 ## Why the TUI renders to `/dev/tty`, not stdout
 
-The wrapper captures the binary's **stdout** to read the plan. If the TUI
-also drew to stdout, the captured plan would be full of escape codes and
-frame data. Rendering to `/dev/tty` (opened directly) keeps stdout clean
-for the plan while the interactive UI still reaches the real terminal.
-crossterm's raw-mode toggles and event reader operate on the controlling
-terminal regardless, so input is unaffected.
+The binary's **stdout** is reserved for `brain config` output (a table or a
+single value) plus clap's help/errors, so a caller can pipe or capture it
+cleanly. If the TUI also drew to stdout, that output would be full of escape
+codes and frame data. Rendering to `/dev/tty` (opened directly) keeps stdout
+clean while the interactive UI still reaches the real terminal. crossterm's
+raw-mode toggles and event reader operate on the controlling terminal
+regardless, so input is unaffected.
 
 ## Why we push the kitty protocol unconditionally (and avoid the probe)
 
@@ -161,19 +155,20 @@ still lands on the right characters. See [data-model.md](data-model.md).
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
-Task management is a big, separate domain with its own CSVs, recurrence
-rules, and TUI (the `tasks` CLI). We did **not** reimplement it inside
-`brain`; we hand off. `brain` owns discovery and routing; `tasks` owns
-task state. The seam is the `tasks=1` directive. This keeps each codebase
-small and lets the task TUI evolve independently while staying one
-keystroke away.
+Task management is a big domain with its own CSVs, recurrence rules, and TUI.
+Since the tasks↔brain merge it is an **in-process main view** of `brain`
+(`crate::tasks`), not a separate binary: `brain` reads the CSVs directly, and
+`Ctrl-T` (or `brain tasks`) switches to the tasks view instantly with the brain
+panel still beside it. The tasks logic stays in its own `src/tasks/` namespace
+so it keeps its shape, but there is no cross-binary handoff (and no `tasks=1`
+directive) anymore.
 
 ## Why the pure/impure split (and the `lib.rs`)
 
 Every decision worth testing is pulled into a pure function:
 `parse_config_root`, `expand_tilde_with_home`, `is_textlike`,
 `finder_target`, `handle_key`, the `App` matching/navigation, the render
-helpers, and the `plan::*_to` writers. The thin shells that touch
+helpers, and `session::build_claude_command`. The thin shells that touch
 `/dev/tty`, `$HOME`, the exe path, or `std::process::Command` stay
 untested by design. `lib.rs` re-exports the modules so integration tests
 can link them; the binary declares the same modules privately. This mirrors
@@ -210,10 +205,10 @@ closed: there's nothing to open when it's already up (and `Alt+L` focuses it).
 ## Why opening a file spawns a new iTerm2 tab instead of replacing the shell
 
 In the persistent shell the whole point is that the brain panel never goes
-away. The old `edit=` directive ran `$EDITOR` *in the current terminal*,
-which would tear down the TUI to edit a note. Instead the running TUI spawns
-a **new iTerm2 tab** (`osascript`) with `cd <dir> && $EDITOR <file>` for text
-files, and `open <file>` for everything else (which launches its own app).
+away. Running `$EDITOR` *in the current terminal* would tear down the TUI to
+edit a note. Instead the running TUI spawns a **new iTerm2 tab** (`osascript`)
+with `cd <dir> && $EDITOR <file>` for text files, and `open <file>` for
+everything else (which launches its own app).
 Either way the brain shell stays up. iTerm2 is the user's terminal, so we
 drive it directly; on any other terminal the editor path falls back to
 `open`.
@@ -267,12 +262,17 @@ look in the same place. When the fallback to a fresh chat is caused by a
 missing transcript, we surface it in the status line rather than silently —
 the user asked to know when their conversation didn't carry over.
 
-## Why the brain panel uses bare `claude`, not the `cl` alias
+## Why the brain panel launches a configurable `claude_cmd`
 
-The one-shot `msg` path honors the user's `cl` alias. The brain panel
-instead spawns bare `claude` because it must control the `--resume` /
-`--session-id` flag to drive the resume model — an alias injecting its own
-flags would fight that. Same reasoning as the `tasks` queue.
+The brain panel must control the `--resume` / `--session-id` flag to drive the
+resume model, so it can't defer to a shell alias that might inject its own
+flags. Rather than hardcode bare `claude`, the launch command is the
+configurable `claude_cmd` (`config::Config::claude_command`, default `claude
+--dangerously-skip-permissions` — what the user's old `cl` alias resolved to).
+`session::build_claude_command` splices that command in verbatim and then
+appends brain's own `--resume` / `--session-id`, so a user can point the panel
+at a different wrapper or add flags without brain losing control of the resume
+flag, and brain never depends on a shell alias.
 
 ## Why we disable alternate scroll (and motion) reporting for the mouse
 

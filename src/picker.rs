@@ -1,11 +1,9 @@
-//! Ratatui-based fuzzy picker.
+//! Ratatui-based fuzzy picker over collected `~/brain` entries.
 //!
-//! Returns the selected absolute path on Enter, or `Ok(None)` on Esc / Ctrl-c.
-//!
-//! Rendering uses `/dev/tty` instead of stdout so the calling wrapper can
-//! capture this binary's stdout (the shell-side plan) without garbling the
-//! TUI. crossterm's raw-mode toggles + event reader operate on the
-//! controlling terminal directly, so they're unaffected.
+//! This module owns the picker's state (`App`), its matching/grouping logic,
+//! and its rendering (`draw_into`). The interactive event loop lives in the
+//! persistent shell (`tui/`), which embeds this `App` as the brain-search main
+//! view and drives its keys directly — there is no standalone picker process.
 //!
 //! Matching is delegated to `nucleo-matcher` using substring atoms: every
 //! whitespace-separated word in the query must appear as a contiguous run
@@ -21,63 +19,23 @@
 //! selectable; the `selected` cursor only walks match indices.
 
 use std::collections::BTreeSet;
-use std::fs::{File, OpenOptions};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::path::PathBuf;
 
-use anyhow::Result;
-use crossterm::{
-    event::{
-        self, Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
-        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
-    },
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 use ratatui::{
-    Frame, Terminal,
-    backend::{Backend, CrosstermBackend},
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     widgets::Paragraph,
 };
 
-use crate::confirm::{self, Confirm, ConfirmKind};
+use crate::confirm::{self, Confirm};
 use crate::entry::{Bucket, Entry};
-use crate::menu::{self, Choice};
+use crate::menu;
 use crate::open_target;
 use crate::render;
-
-/// What the picker should do with the selected path. Driven by which Enter
-/// variant the user pressed.
-#[derive(Debug)]
-pub enum Selection {
-    /// Ctrl-Enter: reveal the path in Finder (files resolve to their parent
-    /// dir at the call site).
-    Reveal(PathBuf),
-    /// Plain Enter: open the path directly (editor for text-like files,
-    /// system `open` for everything else; dirs still land in Finder).
-    Open(PathBuf),
-}
-
-/// How the picker exited: the user chose a path, or confirmed a
-/// command-palette `Choice`.
-///
-/// Opening the palette and dismissing it with Esc never exits the picker —
-/// that's handled inside the event loop as a modal overlay.
-#[derive(Debug)]
-pub enum Outcome {
-    /// A path was picked (plain Enter or Ctrl-Enter).
-    Selected(Selection),
-    /// A command-palette row was confirmed with Enter.
-    Choice(Choice),
-    /// The user confirmed converting this markdown file to a PDF (via the
-    /// `Ctrl-G` confirmation modal or the palette's "Create PDF" row).
-    CreatePdf(PathBuf),
-}
 
 // ---------------------------------------------------------------------------
 // App state
@@ -200,19 +158,6 @@ impl App {
         self.haystacks = entries.iter().map(|e| HaystackBuf::new(&e.display)).collect();
         self.entries = entries.to_vec();
         self.refilter();
-    }
-
-    /// Drop `path` and everything beneath it from the in-memory entry set and
-    /// re-filter, keeping the query. Used by the one-shot picker (which has no
-    /// roots to re-walk) to reflect a trashed file or directory immediately.
-    pub(crate) fn drop_path(&mut self, path: &Path) {
-        let kept: Vec<Entry> = self
-            .entries
-            .iter()
-            .filter(|e| e.path != path && !e.path.starts_with(path))
-            .cloned()
-            .collect();
-        self.reload_entries(&kept);
     }
 
     // -- query mutations (pub(crate) for the embedded search panel) -------
@@ -502,255 +447,8 @@ fn char_positions_to_byte_positions(
 }
 
 // ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
-
-pub fn run(entries: &[Entry], initial_query: &str) -> Result<Option<Outcome>> {
-    // Open /dev/tty for read + write so the TUI is independent of stdio.
-    let tty_w: File = OpenOptions::new().write(true).open("/dev/tty")?;
-
-    enable_raw_mode()?;
-    let mut backend_writer = tty_w;
-    execute!(backend_writer, EnterAlternateScreen)?;
-
-    // Kitty keyboard protocol disambiguation lets us tell Ctrl-Enter
-    // apart from plain Enter. We push the flag unconditionally — the
-    // escape is silently ignored on terminals that don't speak the
-    // protocol, and the matching pop is then also a no-op, so there's
-    // no risk of leaving the terminal in a weird state. We avoid
-    // `supports_keyboard_enhancement()` because its DA1 + `CSI ? u`
-    // probe can race teardown and leak `[?0u...[?...c` into the parent
-    // shell on slower terminals.
-    execute!(
-        backend_writer,
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-    )?;
-
-    let backend = CrosstermBackend::new(backend_writer);
-    let mut terminal = Terminal::new(backend)?;
-
-    let mut app = App::new(entries, initial_query);
-    let result = event_loop(&mut terminal, &mut app);
-
-    // Always tear down, even on error.
-    let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
-    let _ = disable_raw_mode();
-    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
-    let _ = terminal.show_cursor();
-
-    result
-}
-
-/// What the key handler asks the event loop to do next.
-#[derive(Debug)]
-enum Step {
-    /// Keep looping.
-    Continue,
-    /// Exit with the given result.
-    Quit(Option<Outcome>),
-}
-
-fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<Option<Outcome>> {
-    loop {
-        terminal.draw(|f| draw(f, app))?;
-
-        // Poll so resize redraws stay responsive even without keypresses.
-        if !event::poll(Duration::from_millis(250))? {
-            continue;
-        }
-        // Resize events fall through to the next draw on the next loop tick.
-        let Event::Key(k) = event::read()? else {
-            continue;
-        };
-        if k.kind != KeyEventKind::Press && k.kind != KeyEventKind::Repeat {
-            continue;
-        }
-        if let Step::Quit(out) = handle_key(app, k) {
-            return Ok(out);
-        }
-    }
-}
-
-/// Route a key to the confirmation modal when one is open. Returns `Some` with
-/// the resulting `Step` (the modal owns the key), or `None` when no modal is
-/// open so the caller keeps routing.
-fn route_confirm_modal(app: &mut App, k: crossterm::event::KeyEvent) -> Option<Step> {
-    let c = app.confirm.as_mut()?;
-    Some(match confirm::handle_key(c, k) {
-        confirm::Step::Continue => Step::Continue,
-        confirm::Step::Cancel => {
-            app.confirm = None;
-            Step::Continue
-        }
-        confirm::Step::Accept => {
-            let c = app.confirm.take().expect("confirm is Some");
-            match c.kind {
-                ConfirmKind::Pdf => Step::Quit(Some(Outcome::CreatePdf(c.path))),
-                // Delete happens in place (move to Trash), then the picker
-                // drops the trashed entry and stays open.
-                ConfirmKind::Delete => {
-                    let _ = open_target::move_to_trash(&c.path);
-                    app.drop_path(&c.path);
-                    Step::Continue
-                }
-            }
-        }
-    })
-}
-
-/// Route a key to the command-palette overlay when it's open. Returns `Some`
-/// with the resulting `Step`, or `None` when the palette is closed.
-fn route_palette_modal(app: &mut App, k: crossterm::event::KeyEvent) -> Option<Step> {
-    let palette = app.palette.as_mut()?;
-    Some(match menu::handle_key(palette, k) {
-        menu::Step::Continue => Step::Continue,
-        menu::Step::Cancel => {
-            app.palette = None;
-            Step::Continue
-        }
-        // "Create PDF" resolves to the highlighted markdown path (the palette
-        // row is a deliberate pick, so no extra confirmation).
-        menu::Step::Confirm(Choice::CreatePdf) => {
-            app.palette = None;
-            app.selected_markdown_path()
-                .map_or(Step::Continue, |path| Step::Quit(Some(Outcome::CreatePdf(path))))
-        }
-        // "Open file" / "Open directory" mirror plain Enter / Ctrl-Enter:
-        // open the highlighted file, or reveal its directory in Finder.
-        menu::Step::Confirm(Choice::OpenFile) => {
-            app.palette = None;
-            app.selected_path().map_or(Step::Continue, |path| {
-                Step::Quit(Some(Outcome::Selected(Selection::Open(path))))
-            })
-        }
-        menu::Step::Confirm(Choice::OpenDir) => {
-            app.palette = None;
-            app.selected_path().map_or(Step::Continue, |path| {
-                Step::Quit(Some(Outcome::Selected(Selection::Reveal(path))))
-            })
-        }
-        // "Delete" always routes through the red confirmation modal, even from
-        // the palette — it's destructive, so we never skip the guard.
-        menu::Step::Confirm(Choice::Delete) => {
-            app.palette = None;
-            if let Some(path) = app.selected_path() {
-                app.open_delete_confirm(path);
-            }
-            Step::Continue
-        }
-        menu::Step::Confirm(choice) => Step::Quit(Some(Outcome::Choice(choice))),
-    })
-}
-
-fn handle_key(app: &mut App, k: crossterm::event::KeyEvent) -> Step {
-    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-
-    // Modals take routing precedence (confirm over palette over the picker):
-    // while one is open every key routes to it.
-    if let Some(step) = route_confirm_modal(app, k) {
-        return step;
-    }
-    if let Some(step) = route_palette_modal(app, k) {
-        return step;
-    }
-
-    match k.code {
-        KeyCode::Esc => return Step::Quit(None),
-        KeyCode::Char('c') if ctrl => return Step::Quit(None),
-        KeyCode::Enter => {
-            if let Some(p) = app.selected_path() {
-                // Plain Enter → open the path directly (a directory match
-                // reveals its folder downstream). Ctrl-Enter → reveal the
-                // containing directory in Finder.
-                let sel = if ctrl {
-                    Selection::Reveal(p)
-                } else {
-                    Selection::Open(p)
-                };
-                return Step::Quit(Some(Outcome::Selected(sel)));
-            }
-        }
-
-        // Ctrl-p opens the command palette overlay; up-navigation is
-        // Ctrl-k / ↑ (down is Ctrl-n / Ctrl-j / ↓).
-        KeyCode::Char('p') if ctrl => {
-            // The one-shot picker has no brain panel, so "Message brain"
-            // (the old launch-claude action) is always offered.
-            app.open_palette(crate::state::PanelSide::DEFAULT, true);
-        }
-
-        // Ctrl-G opens the "Create PDF" confirmation modal when a markdown
-        // file is highlighted; a no-op otherwise.
-        KeyCode::Char('g') if ctrl => {
-            if let Some(path) = app.selected_markdown_path() {
-                app.open_confirm(path);
-            }
-        }
-        // Ctrl-D opens the red "Delete" confirmation modal for the highlighted
-        // entry (file or directory); a no-op when nothing is selected.
-        KeyCode::Char('d') if ctrl => {
-            if let Some(path) = app.selected_path() {
-                app.open_delete_confirm(path);
-            }
-        }
-
-        // Direct palette shortcuts that bypass the overlay (mirrors the
-        // `tasks` convention; the same hints render dim in the palette).
-        // Ctrl-m relies on the kitty protocol to stay distinct from Enter;
-        // on a terminal without it, Ctrl-m degrades to plain Enter.
-        KeyCode::Char('m') if ctrl => return Step::Quit(Some(Outcome::Choice(Choice::Msg))),
-        KeyCode::Char('t') if ctrl => {
-            return Step::Quit(Some(Outcome::Choice(Choice::OpenTasks)));
-        }
-
-        KeyCode::Up => app.move_up(),
-        KeyCode::Char('k') if ctrl => app.move_up(),
-        KeyCode::Down => app.move_down(),
-        KeyCode::Char('n' | 'j') if ctrl => app.move_down(),
-
-        KeyCode::PageUp => app.page_up(),
-        KeyCode::PageDown => app.page_down(),
-        KeyCode::Home => app.selected = 0,
-        KeyCode::End => app.selected = app.matches.len().saturating_sub(1),
-
-        KeyCode::Backspace => {
-            app.query.pop();
-            app.refilter();
-        }
-        KeyCode::Char('u') if ctrl => {
-            app.query.clear();
-            app.refilter();
-        }
-        KeyCode::Char('w') if ctrl => {
-            let cut = app
-                .query
-                .trim_end()
-                .rfind(char::is_whitespace)
-                .map_or(0, |i| i + 1);
-            app.query.truncate(cut);
-            app.refilter();
-        }
-
-        KeyCode::Char(c)
-            if !k
-                .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-        {
-            app.query.push(c);
-            app.refilter();
-        }
-        _ => {}
-    }
-    Step::Continue
-}
-
-// ---------------------------------------------------------------------------
 // Draw
 // ---------------------------------------------------------------------------
-
-fn draw(f: &mut Frame, app: &mut App) {
-    draw_into(f, app, f.area());
-}
 
 /// Render the search panel into `area`.
 ///
@@ -951,18 +649,6 @@ mod tests {
     }
 
     #[test]
-    fn drop_path_removes_the_entry_and_its_descendants() {
-        // Trashing a directory drops everything beneath it; the query survives
-        // and the filtered view shrinks accordingly.
-        let mut app = App::new(&sample(), "");
-        assert_eq!(app.matches.len(), 4);
-        app.drop_path(&PathBuf::from("/Users/x/brain/projects/ann-afloat"));
-        // ann-afloat/plan.md sits under the dropped directory, so it goes;
-        // the other three entries remain.
-        assert_eq!(app.matches.len(), 3);
-    }
-
-    #[test]
     fn empty_query_keeps_every_entry_grouped_by_bucket() {
         let entries = sample();
         let app = App::new(&entries, "");
@@ -1083,138 +769,7 @@ mod tests {
         assert!(app.selected_path().is_none());
     }
 
-    // --- Enter / Ctrl-Enter (open vs reveal) ----------------------------
-
-    fn enter(ctrl: bool) -> crossterm::event::KeyEvent {
-        let mods = if ctrl {
-            KeyModifiers::CONTROL
-        } else {
-            KeyModifiers::NONE
-        };
-        crossterm::event::KeyEvent::new(KeyCode::Enter, mods)
-    }
-
-    #[test]
-    fn plain_enter_opens_the_selection() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        match handle_key(&mut app, enter(false)) {
-            Step::Quit(Some(Outcome::Selected(Selection::Open(p)))) => {
-                assert_eq!(p, entries[0].path);
-            }
-            other => panic!("expected Open, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn ctrl_enter_reveals_the_directory() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        match handle_key(&mut app, enter(true)) {
-            Step::Quit(Some(Outcome::Selected(Selection::Reveal(p)))) => {
-                assert_eq!(p, entries[0].path);
-            }
-            other => panic!("expected Reveal, got {other:?}"),
-        }
-    }
-
-    // --- command-palette overlay --------------------------------------
-
-    fn ctrl(code: KeyCode) -> crossterm::event::KeyEvent {
-        crossterm::event::KeyEvent::new(code, KeyModifiers::CONTROL)
-    }
-
-    fn plain(code: KeyCode) -> crossterm::event::KeyEvent {
-        crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)
-    }
-
-    #[test]
-    fn ctrl_p_opens_the_palette_overlay_without_quitting() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        assert!(app.palette.is_none());
-        match handle_key(&mut app, ctrl(KeyCode::Char('p'))) {
-            Step::Continue => assert!(app.palette.is_some(), "Ctrl-p should open the overlay"),
-            Step::Quit(out) => panic!("Ctrl-p should not quit, got {out:?}"),
-        }
-    }
-
-    #[test]
-    fn ctrl_k_navigates_up_and_does_not_open_the_palette() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        app.move_down();
-        let before = app.selected;
-        handle_key(&mut app, ctrl(KeyCode::Char('k')));
-        assert!(app.palette.is_none(), "Ctrl-k must not open the palette");
-        assert_eq!(app.selected, before - 1, "Ctrl-k should move selection up");
-    }
-
-    #[test]
-    fn esc_in_the_palette_returns_to_the_picker() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        handle_key(&mut app, ctrl(KeyCode::Char('p')));
-        assert!(app.palette.is_some());
-        // Esc closes the overlay and keeps the picker alive (does NOT quit).
-        match handle_key(&mut app, plain(KeyCode::Esc)) {
-            Step::Continue => assert!(app.palette.is_none(), "Esc should close the overlay"),
-            Step::Quit(out) => panic!("Esc in the palette should not quit, got {out:?}"),
-        }
-    }
-
-    #[test]
-    fn typing_in_the_palette_does_not_touch_the_picker_query() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        handle_key(&mut app, ctrl(KeyCode::Char('p')));
-        handle_key(&mut app, plain(KeyCode::Char('g')));
-        // The keystroke filtered the palette, not the picker's own query.
-        assert_eq!(app.query, "");
-        assert!(app.palette.is_some());
-    }
-
-    #[test]
-    fn enter_in_the_palette_confirms_a_choice() {
-        // Any highlighted entry now leads with the "Open directory" row, so to
-        // exercise the plain-`Outcome::Choice` path we filter down to a static
-        // row ("Message brain") first, then confirm it with Enter.
-        let entries = vec![entry(Bucket::Resources, "~/brain/resources/scan.pdf")];
-        let mut app = App::new(&entries, "");
-        handle_key(&mut app, ctrl(KeyCode::Char('p')));
-        for c in "message".chars() {
-            handle_key(&mut app, plain(KeyCode::Char(c)));
-        }
-        match handle_key(&mut app, plain(KeyCode::Enter)) {
-            Step::Quit(Some(Outcome::Choice(Choice::Msg))) => {}
-            other => panic!("expected Msg choice, got {other:?}"),
-        }
-    }
-
-    // --- direct palette shortcuts (Ctrl-m / Ctrl-t / Ctrl-b) ------------
-
-    #[test]
-    fn ctrl_m_fires_message_brain_directly() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        match handle_key(&mut app, ctrl(KeyCode::Char('m'))) {
-            Step::Quit(Some(Outcome::Choice(Choice::Msg))) => {}
-            other => panic!("expected Msg choice, got {other:?}"),
-        }
-        assert!(app.palette.is_none(), "the shortcut should bypass the palette");
-    }
-
-    #[test]
-    fn ctrl_t_fires_open_tasks_directly() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        match handle_key(&mut app, ctrl(KeyCode::Char('t'))) {
-            Step::Quit(Some(Outcome::Choice(Choice::OpenTasks))) => {}
-            other => panic!("expected OpenTasks choice, got {other:?}"),
-        }
-    }
-
-    // --- Create PDF (Ctrl-G + confirmation modal) ----------------------
+    // --- markdown selection (Create PDF source) ------------------------
 
     #[test]
     fn selected_markdown_path_tracks_only_markdown_entries() {
@@ -1230,60 +785,5 @@ mod tests {
         app.move_down();
         assert!(app.selected_markdown_path().is_none());
         assert!(app.selected_markdown_filename().is_none());
-    }
-
-    #[test]
-    fn ctrl_g_on_markdown_opens_the_confirmation_modal() {
-        let entries = sample(); // first entry is a .md file
-        let mut app = App::new(&entries, "");
-        match handle_key(&mut app, ctrl(KeyCode::Char('g'))) {
-            Step::Continue => assert!(app.confirm.is_some(), "Ctrl-g should open the modal"),
-            Step::Quit(out) => panic!("Ctrl-g should not quit, got {out:?}"),
-        }
-    }
-
-    #[test]
-    fn ctrl_g_on_non_markdown_is_a_noop() {
-        let entries = vec![entry(Bucket::Resources, "~/brain/resources/scan.pdf")];
-        let mut app = App::new(&entries, "");
-        match handle_key(&mut app, ctrl(KeyCode::Char('g'))) {
-            Step::Continue => assert!(app.confirm.is_none(), "no modal for a non-markdown file"),
-            Step::Quit(out) => panic!("Ctrl-g should not quit, got {out:?}"),
-        }
-    }
-
-    #[test]
-    fn confirming_the_modal_quits_with_create_pdf() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        handle_key(&mut app, ctrl(KeyCode::Char('g')));
-        // Default highlight is Yes, so Enter accepts.
-        match handle_key(&mut app, plain(KeyCode::Enter)) {
-            Step::Quit(Some(Outcome::CreatePdf(p))) => assert_eq!(p, entries[0].path),
-            other => panic!("expected CreatePdf, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn declining_the_modal_returns_to_the_picker() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        handle_key(&mut app, ctrl(KeyCode::Char('g')));
-        match handle_key(&mut app, plain(KeyCode::Esc)) {
-            Step::Continue => assert!(app.confirm.is_none(), "Esc should close the modal"),
-            Step::Quit(out) => panic!("Esc in the modal should not quit, got {out:?}"),
-        }
-    }
-
-    #[test]
-    fn palette_create_pdf_row_quits_with_create_pdf() {
-        let entries = sample();
-        let mut app = App::new(&entries, "");
-        // Open the palette on a markdown file → "Create PDF" leads the list.
-        handle_key(&mut app, ctrl(KeyCode::Char('p')));
-        match handle_key(&mut app, plain(KeyCode::Enter)) {
-            Step::Quit(Some(Outcome::CreatePdf(p))) => assert_eq!(p, entries[0].path),
-            other => panic!("expected CreatePdf from the palette, got {other:?}"),
-        }
     }
 }

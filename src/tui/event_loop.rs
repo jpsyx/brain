@@ -91,7 +91,11 @@ pub fn run_tui(
     // sessions become resumable. A failure here must never block startup.
     let _ = db.reap_dead_locks();
     let instance = uuid::Uuid::new_v4().to_string();
-    let brain_root = std::env::var_os("HOME").map_or_else(|| PathBuf::from("brain"), |h| PathBuf::from(h).join("brain"));
+    // Honor the configured `root` (config.json), falling back to `$HOME/brain`
+    // when it is unset or the resolved directory does not exist.
+    let brain_root = crate::paths::brain_root().unwrap_or_else(|_| {
+        std::env::var_os("HOME").map_or_else(|| PathBuf::from("brain"), |h| PathBuf::from(h).join("brain"))
+    });
 
     let panel_side = db.get_panel_side();
     let search = build_search(&brain_root);

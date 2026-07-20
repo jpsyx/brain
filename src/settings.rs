@@ -33,7 +33,7 @@ struct VarSpec {
 }
 
 /// The full schema, in the order `config list` prints them.
-const VARS: [VarSpec; 5] = [
+const VARS: [VarSpec; 6] = [
     VarSpec {
         name: "root",
         description: "Path to your brain (PARA) directory. Tilde-expanded. Defaults to ~/brain.",
@@ -58,6 +58,11 @@ const VARS: [VarSpec; 5] = [
         name: "day_rollover_hour",
         description: "Local hour (0-23) at which the logical day rolls over for the triage re-check.",
         default: Some("6"),
+    },
+    VarSpec {
+        name: "claude_cmd",
+        description: "Command that launches the brain panel's claude session; --resume/--session-id are appended. Defaults to `claude --dangerously-skip-permissions`.",
+        default: Some("claude --dangerously-skip-permissions"),
     },
 ];
 

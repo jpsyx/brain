@@ -25,11 +25,15 @@ Names are normalized (lowercased, `-`→`_`), so `brain config set Linear-Worksp
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command brain spawns for the "Create PDF" action. See below. Read by `settings.rs`. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
+| `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's `claude` session; brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Interpreted by the shell, so brain never depends on a shell alias. Blank falls back to the default. Read by `config.rs` (`claude_command()`), used by `session::build_claude_command`. Also settable as `claude-cmd` (the dash normalizes to an underscore). |
 
 Every variable is optional; a missing file or missing field falls back to the
-default above. `root` is read by `paths.rs`; the tasks-shell knobs by
-`config.rs::Config`; `markdown_to_pdf_path` by `settings.rs`. They all read the
-same file and ignore fields they don't use.
+default above. `root` is read by `paths.rs` (and honored by the persistent
+shell, which resolves the brain directory through `paths::brain_root()`); the
+runtime knobs (`daily_triage_name_pattern`, `linear_workspace`,
+`day_rollover_hour`, `claude_cmd`) by `config.rs::Config`;
+`markdown_to_pdf_path` by `settings.rs`. They all read the same file and ignore
+fields they don't use.
 
 ## The `markdown-to-pdf` prerequisite
 
@@ -70,8 +74,9 @@ The IO-touching wrappers are thin; the decisions worth testing are pure:
   prerequisite message wording, shell-output path extraction, value coercion.
 - `paths::parse_config_root` — reading the `root` field, empty-is-unset.
 - `paths::expand_tilde_with_home` — tilde expansion against an explicit home.
-- `config.rs` units — `linear_base_url` interpolation, defaults, ignoring
-  unknown keys.
+- `config.rs` units — `linear_base_url` interpolation, `claude_command`
+  (default, explicit override, blank falls back), defaults, ignoring unknown
+  keys.
 
 See those modules' unit tests and `tests/root_resolution.rs`.
 
@@ -91,4 +96,5 @@ shell** also keeps machine-managed state in a SQLite DB at
 
 You don't edit this file by hand. Deleting it is safe: brain recreates it,
 starts a fresh Claude session, and reverts to the default right-side layout.
-The one-shot subcommands never touch it.
+The `brain config` and `brain tasks {complete,doctor,--no-tui}` utility paths
+never touch it.

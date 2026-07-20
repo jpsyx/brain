@@ -1,83 +1,61 @@
 # Integrations
 
-`brain` does almost nothing on its own that touches the outside world. It
-discovers what the user wants and emits a **plan**; the zsh wrapper turns
-that plan into real shell-side effects. This doc is the contract between
-the two, plus the handoffs to claude and the `tasks` CLI.
+`brain` is a single binary that owns its own outside-world effects. It has no
+shell-mutating one-shot commands, so there is no plan protocol and no zsh
+wrapper: everything the user does happens inside the persistent TUI, which
+opens files, reveals in Finder, converts PDFs, trashes entries, and launches
+`claude` by spawning processes itself. This doc covers how the binary is run
+and each of those handoffs, plus the SessionStart hook and state DB.
 
-## The plan protocol (`plan.rs` ↔ `brain` wrapper)
+## How brain is run (`run.sh`)
 
-The binary prints lines of `key=value` to **stdout**. The wrapper captures
-stdout, parses it line-by-line, and applies effects. Anything that isn't a
-recognized directive is printed verbatim (so `brain --help` and clap
-errors still work).
+`run.sh` is the entry point. It rebuilds `target/release/brain` when
+`Cargo.toml` or any `src/**/*.rs` is newer than the binary (build chatter to
+stderr), then `exec`s the binary, forwarding every argument. It does **not**
+capture stdout, parse a plan, or apply any parent-shell effect — the binary
+handles its own effects.
 
-| Directive | Emitted by | Wrapper action |
-| --- | --- | --- |
-| `cd=<path>` | `plan::cd` (also after Finder reveal / file open) | `cd <path>` in the parent shell |
-| `claude=<msg>` | `plan::claude` (always preceded by a `cd=`) | run the `cl` alias with `<msg>`; runs even when `<msg>` is empty |
-| `open=<path>` | `plan::open` (non-text file, Ctrl-Enter) | `open <path>` (system default app) |
-| `edit=<path>` | `plan::edit` (text file, Ctrl-Enter) | `${VISUAL:-${EDITOR:-vi}} <path>` |
-| *anything else* | clap (help, version, errors) | printed verbatim |
+The binary's **stdout** carries only:
 
-(The old `tasks=1` directive is gone: the tasks view is now an in-process main
-view of `brain`, not a separate binary the wrapper hands off to.)
+- `brain config …` output (the config table, or a single value), and
+- clap's help / version / error text.
 
-Key contract points:
+Everything else is a TUI that renders to `/dev/tty`, so nothing an interactive
+session paints reaches stdout. Diagnostics go to stderr.
 
-- **Stdout is the channel.** The TUI renders to `/dev/tty`, never stdout,
-  so the captured plan is never garbled by terminal output. Diagnostics go
-  to stderr.
-- **The `claude=` directive is presence-keyed.** The wrapper opens claude
-  whenever a `claude=` line is present, even with an empty value (that's
-  the "open claude with no opening prompt" case). Tests pin this exact
-  behavior (`claude_with_empty_message_still_emits_claude_directive`).
-- **Order of application** in the wrapper: passthrough text, then `cd`,
-  then `open`, then `edit`, then `claude`.
-- **Wire strings are tested.** `plan.rs` has `*_to` variants writing into
-  a buffer; unit tests assert the exact bytes (`"cd=/x\n"`, …). If you change
-  a directive string, change it in `plan.rs`, this table, and the wrapper's
-  `case` in the same edit.
+## The tasks view (in-process, no handoff)
 
-## The tasks view (no more handoff)
-
-Before the merge, `brain tasks` emitted `tasks=1` and the wrapper ran a
-separate `tasks` zsh function/binary. That binary is gone. The tasks CSVs
-(`~/brain/tasks/{tasks,habits}.csv`) are now read directly by `brain`'s tasks
-main view (`crate::tasks`), and `brain tasks …` launches the merged shell (or
-runs a tasks utility) in-process. The tasks-view side effects that *do* shell
-out live in the tasks modules, not the plan protocol:
+The tasks CSVs (`~/brain/tasks/{tasks,habits}.csv`) are read directly by
+`brain`'s tasks main view (`crate::tasks`), and `brain tasks …` launches the
+merged shell (or runs a tasks utility) in-process. The tasks-view side effects
+that *do* shell out live in the tasks modules:
 
 - **`~/global-skills/todo/scripts/mark_done.py`** — `brain tasks complete <id>`
   and the palette's mark-complete action `exec`/invoke it to mutate the CSVs.
 - **`agenda` / `habits` zsh functions** — `Ctrl+A` (agenda) and the palette's
   "Open habits page" run these via the injected `ShellRunner`.
-- **`cd ~/brain && claude …`** — the brain panel's PTY, shared by both main
-  views (see below).
+- **`cd <root> && <claude_cmd> …`** — the brain panel's PTY, shared by both
+  main views (see below).
 
-This is the heart of the "central dispatch" design: `brain` is the single
-terminal command, and it routes to the right specialized tool (`tasks` for
-task management, claude for conversational work, Finder/editor for files).
-
-## Handoff: claude via the `cl` alias (one-shot `msg`)
-
-`brain msg <prompt>` and the one-shot picker's "Message brain" item emit
-`cd=~/brain` followed by `claude=<prompt>`. The wrapper resolves
-`${aliases[cl]:-claude}` so it honors the user's `cl` alias (their
-preferred claude invocation), falling back to bare `claude`. The message
-is shell-quoted with `${(q)…}` before being passed.
+This is the "central dispatch" design: `brain` is the single terminal command,
+and each capability is either an in-process main view (tasks, brain-directory
+search) or a spawned process it drives (claude for conversational work,
+Finder/editor for files, `markdown-to-pdf` for conversions).
 
 ## The brain panel: claude session + SessionStart hook + state DB
 
-The persistent shell's brain panel is a **different** claude integration. It
-spawns `claude` itself, inside a PTY (`pty_pane.rs`), running
-`cd <root> && claude --resume <id>` or `--session-id <id>`
-(`session::build_claude_command`). The PTY's working directory is **also**
-set to `<brain_root>`, so claude resolves its project dir (and the
-SessionStart hook in `.claude/settings.json`) under `~/brain` from the first
-instant — every brain session is scoped to `~/brain`, so resume always looks
-in the same place. It uses **bare `claude`**, not the `cl` alias, to control
-the `--resume` / `--session-id` flag — same rationale as the `tasks` sibling.
+The persistent shell's brain panel spawns `claude` itself, inside a PTY
+(`pty_pane.rs`), running `cd <root> && <claude_cmd> --resume <id>` or
+`--session-id <id>` (`session::build_claude_command`). `<claude_cmd>` is the
+configurable launch command (`config::Config::claude_command`, config variable
+`claude_cmd`, default `claude --dangerously-skip-permissions`), spliced in
+verbatim so it may carry its own flags; brain always appends the `--resume` /
+`--session-id` flag it controls, so it never depends on a shell alias. The
+PTY's working directory is **also** set to `<brain_root>` (resolved via
+`paths::brain_root()`, honoring the `root` config), so claude resolves its
+project dir (and the SessionStart hook in `.claude/settings.json`) under the
+brain root from the first instant — every brain session is scoped there, so
+resume always looks in the same place.
 
 Which session to run is decided by the **lock + recency** model in
 `state.rs` (DB at `~/.cache/brain/state.db`, WAL):
@@ -120,20 +98,16 @@ sessions are continuous conversations, not discrete runs.
 
 ## System `open` and the editor
 
-The two contexts open files differently:
-
-- **Persistent shell** (the brain panel never closes): handled inside the
-  running TUI by `open_target`'s impure spawners. A text file →
-  `open_in_editor_tab`, which runs `osascript` to open a **new iTerm2 tab**
-  (`iterm_new_tab_applescript` over `edit_shell_command` = `cd <dir> &&
-  ${VISUAL:-${EDITOR:-nvim}} <file>`); a blob or directory →
-  `open_with_system` (`open <path>`). On a non-iTerm2 terminal the editor
-  path falls back to `open <file>`. Nothing is emitted to stdout; the shell
-  stays up.
-- **One-shot picker**: Finder reveal (`Ctrl-Enter`) calls the real `open`
-  from inside the binary (`open_in_finder`) and emits a `cd=`. Direct open
-  (`Enter`) is split by `open_target::is_textlike`: text → `edit=` (current
-  terminal), else → `open=` (system app). Directories reveal in Finder.
+The search view opens files from inside the running TUI, via `open_target`'s
+impure spawners; the brain panel never closes. A text file →
+`open_in_editor_tab`, which runs `osascript` to open a **new iTerm2 tab**
+(`iterm_new_tab_applescript` over `edit_shell_command` = `cd <dir> &&
+${VISUAL:-${EDITOR:-nvim}} <file>`); a blob or directory → `open_with_system`
+(`open <path>`); a Finder reveal (`Ctrl-Enter`) resolves to the parent dir
+(`open_target::finder_target`) and calls `open` on it. Whether a file is text
+or a blob is decided by `open_target::is_textlike`. On a non-iTerm2 terminal
+the editor path falls back to `open <file>`. Nothing is emitted to stdout; the
+shell stays up throughout.
 
 ## Handoff: `markdown-to-pdf` (the "Create PDF" command)
 
@@ -153,13 +127,10 @@ wrapper, since a child process can't call a shell function. The output path is
   overwrite an existing PDF — it writes a `-vN` variant. To keep the output
   name identical to the source, `create_pdf` removes any pre-existing PDF at
   the target path first, so the converter always writes the exact name.
-- **Opening the result.** In the **persistent shell** the conversion runs in
-  place and the PDF is handed to `open_target::open_with_system` (`open
-  <pdf>`) — the brain shell stays up. In the **one-shot picker** the binary
-  runs the conversion, then emits an `open=<pdf>` directive so the wrapper
-  opens it after `brain` exits.
-- **Best-effort.** In the persistent shell a converter failure is swallowed
-  (like a failed file-open) so a broken toolchain can't tear the shell down.
+- **Opening the result.** The conversion runs in place and the PDF is handed
+  to `open_target::open_with_system` (`open <pdf>`) — the brain shell stays up.
+- **Best-effort.** A converter failure is swallowed (like a failed file-open)
+  so a broken toolchain can't tear the shell down.
 
 ## Handoff: `osascript` → Finder trash (the "Delete" command)
 
@@ -175,16 +146,16 @@ POSIX file "<path>"` (the path escaped for the AppleScript literal). Finder's
 
 - **Confirmed first.** Both entry points route through the red `confirm.rs`
   modal (default **No**); the trash only runs on `Accept`.
-- **Refresh after.** The persistent shell re-walks its scope (`App::refresh`);
-  the one-shot picker drops the trashed path in memory
-  (`picker::App::drop_path`). Either way the entry disappears from the list.
+- **Refresh after.** The search view re-walks its scope (`App::refresh`) and
+  drops the trashed path (`picker::App::drop_path`), so the entry disappears
+  from the list.
 - **Best-effort.** A failed `osascript` is swallowed (like the PDF path) so a
   denied automation permission can't tear the shell down.
 
 ## The auto-rebuild
 
-The wrapper rebuilds `target/release/brain` whenever `Cargo.toml` or any
-`src/**/*.rs` is newer than the binary, then runs it. This is the only
+`run.sh` rebuilds `target/release/brain` whenever `Cargo.toml` or any
+`src/**/*.rs` is newer than the binary, then `exec`s it. This is the only
 reason an agent's source edit "takes effect" without a manual
 `cargo build` — but you should still build/test explicitly while
 developing (see [testing.md](testing.md)).
