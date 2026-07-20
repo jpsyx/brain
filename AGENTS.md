@@ -54,12 +54,12 @@ is the source-of-truth for *how*. They must agree on *what*.
 | Module list, data flow, subcommand/main-view routing | `docs/architecture.md` |
 | User-visible behavior (main views, menu items, subcommands, picker/tasks behavior) | `docs/features.md` |
 | `Bucket` / `Entry`, the picker match model, the `Task`/sub-view model | `docs/data-model.md` |
-| A **tasks-view** keybinding | `docs/keybindings.md`, the `src/tasks/shortcuts.rs` table (footer + help modal), `compact_footer_line` in `src/tasks/render/chrome.rs`, **and** (if it's also a palette / task-action row) `shortcut_for` in `src/tui/palette.rs` |
+| A **tasks-view** keybinding | `docs/keybindings.md`, the `src/tasks/shortcuts.rs` table (footer + help modal), `compact_footer_line` in `src/tasks/render/chrome.rs`, **and** (if it's also a palette / task-action row) `shortcut_for` in `src/tui/palette/command.rs` |
 | A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+?`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
-| A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
-| How the brain panel launches `claude` (`claude_cmd`), or the file-open / Finder path | `docs/integrations.md` (launch builder in `src/session.rs`, `claude_cmd` in `src/config.rs`/`src/settings.rs`, openers in `src/open_target.rs`) |
+| A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu/model.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
+| How the brain panel launches `claude` (`claude_cmd`), or the file-open / Finder path | `docs/integrations.md` (launch builder in `src/session.rs`, `claude_cmd` in `src/config.rs`/`src/settings/`, openers in `src/open_target.rs`) |
 | The SessionStart hook, state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/claude_session_start_hook.py`, `scripts/install_hook.sh`, `src/state.rs` |
-| Config schema, the `brain config` command, the `markdown-to-pdf` prerequisite, or root resolution | `docs/config.md` (store + schema + discovery in `src/settings.rs`; typed knobs in `src/config.rs`; root in `src/paths.rs`) |
+| Config schema, the `brain config` command, the `markdown-to-pdf` prerequisite, or root resolution | `docs/config.md` (store + schema + discovery in `src/settings/`; typed knobs in `src/config.rs`; root in `src/paths.rs`) |
 | Testing strategy, what we test vs. skip | `docs/testing.md` |
 | A non-obvious design choice | `docs/decisions.md` |
 
@@ -130,9 +130,22 @@ change and `exec`s it. The user never types `cargo run`.
   need one, justify it in `docs/architecture.md`.
 - **Follow the pure/impure split.** New decision logic goes in a pure
   function (testable); the `/dev/tty` and `Command` shells stay thin.
+- **One module per file; keep files small.** Prefer many small,
+  single-responsibility modules over a few giant ones — the Rust analogue of
+  the one-component-per-file convention. A `.rs` file that grows past **~400
+  lines of production code** (inline `#[cfg(test)]` blocks don't count toward
+  the budget) is a smell: split it into a directory of submodules
+  (`foo.rs` → `foo/mod.rs` + `foo/<part>.rs`), the way `src/tasks/` already
+  does with `task/`, `render/`, and `view/`. Split along real seams
+  (matching vs. model vs. render; store vs. schema vs. discovery; one handler
+  group per file), not at an arbitrary line. `mod.rs` should stay a thin
+  re-export + glue layer, not a dumping ground. When a file is large only
+  because of inline tests, split the *tests* by area instead. Don't split a
+  file that's already cohesive just to hit a number — the 400-line figure is a
+  prompt to look, not a hard cap.
 - **Keep the dimmed shortcut annotation in sync with the binding.** Every
   command palette row that has a direct keystroke shows it as a gray `[…]`
-  hint, driven by `shortcut_for` in `src/menu.rs`. Whenever you add or
+  hint, driven by `shortcut_for` in `src/menu/model.rs`. Whenever you add or
   change a keybinding for an action that also appears in the palette,
   update `shortcut_for` in the same change so the gray hint matches the
   real binding. If I tell you a new (or changed) action's shortcut is

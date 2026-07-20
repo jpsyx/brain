@@ -25,7 +25,7 @@ first move is a failing test that reproduces it, *then* the fix.
   (text vs blob, case-insensitivity, extensionless), `finder_target`,
   `open_target::is_markdown` (strictly `.md`) and `pdf_output_path`
   (colocated same-stem `.pdf`).
-- **The config store (`settings.rs`).** Schema resolution against an explicit
+- **The config store (`settings/vars.rs`).** Schema resolution against an explicit
   map (defaults vs overrides — never the real store), the `config list` table
   layout and coloring, value coercion (`4`→number), name normalization, the
   `markdown-to-pdf` prerequisite message wording, and mining an executable path
@@ -51,12 +51,12 @@ first move is a failing test that reproduces it, *then* the fix.
   `Esc`/`Ctrl-c` cancel; plus each `ConfirmKind` carries its own accent
   (green/red), title, and question, the selected button carries the accent
   fill, and the modal shows just the file name.
-- **The picker's confirm wiring** (`picker.rs`). `open_confirm` /
+- **The picker's confirm wiring** (`picker/selection.rs`). `open_confirm` /
   `open_delete_confirm` raise the PDF modal on a `.md` selection (no-op
   otherwise) and the Delete modal on any selection; confirming converts a PDF
   in place or trashes and `drop_path`s the entry (the shell stays open), and
   `reload_entries` / `drop_path` keep the query while updating the list.
-- **The palette layout label** (`menu.rs`). `layout_choice_label` names the
+- **The palette layout label** (`menu/model.rs`). `layout_choice_label` names the
   opposite side; the toggle row is searchable and appears exactly once.
 - **Render helpers.** That `entry_line` preserves the full text, coalesces
   a highlighted run into one correctly-colored span, and paints the

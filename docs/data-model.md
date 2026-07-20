@@ -42,7 +42,7 @@ pair with `walkdir`:
 Both files *and* directories are collected, so you can pick (and reveal /
 cd into) a folder, not just a leaf note.
 
-## Picker match model (`picker.rs`)
+## Picker match model (`picker/`)
 
 ### `HaystackBuf` — slug-aware matching
 

@@ -14,7 +14,7 @@ it (split) or closed (main view full-width).
 | --- | --- | --- |
 | **main view** | One of the two full-screen surfaces you switch between. | `main_view::MainView` (`src/main_view.rs`) |
 | **tasks view** | The task-management surface (agenda, triage, habits). The **default** at startup. | `MainView::Tasks`; state in the tasks App fields / `src/tasks/` modules |
-| **brain directory view** / **brain search view** | The fuzzy-search-over-`~/brain` surface (this was *bare `brain`* before the merge). | `MainView::BrainSearch`; `src/picker.rs`, `src/entry.rs` |
+| **brain directory view** / **brain search view** | The fuzzy-search-over-`~/brain` surface (this was *bare `brain`* before the merge). | `MainView::BrainSearch`; `src/picker/`, `src/entry.rs` |
 | **brain panel** | The always-available `claude` chat session in a PTY. App-level: it does **not** belong to either main view and stays open across a main-view switch. (Formerly called the *claude panel* in the `tasks` project.) | `src/pty_pane.rs` (`PtyPane`); `App.brain: Option<PtyPane>` |
 | **panel** | Generic term; in this app the only panel is the brain panel. | — |
 | **sub-view** | One of the tabbed modes *inside* the tasks view (`today`, `mit`, `past_due`, `week`, `habits`, `backlog`, `all`). These were called "views" in the old `tasks` project. `Tab` / `Shift+Tab` cycle them; only meaningful in the tasks view. | `view::View` + `View::CYCLE` (`src/tasks/view/`) |

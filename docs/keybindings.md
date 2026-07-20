@@ -6,7 +6,7 @@ PTY). See [glossary.md](glossary.md) for the vocabulary. Startup: the **tasks
 view** is showing, the **brain panel is open** (on the right) but unfocused, so
 `j`/`k` work immediately.
 
-Keys are resolved in this precedence (see `tui/event_loop.rs`):
+Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 
 1. **App-level accelerators** — intercepted before everything, from either
    view: `Ctrl+Q` quit, `Alt+S` help, `Alt+H/L` panel focus, `Alt+U/D` scroll,
@@ -102,7 +102,7 @@ An always-filtering fuzzy picker over `~/brain` (projects / areas / resources
 | `Esc` / `Ctrl+C` | Quit the shell |
 
 `Tab` / `Shift+Tab` do nothing here (no sub-views). The brain-search palette
-(`menu.rs`) is separate from the tasks palette; its own confirm overlays
+(`menu/`) is separate from the tasks palette; its own confirm overlays
 (PDF / delete) are captive while open.
 
 ## Modals

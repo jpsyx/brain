@@ -70,7 +70,7 @@ The reason is `Esc`: a separate screen would have to *exit* on `Esc`,
 dropping the user all the way back to the shell and losing the search they
 were in. As an overlay, `Esc` just closes the box and the picker is still
 right there underneath — the same back-out-of-a-modal behavior the `tasks`
-TUI has. This is why `menu.rs` has no `run()`/event loop of its own; it
+TUI has. This is why `menu/` has no `run()`/event loop of its own; it
 exposes pure state (`MenuApp`, `handle_key`) plus `draw_modal`, and the
 search view owns the loop. A confirmed row returns a `Choice`, which
 `tui/search_view.rs` runs in place (rescope, message brain, open tasks,
@@ -402,7 +402,7 @@ The path is not hardcoded (the repo is public). On first run it is
 **auto-discovered** (PATH, then conventional bin dirs, then a one-shot login
 shell that resolves an autoloaded function to the script it wraps) and
 persisted. A missing or invalid path is a hard, fail-fast error pointing at
-`brain config set markdown_to_pdf_path=…`. See `settings.rs`.
+`brain config set markdown_to_pdf_path=…`. See `settings/`.
 
 ## Why `linear_workspace` is a slug, not a full URL
 

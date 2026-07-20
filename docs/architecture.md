@@ -107,7 +107,7 @@ isn't a directory. The IO-free pieces (`parse_config_root`,
 `expand_tilde_with_home`) are split out so they're unit-testable without a
 real `$HOME` or config file. See [config.md](config.md).
 
-### `settings.rs`
+### `settings/`
 The persistent config store (`~/.config/brain/config.json`) and the
 `brain config` command. Owns the raw JSON read/modify/write, the declared-
 variable schema, get/set/list (with the aligned, colored `config list` table),
@@ -115,7 +115,9 @@ and the `markdown-to-pdf` prerequisite: auto-discovery (PATH → conventional bi
 dirs → login-shell resolution of a function wrapper), validation, and the
 fail-fast red-`❌` startup gate. Pure decision helpers (schema resolution, table
 layout, message wording, shell-output parsing) are unit-tested; the IO shells
-are thin. See [config.md](config.md).
+are thin. Split into `store` (JSON IO), `schema` (`VARS`/`Resolved`), `vars`
+(get/set/resolve), `render` (the `config list` table), and `markdown_pdf` (the
+prerequisite). See [config.md](config.md).
 
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =
@@ -125,8 +127,12 @@ display order, Archive last) and `Entry` (absolute `path`, `~/brain/...`
 (`.`-prefixed) and the root itself, and tags every entry with its bucket.
 Missing roots are silently skipped.
 
-### `picker.rs`
-The ratatui fuzzy picker. `App` **owns** its entries (so the persistent
+### `picker/`
+The ratatui fuzzy picker. The `App` type lives in `picker/mod.rs` (so every
+submodule reaches its private fields); the impl is split into `haystack`
+(match preprocessing), `filter` (constructors + `refilter` + grouping), `nav`
+(query edits + cursor + scroll), `selection` (highlighted-entry accessors +
+palette/confirm openers), and `view` (`draw_into`). `App` **owns** its entries (so the persistent
 shell can `set_entries` to rescope a bucket in place), precomputed
 `HaystackBuf`s, the query, the current matches, and the interleaved
 header/match `display_rows`. `refilter()` runs nucleo substring matching,
@@ -146,7 +152,10 @@ place; the shell never tears down on a selection. On `Accept`, Delete trashes
 the path and `drop_path`s the entry (`reload_entries` keeps the query), and
 the picker stays open.
 
-### `menu.rs`
+### `menu/`
+Split into `labels` (contextual-row elision), `model` (`Choice`/`Targets`/the
+row list/`shortcut_for`), `filter` (the substring matcher), `app` (`MenuApp` +
+`handle_key`), and `view` (`draw_modal`).
 The command palette (the top-level menu). It has **no screen of its own**:
 the host opens it with `Ctrl-p`, drives its pure `MenuApp` + `handle_key`,
 and paints it with `draw_modal` as a centered overlay. `Choice` enumerates
@@ -214,7 +223,7 @@ the results.
 
 ### `config.rs`
 Typed view of the runtime knobs, deserialized from the shared config store
-(see `settings.rs`). Fields: `daily_triage_name_pattern`, `linear_workspace`,
+(see `settings/`). Fields: `daily_triage_name_pattern`, `linear_workspace`,
 `day_rollover_hour`, and `claude_cmd`; `linear_base_url()` interpolates the
 workspace slug into the full issue-URL prefix, and `claude_command()` returns
 the configured brain-panel launch command (or the default `claude
@@ -246,6 +255,17 @@ panel, the brain panel beside it (`panel_side`), and any modal over the top.
 open, PDF/delete confirms, and its own `menu` palette). The remaining
 submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
 `app_*`, `shell`) are the tasks view's, unchanged from the port.
+
+The larger submodules are directories split by concern: `handlers/`
+(`overlay`/`tasks_view`/`input`), `event_loop/` (`setup`/`modal_route`/`run`),
+`draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
+`draw/mod.rs`), `palette/` (`command`/`state`), `app_state/`
+(`construct`/`nav`/`view`/`selection_query`), `app_actions/`
+(`commands`/`triage`), and `tests/` (split by area). The overlay-modal state
+structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
+`LinkPickerState`, and the confirm enums) live in `modal_state.rs` with
+`pub(super)` fields; `mod.rs` keeps only the `App` shell type, `Panel`,
+`filter_tasks`, and the module wiring.
 
 ### Startup (`run_tui`)
 `run_tui()` opens the state DB, builds the brain-search picker

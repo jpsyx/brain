@@ -49,14 +49,14 @@ src/
   cli.rs         — clap surface (Cli + Cmd: tasks / config)
   config.rs      — typed knobs (triage pattern, linear, rollover, claude_cmd)
   paths.rs       — brain-root resolution (config store / $HOME, tilde expand)
-  settings.rs    — config store + `brain config` + markdown-to-pdf prereq
+  settings/      — config store + `brain config` + markdown-to-pdf prereq
   entry.rs       — Bucket + Entry; walkdir collection with hidden filter
   tui/           — persistent shell (tasks view + search view + claude panel)
   pty_pane.rs    — PTY-backed brain panel (portable-pty + vt100)
   session.rs     — pure claude command/env + resume-vs-fresh plan
   state.rs       — SQLite session store + layout pref (lock + recency)
-  picker.rs      — ratatui fuzzy picker (matching, grouping, navigation)
-  menu.rs        — ratatui command palette (Ctrl-p overlay)
+  picker/        — ratatui fuzzy picker (matching, grouping, navigation)
+  menu/          — ratatui command palette (Ctrl-p overlay)
   render.rs      — pure functions → styled ratatui Lines (picker UI)
   open_target.rs — "how to open this path" + new-iTerm2-tab opener
 scripts/

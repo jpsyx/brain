@@ -22,7 +22,7 @@ Names are normalized (lowercased, `-`→`_`), so `brain config set Linear-Worksp
 | --- | --- | --- |
 | `root` | `~/brain` | The brain (PARA) directory `brain` operates on. A leading `~`/`~/` is expanded against `$HOME`. Read by `paths.rs`. |
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
-| `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command brain spawns for the "Create PDF" action. See below. Read by `settings.rs`. |
+| `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command brain spawns for the "Create PDF" action. See below. Read by `settings/`. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's `claude` session; brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Interpreted by the shell, so brain never depends on a shell alias. Blank falls back to the default. Read by `config.rs` (`claude_command()`), used by `session::build_claude_command`. Also settable as `claude-cmd` (the dash normalizes to an underscore). |
@@ -32,7 +32,7 @@ default above. `root` is read by `paths.rs` (and honored by the persistent
 shell, which resolves the brain directory through `paths::brain_root()`); the
 runtime knobs (`daily_triage_name_pattern`, `linear_workspace`,
 `day_rollover_hour`, `claude_cmd`) by `config.rs::Config`;
-`markdown_to_pdf_path` by `settings.rs`. They all read the same file and ignore
+`markdown_to_pdf_path` by `settings/`. They all read the same file and ignore
 fields they don't use.
 
 ## The `markdown-to-pdf` prerequisite
@@ -70,7 +70,7 @@ The `brain config …` command itself is exempt from this gate, so you can alway
 
 The IO-touching wrappers are thin; the decisions worth testing are pure:
 
-- `settings.rs` units — schema resolution, the `config list` table layout, the
+- `settings/` units — schema resolution, the `config list` table layout, the
   prerequisite message wording, shell-output path extraction, value coercion.
 - `paths::parse_config_root` — reading the `root` field, empty-is-unset.
 - `paths::expand_tilde_with_home` — tilde expansion against an explicit home.
