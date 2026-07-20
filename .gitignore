@@ -2,5 +2,9 @@
 # checkout with `cargo build --release`).
 /target/
 
+# Machine-local config, in case one is ever created at the repo root. The real
+# store lives at ~/.config/brain/config.json; see config.example.json.
+/config.json
+
 # macOS.
 .DS_Store

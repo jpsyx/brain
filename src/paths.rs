@@ -1,8 +1,8 @@
 //! Brain-root resolution: where `~/brain` actually lives.
 //!
-//! Resolution order: first the `root` field of `config.json` next to the
-//! project root (tilde-expanded), otherwise `$HOME/brain`. The resolved
-//! directory must exist or `brain_root` errors.
+//! Resolution order: first the `root` field of the shared config store
+//! (`~/.config/brain/config.json`, tilde-expanded), otherwise `$HOME/brain`.
+//! The resolved directory must exist or `brain_root` errors.
 //!
 //! The IO-free pieces (`parse_config_root`, `expand_tilde_with_home`) are
 //! split out from the env/filesystem-touching wrappers so they can be unit
@@ -30,13 +30,11 @@ fn default_brain_root() -> Result<PathBuf> {
     Ok(home.join("brain"))
 }
 
-/// Read `config.json` sitting next to the project root (three levels up
-/// from `target/release/brain`). Returns the raw `root` string verbatim
-/// — tilde expansion happens in the caller. A missing file is not an error.
+/// Read the `root` field from the shared config store
+/// (`~/.config/brain/config.json`). Returns the raw string verbatim — tilde
+/// expansion happens in the caller. A missing file is not an error.
 fn config_root() -> Result<Option<String>> {
-    let Some(path) = config_path() else {
-        return Ok(None);
-    };
+    let path = crate::settings::store_path();
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -57,12 +55,6 @@ pub fn parse_config_root(text: &str) -> Result<Option<String>> {
     Ok(cfg.root.filter(|s| !s.is_empty()))
 }
 
-fn config_path() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    // `<root>/target/release/brain` → `<root>/config.json`
-    let project_root = exe.parent()?.parent()?.parent()?;
-    Some(project_root.join("config.json"))
-}
 
 /// Expand a leading `~` / `~/` against `$HOME`. Non-tilde paths pass through.
 pub fn expand_tilde(raw: &str) -> Result<PathBuf> {

@@ -141,12 +141,13 @@ The "Create PDF" command (palette row / `Ctrl-G` on a `.md` file) converts the
 highlighted markdown to a colocated same-name PDF and opens it. It reuses the
 user's existing converter rather than reimplementing PDF generation.
 
-The user's `markdown-to-pdf` is a zsh **function** (a `jpsyx`-generated
-wrapper), which a child process can't call, so `open_target::create_pdf`
-invokes the same script that function wraps directly:
-`~/src/jpsyx/jpsyx-configs/jpsyx_modules/markdown-to-pdf/run.sh <file.md>
---out <file.pdf>`. The output path is `open_target::pdf_output_path` (same
-directory, same stem, `.pdf`).
+`markdown-to-pdf` is a hard prerequisite. Its path is the config variable
+`markdown_to_pdf_path`, auto-discovered on first run and validated at startup
+(see [config.md](config.md) and `settings.rs`); a missing/invalid path fails
+fast with a red error. `open_target::create_pdf` spawns that command directly
+(`<file.md> --out <file.pdf>`) — invoking the command, not any shell-function
+wrapper, since a child process can't call a shell function. The output path is
+`open_target::pdf_output_path` (same directory, same stem, `.pdf`).
 
 - **Same-name guarantee.** The converter's non-interactive mode does *not*
   overwrite an existing PDF — it writes a `-vN` variant. To keep the output

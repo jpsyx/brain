@@ -16,7 +16,7 @@
 # `brain --help` etc. still work.
 #
 # Use `brain --help` for full options. Rebuild manually with:
-#   ( cd ~/src/jpsyx/brain && cargo build --release )
+#   ( cd path/to/brain && cargo build --release )
 brain() {
   emulate -L zsh
   setopt local_options pipefail

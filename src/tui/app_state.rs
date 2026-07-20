@@ -355,7 +355,7 @@ impl<'a> App<'a> {
         let Some(task) = self.selected_task.and_then(|i| self.visible_tasks.get(i)) else {
             return LinkKind::None;
         };
-        let links = task_links(task, &self.config.linear_base_url);
+        let links = task_links(task, &self.config.linear_base_url());
         classify_links(task, &links)
     }
 

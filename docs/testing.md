@@ -25,6 +25,11 @@ first move is a failing test that reproduces it, *then* the fix.
   (text vs blob, case-insensitivity, extensionless), `finder_target`,
   `open_target::is_markdown` (strictly `.md`) and `pdf_output_path`
   (colocated same-stem `.pdf`).
+- **The config store (`settings.rs`).** Schema resolution against an explicit
+  map (defaults vs overrides — never the real store), the `config list` table
+  layout and coloring, value coercion (`4`→number), name normalization, the
+  `markdown-to-pdf` prerequisite message wording, and mining an executable path
+  out of shell output (a function-wrapper body, ignoring terminal noise).
 - **The fuzzy picker's brains.** `HaystackBuf` slug normalization and the
   char→byte highlight map, `char_positions_to_byte_positions`, `refilter`
   (empty query keeps all; substring across stripped slugs; no-hit yields
@@ -111,7 +116,7 @@ first move is a failing test that reproduces it, *then* the fix.
 
 | Location | Scope |
 | --- | --- |
-| `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, open_target, picker, menu, confirm, render, plan, entry). |
+| `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, plan, entry). |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 
@@ -141,7 +146,7 @@ the `#[cfg(test)]` block (unit) or inside the integration test file.
 
 ```sh
 # everything (fast — well under a second)
-( cd ~/src/jpsyx/brain && cargo test --release )
+( cd path/to/brain && cargo test --release )
 
 # one module's unit tests
 cargo test --release picker::

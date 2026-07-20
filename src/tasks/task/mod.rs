@@ -126,13 +126,13 @@ impl Task {
     }
 
     /// Full Linear issue URL for this task, or `None` when it carries no
-    /// identifier. `base` is the workspace issue prefix (e.g.
-    /// `https://linear.app/avandar/issue/`); the trimmed identifier is
-    /// appended to it.
+    /// identifier or no workspace is configured. `base` is the workspace issue
+    /// prefix (e.g. `https://linear.app/acme/issue/`); an empty `base` means no
+    /// Linear workspace is set, so no link is produced.
     #[must_use]
     pub fn linear_url(&self, base: &str) -> Option<String> {
         let id = self.linear_issue.trim();
-        if id.is_empty() {
+        if id.is_empty() || base.is_empty() {
             return None;
         }
         Some(format!("{base}{id}"))
@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn linear_url_none_when_empty_or_whitespace() {
-        let base = "https://linear.app/avandar/issue/";
+        let base = "https://linear.app/acme/issue/";
         let mut t = test_task("T1", "not_started");
         assert_eq!(t.linear_url(base), None);
         t.linear_issue = "   ".to_owned();
@@ -310,13 +310,21 @@ mod tests {
     }
 
     #[test]
+    fn linear_url_none_when_no_workspace_configured() {
+        // An empty base means no Linear workspace is set → no link.
+        let mut t = test_task("T1", "not_started");
+        t.linear_issue = "AVA-123".to_owned();
+        assert_eq!(t.linear_url(""), None);
+    }
+
+    #[test]
     fn linear_url_joins_base_and_trimmed_identifier() {
-        let base = "https://linear.app/avandar/issue/";
+        let base = "https://linear.app/acme/issue/";
         let mut t = test_task("T1", "not_started");
         t.linear_issue = "  AVA-123 ".to_owned();
         assert_eq!(
             t.linear_url(base).as_deref(),
-            Some("https://linear.app/avandar/issue/AVA-123"),
+            Some("https://linear.app/acme/issue/AVA-123"),
         );
     }
 

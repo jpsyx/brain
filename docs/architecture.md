@@ -57,7 +57,9 @@ the parent shell. See [decisions.md](decisions.md) for *why*, and
 ```
 argv
  └─→ Cli::parse                          (cli.rs)
-      └─→ paths::brain_root              (config.json → root, else $HOME/brain)
+      ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
+      └─→ settings::ensure_markdown_to_pdf (prereq gate: config path, else discover; red ❌ + exit if unresolved)
+      └─→ paths::brain_root              (store's root → else $HOME/brain)
            ├─ no subcommand, no args ─→ tasks_launch(default)  → tui::run_tui (MERGED SHELL)
            ├─ no subcommand + args   ─→ search(all buckets)    (one-shot picker)
            ├─ Cmd::Pr/Ar/Re          ─→ bucket(): cd (no query) | search (query)
@@ -109,15 +111,26 @@ path into plan directives.
 ### `cli.rs`
 The clap derive surface. `Cli` has free-form `args` plus an optional
 `Cmd`. `Cmd` covers `Pr` / `Ar` / `Re` (each with visible aliases),
-`S` (search), `Cd`, `Msg`, and `Tasks`. `QueryArgs` is a `Vec<String>`
-joined with spaces into the initial picker query / claude message.
+`S` (search), `Cd`, `Msg`, `Tasks`, and `Config` (with a `list`/`get`/`set`
+subcommand). `QueryArgs` is a `Vec<String>` joined with spaces into the initial
+picker query / claude message.
 
 ### `paths.rs`
-Brain-root resolution. `brain_root()` reads `config.json`'s `root`
+Brain-root resolution. `brain_root()` reads the config store's `root`
 (tilde-expanded) or falls back to `$HOME/brain`, erroring if the result
 isn't a directory. The IO-free pieces (`parse_config_root`,
 `expand_tilde_with_home`) are split out so they're unit-testable without a
 real `$HOME` or config file. See [config.md](config.md).
+
+### `settings.rs`
+The persistent config store (`~/.config/brain/config.json`) and the
+`brain config` command. Owns the raw JSON read/modify/write, the declared-
+variable schema, get/set/list (with the aligned, colored `config list` table),
+and the `markdown-to-pdf` prerequisite: auto-discovery (PATH → conventional bin
+dirs → login-shell resolution of a function wrapper), validation, and the
+fail-fast red-`❌` startup gate. Pure decision helpers (schema resolution, table
+layout, message wording, shell-output parsing) are unit-tested; the IO shells
+are thin. See [config.md](config.md).
 
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =
@@ -219,10 +232,11 @@ The app-level main-view axis: the `MainView` enum (`Tasks` / `BrainSearch`),
 the results.
 
 ### `config.rs`
-Runtime config loaded from `config.json` (walks up from the exe). Fields:
-`daily_triage_name_pattern`, `linear_base_url`, `day_rollover_hour`. Missing
-file/fields fall back to defaults. (Root resolution stays in `paths.rs`, which
-reads the same file's `root` — serde ignores the fields each doesn't use.)
+Typed view of the tasks-shell knobs, deserialized from the shared config store
+(see `settings.rs`). Fields: `daily_triage_name_pattern`, `linear_workspace`,
+`day_rollover_hour`; `linear_base_url()` interpolates the workspace slug into
+the full issue-URL prefix. Missing file/fields fall back to defaults, and
+unknown keys (`root`, `markdown_to_pdf_path`, read elsewhere) are ignored.
 
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`
@@ -304,7 +318,7 @@ The `brain` zsh function rebuilds `target/release/brain` whenever
 The user never types `cargo run`. Manual rebuild:
 
 ```sh
-( cd ~/src/jpsyx/brain && cargo build --release )
+( cd path/to/brain && cargo build --release )
 ```
 
 ## Invariants the code depends on

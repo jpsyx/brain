@@ -48,19 +48,21 @@ plan. Details: [docs/architecture.md](docs/architecture.md) and
 
 ## Configuration
 
-Point `brain` at a brain directory via `config.json`:
+Settings live in `~/.config/brain/config.json`, managed with `brain config`:
 
-```json
-{ "root": "~/brain" }
+```sh
+brain config list                 # every variable, value, and description
+brain config set root=~/brain     # point brain at a different brain directory
 ```
 
-Defaults to `$HOME/brain`. See [docs/config.md](docs/config.md).
+`root` defaults to `$HOME/brain`. Note: `markdown-to-pdf` is a prerequisite
+(auto-discovered on first run). See [docs/config.md](docs/config.md).
 
 ## Developing
 
 ```sh
-( cd ~/src/jpsyx/brain && cargo test --release )       # full suite (<1s)
-( cd ~/src/jpsyx/brain && cargo clippy --release --all-targets )
+( cd path/to/brain && cargo test --release )       # full suite (<1s)
+( cd path/to/brain && cargo clippy --release --all-targets )
 ```
 
 We follow **red/green TDD**: no production code without a failing test
@@ -75,6 +77,6 @@ changing code — and update the docs in the same change.
 - [docs/data-model.md](docs/data-model.md) — buckets, entries, fuzzy matching
 - [docs/keybindings.md](docs/keybindings.md) — menu + picker key tables
 - [docs/integrations.md](docs/integrations.md) — the wrapper, `tasks`, claude
-- [docs/config.md](docs/config.md) — `config.json` and root resolution
+- [docs/config.md](docs/config.md) — the config store, `brain config`, and root resolution
 - [docs/testing.md](docs/testing.md) — TDD doctrine and test layout
 - [docs/decisions.md](docs/decisions.md) — the "why" behind the design

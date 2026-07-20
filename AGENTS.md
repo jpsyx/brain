@@ -1,6 +1,6 @@
 # AGENTS.md
 
-You are an AI agent working in `~/src/jpsyx/brain/`. This file is the
+You are an AI agent working in the `brain` repo. This file is the
 single entry point for anything an agent needs to know about the project.
 **Read it before changing code.** (Other agent tools — Codex, opencode,
 Cursor — also resolve `AGENTS.md`; `CLAUDE.md` is a symlink to this file
@@ -55,7 +55,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
 | The plan protocol or the `cl`/`open`/`edit` path | `docs/integrations.md` **and** the `brain` wrapper's `case` |
 | The SessionStart hook, state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/claude_session_start_hook.py`, `scripts/install_hook.sh`, `src/state.rs` |
-| `config.json` schema or root resolution | `docs/config.md` (fields split across `src/config.rs` + `src/paths.rs`) |
+| Config schema, the `brain config` command, the `markdown-to-pdf` prerequisite, or root resolution | `docs/config.md` (store + schema + discovery in `src/settings.rs`; typed knobs in `src/config.rs`; root in `src/paths.rs`) |
 | Testing strategy, what we test vs. skip | `docs/testing.md` |
 | A non-obvious design choice | `docs/decisions.md` |
 
@@ -86,14 +86,14 @@ mocking the terminal or the filesystem. See
 brain
 
 # manual rebuild
-( cd ~/src/jpsyx/brain && cargo build --release )
+( cd path/to/brain && cargo build --release )
 
 # headless smoke test of the plan output (no TUI on these paths)
 ./target/release/brain tasks   # → prints `tasks=1`
 ./target/release/brain cd      # → prints `cd=<root>`
 
 # the full test suite — runs in well under a second
-( cd ~/src/jpsyx/brain && cargo test --release )
+( cd path/to/brain && cargo test --release )
 
 # one module's unit tests / one integration file
 cargo test --release picker::
@@ -103,8 +103,8 @@ cargo test --release --test entry_collect
 cargo clippy --release --all-targets
 ```
 
-The `brain` zsh function at `~/src/jpsyx/brain/brain` is the user's entry
-point. They never type `cargo run`.
+The `brain` zsh function (the `brain` wrapper at the repo root) is the
+user's entry point. They never type `cargo run`.
 
 ## Quick orientation for new agents
 
@@ -136,5 +136,6 @@ point. They never type `cargo run`.
   make me ask for it.
 - **Comments only when the *why* is non-obvious.** The function name and
   the docs cover the *what*.
-- **This repo is not under git.** No PR review, no decision-log file, no
-  `.difit/` directory. `docs/` is the durable record.
+- **`docs/` is the durable record.** The repo is under git, but we keep no
+  `.difit/` decision-log file: design rationale goes in `docs/decisions.md`,
+  not a per-branch scratch file.

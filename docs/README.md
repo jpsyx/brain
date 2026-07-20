@@ -1,7 +1,7 @@
 # `brain` docs — index
 
 > **For LLM agents:** Read this directory before changing code in
-> `~/src/jpsyx/brain/`. Every command, menu item, keybinding, and
+> `path/to/brain/`. Every command, menu item, keybinding, and
 > integration with the outside world is documented here. **If you add a
 > feature or change architecture, update these docs in the same change.**
 > See `../AGENTS.md` for the contract.
@@ -31,8 +31,8 @@ The code is the source-of-truth for *how*. They must agree on *what*.
 5. **[integrations.md](integrations.md)** — the zsh wrapper, the
    `cd`/`claude`/`open`/`edit` directives, the tasks-view shell-outs, and
    the unified SessionStart hook / state DB.
-6. **[config.md](config.md)** — `config.json` schema and root
-   resolution order.
+6. **[config.md](config.md)** — the config store, the `brain config`
+   command, the `markdown-to-pdf` prerequisite, and root resolution.
 7. **[testing.md](testing.md)** — the red/green TDD doctrine, what we
    test (and deliberately don't), and the test layout.
 8. **[decisions.md](decisions.md)** — the "why" behind the non-obvious
@@ -46,7 +46,8 @@ src/
   main.rs        — entry point, command dispatch (bare brain → tui::run)
   lib.rs         — public re-exports for integration tests
   cli.rs         — clap surface (Cli + Cmd + QueryArgs)
-  paths.rs       — brain-root resolution (config.json / $HOME, tilde expand)
+  paths.rs       — brain-root resolution (config store / $HOME, tilde expand)
+  settings.rs    — config store + `brain config` + markdown-to-pdf prereq
   entry.rs       — Bucket + Entry; walkdir collection with hidden filter
   tui.rs         — persistent two-panel shell (search + claude brain panel)
   pty_pane.rs    — PTY-backed brain panel (portable-pty + vt100)
@@ -63,7 +64,7 @@ tests/
   entry_collect.rs   — entry::collect against real temp dir trees
   root_resolution.rs — config parse + tilde expansion composition
 brain            — the zsh wrapper function (user's entry point)
-config.json      — runtime config (see config.md)
+config.example.json — sample config; the real store is ~/.config/brain/ (see config.md)
 docs/            — this directory
 AGENTS.md        — agent contract (root)
 CLAUDE.md        — symlink → AGENTS.md

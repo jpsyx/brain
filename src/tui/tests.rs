@@ -113,7 +113,7 @@ use std::sync::Mutex;
 
     // --- task_links ---
 
-    const LINEAR_BASE: &str = "https://linear.app/avandar/issue/";
+    const LINEAR_BASE: &str = "https://linear.app/acme/issue/";
 
     #[test]
     fn task_links_linear_first_then_notes_urls() {
@@ -125,7 +125,7 @@ use std::sync::Mutex;
         assert_eq!(
             urls,
             vec![
-                "https://linear.app/avandar/issue/AVA-123",
+                "https://linear.app/acme/issue/AVA-123",
                 "https://spec.example.com",
                 "https://design.example.com",
             ]
@@ -139,7 +139,7 @@ use std::sync::Mutex;
         t.linear_issue = "AVA-123".to_owned();
         let links = task_links(&t, LINEAR_BASE);
         assert_eq!(links.len(), 1);
-        assert_eq!(links[0].url, "https://linear.app/avandar/issue/AVA-123");
+        assert_eq!(links[0].url, "https://linear.app/acme/issue/AVA-123");
     }
 
     #[test]
@@ -157,14 +157,14 @@ use std::sync::Mutex;
     fn task_links_picks_up_see_also_url_before_notes() {
         // The real T90 shape: the only link lives in `see_also`, not `notes`.
         let mut t = test_task("T90", "not_started"); // no linear_issue
-        t.see_also = "https://www.notion.so/pablosarmiento/Call-abc".to_owned();
+        t.see_also = "https://www.notion.so/workspace/Call-abc".to_owned();
         t.notes = "later ref https://docs.example.com".to_owned();
         let links = task_links(&t, LINEAR_BASE);
         let urls: Vec<&str> = links.iter().map(|l| l.url.as_str()).collect();
         assert_eq!(
             urls,
             vec![
-                "https://www.notion.so/pablosarmiento/Call-abc",
+                "https://www.notion.so/workspace/Call-abc",
                 "https://docs.example.com",
             ]
         );
@@ -181,7 +181,7 @@ use std::sync::Mutex;
         let mut t = test_task("T9", "not_started");
         t.linear_issue = "AVA-9".to_owned();
         // Notes repeat the Linear URL — it must not be listed twice.
-        t.notes = "tracking https://linear.app/avandar/issue/AVA-9 here".to_owned();
+        t.notes = "tracking https://linear.app/acme/issue/AVA-9 here".to_owned();
         let links = task_links(&t, LINEAR_BASE);
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].label, "Linear AVA-9");

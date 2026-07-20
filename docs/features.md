@@ -151,9 +151,31 @@ overlay and returns to the underlying search (no cd, no claude, no error).
 | `brain cd` | — | cd into the brain root | — |
 | `brain msg <prompt>` | — | cd into `~/brain`, open claude empty | cd + open claude with `<prompt>` |
 | `brain tasks` | — | run the `tasks` TUI | — |
+| `brain config` | — | list config (see below) | `get`/`set` subcommands |
 
 Bare positional input with no matching subcommand becomes a global search:
 `brain rust borrow` is equivalent to `brain s rust borrow`.
+
+### `brain config`
+
+Reads and writes brain's persistent config (`~/.config/brain/config.json`):
+
+- `brain config list` (or bare `brain config`) — aligned table of every
+  variable, its effective value, and its description.
+- `brain config get <name>` — the effective value of one variable.
+- `brain config set <name>=<value>` — set and persist a variable (unknown
+  names rejected).
+
+`config` runs before the `markdown-to-pdf` prerequisite gate, so it always
+works even when that tool is missing. See [config.md](config.md) for the schema
+and the prerequisite/auto-discovery rules.
+
+### Prerequisite: `markdown-to-pdf`
+
+Every command except `brain config` fails fast with a red `❌` error if the
+`markdown-to-pdf` command can't be resolved (it's needed for "Create PDF").
+Its path is auto-discovered on first run and stored as `markdown_to_pdf_path`;
+see [config.md](config.md).
 
 ## The fuzzy picker
 

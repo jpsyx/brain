@@ -72,7 +72,7 @@ impl App<'_> {
         let Some(task) = task else {
             return;
         };
-        let links = task_links(task, &self.config.linear_base_url);
+        let links = task_links(task, &self.config.linear_base_url());
         match links.len() {
             0 => {}
             1 => {

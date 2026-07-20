@@ -389,16 +389,36 @@ stale list until the next scope switch. So those actions call `App::refresh`
 where a scope switch (`set_entries`) clears it, because a refresh is "same
 view, newer data" rather than "new view".
 
-## Why the binary calls `run.sh` directly, not the zsh function
+## Why `markdown-to-pdf` is a discovered, configurable command
 
-The user's `markdown-to-pdf` is a zsh **function** (a `jpsyx`-generated
-wrapper), which a child process can't invoke. Rather than shell out to an
-interactive `zsh -ic` (slow, sources the whole rc, risks leaking output onto
-our `/dev/tty`), we call the same `run.sh` the function itself execs, with
-`--out`. It's the identical tool and styling; only the un-callable zsh wrapper
-is bypassed. This is the one place `brain` hardcodes a sibling script path
-(`~/src/jpsyx/jpsyx-configs/jpsyx_modules/markdown-to-pdf/`), consistent with
-how it already assumes `~/brain` and iTerm2.
+`markdown-to-pdf` is often installed as a shell **function** (an autoloaded
+wrapper), which a child process can't invoke, so the binary needs a concrete
+executable to spawn. Rather than shell out to an interactive `zsh -ic` on every
+conversion (slow, sources the whole rc, risks leaking output onto our
+`/dev/tty`), `brain` stores the tool's path as a config variable
+(`markdown_to_pdf_path`) and spawns it directly with `<file.md> --out`.
+
+The path is not hardcoded (the repo is public). On first run it is
+**auto-discovered** (PATH, then conventional bin dirs, then a one-shot login
+shell that resolves an autoloaded function to the script it wraps) and
+persisted. A missing or invalid path is a hard, fail-fast error pointing at
+`brain config set markdown_to_pdf_path=…`. See `settings.rs`.
+
+## Why `linear_workspace` is a slug, not a full URL
+
+The Linear link config is the **workspace slug** (e.g. `acme`), not the whole
+`https://linear.app/<slug>/issue/` prefix. The slug is the only part that
+varies per user; brain owns the URL shape, so a user configures the minimum and
+can't get the surrounding format wrong. `Config::linear_base_url` interpolates
+it, and an empty slug simply omits Linear links.
+
+## Why config lives in `~/.config/brain/`, not the repo
+
+The store is machine-local and writable (auto-discovery persists into it), and
+the repo is public — so shipping a real `config.json` in the checkout would
+both leak machine-specific values and fight the auto-write. Config therefore
+lives at `~/.config/brain/config.json` (XDG-respecting), managed by
+`brain config`, and never tracked.
 
 ## Why `Ctrl-N` sends `/new` instead of being forwarded to claude
 

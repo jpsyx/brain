@@ -33,7 +33,7 @@ use clap::{Args, Parser, Subcommand};
                                                empty.\n\
                   \n\
                     cd                         cd into the brain root\n\
-                                               (configured in config.json).\n\
+                                               (configured via `brain config`).\n\
                   \n\
                     msg <prompt>               cd into ~/brain and hand <prompt>\n\
                                                to claude (via the `cl` alias)\n\
@@ -81,7 +81,7 @@ pub enum Cmd {
     #[command(visible_alias = "search")]
     S(QueryArgs),
 
-    /// cd into the brain root (path configured in config.json).
+    /// cd into the brain root (path configured via `brain config`).
     Cd,
 
     /// Hand the message to claude (via the `cl` alias) as the opening prompt.
@@ -95,6 +95,31 @@ pub enum Cmd {
     /// `brain tasks search lamaze` all work. Bare `brain` is equivalent to
     /// `brain tasks` (the tasks view is the startup default).
     Tasks(TasksArgs),
+
+    /// Read or change brain's persistent config (`~/.config/brain/config.json`).
+    Config(ConfigArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub action: Option<ConfigAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigAction {
+    /// Print every config variable, its value, and its description as a table.
+    List,
+    /// Print the effective value of one variable.
+    Get {
+        /// Variable name (e.g. `linear_workspace`).
+        name: String,
+    },
+    /// Set a variable: `brain config set <name>=<value>`.
+    Set {
+        /// A single `name=value` assignment.
+        assignment: String,
+    },
 }
 
 #[derive(Args, Debug)]

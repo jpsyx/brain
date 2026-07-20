@@ -19,6 +19,8 @@ use std::process::Command;
 
 use anyhow::{Result, bail};
 
+use crate::settings;
+
 /// Is this an editable text file?
 ///
 /// Conservative allowlist of extensions we consider editable text. Files
@@ -68,34 +70,20 @@ pub fn pdf_output_path(md: &Path) -> PathBuf {
     md.with_extension("pdf")
 }
 
-/// The underlying `markdown-to-pdf` script the user's zsh function execs.
-///
-/// A zsh function isn't callable from a child process, so we invoke the same
-/// `run.sh` it wraps directly. The tool now lives as a `jpsyx` module; its
-/// `run.sh` takes the same `<file.md> --out <file.pdf>` interface. Resolved
-/// under `$HOME`.
-fn markdown_to_pdf_script() -> PathBuf {
-    let home = std::env::var_os("HOME").map_or_else(PathBuf::new, PathBuf::from);
-    home.join("src")
-        .join("jpsyx")
-        .join("jpsyx-configs")
-        .join("jpsyx_modules")
-        .join("markdown-to-pdf")
-        .join("run.sh")
-}
-
 /// Convert a markdown file to a colocated same-name PDF and return its path.
 ///
-/// The converter's non-interactive mode writes a `-vN` variant rather than
-/// overwriting, so to guarantee the exact same-name output we drop any
-/// existing PDF at the target path first. Blocking (a deliberate action); the
-/// caller opens the result and keeps its shell up.
+/// The `markdown-to-pdf` command is resolved from config (see
+/// [`crate::settings`]); its `run.sh`-style interface takes `<file.md> --out
+/// <file.pdf>`. The converter's non-interactive mode writes a `-vN` variant
+/// rather than overwriting, so to guarantee the exact same-name output we drop
+/// any existing PDF at the target path first. Blocking (a deliberate action);
+/// the caller opens the result and keeps its shell up.
 pub fn create_pdf(md: &Path) -> Result<PathBuf> {
     let out = pdf_output_path(md);
     if out.exists() {
         std::fs::remove_file(&out)?;
     }
-    let status = Command::new(markdown_to_pdf_script())
+    let status = Command::new(settings::markdown_to_pdf_command()?)
         .arg(md)
         .arg("--out")
         .arg(&out)

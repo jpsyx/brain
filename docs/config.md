@@ -1,76 +1,83 @@
 # Configuration
 
-`brain` reads a single optional file, `config.json`, sitting at the
-project root (next to the `brain` wrapper and `Cargo.toml`).
+`brain` keeps its settings in a single JSON file,
+`~/.config/brain/config.json` (or `$XDG_CONFIG_HOME/brain/config.json` when
+that is set). It is machine-local and created on demand — you don't commit it,
+and a fresh checkout has none. Manage it with `brain config` rather than
+editing it by hand (though hand-editing is fine).
+
+## The `brain config` command
+
+| Command | Effect |
+| --- | --- |
+| `brain config list` | Print every variable, its effective value, and its description as an aligned table. Bare `brain config` also lists. |
+| `brain config get <name>` | Print the effective value of one variable (explicit value, else built-in default). |
+| `brain config set <name>=<value>` | Set a variable and persist it. Unknown names are rejected. Numeric/boolean values are stored with their JSON type. |
+
+Names are normalized (lowercased, `-`→`_`), so `brain config set Linear-Workspace=acme` works.
 
 ## Schema
 
-```json
-{
-  "root": "~/brain",
-  "daily_triage_name_pattern": "Morning Triage",
-  "linear_base_url": "https://linear.app/avandar/issue/",
-  "day_rollover_hour": 6
-}
-```
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `root` | `~/brain` | The brain (PARA) directory `brain` operates on. A leading `~`/`~/` is expanded against `$HOME`. Read by `paths.rs`. |
+| `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
+| `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command brain spawns for the "Create PDF" action. See below. Read by `settings.rs`. |
+| `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
+| `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
 
-| Field | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `root` | string (optional) | `$HOME/brain` | The brain directory `brain` operates on. A leading `~` / `~/` is expanded against `$HOME`. Read by `paths.rs`. |
-| `daily_triage_name_pattern` | string | `"Morning Triage"` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables the check. Read by `config.rs`. |
-| `linear_base_url` | string | `https://linear.app/avandar/issue/` | Prefix a task's `linear_issue` identifier is appended to for the `Ctrl+O` "open link" action. Read by `config.rs`. |
-| `day_rollover_hour` | int 0-23 | `6` | Local hour the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
+Every variable is optional; a missing file or missing field falls back to the
+default above. `root` is read by `paths.rs`; the tasks-shell knobs by
+`config.rs::Config`; `markdown_to_pdf_path` by `settings.rs`. They all read the
+same file and ignore fields they don't use.
 
-Every field is optional; a missing field, a missing `config.json`, or a blank
-`root` all fall back to the defaults above. `root` is parsed by `paths.rs`; the
-other three by `config.rs::Config` (both read the same file and ignore fields
-they don't use).
+## The `markdown-to-pdf` prerequisite
 
-## Resolution order (`paths.rs`)
+`markdown-to-pdf` is a **hard prerequisite** — brain spawns it for the "Create
+PDF" command. Its location is not hardcoded (the repo is public), so:
+
+1. On first run brain **auto-discovers** it, in order: an executable named
+   `markdown-to-pdf` on `$PATH`; then conventional bin dirs (`~/.local/bin`,
+   `/usr/local/bin`, `/opt/homebrew/bin`, `~/bin`); then the login shell, which
+   resolves an autoloaded shell-function wrapper to the script it wraps.
+2. The first hit is persisted to `markdown_to_pdf_path`.
+3. At every startup the configured path is validated. If it is unset and
+   discovery finds nothing, or it is set but missing/not executable, brain
+   prints a red `❌` error and exits, telling you to run
+   `brain config set markdown_to_pdf_path=/path/to/markdown-to-pdf`.
+
+The `brain config …` command itself is exempt from this gate, so you can always
+`config set` your way out of a bad path.
+
+## Resolution order for `root` (`paths.rs`)
 
 `brain_root()` resolves the root like this:
 
-1. Locate `config.json`: from the running exe
-   (`<root>/target/release/brain`), walk up three parents to `<root>` and
-   look for `config.json`. A missing file is **not** an error.
-2. Parse it (`parse_config_root`): read the `root` field. An empty string
-   is treated as unset (`None`). Invalid JSON **is** an error (surfaced
-   with the file path).
-3. If a non-empty `root` was found, expand its tilde
-   (`expand_tilde` → `$HOME`-relative for `~`/`~/…`, verbatim otherwise).
-   Only a *leading* `~` is a home reference; `/a/~/b` is left alone.
-4. Otherwise fall back to `$HOME/brain`.
-5. The resolved path must be an existing directory, or `brain_root` errors
-   with `"<path> does not exist"`.
+1. Read the `root` field from the config store. A missing file is **not** an
+   error; invalid JSON **is** (surfaced with the file path).
+2. An empty string is treated as unset. A non-empty `root` has its tilde
+   expanded (`~`/`~/…` against `$HOME`; only a *leading* `~` counts — `/a/~/b`
+   is left alone).
+3. Otherwise fall back to `$HOME/brain`.
+4. The resolved path must be an existing directory, or `brain_root` errors with
+   `"<path> does not exist"`.
 
-## Testing the loader
+## Testing the loaders
 
-The IO-touching wrapper (`brain_root`, which reads the exe path, the file,
-and `$HOME`) is deliberately thin. The decisions worth testing are pulled
-into pure functions:
+The IO-touching wrappers are thin; the decisions worth testing are pure:
 
-- `parse_config_root(text) -> Result<Option<String>>` — JSON parsing and
-  the empty-string-is-unset rule.
-- `expand_tilde_with_home(raw, home) -> PathBuf` — tilde expansion against
-  an explicit home, so tests don't depend on the real `$HOME`.
+- `settings.rs` units — schema resolution, the `config list` table layout, the
+  prerequisite message wording, shell-output path extraction, value coercion.
+- `paths::parse_config_root` — reading the `root` field, empty-is-unset.
+- `paths::expand_tilde_with_home` — tilde expansion against an explicit home.
+- `config.rs` units — `linear_base_url` interpolation, defaults, ignoring
+  unknown keys.
 
-See `src/paths.rs` unit tests and `tests/root_resolution.rs`.
-
-## Changing the root
-
-Point `brain` at a different second-brain location by editing
-`config.json`:
-
-```json
-{ "root": "/Volumes/work/brain" }
-```
-
-No rebuild needed for a config change — the binary reads it at startup.
-(Editing `.rs` files does trigger the wrapper's auto-rebuild.)
+See those modules' unit tests and `tests/root_resolution.rs`.
 
 ## Persistent state (`~/.cache/brain/state.db`)
 
-`config.json` is the only *user-edited* config. The **persistent brain
+The config store is the only *user-edited* config. The **persistent brain
 shell** also keeps machine-managed state in a SQLite DB at
 `~/.cache/brain/state.db` (created on first run; see `state.rs` and
 [data-model.md](data-model.md)):

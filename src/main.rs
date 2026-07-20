@@ -38,6 +38,7 @@ mod plan;
 mod pty_pane;
 mod render;
 mod session;
+mod settings;
 mod state;
 mod tasks;
 mod tui;
@@ -45,11 +46,11 @@ mod tui;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use chrono::{Local, NaiveDate};
 use clap::Parser;
 
-use crate::cli::{Cli, Cmd, QueryArgs};
+use crate::cli::{Cli, Cmd, ConfigAction, ConfigArgs, QueryArgs};
 use crate::entry::Bucket;
 use crate::menu::Choice;
 use crate::picker::{Outcome, Selection};
@@ -59,6 +60,19 @@ use crate::tasks::view::View;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // `brain config …` manages the store itself, so it must run *before* the
+    // prerequisite gate — otherwise you could never `config set` your way out
+    // of a missing `markdown-to-pdf`.
+    if let Some(Cmd::Config(args)) = &cli.command {
+        return config_command(args);
+    }
+
+    // `markdown-to-pdf` is a hard prerequisite (brain runs it for the
+    // Create-PDF flow). Its path is a config variable, auto-discovered and
+    // persisted on first run; fail fast with a helpful message if it can't be
+    // resolved. Runs after clap has handled `--help`/`--version`.
+    settings::ensure_markdown_to_pdf();
     let brain = paths::brain_root()?;
 
     match cli.command {
@@ -91,7 +105,42 @@ fn main() -> Result<()> {
             );
             tasks_launch(TasksCli::parse_from(rewritten))
         }
+        // Handled before the prerequisite gate above.
+        Some(Cmd::Config(_)) => unreachable!("config is dispatched before the gate"),
     }
+}
+
+/// Handle `brain config {list|get|set}`. Output goes to stdout (the wrapper
+/// passes non-plan lines straight through); `get` on an unset variable notes
+/// so on stderr. Bare `brain config` lists.
+fn config_command(args: &ConfigArgs) -> Result<()> {
+    match args.action.as_ref().unwrap_or(&ConfigAction::List) {
+        ConfigAction::List => {
+            print!(
+                "{}",
+                settings::render_list(&settings::resolve_all(), settings::color_enabled())
+            );
+        }
+        ConfigAction::Get { name } => {
+            let name = settings::normalize_name(name);
+            match settings::resolve_one(&name) {
+                Some(v) => println!("{v}"),
+                None => eprintln!("{name} is unset"),
+            }
+        }
+        ConfigAction::Set { assignment } => {
+            let (raw_name, value) = assignment
+                .split_once('=')
+                .ok_or_else(|| anyhow!("expected name=value, got `{assignment}`"))?;
+            let (name, value) = (settings::normalize_name(raw_name), value.trim());
+            settings::set(&name, value)?;
+            println!(
+                "{}",
+                settings::set_confirmation(&name, value, settings::color_enabled())
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Run the action behind a command-palette choice. The palette itself is a
