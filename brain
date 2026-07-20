@@ -1,0 +1,81 @@
+# `brain` — brain CLI. Cd, fuzzy-pick, or chat with claude from ~/brain.
+#
+# The CLI itself is a small Rust binary that lives next to this file. On
+# first call (or after sources change) we build it with `cargo build
+# --release`. After that, invocation is just an exec of the compiled binary
+# with a thin layer to apply shell-side effects (`cd`, calling the `cl`
+# alias).
+#
+# Protocol with the binary: it prints lines of `key=value` to stdout.
+#   cd=<path>        cd into <path>
+#   claude=<msg>     run `cl <msg>` (via the zsh alias) — always runs when
+#                    this directive is present, even if <msg> is empty
+#   open=<path>      run `open <path>` (system default app / Finder)
+#   edit=<path>      run ${VISUAL:-${EDITOR:-vi}} <path> in this terminal
+# Anything else (clap help, errors) we pass straight through to stdout so
+# `brain --help` etc. still work.
+#
+# Use `brain --help` for full options. Rebuild manually with:
+#   ( cd ~/src/jpsyx/brain && cargo build --release )
+brain() {
+  emulate -L zsh
+  setopt local_options pipefail
+
+  local script_dir bin manifest src_dir
+  script_dir="${${funcsourcetrace[1]%:*}:h}"
+  bin="$script_dir/target/release/brain"
+  manifest="$script_dir/Cargo.toml"
+  src_dir="$script_dir/src"
+
+  if [[ ! -x "$bin" || "$manifest" -nt "$bin" ]] \
+     || [[ -n "$(find "$src_dir" -name '*.rs' -newer "$bin" -print -quit 2>/dev/null)" ]]; then
+    print -ru2 -- "Building brain CLI…"
+    ( cd "$script_dir" && cargo build --release ) || return 1
+  fi
+
+  # Capture stdout; stderr and /dev/tty (the TUI's backend) pass straight
+  # through to the user.
+  local plan rc
+  plan=$("$bin" "$@")
+  rc=$?
+  if (( rc != 0 )); then
+    # Surface any non-plan stdout we already captured (e.g. clap error text)
+    # before bailing.
+    [[ -n "$plan" ]] && print -r -- "$plan"
+    return $rc
+  fi
+
+  local cd_target="" claude_msg="" open_path="" edit_path="" line
+  local -i claude_set=0
+  local -a passthrough
+  while IFS= read -r line; do
+    case "$line" in
+      cd=*)     cd_target="${line#cd=}" ;;
+      claude=*) claude_msg="${line#claude=}"; claude_set=1 ;;
+      open=*)   open_path="${line#open=}" ;;
+      edit=*)   edit_path="${line#edit=}" ;;
+      *)        passthrough+=("$line") ;;
+    esac
+  done <<< "$plan"
+
+  if (( ${#passthrough} > 0 )); then
+    print -rl -- "${passthrough[@]}"
+  fi
+
+  if [[ -n "$cd_target" ]]; then
+    cd "$cd_target" || return 1
+  fi
+  if [[ -n "$open_path" ]]; then
+    open "$open_path"
+  fi
+  if [[ -n "$edit_path" ]]; then
+    "${VISUAL:-${EDITOR:-vi}}" "$edit_path"
+  fi
+  if (( claude_set )); then
+    if [[ -n "$claude_msg" ]]; then
+      eval "${aliases[cl]:-claude} ${(q)claude_msg}"
+    else
+      eval "${aliases[cl]:-claude}"
+    fi
+  fi
+}

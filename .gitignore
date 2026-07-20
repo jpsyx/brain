@@ -1,0 +1,6 @@
+# Rust build artifacts (the "node_modules" of a Cargo project — rebuilt on
+# checkout with `cargo build --release`).
+/target/
+
+# macOS.
+.DS_Store

@@ -1,0 +1,5 @@
+{
+  "root": "~/brain",
+  "daily_triage_name_pattern": "Morning Triage",
+  "linear_base_url": "https://linear.app/avandar/issue/"
+}

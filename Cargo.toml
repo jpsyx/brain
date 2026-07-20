@@ -1,0 +1,76 @@
+[package]
+name = "brain"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
+
+[[bin]]
+name = "brain"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive", "env"] }
+crossterm = "0.28"
+csv = "1.3"
+# The tasks view keeps its own fuzzy matcher (`fuzzy-matcher`) distinct from
+# the brain-search picker's `nucleo-matcher`; the two views were built against
+# different libraries and unifying them is a follow-up, not a merge blocker.
+fuzzy-matcher = "0.3"
+nucleo-matcher = "0.3"
+regex = "1"
+# PTY-backed brain panel: portable-pty spawns the interactive `claude` child,
+# vt100 parses its byte stream into a screen buffer, and tui-term renders that
+# buffer inside ratatui. Mirrors the `tasks` sibling project's stack.
+portable-pty = "0.9"
+# `unstable-rendered-line-info` exposes `Paragraph::line_count`, which the
+# tasks view uses to measure wrapped note height so scroll + selection track
+# wrapped lines correctly.
+ratatui = { version = "0.29", features = ["unstable-rendered-line-info"] }
+# Session-tracking + layout preference persistence shared across multiple
+# `brain` shells and the Claude SessionStart hook. SQLite (WAL) handles the
+# concurrent writers cleanly; `bundled` avoids a system libsqlite dependency.
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tui-term = "0.2"
+# Per-shell brain-instance ids and fresh Claude session ids.
+uuid = { version = "1", features = ["v4"] }
+vt100 = "0.15"
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Help/long_about strings would render literal backticks in the terminal.
+doc_markdown = "allow"
+# Flag-rich CLI option structs are the whole point of clap derive structs.
+struct_excessive_bools = "allow"
+# Tooling-binary; not a library surface that warrants exhaustive doc.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# The tui/ App impl is deliberately split across sibling *private* submodules
+# that reach each other's items; `pub(crate)` + glob re-exports (see
+# `tui/mod.rs`) is the intended pattern, so these two fire pervasively by
+# design rather than flagging real problems.
+redundant_pub_crate = "allow"
+wildcard_imports = "allow"
+# Pre-existing style debt carried in from the ported tasks `tui/`; the code is
+# already tested and behavior-frozen, so these are not worth a risky refactor.
+# (`struct_excessive_bools` above is allowed for the same reason.)
+missing_const_for_fn = "allow"
+too_many_lines = "allow"
+fn_params_excessive_bools = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
