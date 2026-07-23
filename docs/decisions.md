@@ -441,6 +441,52 @@ sitting unsent. Sending the Enter as a distinct keystroke a beat later makes
 claude actually submit it. This mirrors the `tasks` sibling's
 `pending_brain_submit` mechanism (learned there first).
 
+## Why personalization is a separate store inside the brain root
+
+Two settings stores with different lifecycles: machine-local config
+(`~/.config/brain/config.json`: `root`, `claude_cmd`, paths) must **never**
+sync across machines, while personalization (name, role, who you work for, tag
+styles) should be **identical** everywhere. So personalization lives *inside the
+brain root* at `<root>/.config/personalization.json` — it rides along whenever
+the brain dir is synced (the future cloud-sync sub-project), with no special
+casing. It is dot-prefixed so Finder hides it and the picker's hidden-file
+filter already skips it. Tangling the two into one file would force the sync
+layer to either drag machine-local paths between machines or special-case
+individual fields.
+
+## Why tag styles (and identity) are personalization, not hardcoded
+
+The public repo must carry no personal taxonomy. The task renderer's tag →
+emoji+label map used to be a hardcoded `match` full of one user's tags
+(`ceo`, `aa`, `mit`, …). Now the binary ships only a tiny universal default set
+(`mit`, `personal`, `work`) with a raw-name fallback, and every other tag is a
+user override in `tag_styles`. Same for identity: a skill's generic *rule*
+("act as a personal assistant") stays in the skill; the personalized *who* it
+serves ("a CEO at Avandar") is personalization the skill looks up. This is the
+hybrid model — identity is a runtime lookup (`brain personalize show`), so it
+changes instantly without a rebuild, while structural per-user variation is left
+to the skill render pipeline.
+
+## Why mutations call a `resync_skills()` seam (currently a no-op)
+
+Any `config set` / `personalize set` / onboarding change should keep the
+installed skills consistent with the user's values, so every mutation path calls
+a single `skills::resync_skills()` hook. The real render/install pipeline is a
+later sub-project; wiring the seam now (as a no-op) means that sub-project only
+fills in the body, without hunting down every mutation. It must never fail a
+mutation — a `config set` succeeds even if a future render step errors.
+
+## Why the renderer resolves tags via a process cache, not threaded state
+
+`type_label` is on a hot render path with two call sites whose callers fan out
+widely. Rather than thread `&TagStyles` through every render signature, the
+user's styles load once into a process cell (`personalization::runtime`) at
+startup. The *decision* logic (`TagStyles::label`) stays a pure, unit-tested
+function; the cell is only the data supply. Until it is initialized (i.e. in
+unit tests) it falls back to the generic defaults, so tests never see the dev
+machine's personalization and stay hermetic. The running TUI reads styles at
+startup; changing personalization takes effect on the next launch.
+
 ## Why no comments-by-default and no decision log in code
 
 Per the user's house style, new code gets a comment only when the *why* is

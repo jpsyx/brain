@@ -1,0 +1,8 @@
+{
+  "name": "Ada",
+  "role": "engineer",
+  "works_for": "myself",
+  "tag_styles": {
+    "urgent": { "emoji": "🔥", "label": "urgent" }
+  }
+}

@@ -1,10 +1,24 @@
 # Configuration
 
-`brain` keeps its settings in a single JSON file,
-`~/.config/brain/config.json` (or `$XDG_CONFIG_HOME/brain/config.json` when
-that is set). It is machine-local and created on demand — you don't commit it,
+`brain` keeps settings in **two stores with different lifecycles**:
+
+| Store | Path | Holds | Synced across machines? |
+| --- | --- | --- | --- |
+| Machine-local config | `~/.config/brain/config.json` (or `$XDG_CONFIG_HOME/brain/config.json`) | paths + runtime knobs (`root`, `claude_cmd`, `markdown_to_pdf_path`, …) | **No** — per-machine |
+| Personalization | `<root>/.config/personalization.json` | content *about you* (name, role, who you work for, tag styles) | **Yes** — travels with the brain dir |
+
+The seam matters: machine-local settings (like the `root` path itself) must
+never sync, while personalization should be identical on every machine, so it
+lives *inside the brain root* and rides along when the brain dir is synced. The
+personalization dir is dot-prefixed (`.config/`), so Finder hides it and the
+picker's hidden-file filter skips it.
+
+This document is mostly about the **machine-local config store**
+(`~/.config/brain/config.json`). It is created on demand — you don't commit it,
 and a fresh checkout has none. Manage it with `brain config` rather than
-editing it by hand (though hand-editing is fine).
+editing it by hand (though hand-editing is fine). For personalization see the
+[Personalization](#personalization) section below and
+[data-model.md](data-model.md).
 
 ## The `brain config` command
 
@@ -79,6 +93,27 @@ The IO-touching wrappers are thin; the decisions worth testing are pure:
   keys.
 
 See those modules' unit tests and `tests/root_resolution.rs`.
+
+## Personalization
+
+Personalization is the second store: content *about you*, at
+`<root>/.config/personalization.json` (resolved against the configured `root`).
+Unlike the machine-local config it is meant to be identical on every machine and
+syncs with the brain dir. Manage it with `brain personalize` (see
+[features.md](features.md)); the schema lives in [data-model.md](data-model.md).
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Optional display name. |
+| `role` | Free-text role the assistant serves (e.g. `CEO`, `engineer`, `student`). The generic *rule* "act as a personal assistant" stays in the skill; only the *who* is personalized. |
+| `works_for` | Org you work for, `myself`, or empty. |
+| `tag_styles` | Map of `tag → { emoji, label }` layered over the generic defaults (`mit`/`personal`/`work`). Unknown tags render as their raw name. |
+
+A missing or broken personalization file parses to empty — the app runs fine
+with no personalization, and skills fall back to generic behavior. Any
+`personalize`/`config` mutation triggers a skill re-render (`skills::resync_skills`)
+so the installed skills stay in sync; the render pipeline itself is a later
+sub-project (the trigger is wired now, currently a no-op).
 
 ## Persistent state (`~/.cache/brain/state.db`)
 

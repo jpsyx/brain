@@ -56,6 +56,7 @@ binary, and [integrations.md](integrations.md) for the launch/handoff detail.
 argv
  └─→ Cli::parse                          (cli.rs)
       ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
+      ├─→ Cmd::Personalize ─→ personalize_command (show/get/set/edit / onboarding; also BEFORE the gate)
       └─→ settings::ensure_markdown_to_pdf (prereq gate: config path, else discover; red ❌ + exit if unresolved)
            ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
            └─ Cmd::Tasks(rest)       ─→ TasksCli::parse_from(rest) → tasks_launch:
@@ -118,6 +119,27 @@ layout, message wording, shell-output parsing) are unit-tested; the IO shells
 are thin. Split into `store` (JSON IO), `schema` (`VARS`/`Resolved`), `vars`
 (get/set/resolve), `render` (the `config list` table), and `markdown_pdf` (the
 prerequisite). See [config.md](config.md).
+
+### `personalization/`
+The personalization store — content *about you* at
+`<root>/.config/personalization.json` (a hidden dir inside the brain root, so it
+syncs with the brain dir; contrast `settings/`, which is machine-local). Split
+into `model` (the `Personalization` schema + parse), `store` (path resolution
+under the brain root + load/save), `tags` (the `TagStyle`/`TagStyles` model, the
+generic defaults `mit`/`personal`/`work`, and pure label resolution with
+raw-name fallback), `runtime` (a process-cached copy of the resolved tag styles
+so the renderer resolves labels without threading state), `command` (the
+`brain personalize` show/get/set/edit logic — pure helpers + thin IO), and
+`onboarding` (the skippable first-run prompt). The task renderer's
+`type_label` delegates here, so the public binary carries no personal taxonomy.
+See [config.md](config.md) and [data-model.md](data-model.md).
+
+### `skills.rs`
+The skill-rerender seam: `resync_skills()`, called after every `config`/
+`personalize` mutation and onboarding so the installed skills never drift from
+the user's values. A deliberate no-op for now — the real render/install pipeline
+is a later sub-project; the single call site is wired so that work only fills in
+the body.
 
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =

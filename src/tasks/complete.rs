@@ -47,14 +47,16 @@ pub fn normalize_id(raw: &str) -> Result<String> {
 pub fn run(raw_id: &str) -> Result<()> {
     let id = normalize_id(raw_id)?;
 
+    // Honor the configured brain root (errors if it does not exist), rather
+    // than assuming `$HOME/brain`.
+    let _brain = crate::paths::brain_root()?;
+
     let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("$HOME is not set"))?;
     let home = PathBuf::from(home);
 
-    let brain = home.join("brain");
-    if !brain.is_dir() {
-        bail!("{} does not exist", brain.display());
-    }
-
+    // NOTE (sub-project B): the CLI still hard-depends on `mark_done.py` living
+    // inside the installed `/todo` skill at a fixed global path. B bundles the
+    // skills and resolves this through the skills install location.
     let mark_done = home
         .join("global-skills")
         .join("todo")

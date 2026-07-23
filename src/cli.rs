@@ -51,6 +51,12 @@ pub enum Cmd {
 
     /// Read or change brain's persistent config (`~/.config/brain/config.json`).
     Config(ConfigArgs),
+
+    /// Read or change your personalization (identity + tag styles), stored with
+    /// your brain at `<root>/.config/personalization.json`. Bare
+    /// `brain personalize` runs first-run onboarding if nothing is set yet,
+    /// otherwise it shows your current values.
+    Personalize(PersonalizeArgs),
 }
 
 #[derive(Args, Debug)]
@@ -73,6 +79,30 @@ pub enum ConfigAction {
         /// A single `name=value` assignment.
         assignment: String,
     },
+}
+
+#[derive(Args, Debug)]
+pub struct PersonalizeArgs {
+    #[command(subcommand)]
+    pub action: Option<PersonalizeAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PersonalizeAction {
+    /// Print your personalization as a stable, keyed block (the lookup skills read).
+    Show,
+    /// Print one field's value (`name`, `role`, `works_for`).
+    Get {
+        /// Field name.
+        field: String,
+    },
+    /// Set a field: `brain personalize set <field>=<value>`.
+    Set {
+        /// A single `field=value` assignment.
+        assignment: String,
+    },
+    /// Open the raw personalization JSON in `$EDITOR` (for editing `tag_styles`).
+    Edit,
 }
 
 #[derive(Args, Debug)]

@@ -87,21 +87,14 @@ pub const fn energy_icon(e: &str) -> &'static str {
     }
 }
 
-/// Known type → emoji+label; unknown → plain owned String.
+/// Resolve a task type/tag to its display label via personalization.
+///
+/// Uses the generic defaults (`mit`/`personal`/`work`) plus the user's
+/// overrides; unknown tags render as their raw name. The public binary carries
+/// no personal taxonomy — see `personalization::tags`.
 #[must_use]
 pub fn type_label(t: &str) -> String {
-    match t {
-        "ceo" => "🕴 CEO".into(),
-        "aa" => "🧃 AA".into(),
-        "personal" => "✌ personal".into(),
-        "code" => "💻 code".into(),
-        "languages" => "🌐 languages".into(),
-        "finance" => "🏦 finance".into(),
-        "mit" => "❗ MIT".into(),
-        "needs_attention" => "⚠ attention".into(),
-        "unassigned" => "❓ unassigned".into(),
-        other => other.to_owned(),
-    }
+    crate::personalization::tag_label(t)
 }
 
 #[must_use]
@@ -252,16 +245,19 @@ mod tests {
         assert!(span.style.add_modifier.contains(Modifier::CROSSED_OUT));
     }
 
-    // --- type_label ---
+    // --- type_label (generic defaults; no personalization loaded in tests) ---
 
     #[test]
-    fn type_label_known_value_emits_emoji_label() {
+    fn type_label_generic_default_emits_emoji_label() {
+        // `mit` ships as a universal default.
         assert_eq!(type_label("mit"), "❗ MIT");
-        assert_eq!(type_label("code"), "💻 code");
     }
 
     #[test]
-    fn type_label_unknown_value_passes_through() {
+    fn type_label_non_default_tag_falls_back_to_raw_name() {
+        // `code` is no longer a built-in — it lives in a user's personalization
+        // now, so with none loaded it renders as its raw name.
+        assert_eq!(type_label("code"), "code");
         assert_eq!(type_label("custom"), "custom");
     }
 }

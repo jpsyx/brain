@@ -225,15 +225,47 @@ impl App<'_> {
                 // help right now — drafting, research, code, etc. —
                 // so the next reply is actionable rather than just
                 // advisory.
-                let message = format!(
-                    "Let's start work on {id}.\n\n\
-                     Please pull in the task's context first: read the row in ~/brain/tasks/tasks.csv (notes, project, see_also links, blockers, last_touched), the associated project page in ~/brain/projects if a project slug is set, and any supporting URLs.\n\n\
-                     Then reply with:\n\
-                     1. The first 2-3 concrete steps I should take to get moving on this.\n\
-                     2. Where you can help me directly right now — drafting, research, code, planning, summarizing — so we can knock out the first chunk together in this conversation."
-                );
+                let message = start_task_prompt(&id, &self.brain_root);
                 self.send_brain_prompt(&message);
             }
         }
+    }
+}
+
+/// Build the "start task" brain prompt, interpolating the configured brain root
+/// so it never hardcodes `~/brain`. Pure, so the root-authority behavior is
+/// unit-testable.
+#[must_use]
+pub(crate) fn start_task_prompt(id: &str, brain_root: &Path) -> String {
+    let tasks_csv = brain_root.join("tasks/tasks.csv");
+    let projects_dir = brain_root.join("projects");
+    format!(
+        "Let's start work on {id}.\n\n\
+         Please pull in the task's context first: read the row in {tasks_csv} (notes, project, see_also links, blockers, last_touched), the associated project page in {projects_dir} if a project slug is set, and any supporting URLs.\n\n\
+         Then reply with:\n\
+         1. The first 2-3 concrete steps I should take to get moving on this.\n\
+         2. Where you can help me directly right now — drafting, research, code, planning, summarizing — so we can knock out the first chunk together in this conversation.",
+        tasks_csv = tasks_csv.display(),
+        projects_dir = projects_dir.display(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::start_task_prompt;
+    use std::path::Path;
+
+    #[test]
+    fn start_task_prompt_interpolates_the_configured_root() {
+        let p = start_task_prompt("T7", Path::new("/srv/brain"));
+        assert!(p.contains("T7"));
+        assert!(p.contains("/srv/brain/tasks/tasks.csv"));
+        assert!(p.contains("/srv/brain/projects"));
+    }
+
+    #[test]
+    fn start_task_prompt_never_hardcodes_tilde_brain() {
+        let p = start_task_prompt("T1", Path::new("/custom/root"));
+        assert!(!p.contains("~/brain"));
     }
 }

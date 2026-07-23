@@ -153,6 +153,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent config (see below). |
+| `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
@@ -170,6 +171,38 @@ Reads and writes brain's persistent config (`~/.config/brain/config.json`):
 `config` runs before the `markdown-to-pdf` prerequisite gate, so it always
 works even when that tool is missing. See [config.md](config.md) for the schema
 and the prerequisite/auto-discovery rules.
+
+### `brain personalize`
+
+Reads and writes your **personalization** — content *about you* that travels
+with your brain, stored at `<root>/.config/personalization.json` (a hidden dir
+inside the brain root, so it stays out of Finder and syncs with your brain, as
+opposed to the machine-local `~/.config/brain/config.json`).
+
+- `brain personalize` (bare) — first-run onboarding if nothing is set yet
+  (a short, skippable prompt for your name, role, and who you work for),
+  otherwise prints your current values (same as `show`).
+- `brain personalize show` — a stable, keyed block (`name:` / `role:` /
+  `works_for:`) that brain skills read at runtime to learn who they're
+  assisting.
+- `brain personalize get <field>` — one field (`name`, `role`, `works_for`).
+- `brain personalize set <field>=<value>` — set and persist a field.
+- `brain personalize edit` — open the raw JSON in `$EDITOR` (this is how you
+  edit **tag styles**).
+
+**Tag styles.** The task renderer's tag → emoji+label mapping is personalization.
+The binary ships only a tiny universal default set (`mit`, `personal`, `work`);
+any other tag renders as its raw name until you add a style under `tag_styles`
+in the personalization JSON. So the public binary carries no personal taxonomy.
+
+**Every mutation re-renders skills.** `personalize set`/`edit`, first-run
+onboarding, and `config set` all trigger a skill re-render so the installed
+skills never drift from your values. (The render pipeline itself lands in a
+later sub-project; the trigger is wired now.)
+
+Like `config`, `personalize` runs before the `markdown-to-pdf` prerequisite
+gate, so it always works. See [config.md](config.md) and
+[data-model.md](data-model.md) for the store layout and schema.
 
 ### Prerequisite: `markdown-to-pdf`
 

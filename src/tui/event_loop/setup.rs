@@ -47,6 +47,11 @@ pub fn run_tui(
     active_view: Option<View>,
     initial_search: Option<String>,
 ) -> Result<()> {
+    // First-run onboarding: seed personalization with a short skippable prompt
+    // on the normal terminal, *before* we take over the screen. No-op when
+    // already personalized or when there is no tty. Never blocks startup.
+    crate::personalization::onboarding::maybe_run_first_time();
+
     enable_raw_mode()?;
     // Render to /dev/tty, NOT stdout: the `brain` zsh wrapper captures this
     // binary's stdout (the shell-side plan), so writing the TUI to stdout

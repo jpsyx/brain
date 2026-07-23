@@ -60,6 +60,8 @@ is the source-of-truth for *how*. They must agree on *what*.
 | How the brain panel launches `claude` (`claude_cmd`), or the file-open / Finder path | `docs/integrations.md` (launch builder in `src/session.rs`, `claude_cmd` in `src/config.rs`/`src/settings/`, openers in `src/open_target.rs`) |
 | The SessionStart hook, state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/claude_session_start_hook.py`, `scripts/install_hook.sh`, `src/state.rs` |
 | Config schema, the `brain config` command, the `markdown-to-pdf` prerequisite, or root resolution | `docs/config.md` (store + schema + discovery in `src/settings/`; typed knobs in `src/config.rs`; root in `src/paths.rs`) |
+| The personalization schema, the `brain personalize` command, first-run onboarding, tag-style defaults, or the two-store seam | `docs/config.md` + `docs/data-model.md` (schema/store in `src/personalization/`; tag defaults in `src/personalization/tags.rs`) |
+| The `resync_skills()` seam (what a config/personalize mutation triggers) | `docs/decisions.md` (seam in `src/skills.rs`, called from `main.rs` + `src/personalization/command.rs`) |
 | Testing strategy, what we test vs. skip | `docs/testing.md` |
 | A non-obvious design choice | `docs/decisions.md` |
 

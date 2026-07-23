@@ -142,6 +142,35 @@ hook frees the instance's others on every start, handling `/new`). The
 `PanelSide` enum (`Left` / `Right`, default `Right`) lives in `state.rs`
 because it's the persisted layout value.
 
+## Personalization (`personalization/`, `<root>/.config/personalization.json`)
+
+Content *about you*, stored in a hidden `.config/` dir inside the brain root so
+it syncs with the brain dir (unlike the machine-local `~/.config/brain/config.json`).
+A missing/broken file parses to the default (empty) value — the app never
+requires personalization.
+
+`Personalization` (`personalization/model.rs`):
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | `String` | `""` | Optional display name. |
+| `role` | `String` | `""` | Free-text role the assistant serves. |
+| `works_for` | `String` | `""` | Org, `myself`, or empty. |
+| `tag_styles` | `Map<String, TagStyle>` | `{}` | Per-tag display overrides. |
+
+`TagStyle` (`personalization/tags.rs`) is `{ emoji: String, label: String }`,
+rendered as `"{emoji} {label}"`. Resolution (`TagStyles`) layers the user's
+overrides over the generic defaults (`mit` → `❗ MIT`, `personal` → `✌ personal`,
+`work` → `💼 work`); an unknown tag falls back to its raw name. The renderer
+reads a process-cached copy (`personalization::runtime`, loaded once at startup)
+so tag labels resolve without threading state through every render signature;
+unit tests see the generic defaults (the cache is uninitialized), keeping them
+hermetic.
+
+The `brain personalize show` block is the **skill-lookup contract**: a stable,
+keyed `name:`/`role:`/`works_for:` text block that identity-dependent skills
+read at runtime to learn who they serve.
+
 ## Binary stdout (the output "schema")
 
 The binary's stdout carries only `brain config` output (the config table, or a
