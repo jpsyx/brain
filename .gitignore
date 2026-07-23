@@ -6,5 +6,10 @@
 # store lives at ~/.config/brain/config.json; see config.example.json.
 /config.json
 
+# Per-branch diff-review decision logs / review comments (personal, local-only).
+# Currently only ignored via a machine-global gitignore; pin it here so this
+# public repo never accidentally commits it on a machine without that global.
+/.difit/
+
 # macOS.
 .DS_Store
