@@ -5,6 +5,7 @@
 //! `/dev/tty` interaction is a thin shell that silently no-ops without a real
 //! terminal (CI, pipes) so it never blocks startup.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 
 use anyhow::Result;
@@ -74,7 +75,31 @@ fn run_interactive() -> Result<()> {
         line.trim().clone_into(&mut answers[i]);
     }
 
-    let p = from_answers(&answers[0], &answers[1], &answers[2]);
+    let mut p = from_answers(&answers[0], &answers[1], &answers[2]);
+
+    // Then the two toggle-checklists (all-on by default, `a` to add). Each
+    // returns None on cancel or when there's no terminal — then we leave that
+    // facet unset (falls back to the generic defaults).
+    writeln!(
+        out,
+        "\nNext, pick your project namespaces and task tags (space toggles, `a` adds).\n"
+    )?;
+    out.flush()?;
+    if let Some(ns) = super::checklist::choose(
+        "Project namespaces",
+        &super::namespaces::default_namespaces(),
+        super::namespaces::normalize,
+    )? {
+        p.namespaces = ns;
+    }
+    if let Some(tag_names) = super::checklist::choose(
+        "Task tags",
+        &super::tags::default_tag_names(),
+        super::tags::normalize_tag,
+    )? {
+        p.tag_styles = super::tags::styles_from_names(&tag_names, &BTreeMap::new());
+    }
+
     if p.is_empty() {
         writeln!(out, "\nSkipped — run `brain personalize` anytime.\n")?;
         return Ok(());

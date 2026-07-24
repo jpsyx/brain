@@ -156,7 +156,8 @@ value — the app never requires personalization.
 | `name` | `String` | `""` | Optional display name. |
 | `role` | `String` | `""` | Free-text role the assistant serves. |
 | `works_for` | `String` | `""` | Org, `myself`, or empty. |
-| `tag_styles` | `Map<String, TagStyle>` | `{}` | Per-tag display overrides. |
+| `namespaces` | `Vec<String>` | `[]` | Project `<namespace>__<outcome>` life-buckets. Empty falls back to the generic defaults (`work`, `personal`); edited via the onboarding / `brain config set namespaces` checklist (`personalization/namespaces.rs`). |
+| `tag_styles` | `Map<String, TagStyle>` | `{}` | Per-tag display overrides. The tag *set* (its keys) is chosen via the same checklist (`brain config set tags`). |
 
 `TagStyle` (`personalization/tags.rs`) is `{ emoji: String, label: String }`,
 rendered as `"{emoji} {label}"`. Resolution (`TagStyles`) layers the user's
@@ -168,8 +169,19 @@ unit tests see the generic defaults (the cache is uninitialized), keeping them
 hermetic.
 
 The `brain personalize show` block is the **skill-lookup contract**: a stable,
-keyed `name:`/`role:`/`works_for:` text block that identity-dependent skills
-read at runtime to learn who they serve.
+keyed `name:`/`role:`/`works_for:`/`namespaces:` text block that
+identity-dependent skills read at runtime to learn who they serve. The
+`namespaces:` line always shows the *effective* set (the configured list, or the
+generic defaults when unset), so a skill like `second-brain` always sees a usable
+namespace list.
+
+The **interactive checklist** (`personalization/checklist/`) is the shared UI for
+choosing a set (namespaces, tags): a pure state machine (`Checklist` +
+`handle_key`, unit-tested) rendered by a thin `/dev/tty` ratatui shell (`run`).
+All rows start checked; space toggles, `a` opens a tolerant "create new" line
+(commas/semicolons/whitespace, per-item normalize + dedupe), Enter confirms, Esc
+cancels. Onboarding runs it for namespaces then tags; `brain config set
+namespaces|tags` re-runs it seeded with the current set.
 
 ## Binary stdout (the output "schema")
 

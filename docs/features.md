@@ -179,16 +179,20 @@ Reads and writes your **personalization** — content *about you*, stored beside
 the config store at `~/.config/brain/personalization.json` (just another brain
 config, under `$HOME` rather than inside the brain root).
 
-- `brain personalize` (bare) — first-run onboarding if nothing is set yet
-  (a short, skippable prompt for your name, role, and who you work for),
-  otherwise prints your current values (same as `show`).
+- `brain personalize` (bare) — first-run onboarding if nothing is set yet:
+  a short, skippable prompt for your name, role, and who you work for, then two
+  toggle-checklists for your **project namespaces** and **task tags** (all items
+  pre-checked; space toggles, `a` adds comma/semicolon-separated new ones).
+  Otherwise prints your current values (same as `show`).
 - `brain personalize show` — a stable, keyed block (`name:` / `role:` /
-  `works_for:`) that brain skills read at runtime to learn who they're
-  assisting.
+  `works_for:` / `namespaces:`) that brain skills read at runtime to learn who
+  they're assisting and which project namespaces exist. `namespaces:` shows the
+  effective set (your list, or the generic defaults when unset).
 - `brain personalize get <field>` — one field (`name`, `role`, `works_for`).
-- `brain personalize set <field>=<value>` — set and persist a field.
-- `brain personalize edit` — open the raw JSON in `$EDITOR` (this is how you
-  edit **tag styles**).
+- `brain personalize set <field>=<value>` — set and persist an identity field.
+- `brain personalize edit` — open the raw JSON in `$EDITOR` (edit tag-style
+  emoji/labels here; the tag and namespace *sets* are edited with the checklist
+  via `brain config set tags|namespaces`).
 
 **Tag styles.** The task renderer's tag → emoji+label mapping is personalization.
 The binary ships only a tiny universal default set (`mit`, `personal`, `work`);

@@ -10,6 +10,7 @@
 //! renderer. Everything is optional and falls back to generic defaults, so the
 //! public binary carries no personal taxonomy.
 
+pub mod checklist;
 pub mod command;
 pub mod model;
 pub mod namespaces;

@@ -32,8 +32,19 @@ editing it by hand (though hand-editing is fine). For personalization see the
 | `brain config list` | Print every variable, its effective value, and its description as an aligned table. Bare `brain config` also lists. |
 | `brain config get <name>` | Print the effective value of one variable (explicit value, else built-in default). |
 | `brain config set <name>=<value>` | Set a variable and persist it. Unknown names are rejected. Numeric/boolean values are stored with their JSON type. |
+| `brain config set <name>` | **Interactive** (no `=value`): `namespaces` and `tags` open the toggle-checklist (see below); any other variable prompts once on `/dev/tty` for a value. |
 
 Names are normalized (lowercased, `-`→`_`), so `brain config set Linear-Workspace=acme` works.
+
+`namespaces` and `tags` are personalization (they live in `personalization.json`,
+not `config.json`), but `brain config set` is a single front door for both: those
+two names route to the interactive checklist that edits the personalization set,
+while every other name is a config-store variable. `brain config set namespaces`
+and `brain config set tags` (or the same via onboarding) show the current set with
+every item pre-checked; space toggles, `a` adds new comma/semicolon-separated
+items (tolerantly parsed), Enter saves. With no terminal, the checklist is skipped
+(the set is left unchanged) and a scalar interactive set errors with a pointer to
+the `name=value` form.
 
 ## Schema
 

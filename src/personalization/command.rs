@@ -98,6 +98,50 @@ pub fn run_set(assignment: &str) -> Result<()> {
     Ok(())
 }
 
+/// Interactively edit the project namespaces via the toggle-checklist.
+///
+/// Started with the current set, or the generic defaults if unset. Cancel/no-tty
+/// leaves it unchanged. Used by `brain config set namespaces`.
+pub fn run_set_namespaces() -> Result<()> {
+    let mut p = store::load();
+    let initial = super::namespaces::effective(&p.namespaces);
+    match super::checklist::choose("Project namespaces", &initial, super::namespaces::normalize)? {
+        Some(sel) => {
+            p.namespaces = sel;
+            store::save(&p)?;
+            crate::skills::resync_skills();
+            println!("namespaces: {}", super::namespaces::effective(&p.namespaces).join(", "));
+        }
+        None => println!("namespaces unchanged"),
+    }
+    Ok(())
+}
+
+/// Interactively edit the task-tag set via the toggle-checklist.
+///
+/// Started with the current tags, or the generic defaults if none. Kept tags
+/// retain their styling; new tags get a neutral style. Used by `brain config
+/// set tags`.
+pub fn run_set_tags() -> Result<()> {
+    let mut p = store::load();
+    let initial: Vec<String> = if p.tag_styles.is_empty() {
+        super::tags::default_tag_names()
+    } else {
+        p.tag_styles.keys().cloned().collect()
+    };
+    match super::checklist::choose("Task tags", &initial, super::tags::normalize_tag)? {
+        Some(sel) => {
+            p.tag_styles = super::tags::styles_from_names(&sel, &p.tag_styles);
+            store::save(&p)?;
+            crate::skills::resync_skills();
+            let names: Vec<String> = p.tag_styles.keys().cloned().collect();
+            println!("tags: {}", names.join(", "));
+        }
+        None => println!("tags unchanged"),
+    }
+    Ok(())
+}
+
 /// `brain personalize edit` — open the raw JSON store in `$EDITOR`, then
 /// re-render skills. Ensures the file exists first so the editor opens a real
 /// (default-populated) document.

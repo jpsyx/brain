@@ -152,21 +152,67 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
             }
         }
         ConfigAction::Set { assignment } => {
-            let (raw_name, value) = assignment
-                .split_once('=')
-                .ok_or_else(|| anyhow!("expected name=value, got `{assignment}`"))?;
-            let (name, value) = (settings::normalize_name(raw_name), value.trim());
-            settings::set(&name, value)?;
-            // Any config change re-renders the installed skills so they never
-            // drift from the user's values (stub until sub-project B).
-            skills::resync_skills();
-            println!(
-                "{}",
-                settings::set_confirmation(&name, value, settings::color_enabled())
-            );
+            if let Some((raw_name, value)) = assignment.split_once('=') {
+                // Non-interactive: `name=value`.
+                let (name, value) = (settings::normalize_name(raw_name), value.trim());
+                settings::set(&name, value)?;
+                // Any config change re-renders the installed skills so they
+                // never drift from the user's values.
+                skills::resync_skills();
+                println!(
+                    "{}",
+                    settings::set_confirmation(&name, value, settings::color_enabled())
+                );
+            } else {
+                // Interactive: bare `name` with no value.
+                config_set_interactive(&settings::normalize_name(assignment))?;
+            }
         }
     }
     Ok(())
+}
+
+/// Interactive `brain config set <name>` (no `=value`). `namespaces` and `tags`
+/// route to their personalization toggle-checklists; any other variable prompts
+/// once on `/dev/tty` for a value, then sets it like the non-interactive path.
+fn config_set_interactive(name: &str) -> Result<()> {
+    match name {
+        "namespaces" => return crate::personalization::command::run_set_namespaces(),
+        "tags" | "tag_styles" => return crate::personalization::command::run_set_tags(),
+        _ => {}
+    }
+    let Some(value) = prompt_tty_line(&format!("Set {name} = "))? else {
+        // No terminal (headless): can't prompt. Point at the non-interactive form.
+        return Err(anyhow!(
+            "no terminal for interactive set; use `brain config set {name}=<value>`"
+        ));
+    };
+    let value = value.trim();
+    settings::set(name, value)?;
+    skills::resync_skills();
+    println!(
+        "{}",
+        settings::set_confirmation(name, value, settings::color_enabled())
+    );
+    Ok(())
+}
+
+/// Prompt once on `/dev/tty` and read a line. `Ok(None)` when there is no
+/// controlling terminal (so callers can fall back rather than hang).
+fn prompt_tty_line(prompt: &str) -> Result<Option<String>> {
+    use std::io::{BufRead, BufReader, Write};
+    let Ok(tty) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty") else {
+        return Ok(None);
+    };
+    let mut out = tty.try_clone()?;
+    let mut reader = BufReader::new(tty);
+    write!(out, "{prompt}")?;
+    out.flush()?;
+    let mut line = String::new();
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None); // EOF
+    }
+    Ok(Some(line))
 }
 
 /// Launch (or dispatch a utility for) the tasks view of the merged shell.
