@@ -11,7 +11,7 @@ pub(super) struct VarSpec {
 }
 
 /// The full schema, in the order `config list` prints them.
-pub(super) const VARS: [VarSpec; 7] = [
+pub(super) const VARS: [VarSpec; 8] = [
     VarSpec {
         name: "root",
         description: "Path to your brain (PARA) directory. Tilde-expanded. Defaults to ~/brain.",
@@ -36,6 +36,11 @@ pub(super) const VARS: [VarSpec; 7] = [
         name: "day_rollover_hour",
         description: "Local hour (0-23) at which the logical day rolls over for the triage re-check.",
         default: Some("6"),
+    },
+    VarSpec {
+        name: "agenda_dir",
+        description: "Directory the generated daily-agenda PDF is written to. Tilde-expanded. Defaults to ~/Downloads.",
+        default: Some("~/Downloads"),
     },
     VarSpec {
         name: "claude_cmd",
