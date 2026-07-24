@@ -132,4 +132,17 @@ mod tests {
             "bundles references/heuristics.md"
         );
     }
+
+    #[test]
+    fn bundles_the_generic_brain_knowledge_capture_skill() {
+        let skills = bundled_skills();
+        let capture = skills
+            .iter()
+            .find(|s| s.name == "brain-knowledge-capture")
+            .expect("brain-knowledge-capture should be embedded");
+        let text = skill_md_text(capture);
+        assert!(text.contains("# brain-knowledge-capture"), "has the heading");
+        // It delegates placement to second-brain rather than re-deriving PARA.
+        assert!(text.contains("second-brain"), "delegates to /second-brain");
+    }
 }
