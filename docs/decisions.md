@@ -521,6 +521,11 @@ behind a config flag defaulting to `false`; the pipeline is exercised only via
 `brain skills sync --root <sandbox>` until the B4 cutover flips the flag and
 fixes jpsyx's prune. Safety-first: the default can't disturb a live setup.
 
+**Post-B4:** the flag now defaults to `true` — the rollout is over, the registry
+is brain-owned, and jpsyx no longer fights brain for it, so a mutation *should*
+re-render the live registry (program invariant #5). Setting it `false` reverts to
+sync-only-on-demand via explicit `brain skills sync`.
+
 ## Why extensions inject at named hooks (not append-only, not runtime lookup)
 
 A user must be able to personalize a bundled skill without forking it — and
@@ -632,3 +637,60 @@ Per the user's house style, new code gets a comment only when the *why* is
 non-obvious; the function name + these docs carry the *what*. This repo is
 not under git, so there's no PR review, no `.difit/` log, and no changelog
 file — `docs/` is the durable record.
+
+## B4 — the jpsyx bridge + live cutover (ownership boundary, prune-safety, rollback)
+
+The B1–B3 pipeline was proven only in a sandbox; B4 is the one phase allowed to
+touch the live agent registry. The cutover flips Pablo's six migrated skills
+(`article-summarizer`, `brain-knowledge-capture`, `contacts`, `second-brain`,
+`todo`, `triage`) plus his two plugins (`zotero-sync`, `linear-sync`) from
+jpsyx-owned to brain-owned, and makes jpsyx delegate to `brain skills sync`
+without ever pruning what brain owns.
+
+**The ownership boundary is the link target, not a manifest file.** A registry
+or frontend skill link is *brain-owned* iff it (transitively) resolves under
+brain's built dir (`$XDG_DATA_HOME/brain/skills` or `~/.local/share/brain/skills`).
+jpsyx-owned links resolve into `~/global-skills` or `~/.agents/skills`. This
+falls out of the two systems' existing designs and needs no new file:
+
+- jpsyx's fan-out only ever creates/repoints/prunes links whose target
+  `points_into` its own sources (`~/.agents/skills`, `~/global-skills`). A
+  brain-owned registry entry (`~/.agents/skills/todo → ~/.local/share/brain/…`)
+  points into *neither*, so jpsyx's `prune_into_sources` leaves it alone and its
+  aggregation records it as a harmless "conflict" (foreign symlink) rather than
+  clobbering it. jpsyx's `sync::prune`/`sweep` only touch dangling links into the
+  *mirror* (`home-dist/`), which brain links never are. So every existing jpsyx
+  prune path already spares brain-owned links *by construction*.
+- brain's `install::sync` `remove_existing` cleanly replaces the old jpsyx-owned
+  symlink at each name, so the cutover is a plain re-link, not a conflict.
+
+B4 makes this boundary **explicit and defended** rather than merely emergent:
+jpsyx gains a `brain` step that (1) invokes `brain skills sync` before the
+fan-out so the registry is brain-populated first, and (2) teaches the fan-out to
+recognize brain's built dir as a protected foreign source (a brain-owned name is
+never aggregated-over or pruned), backed by a regression test that runs a full
+jpsyx sync and asserts brain-owned links survive.
+
+**Cutover steps (executed on Pablo's machine, this phase):**
+1. Flip `skills_auto_sync`'s default to `true` (rollout is over; mutations should
+   re-render live, per program invariant #5).
+2. Snapshot the live `~/.agents/skills` + every frontend skills dir to the
+   scratchpad; write a deterministic rollback script *before* mutating anything.
+3. Run `brain skills sync` for real: installs the 6 skills + 2 plugins into the
+   registry (replacing the jpsyx-owned links) and fans them out to the frontends.
+4. In jpsyx: add the `brain skills sync` delegation + brain-ownership prune
+   guard; remove the 4 migrated skills (`todo`, `second-brain`, `triage`,
+   `brain-knowledge-capture`) from `home/global-skills/` so jpsyx stops owning
+   them. (`article-summarizer`/`contacts` were never in jpsyx; `email-triage`,
+   `habits`, and `zotero-article-summary` stay jpsyx-owned — the first two were
+   never migrated, and `zotero-article-summary` is left in place as a no-regression
+   default until Pablo confirms the `zotero-sync` plugin fully supersedes it.)
+5. Persist `~/.config/brain` across machines jpsyx-side **without** the
+   mirror-clobber footgun: it must be tracked/seed-copied, never mirror-symlinked
+   (a naive `home/.config/brain` symlink would point runtime writes at the
+   regenerated `home-dist/` mirror and lose them on the next sync).
+
+**Rollback:** `scratchpad/b4-snapshot/ROLLBACK.sh` removes brain's built dir and
+brain-owned links, then re-runs `jpsyx sync` to restore the jpsyx-owned registry
+(the migrated skills must still exist under `home/global-skills` in the jpsyx
+checkout, or be restored with `git checkout -- home/global-skills` first).

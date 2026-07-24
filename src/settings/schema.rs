@@ -54,8 +54,8 @@ pub(super) const VARS: [VarSpec; 9] = [
     },
     VarSpec {
         name: "skills_auto_sync",
-        description: "When true, config/personalize changes re-render and install the bundled skills into the agent registry. Default false (the install pipeline is still being rolled out).",
-        default: Some("false"),
+        description: "When true, config/personalize changes re-render and install the bundled skills into the agent registry. Default true; set false to manage the registry only via explicit `brain skills sync`.",
+        default: Some("true"),
     },
 ];
 

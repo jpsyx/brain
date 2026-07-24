@@ -150,10 +150,11 @@ built dir + registry + frontend dirs, and the pure `link_ops` target
 computation), `install` (collect bundled + plugins, write built + create the
 two-hop symlinks; thin FS shell over `link_ops`), and `command`
 (`brain skills sync [--root <sandbox>]`). `resync_skills()` (the A
-seam) now runs the pipeline, but is **gated off by `skills_auto_sync`** (default
-false) so a mutation never touches the live registry while the pipeline is rolled
-out (B1–B3); the B4 cutover flips the gate and fixes jpsyx's prune. See the B
-spec under `docs/superpowers/specs/`.
+seam) runs the pipeline, gated by `skills_auto_sync` (**default `true`** since
+the B4 cutover) so a mutation re-renders the live registry; set the flag `false`
+to manage skills only via explicit `brain skills sync`. jpsyx delegates to
+`brain skills sync` and never prunes brain-owned links (they resolve into brain's
+built dir, outside jpsyx's sources). See the B spec under `docs/superpowers/specs/`.
 
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =

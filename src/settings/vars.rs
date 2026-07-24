@@ -117,6 +117,15 @@ mod tests {
     }
 
     #[test]
+    fn skills_auto_sync_defaults_on_after_the_b4_cutover() {
+        // The rollout gate is flipped: with nothing set, auto-sync is on so a
+        // config/personalize mutation re-renders the live registry (invariant #5).
+        let rows = resolve_all_from(&Map::new());
+        let flag = rows.iter().find(|r| r.name == "skills_auto_sync").unwrap();
+        assert_eq!(flag.value.as_deref(), Some("true"));
+    }
+
+    #[test]
     fn resolve_all_prefers_an_explicit_value_over_the_default() {
         let mut map = Map::new();
         map.insert("root".to_owned(), Value::from("/srv/brain"));
