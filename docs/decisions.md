@@ -594,6 +594,38 @@ at runtime (`brain personalize show`) with generic example namespaces in the
 prose, and declares no namespaces hook — only `company-context` (load a company
 profile note) and `reference-manager` (hand off to a reference-manager plugin).
 
+## Why the `todo` migration split off Linear + a whole personal scheduling layer
+
+`todo` was the largest, most-entangled skill (1880 lines) and carried *two*
+deeply-woven personal subsystems on top of the generic task core. The split:
+
+- **Generic core** keeps the task system (schema, commands, agenda ordering,
+  habits, chunked tasks, backlog, sync), including the `linear_issue` column as
+  **inert external-issue-link plumbing** (kept named `linear_issue` so the live
+  tasks.csv + `set_linear_issue.py`/`list_linked_tasks.py` scripts don't churn)
+  — but nothing in core contacts an external service.
+- **Linear → a `linear-sync` plugin** (not a single-file extension, because its
+  `linear-link.md` playbook is a reference file — same reasoning as
+  `zotero-sync`). Core exposes a `todo:linear` hook + a `todo:linear-backlog`
+  hook; the personal `todo` extension fills them by pointing at `/linear-sync`.
+  The `triage` extension's `linear-link.md` refs were repointed to the plugin.
+- **The agenda's personal scheduling layer** — Google-Calendar busy-block pull,
+  the work-hours cutoff + late-work streak, and Pablo's specific daily anchors
+  (plus his work-vs-personal `task_type` taxonomy) — moved to `todo:calendar`,
+  `todo:cutoff`, and `todo:anchors` hooks. Core agenda is calendar-optional and
+  anchor-agnostic: it orders tasks/habits and writes the PDF, pulling busy
+  blocks only if `calendar_id` is set and applying a partition/cutoff only if an
+  extension defines one.
+- Two config vars back this: `agenda_dir` (default `~/Downloads`, so the PDF
+  destination isn't hardcoded) and `calendar_id` (empty = no calendar
+  integration). Scripts read `BRAIN_AGENDA_DIR`/`MARKDOWN_TO_PDF` from the env
+  with sane fallbacks instead of a hardcoded jpsyx module path.
+
+The guard test gained `jpsyx` as a forbidden token so the private dotfiles-repo
+path can never re-enter a bundled skill. Note the guard catches identity/paths,
+not every personal detail (it wouldn't flag "Walk Luna"); depersonalizing a
+skill still needs human judgment for personal-but-not-identifying content.
+
 ## Why no comments-by-default and no decision log in code
 
 Per the user's house style, new code gets a comment only when the *why* is

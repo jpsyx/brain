@@ -225,9 +225,8 @@ The skills are embedded in the binary, so a fresh clone needs no extra files.
 Installing is also triggered automatically after a `config`/`personalize` change
 when `skills_auto_sync` is `true` (default `false` while the pipeline is being
 rolled out). Bundled today: `article-summarizer`, `triage`,
-`brain-knowledge-capture`, `second-brain`, and `contacts` (more land as
-sub-project B migrates them in). See [config.md](config.md) and the sub-project
-B spec.
+`brain-knowledge-capture`, `second-brain`, `contacts`, and `todo`. See
+[config.md](config.md) and the sub-project B spec.
 
 **Customizing skills without forking.** Two mechanisms, both stored with your
 brain (synced, never committed to the repo):

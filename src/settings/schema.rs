@@ -11,7 +11,7 @@ pub(super) struct VarSpec {
 }
 
 /// The full schema, in the order `config list` prints them.
-pub(super) const VARS: [VarSpec; 8] = [
+pub(super) const VARS: [VarSpec; 9] = [
     VarSpec {
         name: "root",
         description: "Path to your brain (PARA) directory. Tilde-expanded. Defaults to ~/brain.",
@@ -41,6 +41,11 @@ pub(super) const VARS: [VarSpec; 8] = [
         name: "agenda_dir",
         description: "Directory the generated daily-agenda PDF is written to. Tilde-expanded. Defaults to ~/Downloads.",
         default: Some("~/Downloads"),
+    },
+    VarSpec {
+        name: "calendar_id",
+        description: "Calendar to pull busy blocks from when building the agenda (e.g. a Google Calendar id/email). Empty disables calendar-aware scheduling.",
+        default: None,
     },
     VarSpec {
         name: "claude_cmd",

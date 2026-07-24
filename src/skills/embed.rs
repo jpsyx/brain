@@ -86,6 +86,7 @@ mod tests {
             "~/global-skills/",
             "~/scripts/",
             "~/downloads",
+            "jpsyx", // the user's private dotfiles repo; never in a public skill
         ];
         for skill in bundled_skills() {
             for f in &skill.files {
@@ -193,5 +194,30 @@ mod tests {
             text.contains("brain:ext contacts:fallback"),
             "declares the contacts:fallback hook"
         );
+    }
+
+    #[test]
+    fn bundles_the_generic_todo_skill() {
+        let skills = bundled_skills();
+        let todo = skills
+            .iter()
+            .find(|s| s.name == "todo")
+            .expect("todo should be embedded");
+        let text = skill_md_text(todo);
+        assert!(text.contains("# todo"), "has the heading");
+        // The personal integrations (Linear, calendar/cutoff) are hooks.
+        for hook in ["todo:linear", "todo:calendar"] {
+            assert!(
+                text.contains(&format!("brain:ext {hook}")),
+                "declares the `{hook}` extension hook"
+            );
+        }
+        // Ships its generic references + its script suite.
+        for r in ["references/schema.md", "references/commands.md", "scripts/mark_done.py"] {
+            assert!(
+                todo.files.iter().any(|f| f.rel_path.as_path() == Path::new(r)),
+                "bundles {r}"
+            );
+        }
     }
 }
