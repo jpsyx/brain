@@ -221,8 +221,9 @@ OpenCode, Cursor) session, not just inside brain.
 The skills are embedded in the binary, so a fresh clone needs no extra files.
 Installing is also triggered automatically after a `config`/`personalize` change
 when `skills_auto_sync` is `true` (default `false` while the pipeline is being
-rolled out). Bundled today: `article-summarizer` (more land as sub-project B
-migrates them in). See [config.md](config.md) and the sub-project B spec.
+rolled out). Bundled today: `article-summarizer` and `triage` (more land as
+sub-project B migrates them in). See [config.md](config.md) and the sub-project B
+spec.
 
 **Customizing skills without forking.** Two mechanisms, both stored with your
 brain (synced, never committed to the repo):
@@ -232,7 +233,10 @@ brain (synced, never committed to the repo):
   injects each hook's text at the skill's matching `<!-- brain:ext hook -->`
   marker in the **built copy** (the repo skill is never touched). Content with no
   matching marker is appended as a "Personal extensions" section, so nothing is
-  lost. This is how, e.g., a `triage` extension can run something *at the start*.
+  lost. This is how, e.g., the bundled `triage` skill declares
+  `triage:daily-open` / `triage:daily-linear` / `triage:weekly-inboxes` /
+  `triage:weekly-linear` hooks so a personal extension can bolt an email pass,
+  an issue-tracker reconcile, and a cloud in-basket onto the generic core.
 - **Plugins** — whole skills you own, in `<root>/.config/plugins/<name>/`. The
   sync installs them alongside the bundled cores, into the same registry and
   frontends.

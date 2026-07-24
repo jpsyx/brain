@@ -536,6 +536,31 @@ pristine. This is the structural half of the A hybrid model (identity stays a
 runtime lookup; behavior changes are rendered), and it keeps `git status` on the
 repo clean no matter how heavily a user personalizes.
 
+## Why the bundled `triage` skill drops email/Linear/Notion into extension hooks
+
+Migrating `triage` (B3) forced a line between generic triage logic and one
+person's tool stack. The rule we settled on: a *generic workflow* stays in the
+core skill (past-due grouping, at-risk scan, chronic-ignore sweep, the
+scratch-inbox sweep, the monthly backlog review, the AskUserQuestion protocol);
+an *identity fact* becomes a runtime `brain personalize show` lookup ("busy CEO"
+→ role/works_for); and a *specific external tool or private URL* moves to the
+user's extension. So the whole email-triage-first pass, the Superhuman
+reply-reconcile, the Linear reconcile/mirror-in/grooming pass (it hardcodes an
+owner email — which personalization has no field for — plus an `AVA-###` prefix
+and a `/linear-pm` dependency), and the private Notion In-Basket URL all live in
+Pablo's `triage` extension, not the repo. The core declares four hooks
+(`triage:daily-open`, `triage:daily-linear`, `triage:weekly-inboxes`,
+`triage:weekly-linear`) at the exact points those passes ran, so the rendered
+copy reproduces the original flow byte-for-behavior while the repo stays generic.
+A guard test (`bundled_skills_carry_no_personal_data`) fails the build if any
+bundled skill grows a personal token, so this line can't silently erode.
+
+Cross-skill script calls (todo's `mark_done.py`, `find_chronic_ignored.py`, …)
+standardized on the install-registry path `~/.agents/skills/todo/scripts/<name>.py`
+rather than the old `~/global-skills/...` (jpsyx) or `~/.claude/skills/...`
+(one-frontend) forms: that path is frontend-agnostic and is exactly where
+`brain skills sync` installs the `todo` skill, so it resolves for any cloner.
+
 ## Why no comments-by-default and no decision log in code
 
 Per the user's house style, new code gets a comment only when the *why* is
