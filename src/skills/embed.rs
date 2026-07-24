@@ -145,4 +145,53 @@ mod tests {
         // It delegates placement to second-brain rather than re-deriving PARA.
         assert!(text.contains("second-brain"), "delegates to /second-brain");
     }
+
+    #[test]
+    fn bundles_the_generic_second_brain_skill() {
+        let skills = bundled_skills();
+        let sb = skills
+            .iter()
+            .find(|s| s.name == "second-brain")
+            .expect("second-brain should be embedded");
+        let text = skill_md_text(sb);
+        assert!(text.contains("# second-brain"), "has the heading");
+        // The summary method is delegated, not re-derived.
+        assert!(text.contains("article-summarizer"), "references article-summarizer");
+        // The contacts book is its own sibling skill now.
+        assert!(text.contains("/contacts"), "points at the /contacts skill");
+        // Namespaces are runtime config (onboarding checklist), not hardcoded.
+        assert!(
+            text.contains("brain personalize show"),
+            "reads namespaces/identity at runtime"
+        );
+        for hook in ["second-brain:company-context", "second-brain:reference-manager"] {
+            assert!(
+                text.contains(&format!("brain:ext {hook}")),
+                "declares the `{hook}` extension hook"
+            );
+        }
+    }
+
+    #[test]
+    fn bundles_the_generic_contacts_skill() {
+        let skills = bundled_skills();
+        let contacts = skills
+            .iter()
+            .find(|s| s.name == "contacts")
+            .expect("contacts should be embedded");
+        let text = skill_md_text(contacts);
+        assert!(text.contains("# contacts"), "has the heading");
+        // Ships its deterministic CLI and declares the Notion-fallback hook.
+        assert!(
+            contacts
+                .files
+                .iter()
+                .any(|f| f.rel_path.as_path() == Path::new("scripts/contacts.py")),
+            "bundles scripts/contacts.py"
+        );
+        assert!(
+            text.contains("brain:ext contacts:fallback"),
+            "declares the contacts:fallback hook"
+        );
+    }
 }

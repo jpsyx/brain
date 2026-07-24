@@ -561,6 +561,34 @@ rather than the old `~/global-skills/...` (jpsyx) or `~/.claude/skills/...`
 (one-frontend) forms: that path is frontend-agnostic and is exactly where
 `brain skills sync` installs the `todo` skill, so it resolves for any cloner.
 
+## Why second-brain split into a lean core + a `/contacts` skill + a `zotero-sync` plugin
+
+The original `second-brain` skill was 1200+ lines that fused three concerns:
+generic PARA knowledge management, a full Zotero reference-manager integration,
+and a local contacts book. Migrating it (B3) separated them along ownership
+lines:
+
+- **Core `second-brain`** keeps only generic PARA (buckets, decision flow,
+  naming, IPs, project lifecycle, add-resource, extract-IP, sync, CSV tooling).
+  The "how to summarize" step delegates to `/article-summarizer`; Zotero-specific
+  commands are gone.
+- **`/contacts`** is now its **own bundled skill** (generic CSV book +
+  `contacts.py`), so it loads only when the user actually asks about a person —
+  second-brain just points at it. Its Notion "Our People" fallback is a personal
+  extension (`contacts:fallback`).
+- **`zotero-sync`** is a personal *plugin* (not bundled): every Zotero command,
+  the richer additions table, reading-state retrieval, and the `zotero-*.md`
+  references. It builds on core second-brain + `/article-summarizer`.
+
+**Namespaces became runtime config, not an extension hook.** An earlier plan put
+the user's project namespaces (`work`/`personal`/…) behind a `second-brain`
+extension hook, but namespaces (and the task-tag set) are better modeled as
+first-class personalization surfaced in onboarding and editable via
+`brain config set namespaces|tags`. So core second-brain reads the configured set
+at runtime (`brain personalize show`) with generic example namespaces in the
+prose, and declares no namespaces hook — only `company-context` (load a company
+profile note) and `reference-manager` (hand off to a reference-manager plugin).
+
 ## Why no comments-by-default and no decision log in code
 
 Per the user's house style, new code gets a comment only when the *why* is
