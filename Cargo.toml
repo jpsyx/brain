@@ -12,6 +12,10 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+# Embeds the repo's skills/ dir (SKILL.md + scripts) into the binary so a public
+# cloner needs no repo checkout — `brain skills sync` writes them out. Multi-file
+# skill assets rule out include_str!; see docs/architecture.md.
+include_dir = "0.7"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.28"

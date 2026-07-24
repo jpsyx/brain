@@ -72,6 +72,11 @@ fn main() -> Result<()> {
         return personalize_command(args);
     }
 
+    // `skills` manages the skill install; also before the gate.
+    if let Some(Cmd::Skills(args)) = &cli.command {
+        return skills_command(args);
+    }
+
     // `markdown-to-pdf` is a hard prerequisite (brain runs it for the
     // Create-PDF flow). Its path is a config variable, auto-discovered and
     // persisted on first run; fail fast with a helpful message if it can't be
@@ -97,7 +102,17 @@ fn main() -> Result<()> {
         // Handled before the prerequisite gate above.
         Some(Cmd::Config(_)) => unreachable!("config is dispatched before the gate"),
         Some(Cmd::Personalize(_)) => unreachable!("personalize is dispatched before the gate"),
+        Some(Cmd::Skills(_)) => unreachable!("skills is dispatched before the gate"),
     }
+}
+
+/// Handle `brain skills {sync}`. Bare `brain skills` defaults to `sync`.
+fn skills_command(args: &crate::cli::SkillsArgs) -> Result<()> {
+    let root = match &args.action {
+        Some(crate::cli::SkillsAction::Sync { root }) => root.as_deref(),
+        None => None,
+    };
+    skills::command::run_sync(root)
 }
 
 /// Handle `brain personalize {show|get|set|edit}`. Bare `brain personalize`

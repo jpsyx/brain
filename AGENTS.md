@@ -61,7 +61,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | The SessionStart hook, state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/claude_session_start_hook.py`, `scripts/install_hook.sh`, `src/state.rs` |
 | Config schema, the `brain config` command, the `markdown-to-pdf` prerequisite, or root resolution | `docs/config.md` (store + schema + discovery in `src/settings/`; typed knobs in `src/config.rs`; root in `src/paths.rs`) |
 | The personalization schema, the `brain personalize` command, first-run onboarding, tag-style defaults, or the two-store seam | `docs/config.md` + `docs/data-model.md` (schema/store in `src/personalization/`; tag defaults in `src/personalization/tags.rs`) |
-| The `resync_skills()` seam (what a config/personalize mutation triggers) | `docs/decisions.md` (seam in `src/skills.rs`, called from `main.rs` + `src/personalization/command.rs`) |
+| The skill pipeline (bundling, rendering, install/fan-out, `brain skills sync`, `resync_skills()`, the `skills_auto_sync` gate) | `docs/architecture.md` + `docs/features.md` + `docs/decisions.md` (pipeline in `src/skills/`; bundled skills under `skills/`) |
 | Testing strategy, what we test vs. skip | `docs/testing.md` |
 | A non-obvious design choice | `docs/decisions.md` |
 

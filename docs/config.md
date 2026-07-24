@@ -40,6 +40,7 @@ Names are normalized (lowercased, `-`→`_`), so `brain config set Linear-Worksp
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's `claude` session; brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Interpreted by the shell, so brain never depends on a shell alias. Blank falls back to the default. Read by `config.rs` (`claude_command()`), used by `session::build_claude_command`. Also settable as `claude-cmd` (the dash normalizes to an underscore). |
+| `skills_auto_sync` | `false` | When `true`, a `config`/`personalize` mutation re-renders and installs the bundled skills into the agent registry (`skills::resync_skills`). Default `false` while the skill pipeline is being rolled out (sub-project B), so mutations never touch the live registry. Read by `src/skills/`. |
 
 Every variable is optional; a missing file or missing field falls back to the
 default above. `root` is read by `paths.rs` (and honored by the persistent

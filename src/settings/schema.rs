@@ -11,7 +11,7 @@ pub(super) struct VarSpec {
 }
 
 /// The full schema, in the order `config list` prints them.
-pub(super) const VARS: [VarSpec; 6] = [
+pub(super) const VARS: [VarSpec; 7] = [
     VarSpec {
         name: "root",
         description: "Path to your brain (PARA) directory. Tilde-expanded. Defaults to ~/brain.",
@@ -41,6 +41,11 @@ pub(super) const VARS: [VarSpec; 6] = [
         name: "claude_cmd",
         description: "Command that launches the brain panel's claude session; --resume/--session-id are appended. Defaults to `claude --dangerously-skip-permissions`.",
         default: Some("claude --dangerously-skip-permissions"),
+    },
+    VarSpec {
+        name: "skills_auto_sync",
+        description: "When true, config/personalize changes re-render and install the bundled skills into the agent registry. Default false (the install pipeline is still being rolled out).",
+        default: Some("false"),
     },
 ];
 

@@ -134,12 +134,20 @@ so the renderer resolves labels without threading state), `command` (the
 `type_label` delegates here, so the public binary carries no personal taxonomy.
 See [config.md](config.md) and [data-model.md](data-model.md).
 
-### `skills.rs`
-The skill-rerender seam: `resync_skills()`, called after every `config`/
-`personalize` mutation and onboarding so the installed skills never drift from
-the user's values. A deliberate no-op for now — the real render/install pipeline
-is a later sub-project; the single call site is wired so that work only fills in
-the body.
+### `skills/`
+The brain skill pipeline (sub-project B): render the bundled skills and install
+them into the shared agent registry (`~/.agents/skills`), fanning out to each
+frontend (Claude, **Codex**, OpenCode, Cursor). Split into `embed` (the
+`include_dir!`-embedded `skills/` dir + iteration), `render` (base skill →
+installable files; B1 is a byte passthrough, B2 injects the user's extensions
+into a *new built copy* only, never the repo source), `layout` (the built dir +
+registry + frontend dirs, and the pure `link_ops` target computation), `install`
+(write built + create the two-hop symlinks; thin FS shell over `link_ops`), and
+`command` (`brain skills sync [--root <sandbox>]`). `resync_skills()` (the A
+seam) now runs the pipeline, but is **gated off by `skills_auto_sync`** (default
+false) so a mutation never touches the live registry while the pipeline is rolled
+out (B1–B3); the B4 cutover flips the gate and fixes jpsyx's prune. See the B
+spec under `docs/superpowers/specs/`.
 
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =
@@ -376,3 +384,6 @@ sibling so the two projects share a stack:
 - `rusqlite` (`bundled`) — the WAL state DB shared with the SessionStart
   hook; `bundled` avoids a system libsqlite dependency.
 - `uuid` (`v4`) — per-shell brain-instance ids and fresh session ids.
+- `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
+  binary so a public cloner needs no repo checkout; `brain skills sync` writes
+  them out. Multi-file skill assets rule out `include_str!`.

@@ -487,6 +487,35 @@ unit tests) it falls back to the generic defaults, so tests never see the dev
 machine's personalization and stay hermetic. The running TUI reads styles at
 startup; changing personalization takes effect on the next launch.
 
+## Why bundled skills are embedded in the binary (`include_dir`)
+
+brain is meant to be cloned and used by anyone, and its skills must work in *any*
+agent session, not just inside the repo. Embedding the `skills/` dir into the
+binary with `include_dir` makes it self-contained: `brain skills sync` writes the
+skills out wherever they're needed, so a user who `cargo install`s brain (or
+moves the binary) still gets them. `include_str!` can't carry a skill's multiple
+files (SKILL.md + scripts), which is why the one dependency is justified.
+
+## Why the skill install is a two-hop link (registry → built), matching jpsyx
+
+`brain skills sync` writes a built copy, links `~/.agents/skills/<name>` at it,
+then links each frontend's skills dir at that registry entry. This mirrors the
+existing jpsyx fan-out exactly, so brain-owned skills sit in the same shared
+registry every frontend already reads — and so brain and jpsyx can coexist on
+Pablo's machines once the B4 bridge stops jpsyx from pruning brain-owned entries.
+The link *targets* are a pure function (`layout::link_ops`), unit-tested; the FS
+shell (`install`) stays thin.
+
+## Why the skill sync is gated off (`skills_auto_sync`) during rollout
+
+`resync_skills()` is wired into every config/personalize mutation, but a mutation
+must not silently rewrite the user's live agent registry while the pipeline is
+still being built (sub-projects B1–B3) — on Pablo's machine that registry is
+still jpsyx-owned, and dual management would collide. So the auto-sync is gated
+behind a config flag defaulting to `false`; the pipeline is exercised only via
+`brain skills sync --root <sandbox>` until the B4 cutover flips the flag and
+fixes jpsyx's prune. Safety-first: the default can't disturb a live setup.
+
 ## Why no comments-by-default and no decision log in code
 
 Per the user's house style, new code gets a comment only when the *why* is

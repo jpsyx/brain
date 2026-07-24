@@ -57,6 +57,9 @@ pub enum Cmd {
     /// `brain personalize` runs first-run onboarding if nothing is set yet,
     /// otherwise it shows your current values.
     Personalize(PersonalizeArgs),
+
+    /// Manage the bundled brain skills (render + install into the agent registry).
+    Skills(SkillsArgs),
 }
 
 #[derive(Args, Debug)]
@@ -103,6 +106,23 @@ pub enum PersonalizeAction {
     },
     /// Open the raw personalization JSON in `$EDITOR` (for editing `tag_styles`).
     Edit,
+}
+
+#[derive(Args, Debug)]
+pub struct SkillsArgs {
+    #[command(subcommand)]
+    pub action: Option<SkillsAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SkillsAction {
+    /// Render + install the bundled skills into the agent registry and frontends.
+    Sync {
+        /// Install under this sandbox dir instead of the real per-user layout
+        /// (for testing; never touches `~/.agents` or the frontend skill dirs).
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Args, Debug)]

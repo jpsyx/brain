@@ -154,6 +154,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent config (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
+| `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
@@ -203,6 +204,25 @@ later sub-project; the trigger is wired now.)
 Like `config`, `personalize` runs before the `markdown-to-pdf` prerequisite
 gate, so it always works. See [config.md](config.md) and
 [data-model.md](data-model.md) for the store layout and schema.
+
+### `brain skills`
+
+Manages the **bundled brain skills** — the skills that ship with brain and
+install into the shared agent registry so they work in *any* Claude (or Codex,
+OpenCode, Cursor) session, not just inside brain.
+
+- `brain skills sync` — render each bundled skill and install it: write a built
+  copy, link `~/.agents/skills/<name>` at it, then link each frontend's skills
+  dir at the registry entry. Idempotent; re-run any time.
+- `brain skills sync --root <dir>` — install everything under a **sandbox** dir
+  instead of your real `~/.agents`/frontend dirs. Used for testing so a run
+  never disturbs your live setup.
+
+The skills are embedded in the binary, so a fresh clone needs no extra files.
+Installing is also triggered automatically after a `config`/`personalize` change
+when `skills_auto_sync` is `true` (default `false` while the pipeline is being
+rolled out). Bundled today: `article-summarizer` (more land as sub-project B
+migrates them in). See [config.md](config.md) and the sub-project B spec.
 
 ### Prerequisite: `markdown-to-pdf`
 
