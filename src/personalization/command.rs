@@ -32,6 +32,11 @@ pub fn summary_block(p: &Personalization) -> String {
     out.push_str(&line("role", &p.role));
     out.push('\n');
     out.push_str(&line("works_for", &p.works_for));
+    out.push('\n');
+    // Always the *effective* set (falls back to generic defaults) so a skill
+    // reading this contract sees a usable namespace list even before setup.
+    out.push_str("namespaces: ");
+    out.push_str(&super::namespaces::effective(&p.namespaces).join(", "));
     out
 }
 
@@ -135,13 +140,27 @@ mod tests {
     #[test]
     fn summary_block_emits_stable_keyed_lines() {
         let block = summary_block(&sample());
-        assert_eq!(block, "name: Pablo\nrole: CEO\nworks_for: Avandar");
+        // namespaces falls back to the generic defaults when unset.
+        assert_eq!(
+            block,
+            "name: Pablo\nrole: CEO\nworks_for: Avandar\nnamespaces: work, personal"
+        );
+    }
+
+    #[test]
+    fn summary_block_shows_configured_namespaces() {
+        let mut p = sample();
+        p.namespaces = vec!["avandar".to_owned(), "personal".to_owned(), "pole".to_owned()];
+        assert!(summary_block(&p).ends_with("namespaces: avandar, personal, pole"));
     }
 
     #[test]
     fn summary_block_shows_unset_for_empty_fields() {
         let block = summary_block(&Personalization::default());
-        assert_eq!(block, "name: (unset)\nrole: (unset)\nworks_for: (unset)");
+        assert_eq!(
+            block,
+            "name: (unset)\nrole: (unset)\nworks_for: (unset)\nnamespaces: work, personal"
+        );
     }
 
     #[test]

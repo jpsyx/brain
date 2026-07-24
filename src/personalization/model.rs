@@ -22,6 +22,11 @@ pub struct Personalization {
     /// Org the user works for, "myself", or empty.
     #[serde(default)]
     pub works_for: String,
+    /// Project namespaces (the `<namespace>__<outcome>` life-buckets the
+    /// second-brain skill uses). Configured in onboarding / `brain config set
+    /// namespaces`. Empty falls back to the generic defaults.
+    #[serde(default)]
+    pub namespaces: Vec<String>,
     /// Per-tag display overrides layered over the generic defaults.
     #[serde(default)]
     pub tag_styles: BTreeMap<String, TagStyle>,
@@ -41,6 +46,7 @@ impl Personalization {
         self.name.is_empty()
             && self.role.is_empty()
             && self.works_for.is_empty()
+            && self.namespaces.is_empty()
             && self.tag_styles.is_empty()
     }
 }
@@ -83,7 +89,18 @@ mod tests {
         let p = Personalization::parse(r#"{"role": "student"}"#);
         assert_eq!(p.role, "student");
         assert_eq!(p.name, "");
+        assert!(p.namespaces.is_empty());
         assert!(p.tag_styles.is_empty());
+    }
+
+    #[test]
+    fn namespaces_round_trip_and_count_toward_non_empty() {
+        let p = Personalization::parse(r#"{"namespaces": ["work", "personal", "pole"]}"#);
+        assert_eq!(p.namespaces, ["work", "personal", "pole"]);
+        assert!(!p.is_empty(), "namespaces alone make it non-empty");
+        // Round-trips through JSON.
+        let json = serde_json::to_string(&p).unwrap();
+        assert_eq!(Personalization::parse(&json).namespaces, p.namespaces);
     }
 
     #[test]
@@ -92,6 +109,7 @@ mod tests {
             name: "A".to_owned(),
             role: "B".to_owned(),
             works_for: "C".to_owned(),
+            namespaces: vec!["work".to_owned()],
             tag_styles: BTreeMap::new(),
         };
         p.tag_styles.insert(

@@ -12,6 +12,7 @@
 
 pub mod command;
 pub mod model;
+pub mod namespaces;
 pub mod onboarding;
 pub mod runtime;
 pub mod store;
