@@ -7,9 +7,12 @@
 //! habit sections, regen PDF when one exists) via
 //! `update_agenda_on_mutation.py`. No Claude session is launched — marking a
 //! task done is fully structured work, no NLP/judgement required.
+//!
+//! The script lives where `brain skills sync` installs the bundled `/todo`
+//! skill: the shared agent registry at `~/.agents/skills/todo/scripts/`.
 
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Result, anyhow, bail};
@@ -41,6 +44,18 @@ pub fn normalize_id(raw: &str) -> Result<String> {
     Ok(format!("{prefix}{n}"))
 }
 
+/// Path to the bundled `/todo` skill's `mark_done.py` in the shared agent
+/// registry (`~/.agents/skills/todo/scripts/mark_done.py`) — the install target
+/// of `brain skills sync`. Pure.
+#[must_use]
+pub fn mark_done_path(home: &Path) -> PathBuf {
+    home.join(".agents")
+        .join("skills")
+        .join("todo")
+        .join("scripts")
+        .join("mark_done.py")
+}
+
 /// Replace the current process with `mark_done.py`. We `exec` rather than
 /// spawn-and-wait so the script's stdout/stderr stream straight to the
 /// user's terminal and signal handling stays clean.
@@ -52,19 +67,10 @@ pub fn run(raw_id: &str) -> Result<()> {
     let _brain = crate::paths::brain_root()?;
 
     let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("$HOME is not set"))?;
-    let home = PathBuf::from(home);
-
-    // NOTE (sub-project B): the CLI still hard-depends on `mark_done.py` living
-    // inside the installed `/todo` skill at a fixed global path. B bundles the
-    // skills and resolves this through the skills install location.
-    let mark_done = home
-        .join("global-skills")
-        .join("todo")
-        .join("scripts")
-        .join("mark_done.py");
+    let mark_done = mark_done_path(Path::new(&home));
     if !mark_done.is_file() {
         bail!(
-            "mark_done.py not found at {} — install the /todo skill first",
+            "mark_done.py not found at {} — run `brain skills sync` to install the /todo skill",
             mark_done.display()
         );
     }
@@ -75,7 +81,16 @@ pub fn run(raw_id: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_id;
+    use super::{mark_done_path, normalize_id};
+    use std::path::Path;
+
+    #[test]
+    fn mark_done_resolves_to_the_installed_todo_skill() {
+        assert_eq!(
+            mark_done_path(Path::new("/Users/x")),
+            Path::new("/Users/x/.agents/skills/todo/scripts/mark_done.py")
+        );
+    }
 
     #[test]
     fn bare_number_assumes_task_prefix() {
