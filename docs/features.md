@@ -224,6 +224,19 @@ when `skills_auto_sync` is `true` (default `false` while the pipeline is being
 rolled out). Bundled today: `article-summarizer` (more land as sub-project B
 migrates them in). See [config.md](config.md) and the sub-project B spec.
 
+**Customizing skills without forking.** Two mechanisms, both stored with your
+brain (synced, never committed to the repo):
+
+- **Extensions** — personalize a *bundled* skill without a new skill. Put a
+  `<root>/.config/extensions/<skill>.md` file with `[hook]` sections; the sync
+  injects each hook's text at the skill's matching `<!-- brain:ext hook -->`
+  marker in the **built copy** (the repo skill is never touched). Content with no
+  matching marker is appended as a "Personal extensions" section, so nothing is
+  lost. This is how, e.g., a `triage` extension can run something *at the start*.
+- **Plugins** — whole skills you own, in `<root>/.config/plugins/<name>/`. The
+  sync installs them alongside the bundled cores, into the same registry and
+  frontends.
+
 ### Prerequisite: `markdown-to-pdf`
 
 Every command except `brain config` fails fast with a red `❌` error if the

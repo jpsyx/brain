@@ -110,6 +110,14 @@ syncs with the brain dir. Manage it with `brain personalize` (see
 | `works_for` | Org you work for, `myself`, or empty. |
 | `tag_styles` | Map of `tag → { emoji, label }` layered over the generic defaults (`mit`/`personal`/`work`). Unknown tags render as their raw name. |
 
+Two sibling stores live under the same hidden `<root>/.config/` dir and also
+sync with the brain (see [features.md](features.md) for how they customize skills):
+
+- `<root>/.config/extensions/<skill>.md` — per-skill **extensions** injected into
+  a bundled skill's built copy.
+- `<root>/.config/plugins/<name>/` — whole user **plugins** installed alongside
+  the bundled skills.
+
 A missing or broken personalization file parses to empty — the app runs fine
 with no personalization, and skills fall back to generic behavior. Any
 `personalize`/`config` mutation triggers a skill re-render (`skills::resync_skills`)

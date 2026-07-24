@@ -137,13 +137,18 @@ See [config.md](config.md) and [data-model.md](data-model.md).
 ### `skills/`
 The brain skill pipeline (sub-project B): render the bundled skills and install
 them into the shared agent registry (`~/.agents/skills`), fanning out to each
-frontend (Claude, **Codex**, OpenCode, Cursor). Split into `embed` (the
-`include_dir!`-embedded `skills/` dir + iteration), `render` (base skill →
-installable files; B1 is a byte passthrough, B2 injects the user's extensions
-into a *new built copy* only, never the repo source), `layout` (the built dir +
-registry + frontend dirs, and the pure `link_ops` target computation), `install`
-(write built + create the two-hop symlinks; thin FS shell over `link_ops`), and
-`command` (`brain skills sync [--root <sandbox>]`). `resync_skills()` (the A
+frontend (Claude, **Codex**, OpenCode, Cursor). Split into `model` (the shared `Skill`/`SkillFile` type), `embed` (the
+`include_dir!`-embedded `skills/` dir → bundled `Skill`s), `plugin` (whole user
+skills discovered from `<root>/.config/plugins/<name>/`), `extension` (parse a
+`<root>/.config/extensions/<skill>.md` into named `[hook]` sections + catch-all,
+and `apply` it to a base `SKILL.md` at `<!-- brain:ext hook -->` markers,
+producing a *new built copy* only — never the repo/plugin source; unmatched
+content lands in a trailing "Personal extensions" section), `render` (base skill
+→ installable files, injecting the extension into `SKILL.md`), `layout` (the
+built dir + registry + frontend dirs, and the pure `link_ops` target
+computation), `install` (collect bundled + plugins, write built + create the
+two-hop symlinks; thin FS shell over `link_ops`), and `command`
+(`brain skills sync [--root <sandbox>]`). `resync_skills()` (the A
 seam) now runs the pipeline, but is **gated off by `skills_auto_sync`** (default
 false) so a mutation never touches the live registry while the pipeline is rolled
 out (B1–B3); the B4 cutover flips the gate and fixes jpsyx's prune. See the B

@@ -516,6 +516,26 @@ behind a config flag defaulting to `false`; the pipeline is exercised only via
 `brain skills sync --root <sandbox>` until the B4 cutover flips the flag and
 fixes jpsyx's prune. Safety-first: the default can't disturb a live setup.
 
+## Why extensions inject at named hooks (not append-only, not runtime lookup)
+
+A user must be able to personalize a bundled skill without forking it — and
+sometimes that means running something *at the start* of the skill (Pablo's
+`triage` calls email-triage first), which a trailing "append" can't express and a
+pure runtime lookup can't order reliably. So base skills declare named markers
+(`<!-- brain:ext hook -->`) and the extension file supplies content per hook,
+substituted in place. Content with no matching marker still lands in a trailing
+"Personal extensions" section, so nothing the user wrote is silently dropped. A
+skill with no extension renders unchanged (markers are stripped).
+
+## Why extensions render a new built copy, never the repo/plugin source
+
+The repo must stay 100% generic and a plugin is the user's own artifact; neither
+should be mutated by personalization. So injection happens only when writing the
+*built* copy that Claude/Codex read (`render` → `install`), leaving the source
+pristine. This is the structural half of the A hybrid model (identity stays a
+runtime lookup; behavior changes are rendered), and it keeps `git status` on the
+repo clean no matter how heavily a user personalizes.
+
 ## Why no comments-by-default and no decision log in code
 
 Per the user's house style, new code gets a comment only when the *why* is
