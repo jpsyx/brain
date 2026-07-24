@@ -142,12 +142,12 @@ hook frees the instance's others on every start, handling `/new`). The
 `PanelSide` enum (`Left` / `Right`, default `Right`) lives in `state.rs`
 because it's the persisted layout value.
 
-## Personalization (`personalization/`, `<root>/.config/personalization.json`)
+## Personalization (`personalization/`, `~/.config/brain/personalization.json`)
 
-Content *about you*, stored in a hidden `.config/` dir inside the brain root so
-it syncs with the brain dir (unlike the machine-local `~/.config/brain/config.json`).
-A missing/broken file parses to the default (empty) value — the app never
-requires personalization.
+Content *about you*, stored beside `config.json` in the brain config dir
+(`settings::config_dir()`) — just another brain config, under `$HOME` rather
+than inside the brain root. A missing/broken file parses to the default (empty)
+value — the app never requires personalization.
 
 `Personalization` (`personalization/model.rs`):
 

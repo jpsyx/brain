@@ -175,10 +175,9 @@ and the prerequisite/auto-discovery rules.
 
 ### `brain personalize`
 
-Reads and writes your **personalization** — content *about you* that travels
-with your brain, stored at `<root>/.config/personalization.json` (a hidden dir
-inside the brain root, so it stays out of Finder and syncs with your brain, as
-opposed to the machine-local `~/.config/brain/config.json`).
+Reads and writes your **personalization** — content *about you*, stored beside
+the config store at `~/.config/brain/personalization.json` (just another brain
+config, under `$HOME` rather than inside the brain root).
 
 - `brain personalize` (bare) — first-run onboarding if nothing is set yet
   (a short, skippable prompt for your name, role, and who you work for),

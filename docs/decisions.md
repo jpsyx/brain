@@ -441,18 +441,23 @@ sitting unsent. Sending the Enter as a distinct keystroke a beat later makes
 claude actually submit it. This mirrors the `tasks` sibling's
 `pending_brain_submit` mechanism (learned there first).
 
-## Why personalization is a separate store inside the brain root
+## Why personalization lives in the brain config dir, not inside the brain root
 
-Two settings stores with different lifecycles: machine-local config
-(`~/.config/brain/config.json`: `root`, `claude_cmd`, paths) must **never**
-sync across machines, while personalization (name, role, who you work for, tag
-styles) should be **identical** everywhere. So personalization lives *inside the
-brain root* at `<root>/.config/personalization.json` — it rides along whenever
-the brain dir is synced (the future cloud-sync sub-project), with no special
-casing. It is dot-prefixed so Finder hides it and the picker's hidden-file
-filter already skips it. Tangling the two into one file would force the sync
-layer to either drag machine-local paths between machines or special-case
-individual fields.
+Personalization (name, role, who you work for, tag styles, namespaces) is
+content *about you* that should be identical on every machine. An earlier design
+put it *inside the brain root* (`<root>/.config/personalization.json`) so it rode
+along when the brain dir synced. We moved it: personalization is now just another
+brain config, stored beside `config.json` in the brain config dir
+(`~/.config/brain/personalization.json`, `settings::config_dir()`).
+
+The reasons: (1) it unifies "everything brain persists" under one `$HOME` dir
+that a dotfiles setup can sync as a whole, instead of splitting config across the
+brain root and `~/.config/brain`; (2) it keeps the brain root purely user
+content (notes, projects), not brain's own state; (3) `brain` still writes only
+under `$HOME` and **never** touches the jpsyx-configs repo — how `~/.config/brain`
+syncs across machines is handled externally. Machine-specific values that happen
+to sync (e.g. a discovered `markdown_to_pdf_path`) are re-validated and
+auto-healed where needed, so a single synced dir doesn't strand a machine.
 
 ## Why tag styles (and identity) are personalization, not hardcoded
 

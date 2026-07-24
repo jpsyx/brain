@@ -38,17 +38,16 @@ pub fn resync_skills() {
     let _ = install::sync(&layout::Layout::real(&home), &real_sources());
 }
 
-/// Extension + plugin sources from the configured brain root
-/// (`<root>/.config/{extensions,plugins}`). Empty if the root can't be resolved.
+/// Extension + plugin sources from the brain config dir
+/// (`~/.config/brain/{extensions,plugins}`). Personalization, extensions, and
+/// plugins all live under the brain config dir, not inside the brain root.
 #[must_use]
 pub fn real_sources() -> install::Sources {
-    crate::paths::brain_root().map_or_else(
-        |_| install::Sources::default(),
-        |root| install::Sources {
-            extensions_dir: Some(root.join(".config").join("extensions")),
-            plugins_dir: Some(plugin::dir_in_root(&root)),
-        },
-    )
+    let config_dir = crate::settings::config_dir();
+    install::Sources {
+        extensions_dir: Some(config_dir.join("extensions")),
+        plugins_dir: Some(plugin::dir_in_config(&config_dir)),
+    }
 }
 
 fn auto_sync_enabled() -> bool {

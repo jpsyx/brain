@@ -99,7 +99,7 @@ pub fn run_set(assignment: &str) -> Result<()> {
 pub fn run_edit() -> Result<()> {
     let existing = store::load();
     store::save(&existing)?; // materialize defaults if absent
-    let path = store::path_in_root(&crate::paths::brain_root()?);
+    let path = store::path_in_config_dir(&crate::settings::config_dir());
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
         .unwrap_or_else(|_| "nvim".to_owned());

@@ -8,13 +8,24 @@ use std::path::PathBuf;
 use anyhow::Result;
 use serde_json::{Map, Value};
 
+/// The brain config directory: `$XDG_CONFIG_HOME/brain` or `~/.config/brain`.
+///
+/// This is the single home for everything brain persists — the JSON config
+/// store, `personalization.json`, and the skill `extensions/` and `plugins/`
+/// sources. It lives under `$HOME` (never inside the brain root and never in
+/// the jpsyx-configs repo); syncing it across machines is handled externally.
+#[must_use]
+pub fn config_dir() -> PathBuf {
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|s| !s.is_empty()) {
+        return PathBuf::from(xdg).join("brain");
+    }
+    home_dir().join(".config").join("brain")
+}
+
 /// Absolute path to the JSON config store.
 #[must_use]
 pub fn store_path() -> PathBuf {
-    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|s| !s.is_empty()) {
-        return PathBuf::from(xdg).join("brain").join("config.json");
-    }
-    home_dir().join(".config").join("brain").join("config.json")
+    config_dir().join("config.json")
 }
 
 /// Read the store as a JSON object. A missing, unreadable, or non-object file

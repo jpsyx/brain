@@ -50,10 +50,10 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<SkillFile>) {
     }
 }
 
-/// The default plugins dir under a brain root: `<root>/.config/plugins`.
+/// The plugins dir under the brain config dir: `<config-dir>/plugins`.
 #[must_use]
-pub fn dir_in_root(root: &Path) -> PathBuf {
-    root.join(".config").join("plugins")
+pub fn dir_in_config(config_dir: &Path) -> PathBuf {
+    config_dir.join("plugins")
 }
 
 #[cfg(test)]

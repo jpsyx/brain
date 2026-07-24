@@ -122,10 +122,11 @@ prerequisite). See [config.md](config.md).
 
 ### `personalization/`
 The personalization store — content *about you* at
-`<root>/.config/personalization.json` (a hidden dir inside the brain root, so it
-syncs with the brain dir; contrast `settings/`, which is machine-local). Split
-into `model` (the `Personalization` schema + parse), `store` (path resolution
-under the brain root + load/save), `tags` (the `TagStyle`/`TagStyles` model, the
+`~/.config/brain/personalization.json` (beside the config store in
+`settings::config_dir()`; it is just another brain config, under `$HOME` rather
+than inside the brain root). Split into `model` (the `Personalization` schema +
+parse), `store` (path resolution in the brain config dir + load/save), `tags`
+(the `TagStyle`/`TagStyles` model, the
 generic defaults `mit`/`personal`/`work`, and pure label resolution with
 raw-name fallback), `runtime` (a process-cached copy of the resolved tag styles
 so the renderer resolves labels without threading state), `command` (the

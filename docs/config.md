@@ -1,19 +1,24 @@
 # Configuration
 
-`brain` keeps settings in **two stores with different lifecycles**:
+`brain` keeps everything it persists under one **brain config dir**,
+`~/.config/brain/` (or `$XDG_CONFIG_HOME/brain/`):
 
-| Store | Path | Holds | Synced across machines? |
-| --- | --- | --- | --- |
-| Machine-local config | `~/.config/brain/config.json` (or `$XDG_CONFIG_HOME/brain/config.json`) | paths + runtime knobs (`root`, `claude_cmd`, `markdown_to_pdf_path`, …) | **No** — per-machine |
-| Personalization | `<root>/.config/personalization.json` | content *about you* (name, role, who you work for, tag styles) | **Yes** — travels with the brain dir |
+| File / dir | Holds |
+| --- | --- |
+| `config.json` | paths + runtime knobs (`root`, `claude_cmd`, `markdown_to_pdf_path`, …) |
+| `personalization.json` | content *about you* (name, role, who you work for, tag styles) |
+| `extensions/<skill>.md` | additive personalization of a bundled skill (see [features](features.md)) |
+| `plugins/<name>/` | whole user-owned skills installed alongside the bundled cores |
 
-The seam matters: machine-local settings (like the `root` path itself) must
-never sync, while personalization should be identical on every machine, so it
-lives *inside the brain root* and rides along when the brain dir is synced. The
-personalization dir is dot-prefixed (`.config/`), so Finder hides it and the
-picker's hidden-file filter skips it.
+The dir lives under `$HOME` — **not** inside the brain root, and **not** in any
+dotfiles repo (`brain` never writes there). Everything in it is created on
+demand; a fresh checkout has none. Whether and how the dir syncs across machines
+is handled externally (e.g. a dotfiles setup); `brain` itself just reads and
+writes `~/.config/brain/`. Machine-specific values that happen to sync (like a
+discovered `markdown_to_pdf_path`) are re-validated and auto-healed on the
+machine that needs them.
 
-This document is mostly about the **machine-local config store**
+This document is mostly about the **config store**
 (`~/.config/brain/config.json`). It is created on demand — you don't commit it,
 and a fresh checkout has none. Manage it with `brain config` rather than
 editing it by hand (though hand-editing is fine). For personalization see the
@@ -97,11 +102,11 @@ See those modules' unit tests and `tests/root_resolution.rs`.
 
 ## Personalization
 
-Personalization is the second store: content *about you*, at
-`<root>/.config/personalization.json` (resolved against the configured `root`).
-Unlike the machine-local config it is meant to be identical on every machine and
-syncs with the brain dir. Manage it with `brain personalize` (see
-[features.md](features.md)); the schema lives in [data-model.md](data-model.md).
+Personalization is content *about you*, stored beside `config.json` in the brain
+config dir at `~/.config/brain/personalization.json`. It is just another brain
+config — it lives under `$HOME`, not inside the brain root. Manage it with
+`brain personalize` (see [features.md](features.md)); the schema lives in
+[data-model.md](data-model.md).
 
 | Field | Meaning |
 | --- | --- |

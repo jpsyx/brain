@@ -52,10 +52,10 @@ pub enum Cmd {
     /// Read or change brain's persistent config (`~/.config/brain/config.json`).
     Config(ConfigArgs),
 
-    /// Read or change your personalization (identity + tag styles), stored with
-    /// your brain at `<root>/.config/personalization.json`. Bare
-    /// `brain personalize` runs first-run onboarding if nothing is set yet,
-    /// otherwise it shows your current values.
+    /// Read or change your personalization (identity + tag styles), stored at
+    /// `~/.config/brain/personalization.json`. Bare `brain personalize` runs
+    /// first-run onboarding if nothing is set yet, otherwise it shows your
+    /// current values.
     Personalize(PersonalizeArgs),
 
     /// Manage the bundled brain skills (render + install into the agent registry).

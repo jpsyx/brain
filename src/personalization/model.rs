@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::tags::TagStyle;
 
-/// Content-about-you, stored at `<brain-root>/.config/personalization.json`.
+/// Content-about-you, stored at `~/.config/brain/personalization.json`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Personalization {
     /// Optional display name.
