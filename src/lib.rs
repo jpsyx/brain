@@ -27,4 +27,5 @@ pub mod skills;
 pub mod state;
 pub mod sync;
 pub mod tasks;
+pub mod theme;
 pub mod tui;

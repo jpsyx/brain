@@ -10,6 +10,7 @@ use anyhow::{Result, bail};
 
 use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
+use crate::theme::Theme;
 
 /// Parse a yes/no answer. Yes-ish (`y`/`yes`, case-insensitive) is `true`;
 /// anything else, including empty, is `false` — so the safe default is "no
@@ -63,26 +64,33 @@ pub fn validate(bucket: &str, key_id: &str, app_key: &str) -> Result<()> {
 /// Interactive setup. Writes the `sync` block into brain env, verifies/creates
 /// the bucket, and runs the initial baseline sync. Never unit-tested (I/O + net).
 pub fn run() -> Result<()> {
+    let theme = Theme::active();
     if !rclone_present() {
         eprintln!(
-            "rclone is not installed. Install it (https://rclone.org/downloads/) and re-run `brain sync setup`."
+            "{}",
+            theme.error(
+                "rclone is not installed. Install it (https://rclone.org/downloads/) and re-run `brain sync setup`."
+            )
         );
         return Ok(());
     }
+    println!("{}", theme.heading("Brain sync setup"));
     println!(
-        "brain sync keeps your ~/brain in sync across machines through a private\nBackblaze B2 bucket (encrypted at rest, and an off-site backup).\n"
+        "{} keeps your ~/brain in sync across machines through a private\nBackblaze B2 bucket (encrypted at rest, and an off-site backup).\n",
+        theme.accent("brain sync")
     );
 
-    if !ask_has_bucket()? {
+    if !ask_has_bucket(theme)? {
+        println!("{}", theme.heading("\nBackblaze bucket walkthrough"));
         println!("\n{}", bucket_walkthrough());
-        prompt("Press Enter once your bucket and application key are ready", "")?;
+        prompt(&theme.prompt("Press Enter once your bucket and application key are ready"), "")?;
     }
 
     println!("\nEnter your bucket details (from the Backblaze console):");
     let existing = SyncConfig::load();
-    let bucket = prompt("B2 bucket name", &existing.b2_bucket)?;
-    let key_id = prompt("B2 keyID", &existing.b2_key_id)?;
-    let app_key = prompt("B2 applicationKey", &existing.b2_app_key)?;
+    let bucket = prompt(&theme.prompt("B2 bucket name"), &existing.b2_bucket)?;
+    let key_id = prompt(&theme.prompt("B2 keyID"), &existing.b2_key_id)?;
+    let app_key = prompt(&theme.prompt("B2 applicationKey"), &existing.b2_app_key)?;
     validate(&bucket, &key_id, &app_key)?;
 
     let block = serde_json::json!({
@@ -94,16 +102,16 @@ pub fn run() -> Result<()> {
     });
     crate::env::set_raw("sync", block)?;
 
-    verify_or_create_bucket()?;
+    verify_or_create_bucket(theme)?;
 
-    println!("Establishing the baseline (this may take a while)…");
+    println!("{}", theme.info("Establishing the baseline (this may take a while)…"));
     let cfg = SyncConfig::load();
     let root = crate::paths::brain_root()?;
     let now = chrono::Utc::now();
     let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let date = now.format("%Y-%m-%d").to_string();
     crate::sync::command::sync_once(&cfg, &root, Direction::Resync, (&ts, &ts, &date))?;
-    println!("sync configured.");
+    println!("{}", theme.success("✓ sync configured."));
     Ok(())
 }
 
@@ -132,9 +140,9 @@ fn prompt(label: &str, current: &str) -> Result<String> {
 
 /// Ask whether the user already has a bucket. Thin `/dev/tty` shell over
 /// [`parse_yes_no`]; a bare Enter means "no" (show the walkthrough).
-fn ask_has_bucket() -> Result<bool> {
+fn ask_has_bucket(theme: Theme) -> Result<bool> {
     let answer = prompt(
-        "Do you already have a Backblaze private bucket to connect to? [y/N]",
+        &theme.prompt("Do you already have a Backblaze private bucket to connect to? [y/N]"),
         "",
     )?;
     Ok(parse_yes_no(&answer))
@@ -148,7 +156,7 @@ fn rclone_present() -> bool {
 }
 
 /// Probe the configured bucket with rclone; offer to create it if missing.
-fn verify_or_create_bucket() -> Result<()> {
+fn verify_or_create_bucket(theme: Theme) -> Result<()> {
     let cfg = SyncConfig::load();
     let remote = crate::sync::remote::build_remote(&cfg);
     // `rclone lsd <remote>` lists dirs; success means the bucket is reachable.
@@ -161,7 +169,7 @@ fn verify_or_create_bucket() -> Result<()> {
     if ok {
         return Ok(());
     }
-    println!("Bucket not reachable; attempting to create it…");
+    println!("{}", theme.warning("Bucket not reachable; attempting to create it…"));
     let mut mk = std::process::Command::new("rclone");
     mk.arg("mkdir").arg(&remote.arg);
     for (k, v) in &remote.env {

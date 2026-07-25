@@ -22,6 +22,11 @@ pub struct SyncConfig {
     pub watch: bool,
     #[serde(default = "default_max_delete")]
     pub max_delete_percent: u8,
+    /// Extra rclone exclude patterns (appended to the built-in excludes), e.g.
+    /// "**/test-data/**". Lets large/unwanted paths stay out of the sync.
+    pub exclude: Vec<String>,
+    /// Skip files larger than this rclone size string (e.g. "100M"); empty = no cap.
+    pub max_size: String,
 }
 
 fn default_true() -> bool {
@@ -83,5 +88,12 @@ mod tests {
     fn watch_defaults_on_when_configured_and_off_when_disabled() {
         assert!(parse(r#"{"enabled": true, "b2_bucket": "b"}"#).watch_effective());
         assert!(!parse(r#"{"enabled": true, "b2_bucket": "b", "watch": false}"#).watch_effective());
+    }
+
+    #[test]
+    fn exclude_and_max_size_default_empty() {
+        let c: SyncConfig = serde_json::from_str("{}").unwrap();
+        assert!(c.exclude.is_empty());
+        assert!(c.max_size.is_empty());
     }
 }

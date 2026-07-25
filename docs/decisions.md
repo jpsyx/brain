@@ -587,17 +587,87 @@ renames the marker to a human-readable `name (conflict <host> <date>).ext`
 (see [data-model.md](data-model.md)) so resolving it later is a normal
 file-manager task, not spelunking for `__brainconflict__` files.
 
-**Why there is no silent auto-resync.** When bisync aborts (the
-`--max-delete` guard, or rclone's own "prior listings missing" guard), C2
-deliberately does not retry with `--resync` on its own — `--resync` makes one
-side unconditionally overwrite the other's listing, and blindly doing that
-after an abort could paper over exactly the kind of change (a wiped
-directory, a botched previous run) the guard exists to catch. Instead the
-abort is surfaced (`Outcome::Aborted`, with a message pointing at `brain sync
-init` or `brain sync --resync`) and the human decides. This mirrors the
-project's broader pattern of surfacing rather than auto-healing anything
-that touches data loss (contrast the auto-healed `markdown_to_pdf_path`,
-which only ever *rediscovers a tool path* — never anyone's data).
+**Why there is no silent auto-resync (partially superseded — see C3 below).**
+When bisync aborts (the `--max-delete` guard, or rclone's own "prior listings
+missing" guard), C2 deliberately does not retry with `--resync` on its own —
+`--resync` makes one side unconditionally overwrite the other's listing, and
+blindly doing that after an abort could paper over exactly the kind of change
+(a wiped directory, a botched previous run) the guard exists to catch.
+Instead the abort is surfaced (`Outcome::Aborted`, with a message pointing at
+`brain sync init` or `brain sync --resync`) and the human decides. This
+mirrors the project's broader pattern of surfacing rather than auto-healing
+anything that touches data loss (contrast the auto-healed
+`markdown_to_pdf_path`, which only ever *rediscovers a tool path* — never
+anyone's data). **This still holds for `--max-delete`** — a tripped delete
+guard always surfaces for a human decision, never auto-retried. C3 narrows
+the "no auto-resync" rule to that one case; see below for why
+`PriorListingMissing` specifically is safe to auto-retry.
+
+## C3 — brain sync progress, resume, and selective sync
+
+Built on top of C2 after a real first sync on a 144 GB brain surfaced three
+gaps: a long baseline looked like a silent hang, an interrupted sync had no
+easy resume path, and there was no way to keep giant non-note files out of
+the bucket. See the design spec
+(`docs/superpowers/specs/2026-07-25-brain-sync-progress-resume.md`) for the
+full write-up; the durable decisions are below.
+
+**Why stream rclone's output instead of capturing it.** `Command::output()`
+(C2's original approach) buffers everything and blocks until exit — on a
+multi-hour first baseline the user sees nothing until it's done, which is
+indistinguishable from a hang. `src/sync/run.rs` now inherits stdout for the
+child and pipes only stderr (rclone's log/stats stream), reading it
+line-by-line on the same thread that spawned the process: each line is
+echoed live *and* appended to a capture buffer used for the post-exit parse.
+One pipe, drained continuously — no second thread, no deadlock. Paired with
+`--stats 10s --stats-one-line` in the bisync argv, this turns a silent block
+into a periodic one-line progress readout (files/bytes/%/rate/ETA).
+
+**Why `PriorListingMissing` gets an automatic one-shot resync but
+`MaxDelete` still does not.** These are rclone's two abort kinds, and they
+carry very different risk profiles. `MaxDelete` means bisync is *about* to
+delete more files than the configured guard allows — auto-retrying that
+could propagate a real, intentional-looking mass delete without a human ever
+seeing it, which is exactly the harm the C2 decision above was written to
+prevent. `PriorListingMissing` means the opposite: bisync's own baseline
+bookkeeping is incomplete, almost always because a previous `--resync` was
+killed mid-run (Ctrl-C, a crash, a dropped connection) before it could
+finish writing both sides' listings. Resuming that with another `--resync`
+doesn't discard or override anyone's data — it re-establishes the baseline
+using whatever state already exists on both sides and uploads only what's
+missing, which is the intended recovery path in any case (the *manual* fix
+was already "run `brain sync init`" under C2). Automating just this one,
+narrow, low-risk case is what `command::should_auto_resync` encodes (pure:
+`dir != Resync && abort == PriorListingMissing`, so it fires once and never
+loops on a resync's own abort), paired with `--resilient --recover` in the
+bisync argv so rclone itself tolerates a transient interruption without even
+reaching the abort path.
+
+**Why brain never journals `clean` for an interrupted or errored run
+(the never-miss guarantee).** Auto-resume is only safe if brain never lies
+about a run's completeness first. `verify::classify` already only returned
+`Clean` on a zero-error, fully-successful rclone exit; C3 leans on that same
+invariant as the backbone of the "no file left un-synced" guarantee — an
+interrupted run is always `NeedsAttention`/`Aborted`, so either the
+auto-resume above or the next plain `brain sync` picks the job back up,
+rather than a user trusting a false "done" and never running sync again.
+
+**Why deletions propagating bidirectionally is called out explicitly (not
+new behavior, but a promoted guarantee).** `rclone bisync` has mirrored
+deletes since C2 — this was never new — but it was only implicit in "bisync
+gives us correct bidirectional semantics." Given how consequential a
+surprise delete would be for a personal knowledge base, C3 makes it an
+explicit, tested guarantee (`create_and_delete_propagate_bidirectionally`)
+and documents it as user-facing behavior rather than an incidental property
+of the transport, guarded the same way as any other change: `--max-delete`.
+
+**Why selective sync (`exclude`/`max_size`) defaults to off.** The user who
+prompted this work had opted, deliberately, to sync everything in `~/brain`
+including large media; the fix for *that* case was excluding those specific
+paths on that one machine, not changing brain's default behavior for
+everyone. `SyncConfig::exclude`/`max_size` default to empty, so an
+unconfigured brain keeps syncing everything exactly as C2 shipped it — this
+is an available knob, not a behavior change.
 
 ## Why `Ctrl-N` sends `/new` instead of being forwarded to claude
 

@@ -1,39 +1,17 @@
 //! Rendering the `config list` table and the `config set` confirmation: the
-//! ANSI palette, the `color_enabled` gate, the aligned key/value/description
-//! layout, and the painting. All pure (given a `color` flag) so it's testable.
+//! aligned key/value/description layout, painted via the shared [`Theme`]
+//! tokens. All pure (given a `Theme`) so it's testable.
 
-use std::io::IsTerminal;
+use crate::theme::Theme;
 
 use super::schema::Resolved;
 
 const LIST_HEADERS: [&str; 3] = ["var name", "value", "description"];
 const LIST_UNSET: &str = "(unset)";
 
-pub(super) const RESET: &str = "\x1b[0m";
-const HEADER: &str = "\x1b[1;4;95m"; // bold underline bright magenta
-const ACCENT: &str = "\x1b[96m"; // bright cyan — var names
-const VALUE: &str = "\x1b[97m"; // bright white — values
-const MUTED: &str = "\x1b[90m"; // bright black — descriptions
-const SUCCESS: &str = "\x1b[92m"; // bright green — "set"
-pub(super) const ERROR: &str = "\x1b[91m"; // bright red — the prerequisite failure
-
-pub(super) fn paint(code: &str, s: &str, color: bool) -> String {
-    if color {
-        format!("{code}{s}{RESET}")
-    } else {
-        s.to_owned()
-    }
-}
-
-/// Whether to emit ANSI escapes.
-///
-/// brain's *stdout* is captured by the shell wrapper (so it is never a TTY);
-/// the wrapper reprints the bytes verbatim to the terminal. So terminal-ness
-/// is judged from stderr, and `NO_COLOR` is honored.
-#[must_use]
-pub fn color_enabled() -> bool {
-    std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none()
-}
+/// Whether to emit ANSI escapes. Thin re-export of [`crate::theme::color_enabled`]
+/// so `markdown_pdf`'s `super::render::color_enabled` path keeps working.
+pub use crate::theme::color_enabled;
 
 /// Build the padded, uncolored cells of the `config list` table: row 0 is the
 /// header, the rest one row per variable. `var name` and `value` are padded to
@@ -69,29 +47,18 @@ fn list_table_cells(rows: &[Resolved]) -> Vec<[String; 3]> {
     cells
 }
 
-/// The full `config list` table as one printable string: a bold-underline
-/// header row, then data rows painted cyan (name) / white (value) / dim
-/// (description).
+/// The full `config list` table as one printable string: a heading row, then
+/// data rows painted accent (name) / value (value) / muted (description).
 #[must_use]
-pub fn render_list(rows: &[Resolved], color: bool) -> String {
+pub fn render_list(rows: &[Resolved], theme: Theme) -> String {
     let cells = list_table_cells(rows);
     let mut iter = cells.iter();
     let mut lines: Vec<String> = Vec::with_capacity(cells.len());
     if let Some([n, v, d]) = iter.next() {
-        lines.push(format!(
-            "{}  {}  {}",
-            paint(HEADER, n, color),
-            paint(HEADER, v, color),
-            paint(HEADER, d, color)
-        ));
+        lines.push(format!("{}  {}  {}", theme.heading(n), theme.heading(v), theme.heading(d)));
     }
     for [n, v, d] in iter {
-        lines.push(format!(
-            "{}  {}  {}",
-            paint(ACCENT, n, color),
-            paint(VALUE, v, color),
-            paint(MUTED, d, color)
-        ));
+        lines.push(format!("{}  {}  {}", theme.accent(n), theme.value(v), theme.muted(d)));
     }
     let mut out = lines.join("\n");
     out.push('\n');
@@ -100,8 +67,8 @@ pub fn render_list(rows: &[Resolved], color: bool) -> String {
 
 /// The one-line confirmation `config set` prints.
 #[must_use]
-pub fn set_confirmation(name: &str, value: &str, color: bool) -> String {
-    format!("{} {name} = {value}", paint(SUCCESS, "set", color))
+pub fn set_confirmation(name: &str, value: &str, theme: Theme) -> String {
+    format!("{} {name} = {value}", theme.success("set"))
 }
 
 #[cfg(test)]
@@ -126,9 +93,10 @@ mod tests {
     #[test]
     fn render_list_paints_header_and_rows_when_colored() {
         let rows = resolve_all_from(&Map::new());
-        let out = render_list(&rows, true);
-        assert!(out.contains(HEADER)); // header row painted
-        assert!(out.contains(ACCENT)); // a var name painted
+        let theme = Theme::dark(true);
+        let out = render_list(&rows, theme);
+        assert!(out.contains("\x1b[1;95m")); // header row painted (bold bright magenta)
+        assert!(out.contains("\x1b[96m")); // a var name painted accent (bright cyan)
         assert!(out.contains("var name"));
         assert!(out.contains("(unset)")); // linear_workspace has no default
     }
@@ -136,14 +104,14 @@ mod tests {
     #[test]
     fn render_list_is_plain_without_color() {
         let rows = resolve_all_from(&Map::new());
-        let out = render_list(&rows, false);
+        let out = render_list(&rows, Theme::dark(false));
         assert!(!out.contains('\x1b'));
         assert!(out.contains("var name"));
     }
 
     #[test]
     fn set_confirmation_greens_the_verb() {
-        assert!(set_confirmation("root", "~/b", true).contains(SUCCESS));
-        assert_eq!(set_confirmation("root", "~/b", false), "set root = ~/b");
+        assert!(set_confirmation("root", "~/b", Theme::dark(true)).contains("\x1b[92m"));
+        assert_eq!(set_confirmation("root", "~/b", Theme::dark(false)), "set root = ~/b");
     }
 }

@@ -15,6 +15,7 @@ use crate::sync::journal::{Journal, SyncRun};
 use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone;
 use crate::sync::verify::{self, Outcome};
+use crate::theme::Theme;
 
 /// This machine's short hostname for conflict-copy names. Falls back to "host".
 #[must_use]
@@ -45,7 +46,19 @@ pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str
     let local = root.to_string_lossy().into_owned();
     let argv = args::bisync_args(cfg, &local, &remote.arg, dir);
 
-    let run = run_rclone(&remote.env, &argv);
+    let mut run = run_rclone(&remote.env, &argv);
+    let resumed = if should_auto_resync(dir, run.abort.as_ref()) {
+        let theme = Theme::active();
+        eprintln!(
+            "{}",
+            theme.warning("Baseline was incomplete (a prior sync was interrupted); resuming with a resync…")
+        );
+        let resync_argv = args::bisync_args(cfg, &local, &remote.arg, Direction::Resync);
+        run = run_rclone(&remote.env, &resync_argv);
+        true
+    } else {
+        false
+    };
     let renamed_count = conflicts::rename_markers(root, &hostname(), date);
     let renamed = u64::try_from(renamed_count).unwrap_or(0);
     let leftover = conflicts::leftover_markers(root);
@@ -61,12 +74,30 @@ pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str
         deleted: run.deleted,
         conflicts: renamed,
         errors: run.errors,
-        note: match &outcome {
-            Outcome::Clean => String::new(),
-            Outcome::NeedsAttention(m) | Outcome::Aborted(m) => m.clone(),
+        note: {
+            let base = match &outcome {
+                Outcome::Clean => String::new(),
+                Outcome::NeedsAttention(m) | Outcome::Aborted(m) => m.clone(),
+            };
+            if resumed {
+                if base.is_empty() { "auto-resumed after interrupted baseline".to_owned() }
+                else { format!("auto-resumed after interrupted baseline; {base}") }
+            } else {
+                base
+            }
         },
     })?;
     Ok(outcome)
+}
+
+/// Whether an interrupted/missing baseline should trigger one automatic resync.
+///
+/// True only when the run aborted with `PriorListingMissing` AND this wasn't
+/// already a resync (a resync re-establishes the baseline, so never loop on it).
+#[must_use]
+pub fn should_auto_resync(dir: Direction, abort: Option<&crate::sync::run::AbortKind>) -> bool {
+    dir != Direction::Resync
+        && matches!(abort, Some(crate::sync::run::AbortKind::PriorListingMissing))
 }
 
 #[must_use]
@@ -91,14 +122,25 @@ pub fn direction_from_flags(push: bool, pull: bool) -> Result<Direction> {
 
 /// Format the status line for the most recent journal run (pure).
 #[must_use]
-pub fn format_last_run(run: Option<&SyncRun>) -> String {
+pub fn format_last_run(run: Option<&SyncRun>, theme: Theme) -> String {
     run.map_or_else(
         || "no syncs yet — run `brain sync`.".to_owned(),
         |r| {
+            let outcome = match r.outcome.as_str() {
+                "clean" => theme.success(&r.outcome),
+                "needs_attention" => theme.warning(&r.outcome),
+                "aborted" => theme.error(&r.outcome),
+                _ => r.outcome.clone(),
+            };
             format!(
                 "last sync: {} · {} · {} · {}↑ {}↓ {} conflicts{}",
-                r.finished_at, r.direction, r.outcome, r.transferred, r.deleted, r.conflicts,
-                if r.note.is_empty() { String::new() } else { format!(" · {}", r.note) },
+                theme.muted(&r.finished_at),
+                theme.accent(&r.direction),
+                outcome,
+                theme.accent(&r.transferred.to_string()),
+                theme.accent(&r.deleted.to_string()),
+                theme.accent(&r.conflicts.to_string()),
+                if r.note.is_empty() { String::new() } else { format!(" · {}", theme.muted(&r.note)) },
             )
         },
     )
@@ -107,10 +149,11 @@ pub fn format_last_run(run: Option<&SyncRun>) -> String {
 /// Format the configured auto-sync triggers. The flags are honored once the
 /// trigger/watcher phase lands; `status` shows them so the setup is visible.
 #[must_use]
-pub fn format_triggers(cfg: &SyncConfig) -> String {
-    let yn = |b: bool| if b { "on" } else { "off" };
+pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
+    let yn = |b: bool| if b { theme.success("on") } else { theme.muted("off") };
     format!(
-        "triggers: on-start {} · on-exit {} · watch {}",
+        "{} on-start {} · on-exit {} · watch {}",
+        theme.muted("triggers:"),
         yn(cfg.on_start),
         yn(cfg.on_exit),
         yn(cfg.watch_effective()),
@@ -119,27 +162,35 @@ pub fn format_triggers(cfg: &SyncConfig) -> String {
 
 /// Print `brain sync status`.
 pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
+    let theme = Theme::active();
     if !cfg.is_configured() {
-        println!("sync is not configured — run `brain sync setup`.");
+        println!(
+            "{} run `{}`.",
+            theme.warning("sync is not configured —"),
+            theme.accent("brain sync setup")
+        );
         return Ok(());
     }
     let journal = Journal::open(&Journal::default_path())?;
     let recent = journal.recent(1)?;
-    println!("{}", format_last_run(recent.first()));
-    println!("{}", format_triggers(cfg));
+    println!("{}", format_last_run(recent.first(), theme));
+    println!("{}", format_triggers(cfg, theme));
     let conflicts = conflicts::list_conflicts(root);
-    println!("open conflicts: {}", conflicts.len());
+    let count = conflicts.len();
+    let label = if count > 0 { theme.warning("open conflicts:") } else { theme.muted("open conflicts:") };
+    println!("{} {}", label, theme.accent(&count.to_string()));
     Ok(())
 }
 
 /// Print `brain sync conflicts`.
 pub fn print_conflicts(root: &Path) {
+    let theme = Theme::active();
     let conflicts = conflicts::list_conflicts(root);
     if conflicts.is_empty() {
-        println!("no open conflict copies.");
+        println!("{}", theme.muted("no open conflict copies."));
     } else {
         for c in conflicts {
-            println!("{}", c.path.display());
+            println!("{}", theme.value(&c.path.display().to_string()));
         }
     }
 }
@@ -147,6 +198,7 @@ pub fn print_conflicts(root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::Theme;
 
     #[test]
     fn hostname_is_nonempty_and_unqualified() {
@@ -163,24 +215,49 @@ mod tests {
 
     #[test]
     fn format_last_run_handles_empty_and_populated() {
-        assert!(format_last_run(None).contains("no syncs yet"));
+        let theme = Theme::dark(false);
+        assert!(format_last_run(None, theme).contains("no syncs yet"));
         let r = crate::sync::journal::SyncRun {
             started_at: "s".into(), finished_at: "2026-07-25T00:00:05Z".into(),
             direction: "both".into(), outcome: "clean".into(),
             transferred: 3, deleted: 1, conflicts: 0, errors: 0, note: String::new(),
         };
-        let line = format_last_run(Some(&r));
+        let line = format_last_run(Some(&r), theme);
         assert!(line.contains("both") && line.contains("clean") && line.contains("3↑"));
+    }
+
+    #[test]
+    fn format_last_run_colors_the_outcome_by_value() {
+        let clean_run = crate::sync::journal::SyncRun {
+            started_at: "s".into(), finished_at: "2026-07-25T00:00:05Z".into(),
+            direction: "both".into(), outcome: "clean".into(),
+            transferred: 3, deleted: 1, conflicts: 0, errors: 0, note: String::new(),
+        };
+        let line = format_last_run(Some(&clean_run), Theme::dark(true));
+        assert!(line.contains("\x1b[92m"), "clean outcome should be colored success green: {line}");
+
+        let aborted_run = crate::sync::journal::SyncRun { outcome: "aborted".into(), ..clean_run };
+        let line = format_last_run(Some(&aborted_run), Theme::dark(true));
+        assert!(line.contains("\x1b[91m"), "aborted outcome should be colored error red: {line}");
     }
 
     #[test]
     fn format_triggers_reads_the_configured_flags() {
         let cfg: SyncConfig =
             serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","on_start":false}"#).unwrap();
-        let s = format_triggers(&cfg);
+        let s = format_triggers(&cfg, Theme::dark(false));
         assert!(s.contains("on-start off"), "{s}");
         assert!(s.contains("on-exit on"), "{s}"); // default true
         assert!(s.contains("watch on"), "{s}"); // configured + default watch
+    }
+
+    #[test]
+    fn format_triggers_colors_on_and_off_flags() {
+        let cfg: SyncConfig =
+            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","on_start":false}"#).unwrap();
+        let s = format_triggers(&cfg, Theme::dark(true));
+        assert!(s.contains("\x1b[92m"), "on flags should be success green: {s}");
+        assert!(s.contains("\x1b[90m"), "off flags should be muted gray: {s}");
     }
 
     #[test]
@@ -189,6 +266,18 @@ mod tests {
         assert_eq!(direction_from_flags(true, false).unwrap(), Direction::Push);
         assert_eq!(direction_from_flags(false, true).unwrap(), Direction::Pull);
         assert!(direction_from_flags(true, true).is_err());
+    }
+
+    #[test]
+    fn auto_resyncs_only_on_prior_listing_missing_and_not_already_a_resync() {
+        use crate::sync::run::AbortKind;
+        assert!(should_auto_resync(Direction::Both, Some(&AbortKind::PriorListingMissing)));
+        assert!(should_auto_resync(Direction::Push, Some(&AbortKind::PriorListingMissing)));
+        // already a resync -> don't loop
+        assert!(!should_auto_resync(Direction::Resync, Some(&AbortKind::PriorListingMissing)));
+        // other aborts / clean -> no auto resync
+        assert!(!should_auto_resync(Direction::Both, Some(&AbortKind::MaxDelete)));
+        assert!(!should_auto_resync(Direction::Both, None));
     }
 
     #[test]

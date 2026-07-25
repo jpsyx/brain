@@ -5,6 +5,11 @@
 //! baseline) `--resync`. (`--check-access` is intentionally not used yet: it
 //! aborts every run unless `RCLONE_TEST` marker files exist on both sides, which
 //! brain does not manage in C2; `--max-delete` is the blast-radius guard.)
+//!
+//! Also emits periodic one-line progress (`--stats 10s --stats-one-line`),
+//! `--resilient`/`--recover` so an interrupted run can resume without a full
+//! `--resync`, and config-driven `--exclude`/`--max-size` on top of the
+//! built-in [`EXCLUDES`].
 
 use crate::sync::config::SyncConfig;
 
@@ -45,8 +50,18 @@ pub fn bisync_args(cfg: &SyncConfig, local: &str, remote_arg: &str, dir: Directi
     a.extend(["--conflict-suffix".into(), CONFLICT_MARKER.into()]);
     a.extend(["--max-delete".into(), cfg.max_delete_percent.to_string()]);
     a.push("-v".into());
+    a.extend(["--stats".into(), "10s".into()]);
+    a.push("--stats-one-line".into());
+    a.push("--resilient".into());
+    a.push("--recover".into());
     for ex in EXCLUDES {
         a.extend(["--exclude".into(), ex.into()]);
+    }
+    for ex in &cfg.exclude {
+        a.extend(["--exclude".into(), ex.clone()]);
+    }
+    if !cfg.max_size.trim().is_empty() {
+        a.extend(["--max-size".into(), cfg.max_size.clone()]);
     }
     if dir == Direction::Resync {
         a.push("--resync".into());
@@ -107,5 +122,35 @@ mod tests {
     fn only_resync_adds_the_resync_flag() {
         assert!(args(Direction::Resync).iter().any(|s| s == "--resync"));
         assert!(!args(Direction::Both).iter().any(|s| s == "--resync"));
+    }
+
+    #[test]
+    fn emits_periodic_one_line_progress() {
+        let a = args(Direction::Both);
+        assert!(a.iter().any(|s| s == "--stats-one-line"), "{a:?}");
+        // --stats has a duration value
+        assert!(a.windows(2).any(|w| w[0] == "--stats" && w[1].ends_with('s')), "{a:?}");
+    }
+
+    #[test]
+    fn is_resilient_for_resumable_interrupted_runs() {
+        assert!(args(Direction::Both).iter().any(|s| s == "--resilient"));
+    }
+
+    #[test]
+    fn appends_configured_excludes_and_max_size() {
+        let cfg: SyncConfig = serde_json::from_str(
+            r#"{"enabled":true,"b2_bucket":"b","exclude":["**/test-data/**","*.mp4"],"max_size":"100M"}"#,
+        )
+        .unwrap();
+        let a = bisync_args(&cfg, "/root", "BRAIN:b", Direction::Both);
+        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "**/test-data/**"), "{a:?}");
+        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*.mp4"), "{a:?}");
+        assert!(a.windows(2).any(|w| w[0] == "--max-size" && w[1] == "100M"), "{a:?}");
+    }
+
+    #[test]
+    fn omits_max_size_when_unset() {
+        assert!(!args(Direction::Both).iter().any(|s| s == "--max-size"));
     }
 }
