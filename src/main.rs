@@ -24,6 +24,7 @@ mod cli;
 mod config;
 mod confirm;
 mod entry;
+mod env;
 mod main_view;
 mod menu;
 mod open_target;
