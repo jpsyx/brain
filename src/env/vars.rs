@@ -24,6 +24,7 @@ pub fn get(name: &str) -> Option<String> {
 }
 
 /// The effective value for a known env variable: explicit override else default.
+///
 /// `root` resolves through [`crate::paths::brain_root_path`] so the shown value
 /// matches what brain actually uses (including the legacy-pointer fallback).
 #[must_use]

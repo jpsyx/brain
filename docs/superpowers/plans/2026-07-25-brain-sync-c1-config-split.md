@@ -647,7 +647,7 @@ git commit -m "feat(env): brain env {list|get|set} command"
 - Modify: `src/settings/schema.rs`
 - Modify: `src/settings/markdown_pdf.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `src/settings/markdown_pdf.rs` tests, the gate reads/writes the path. Add a test asserting the *config* store no longer declares it and the message points at `brain env`. First, in `src/settings/vars.rs` tests (or schema tests), add:
 
@@ -662,12 +662,12 @@ In `src/settings/markdown_pdf.rs` tests, the gate reads/writes the path. Add a t
 
 And update the existing markdown_pdf message test (search for `brain config set markdown_to_pdf_path=`): change the expected substring to `brain env set markdown_to_pdf_path=`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test --release 2>&1 | tail -25`
 Expected: FAIL — `markdown_to_pdf_path` still in `settings::VARS` (so `set` succeeds and the row exists), and the gate message still says `brain config`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `src/settings/schema.rs`, remove the `markdown_to_pdf_path` `VarSpec` entry and drop the array length by one (`VARS: [VarSpec; 7]`).
 
@@ -676,12 +676,12 @@ In `src/settings/markdown_pdf.rs`, switch the two store touchpoints from the con
 - Replace `use ...` for `get`/`set` (currently `super::vars::{get, set}` or similar) so the module calls `crate::env::get("markdown_to_pdf_path")` and `crate::env::set("markdown_to_pdf_path", …)`. (Grep the file for `get("markdown_to_pdf_path")` at line ~87 and `set("markdown_to_pdf_path", …)` at line ~165.)
 - In the two user-facing messages (lines ~90 and ~121), change `brain config set markdown_to_pdf_path=<path>` to `brain env set markdown_to_pdf_path=<path>`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test --release 2>&1 | tail -25`
 Expected: PASS. Confirm the gate still self-heals against the env store (the `gate_*` tests in markdown_pdf.rs pass).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/settings/schema.rs src/settings/markdown_pdf.rs src/settings/vars.rs

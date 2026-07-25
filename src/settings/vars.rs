@@ -126,6 +126,13 @@ mod tests {
     }
 
     #[test]
+    fn markdown_to_pdf_path_is_no_longer_a_brain_config_variable() {
+        // It moved to brain env; `brain config` must reject it.
+        assert!(resolve_all_from(&Map::new()).iter().all(|r| r.name != "markdown_to_pdf_path"));
+        assert!(set("markdown_to_pdf_path", "/x").is_err());
+    }
+
+    #[test]
     fn skills_auto_sync_defaults_on_after_the_b4_cutover() {
         // The rollout gate is flipped: with nothing set, auto-sync is on so a
         // config/personalize mutation re-renders the live registry (invariant #5).

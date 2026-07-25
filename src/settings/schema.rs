@@ -16,15 +16,10 @@ pub(super) struct VarSpec {
 /// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
 /// or the `~/brain` default and edited by hand, never via `brain config`
 /// (see [`crate::paths`]).
-pub(super) const VARS: [VarSpec; 8] = [
+pub(super) const VARS: [VarSpec; 7] = [
     VarSpec {
         name: "linear_workspace",
         description: "Linear workspace slug (e.g. acme). Builds https://linear.app/<slug>/issue/ for the open-link action.",
-        default: None,
-    },
-    VarSpec {
-        name: "markdown_to_pdf_path",
-        description: "Path to the markdown-to-pdf command. Auto-discovered on first run; required for the Create-PDF action.",
         default: None,
     },
     VarSpec {
