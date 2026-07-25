@@ -146,6 +146,28 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
     outcome
 }
 
+/// Run rclone capturing combined output, without streaming or display.
+///
+/// For read-only probes like `brain check`'s dry-run. Returns `(exit_ok,
+/// combined_output)`. Unlike [`run_rclone`], nothing is printed here: the
+/// caller (`check::run`) decides what the user sees.
+#[must_use]
+pub fn run_rclone_capture(env: &[(String, String)], args: &[String]) -> (bool, String) {
+    let mut cmd = Command::new("rclone");
+    cmd.args(args);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    match cmd.output() {
+        Ok(o) => {
+            let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&o.stderr));
+            (o.status.success(), text)
+        }
+        Err(_) => (false, String::new()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

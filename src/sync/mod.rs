@@ -3,6 +3,7 @@
 //! integration land in C2–C5.
 
 pub mod args;
+pub mod check;
 pub mod command;
 pub mod config;
 pub mod conflicts;

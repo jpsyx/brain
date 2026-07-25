@@ -155,6 +155,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, and the Backblaze `sync` block (see below). |
 | `brain sync [--push\|--pull] {setup\|init\|status\|conflicts}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. |
+| `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via a dry-run `rclone bisync` (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 
@@ -237,6 +238,27 @@ tool is missing.
 progress streams to the terminal live, with a one-line update roughly every
 10 seconds (files/bytes transferred, percent complete, transfer rate, ETA) —
 useful on the first sync of a large brain, which can take a while.
+
+### `brain check`
+
+A read-only report of what a plain `brain sync` would do, without doing it.
+Runs the same `rclone bisync` argv as `brain sync` (bare, `Direction::Both`)
+but with `--dry-run` appended, so nothing is transferred or written on either
+side. Detected changes are classified and grouped exactly like the live sync's
+detection phase, then summarized into a themed report:
+
+- Nothing pending on either side — a single `✓ In sync — nothing to push or
+  pull.` line.
+- Otherwise — a `Changes to push (N):` and/or `Changes to pull (M):` heading
+  (only for the side(s) that have pending changes), each followed by grouped
+  summary lines (e.g. `2 changes in notes/`), then a suggestion line naming
+  the right follow-up (`brain sync` to push, to pull, or to push and pull).
+
+Like `sync`, `check` is dispatched before the `markdown-to-pdf` prerequisite
+gate and needs no configuration beyond what `brain sync setup` already wrote;
+run against an unconfigured or baseline-less brain, it prints the same
+"not configured" / "no baseline yet" guidance as `brain sync` instead of
+erroring.
 
 **Auto-resume (never-miss guarantee).** If a sync is interrupted (Ctrl-C, a
 dropped connection, a crash) mid-baseline, brain never reports it as done —

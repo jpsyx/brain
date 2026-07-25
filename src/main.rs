@@ -98,6 +98,14 @@ fn main() -> Result<()> {
         return skills_command(args);
     }
 
+    // `brain check` is a read-only report; no TUI, no prerequisite needed.
+    if matches!(&cli.command, Some(Cmd::Check)) {
+        let cfg = crate::sync::config::SyncConfig::load();
+        let root = paths::brain_root()?;
+        crate::sync::check::run(&cfg, &root);
+        return Ok(());
+    }
+
     // `markdown-to-pdf` is a hard prerequisite (brain runs it for the
     // Create-PDF flow). Its path is a config variable, auto-discovered and
     // persisted on first run; fail fast with a helpful message if it can't be
@@ -126,6 +134,7 @@ fn main() -> Result<()> {
         Some(Cmd::Sync(_)) => unreachable!("sync is dispatched before the gate"),
         Some(Cmd::Personalize(_)) => unreachable!("personalize is dispatched before the gate"),
         Some(Cmd::Skills(_)) => unreachable!("skills is dispatched before the gate"),
+        Some(Cmd::Check) => unreachable!("check is dispatched before the gate"),
     }
 }
 
