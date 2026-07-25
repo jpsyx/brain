@@ -8,6 +8,7 @@ pub mod command;
 pub mod config;
 pub mod conflicts;
 pub mod csv_merge;
+pub mod csv_sync;
 pub mod journal;
 pub mod progress;
 pub mod remote;

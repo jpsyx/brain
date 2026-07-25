@@ -31,10 +31,19 @@ pub enum Direction {
 pub const CONFLICT_MARKER: &str = "__brainconflict__";
 
 /// Default excludes: VCS/OS cruft, the machine-local cache, friendly conflict
-/// copies, and raw rclone conflict markers (so neither fans out on later syncs;
-/// the marker exclude does not stop rclone from creating the initial copy).
-const EXCLUDES: [&str; 5] =
-    [".git/**", ".DS_Store", ".cache/**", "*(conflict *)*", "*.__brainconflict__*"];
+/// copies, raw rclone conflict markers (so neither fans out on later syncs; the
+/// marker exclude does not stop rclone from creating the initial copy), and the
+/// two task CSVs (`tasks/tasks.csv`, `tasks/habits.csv`) which are reconciled
+/// out-of-band via the id-keyed 3-way merge in `csv_sync`, not by bisync.
+const EXCLUDES: [&str; 7] = [
+    ".git/**",
+    ".DS_Store",
+    ".cache/**",
+    "*(conflict *)*",
+    "*.__brainconflict__*",
+    "tasks/tasks.csv",
+    "tasks/habits.csv",
+];
 
 /// Build the full argv for `rclone bisync <local> <remote>` for this direction.
 #[must_use]
@@ -109,6 +118,15 @@ mod tests {
         assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*(conflict *)*"));
         // Raw markers must be excluded so they don't re-propagate on later syncs.
         assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*.__brainconflict__*"));
+    }
+
+    #[test]
+    fn excludes_the_task_and_habit_csvs_so_they_merge_out_of_band() {
+        // The two CSVs are merged via the 3-way merge, not bisynced, so they
+        // must be excluded from the bisync argv.
+        let a = args(Direction::Both);
+        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "tasks/tasks.csv"), "{a:?}");
+        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "tasks/habits.csv"), "{a:?}");
     }
 
     #[test]
