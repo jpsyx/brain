@@ -3,5 +3,6 @@
 //! integration land in C2–C5.
 
 pub mod config;
+pub mod remote;
 
 pub use config::SyncConfig;
