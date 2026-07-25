@@ -8,9 +8,16 @@
 //!
 //! Failure here means the SessionStart hook never records the brain panel's
 //! sessions, so the panel can't resume them — every open starts a fresh chat.
+//!
+//! Also reports rclone/sync health: whether `rclone` is on `PATH` and
+//! whether `brain sync` is configured (`sync::config::SyncConfig`). This
+//! line is informational only — an unconfigured sync is a normal, healthy
+//! state, so it never affects `Diagnosis::is_ok`.
+//!
 //! Output is structured (one line per check) so it scans at a glance.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Default, Clone)]
 pub struct Diagnosis {
@@ -20,6 +27,8 @@ pub struct Diagnosis {
     pub settings_path: PathBuf,
     pub hook_installed: bool,
     pub hook_command: Option<String>,
+    pub rclone_version: Option<String>,
+    pub sync_configured: bool,
 }
 
 impl Diagnosis {
@@ -48,7 +57,23 @@ pub fn run_doctor(db_path: &Path, settings_dir: &Path) -> Diagnosis {
         diag.hook_installed = true;
         diag.hook_command = Some(cmd);
     }
+    diag.rclone_version = detect_rclone_version();
+    diag.sync_configured = crate::sync::config::SyncConfig::load().is_configured();
     diag
+}
+
+/// Detect `rclone` on `PATH` by running `rclone version` and parsing the
+/// first line's version token (`rclone v1.74.2` -> `1.74.2`). `None` when
+/// the binary is missing or its output doesn't match the expected shape.
+fn detect_rclone_version() -> Option<String> {
+    let out = Command::new("rclone").arg("version").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let first_line = text.lines().next()?;
+    let token = first_line.split_whitespace().nth(1)?;
+    Some(token.strip_prefix('v').unwrap_or(token).to_owned())
 }
 
 fn check_db_schema(path: &Path) -> anyhow::Result<()> {
@@ -86,6 +111,14 @@ fn find_session_start_hook(settings_path: &Path) -> Option<String> {
     None
 }
 
+/// One-line rclone/sync health summary for `brain tasks doctor`.
+#[must_use]
+pub fn sync_line(rclone_version: Option<&str>, configured: bool) -> String {
+    let rclone = rclone_version.map_or_else(|| "rclone ✗ not installed".to_owned(), |v| format!("rclone ✓ {v}"));
+    let sync = if configured { "sync configured" } else { "sync off" };
+    format!("{rclone} · {sync}")
+}
+
 /// Render a human-readable report to stdout. Returns 0 on full
 /// health, 1 otherwise — useful as a `--ci` exit code.
 #[must_use]
@@ -114,5 +147,19 @@ pub fn print_report(diag: &Diagnosis) -> i32 {
             env!("CARGO_MANIFEST_DIR")
         );
     }
+    println!("  {}", sync_line(diag.rclone_version.as_deref(), diag.sync_configured));
     i32::from(!diag.is_ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_line_reflects_rclone_and_config() {
+        assert!(sync_line(Some("1.74.2"), true).contains("rclone ✓ 1.74.2"));
+        assert!(sync_line(Some("1.74.2"), true).contains("sync configured"));
+        assert!(sync_line(None, false).contains("not installed"));
+        assert!(sync_line(None, false).contains("sync off"));
+    }
 }
