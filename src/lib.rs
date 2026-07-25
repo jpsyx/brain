@@ -25,5 +25,6 @@ pub mod session;
 pub mod settings;
 pub mod skills;
 pub mod state;
+pub mod sync;
 pub mod tasks;
 pub mod tui;
