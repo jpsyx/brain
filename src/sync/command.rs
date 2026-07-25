@@ -1,0 +1,104 @@
+//! `brain sync` orchestration.
+//!
+//! Ties the pure builders to the rclone shell, the conflict post-pass,
+//! verification, and the journal. Kept thin; the tested logic lives in the
+//! builders it calls.
+
+use std::path::Path;
+
+use anyhow::{Result, bail};
+
+use crate::sync::args::{self, Direction};
+use crate::sync::config::SyncConfig;
+use crate::sync::conflicts;
+use crate::sync::journal::{Journal, SyncRun};
+use crate::sync::remote::build_remote;
+use crate::sync::run::run_rclone;
+use crate::sync::verify::{self, Outcome};
+
+/// This machine's short hostname for conflict-copy names. Falls back to "host".
+#[must_use]
+pub fn hostname() -> String {
+    std::env::var("HOSTNAME")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+        })
+        .map(|s| s.trim().split('.').next().unwrap_or("host").to_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "host".to_owned())
+}
+
+/// Run one sync in `dir`. `now` supplies the timestamps + date (injected so the
+/// call is testable and to keep clock reads out of pure code). Returns the
+/// verified outcome.
+pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str, &str)) -> Result<Outcome> {
+    if !cfg.is_configured() {
+        bail!("sync is not configured — run `brain sync setup`");
+    }
+    let (started_at, finished_at, date) = now;
+    let remote = build_remote(cfg);
+    let local = root.to_string_lossy().into_owned();
+    let argv = args::bisync_args(cfg, &local, &remote.arg, dir);
+
+    let run = run_rclone(&remote.env, &argv);
+    let renamed = u64::try_from(conflicts::rename_markers(root, &hostname(), date)).unwrap_or(0);
+    let leftover = conflicts::leftover_markers(root);
+    let outcome = verify::classify(&run, leftover);
+
+    let journal = Journal::open(&Journal::default_path())?;
+    journal.record(&SyncRun {
+        started_at: started_at.to_owned(),
+        finished_at: finished_at.to_owned(),
+        direction: direction_label(dir).to_owned(),
+        outcome: outcome.label().to_owned(),
+        transferred: run.transferred,
+        deleted: run.deleted,
+        conflicts: renamed,
+        errors: run.errors,
+        note: match &outcome {
+            Outcome::Clean => String::new(),
+            Outcome::NeedsAttention(m) | Outcome::Aborted(m) => m.clone(),
+        },
+    })?;
+    Ok(outcome)
+}
+
+#[must_use]
+pub fn direction_label(dir: Direction) -> &'static str {
+    match dir {
+        Direction::Both => "both",
+        Direction::Push => "push",
+        Direction::Pull => "pull",
+        Direction::Resync => "resync",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hostname_is_nonempty_and_unqualified() {
+        let h = hostname();
+        assert!(!h.is_empty());
+        assert!(!h.contains('.'));
+    }
+
+    #[test]
+    fn direction_labels_are_stable() {
+        assert_eq!(direction_label(Direction::Both), "both");
+        assert_eq!(direction_label(Direction::Resync), "resync");
+    }
+
+    #[test]
+    fn sync_once_refuses_when_unconfigured() {
+        let cfg: SyncConfig = serde_json::from_str("{}").unwrap();
+        let err = sync_once(&cfg, Path::new("/tmp"), Direction::Both, ("a", "b", "2026-07-25")).unwrap_err();
+        assert!(err.to_string().contains("brain sync setup"));
+    }
+}
