@@ -160,7 +160,13 @@ fn personalize_command(args: &PersonalizeArgs) -> Result<()> {
             personalization::command::run_get(field);
             Ok(())
         }
-        Some(PersonalizeAction::Set { assignment }) => personalization::command::run_set(assignment),
+        Some(PersonalizeAction::Set { assignment }) => {
+            if assignment.contains('=') {
+                personalization::command::run_set(assignment)
+            } else {
+                personalize_set_interactive(assignment)
+            }
+        }
         Some(PersonalizeAction::Edit) => personalization::command::run_edit(),
         None => personalization::onboarding::run_or_show(),
     }
@@ -261,7 +267,7 @@ fn env_command(args: &EnvArgs) -> Result<()> {
                 env::set(&name, value)?;
                 println!("{}", settings::set_confirmation(&name, value, theme::Theme::active()));
             } else {
-                anyhow::bail!("expected `name=value`, got `{assignment}`");
+                env_set_interactive(&settings::normalize_name(assignment))?;
             }
         }
     }
@@ -288,6 +294,33 @@ fn config_set_interactive(name: &str) -> Result<()> {
     skills::resync_skills();
     println!("{}", settings::set_confirmation(name, value, theme::Theme::active()));
     Ok(())
+}
+
+/// Interactive `brain env set <name>` (no `=value`): prompts once on
+/// `/dev/tty`, then writes via [`env::set`] (which already validates the
+/// name) and prints the same themed confirmation as the non-interactive path.
+/// Mirrors [`config_set_interactive`].
+fn env_set_interactive(name: &str) -> Result<()> {
+    let Some(value) = prompt_tty_line(&format!("Set {name} = "))? else {
+        // No terminal (headless): can't prompt. Point at the non-interactive form.
+        anyhow::bail!("no terminal for interactive set; use `brain env set {name}=<value>`");
+    };
+    let value = value.trim();
+    env::set(name, value)?;
+    println!("{}", settings::set_confirmation(name, value, theme::Theme::active()));
+    Ok(())
+}
+
+/// Interactive `brain personalize set <field>` (no `=value`): prompts once on
+/// `/dev/tty`, then delegates to [`personalization::command::run_set`] with
+/// the assembled `field=value` assignment.
+fn personalize_set_interactive(field: &str) -> Result<()> {
+    let field = settings::normalize_name(field);
+    let Some(value) = prompt_tty_line(&format!("Set {field} = "))? else {
+        // No terminal (headless): can't prompt. Point at the non-interactive form.
+        anyhow::bail!("no terminal for interactive set; use `brain personalize set {field}=<value>`");
+    };
+    personalization::command::run_set(&format!("{field}={}", value.trim()))
 }
 
 /// Prompt once on `/dev/tty` and read a line. `Ok(None)` when there is no
