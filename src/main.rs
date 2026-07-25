@@ -220,6 +220,10 @@ fn run_sync(
     root: &std::path::Path,
     dir: crate::sync::args::Direction,
 ) -> Result<()> {
+    if !cfg.is_configured() {
+        println!("sync is not configured — run `brain sync setup`.");
+        return Ok(());
+    }
     let now = chrono::Utc::now();
     let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let date = now.format("%Y-%m-%d").to_string();
