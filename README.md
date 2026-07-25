@@ -9,6 +9,49 @@ buckets, or think alongside a `claude` session rooted in the brain. Bare
 Anything brain-related or task-related — notes, projects, areas,
 resources, tasks, habits, agenda, triage — goes through `brain`.
 
+# Installation
+
+`brain` isn't published to npm or crates.io — you build it from source. It's a
+single Rust binary, so all you need is a [Rust toolchain](https://rustup.rs) and
+a clone:
+
+```sh
+git clone https://github.com/jpsyx/brain.git
+cd brain
+```
+
+Then pick one of two ways to run it.
+
+**A. Install it on your `PATH`** (simplest — gives you a global `brain`):
+
+```sh
+cargo install --path .     # builds release, installs `brain` into ~/.cargo/bin
+brain                      # run it (ensure ~/.cargo/bin is on your PATH)
+```
+
+Re-run `cargo install --path .` after a `git pull` to update.
+
+**B. Run through `run.sh`** (auto-rebuilds whenever the sources change):
+
+`run.sh` builds the binary on first run (and whenever the `src/` is newer than
+the binary), then `exec`s it and forwards your arguments — so it always runs the
+current code, no manual rebuild after a `git pull`:
+
+```sh
+./run.sh                          # builds if needed, then runs `brain`
+./run.sh tasks today --no-tui     # any args are forwarded
+```
+
+For a global command that stays current, point a shell function at it in your
+`~/.zshrc` / `~/.bashrc` (adjust the path to your clone):
+
+```sh
+brain() { ~/src/brain/run.sh "$@"; }
+```
+
+Either way, the first run [sets brain up](#1-setup): a short onboarding prompt and
+installing the bundled skills. Then read the [User manual](#user-manual) below.
+
 ## Why a dispatch?
 
 The user lives in the terminal and would rather type one command than
