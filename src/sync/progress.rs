@@ -100,6 +100,21 @@ pub fn classify_applied(clean: &str) -> Option<Applied> {
     None
 }
 
+/// Render an apply event as a clean, themed display line for the live sync
+/// output, or `None` to suppress (progress ticks and `Done` are handled by the
+/// caller). Copies/deletes show the file that synced.
+#[must_use]
+pub fn render_applied(event: &Applied, theme: crate::theme::Theme) -> Option<String> {
+    match event {
+        Applied::Copied(path) => Some(format!("  {} {}", theme.success("✓"), theme.value(path))),
+        Applied::Deleted(path) => {
+            Some(format!("  {} {} {}", theme.error("✗"), theme.muted(path), theme.muted("(deleted)")))
+        }
+        Applied::Progress(s) => Some(format!("  {}", theme.muted(s))),
+        Applied::Done | Applied::AbortMaxDelete | Applied::AbortPriorListing => None,
+    }
+}
+
 /// Which side of the bisync a detected change came from.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Side {
@@ -270,6 +285,43 @@ mod tests {
     #[test]
     fn classify_applied_noise_is_none() {
         assert_eq!(classify_applied("Some unrelated log line"), None);
+    }
+
+    #[test]
+    fn render_applied_copied_plain() {
+        let t = crate::theme::Theme::dark(false);
+        assert_eq!(render_applied(&Applied::Copied("notes/x.md".to_string()), t), Some("  ✓ notes/x.md".to_string()));
+    }
+
+    #[test]
+    fn render_applied_deleted_plain() {
+        let t = crate::theme::Theme::dark(false);
+        assert_eq!(
+            render_applied(&Applied::Deleted("notes/x.md".to_string()), t),
+            Some("  ✗ notes/x.md (deleted)".to_string())
+        );
+    }
+
+    #[test]
+    fn render_applied_progress_plain() {
+        let t = crate::theme::Theme::dark(false);
+        let line = "32 B / 32 B, 100%, 0 B/s, ETA -";
+        assert_eq!(render_applied(&Applied::Progress(line.to_string()), t), Some(format!("  {line}")));
+    }
+
+    #[test]
+    fn render_applied_done_and_aborts_are_none() {
+        let t = crate::theme::Theme::dark(false);
+        assert_eq!(render_applied(&Applied::Done, t), None);
+        assert_eq!(render_applied(&Applied::AbortMaxDelete, t), None);
+        assert_eq!(render_applied(&Applied::AbortPriorListing, t), None);
+    }
+
+    #[test]
+    fn render_applied_copied_colored_contains_success_ansi() {
+        let t = crate::theme::Theme::dark(true);
+        let rendered = render_applied(&Applied::Copied("notes/x.md".to_string()), t).unwrap();
+        assert!(rendered.contains("\x1b[92m"), "expected green success ANSI in {rendered:?}");
     }
 
     #[test]

@@ -5,6 +5,8 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
+use super::progress;
+
 /// Why a bisync aborted, when it did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AbortKind {
@@ -86,11 +88,18 @@ pub fn parse_outcome(exit_ok: bool, output: &str) -> RunOutcome {
 
 /// Run `rclone <args>` with `env` injected, streaming its progress live.
 ///
-/// rclone's stderr (its progress/log stream) is echoed to our stderr as it
-/// arrives while also being captured, so the user sees progress on a long
-/// sync and we can still parse the outcome. stdout is inherited; only stderr
-/// is piped and drained on this thread (no deadlock: the single owned pipe is
-/// drained continuously, and stdout is never buffered by us).
+/// rclone's raw stderr (its progress/log stream) is captured for
+/// `parse_outcome` (abort/error detection still needs the raw text), but what
+/// the user actually sees is a clean, themed rendering: each apply-phase line
+/// is classified with [`progress::classify_applied`] and, if it renders to a
+/// display line via [`progress::render_applied`], that themed line is written
+/// to our stderr in place of the raw rclone chatter (noise is suppressed
+/// entirely). Copied/deleted counts are tallied from these classified events
+/// rather than trusted from rclone's summary block, since `--stats-one-line`
+/// drops the `Transferred: N/M` line `parse_outcome` used to read. stdout is
+/// inherited; only stderr is piped and drained on this thread (no deadlock:
+/// the single owned pipe is drained continuously, and stdout is never
+/// buffered by us).
 #[must_use]
 pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
     let mut cmd = Command::new("rclone");
@@ -105,18 +114,36 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
         return RunOutcome { exit_ok: false, transferred: 0, deleted: 0, errors: 0, abort: Some(AbortKind::Other) };
     };
 
+    let theme = crate::theme::Theme::active();
     let mut captured = String::new();
+    let mut copied = 0_usize;
+    let mut deleted = 0_usize;
     if let Some(stderr) = child.stderr.take() {
         let mut err_out = std::io::stderr();
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            let _ = writeln!(err_out, "{line}");
             captured.push_str(&line);
             captured.push('\n');
+
+            let clean = progress::strip(&line);
+            let event = progress::classify_applied(&clean);
+            if let Some(ev) = &event {
+                match ev {
+                    progress::Applied::Copied(_) => copied += 1,
+                    progress::Applied::Deleted(_) => deleted += 1,
+                    _ => {}
+                }
+                if let Some(display) = progress::render_applied(ev, theme) {
+                    let _ = writeln!(err_out, "{display}");
+                }
+            }
         }
     }
 
     let exit_ok = child.wait().is_ok_and(|status| status.success());
-    parse_outcome(exit_ok, &captured)
+    let mut outcome = parse_outcome(exit_ok, &captured);
+    outcome.transferred = u64::try_from(copied).unwrap_or(0);
+    outcome.deleted = u64::try_from(deleted).unwrap_or(0);
+    outcome
 }
 
 #[cfg(test)]
