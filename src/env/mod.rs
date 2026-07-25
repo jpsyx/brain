@@ -6,10 +6,12 @@
 //! Backblaze-synced (contrast `crate::settings`, the brain **config** store
 //! that rides the brain-dir sync).
 
+mod migrate;
 mod schema;
 mod store;
 mod vars;
 
+pub use migrate::migrate;
 pub use vars::{get, resolve_all, resolve_one, set};
 
 pub(crate) use store::load_map;

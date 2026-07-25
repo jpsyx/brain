@@ -62,6 +62,10 @@ fn main() -> Result<()> {
     // every entry path including `config` / `personalize` and `--no-tui`.
     personalization::init_tag_styles();
 
+    // One-time, idempotent migration into brain env (fold the brain-root pointer
+    // into env.root; relocate markdown_to_pdf_path from brain config). Never fatal.
+    env::migrate();
+
     // `brain config …` manages the store itself, so it must run *before* the
     // prerequisite gate — otherwise you could never `config set` your way out
     // of a missing `markdown-to-pdf`.
