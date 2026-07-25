@@ -158,6 +158,24 @@ change and `exec`s it. The user never types `cargo run`.
   make me ask for it.
 - **Comments only when the *why* is non-obvious.** The function name and
   the docs cover the *what*.
+- **Aesthetics matter — theme every bit of CLI output.** brain's non-TUI CLI
+  output (`brain sync`, `sync setup`/`status`, `config`, `env`, `personalize`,
+  `doctor`, gates, prompts) should look considered, not utilitarian. All color
+  goes through the **`src/theme.rs` `Theme` semantic tokens** — `heading`,
+  `accent`, `value`, `muted`, `success`, `warning`, `error`, `info`, `prompt` —
+  chosen for *meaning*, never a raw ANSI escape inline. When you add or change
+  CLI output, style it with the token that matches its role (a success message
+  is `theme.success`, a command name is `theme.accent`, a hint is `theme.muted`,
+  an interactive prompt label is `theme.prompt`, …), and be tasteful: color
+  guides the eye, it doesn't paint everything. Get the theme via
+  `Theme::active()` (color auto-gated off when stderr isn't a TTY or `NO_COLOR`
+  is set); pass `Theme::dark(false)` in tests that assert on plain text.
+  - **Design for dark terminals.** Terminals don't reliably expose a light/dark
+    token, so we assume **dark** and use bright, high-contrast codes (never a
+    dark foreground like plain blue `34` that vanishes on a dark background). A
+    guard test enforces this. Adding a light (or other) theme later is just a
+    new `Theme::…()` code table plus the selection in `Theme::active` — so keep
+    all color decisions *in* `Theme`, never scattered as literals.
 - **`docs/` is the durable record.** The repo is under git, but we keep no
   `.difit/` decision-log file: design rationale goes in `docs/decisions.md`,
   not a per-branch scratch file.
