@@ -63,6 +63,43 @@ fn create_and_delete_propagate_bidirectionally() {
 }
 
 #[test]
+fn a_moved_file_propagates_to_its_new_location() {
+    if !rclone_available() {
+        eprintln!("skipping: rclone not on PATH");
+        return;
+    }
+    let base = std::env::temp_dir().join(format!("brain-sync-move-{}", std::process::id()));
+    let a = base.join("a");
+    let b = base.join("b");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+
+    // Seed a few files and establish the baseline.
+    for name in ["one.md", "two.md", "three.md"] {
+        std::fs::write(a.join(name), b"stable").unwrap();
+    }
+    let resync = run(&a, &b, Direction::Resync);
+    assert!(resync.exit_ok, "resync failed: {resync:?}");
+    assert!(b.join("one.md").exists(), "create did not propagate A→B");
+
+    // Move one.md into a new subdir (same content, new path). bisync sees this
+    // as delete-old-path + create-new-path; both must propagate so the file ends
+    // up at the new path on B and is gone from the old path.
+    std::fs::create_dir_all(a.join("notes")).unwrap();
+    std::fs::rename(a.join("one.md"), a.join("notes").join("one.md")).unwrap();
+    let mv = run(&a, &b, Direction::Both);
+    assert!(mv.exit_ok, "move sync failed: {mv:?}");
+    assert!(!b.join("one.md").exists(), "move did not remove the old path on B");
+    assert!(b.join("notes").join("one.md").exists(), "move did not create the new path on B");
+    assert!(
+        b.join("two.md").exists() && b.join("three.md").exists(),
+        "unrelated files must survive the move"
+    );
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
 fn same_file_conflict_is_renamed_and_surfaced() {
     if !rclone_available() {
         eprintln!("skipping: rclone not on PATH");
