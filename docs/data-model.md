@@ -227,6 +227,8 @@ configured — run `brain sync setup`" and does nothing).
 | `on_exit` | `bool` | `true` | Whether a future sync trigger fires on brain exit. |
 | `watch` | `bool` | `true` | Whether a future continuous watcher runs. See `watch_effective` below. |
 | `max_delete_percent` | `u8` | `50` | Bisync safety guard: the max percent of files a sync run may delete before aborting. |
+| `exclude` | `Vec<String>` | `[]` | Extra rclone exclude patterns, appended to the built-in excludes (e.g. `"**/test-data/**"`). |
+| `max_size` | `String` | `""` | Skip files larger than this rclone size string (e.g. `"100M"`); empty means no cap. |
 
 Two derived predicates:
 

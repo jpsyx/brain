@@ -177,8 +177,13 @@ bookkeeping.
   and [data-model.md](data-model.md)), `--max-delete <percent>`, `-v` (so
   rclone emits the `Transferred:`/`Deleted:`/`Errors:` summary block the parser
   reads — at default verbosity rclone prints no summary and every count parses
-  as 0), and default excludes (`.git/**`, `.DS_Store`, `.cache/**`, friendly
-  conflict copies `*(conflict *)*`, and raw markers `*.__brainconflict__*`).
+  as 0), `--stats 10s --stats-one-line` (periodic one-line progress instead of
+  rclone's default one-shot summary), `--resilient --recover` (so an
+  interrupted run can resume on the next invocation without forcing a full
+  `--resync`), and default excludes (`.git/**`, `.DS_Store`, `.cache/**`,
+  friendly conflict copies `*(conflict *)*`, and raw markers
+  `*.__brainconflict__*`) plus any user-configured `sync.exclude` patterns and
+  an optional `sync.max_size` cap (`--max-size`, omitted when unset).
   `src/sync/run.rs` (`run_rclone`) spawns `rclone` with that argv and the
   env-var remote, and parses its combined stdout/stderr into transferred /
   deleted / error counts plus an abort reason.
