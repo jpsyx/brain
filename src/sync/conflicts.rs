@@ -5,6 +5,7 @@
 //! `stem (conflict <host> <date>).ext`, and enumerate such copies for the
 //! resolve flow (C5).
 
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::sync::args::CONFLICT_MARKER;
@@ -40,6 +41,34 @@ pub fn friendly_from_marker(marker_path: &Path, host: &str, date: &str) -> Optio
     Some(conflict_name(Path::new(original), host, date))
 }
 
+/// Rename every `<path><MARKER>` file under `root` to its friendly conflict
+/// name. Returns the count renamed. Best-effort: a failed rename is skipped.
+pub fn rename_markers(root: &Path, host: &str, date: &str) -> usize {
+    let mut n = 0;
+    let walker = walkdir::WalkDir::new(root).into_iter().filter_map(Result::ok);
+    for entry in walker {
+        let p = entry.path();
+        if p.to_string_lossy().ends_with(CONFLICT_MARKER) {
+            if let Some(dest) = friendly_from_marker(p, host, date) {
+                if fs::rename(p, &dest).is_ok() {
+                    n += 1;
+                }
+            }
+        }
+    }
+    n
+}
+
+/// Count leftover marker files under `root` (used by verification).
+#[must_use]
+pub fn leftover_markers(root: &Path) -> usize {
+    walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().to_string_lossy().ends_with(CONFLICT_MARKER))
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,5 +101,22 @@ mod tests {
     #[test]
     fn non_marker_path_yields_none() {
         assert_eq!(friendly_from_marker(Path::new("notes/idea.md"), "mac", "2026-07-25"), None);
+    }
+
+    #[test]
+    fn rename_markers_moves_marker_files_to_friendly_names() {
+        let tmp = std::env::temp_dir().join(format!("brain-conflicts-{}", std::process::id()));
+        let sub = tmp.join("notes");
+        std::fs::create_dir_all(&sub).unwrap();
+        let marker = sub.join(format!("idea.md{CONFLICT_MARKER}"));
+        std::fs::write(&marker, b"loser").unwrap();
+
+        assert_eq!(leftover_markers(&tmp), 1);
+        let n = rename_markers(&tmp, "mac", "2026-07-25");
+        assert_eq!(n, 1);
+        assert_eq!(leftover_markers(&tmp), 0);
+        assert!(sub.join("idea (conflict mac 2026-07-25).md").exists());
+
+        std::fs::remove_dir_all(&tmp).ok();
     }
 }
