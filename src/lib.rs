@@ -21,6 +21,7 @@ pub mod personalization;
 pub mod picker;
 pub mod pty_pane;
 pub mod render;
+pub mod server;
 pub mod session;
 pub mod settings;
 pub mod skills;

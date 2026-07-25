@@ -938,3 +938,32 @@ jpsyx sync and asserts brain-owned links survive.
 brain-owned links, then re-runs `jpsyx sync` to restore the jpsyx-owned registry
 (the migrated skills must still exist under `home/global-skills` in the jpsyx
 checkout, or be restored with `git checkout -- home/global-skills` first).
+
+## Why the `/habits` route inlines its assets and reuses `mark_done.py`
+
+The `/habits` page (`src/server/routes/habits/`) is a straight MVC port of the
+old Python `habits/server.py`, with three deliberate choices:
+
+- **Assets are inlined, not served.** The frontend lives at the repo root under
+  `web/habits/` (`index.html` shell + `style.css` + `app.js`), but the brain
+  server has no static-file route — only `/habits` and `/habits/done`. So
+  `view.rs` embeds all three with `include_str!` and fills `{{CSS}}`/`{{JS}}`/
+  `{{BODY}}`/… into the shell at render time, emitting one self-contained
+  document (exactly what the Python single-file template produced). Keeping the
+  three source files separate keeps the CSS/JS editable and diffable; the JS's
+  only functional change from the Python original is `fetch('/api/done')` →
+  `fetch('/habits/done')`.
+- **Mark-done reuses brain's own completion, not a reimplementation.** `done`
+  delegates to the bundled `mark_done.py` via `crate::tasks::complete`'s
+  `normalize_id` + `mark_done_path`, so the web "done" is byte-for-byte the same
+  mutation (status, completed_date, habit recurrence spawn, agenda side effects)
+  as `brain tasks complete`. It **spawn-and-waits** (capturing stdout to parse
+  the `next occurrence:` line) rather than `exec`ing the way the CLI path does —
+  an `exec` would replace the server process and kill the daemon.
+- **A dedicated `Habit` struct, not the shared `Task`.** `tasks::task::Task`
+  deliberately drops `ideal_time` (it is `#[allow(dead_code)]` in the habit
+  loader), but the habits view sorts and groups by time-of-day, so it needs it.
+  Rather than widen the heavy shared `Task` for one view, `model.rs` defines a
+  small, purpose-built `Habit` deserialized straight from the CSV, and confines
+  all filter/sort decisions to the pure `classify` (unit-tested against
+  hand-built rows).

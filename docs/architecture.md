@@ -60,6 +60,7 @@ argv
       ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/init/status/conflicts; also BEFORE the gate)
       ├─→ Cmd::Check ─→ sync::check::run  (read-only dry-run push/pull report; also BEFORE the gate)
       ├─→ Cmd::Personalize ─→ personalize_command (show/get/set/edit / onboarding; also BEFORE the gate)
+      ├─→ Cmd::Server ─→ server_command   (start/status/kill/run — the background HTTP daemon; also BEFORE the gate)
       └─→ settings::ensure_markdown_to_pdf (prereq gate: config path, else discover; red ❌ + exit if unresolved)
            ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
            └─ Cmd::Tasks(rest)       ─→ TasksCli::parse_from(rest) → tasks_launch:
@@ -399,6 +400,38 @@ resume model is **lock + recency** (`reap_dead_locks`, `pick_resume`,
 it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
+### `server/`
+The **brain server**: a small, synchronous, localhost HTTP daemon (`tiny_http`),
+one shared instance per machine across all `brain` invocations and tabs. Its
+`{pid, port}` record lives at `~/.cache/brain/server.json`.
+- `server/router.rs` — pure `route(method, path) -> Route` (`HabitsPage` for
+  `GET /habits`, `HabitsDone` for `POST /habits/done`, `NotFound` for everything
+  else including the bare root `/`); query strings are stripped before matching.
+- `server/lifecycle.rs` — the daemon record + management: pure `is_live` and
+  `choose_port` decisions, thin IO probes (`read_state`/`write_state`/
+  `remove_state`, `pid_alive` via `kill -0`, `port_reachable` via a timed TCP
+  connect), `running()` (reap-if-stale), `ensure_running()` (reuse-or-spawn),
+  and the `start`/`status`/`kill` CLI actions.
+- `server/mod.rs` — `run(port)`, the blocking accept loop the detached daemon
+  runs: binds `127.0.0.1:port` (`0` = OS-assigned), writes the actual bound
+  port to the record, then dispatches each request through the router to a
+  handler in `server/routes/`.
+- `server/routes/` — the route registry (`routes/mod.rs` is one `pub mod` line
+  per endpoint). `routes/habits/` is the `/habits` route in MVC form:
+  `model.rs` (pure `classify` filter+sort of today's habits over a `Habit`
+  struct, plus the thin `load` reader of `<root>/tasks/habits.csv`), `view.rs`
+  (pure HTML rendering into the `web/habits/` shell, with `style.css`/`app.js`
+  inlined via `include_str!`), and `mod.rs` (the thin controller: `page` =
+  load→classify→render, `done` = parse body → reuse `tasks::complete`'s
+  `mark_done.py` → `DoneOutcome`).
+
+The daemon is spawned detached without `unsafe`: `CommandExt::process_group(0)`
+plus null stdio on the current exe (`brain server run --port <p>`).
+`tasks_launch` best-effort calls `ensure_running()` so the server comes up with
+the shell. The frontend assets live at the repo root under `web/habits/`
+(`index.html` shell + `style.css` + `app.js`), embedded into the binary at
+compile time.
+
 ### `lib.rs`
 Re-exports the modules so integration tests in `tests/` can link against
 them. The binary (`main.rs`) declares the same modules privately; with a
@@ -449,6 +482,11 @@ sibling so the two projects share a stack:
 - `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
   them out. Multi-file skill assets rule out `include_str!`.
+- `tiny_http` — the **brain server** (`src/server/`): a small, synchronous,
+  blocking-IO HTTP server for a local-only service (the habits view today,
+  webhook POST endpoints later). Chosen over axum/actix specifically to avoid
+  pulling a Tokio async runtime into an otherwise synchronous CLI; the brain
+  server is a tiny localhost daemon, so an async stack would be pure overhead.
 
 `brain sync` also depends on **`rclone`**, but as an external command it
 shells out to (`src/sync/run.rs`), not a Cargo crate: brain builds the argv

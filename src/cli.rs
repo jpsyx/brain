@@ -69,6 +69,13 @@ pub enum Cmd {
     /// Manage the bundled brain skills (render + install into the agent registry).
     Skills(SkillsArgs),
 
+    /// Manage the background brain server (the local HTTP service; `start`,
+    /// `status`, `kill`). One shared daemon per machine.
+    Server(ServerArgs),
+
+    /// Open today's habits page in your browser (starts the brain server if needed).
+    Habits,
+
     /// Show what would sync (pending local pushes and remote pulls) without
     /// syncing. Read-only: runs `rclone bisync --dry-run` under the hood.
     Check,
@@ -180,6 +187,28 @@ pub enum SkillsAction {
         /// (for testing; never touches `~/.agents` or the frontend skill dirs).
         #[arg(long)]
         root: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Args, Debug)]
+pub struct ServerArgs {
+    #[command(subcommand)]
+    pub action: ServerAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ServerAction {
+    /// Start the brain server in the background (reuses a running one).
+    Start,
+    /// Show whether the brain server is running and where.
+    Status,
+    /// Stop the background brain server.
+    Kill,
+    /// (internal) Run the blocking server loop; used by the background daemon.
+    #[command(hide = true)]
+    Run {
+        #[arg(long)]
+        port: u16,
     },
 }
 

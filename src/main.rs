@@ -33,6 +33,7 @@ mod personalization;
 mod picker;
 mod pty_pane;
 mod render;
+mod server;
 mod session;
 mod settings;
 mod skills;
@@ -98,6 +99,19 @@ fn main() -> Result<()> {
         return skills_command(args);
     }
 
+    // `brain server …` manages the background HTTP daemon; it needs neither
+    // the markdown-to-pdf prerequisite nor the TUI, so it runs before the gate.
+    if let Some(Cmd::Server(args)) = &cli.command {
+        return server_command(args);
+    }
+
+    // `brain habits` just opens the bundled habits page (starting the server if
+    // needed); no markdown-to-pdf prerequisite and no TUI, so it runs before the
+    // gate.
+    if matches!(&cli.command, Some(Cmd::Habits)) {
+        return habits_command();
+    }
+
     // `brain check` is a read-only report; no TUI, no prerequisite needed.
     if matches!(&cli.command, Some(Cmd::Check)) {
         let cfg = crate::sync::config::SyncConfig::load();
@@ -134,7 +148,38 @@ fn main() -> Result<()> {
         Some(Cmd::Sync(_)) => unreachable!("sync is dispatched before the gate"),
         Some(Cmd::Personalize(_)) => unreachable!("personalize is dispatched before the gate"),
         Some(Cmd::Skills(_)) => unreachable!("skills is dispatched before the gate"),
+        Some(Cmd::Server(_)) => unreachable!("server is dispatched before the gate"),
+        Some(Cmd::Habits) => unreachable!("habits is dispatched before the gate"),
         Some(Cmd::Check) => unreachable!("check is dispatched before the gate"),
+    }
+}
+
+/// Handle `brain habits`: ensure the shared brain server is up, then open its
+/// `/habits` page in the browser. Best-effort open (fire-and-forget).
+fn habits_command() -> Result<()> {
+    let theme = crate::theme::Theme::active();
+    let port = crate::server::lifecycle::ensure_running()?;
+    let target = crate::server::url(port, "/habits");
+    println!("{}", theme.info(&format!("Opening {target}")));
+    open_in_browser(&target);
+    Ok(())
+}
+
+/// Open a URL in the system browser via macOS `open <url>`. Fire-and-forget:
+/// a spawn failure never fails the caller (the URL is already printed).
+fn open_in_browser(url: &str) {
+    let _ = std::process::Command::new("open").arg(url).spawn();
+}
+
+/// Handle `brain server {start|status|kill|run}`. `run` is the internal
+/// blocking daemon loop; the rest manage the shared background server.
+fn server_command(args: &crate::cli::ServerArgs) -> Result<()> {
+    use crate::cli::ServerAction;
+    match &args.action {
+        ServerAction::Start => crate::server::lifecycle::start(),
+        ServerAction::Status => crate::server::lifecycle::status(),
+        ServerAction::Kill => crate::server::lifecycle::kill(),
+        ServerAction::Run { port } => crate::server::run(*port),
     }
 }
 
@@ -413,6 +458,11 @@ fn tasks_browse(initial: Initial, cli: &mut TasksCli, today: NaiveDate) -> Resul
     if cli.display.no_tui {
         tasks::plain::print_plain(&view, today, cli.display.full_notes);
     } else {
+        // Best-effort: bring up the shared background brain server only when the
+        // interactive shell opens (not on the `complete` / `doctor` / `--no-tui`
+        // one-shots), reused across tabs. A server failure must never block the
+        // shell.
+        let _ = crate::server::lifecycle::ensure_running();
         tui::run_tui(
             &view,
             cli,

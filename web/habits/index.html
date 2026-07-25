@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Today's habits</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>{{CSS}}</style>
+</head>
+<body>
+  <header class="page-header">
+    <span class="page-title">Today's habits</span>
+    <span class="page-subtitle">{{TODAY_LABEL}}</span>
+    <span class="page-count" id="count">{{COUNT}} to do</span>
+    <button class="completed-toggle" id="completed-toggle" type="button"
+            aria-expanded="false" style="display:{{COMPLETED_DISPLAY}};">
+      <span class="chevron"></span>
+      <span class="ct-text">Show completed habits</span>
+      <span class="completed-count" id="completed-count">{{COMPLETED_COUNT}}</span>
+    </button>
+  </header>
+  <div class="container">
+    <section class="completed-section" id="completed-section">
+      <div class="completed-content">
+        <div class="grid completed-grid" id="completed-grid">
+          {{COMPLETED_CARDS}}
+        </div>
+      </div>
+    </section>
+    <main id="habit-list">
+      {{BODY}}
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script>{{JS}}</script>
+</body>
+</html>

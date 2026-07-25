@@ -1,0 +1,332 @@
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: #eceef2;
+      color: #353b47;
+      padding: 0;
+      min-height: 100vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Top bar: spans the full window width, flush to the top, calming tone.
+       position:relative anchors the absolutely-centered completed toggle. */
+    header.page-header {
+      flex: 0 0 auto;
+      position: relative;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      padding: 11px 24px;
+      background: #415469;
+      color: #fff;
+    }
+    .container {
+      width: 100%;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 12px 18px 12px;
+    }
+    main#habit-list {
+      display: flex;
+      flex-direction: column;
+    }
+    .page-title {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: #fff;
+    }
+    .page-subtitle {
+      font-size: 12px;
+      color: #eef3f8;
+      font-weight: 500;
+    }
+    .page-count {
+      font-size: 12px;
+      color: #415469;
+      background: #fff;
+      padding: 3px 9px;
+      font-weight: 600;
+    }
+    /* Each .pri-section is a time-of-day period. They flex-distribute inside
+       main, so a small floor margin is enough; the even gaps come from flex. */
+    .pri-section {
+      flex: 0 0 auto;
+      margin-bottom: 20px;
+    }
+    .pri-section:last-child {
+      margin-bottom: 0;
+    }
+    /* Time-of-day separator bar: full-width, clearly divides each period. */
+    .pri-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      padding: 6px 12px;
+      background: #dce0e7;
+      border-left: 4px solid #415469;
+    }
+    .time-section {
+      margin-bottom: 14px;
+      margin-left: 12px;
+    }
+    .time-section:last-child {
+      margin-bottom: 0;
+    }
+    .time-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 9px;
+      padding: 0 2px;
+    }
+    .time-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #818897;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .time-count {
+      font-size: 10px;
+      color: #a7adb8;
+    }
+    .pri-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+    .pri-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #2c3340;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+    }
+    .pri-count {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .card {
+      position: relative;
+      display: flex;
+      align-items: stretch;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+      transition: opacity 0.25s ease, transform 0.25s ease, box-shadow 0.15s ease;
+      min-height: 50px;
+      overflow: hidden;
+    }
+    .card:hover {
+      box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+    }
+    .card.dismissed {
+      opacity: 0;
+      transform: translateX(40px);
+    }
+    .pri-bar {
+      width: 4px;
+      flex-shrink: 0;
+    }
+    .card-body {
+      flex: 1;
+      padding: 8px 11px;
+      min-width: 0;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.25;
+      color: #353b47;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .meta-row {
+      display: flex;
+      gap: 5px;
+      margin-top: 5px;
+      flex-wrap: wrap;
+    }
+    .meta-chip {
+      font-size: 10px;
+      font-weight: 500;
+      color: #5d6675;
+      background: #eaecf1;
+      padding: 2px 6px;
+      letter-spacing: 0.2px;
+    }
+    .meta-pastdue {
+      background: #f1e0dd;
+      color: #a8584c;
+    }
+    .meta-today {
+      background: #e3eaf3;
+      color: #4a6390;
+    }
+    .meta-time {
+      background: #e7ebf2;
+      color: #566687;
+      font-variant-numeric: tabular-nums;
+    }
+    .meta-hard {
+      background: #efe9d8;
+      color: #8a6a30;
+    }
+    .meta-done {
+      background: #e6e8ec;
+      color: #6b7280;
+    }
+    .done-btn {
+      flex-shrink: 0;
+      width: 44px;
+      background: #4f9d7b;
+      color: #fff;
+      border: none;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: inset 2px 0 0 rgba(0,0,0,0.04);
+      transition: background 0.15s ease;
+    }
+    .done-btn:hover {
+      background: #438a6b;
+    }
+    .done-btn:active {
+      background: #3a795d;
+    }
+    .done-btn:disabled {
+      background: #d3d7dd;
+      cursor: default;
+      color: #868d9a;
+    }
+    .empty {
+      background: #fff;
+      padding: 48px;
+      text-align: center;
+      color: #555;
+      font-size: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    /* Completed-habits toggle, centered in the top bar. */
+    .completed-toggle {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.14);
+      color: #fff;
+      border: none;
+      padding: 6px 14px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .completed-toggle:hover {
+      background: rgba(255,255,255,0.24);
+    }
+    .completed-toggle .chevron {
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid #fff;
+      transition: transform 0.3s ease;
+      transform-origin: 50% 35%;
+    }
+    .completed-toggle[aria-expanded="true"] .chevron {
+      transform: rotate(180deg);
+    }
+    .completed-toggle.no-transition .chevron {
+      transition: none !important;
+    }
+    .completed-count {
+      font-size: 11px;
+      font-weight: 700;
+      color: #415469;
+      background: #fff;
+      padding: 2px 8px;
+    }
+    /* Completed-habits panel: expands from under the header, above Morning. */
+    .completed-section {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows 0.35s ease;
+    }
+    .completed-section.open {
+      grid-template-rows: 1fr;
+    }
+    .completed-section.no-transition {
+      transition: none !important;
+    }
+    .completed-content {
+      overflow: hidden;
+    }
+    .completed-grid {
+      padding: 2px 0 20px;
+    }
+    .card--completed {
+      background: #f7f7f7;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .card--completed:hover {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .card--completed .pri-bar--muted {
+      background: #d1d5db;
+    }
+    .card--completed .card-title {
+      color: #6b7280;
+      font-weight: 500;
+    }
+    .card--completed .meta-chip {
+      background: #ececec;
+      color: #888;
+    }
+    .card--completed.entering {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #2c3340;
+      color: #fff;
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+      transition: transform 0.25s ease;
+      pointer-events: none;
+      z-index: 100;
+    }
+    .toast.visible {
+      transform: translateX(-50%) translateY(0);
+    }
+    @media (max-width: 1100px) {
+      .grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      .grid { grid-template-columns: 1fr; }
+      header.page-header { flex-wrap: wrap; }
+    }

@@ -111,7 +111,6 @@ pub fn run_tui(
         active_view,
         initial_search,
         Box::new(ZshFunctionRunner::new("agenda")),
-        Box::new(ZshFunctionRunner::new("habits")),
         // The opener's stored command is unused — its `open(url)` default
         // shells `/usr/bin/open <url>` directly.
         Box::new(ZshFunctionRunner::new("")),
