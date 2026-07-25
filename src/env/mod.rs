@@ -12,6 +12,6 @@ mod store;
 mod vars;
 
 pub use migrate::migrate;
-pub use vars::{get, resolve_all, resolve_one, set};
+pub use vars::{get, resolve_all, resolve_one, set, set_raw};
 
 pub(crate) use store::load_map;

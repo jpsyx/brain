@@ -37,6 +37,7 @@ mod session;
 mod settings;
 mod skills;
 mod state;
+mod sync;
 mod tasks;
 mod tui;
 
@@ -48,6 +49,7 @@ use clap::Parser;
 
 use crate::cli::{
     Cli, Cmd, ConfigAction, ConfigArgs, EnvAction, EnvArgs, PersonalizeAction, PersonalizeArgs,
+    SyncAction, SyncArgs,
 };
 use crate::tasks::cli::{Cli as TasksCli, Command as TasksCommand};
 use crate::tasks::selector::{Selector, parse_selector};
@@ -77,6 +79,11 @@ fn main() -> Result<()> {
     // before the prerequisite gate so you can repair a broken environment.
     if let Some(Cmd::Env(args)) = &cli.command {
         return env_command(args);
+    }
+
+    // `brain sync` needs neither the markdown-to-pdf prerequisite nor the TUI.
+    if let Some(Cmd::Sync(args)) = &cli.command {
+        return sync_command(args);
     }
 
     // Like `config`, personalization manages the user's own setup, so it runs
@@ -115,6 +122,7 @@ fn main() -> Result<()> {
         // Handled before the prerequisite gate above.
         Some(Cmd::Config(_)) => unreachable!("config is dispatched before the gate"),
         Some(Cmd::Env(_)) => unreachable!("env is dispatched before the gate"),
+        Some(Cmd::Sync(_)) => unreachable!("sync is dispatched before the gate"),
         Some(Cmd::Personalize(_)) => unreachable!("personalize is dispatched before the gate"),
         Some(Cmd::Skills(_)) => unreachable!("skills is dispatched before the gate"),
     }
@@ -181,6 +189,49 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
                 // Interactive: bare `name` with no value.
                 config_set_interactive(&settings::normalize_name(assignment))?;
             }
+        }
+    }
+    Ok(())
+}
+
+/// Handle `brain sync [--push|--pull] {setup|init|status|conflicts}`.
+fn sync_command(args: &SyncArgs) -> Result<()> {
+    use crate::sync::args::Direction;
+    let cfg = crate::sync::config::SyncConfig::load();
+    let root = paths::brain_root()?;
+    match &args.action {
+        Some(SyncAction::Setup) => crate::sync::setup::run(),
+        Some(SyncAction::Init) => run_sync(&cfg, &root, Direction::Resync),
+        Some(SyncAction::Status) => crate::sync::command::print_status(&cfg, &root),
+        Some(SyncAction::Conflicts) => {
+            crate::sync::command::print_conflicts(&root);
+            Ok(())
+        }
+        None => {
+            let dir = crate::sync::command::direction_from_flags(args.push, args.pull)?;
+            run_sync(&cfg, &root, dir)
+        }
+    }
+}
+
+/// Shared: run one sync and print the outcome.
+fn run_sync(
+    cfg: &crate::sync::config::SyncConfig,
+    root: &std::path::Path,
+    dir: crate::sync::args::Direction,
+) -> Result<()> {
+    if !cfg.is_configured() {
+        println!("sync is not configured — run `brain sync setup`.");
+        return Ok(());
+    }
+    let now = chrono::Utc::now();
+    let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let date = now.format("%Y-%m-%d").to_string();
+    let outcome = crate::sync::command::sync_once(cfg, root, dir, (&ts, &ts, &date))?;
+    match outcome {
+        crate::sync::verify::Outcome::Clean => println!("sync complete."),
+        crate::sync::verify::Outcome::NeedsAttention(m) | crate::sync::verify::Outcome::Aborted(m) => {
+            eprintln!("{m}");
         }
     }
     Ok(())

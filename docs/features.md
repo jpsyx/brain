@@ -153,7 +153,8 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
-| `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, and the (parse-only) Backblaze `sync` block (see below). |
+| `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, and the Backblaze `sync` block (see below). |
+| `brain sync [--push\|--pull] {setup\|init\|status\|conflicts}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 
@@ -183,7 +184,8 @@ Reads and writes your **machine-local** brain env
 (`~/.config/brain/env.json`) — values that would be *wrong* if copied to
 another machine: `root` (where your brain lives on this machine),
 `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
-self-healing), and a parse-only Backblaze `sync` block. Mirrors `brain
+self-healing), and the Backblaze `sync` block (written by `brain sync setup`,
+below — see [config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:
 
 - `brain env list` (or bare `brain env`) — aligned table of every env
@@ -198,6 +200,45 @@ brain root on purpose); a legacy `~/.config/brain-root` pointer file is read
 for back-compat and auto-migrated into the `root` key on first run. See
 [config.md](config.md) for the full store/schema description and
 [data-model.md](data-model.md) for the `sync` block's fields.
+
+### `brain sync`
+
+Manual, bidirectional cross-machine sync of the brain directory
+(`brain_root()`) to a private Backblaze B2 bucket, via `rclone bisync`. Sync
+is **opt-in**: with no configured `sync` block (see [config.md](config.md)),
+`brain sync` prints "sync is not configured — run `brain sync setup`" and does
+nothing.
+
+- `brain sync` (bare) — bidirectional sync; a same-file conflict is resolved
+  by newest edit.
+- `brain sync --push` — biases this run local-wins on a same-file conflict.
+- `brain sync --pull` — biases this run remote-wins on a same-file conflict.
+- `brain sync setup` — collect the B2 bucket + credentials (writes the `sync`
+  block into **brain env**, not brain config — see [config.md](config.md)),
+  verify or create the bucket, and establish the initial bisync baseline.
+- `brain sync init` — (re-)establish the bisync baseline: bootstrap a fresh
+  machine, or recover once rclone refuses to sync because one side's listing
+  is empty (see [integrations.md](integrations.md)).
+- `brain sync status` — the last run (from the local sync journal), the
+  configured triggers (`on_start`/`on_exit`/`watch`), and the count of open
+  conflicts.
+- `brain sync conflicts` — list open conflict copies.
+
+Like `config`/`env`/`personalize`/`skills`, `sync` is dispatched **before**
+the `markdown-to-pdf` prerequisite gate, so it always works even when that
+tool is missing.
+
+**Keep-both conflicts.** When the same file changed on both sides, rclone
+doesn't drop the losing edit: it keeps that copy, and brain renames it to
+`name (conflict <host> <date>).ext` alongside the winner, so nothing is
+silently lost. Conflict copies are themselves excluded from sync, so they
+don't fan out to every machine. `brain sync conflicts` lists them; picking a
+side and deleting the other is a manual step in this phase.
+
+**Doctor.** `brain tasks doctor` reports rclone/sync health as one
+informational line: `rclone ✓ <version> · sync configured` or
+`rclone ✗ not installed · sync off`. An unconfigured (or rclone-less) sync is
+a normal, healthy state — it never fails the doctor check.
 
 ### `brain personalize`
 
@@ -272,7 +313,7 @@ brain (synced, never committed to the repo):
 
 ### Prerequisite: `markdown-to-pdf`
 
-Every command except `brain config` and `brain env` fails fast with a red `❌`
+Every command except `brain config`, `brain env`, and `brain sync` fails fast with a red `❌`
 error if the `markdown-to-pdf` command can't be resolved (it's needed for
 "Create PDF"). Its path is auto-discovered on first run and stored as
 `markdown_to_pdf_path` **in brain env** (`~/.config/brain/env.json`, not

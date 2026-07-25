@@ -153,6 +153,94 @@ POSIX file "<path>"` (the path escaped for the AppleScript literal). Finder's
 - **Best-effort.** A failed `osascript` is swallowed (like the PDF path) so a
   denied automation permission can't tear the shell down.
 
+## Handoff: `rclone` + Backblaze B2 (`brain sync`)
+
+`brain sync` (`src/sync/`) manually syncs the brain root to a private B2
+bucket by shelling out to `rclone bisync`. It's a handoff like
+`markdown-to-pdf`: brain doesn't reimplement transfer or conflict resolution,
+it drives an existing tool and manages the surrounding safety and
+bookkeeping.
+
+- **Credentials never touch argv or disk.** `src/sync/remote.rs`
+  (`build_remote`) turns the brain-env `sync` block (`b2_bucket`, `b2_path`,
+  `b2_key_id`, `b2_app_key`) into `RCLONE_CONFIG_BRAIN_*` environment
+  variables (`_TYPE`/`_ACCOUNT`/`_KEY`) passed to the rclone child process,
+  plus a `BRAIN:<bucket>[/<path>]` remote argument that carries no secret.
+  There is no persisted `rclone.conf` anywhere: the remote is reconstructed
+  from brain env on every invocation, and because credentials ride in the
+  child's environment rather than its argv, they never show up in `ps` output.
+- **The bisync argv is built once** by `src/sync/args.rs`
+  (`bisync_args`): direction (`brain sync` / `--push` / `--pull` / `brain
+  sync init`) maps to rclone's `--conflict-resolve` (`newer` / `path1` /
+  `path2`), plus `--conflict-loser pathname` + `--conflict-suffix
+  __brainconflict__` (the keep-both mechanics — see [features.md](features.md)
+  and [data-model.md](data-model.md)), `--max-delete <percent>`, `-v` (so
+  rclone emits the `Transferred:`/`Deleted:`/`Errors:` summary block the parser
+  reads — at default verbosity rclone prints no summary and every count parses
+  as 0), and default excludes (`.git/**`, `.DS_Store`, `.cache/**`, friendly
+  conflict copies `*(conflict *)*`, and raw markers `*.__brainconflict__*`).
+  `src/sync/run.rs` (`run_rclone`) spawns `rclone` with that argv and the
+  env-var remote, and parses its combined stdout/stderr into transferred /
+  deleted / error counts plus an abort reason.
+- **`--max-delete` is the blast-radius guard; `--check-access` is
+  deliberately not used.** `max_delete_percent` (from `sync.max_delete_percent`
+  in the brain-env `sync` block, default 50) aborts a run that would delete
+  more than that share of files, without propagating the deletes — rclone's
+  own safety abort ("too many deletes"), which `src/sync/verify.rs` maps to a
+  `NeedsAttention`/`Aborted` outcome pointing at `brain sync --resync` (via
+  `brain sync init`) if the deletes were intentional. `--check-access` is
+  intentionally **not** passed: it aborts every run unless matching
+  `RCLONE_TEST` marker files exist on both sides of the sync, and brain does
+  not create or manage those markers in this phase, so turning it on would
+  make every run fail. `--max-delete` is the guard brain relies on instead.
+- **rclone's own empty-directory guard.** Independently of brain's
+  `--max-delete` guard, `rclone bisync` refuses to run at all when one side's
+  prior listing has gone fully empty ("cannot find prior Path1 or Path2
+  listings" / "must run --resync to recover") — its own protection against
+  treating a wiped or never-initialized side as "delete everything on the
+  other side." `src/sync/run.rs` recognizes this wording as
+  `AbortKind::PriorListingMissing`, and `verify::classify` surfaces it with a
+  pointer at **`brain sync init`**, which re-runs bisync with `--resync` to
+  (re-)establish the baseline listings — the fix for a fresh machine's first
+  sync, or for recovering after this guard trips.
+- **The setup flow.** `brain sync setup` (`src/sync/setup.rs`) checks
+  `rclone` is on `PATH`, prompts on `/dev/tty` for the bucket + B2 key id +
+  application key (pre-filled with any existing values), validates them,
+  writes the `sync` block into brain env (`crate::env::set_raw`, **not**
+  brain config — see [config.md](config.md)), probes the bucket with `rclone
+  lsd` and offers to `rclone mkdir` it if unreachable, then runs one
+  `Direction::Resync` sync to establish the baseline. `brain sync init` reruns
+  just that last step (the resync), so it doubles as the fresh-machine
+  bootstrap and the recovery path for the empty-directory guard above.
+- **The journal.** Every run (whichever direction, including `setup`'s
+  initial baseline) is classified — `Clean` / `NeedsAttention` / `Aborted` —
+  by `src/sync/verify.rs` and recorded by `src/sync/journal.rs` into a SQLite
+  journal at **`~/.cache/brain/sync/journal.db`** (table `sync_runs`, WAL like
+  the state DB). It's machine-local and **never synced** (it lives outside
+  the brain root, like the rest of brain env), so each machine's sync history
+  stays its own. `brain sync status` reads the most recent row plus the
+  configured trigger flags and the open-conflict count; see
+  [data-model.md](data-model.md) for the row schema.
+- **Conflicts, on disk.** rclone leaves the losing side of a same-file
+  conflict named `<original>.__brainconflict__<N>` (literal dot + suffix +
+  trailing integer, e.g. `one.md.__brainconflict__1`), on both sides; a
+  post-pass (`src/sync/conflicts.rs`, `rename_markers`, matching via
+  `is_marker`) renames it to the friendly `name (conflict <host> <date>).ext`
+  right after the rclone run. Both the friendly (`*(conflict *)*`) and raw
+  (`*.__brainconflict__*`) patterns are default excludes above, so neither gets
+  synced around on a later run. Because the rename leaves zero leftover markers,
+  `sync_once` also feeds the *count of copies renamed* into `verify::classify`
+  so the run is still reported `NeedsAttention` (journalled `conflicts=N`) — a
+  real conflict is never masked as clean. `brain sync conflicts` lists what's
+  still open; resolving one is a manual step in this phase.
+- **rclone is a soft prerequisite, not a startup gate.** Unlike
+  `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
+  `brain sync` itself just fails when it tries to spawn `rclone` and can't.
+  `brain tasks doctor` (`src/tasks/doctor.rs`) reports rclone/sync health as
+  one informational line (`rclone ✓ <version> · sync configured` or `rclone ✗
+  not installed · sync off`), which never affects the doctor's overall
+  pass/fail.
+
 ## The auto-rebuild
 
 `run.sh` rebuilds `target/release/brain` whenever `Cargo.toml` or any

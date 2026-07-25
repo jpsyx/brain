@@ -30,7 +30,7 @@ Everything in it is created on demand; a fresh checkout has none.
 | --- | --- | --- |
 | `root` | `~/brain` | Absolute or `~`-relative path to the brain (PARA) directory on **this machine**. Replaces the legacy `~/.config/brain-root` pointer file (still read for back-compat; see below). |
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
-| `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, `on_start`, `on_exit`, `watch`, `max_delete_percent`. **Parse-only in this phase (C1)** — the schema is read (`sync::SyncConfig`) but nothing acts on it yet; the rclone transport, `brain sync` command, and triggers land in C2–C5. Intended to be edited via a future `brain sync setup`, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
+| `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, `on_start`, `on_exit`, `watch`, `max_delete_percent`. Drives `brain sync` (manual, bidirectional sync of the brain root via `rclone bisync`; see [features.md](features.md) and [integrations.md](integrations.md)) — as of C2 the schema is both read and acted on. `on_start`/`on_exit`/`watch` are configured now but only *act* as automatic triggers in a later phase; today every sync is a manual `brain sync` invocation and `brain sync status` just displays them. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
 
 ### The `brain env` command
 
@@ -41,6 +41,26 @@ Mirrors `brain config` exactly, over the env store:
 | `brain env list` | Print every env variable, its effective value, and its description as an aligned table. Bare `brain env` also lists. |
 | `brain env get <name>` | Print the effective value of one variable (explicit value, else built-in default). |
 | `brain env set <name>=<value>` | Set a variable and persist it into `~/.config/brain/env.json`. Unknown names are rejected. |
+
+### The `brain sync` command
+
+`brain sync` reads and drives the `sync` block above; the block itself is
+written by **`brain sync setup`** (interactive: bucket + credentials,
+verify/create the bucket, establish the baseline), not by hand-editing
+`env.json` or `brain env set`. See [features.md](features.md) for the full
+command surface (`brain sync [--push|--pull] {setup|init|status|conflicts}`)
+and [integrations.md](integrations.md) for the rclone handoff.
+
+Like `config`/`env`/`personalize`/`skills`, `brain sync` is dispatched
+**before** the `markdown-to-pdf` prerequisite gate (see below), so it works
+even when that tool is missing.
+
+**`rclone` is a soft prerequisite, not a startup gate.** Unlike
+`markdown-to-pdf`, brain never blocks startup or any command on `rclone`
+being installed — a missing `rclone` just makes `brain sync` itself fail when
+it tries to spawn it. `brain tasks doctor` reports rclone's presence/version
+and whether sync is configured as one informational line; an unconfigured (or
+rclone-less) sync is a normal, healthy state.
 
 ### `root`: now an env key, with legacy back-compat
 
@@ -175,7 +195,12 @@ The IO-touching wrappers are thin; the decisions worth testing are pure:
   migration `plan` (pointer→`root`, config→env `markdown_to_pdf_path`
   relocation), and the store round-trip.
 - `sync::config` units — `SyncConfig` field defaults, `is_configured`,
-  `watch_effective` (parse-only in C1; see [data-model.md](data-model.md)).
+  `watch_effective`; plus `sync::args` (the bisync argv per direction),
+  `sync::remote` (creds land only in env, never the arg), `sync::run` (parsing
+  rclone's transferred/deleted/error/abort output), `sync::verify` (outcome
+  classification), `sync::conflicts` (friendly-name rewriting), and
+  `sync::command` (hostname, direction/label mapping, status formatting). See
+  [data-model.md](data-model.md).
 - `paths::parse_root_key` — reading the `root` field out of a raw `env.json` body.
 - `paths::resolve_root` — the `root` env key → legacy pointer → default precedence.
 - `paths::parse_brain_root_file` — reading the legacy pointer file, empty-is-unset.

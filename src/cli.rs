@@ -57,6 +57,9 @@ pub enum Cmd {
     /// `root`, `markdown_to_pdf_path`, and the Backblaze `sync` block.
     Env(EnvArgs),
 
+    /// Sync your brain across machines via Backblaze B2 (`brain sync setup` first).
+    Sync(SyncArgs),
+
     /// Read or change your personalization (identity + tag styles), stored at
     /// `<brain-root>/.config/personalization.json`. Bare `brain personalize` runs
     /// first-run onboarding if nothing is set yet, otherwise it shows your
@@ -109,6 +112,30 @@ pub enum EnvAction {
         /// A single `name=value` assignment.
         assignment: String,
     },
+}
+
+#[derive(Args, Debug)]
+pub struct SyncArgs {
+    #[command(subcommand)]
+    pub action: Option<SyncAction>,
+    /// Bias this run to the local side (local wins same-file conflicts).
+    #[arg(long, global = true)]
+    pub push: bool,
+    /// Bias this run to the remote side (remote wins same-file conflicts).
+    #[arg(long, global = true)]
+    pub pull: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SyncAction {
+    /// Configure the B2 bucket + credentials and establish the baseline.
+    Setup,
+    /// (Re)establish the bisync baseline (first run / recovery / fresh machine).
+    Init,
+    /// Show the last run, pending changes, and open conflicts.
+    Status,
+    /// List open conflict copies.
+    Conflicts,
 }
 
 #[derive(Args, Debug)]

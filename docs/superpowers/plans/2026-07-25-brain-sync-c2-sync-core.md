@@ -1277,15 +1277,17 @@ git commit -m "feat(sync): brain sync setup (collect creds → env, verify bucke
 
 **Files:** Edit `src/tasks/doctor.rs`; add `tests/sync_local.rs` (gated).
 
-- [ ] **Step 1: Write the failing test** (doctor line is pure over inputs)
+- [x] **Step 1: Write the failing test** (doctor line is pure over inputs)
 
 In `src/tasks/doctor.rs`, extend the `Diagnosis` with an rclone/sync field and a pure formatter for it, plus a test asserting the line reflects "installed + configured" vs "missing". Mirror the existing doctor checks' structure (read the file first; follow its `Diagnosis` shape and its test style).
 
-- [ ] **Step 2–4: Implement + run** the doctor line: detect rclone presence (`which_rclone`) and whether `SyncConfig::load().is_configured()`, format one line (e.g. `rclone: ✓ 1.66  · sync: configured (bucket my-brain)` or `rclone: ✗ not installed · sync: off`). Full suite green, clippy clean.
+- [x] **Step 2–4: Implement + run** the doctor line: detect rclone presence (`which_rclone`) and whether `SyncConfig::load().is_configured()`, format one line (e.g. `rclone: ✓ 1.66  · sync: configured (bucket my-brain)` or `rclone: ✗ not installed · sync: off`). Full suite green, clippy clean.
 
-- [ ] **Step 5 (optional, gated): a local-backend integration test.** Add `tests/sync_local.rs` that, **only if `rclone` is on PATH**, bisyncs two temp dirs through rclone's local backend (no B2), asserting a create propagates and a delete propagates. Guard the whole test body on `Command::new("rclone").arg("version")` succeeding, so the default suite passes on machines without rclone. This exercises `run_rclone` + the post-pass end-to-end without network or credentials.
+- [x] **Step 5 (optional, gated): a local-backend integration test.** Add `tests/sync_local.rs` that, **only if `rclone` is on PATH**, bisyncs two temp dirs through rclone's local backend (no B2), asserting a create propagates and a delete propagates. Guard the whole test body on `Command::new("rclone").arg("version")` succeeding, so the default suite passes on machines without rclone. This exercises `run_rclone` + the post-pass end-to-end without network or credentials.
 
-- [ ] **Step 6: Commit**
+  Note: the test seeds two files and deletes one, not the only file. Deleting the last remaining file empties Path1 entirely, and rclone bisync refuses that by design ("Empty current Path1 listing. Cannot sync to an empty directory", aborting with "Must run --resync to recover.") — an intentional safety guard against an accidentally-wiped source, distinct from `--max-delete`, and not a gap in brain's `bisync_args`.
+
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tasks/doctor.rs tests/sync_local.rs

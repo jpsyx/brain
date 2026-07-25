@@ -526,6 +526,79 @@ to symlink because brain only ever reads it — `env.json` is not read-only, so
 the same trick doesn't apply). See the brain-sync design spec §12 for the full
 record.
 
+## C2 — `brain sync`'s rclone transport: env-var creds, `--max-delete` over `--check-access`, bisync over a custom merge
+
+C1 shipped only a parse-only `SyncConfig`; C2 is the first phase that actually
+moves bytes. The choices below are the ones a future phase (a triggers/watch
+phase, or a conflict-resolve UI) needs to keep, not accidentally "simplify."
+
+**Why credentials are `RCLONE_CONFIG_*` env vars, never a persisted
+`rclone.conf`, and never on argv.** The brain-env `sync` block already holds
+the B2 key id/app key as plaintext (machine-local, never synced — see the C1
+decision above), so `brain sync` doesn't need a *second* secret store; it just
+needs to hand rclone the same secret at invocation time. `src/sync/remote.rs`
+builds an rclone remote (named `BRAIN`) entirely as env vars
+(`RCLONE_CONFIG_BRAIN_TYPE`/`_ACCOUNT`/`_KEY`) passed to the child process,
+with the argv carrying only `BRAIN:<bucket>/<path>` — no secret in it. Two
+things this avoids: (1) a persisted `~/.config/rclone/rclone.conf` that would
+be a second, harder-to-audit copy of the same credential, sitting outside
+brain's own config lifecycle; (2) secrets on the process argv, which any other
+user on the machine can read via `ps`. Rebuilding the remote from brain env on
+every invocation costs nothing (it's a handful of string ops) and keeps the
+credential's *only* copy where `brain env`/`brain sync setup` already manage
+it.
+
+**Why `--max-delete` and not `--check-access`.** rclone offers `--check-access`
+as a symmetry guard (both sides must show matching `RCLONE_TEST` marker files,
+or the run aborts) and `--max-delete` as a blast-radius guard (abort if a run
+would delete more than a configured percent of files). We only use the
+latter. `--check-access` requires brain to *create and manage* those marker
+files on both sides — a whole feature C2 doesn't build — so turning it on
+today would make every single run abort. `--max-delete` needs no such
+bookkeeping: it just counts what bisync is about to delete against
+`sync.max_delete_percent` (default 50) and refuses the run (without
+propagating any deletes) if that threshold is exceeded. It's the cheaper guard
+that already covers the failure mode we actually care about (a wiped or
+mostly-empty side quietly deleting everything on the other machine); a future
+phase can add `--check-access` on top once it owns the marker-file lifecycle,
+but it isn't a prerequisite for a safe first sync.
+
+**Why `rclone bisync` and not a from-scratch merge.** The brain root isn't
+just markdown notes — it also holds `tasks.csv`/`habits.csv`, which don't
+merge line-by-line the way prose does. Rather than write and maintain a
+CSV-aware three-way merge, C2 leans on `rclone bisync`, which already
+implements correct bidirectional sync semantics: it tracks each side's prior
+listing so it can distinguish "changed here" from "deleted there" (the
+half of bidirectional sync that's easy to get wrong — naively diffing two
+current snapshots can't tell an edit from a delete-then-recreate), and it
+ships conflict handling and delete-propagation guards brain would otherwise
+have to reinvent. A CSV-specific merge strategy, if ever needed, is a
+narrower problem to solve later on top of this transport, not a reason to
+avoid it now.
+
+**Why a same-file conflict is "keep both," not "pick a winner and discard."**
+`--conflict-resolve` (`newer` for a bare `brain sync`, `path1`/`path2` for
+`--push`/`--pull`) decides which copy rclone treats as the winner for *this
+run*, but `--conflict-loser pathname` (not the default `num`) tells it to keep
+the loser too, under a suffix, rather than delete it. Silently discarding a
+same-file edit on a personal knowledge base is worse than a little clutter —
+the loser might be the copy the user actually wanted. brain's post-pass then
+renames the marker to a human-readable `name (conflict <host> <date>).ext`
+(see [data-model.md](data-model.md)) so resolving it later is a normal
+file-manager task, not spelunking for `__brainconflict__` files.
+
+**Why there is no silent auto-resync.** When bisync aborts (the
+`--max-delete` guard, or rclone's own "prior listings missing" guard), C2
+deliberately does not retry with `--resync` on its own — `--resync` makes one
+side unconditionally overwrite the other's listing, and blindly doing that
+after an abort could paper over exactly the kind of change (a wiped
+directory, a botched previous run) the guard exists to catch. Instead the
+abort is surfaced (`Outcome::Aborted`, with a message pointing at `brain sync
+init` or `brain sync --resync`) and the human decides. This mirrors the
+project's broader pattern of surfacing rather than auto-healing anything
+that touches data loss (contrast the auto-healed `markdown_to_pdf_path`,
+which only ever *rediscovers a tool path* — never anyone's data).
+
 ## Why `Ctrl-N` sends `/new` instead of being forwarded to claude
 
 Starting a fresh conversation is a frequent gesture, and typing `/new` by hand
