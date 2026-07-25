@@ -69,9 +69,45 @@ pub fn leftover_markers(root: &Path) -> usize {
         .count()
 }
 
+/// An open conflict copy found under the root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConflictFile {
+    pub path: PathBuf,
+}
+
+/// List conflict copies (`*(conflict *)*`) under `root`, as paths relative to
+/// `root`.
+#[must_use]
+pub fn list_conflicts(root: &Path) -> Vec<ConflictFile> {
+    walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| {
+            let n = e.file_name().to_string_lossy();
+            n.contains("(conflict ") && n.contains(')')
+        })
+        .map(|e| ConflictFile { path: e.path().strip_prefix(root).unwrap_or_else(|_| e.path()).to_path_buf() })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_conflicts_finds_friendly_named_copies_relative_to_root() {
+        let tmp = std::env::temp_dir().join(format!("brain-listconflicts-{}", std::process::id()));
+        let sub = tmp.join("notes");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("idea (conflict mac 2026-07-25).md"), b"x").unwrap();
+        std::fs::write(sub.join("normal.md"), b"y").unwrap();
+
+        let found = list_conflicts(&tmp);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, std::path::PathBuf::from("notes/idea (conflict mac 2026-07-25).md"));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
 
     #[test]
     fn inserts_conflict_tag_before_extension() {

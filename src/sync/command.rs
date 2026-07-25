@@ -78,6 +78,48 @@ pub fn direction_label(dir: Direction) -> &'static str {
     }
 }
 
+/// Format the status line for the most recent journal run (pure).
+#[must_use]
+pub fn format_last_run(run: Option<&SyncRun>) -> String {
+    run.map_or_else(
+        || "no syncs yet — run `brain sync`.".to_owned(),
+        |r| {
+            format!(
+                "last sync: {} · {} · {} · {}↑ {}↓ {} conflicts{}",
+                r.finished_at, r.direction, r.outcome, r.transferred, r.deleted, r.conflicts,
+                if r.note.is_empty() { String::new() } else { format!(" · {}", r.note) },
+            )
+        },
+    )
+}
+
+/// Print `brain sync status`.
+pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
+    if !cfg.is_configured() {
+        println!("sync is not configured — run `brain sync setup`.");
+        return Ok(());
+    }
+    let journal = Journal::open(&Journal::default_path())?;
+    let recent = journal.recent(1)?;
+    println!("{}", format_last_run(recent.first()));
+    let conflicts = conflicts::list_conflicts(root);
+    println!("open conflicts: {}", conflicts.len());
+    Ok(())
+}
+
+/// Print `brain sync conflicts`.
+pub fn print_conflicts(root: &Path) -> Result<()> {
+    let conflicts = conflicts::list_conflicts(root);
+    if conflicts.is_empty() {
+        println!("no open conflict copies.");
+    } else {
+        for c in conflicts {
+            println!("{}", c.path.display());
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,6 +135,18 @@ mod tests {
     fn direction_labels_are_stable() {
         assert_eq!(direction_label(Direction::Both), "both");
         assert_eq!(direction_label(Direction::Resync), "resync");
+    }
+
+    #[test]
+    fn format_last_run_handles_empty_and_populated() {
+        assert!(format_last_run(None).contains("no syncs yet"));
+        let r = crate::sync::journal::SyncRun {
+            started_at: "s".into(), finished_at: "2026-07-25T00:00:05Z".into(),
+            direction: "both".into(), outcome: "clean".into(),
+            transferred: 3, deleted: 1, conflicts: 0, errors: 0, note: String::new(),
+        };
+        let line = format_last_run(Some(&r));
+        assert!(line.contains("both") && line.contains("clean") && line.contains("3↑"));
     }
 
     #[test]
