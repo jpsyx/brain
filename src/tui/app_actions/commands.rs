@@ -52,12 +52,15 @@ impl App<'_> {
         }
     }
 
-    /// Ctrl+H entry point. Runs the injected `habits_runner` (which
-    /// boots the local server if needed and opens the page in the
-    /// browser), then flashes success / error.
+    /// "Open habits page" palette entry. Brings up the bundled brain server
+    /// (starting it if needed), then opens its `/habits` page in the browser
+    /// through the injected `open_runner`, flashing success / error.
     pub(crate) fn run_open_habits(&mut self) {
-        self.flash = Some(match self.habits_runner.run() {
-            Ok(()) => FlashKind::Info("✓ opened habits".to_owned()),
+        self.flash = Some(match crate::server::lifecycle::ensure_running() {
+            Ok(port) => {
+                let url = crate::server::url(port, "/habits");
+                open_url(self.open_runner.as_ref(), &url)
+            }
             Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
         });
     }

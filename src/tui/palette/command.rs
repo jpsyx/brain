@@ -51,9 +51,9 @@ pub(crate) enum PaletteAction {
     /// status="dropped" based on the row state. Tasks only — habits
     /// have their own removal flow.
     RemoveTask,
-    /// Run the `habits` zsh function — opens today's habits page in the
-    /// browser, reusing or starting the local server in
-    /// `~/scripts/rc/habits/`. Global.
+    /// Open today's habits page in the browser, served by the bundled brain
+    /// server (started on demand via `server::lifecycle::ensure_running`).
+    /// Global.
     OpenHabitsInBrowser,
     /// Open today's agenda — same code path as the `Ctrl+A` shortcut.
     /// Routes through the `agenda` zsh function, which generates the

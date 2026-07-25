@@ -67,8 +67,9 @@ startup default.
 
 `Ctrl+P`, `Ctrl+A`, `Ctrl+Shift+M`, and the task actions are **tasks-view
 only** (gated on `main_view == Tasks`). Opening today's habits page in the
-browser is now the palette's **"Open habits page"** row (the old `Ctrl+H`
-binding became the cycle-view accelerator).
+browser is now the palette's **"Open habits in browser"** row (served by the
+bundled brain server; the old `Ctrl+H` binding became the cycle-view
+accelerator).
 
 ### Search mode (`/` active)
 

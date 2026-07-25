@@ -20,6 +20,14 @@ use tiny_http::{Header, Request, Response, Server};
 
 use self::router::Route;
 
+/// The URL of a brain-server route on localhost. Pure.
+///
+/// `url(8787, "/habits")` == `"http://127.0.0.1:8787/habits"`.
+#[must_use]
+pub fn url(port: u16, path: &str) -> String {
+    format!("http://127.0.0.1:{port}{path}")
+}
+
 /// Run the blocking brain-server accept loop.
 ///
 /// Binds `127.0.0.1:port` (`0` lets the OS assign an ephemeral port),
@@ -74,4 +82,20 @@ fn respond(request: &mut Request) -> Response<std::io::Cursor<Vec<u8>>> {
 fn content_type(value: &str) -> Header {
     Header::from_bytes(&b"Content-Type"[..], value.as_bytes())
         .unwrap_or_else(|()| unreachable!("static content-type header is valid ASCII"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::url;
+
+    #[test]
+    fn url_builds_a_localhost_route() {
+        assert_eq!(url(8787, "/habits"), "http://127.0.0.1:8787/habits");
+    }
+
+    #[test]
+    fn url_always_includes_the_path() {
+        assert!(url(8787, "/habits").ends_with("/habits"));
+        assert!(url(1, "/habits").contains("/habits"));
+    }
 }

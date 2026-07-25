@@ -32,8 +32,10 @@ that *do* shell out live in the tasks modules:
 
 - **`~/global-skills/todo/scripts/mark_done.py`** — `brain tasks complete <id>`
   and the palette's mark-complete action `exec`/invoke it to mutate the CSVs.
-- **`agenda` / `habits` zsh functions** — `Ctrl+A` (agenda) and the palette's
-  "Open habits page" run these via the injected `ShellRunner`.
+- **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
+- **`brain habits` / palette "Open habits in browser"** — bring up the bundled
+  brain server (`server::lifecycle::ensure_running`) and open its `/habits`
+  page via the system `open`; they no longer shell out to a zsh function.
 - **`cd <root> && <claude_cmd> …`** — the brain panel's PTY, shared by both
   main views (see below).
 

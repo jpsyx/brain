@@ -73,6 +73,9 @@ pub enum Cmd {
     /// `status`, `kill`). One shared daemon per machine.
     Server(ServerArgs),
 
+    /// Open today's habits page in your browser (starts the brain server if needed).
+    Habits,
+
     /// Show what would sync (pending local pushes and remote pulls) without
     /// syncing. Read-only: runs `rclone bisync --dry-run` under the hood.
     Check,

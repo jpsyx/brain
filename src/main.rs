@@ -105,6 +105,13 @@ fn main() -> Result<()> {
         return server_command(args);
     }
 
+    // `brain habits` just opens the bundled habits page (starting the server if
+    // needed); no markdown-to-pdf prerequisite and no TUI, so it runs before the
+    // gate.
+    if matches!(&cli.command, Some(Cmd::Habits)) {
+        return habits_command();
+    }
+
     // `brain check` is a read-only report; no TUI, no prerequisite needed.
     if matches!(&cli.command, Some(Cmd::Check)) {
         let cfg = crate::sync::config::SyncConfig::load();
@@ -142,8 +149,26 @@ fn main() -> Result<()> {
         Some(Cmd::Personalize(_)) => unreachable!("personalize is dispatched before the gate"),
         Some(Cmd::Skills(_)) => unreachable!("skills is dispatched before the gate"),
         Some(Cmd::Server(_)) => unreachable!("server is dispatched before the gate"),
+        Some(Cmd::Habits) => unreachable!("habits is dispatched before the gate"),
         Some(Cmd::Check) => unreachable!("check is dispatched before the gate"),
     }
+}
+
+/// Handle `brain habits`: ensure the shared brain server is up, then open its
+/// `/habits` page in the browser. Best-effort open (fire-and-forget).
+fn habits_command() -> Result<()> {
+    let theme = crate::theme::Theme::active();
+    let port = crate::server::lifecycle::ensure_running()?;
+    let target = crate::server::url(port, "/habits");
+    println!("{}", theme.info(&format!("Opening {target}")));
+    open_in_browser(&target);
+    Ok(())
+}
+
+/// Open a URL in the system browser via macOS `open <url>`. Fire-and-forget:
+/// a spawn failure never fails the caller (the URL is already printed).
+fn open_in_browser(url: &str) {
+    let _ = std::process::Command::new("open").arg(url).spawn();
 }
 
 /// Handle `brain server {start|status|kill|run}`. `run` is the internal
@@ -367,10 +392,6 @@ fn prompt_tty_line(prompt: &str) -> Result<Option<String>> {
 /// `doctor` / `search` subcommands are one-shot utilities; everything else
 /// resolves an initial view and opens the persistent shell via `tui::run_tui`.
 fn tasks_launch(mut cli: TasksCli) -> Result<()> {
-    // Best-effort: bring up the shared background brain server when the shell
-    // opens, reused across tabs. A server failure must never block the shell.
-    let _ = crate::server::lifecycle::ensure_running();
-
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
         Some(TasksCommand::Complete(args)) => return tasks::complete::run(&args.id),
@@ -437,6 +458,11 @@ fn tasks_browse(initial: Initial, cli: &mut TasksCli, today: NaiveDate) -> Resul
     if cli.display.no_tui {
         tasks::plain::print_plain(&view, today, cli.display.full_notes);
     } else {
+        // Best-effort: bring up the shared background brain server only when the
+        // interactive shell opens (not on the `complete` / `doctor` / `--no-tui`
+        // one-shots), reused across tabs. A server failure must never block the
+        // shell.
+        let _ = crate::server::lifecycle::ensure_running();
         tui::run_tui(
             &view,
             cli,

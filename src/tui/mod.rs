@@ -247,9 +247,6 @@ pub(crate) struct App<'a> {
     /// production impl can shell out while tests pass a fake that
     /// returns Ok(()) or Err(...) on demand.
     agenda_runner: Box<dyn ShellRunner>,
-    /// Injected runner for the `habits` zsh function. Same rationale
-    /// as `agenda_runner`.
-    habits_runner: Box<dyn ShellRunner>,
     /// Injected runner for opening a Linear issue URL in the browser
     /// (`/usr/bin/open <url>`). Same injection rationale as the other
     /// runners — tests pass a fake that records the URL.
