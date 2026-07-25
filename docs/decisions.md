@@ -669,6 +669,52 @@ everyone. `SyncConfig::exclude`/`max_size` default to empty, so an
 unconfigured brain keeps syncing everything exactly as C2 shipped it — this
 is an available knob, not a behavior change.
 
+## C3 — id-keyed CSV semantic merge for tasks/habits (over keep-both)
+
+**Why id-keyed 3-way merge instead of keep-both, for these two files only.**
+Keep-both (the C2 default for every other file) is the right call for prose:
+losing an edit on a personal note is worse than a little clutter. But
+`tasks.csv`/`habits.csv` are edited constantly and are *structured, row-id-
+keyed* data, not prose — the worst fit for whole-file keep-both, which would
+turn "I completed a task on my phone while you added one on your laptop" into
+a `(conflict …)` copy the user has to manually reconcile by hand, every
+time. An id-keyed 3-way merge lets that case (and delete-vs-edit, and
+different-field edits) converge automatically instead, so the two CSVs never
+produce a conflict copy at all — see the design spec
+(`docs/superpowers/specs/2026-07-25-brain-sync-c3-csv-merge.md`) for the full
+write-up.
+
+**Why the merge reuses `tasks.csv`'s existing `last_touched` column instead
+of adding a new one.** Same-field last-writer-wins needs a per-row modified
+timestamp, and `tasks.csv` already has `last_touched` (maintained by the
+writers that touch the file — `mark_done.py`, add/edit scripts — for other
+purposes). Reusing it means tasks needed **no schema change** to gain the
+merge; a new column would have meant migrating every existing row and every
+writer, for a value the file already carries.
+
+**Why `habits.csv` falls back to a lexicographic tiebreak instead of getting
+the same column.** `habits.csv` has no `last_touched`, and same-field
+collisions there are rare — mostly `status`, which completion-wins already
+resolves outright before the per-column merge even runs. Rather than add a
+column for that residual case, the merge picks the lexicographically-greater
+cell value deterministically and journals it as a soft conflict: it still
+converges, just without recency semantics. Adding `last_touched` to
+`habits.csv` for full parity with tasks is a noted, deliberately-deferred
+follow-up, not a C3 requirement.
+
+**Why convergence and idempotency are load-bearing properties, not nice-to-
+haves.** Two machines must reach the *same* merged file regardless of which
+one is "ours" and which is "theirs" in a given run (convergence) — otherwise
+each sync could re-diverge the two sides instead of settling them. And
+merging an already-merged table with itself must be a no-op (idempotency) —
+otherwise a sync with nothing new to reconcile could still perturb the file,
+churning it forever. Both are asserted directly as unit tests in
+`csv_merge` (`convergence_swapping_ours_and_theirs_is_byte_identical`,
+`idempotency_merging_a_merged_table_with_itself_is_a_no_op`), because the
+whole scheme's safety — no silent divergence, no human ever needing to
+adjudicate a task-CSV conflict — depends on the merge being a genuine
+mathematical convergence, not just "usually agrees."
+
 ## Why `Ctrl-N` sends `/new` instead of being forwarded to claude
 
 Starting a fresh conversation is a frequent gesture, and typing `/new` by hand

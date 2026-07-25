@@ -282,6 +282,29 @@ bookkeeping.
   so the run is still reported `NeedsAttention` (journalled `conflicts=N`) — a
   real conflict is never masked as clean. `brain sync conflicts` lists what's
   still open; resolving one is a manual step in this phase.
+- **The two task CSVs skip bisync entirely; they're merged out-of-band.**
+  `tasks/tasks.csv` and `tasks/habits.csv` are added to `args::bisync_args`'s
+  default excludes (`src/sync/args.rs`), so Lane-A bisync never touches them —
+  line-based bisync would happily let one machine's edit clobber another's on
+  structured, id-keyed data. Instead `command::sync_once` runs a dedicated
+  step (`crate::sync::csv_sync::sync_csvs`) once bisync itself hasn't aborted:
+  for each CSV it reads the cached baseline (`csv_sync::baseline_path`,
+  `~/.cache/brain/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
+  never synced), the local file, and the remote copy (fetched with `rclone
+  copyto <remote> <tmp>`, over the same env-var `BRAIN:` remote bisync uses);
+  merges the three with the pure id-keyed 3-way merge in
+  `crate::sync::csv_merge` (`merge(base, ours, theirs)`, keyed by `task_id` —
+  see [data-model.md](data-model.md) for the rules); writes the merged CSV
+  back to the local file, pushes it to the remote with another `rclone
+  copyto`, then overwrites the baseline with the same merged text. A missing
+  baseline (first run on a machine) means every row reads as newly added, so
+  the first CSV sync is a safe union of both sides rather than a guess. The
+  merge outcome (added/merged/deleted/soft-conflict counts) is folded into the
+  sync journal's `note` column as a `csv: +A ~M -D` segment (see
+  [data-model.md](data-model.md)); a CSV-merge failure never changes the
+  bisync run's own outcome, and the step is skipped entirely when that run
+  aborted. See [decisions.md](decisions.md) for why this file pair gets a
+  semantic merge instead of keep-both.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.
