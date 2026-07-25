@@ -205,12 +205,16 @@ target) but is a top-level key of the same JSON object — see below.
 
 ## Sync config (`sync/`, the `sync` block in `env.json`)
 
-`sync::SyncConfig` (`src/sync/config.rs`) is a **parse-only** typed view of the
-`sync` object nested under `~/.config/brain/env.json`'s top level. As of this
-phase (C1) it is read but nothing acts on it — no rclone invocation, no
-transport, no triggers; those arrive in later sub-project-C phases. An absent
+`sync::SyncConfig` (`src/sync/config.rs`) is a typed view of the `sync` object
+nested under `~/.config/brain/env.json`'s top level. As of C2, `brain sync`
+reads it to drive a real `rclone bisync` transport (see
+[integrations.md](integrations.md) and [architecture.md](architecture.md));
+`on_start`/`on_exit`/`watch` are configured now but only *act* as automatic
+triggers in a later sub-project-C phase — today `brain sync status` just
+displays them, and every sync is a manual `brain sync` invocation. An absent
 `sync` block parses to all defaults, so sync reads as fully disabled and brain
-behaves exactly as if the key didn't exist.
+behaves exactly as if the key didn't exist (`brain sync` prints "sync is not
+configured — run `brain sync setup`" and does nothing).
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -237,6 +241,64 @@ Two derived predicates:
 (`env::load_map()`) and deserializes it, falling back to `SyncConfig::default()`
 on a missing key or a parse failure — a broken or absent `sync` block never
 blocks startup.
+
+## Sync journal (`src/sync/journal.rs`, `~/.cache/brain/sync/journal.db`)
+
+Every `brain sync` run (including `setup`'s initial baseline) is recorded into
+a SQLite journal, machine-local and **never synced** (it lives under
+`~/.cache`, like `state.db`, not inside the brain root). WAL mode, like the
+state DB. One table:
+
+```sql
+sync_runs(
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at    TEXT NOT NULL,     -- RFC3339 UTC timestamp
+  finished_at   TEXT NOT NULL,     -- RFC3339 UTC timestamp
+  direction     TEXT NOT NULL,     -- "both" | "push" | "pull" | "resync"
+  outcome       TEXT NOT NULL,     -- "clean" | "needs_attention" | "aborted"
+  transferred   INTEGER NOT NULL,  -- files transferred (rclone's file-count line)
+  deleted       INTEGER NOT NULL,  -- files deleted
+  conflicts     INTEGER NOT NULL,  -- conflict copies renamed to their friendly name this run
+  errors        INTEGER NOT NULL,  -- rclone-reported transfer errors
+  note          TEXT NOT NULL      -- human-readable detail; empty when outcome is "clean"
+)
+```
+
+`Journal::record` inserts a row per run; `Journal::recent(n)` returns the last
+`n`, newest (`id DESC`) first — `brain sync status` reads just the most recent
+one (`command::format_last_run`) alongside the configured trigger flags
+(`command::format_triggers`) and the open-conflict count.
+
+**Outcome classification** (`src/sync/verify.rs`, `classify`): `Clean` only
+when rclone exited successfully, reported zero errors, and left no
+un-renamed conflict markers; a nonzero error count or a leftover marker is
+`NeedsAttention`; an rclone abort (the `--max-delete` guard, or rclone's own
+"prior listings missing" guard — see [integrations.md](integrations.md)) is
+`Aborted`. Both carry a human-readable `note` that becomes the journal row's
+`note` and the message `brain sync` prints.
+
+## Conflict-copy naming (`src/sync/conflicts.rs`)
+
+`rclone bisync` is configured (`args::bisync_args`) to keep, not drop, the
+losing side of a same-file conflict, marking it with a `__brainconflict__`
+suffix on the filename. Right after the rclone run, `conflicts::rename_markers`
+walks the brain root and renames every `<name><ext>__brainconflict__` file to
+a friendly name:
+
+```
+name (conflict <host> <date>).ext
+```
+
+— e.g. `note.md` → `note (conflict mac 2026-07-25).md`; an extensionless
+`README` → `README (conflict mac 2026-07-25)`. `<host>` is this machine's
+short (unqualified) hostname (`command::hostname`) and `<date>` is the sync
+run's date (`YYYY-MM-DD`). The pattern `*(conflict *)*` is one of the default
+rclone excludes, so conflict copies are never themselves synced back out.
+`conflicts::list_conflicts` finds existing friendly-named copies under the
+root (paths relative to the root) for `brain sync conflicts` and the
+`brain sync status` open-conflict count; `leftover_markers` counts any
+`__brainconflict__` files the rename pass failed to rewrite, which
+`verify::classify` surfaces as `NeedsAttention`.
 
 ## Binary stdout (the output "schema")
 

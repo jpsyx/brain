@@ -56,6 +56,8 @@ binary, and [integrations.md](integrations.md) for the launch/handoff detail.
 argv
  └─→ Cli::parse                          (cli.rs)
       ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
+      ├─→ Cmd::Env ─→ env_command         (list/get/set over env.json; also BEFORE the gate)
+      ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/init/status/conflicts; also BEFORE the gate)
       ├─→ Cmd::Personalize ─→ personalize_command (show/get/set/edit / onboarding; also BEFORE the gate)
       └─→ settings::ensure_markdown_to_pdf (prereq gate: config path, else discover; red ❌ + exit if unresolved)
            ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
@@ -270,6 +272,36 @@ the configured brain-panel launch command (or the default `claude
 defaults, and keys read elsewhere (e.g. `agenda_dir`, `skills_auto_sync`, or
 brain-env values in the separate `env.json`) are ignored here.
 
+### `sync/`
+`brain sync`: manual, bidirectional cross-machine sync of the brain root to a
+private Backblaze B2 bucket via `rclone bisync`, dispatched in `main.rs`
+**before** the `markdown-to-pdf` prerequisite gate (like `config`/`env`/
+`personalize`/`skills`). The data flow per run is **build → run → post-pass →
+verify → journal**: `config` (`SyncConfig`, parsed from the brain-env `sync`
+block) feeds `remote::build_remote` (the B2 remote as `RCLONE_CONFIG_*` env
+vars, never on argv) and `args::bisync_args` (the full `rclone bisync` argv:
+conflict resolution bias for the direction, keep-both flags, `--max-delete`,
+default excludes); `run::run_rclone` spawns `rclone` with that env + argv and
+parses its output into transferred/deleted/error counts and an abort reason;
+`conflicts::rename_markers` (the post-pass) renames any rclone-left conflict
+marker to the friendly `name (conflict <host> <date>).ext`; `verify::classify`
+turns the parsed outcome + any leftover markers into `Clean` /
+`NeedsAttention` / `Aborted`; and `journal::Journal` records the run into the
+SQLite journal at `~/.cache/brain/sync/journal.db` (table `sync_runs`,
+machine-local, never synced). `command::sync_once` is the thin orchestrator
+that runs this whole pipeline; `command::print_status`/`print_conflicts` back
+`brain sync status`/`brain sync conflicts`. `setup.rs` is `brain sync setup`'s
+interactive flow (collect bucket + credentials, verify/create the bucket via
+`rclone lsd`/`mkdir`, write the `sync` block into brain env, then run one
+baseline `sync_once` with `Direction::Resync`) — `brain sync init` reruns just
+that resync, both as the fresh-machine bootstrap and as the recovery path for
+rclone's own "prior listings missing" guard. See
+[integrations.md](integrations.md) for the rclone handoff detail and
+[data-model.md](data-model.md) for the `sync` config fields and the journal
+schema. `rclone` is an external dependency (not a Cargo crate): a soft
+prerequisite, checked only when `brain sync` actually runs, never a startup
+gate (`brain tasks doctor` reports its presence/version informationally).
+
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`
 crate under one namespace: `task` (CSV model + load), `view` (sub-views +
@@ -396,3 +428,10 @@ sibling so the two projects share a stack:
 - `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
   them out. Multi-file skill assets rule out `include_str!`.
+
+`brain sync` also depends on **`rclone`**, but as an external command it
+shells out to (`src/sync/run.rs`), not a Cargo crate: brain builds the argv
+and an env-var-only remote config and lets the user's own `rclone` install do
+the transfer. It's a soft prerequisite (checked only when `brain sync` runs;
+see [integrations.md](integrations.md)), unlike the hard `markdown-to-pdf`
+gate.
