@@ -115,6 +115,25 @@ cargo clippy --release --all-targets
 The `brain` command runs `run.sh`, which builds the binary when the sources
 change and `exec`s it. The user never types `cargo run`.
 
+## Agent dev-skills (pinned per-repo, not global)
+
+This repo pins the agent **development** skills contributors should use (so
+everyone gets the same guidance regardless of what's installed globally). They
+live in `skills-lock.json` (committed); the materialized copies under
+`.agents/` / `.claude/skills/` / `.windsurf/` are gitignored ("node_modules" of
+the `skills` CLI). After cloning, restore them with:
+
+```sh
+npx skills experimental_install     # materializes the pinned skills locally
+```
+
+Currently pinned: **`rust-skills`** (leonardomso/rust-skills — 265 idiomatic-Rust
+rules; invoke with `/rust-skills`). Add more with `npx skills add <owner>/<repo>`
+(project scope by default) and commit the updated `skills-lock.json`. Do **not**
+rely on globally-installed skills — pin what this repo needs here. (These are
+*developer* skills for people working **on** brain; they are separate from the
+product skills brain ships to users in `skills/`.)
+
 ## Quick orientation for new agents
 
 1. Read [docs/README.md](docs/README.md) — the index.

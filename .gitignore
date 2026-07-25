@@ -13,3 +13,10 @@
 
 # macOS.
 .DS_Store
+
+# Agent dev-skills materialized from skills-lock.json (the "node_modules" of the
+# `skills` CLI). Pinned in skills-lock.json (committed); restore with
+# `skills experimental_install`. Not committed — machine/agent-local.
+/.agents/
+/.windsurf/
+/.claude/skills/
