@@ -1,8 +1,10 @@
 //! Pure builder of the `rclone bisync` argument vector.
 //!
 //! Covers direction → conflict resolution bias, the keep-both conflict
-//! flags, the default exclude filters, the `--max-delete` guard,
-//! `--check-access`, and (for a baseline) `--resync`.
+//! flags, the default exclude filters, the `--max-delete` guard, and (for a
+//! baseline) `--resync`. (`--check-access` is intentionally not used yet: it
+//! aborts every run unless `RCLONE_TEST` marker files exist on both sides, which
+//! brain does not manage in C2; `--max-delete` is the blast-radius guard.)
 
 use crate::sync::config::SyncConfig;
 
@@ -40,7 +42,6 @@ pub fn bisync_args(cfg: &SyncConfig, local: &str, remote_arg: &str, dir: Directi
     a.extend(["--conflict-loser".into(), "pathname".into()]);
     a.extend(["--conflict-suffix".into(), CONFLICT_MARKER.into()]);
     a.extend(["--max-delete".into(), cfg.max_delete_percent.to_string()]);
-    a.push("--check-access".into());
     for ex in EXCLUDES {
         a.extend(["--exclude".into(), ex.into()]);
     }
@@ -81,10 +82,11 @@ mod tests {
     }
 
     #[test]
-    fn carries_max_delete_and_check_access_and_excludes() {
+    fn carries_max_delete_and_excludes_but_not_check_access() {
         let a = args(Direction::Both);
         assert_eq!(pair_after(&a, "--max-delete"), Some("40"));
-        assert!(a.iter().any(|s| s == "--check-access"));
+        // --check-access aborts without RCLONE_TEST markers brain doesn't manage.
+        assert!(!a.iter().any(|s| s == "--check-access"));
         assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == ".git/**"));
         assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*(conflict *)*"));
     }
