@@ -213,9 +213,13 @@ nothing.
   by newest edit.
 - `brain sync --push` — biases this run local-wins on a same-file conflict.
 - `brain sync --pull` — biases this run remote-wins on a same-file conflict.
-- `brain sync setup` — collect the B2 bucket + credentials (writes the `sync`
+- `brain sync setup` — a guided walkthrough. It first asks *"do you already have
+  a Backblaze private bucket to connect to?"*; answering no prints a step-by-step
+  guide to creating one (private bucket, Default Encryption **enabled**, Object
+  Lock **disabled**, and a bucket-scoped application key) and waits for you before
+  continuing. Then it collects the B2 bucket + credentials (writes the `sync`
   block into **brain env**, not brain config — see [config.md](config.md)),
-  verify or create the bucket, and establish the initial bisync baseline.
+  verifies or creates the bucket, and establishes the initial bisync baseline.
 - `brain sync init` — (re-)establish the bisync baseline: bootstrap a fresh
   machine, or recover once rclone refuses to sync because one side's listing
   is empty (see [integrations.md](integrations.md)).

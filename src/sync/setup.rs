@@ -11,6 +11,44 @@ use anyhow::{Result, bail};
 use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
 
+/// Parse a yes/no answer. Yes-ish (`y`/`yes`, case-insensitive) is `true`;
+/// anything else, including empty, is `false` — so the safe default is "no
+/// bucket yet", which shows the walkthrough.
+#[must_use]
+pub fn parse_yes_no(input: &str) -> bool {
+    matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
+/// The step-by-step Backblaze bucket + application-key walkthrough shown when
+/// the user doesn't have a bucket yet. Pure static text, so a unit test guards
+/// that it keeps covering every critical setting.
+#[must_use]
+pub fn bucket_walkthrough() -> String {
+    "\
+No problem — we'll walk you through it (about 2 minutes):
+
+  1. Sign in at https://www.backblaze.com (a free account is fine to start).
+
+  2. B2 Cloud Storage -> Buckets -> \"Create a Bucket\":
+       - Bucket Unique Name:  a globally-unique name (e.g. \"yourname-brain\")
+       - Files in Bucket are: Private
+       - Default Encryption:  Enable  (Backblaze-managed; nothing for you to hold)
+       - Object Lock:         Disable (sync must be able to update and delete files)
+
+  3. Account -> Application Keys -> \"Add a New Application Key\":
+       - Name:            brain-sync
+       - Allow access to: the bucket you just created (scope it to only that one)
+       - Leave the file-name prefix and duration blank.
+       - Create it, then COPY both values right away:
+           * keyID
+           * applicationKey  (shown ONLY once -- copy it before you leave the page)
+
+  Backblaze manages the encryption key, so there is nothing you can lose that
+  would lock you out, and your notes also stay on this machine.
+"
+    .to_owned()
+}
+
 /// Validate collected setup inputs before writing them to env. Pure.
 pub fn validate(bucket: &str, key_id: &str, app_key: &str) -> Result<()> {
     if bucket.trim().is_empty() {
@@ -31,10 +69,20 @@ pub fn run() -> Result<()> {
         );
         return Ok(());
     }
+    println!(
+        "brain sync keeps your ~/brain in sync across machines through a private\nBackblaze B2 bucket (encrypted at rest, and an off-site backup).\n"
+    );
+
+    if !ask_has_bucket()? {
+        println!("\n{}", bucket_walkthrough());
+        prompt("Press Enter once your bucket and application key are ready", "")?;
+    }
+
+    println!("\nEnter your bucket details (from the Backblaze console):");
     let existing = SyncConfig::load();
-    let bucket = prompt("B2 bucket", &existing.b2_bucket)?;
-    let key_id = prompt("B2 key ID", &existing.b2_key_id)?;
-    let app_key = prompt("B2 application key", &existing.b2_app_key)?;
+    let bucket = prompt("B2 bucket name", &existing.b2_bucket)?;
+    let key_id = prompt("B2 keyID", &existing.b2_key_id)?;
+    let app_key = prompt("B2 applicationKey", &existing.b2_app_key)?;
     validate(&bucket, &key_id, &app_key)?;
 
     let block = serde_json::json!({
@@ -82,6 +130,16 @@ fn prompt(label: &str, current: &str) -> Result<String> {
     Ok(if trimmed.is_empty() { current.to_owned() } else { trimmed.to_owned() })
 }
 
+/// Ask whether the user already has a bucket. Thin `/dev/tty` shell over
+/// [`parse_yes_no`]; a bare Enter means "no" (show the walkthrough).
+fn ask_has_bucket() -> Result<bool> {
+    let answer = prompt(
+        "Do you already have a Backblaze private bucket to connect to? [y/N]",
+        "",
+    )?;
+    Ok(parse_yes_no(&answer))
+}
+
 fn rclone_present() -> bool {
     std::process::Command::new("rclone")
         .arg("version")
@@ -126,5 +184,35 @@ mod tests {
         assert!(validate("b", "", "a").is_err());
         assert!(validate("b", "k", "").is_err());
         assert!(validate("b", "k", "a").is_ok());
+    }
+
+    #[test]
+    fn parse_yes_no_reads_affirmatives_only() {
+        assert!(parse_yes_no("y"));
+        assert!(parse_yes_no("Yes"));
+        assert!(parse_yes_no("  YES  "));
+        assert!(!parse_yes_no("n"));
+        assert!(!parse_yes_no("no"));
+        assert!(!parse_yes_no("")); // default: no bucket yet → show the walkthrough
+        assert!(!parse_yes_no("maybe"));
+    }
+
+    #[test]
+    fn walkthrough_covers_the_critical_bucket_settings() {
+        let w = bucket_walkthrough();
+        assert!(w.contains("Private"), "must say the bucket is Private");
+        assert!(
+            w.contains("Default Encryption") && w.contains("Enable"),
+            "must tell them to Enable Default Encryption"
+        );
+        assert!(
+            w.contains("Object Lock") && w.contains("Disable"),
+            "must tell them to Disable Object Lock"
+        );
+        assert!(w.contains("Application Key"), "must cover creating an application key");
+        assert!(
+            w.contains("keyID") && w.contains("applicationKey"),
+            "must name both credential values to copy"
+        );
     }
 }
