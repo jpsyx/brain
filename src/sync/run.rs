@@ -2,7 +2,8 @@
 //! `RunOutcome`. Only the parser is unit-tested; the process spawn is a thin
 //! shell exercised via the integration path.
 
-use std::process::Command;
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Command, Stdio};
 
 /// Why a bisync aborted, when it did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,8 +84,13 @@ pub fn parse_outcome(exit_ok: bool, output: &str) -> RunOutcome {
     }
 }
 
-/// Run `rclone <args>` with `env` injected, capturing combined output. Returns
-/// the parsed outcome, or an `AbortKind::Other` outcome if rclone can't spawn.
+/// Run `rclone <args>` with `env` injected, streaming its progress live.
+///
+/// rclone's stderr (its progress/log stream) is echoed to our stderr as it
+/// arrives while also being captured, so the user sees progress on a long
+/// sync and we can still parse the outcome. stdout is inherited; only stderr
+/// is piped and drained on this thread (no deadlock: the single owned pipe is
+/// drained continuously, and stdout is never buffered by us).
 #[must_use]
 pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
     let mut cmd = Command::new("rclone");
@@ -92,14 +98,25 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
     for (k, v) in env {
         cmd.env(k, v);
     }
-    match cmd.output() {
-        Ok(out) => {
-            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-            text.push_str(&String::from_utf8_lossy(&out.stderr));
-            parse_outcome(out.status.success(), &text)
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::piped());
+
+    let Ok(mut child) = cmd.spawn() else {
+        return RunOutcome { exit_ok: false, transferred: 0, deleted: 0, errors: 0, abort: Some(AbortKind::Other) };
+    };
+
+    let mut captured = String::new();
+    if let Some(stderr) = child.stderr.take() {
+        let mut err_out = std::io::stderr();
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            let _ = writeln!(err_out, "{line}");
+            captured.push_str(&line);
+            captured.push('\n');
         }
-        Err(_) => RunOutcome { exit_ok: false, transferred: 0, deleted: 0, errors: 0, abort: Some(AbortKind::Other) },
     }
+
+    let exit_ok = child.wait().is_ok_and(|status| status.success());
+    parse_outcome(exit_ok, &captured)
 }
 
 #[cfg(test)]
