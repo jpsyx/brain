@@ -52,6 +52,10 @@ pub enum Cmd {
     /// Read or change brain's persistent config (`~/.config/brain/config.json`).
     Config(ConfigArgs),
 
+    /// Read or change your machine-local brain env (`~/.config/brain/env.json`):
+    /// `root`, `markdown_to_pdf_path`, and the Backblaze `sync` block.
+    Env(EnvArgs),
+
     /// Read or change your personalization (identity + tag styles), stored at
     /// `~/.config/brain/personalization.json`. Bare `brain personalize` runs
     /// first-run onboarding if nothing is set yet, otherwise it shows your
@@ -78,6 +82,28 @@ pub enum ConfigAction {
         name: String,
     },
     /// Set a variable: `brain config set <name>=<value>`.
+    Set {
+        /// A single `name=value` assignment.
+        assignment: String,
+    },
+}
+
+#[derive(Args, Debug)]
+pub struct EnvArgs {
+    #[command(subcommand)]
+    pub action: Option<EnvAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum EnvAction {
+    /// Print every env variable, its value, and its description as a table.
+    List,
+    /// Print the effective value of one env variable.
+    Get {
+        /// Variable name (e.g. `root`).
+        name: String,
+    },
+    /// Set an env variable: `brain env set <name>=<value>`.
     Set {
         /// A single `name=value` assignment.
         assignment: String,

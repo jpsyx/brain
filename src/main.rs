@@ -46,7 +46,9 @@ use anyhow::{Result, anyhow};
 use chrono::{Local, NaiveDate};
 use clap::Parser;
 
-use crate::cli::{Cli, Cmd, ConfigAction, ConfigArgs, PersonalizeAction, PersonalizeArgs};
+use crate::cli::{
+    Cli, Cmd, ConfigAction, ConfigArgs, EnvAction, EnvArgs, PersonalizeAction, PersonalizeArgs,
+};
 use crate::tasks::cli::{Cli as TasksCli, Command as TasksCommand};
 use crate::tasks::selector::{Selector, parse_selector};
 use crate::tasks::view::View;
@@ -65,6 +67,12 @@ fn main() -> Result<()> {
     // of a missing `markdown-to-pdf`.
     if let Some(Cmd::Config(args)) = &cli.command {
         return config_command(args);
+    }
+
+    // `brain env` manages the machine-local env store; like `config`, it runs
+    // before the prerequisite gate so you can repair a broken environment.
+    if let Some(Cmd::Env(args)) = &cli.command {
+        return env_command(args);
     }
 
     // Like `config`, personalization manages the user's own setup, so it runs
@@ -102,6 +110,7 @@ fn main() -> Result<()> {
         }
         // Handled before the prerequisite gate above.
         Some(Cmd::Config(_)) => unreachable!("config is dispatched before the gate"),
+        Some(Cmd::Env(_)) => unreachable!("env is dispatched before the gate"),
         Some(Cmd::Personalize(_)) => unreachable!("personalize is dispatched before the gate"),
         Some(Cmd::Skills(_)) => unreachable!("skills is dispatched before the gate"),
     }
@@ -167,6 +176,39 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
             } else {
                 // Interactive: bare `name` with no value.
                 config_set_interactive(&settings::normalize_name(assignment))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Handle `brain env {list|get|set}`. Output goes to stdout; `get` on an
+/// unset variable notes so on stderr. Bare `brain env` lists.
+fn env_command(args: &EnvArgs) -> Result<()> {
+    match args.action.as_ref().unwrap_or(&EnvAction::List) {
+        EnvAction::List => {
+            println!(
+                "{}",
+                settings::render_list(&env::resolve_all(), settings::color_enabled())
+            );
+        }
+        EnvAction::Get { name } => {
+            let name = settings::normalize_name(name);
+            match env::resolve_one(&name) {
+                Some(v) => println!("{v}"),
+                None => eprintln!("{name} is unset"),
+            }
+        }
+        EnvAction::Set { assignment } => {
+            if let Some((name, value)) = assignment.split_once('=') {
+                let name = settings::normalize_name(name);
+                env::set(&name, value)?;
+                println!(
+                    "{}",
+                    settings::set_confirmation(&name, value, settings::color_enabled())
+                );
+            } else {
+                anyhow::bail!("expected `name=value`, got `{assignment}`");
             }
         }
     }
