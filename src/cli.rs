@@ -49,7 +49,8 @@ pub enum Cmd {
     /// `brain tasks` (the tasks view is the startup default).
     Tasks(TasksArgs),
 
-    /// Read or change brain's persistent config (`~/.config/brain/config.json`).
+    /// Read or change brain's portable config (`<brain-root>/.config/config.json`,
+    /// synced with the brain). Machine-local settings live in `brain env` instead.
     Config(ConfigArgs),
 
     /// Read or change your machine-local brain env (`~/.config/brain/env.json`):
@@ -57,7 +58,7 @@ pub enum Cmd {
     Env(EnvArgs),
 
     /// Read or change your personalization (identity + tag styles), stored at
-    /// `~/.config/brain/personalization.json`. Bare `brain personalize` runs
+    /// `<brain-root>/.config/personalization.json`. Bare `brain personalize` runs
     /// first-run onboarding if nothing is set yet, otherwise it shows your
     /// current values.
     Personalize(PersonalizeArgs),
