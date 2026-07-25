@@ -39,6 +39,7 @@ mod skills;
 mod state;
 mod sync;
 mod tasks;
+mod theme;
 mod tui;
 
 use std::path::PathBuf;
@@ -161,10 +162,7 @@ fn personalize_command(args: &PersonalizeArgs) -> Result<()> {
 fn config_command(args: &ConfigArgs) -> Result<()> {
     match args.action.as_ref().unwrap_or(&ConfigAction::List) {
         ConfigAction::List => {
-            print!(
-                "{}",
-                settings::render_list(&settings::resolve_all(), settings::color_enabled())
-            );
+            print!("{}", settings::render_list(&settings::resolve_all(), theme::Theme::active()));
         }
         ConfigAction::Get { name } => {
             let name = settings::normalize_name(name);
@@ -181,10 +179,7 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
                 // Any config change re-renders the installed skills so they
                 // never drift from the user's values.
                 skills::resync_skills();
-                println!(
-                    "{}",
-                    settings::set_confirmation(&name, value, settings::color_enabled())
-                );
+                println!("{}", settings::set_confirmation(&name, value, theme::Theme::active()));
             } else {
                 // Interactive: bare `name` with no value.
                 config_set_interactive(&settings::normalize_name(assignment))?;
@@ -242,10 +237,7 @@ fn run_sync(
 fn env_command(args: &EnvArgs) -> Result<()> {
     match args.action.as_ref().unwrap_or(&EnvAction::List) {
         EnvAction::List => {
-            println!(
-                "{}",
-                settings::render_list(&env::resolve_all(), settings::color_enabled())
-            );
+            println!("{}", settings::render_list(&env::resolve_all(), theme::Theme::active()));
         }
         EnvAction::Get { name } => {
             let name = settings::normalize_name(name);
@@ -258,10 +250,7 @@ fn env_command(args: &EnvArgs) -> Result<()> {
             if let Some((name, value)) = assignment.split_once('=') {
                 let name = settings::normalize_name(name);
                 env::set(&name, value)?;
-                println!(
-                    "{}",
-                    settings::set_confirmation(&name, value, settings::color_enabled())
-                );
+                println!("{}", settings::set_confirmation(&name, value, theme::Theme::active()));
             } else {
                 anyhow::bail!("expected `name=value`, got `{assignment}`");
             }
@@ -288,10 +277,7 @@ fn config_set_interactive(name: &str) -> Result<()> {
     let value = value.trim();
     settings::set(name, value)?;
     skills::resync_skills();
-    println!(
-        "{}",
-        settings::set_confirmation(name, value, settings::color_enabled())
-    );
+    println!("{}", settings::set_confirmation(name, value, theme::Theme::active()));
     Ok(())
 }
 

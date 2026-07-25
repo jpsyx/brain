@@ -8,7 +8,9 @@ use std::process::Command;
 
 use anyhow::{Result, anyhow};
 
-use super::render::{ERROR, color_enabled, paint};
+use crate::theme::Theme;
+
+use super::render::color_enabled;
 use super::store::home_dir;
 
 /// True when `p` is a regular file with an executable bit set.
@@ -97,11 +99,7 @@ pub fn markdown_to_pdf_command() -> Result<PathBuf> {
 /// the ANSI so a captured/piped stderr stays clean; pure for testing.
 #[must_use]
 fn missing_markdown_to_pdf_message(configured: Option<&str>, color: bool) -> String {
-    let head = paint(
-        ERROR,
-        "❌ brain requires `markdown-to-pdf`, which it can't use.",
-        color,
-    );
+    let head = Theme::dark(color).error("❌ brain requires `markdown-to-pdf`, which it can't use.");
     let detail = configured.map_or_else(
         || {
             "`markdown-to-pdf` is a hard prerequisite: brain runs it to turn markdown\n\
@@ -178,7 +176,6 @@ fn fail_missing(configured: Option<&str>) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::render::RESET;
 
     #[test]
     fn conventional_candidates_are_ordered_bins_under_home() {
@@ -211,8 +208,8 @@ mod tests {
     fn missing_message_names_the_tool_and_the_fix_in_red() {
         let msg = missing_markdown_to_pdf_message(None, true);
         assert!(msg.contains('❌'));
-        assert!(msg.contains(ERROR));
-        assert!(msg.contains(RESET));
+        assert!(msg.contains("\x1b[91m")); // error red
+        assert!(msg.contains("\x1b[0m")); // reset
         assert!(msg.contains("markdown-to-pdf"));
         assert!(msg.contains("brain env set markdown_to_pdf_path="));
     }
