@@ -2,6 +2,7 @@
 //! config schema; transport (rclone bisync), the CSV merge, triggers, and skill
 //! integration land in C2–C5.
 
+pub mod args;
 pub mod config;
 pub mod remote;
 
