@@ -54,6 +54,28 @@ fn brain_root_file() -> PathBuf {
     config_home.join("brain-root")
 }
 
+/// The machine-local brain-env directory.
+///
+/// `$XDG_CONFIG_HOME/brain` or `~/.config/brain`. It holds `env.json` (brain
+/// env). Unlike the brain-internal config dir it lives at a fixed `$HOME`-side
+/// path that does **not** depend on the brain root, so it can hold `root`
+/// itself without circularity and never rides the brain-dir sync.
+#[must_use]
+pub fn machine_config_dir() -> PathBuf {
+    let xdg = std::env::var("XDG_CONFIG_HOME").ok().filter(|s| !s.is_empty());
+    let home = home_dir().unwrap_or_default();
+    machine_config_dir_from(xdg.as_deref(), &home)
+}
+
+/// Pure core of [`machine_config_dir`]: `<xdg>/brain`, else `<home>/.config/brain`.
+#[must_use]
+pub fn machine_config_dir_from(xdg_config_home: Option<&str>, home: &Path) -> PathBuf {
+    let base = xdg_config_home
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| home.join(".config"), PathBuf::from);
+    base.join("brain")
+}
+
 /// Read + parse the brain-root pointer. `None` when the file is absent, empty,
 /// or unreadable (so the caller falls back to the default root).
 fn read_brain_root_file() -> Option<String> {
@@ -150,6 +172,22 @@ mod tests {
         assert_eq!(
             expand_tilde_with_home("/a/~/b", Path::new("/Users/x")),
             PathBuf::from("/a/~/b")
+        );
+    }
+
+    #[test]
+    fn machine_config_dir_prefers_xdg_config_home() {
+        assert_eq!(
+            machine_config_dir_from(Some("/xdg"), Path::new("/Users/x")),
+            PathBuf::from("/xdg/brain")
+        );
+    }
+
+    #[test]
+    fn machine_config_dir_falls_back_to_home_dotconfig() {
+        assert_eq!(
+            machine_config_dir_from(None, Path::new("/Users/x")),
+            PathBuf::from("/Users/x/.config/brain")
         );
     }
 }
