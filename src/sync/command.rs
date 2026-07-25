@@ -104,7 +104,6 @@ pub fn format_last_run(run: Option<&SyncRun>) -> String {
     )
 }
 
-/// Print `brain sync status`.
 /// Format the configured auto-sync triggers. The flags are honored once the
 /// trigger/watcher phase lands; `status` shows them so the setup is visible.
 #[must_use]
@@ -118,6 +117,7 @@ pub fn format_triggers(cfg: &SyncConfig) -> String {
     )
 }
 
+/// Print `brain sync status`.
 pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
     if !cfg.is_configured() {
         println!("sync is not configured — run `brain sync setup`.");
