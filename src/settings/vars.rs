@@ -64,6 +64,23 @@ pub fn set(name: &str, value: &str) -> Result<()> {
     save_map(&map)
 }
 
+/// Read a raw brain-config value (no default). Used by the env migration to find
+/// a stale `markdown_to_pdf_path` to relocate.
+#[must_use]
+pub fn config_get(name: &str) -> Option<String> {
+    get(name)
+}
+
+/// Remove a key from the brain-config store. Used by the env migration after
+/// relocating a value into brain env. Absent key ⇒ no-op.
+pub fn config_remove(name: &str) -> Result<()> {
+    let mut map = load_map();
+    if map.remove(name).is_some() {
+        save_map(&map)?;
+    }
+    Ok(())
+}
+
 /// Every declared variable with its resolved value, in schema order.
 #[must_use]
 pub fn resolve_all() -> Vec<Resolved> {
@@ -123,6 +140,13 @@ mod tests {
         // `config` neither lists nor accepts it.
         assert!(resolve_all_from(&Map::new()).iter().all(|r| r.name != "root"));
         assert!(set("root", "/srv/brain").is_err());
+    }
+
+    #[test]
+    fn markdown_to_pdf_path_is_no_longer_a_brain_config_variable() {
+        // It moved to brain env; `brain config` must reject it.
+        assert!(resolve_all_from(&Map::new()).iter().all(|r| r.name != "markdown_to_pdf_path"));
+        assert!(set("markdown_to_pdf_path", "/x").is_err());
     }
 
     #[test]

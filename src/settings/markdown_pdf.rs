@@ -10,7 +10,6 @@ use anyhow::{Result, anyhow};
 
 use super::render::{ERROR, color_enabled, paint};
 use super::store::home_dir;
-use super::vars::{get, set};
 
 /// True when `p` is a regular file with an executable bit set.
 fn is_executable_file(p: &Path) -> bool {
@@ -84,10 +83,10 @@ pub fn discover_markdown_to_pdf() -> Option<PathBuf> {
 /// so a config edited mid-session still errors cleanly rather than spawning a
 /// bogus path.
 pub fn markdown_to_pdf_command() -> Result<PathBuf> {
-    match get("markdown_to_pdf_path") {
+    match crate::env::get("markdown_to_pdf_path") {
         Some(p) if is_executable_file(Path::new(&p)) => Ok(PathBuf::from(p)),
         _ => Err(anyhow!(
-            "markdown-to-pdf is not configured; run `brain config set markdown_to_pdf_path=<path>`"
+            "markdown-to-pdf is not configured; run `brain env set markdown_to_pdf_path=<path>`"
         )),
     }
 }
@@ -118,7 +117,7 @@ fn missing_markdown_to_pdf_message(configured: Option<&str>, color: bool) -> Str
         "{head}\n\n\
          {detail}\n\
          Install `markdown-to-pdf`, or point brain at it:\n\n    \
-         brain config set markdown_to_pdf_path=/path/to/markdown-to-pdf"
+         brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf"
     )
 }
 
@@ -156,13 +155,13 @@ fn gate_action(configured: Option<&str>, configured_valid: bool, discovered: Opt
 /// print the red message and exit non-zero. Exits directly (not via `anyhow`)
 /// so the message prints verbatim without an `Error:` prefix.
 pub fn ensure_markdown_to_pdf() {
-    let configured = get("markdown_to_pdf_path");
+    let configured = crate::env::get("markdown_to_pdf_path");
     let valid = configured.as_deref().is_some_and(|p| is_executable_file(Path::new(p)));
     let discovered = if valid { None } else { discover_markdown_to_pdf() };
     match gate_action(configured.as_deref(), valid, discovered) {
         GateAction::Pass => {}
         GateAction::Persist(found) => {
-            let _ = set("markdown_to_pdf_path", &found.display().to_string());
+            let _ = crate::env::set("markdown_to_pdf_path", &found.display().to_string());
         }
         GateAction::Fail(configured) => fail_missing(configured.as_deref()),
     }
@@ -215,7 +214,7 @@ mod tests {
         assert!(msg.contains(ERROR));
         assert!(msg.contains(RESET));
         assert!(msg.contains("markdown-to-pdf"));
-        assert!(msg.contains("brain config set markdown_to_pdf_path="));
+        assert!(msg.contains("brain env set markdown_to_pdf_path="));
     }
 
     #[test]

@@ -152,7 +152,8 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks complete <id>` | Mark a task complete (`mark_done.py`), no TUI. |
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
-| `brain config [list\|get\|set]` | Read or change persistent config (see below). |
+| `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
+| `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, and the (parse-only) Backblaze `sync` block (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 
@@ -161,7 +162,10 @@ before clap parses it.
 
 ### `brain config`
 
-Reads and writes brain's persistent config (`<brain-root>/.config/config.json`):
+Reads and writes brain's persistent, **portable** config
+(`<brain-root>/.config/config.json`) — the values that are right on every
+machine (Linear workspace, triage settings, the calendar id, `claude_cmd`,
+…). Rides whatever syncs the brain directory.
 
 - `brain config list` (or bare `brain config`) — aligned table of every
   variable, its effective value, and its description.
@@ -172,6 +176,28 @@ Reads and writes brain's persistent config (`<brain-root>/.config/config.json`):
 `config` runs before the `markdown-to-pdf` prerequisite gate, so it always
 works even when that tool is missing. See [config.md](config.md) for the schema
 and the prerequisite/auto-discovery rules.
+
+### `brain env`
+
+Reads and writes your **machine-local** brain env
+(`~/.config/brain/env.json`) — values that would be *wrong* if copied to
+another machine: `root` (where your brain lives on this machine),
+`markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
+self-healing), and a parse-only Backblaze `sync` block. Mirrors `brain
+config` exactly, over the env store instead:
+
+- `brain env list` (or bare `brain env`) — aligned table of every env
+  variable, its effective value, and its description.
+- `brain env get <name>` — the effective value of one variable.
+- `brain env set <name>=<value>` — set and persist a variable (unknown
+  names rejected).
+
+`env`, like `config`, runs before the `markdown-to-pdf` prerequisite gate.
+`~/.config/brain/env.json` is never Backblaze-synced (it lives outside the
+brain root on purpose); a legacy `~/.config/brain-root` pointer file is read
+for back-compat and auto-migrated into the `root` key on first run. See
+[config.md](config.md) for the full store/schema description and
+[data-model.md](data-model.md) for the `sync` block's fields.
 
 ### `brain personalize`
 
@@ -246,10 +272,11 @@ brain (synced, never committed to the repo):
 
 ### Prerequisite: `markdown-to-pdf`
 
-Every command except `brain config` fails fast with a red `❌` error if the
-`markdown-to-pdf` command can't be resolved (it's needed for "Create PDF").
-Its path is auto-discovered on first run and stored as `markdown_to_pdf_path`;
-see [config.md](config.md).
+Every command except `brain config` and `brain env` fails fast with a red `❌`
+error if the `markdown-to-pdf` command can't be resolved (it's needed for
+"Create PDF"). Its path is auto-discovered on first run and stored as
+`markdown_to_pdf_path` **in brain env** (`~/.config/brain/env.json`, not
+`config.json`); see [config.md](config.md).
 
 ## The fuzzy picker
 

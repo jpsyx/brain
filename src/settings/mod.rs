@@ -30,7 +30,8 @@ mod vars;
 
 pub use markdown_pdf::{ensure_markdown_to_pdf, markdown_to_pdf_command};
 pub use render::{color_enabled, render_list, set_confirmation};
+pub use schema::Resolved;
 pub use store::config_dir;
-pub use vars::{normalize_name, resolve_all, resolve_one, set};
+pub use vars::{config_get, config_remove, normalize_name, resolve_all, resolve_one, set};
 
 pub(crate) use store::load_map;

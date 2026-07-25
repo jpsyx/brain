@@ -110,7 +110,7 @@ work and how to make them yours without forking the repo.
 
 Your "brain" is a [PARA](https://fortelabs.com/blog/para/) directory —
 `projects/`, `areas/`, `resources/`, `archive/`, plus `tasks/`. By default brain
-uses `~/brain`. To keep it elsewhere, write the path into `~/.config/brain-root`
+uses `~/brain`. To keep it elsewhere, run `brain env set root=/path/to/your/brain`
 (see [Where brain keeps things](#2-where-brain-keeps-things)).
 
 **First run**
@@ -121,34 +121,48 @@ your name, role, and who you work for, then installs the bundled skills. That's 
 
 ## 2. Where brain keeps things
 
-Everything brain persists lives in **one dir inside your brain root**,
-`<brain-root>/.config/` (e.g. `~/brain/.config/`):
+brain splits what it persists into **two stores**, by lifecycle:
 
-| Path | What it is |
-| --- | --- |
-| `config.json` | runtime settings ([`brain config`](#3-configuration)) |
-| `personalization.json` | who you are ([`brain personalize`](#4-personalize-brain)) |
-| `extensions/<skill>.md` | your tweaks to a bundled skill ([hooks](#6-extend-a-skill-with-hooks)) |
-| `plugins/<name>/` | your own whole skills ([plugins](#7-add-a-whole-skill-plugins)) |
+- **brain config** — a dir inside your brain root, `<brain-root>/.config/`
+  (e.g. `~/brain/.config/`). Holds everything that's *right* on every machine.
+  Because it lives **inside your brain**, it travels with it: whatever syncs
+  your `~/brain` across machines syncs these too. Nothing external (no
+  dotfiles tool) is involved.
 
-Because this dir lives **inside your brain**, it travels with it: whatever syncs
-your `~/brain` across machines syncs your config, personalization, and
-customizations too. Nothing external (no dotfiles tool) is involved.
+  | Path | What it is |
+  | --- | --- |
+  | `config.json` | portable runtime settings ([`brain config`](#3-configuration)) |
+  | `personalization.json` | who you are ([`brain personalize`](#4-personalize-brain)) |
+  | `extensions/<skill>.md` | your tweaks to a bundled skill ([hooks](#6-extend-a-skill-with-hooks)) |
+  | `plugins/<name>/` | your own whole skills ([plugins](#7-add-a-whole-skill-plugins)) |
 
-**The one exception — `root`.** The location of the brain root can't be stored
-*inside* the brain root (you'd need to know the root to find the setting that
-tells you the root). So it's resolved separately, and is **not** a `brain config`
-value:
+- **brain env** — a fixed, machine-local path, `~/.config/brain/env.json`
+  (managed by `brain env`, mirroring `brain config`). Holds everything that
+  would be *wrong* if copied to another machine: your brain's location on
+  *this* machine, a machine-specific binary path, and (parse-only for now) B2
+  sync credentials. It lives **outside** your brain root on purpose, so it
+  never syncs along with it.
 
-1. the path in `~/.config/brain-root` (a one-line file, `~` allowed), if present;
-2. otherwise the default `~/brain`.
+  | Variable | What it is |
+  | --- | --- |
+  | `root` | where your brain (PARA directory) lives on this machine |
+  | `markdown_to_pdf_path` | path to the `markdown-to-pdf` binary on this machine |
+  | `sync` | Backblaze B2 sync config (bucket, credentials, trigger flags) — schema only for now, no sync behavior yet |
 
-`~/.config/brain-root` is the *only* machine-local piece of brain state. Edit it
-by hand:
+  The rule of thumb: **wrong if synced → brain env; right everywhere → brain
+  config.**
+
+**Setting your brain's location — `root`.** By default your brain is `~/brain`.
+To point brain elsewhere, set the `root` env variable:
 
 ```sh
-echo '~/notes/brain' > ~/.config/brain-root   # keep your brain somewhere else
+brain env set root=~/notes/brain   # keep your brain somewhere else
 ```
+
+A legacy `~/.config/brain-root` one-line pointer file is still read for
+back-compat (and is automatically, idempotently folded into `env.json`'s
+`root` key the first time you run brain), but `brain env set root=…` is the
+supported way to change it going forward.
 
 ## 3. Configuration
 
@@ -164,7 +178,6 @@ brain config set claude-cmd              # bare name → prompts interactively
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `linear_workspace` | *(unset)* | Linear workspace slug; builds `https://linear.app/<slug>/issue/` for the task "open link" action. |
-| `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command. Self-heals if a synced value is wrong on this machine. |
 | `daily_triage_name_pattern` | `Morning Triage` | Regex on habit names that gates the startup triage nudge. Empty disables it. |
 | `day_rollover_hour` | `6` | Hour (0–23) the "logical day" rolls over for the triage re-check. |
 | `agenda_dir` | `~/Downloads` | Where the generated daily-agenda PDF is written. |
@@ -172,17 +185,34 @@ brain config set claude-cmd              # bare name → prompts interactively
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command the brain panel launches; brain appends `--resume`/`--session-id`. |
 | `skills_auto_sync` | `true` | When true, every `config`/`personalize` change re-renders + reinstalls your skills. Set false to sync only via `brain skills sync`. |
 
-Names normalize (`-`→`_`, lower-cased), so `Linear-Workspace` works. `root` is
-**not** here — see [above](#2-where-brain-keeps-things).
+Names normalize (`-`→`_`, lower-cased), so `Linear-Workspace` works. `root` and
+`markdown_to_pdf_path` are **not** here — they're brain-env values (see below).
+
+### `brain env`: machine-local values
+
+`brain env` mirrors `brain config` exactly, but over the machine-local store
+(`~/.config/brain/env.json`) instead:
+
+```sh
+brain env list                 # every env variable, value, description
+brain env get root             # your brain's location on this machine
+brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `root` | `~/brain` | Where your brain (PARA directory) lives on this machine. |
+| `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on this machine. |
 
 ### The `markdown-to-pdf` prerequisite
 
 brain shells out to a `markdown-to-pdf` command. On first run it auto-discovers
 one (your `PATH`, then `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`,
-`~/bin`, then your login shell) and remembers it. If the stored path is missing
-on *this* machine (e.g. your `config.json` synced from another Mac), brain
-re-discovers automatically. Only if nothing is found does it print a red error;
-fix it with `brain config set markdown_to_pdf_path=/path/to/markdown-to-pdf`.
+`~/bin`, then your login shell) and remembers it **in brain env**, since it's a
+machine-specific path. If the stored path is missing on *this* machine (e.g.
+you set it up on another Mac), brain re-discovers automatically. Only if
+nothing is found does it print a red error; fix it with
+`brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf`.
 
 ## 4. Personalize brain
 
@@ -304,16 +334,24 @@ Linear or Zotero integration) without putting them in the public repo.
 
 ## 8. Syncing across machines
 
-Because your config, personalization, extensions, and plugins all live under
-`~/brain/.config/`, they ride along with whatever syncs your brain directory
-(cloud drive, git, etc.). On a new machine:
+Because your **brain config** (`config.json`, `personalization.json`,
+`extensions/`, `plugins/`) all lives under `~/brain/.config/`, it rides along
+with whatever syncs your brain directory (cloud drive, git, etc.). Your
+**brain env** (`~/.config/brain/env.json`) deliberately does **not** — it's
+machine-local by design, since `root` and `markdown_to_pdf_path` would be wrong
+if copied verbatim to another machine.
+
+On a new machine:
 
 1. get your `~/brain` there (however you sync it),
-2. set `~/.config/brain-root` if your brain isn't at `~/brain`,
+2. run `brain env set root=~/wherever` if your brain isn't at `~/brain` (or
+   let it auto-discover `markdown-to-pdf` on first run),
 3. run `brain` — it installs the skills from your synced extensions/plugins.
 
-Machine-specific values that happen to sync (like `markdown_to_pdf_path`)
-self-heal on the machine that needs them.
+If you want your brain-env values to follow you too (e.g. `root` is the same
+on every machine, or you're tracking B2 sync credentials privately), that's on
+you to sync `~/.config/brain/env.json` yourself, outside of brain — brain never
+does this automatically, and never will for secrets.
 
 ## Developing
 

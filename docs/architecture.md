@@ -267,8 +267,8 @@ Typed view of the runtime knobs, deserialized from the shared config store
 workspace slug into the full issue-URL prefix, and `claude_command()` returns
 the configured brain-panel launch command (or the default `claude
 --dangerously-skip-permissions` when blank). Missing file/fields fall back to
-defaults, and unknown keys (`root`, `markdown_to_pdf_path`, read elsewhere)
-are ignored.
+defaults, and keys read elsewhere (e.g. `agenda_dir`, `skills_auto_sync`, or
+brain-env values in the separate `env.json`) are ignored here.
 
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`

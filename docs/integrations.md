@@ -115,9 +115,10 @@ The "Create PDF" command (palette row / `Ctrl-G` on a `.md` file) converts the
 highlighted markdown to a colocated same-name PDF and opens it. It reuses the
 user's existing converter rather than reimplementing PDF generation.
 
-`markdown-to-pdf` is a hard prerequisite. Its path is the config variable
-`markdown_to_pdf_path`, auto-discovered on first run and validated at startup
-(see [config.md](config.md) and `settings/`); a missing/invalid path fails
+`markdown-to-pdf` is a hard prerequisite. Its path is the brain-env variable
+`markdown_to_pdf_path` (machine-local, set via `brain env`), auto-discovered on
+first run and validated at startup (see [config.md](config.md), `src/env/`, and
+the gate in `settings/`); a missing/invalid path fails
 fast with a red error. `open_target::create_pdf` spawns that command directly
 (`<file.md> --out <file.pdf>`) — invoking the command, not any shell-function
 wrapper, since a child process can't call a shell function. The output path is

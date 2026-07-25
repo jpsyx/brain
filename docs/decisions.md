@@ -395,14 +395,15 @@ view, newer data" rather than "new view".
 wrapper), which a child process can't invoke, so the binary needs a concrete
 executable to spawn. Rather than shell out to an interactive `zsh -ic` on every
 conversion (slow, sources the whole rc, risks leaking output onto our
-`/dev/tty`), `brain` stores the tool's path as a config variable
-(`markdown_to_pdf_path`) and spawns it directly with `<file.md> --out`.
+`/dev/tty`), `brain` stores the tool's path as an env variable
+(`markdown_to_pdf_path`, in brain env — see "Why brain env split off from
+brain config" below) and spawns it directly with `<file.md> --out`.
 
 The path is not hardcoded (the repo is public). On first run it is
 **auto-discovered** (PATH, then conventional bin dirs, then a one-shot login
 shell that resolves an autoloaded function to the script it wraps) and
 persisted. A missing or invalid path is a hard, fail-fast error pointing at
-`brain config set markdown_to_pdf_path=…`. See `settings/`.
+`brain env set markdown_to_pdf_path=…`. See `settings/markdown_pdf.rs`.
 
 ## Why `linear_workspace` is a slug, not a full URL
 
@@ -453,13 +454,77 @@ mirror-symlink it — the runtime-write footgun above doesn't apply to a read-on
 pointer. Pablo tracks it in jpsyx at `home/.config/brain-root` containing
 `~/brain`.
 
-### `markdown_to_pdf_path` and syncing a machine-specific value
+### `markdown_to_pdf_path` and syncing a machine-specific value (historical; superseded)
 
-`config.json` now syncs across machines, but `markdown_to_pdf_path` is
-machine-specific (the binary sits at a different path per host). The startup gate
-handles this: a stored path that is missing/not-executable on *this* machine
-triggers re-discovery (and re-persist) before failing, so a synced-but-stale
-value self-heals instead of stranding the machine.
+At the time of this decision, `config.json` synced across machines and
+`markdown_to_pdf_path` rode along inside it despite being machine-specific (the
+binary sits at a different path per host); the startup gate compensated with a
+self-heal (a stored path missing/not-executable on *this* machine triggers
+re-discovery and re-persist before failing). **C1 (see "Why brain env split off
+from brain config" below) removes the need for that compromise**:
+`markdown_to_pdf_path` now lives in brain env, which never syncs, so there is
+no synced-but-stale value to heal from in the first place. The startup gate
+still re-discovers on an invalid path (a fresh machine that has never run
+`brain` there yet has nothing to heal from), but the sync-races-a-machine-local-value
+tension this subsection originally described no longer exists.
+
+## Why brain env split off from brain config (C1) — and why it partially reverses "config lives inside the brain root"
+
+Sub-project C (cross-machine sync of `~/brain` via Backblaze B2) makes the
+brain directory itself sync across machines. That flips the risk the previous
+decision was optimizing for: once the brain dir is what syncs, anything
+machine-specific sitting inside `<brain-root>/.config/` — a discovered
+`markdown_to_pdf_path`, and especially B2 credentials — would sync too, leaking
+secrets and wrong-on-another-host paths onto every machine. So C1 splits
+config into two stores by **lifecycle**, not just location:
+
+- **brain env** (`~/.config/brain/env.json`, machine-local, `brain env` CLI) —
+  anything that would be *wrong* if copied to another machine: `root`,
+  `markdown_to_pdf_path`, and the Backblaze `sync` block (bucket, credentials,
+  trigger flags). Lives at a fixed XDG-style path **outside** the brain root,
+  so it is structurally exempt from whatever syncs the brain directory.
+- **brain config** (`<brain-root>/.config/config.json`, `brain config` CLI) —
+  everything that's *right* on every machine: `linear_workspace`,
+  `daily_triage_name_pattern`, `day_rollover_hour`, `agenda_dir`,
+  `calendar_id`, `claude_cmd`, `skills_auto_sync`. Unchanged in shape and
+  location; it keeps riding the brain-dir sync exactly as before.
+
+**The rule of thumb:** *wrong-if-synced ⇒ brain env; right-on-every-machine ⇒
+brain config.* Personalization (`personalization.json`, `extensions/`,
+`plugins/`) is unaffected — it's content *about you*, correct everywhere, so it
+stays a third store inside the brain root alongside `config.json`.
+
+This is a **partial reversal** of "Why config lives inside the brain root"
+(above), which deliberately unified *everything* — including the
+then-machine-specific `markdown_to_pdf_path` — inside the brain root to dodge
+the jpsyx mirror-write footgun. That reversal is now correct because C makes
+the *opposite* failure mode dominant: a synced brain dir means anything
+machine-local placed inside it leaks across every machine on the next sync,
+whereas the jpsyx mirror-write footgun the original decision was avoiding is
+merely inconvenient (a lost local edit) rather than a wrong path or a leaked
+secret landing somewhere it shouldn't.
+
+Splitting off brain env also **retires the circularity argument** that used to
+justify treating `root` as unstorable: `root` couldn't live *inside* the brain
+root because you'd need the root to find the setting that names the root. Once
+brain env lives at a fixed path outside the brain root, that circularity is
+gone — `root` becomes a normal (if machine-local) env variable, and the legacy
+`~/.config/brain-root` pointer becomes a back-compat read, auto-migrated into
+`env.json`'s `root` key on first run.
+
+**The residual jpsyx mirror-write footgun, now on `env.json`.** `env.json` is
+runtime-mutable (`brain env set`, and the `markdown_to_pdf_path` self-heal), so
+the same footgun the original decision dodged for `config.json` now applies to
+it: if a dotfiles tool (e.g. jpsyx) mirror-*symlinks* `env.json` at a
+regenerated mirror, a runtime write lands in the mirror and is lost on the next
+rebuild. Brain does not solve this — it stays generic and has no jpsyx
+awareness by design. The fix, if a user wants `env.json` to persist across
+machines via a private dotfiles repo, is **jpsyx-side**: seed/copy the file
+into place rather than symlinking it (or re-commit after changes), the same way
+jpsyx already special-cases the read-only `~/.config/brain-root` pointer (safe
+to symlink because brain only ever reads it — `env.json` is not read-only, so
+the same trick doesn't apply). See the brain-sync design spec §12 for the full
+record.
 
 ## Why `Ctrl-N` sends `/new` instead of being forwarded to claude
 
