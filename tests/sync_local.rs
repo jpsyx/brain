@@ -99,6 +99,63 @@ fn a_moved_file_propagates_to_its_new_location() {
     std::fs::remove_dir_all(&base).ok();
 }
 
+/// Drives the CSV 3-way merge orchestration ([`csv_sync::sync_one`]) over a
+/// LOCAL fake remote (plain files) — no rclone, no B2. Local adds task A, the
+/// remote adds task B; after one sync both sides hold the union, a baseline is
+/// written, and a second sync is a no-op (convergent + idempotent).
+#[test]
+fn csv_sync_one_converges_local_and_remote_and_is_idempotent() {
+    use brain::sync::csv_sync::{baseline_path, sync_one};
+
+    let base = std::env::temp_dir().join(format!("brain-csv-it-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let local = base.join("local.csv");
+    let remote = base.join("remote.csv");
+
+    // A unique CSV name so the machine-local baseline path never collides with a
+    // real one; deleted at the end. (HOME can't be redirected here: env::set_var
+    // is unsafe in edition 2024 and this crate forbids unsafe.)
+    let rel = format!("tasks/brain-it-{}.csv", std::process::id());
+    let name = Path::new(&rel).file_name().unwrap().to_str().unwrap().to_owned();
+    let baseline = baseline_path(&name);
+    std::fs::remove_file(&baseline).ok(); // start from no baseline
+
+    let header = "task_id,status,notes,last_touched\n";
+    std::fs::write(&local, format!("{header}A,open,alpha,t1\n")).unwrap();
+    std::fs::write(&remote, format!("{header}B,open,beta,t1\n")).unwrap();
+
+    let out = sync_one(
+        &local,
+        &rel,
+        || std::fs::read_to_string(&remote).ok(),
+        |txt| std::fs::write(&remote, txt).is_ok(),
+    );
+    assert_eq!(out.added, 2, "A and B are both new");
+    assert_eq!(out.soft_conflicts, 0, "disjoint adds don't conflict");
+
+    let merged = std::fs::read_to_string(&local).unwrap();
+    assert_eq!(merged, std::fs::read_to_string(&remote).unwrap(), "local and remote converge");
+    assert!(
+        merged.contains("A,open,alpha") && merged.contains("B,open,beta"),
+        "merged holds the union of both sides: {merged}"
+    );
+    assert!(baseline.exists(), "baseline snapshot written");
+
+    // Second run: local == remote == baseline already, so nothing changes.
+    let out2 = sync_one(
+        &local,
+        &rel,
+        || std::fs::read_to_string(&remote).ok(),
+        |txt| std::fs::write(&remote, txt).is_ok(),
+    );
+    assert_eq!(out2.added, 0, "idempotent: nothing new on the second run");
+    assert_eq!(merged, std::fs::read_to_string(&local).unwrap(), "local unchanged");
+    assert_eq!(merged, std::fs::read_to_string(&remote).unwrap(), "remote unchanged");
+
+    std::fs::remove_dir_all(&base).ok();
+    std::fs::remove_file(&baseline).ok();
+}
+
 #[test]
 fn same_file_conflict_is_renamed_and_surfaced() {
     if !rclone_available() {

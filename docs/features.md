@@ -292,6 +292,20 @@ silently lost. Conflict copies are themselves excluded from sync, so they
 don't fan out to every machine. `brain sync conflicts` lists them; picking a
 side and deleting the other is a manual step in this phase.
 
+**Task CSVs merge by id — no conflict copies.** `tasks/tasks.csv` and
+`tasks/habits.csv` don't go through the keep-both path above at all: brain
+excludes them from the bisync file lane and reconciles them itself with an
+id-keyed 3-way merge (a cached local baseline + your local copy + the remote
+copy), writing the merged result back to both sides. Two machines that each
+add, complete, delete, or edit different fields on the same task converge
+cleanly, so neither file ever produces a `(conflict …)` copy. A side that
+marks a task `status=done` always wins that row's status and completed date;
+a same-field disagreement otherwise resolves by whichever side's
+`last_touched` is more recent (`tasks.csv` only — `habits.csv` has no
+`last_touched`, so it falls back to a deterministic tiebreak, journalled as a
+soft conflict). See [data-model.md](data-model.md) for the merge rules and
+[integrations.md](integrations.md) for the transport.
+
 **Doctor.** `brain tasks doctor` reports rclone/sync health as one
 informational line: `rclone ✓ <version> · sync configured` or
 `rclone ✗ not installed · sync off`. An unconfigured (or rclone-less) sync is

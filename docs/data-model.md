@@ -317,6 +317,89 @@ existing friendly-named copies under the root (paths relative to the root) for
 `leftover_markers` counts any `__brainconflict__` files the rename pass failed
 to rewrite, which `verify::classify` surfaces as `NeedsAttention`.
 
+## CSV semantic merge (`src/sync/csv_merge.rs`, `src/sync/csv_sync.rs`)
+
+`tasks/tasks.csv` and `tasks/habits.csv` are excluded from the bisync file
+lane (`args::bisync_args`'s default excludes) and reconciled instead by a
+pure, id-keyed 3-way merge, so the two files never produce a `(conflict
+…)` copy the way a bisync'd file would (see [integrations.md](integrations.md)
+for the transport, [decisions.md](decisions.md) for why).
+
+`Table` (`csv_merge.rs`) is the parsed shape, keyed by the first column:
+
+```rust
+struct Table {
+    header: Vec<String>,                  // column order, task_id first
+    rows: BTreeMap<String, Vec<String>>,  // task_id -> row cells
+}
+```
+
+`merge(base, ours, theirs) -> (Table, Report)` unions the `task_id`s across
+all three tables and resolves each id independently:
+
+- **Present on one side only, absent from `base`** — added; kept as-is.
+- **Added on both sides under the same id** — field-merged against an empty
+  base (below), so identical adds collapse and differing adds still
+  reconcile.
+- **In `base`, missing from one side, unchanged on the other** — deleted.
+- **In `base`, missing from one side, but edited on the other** — the edit
+  wins over the delete (a soft conflict, journalled: "deleted on one side but
+  edited on the other; kept the edit").
+- **Present everywhere, unchanged from `base` on one or both sides** —
+  whichever side actually changed it wins; unchanged-on-both keeps the
+  `base` row untouched.
+- **Changed on both sides relative to `base`** — a cell-by-cell field merge
+  (`field_merge`):
+  1. **Completion wins first, at the row level.** If exactly one side set
+     `status=done`, that side's `status` and `completed_date` cells win
+     outright before any other column is even considered.
+  2. **Every other column merges independently.** A column unchanged from
+     `base` on one side takes the other side's value (so disjoint field
+     edits from both sides survive together); a column changed to the
+     *same* value on both sides takes that value; a column changed to
+     *different* values on both sides is a genuine same-field conflict,
+     resolved by `resolve_conflict`.
+
+`resolve_conflict` is last-writer-wins keyed off the row's own
+`last_touched` column when the table has one — `tasks.csv` already carries
+`last_touched`, so **no schema change** was needed: the side with the
+greater `last_touched` wins, with ties broken by the greater cell value so
+the outcome never depends on which side is "ours" vs. "theirs" (needed for
+convergence, below). `habits.csv` has no `last_touched`, so a same-field
+collision there falls back to a deterministic lexicographic tiebreak (the
+greater cell value wins), noted as a soft conflict in the `Report`. Adding
+`last_touched` to `habits.csv` for full parity with tasks is a noted,
+deliberately-deferred follow-up (see [decisions.md](decisions.md)).
+
+The header is chosen once per merge as whichever non-empty table has the
+most columns (preferring `ours`, then `theirs`, then `base`), so a schema
+superset survives a merge; every row is padded/truncated to that width
+(`norm`) before any comparison runs.
+
+`serialize` writes rows in `task_id` order (the `BTreeMap`'s natural
+ordering), so two machines merging the same three inputs — even with
+`ours`/`theirs` swapped — produce **byte-identical** output (convergence),
+and merging an already-merged table with itself is a no-op (idempotency);
+both properties are asserted directly in `csv_merge`'s test suite
+(`convergence_swapping_ours_and_theirs_is_byte_identical`,
+`idempotency_merging_a_merged_table_with_itself_is_a_no_op`).
+
+**Baseline.** `csv_sync::baseline_path(name)` resolves to
+`~/.cache/brain/sync/baselines/{tasks.csv,habits.csv}` — a machine-local
+cache of the last-synced (post-merge) content for that file, never synced
+itself, alongside the sync journal under `~/.cache/brain/sync/`. `sync_one`
+reads it as `base` (empty if absent, so the very first CSV sync on a machine
+merges as a safe union of local + remote); after merging, it writes the
+result to the local file and the remote (via `rclone copyto`), then
+overwrites the baseline with that same merged text so the next sync's `base`
+reflects exactly what was agreed this round.
+
+**Journal note.** `command::format_csv_note` folds the `Report` from both
+CSVs into one segment appended to the sync journal's `note` column (see
+"Sync journal" above), e.g. `csv: +3 ~2 -1 (1 soft)` (added/merged/deleted
+counts, plus a soft-conflict count when nonzero); empty when nothing
+changed, so a clean run's note isn't cluttered by a no-op CSV pass.
+
 ## Binary stdout (the output "schema")
 
 The binary's stdout carries only `brain config`/`brain env` output (the config
