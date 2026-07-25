@@ -183,10 +183,65 @@ All rows start checked; space toggles, `a` opens a tolerant "create new" line
 cancels. Onboarding runs it for namespaces then tags; `brain config set
 namespaces|tags` re-runs it seeded with the current set.
 
+## Brain env (`env/`, `~/.config/brain/env.json`)
+
+Machine-local config, deliberately **outside** the brain root so it never rides
+whatever syncs the brain directory. See [config.md](config.md) for the store
+location, resolution, and the `brain env` command; this section is the schema.
+
+`env::schema::VARS` (`src/env/schema.rs`):
+
+| Variable | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `root` | `String` | `~/brain` | Path to the brain (PARA) directory on this machine. Resolved by `paths::resolve_root` (env key → legacy `~/.config/brain-root` pointer → default); `env::vars::resolve_one("root")` always shows the same value `paths::brain_root_path()` uses. |
+| `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
+
+Both variables render through the same `Resolved { name, value, description }`
+type `brain config` uses (re-exported from `settings::schema::Resolved`), so
+`brain env list` shares its table layout with `brain config list`.
+
+A third field, `sync`, is not in `VARS` (it isn't a scalar `brain env set`
+target) but is a top-level key of the same JSON object — see below.
+
+## Sync config (`sync/`, the `sync` block in `env.json`)
+
+`sync::SyncConfig` (`src/sync/config.rs`) is a **parse-only** typed view of the
+`sync` object nested under `~/.config/brain/env.json`'s top level. As of this
+phase (C1) it is read but nothing acts on it — no rclone invocation, no
+transport, no triggers; those arrive in later sub-project-C phases. An absent
+`sync` block parses to all defaults, so sync reads as fully disabled and brain
+behaves exactly as if the key didn't exist.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `enabled` | `bool` | `false` | Master on/off switch for Backblaze B2 sync. |
+| `b2_bucket` | `String` | `""` | B2 bucket name. |
+| `b2_path` | `String` | `""` | Optional path prefix within the bucket. |
+| `b2_key_id` | `String` | `""` | B2 application key id. |
+| `b2_app_key` | `String` | `""` | B2 application key (secret; stays machine-local in `env.json`, never synced). |
+| `on_start` | `bool` | `true` | Whether a future sync trigger fires on brain startup. |
+| `on_exit` | `bool` | `true` | Whether a future sync trigger fires on brain exit. |
+| `watch` | `bool` | `true` | Whether a future continuous watcher runs. See `watch_effective` below. |
+| `max_delete_percent` | `u8` | `50` | Bisync safety guard: the max percent of files a sync run may delete before aborting. |
+
+Two derived predicates:
+
+- `SyncConfig::is_configured()` — `enabled && !b2_bucket.trim().is_empty()`.
+  Sync only counts as "configured" once both the switch is on *and* a bucket is
+  named.
+- `SyncConfig::watch_effective()` — `is_configured() && watch`. The watcher is
+  on by default whenever sync is configured; `watch: false` is the explicit
+  opt-out.
+
+`SyncConfig::load()` reads the `sync` key out of the brain-env store
+(`env::load_map()`) and deserializes it, falling back to `SyncConfig::default()`
+on a missing key or a parse failure — a broken or absent `sync` block never
+blocks startup.
+
 ## Binary stdout (the output "schema")
 
-The binary's stdout carries only `brain config` output (the config table, or a
-single value) plus clap's help / version / errors. There is no plan protocol:
-the TUI renders to `/dev/tty` and performs its file-open, Finder, PDF, trash,
-and `claude`-launch effects by spawning processes itself. See
+The binary's stdout carries only `brain config`/`brain env` output (the config
+table, or a single value) plus clap's help / version / errors. There is no plan
+protocol: the TUI renders to `/dev/tty` and performs its file-open, Finder, PDF,
+trash, and `claude`-launch effects by spawning processes itself. See
 [integrations.md](integrations.md).
