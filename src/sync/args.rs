@@ -25,9 +25,11 @@ pub enum Direction {
 /// rewrites it to the friendly `name (conflict host date).ext`.
 pub const CONFLICT_MARKER: &str = "__brainconflict__";
 
-/// Default excludes: VCS/OS cruft, the machine-local cache, and existing
-/// conflict copies (so they never fan out).
-const EXCLUDES: [&str; 4] = [".git/**", ".DS_Store", ".cache/**", "*(conflict *)*"];
+/// Default excludes: VCS/OS cruft, the machine-local cache, friendly conflict
+/// copies, and raw rclone conflict markers (so neither fans out on later syncs;
+/// the marker exclude does not stop rclone from creating the initial copy).
+const EXCLUDES: [&str; 5] =
+    [".git/**", ".DS_Store", ".cache/**", "*(conflict *)*", "*.__brainconflict__*"];
 
 /// Build the full argv for `rclone bisync <local> <remote>` for this direction.
 #[must_use]
@@ -42,6 +44,7 @@ pub fn bisync_args(cfg: &SyncConfig, local: &str, remote_arg: &str, dir: Directi
     a.extend(["--conflict-loser".into(), "pathname".into()]);
     a.extend(["--conflict-suffix".into(), CONFLICT_MARKER.into()]);
     a.extend(["--max-delete".into(), cfg.max_delete_percent.to_string()]);
+    a.push("-v".into());
     for ex in EXCLUDES {
         a.extend(["--exclude".into(), ex.into()]);
     }
@@ -89,6 +92,15 @@ mod tests {
         assert!(!a.iter().any(|s| s == "--check-access"));
         assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == ".git/**"));
         assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*(conflict *)*"));
+        // Raw markers must be excluded so they don't re-propagate on later syncs.
+        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*.__brainconflict__*"));
+    }
+
+    #[test]
+    fn passes_verbose_so_rclone_emits_the_summary_block() {
+        // Without -v rclone prints no `Transferred:`/`Deleted:` summary at
+        // default verbosity, so the parser would always read 0 counts.
+        assert!(args(Direction::Both).iter().any(|s| s == "-v"));
     }
 
     #[test]
