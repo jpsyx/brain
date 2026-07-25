@@ -68,6 +68,10 @@ pub enum Cmd {
 
     /// Manage the bundled brain skills (render + install into the agent registry).
     Skills(SkillsArgs),
+
+    /// Show what would sync (pending local pushes and remote pulls) without
+    /// syncing. Read-only: runs `rclone bisync --dry-run` under the hood.
+    Check,
 }
 
 #[derive(Args, Debug)]

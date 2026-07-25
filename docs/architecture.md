@@ -58,6 +58,7 @@ argv
       ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
       ├─→ Cmd::Env ─→ env_command         (list/get/set over env.json; also BEFORE the gate)
       ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/init/status/conflicts; also BEFORE the gate)
+      ├─→ Cmd::Check ─→ sync::check::run  (read-only dry-run push/pull report; also BEFORE the gate)
       ├─→ Cmd::Personalize ─→ personalize_command (show/get/set/edit / onboarding; also BEFORE the gate)
       └─→ settings::ensure_markdown_to_pdf (prereq gate: config path, else discover; red ❌ + exit if unresolved)
            ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
@@ -310,6 +311,17 @@ rclone's own "prior listings missing" guard. See
 schema. `rclone` is an external dependency (not a Cargo crate): a soft
 prerequisite, checked only when `brain sync` actually runs, never a startup
 gate (`brain tasks doctor` reports its presence/version informationally).
+
+`check.rs` backs `brain check`, a **read-only** sibling of `sync_once`: it
+builds the same `Direction::Both` argv via `args::bisync_args` but appends
+`--dry-run`, runs it through `run::run_rclone_capture` (a quiet, non-streaming
+counterpart to `run::run_rclone` — no live terminal output, just `(exit_ok,
+combined_output)`), then classifies the captured detection-phase lines with
+`progress::classify_change`/`Side` (the same parser `progress.rs` already
+exposed for a future live file-list) and hands the push/pull path lists to the
+pure `check::format_report` for the themed summary. No journal entry, no
+conflict post-pass, no baseline mutation — it never calls `rclone bisync`
+without `--dry-run`.
 
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`

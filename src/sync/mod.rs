@@ -3,10 +3,12 @@
 //! integration land in C2–C5.
 
 pub mod args;
+pub mod check;
 pub mod command;
 pub mod config;
 pub mod conflicts;
 pub mod journal;
+pub mod progress;
 pub mod remote;
 pub mod run;
 pub mod setup;

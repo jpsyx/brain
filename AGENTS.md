@@ -158,6 +158,20 @@ change and `exec`s it. The user never types `cargo run`.
   make me ask for it.
 - **Comments only when the *why* is non-obvious.** The function name and
   the docs cover the *what*.
+- **Terminal output always prioritizes aesthetics and user-friendliness.**
+  This is a top-priority, non-negotiable principle for brain: every terminal-
+  facing surface should be as pleasant and clear as we can make it — brain aims
+  to be the *easiest terminal tool to use, ever*. Two audiences, both first-class:
+  - **LLM-friendly:** there is a **CLI flag / subcommand for every possible
+    action**, so an agent can drive brain fully non-interactively (no action is
+    reachable *only* through an interactive prompt).
+  - **Human-friendly:** when a human omits a required value, brain **drops into an
+    interactive mode** (a themed prompt / guided walkthrough) instead of erroring
+    — e.g. `brain sync setup` with no flags walks you through it, but the same
+    values can be passed as flags. Never make a human guess or read `--help` to
+    do the common thing.
+  When you add or change any command, provide both paths (flags for everything +
+  an interactive fallback for missing values) and make the output beautiful.
 - **Aesthetics matter — theme every bit of CLI output.** brain's non-TUI CLI
   output (`brain sync`, `sync setup`/`status`, `config`, `env`, `personalize`,
   `doctor`, gates, prompts) should look considered, not utilitarian. All color
