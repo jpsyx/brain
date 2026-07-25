@@ -4,6 +4,7 @@
 
 pub mod args;
 pub mod config;
+pub mod conflicts;
 pub mod remote;
 pub mod run;
 
