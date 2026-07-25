@@ -113,9 +113,13 @@ fn find_session_start_hook(settings_path: &Path) -> Option<String> {
 
 /// One-line rclone/sync health summary for `brain tasks doctor`.
 #[must_use]
-pub fn sync_line(rclone_version: Option<&str>, configured: bool) -> String {
-    let rclone = rclone_version.map_or_else(|| "rclone ✗ not installed".to_owned(), |v| format!("rclone ✓ {v}"));
-    let sync = if configured { "sync configured" } else { "sync off" };
+pub fn sync_line(rclone_version: Option<&str>, configured: bool, theme: crate::theme::Theme) -> String {
+    let rclone = rclone_version.map_or_else(
+        || theme.error("rclone ✗ not installed"),
+        |v| theme.success(&format!("rclone ✓ {v}")),
+    );
+    let sync =
+        if configured { theme.success("sync configured") } else { theme.muted("sync off") };
     format!("{rclone} · {sync}")
 }
 
@@ -147,7 +151,10 @@ pub fn print_report(diag: &Diagnosis) -> i32 {
             env!("CARGO_MANIFEST_DIR")
         );
     }
-    println!("  {}", sync_line(diag.rclone_version.as_deref(), diag.sync_configured));
+    println!(
+        "  {}",
+        sync_line(diag.rclone_version.as_deref(), diag.sync_configured, crate::theme::Theme::active())
+    );
     i32::from(!diag.is_ok())
 }
 
@@ -157,9 +164,21 @@ mod tests {
 
     #[test]
     fn sync_line_reflects_rclone_and_config() {
-        assert!(sync_line(Some("1.74.2"), true).contains("rclone ✓ 1.74.2"));
-        assert!(sync_line(Some("1.74.2"), true).contains("sync configured"));
-        assert!(sync_line(None, false).contains("not installed"));
-        assert!(sync_line(None, false).contains("sync off"));
+        let plain = crate::theme::Theme::dark(false);
+        assert!(sync_line(Some("1.74.2"), true, plain).contains("rclone ✓ 1.74.2"));
+        assert!(sync_line(Some("1.74.2"), true, plain).contains("sync configured"));
+        assert!(sync_line(None, false, plain).contains("not installed"));
+        assert!(sync_line(None, false, plain).contains("sync off"));
+    }
+
+    #[test]
+    fn sync_line_colors_rclone_and_config_status() {
+        let colored = crate::theme::Theme::dark(true);
+        let installed = sync_line(Some("1.74.2"), true, colored);
+        assert!(installed.contains("\x1b[92m"), "rclone ✓ and 'sync configured' should be success green: {installed}");
+
+        let missing = sync_line(None, false, colored);
+        assert!(missing.contains("\x1b[91m"), "rclone ✗ should be error red: {missing}");
+        assert!(missing.contains("\x1b[90m"), "'sync off' should be muted gray: {missing}");
     }
 }
