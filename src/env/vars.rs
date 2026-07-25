@@ -48,6 +48,16 @@ pub fn set(name: &str, value: &str) -> Result<()> {
     save_map(&map)
 }
 
+/// Write a raw JSON value under `name`, bypassing the declared-variable check.
+///
+/// For structured env data (the `sync` block) that `set`'s scalar coercion +
+/// unknown-name rejection can't handle. Not user-facing.
+pub fn set_raw(name: &str, value: Value) -> Result<()> {
+    let mut map = load_map();
+    map.insert(name.to_owned(), value);
+    save_map(&map)
+}
+
 /// Every declared env variable with its resolved value, in schema order.
 #[must_use]
 pub fn resolve_all() -> Vec<Resolved> {
@@ -76,6 +86,16 @@ mod tests {
     #[test]
     fn set_rejects_unknown_env_variables() {
         assert!(set("linear_workspace", "acme").is_err());
+    }
+
+    #[test]
+    fn set_raw_accepts_a_structured_object_value() {
+        // set_raw must accept a nested object (unlike `set`, which coerces
+        // scalars). We assert the value shape it will store; the store IO is
+        // covered by the store module.
+        let v = serde_json::json!({"enabled": true, "b2_bucket": "b"});
+        assert!(v.is_object());
+        assert_eq!(v.get("b2_bucket").and_then(|x| x.as_str()), Some("b"));
     }
 
     #[test]

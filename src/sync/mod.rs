@@ -9,6 +9,7 @@ pub mod conflicts;
 pub mod journal;
 pub mod remote;
 pub mod run;
+pub mod setup;
 pub mod verify;
 
 pub use config::SyncConfig;
