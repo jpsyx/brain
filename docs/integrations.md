@@ -174,8 +174,11 @@ bookkeeping.
   sync init`) maps to rclone's `--conflict-resolve` (`newer` / `path1` /
   `path2`), plus `--conflict-loser pathname` + `--conflict-suffix
   __brainconflict__` (the keep-both mechanics — see [features.md](features.md)
-  and [data-model.md](data-model.md)), `--max-delete <percent>`, and default
-  excludes (`.git/**`, `.DS_Store`, `.cache/**`, existing conflict copies).
+  and [data-model.md](data-model.md)), `--max-delete <percent>`, `-v` (so
+  rclone emits the `Transferred:`/`Deleted:`/`Errors:` summary block the parser
+  reads — at default verbosity rclone prints no summary and every count parses
+  as 0), and default excludes (`.git/**`, `.DS_Store`, `.cache/**`, friendly
+  conflict copies `*(conflict *)*`, and raw markers `*.__brainconflict__*`).
   `src/sync/run.rs` (`run_rclone`) spawns `rclone` with that argv and the
   env-var remote, and parses its combined stdout/stderr into transferred /
   deleted / error counts plus an abort reason.
@@ -219,12 +222,17 @@ bookkeeping.
   configured trigger flags and the open-conflict count; see
   [data-model.md](data-model.md) for the row schema.
 - **Conflicts, on disk.** rclone leaves the losing side of a same-file
-  conflict with a `__brainconflict__` marker suffix; a post-pass
-  (`src/sync/conflicts.rs`, `rename_markers`) renames it to the friendly
-  `name (conflict <host> <date>).ext` right after the rclone run, and that
-  pattern is one of the default excludes above so conflict copies never
-  themselves get synced around. `brain sync conflicts` lists what's still
-  open; resolving one is a manual step in this phase.
+  conflict named `<original>.__brainconflict__<N>` (literal dot + suffix +
+  trailing integer, e.g. `one.md.__brainconflict__1`), on both sides; a
+  post-pass (`src/sync/conflicts.rs`, `rename_markers`, matching via
+  `is_marker`) renames it to the friendly `name (conflict <host> <date>).ext`
+  right after the rclone run. Both the friendly (`*(conflict *)*`) and raw
+  (`*.__brainconflict__*`) patterns are default excludes above, so neither gets
+  synced around on a later run. Because the rename leaves zero leftover markers,
+  `sync_once` also feeds the *count of copies renamed* into `verify::classify`
+  so the run is still reported `NeedsAttention` (journalled `conflicts=N`) — a
+  real conflict is never masked as clean. `brain sync conflicts` lists what's
+  still open; resolving one is a manual step in this phase.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.

@@ -46,9 +46,10 @@ pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str
     let argv = args::bisync_args(cfg, &local, &remote.arg, dir);
 
     let run = run_rclone(&remote.env, &argv);
-    let renamed = u64::try_from(conflicts::rename_markers(root, &hostname(), date)).unwrap_or(0);
+    let renamed_count = conflicts::rename_markers(root, &hostname(), date);
+    let renamed = u64::try_from(renamed_count).unwrap_or(0);
     let leftover = conflicts::leftover_markers(root);
-    let outcome = verify::classify(&run, leftover);
+    let outcome = verify::classify(&run, renamed_count, leftover);
 
     let journal = Journal::open(&Journal::default_path())?;
     journal.record(&SyncRun {

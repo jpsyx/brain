@@ -269,21 +269,29 @@ sync_runs(
 one (`command::format_last_run`) alongside the configured trigger flags
 (`command::format_triggers`) and the open-conflict count.
 
-**Outcome classification** (`src/sync/verify.rs`, `classify`): `Clean` only
-when rclone exited successfully, reported zero errors, and left no
-un-renamed conflict markers; a nonzero error count or a leftover marker is
+**Outcome classification** (`src/sync/verify.rs`,
+`classify(run, conflicts, leftover_markers)`): `Clean` only when rclone exited
+successfully, reported zero errors, created **no** conflict copies, and left no
+un-renamed conflict markers; a nonzero error count, a `conflicts > 0` count
+(copies created and renamed this run), or a leftover marker is
 `NeedsAttention`; an rclone abort (the `--max-delete` guard, or rclone's own
 "prior listings missing" guard — see [integrations.md](integrations.md)) is
-`Aborted`. Both carry a human-readable `note` that becomes the journal row's
-`note` and the message `brain sync` prints.
+`Aborted`. Surfacing `conflicts > 0` is what keeps a real conflict from being
+reported as clean once its markers have been renamed away (leftover 0). Both
+carry a human-readable `note` that becomes the journal row's `note` and the
+message `brain sync` prints.
 
 ## Conflict-copy naming (`src/sync/conflicts.rs`)
 
 `rclone bisync` is configured (`args::bisync_args`) to keep, not drop, the
 losing side of a same-file conflict, marking it with a `__brainconflict__`
-suffix on the filename. Right after the rclone run, `conflicts::rename_markers`
-walks the brain root and renames every `<name><ext>__brainconflict__` file to
-a friendly name:
+suffix on the filename. rclone's real format is
+`<original>.<MARKER><N>` — a literal dot, the suffix, and a trailing integer
+`N` ≥ 1 (e.g. `one.md` → `one.md.__brainconflict__1`, `README` →
+`README.__brainconflict__1`); the marker lands on **both** sides. Right after
+the rclone run, `conflicts::rename_markers` walks the brain root and renames
+every such marker file (matched by `conflicts::is_marker`, which strips the
+`.<MARKER><digits>` tail) to a friendly name:
 
 ```
 name (conflict <host> <date>).ext
@@ -292,13 +300,14 @@ name (conflict <host> <date>).ext
 — e.g. `note.md` → `note (conflict mac 2026-07-25).md`; an extensionless
 `README` → `README (conflict mac 2026-07-25)`. `<host>` is this machine's
 short (unqualified) hostname (`command::hostname`) and `<date>` is the sync
-run's date (`YYYY-MM-DD`). The pattern `*(conflict *)*` is one of the default
-rclone excludes, so conflict copies are never themselves synced back out.
-`conflicts::list_conflicts` finds existing friendly-named copies under the
-root (paths relative to the root) for `brain sync conflicts` and the
-`brain sync status` open-conflict count; `leftover_markers` counts any
-`__brainconflict__` files the rename pass failed to rewrite, which
-`verify::classify` surfaces as `NeedsAttention`.
+run's date (`YYYY-MM-DD`). The patterns `*(conflict *)*` (friendly copies) and
+`*.__brainconflict__*` (raw markers) are both default rclone excludes, so
+neither is synced back out on a later run (the marker exclude does not stop
+rclone from creating the initial copy). `conflicts::list_conflicts` finds
+existing friendly-named copies under the root (paths relative to the root) for
+`brain sync conflicts` and the `brain sync status` open-conflict count;
+`leftover_markers` counts any `__brainconflict__` files the rename pass failed
+to rewrite, which `verify::classify` surfaces as `NeedsAttention`.
 
 ## Binary stdout (the output "schema")
 

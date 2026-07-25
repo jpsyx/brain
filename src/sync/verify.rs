@@ -24,10 +24,15 @@ impl Outcome {
     }
 }
 
-/// Classify a completed run. `leftover_markers` is the count of un-renamed
-/// conflict markers found after the post-pass.
+/// Classify a completed run.
+///
+/// `conflicts` is the count of conflict copies handled (renamed) this run;
+/// `leftover_markers` is the count of un-renamed conflict markers found after
+/// the post-pass. A run that produced any conflict copy is surfaced as
+/// `NeedsAttention` even after the markers were renamed cleanly, so a real
+/// conflict is never silently reported as clean.
 #[must_use]
-pub fn classify(run: &RunOutcome, leftover_markers: usize) -> Outcome {
+pub fn classify(run: &RunOutcome, conflicts: usize, leftover_markers: usize) -> Outcome {
     if let Some(kind) = &run.abort {
         let msg = match kind {
             AbortKind::MaxDelete => "sync aborted: would delete more than the --max-delete threshold. If intentional, run `brain sync --resync`.",
@@ -42,6 +47,9 @@ pub fn classify(run: &RunOutcome, leftover_markers: usize) -> Outcome {
     if leftover_markers > 0 {
         return Outcome::NeedsAttention(format!("{leftover_markers} conflict copy(ies) could not be renamed; see `brain sync conflicts`."));
     }
+    if conflicts > 0 {
+        return Outcome::NeedsAttention(format!("{conflicts} conflict copy(ies) created; review with `brain sync conflicts`."));
+    }
     Outcome::Clean
 }
 
@@ -54,26 +62,36 @@ mod tests {
     }
 
     #[test]
-    fn clean_when_ok_no_errors_no_leftover_markers() {
-        assert_eq!(classify(&ok_run(), 0), Outcome::Clean);
+    fn clean_when_ok_no_errors_no_conflicts_no_leftover_markers() {
+        assert_eq!(classify(&ok_run(), 0, 0), Outcome::Clean);
     }
 
     #[test]
     fn errors_are_needs_attention() {
         let mut r = ok_run();
         r.errors = 2;
-        assert!(matches!(classify(&r, 0), Outcome::NeedsAttention(_)));
+        assert!(matches!(classify(&r, 0, 0), Outcome::NeedsAttention(_)));
     }
 
     #[test]
     fn leftover_markers_are_needs_attention() {
-        assert!(matches!(classify(&ok_run(), 1), Outcome::NeedsAttention(_)));
+        assert!(matches!(classify(&ok_run(), 0, 1), Outcome::NeedsAttention(_)));
+    }
+
+    #[test]
+    fn conflicts_created_are_needs_attention_even_with_no_leftover_markers() {
+        // A conflict copy was created and renamed cleanly (leftover 0); it must
+        // still surface, not be reported as clean.
+        match classify(&ok_run(), 1, 0) {
+            Outcome::NeedsAttention(m) => assert!(m.contains("conflict copy"), "{m}"),
+            other => panic!("expected NeedsAttention, got {other:?}"),
+        }
     }
 
     #[test]
     fn max_delete_abort_is_aborted_with_resync_hint() {
         let r = RunOutcome { exit_ok: false, transferred: 0, deleted: 0, errors: 0, abort: Some(AbortKind::MaxDelete) };
-        match classify(&r, 0) {
+        match classify(&r, 0, 0) {
             Outcome::Aborted(m) => assert!(m.contains("--resync")),
             other => panic!("expected Aborted, got {other:?}"),
         }

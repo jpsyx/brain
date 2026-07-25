@@ -284,9 +284,12 @@ conflict resolution bias for the direction, keep-both flags, `--max-delete`,
 default excludes); `run::run_rclone` spawns `rclone` with that env + argv and
 parses its output into transferred/deleted/error counts and an abort reason;
 `conflicts::rename_markers` (the post-pass) renames any rclone-left conflict
-marker to the friendly `name (conflict <host> <date>).ext`; `verify::classify`
-turns the parsed outcome + any leftover markers into `Clean` /
-`NeedsAttention` / `Aborted`; and `journal::Journal` records the run into the
+marker (`<original>.__brainconflict__<N>`) to the friendly
+`name (conflict <host> <date>).ext`; `verify::classify` turns the parsed
+outcome + the count of copies renamed + any leftover markers into `Clean` /
+`NeedsAttention` / `Aborted` (a run that created any conflict copy is
+`NeedsAttention` even after the markers are renamed away); and
+`journal::Journal` records the run into the
 SQLite journal at `~/.cache/brain/sync/journal.db` (table `sync_runs`,
 machine-local, never synced). `command::sync_once` is the thin orchestrator
 that runs this whole pipeline; `command::print_status`/`print_conflicts` back
