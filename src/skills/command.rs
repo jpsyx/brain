@@ -30,10 +30,11 @@ pub fn run_sync(root: Option<&Path>) -> Result<()> {
         (Layout::real(&home), super::real_sources())
     };
     let report = install::sync(&layout, &sources)?;
+    let theme = crate::theme::Theme::active();
     println!(
-        "synced {} skill(s): {}",
-        report.installed.len(),
-        report.installed.join(", ")
+        "{} {}",
+        theme.success(&format!("synced {} skill(s):", report.installed.len())),
+        theme.muted(&report.installed.join(", "))
     );
     Ok(())
 }

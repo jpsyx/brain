@@ -77,10 +77,11 @@ pub fn run_show() {
 
 /// `brain personalize get <field>`.
 pub fn run_get(raw_field: &str) {
+    let theme = crate::theme::Theme::active();
     let field = normalize_name(raw_field);
     match get_field(&store::load(), &field) {
-        Some(v) => println!("{v}"),
-        None => eprintln!("{field} is unset"),
+        Some(v) => println!("{}", theme.value(&v)),
+        None => eprintln!("{}", theme.warning(&format!("{field} is unset"))),
     }
 }
 
@@ -94,7 +95,8 @@ pub fn run_set(assignment: &str) -> Result<()> {
     set_field(&mut p, &field, value.trim())?;
     store::save(&p)?;
     crate::skills::resync_skills();
-    println!("set {field} = {}", value.trim());
+    let theme = crate::theme::Theme::active();
+    println!("{} {field} = {}", theme.success("set"), theme.value(value.trim()));
     Ok(())
 }
 
