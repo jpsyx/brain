@@ -104,6 +104,19 @@ pub fn format_last_run(run: Option<&SyncRun>) -> String {
 }
 
 /// Print `brain sync status`.
+/// Format the configured auto-sync triggers. The flags are honored once the
+/// trigger/watcher phase lands; `status` shows them so the setup is visible.
+#[must_use]
+pub fn format_triggers(cfg: &SyncConfig) -> String {
+    let yn = |b: bool| if b { "on" } else { "off" };
+    format!(
+        "triggers: on-start {} · on-exit {} · watch {}",
+        yn(cfg.on_start),
+        yn(cfg.on_exit),
+        yn(cfg.watch_effective()),
+    )
+}
+
 pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
     if !cfg.is_configured() {
         println!("sync is not configured — run `brain sync setup`.");
@@ -112,6 +125,7 @@ pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
     let journal = Journal::open(&Journal::default_path())?;
     let recent = journal.recent(1)?;
     println!("{}", format_last_run(recent.first()));
+    println!("{}", format_triggers(cfg));
     let conflicts = conflicts::list_conflicts(root);
     println!("open conflicts: {}", conflicts.len());
     Ok(())
@@ -156,6 +170,16 @@ mod tests {
         };
         let line = format_last_run(Some(&r));
         assert!(line.contains("both") && line.contains("clean") && line.contains("3↑"));
+    }
+
+    #[test]
+    fn format_triggers_reads_the_configured_flags() {
+        let cfg: SyncConfig =
+            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","on_start":false}"#).unwrap();
+        let s = format_triggers(&cfg);
+        assert!(s.contains("on-start off"), "{s}");
+        assert!(s.contains("on-exit on"), "{s}"); // default true
+        assert!(s.contains("watch on"), "{s}"); // configured + default watch
     }
 
     #[test]
