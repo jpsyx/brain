@@ -5,5 +5,6 @@
 pub mod args;
 pub mod config;
 pub mod remote;
+pub mod run;
 
 pub use config::SyncConfig;
