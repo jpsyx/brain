@@ -33,6 +33,7 @@ mod personalization;
 mod picker;
 mod pty_pane;
 mod render;
+mod server;
 mod session;
 mod settings;
 mod skills;
@@ -98,6 +99,12 @@ fn main() -> Result<()> {
         return skills_command(args);
     }
 
+    // `brain server …` manages the background HTTP daemon; it needs neither
+    // the markdown-to-pdf prerequisite nor the TUI, so it runs before the gate.
+    if let Some(Cmd::Server(args)) = &cli.command {
+        return server_command(args);
+    }
+
     // `brain check` is a read-only report; no TUI, no prerequisite needed.
     if matches!(&cli.command, Some(Cmd::Check)) {
         let cfg = crate::sync::config::SyncConfig::load();
@@ -134,7 +141,20 @@ fn main() -> Result<()> {
         Some(Cmd::Sync(_)) => unreachable!("sync is dispatched before the gate"),
         Some(Cmd::Personalize(_)) => unreachable!("personalize is dispatched before the gate"),
         Some(Cmd::Skills(_)) => unreachable!("skills is dispatched before the gate"),
+        Some(Cmd::Server(_)) => unreachable!("server is dispatched before the gate"),
         Some(Cmd::Check) => unreachable!("check is dispatched before the gate"),
+    }
+}
+
+/// Handle `brain server {start|status|kill|run}`. `run` is the internal
+/// blocking daemon loop; the rest manage the shared background server.
+fn server_command(args: &crate::cli::ServerArgs) -> Result<()> {
+    use crate::cli::ServerAction;
+    match &args.action {
+        ServerAction::Start => crate::server::lifecycle::start(),
+        ServerAction::Status => crate::server::lifecycle::status(),
+        ServerAction::Kill => crate::server::lifecycle::kill(),
+        ServerAction::Run { port } => crate::server::run(*port),
     }
 }
 
@@ -347,6 +367,10 @@ fn prompt_tty_line(prompt: &str) -> Result<Option<String>> {
 /// `doctor` / `search` subcommands are one-shot utilities; everything else
 /// resolves an initial view and opens the persistent shell via `tui::run_tui`.
 fn tasks_launch(mut cli: TasksCli) -> Result<()> {
+    // Best-effort: bring up the shared background brain server when the shell
+    // opens, reused across tabs. A server failure must never block the shell.
+    let _ = crate::server::lifecycle::ensure_running();
+
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
         Some(TasksCommand::Complete(args)) => return tasks::complete::run(&args.id),

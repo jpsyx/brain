@@ -158,6 +158,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via a dry-run `rclone bisync` (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
+| `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
@@ -366,6 +367,27 @@ brain (synced, never committed to the repo):
 - **Plugins** — whole skills you own, in `<root>/.config/plugins/<name>/`. The
   sync installs them alongside the bundled cores, into the same registry and
   frontends.
+
+### `brain server`
+
+The **brain server** is a small, local-only HTTP daemon: one shared instance
+per machine, reused across every `brain` invocation and tab. It is a general,
+growable localhost service. Today it serves placeholder routes (`GET /habits`
+returns `habits view (coming soon)`; `POST /habits/done` returns `{}`); the
+real habits view and future webhook POST endpoints land later. Everything else,
+including the bare root `/`, is a 404 (the server has no root view).
+
+- `brain server start` — start the daemon in the background if it isn't already
+  running (idempotent: an existing live server is reused and its URL reprinted).
+- `brain server status` — report whether it is running and on which port.
+- `brain server kill` — stop the background server and drop its record.
+- `brain server run --port <p>` — the internal blocking accept loop the spawned
+  daemon runs; hidden from `--help` (you never invoke it directly).
+
+The daemon prefers port `8787`, falling back to an OS-assigned port if it's
+taken, and records its `{pid, port}` at `~/.cache/brain/server.json`. Opening
+the shell (`brain` / `brain tasks`) best-effort brings the server up, so it is
+normally already running. A server failure never blocks the shell.
 
 ### Prerequisite: `markdown-to-pdf`
 
