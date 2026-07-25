@@ -281,8 +281,14 @@ verify → journal**: `config` (`SyncConfig`, parsed from the brain-env `sync`
 block) feeds `remote::build_remote` (the B2 remote as `RCLONE_CONFIG_*` env
 vars, never on argv) and `args::bisync_args` (the full `rclone bisync` argv:
 conflict resolution bias for the direction, keep-both flags, `--max-delete`,
-default excludes); `run::run_rclone` spawns `rclone` with that env + argv and
-parses its output into transferred/deleted/error counts and an abort reason;
+default excludes, plus `--stats 10s --stats-one-line` for live progress and
+`--resilient --recover` for resumability); `run::run_rclone` spawns `rclone`
+with that env + argv, streaming its stderr live to the terminal while
+capturing it, and parses the capture into transferred/deleted/error counts
+and an abort reason; if that abort is an incomplete baseline
+(`AbortKind::PriorListingMissing`) and this run wasn't already a resync,
+`command::sync_once` auto-resumes with one internal `Direction::Resync` retry
+before continuing (journalled as such) — see [decisions.md](decisions.md);
 `conflicts::rename_markers` (the post-pass) renames any rclone-left conflict
 marker (`<original>.__brainconflict__<N>`) to the friendly
 `name (conflict <host> <date>).ext`; `verify::classify` turns the parsed

@@ -281,7 +281,13 @@ un-renamed conflict markers; a nonzero error count, a `conflicts > 0` count
 `Aborted`. Surfacing `conflicts > 0` is what keeps a real conflict from being
 reported as clean once its markers have been renamed away (leftover 0). Both
 carry a human-readable `note` that becomes the journal row's `note` and the
-message `brain sync` prints.
+message `brain sync` prints. `note` can also carry (prefixed onto whatever
+outcome message would otherwise apply) **"auto-resumed after interrupted
+baseline"** — `command::sync_once` sets this when a run aborted with
+`AbortKind::PriorListingMissing` and it automatically retried once as a
+resync (see [integrations.md](integrations.md) and
+[decisions.md](decisions.md) for why this one abort kind is safe to
+auto-retry while others are not).
 
 ## Conflict-copy naming (`src/sync/conflicts.rs`)
 

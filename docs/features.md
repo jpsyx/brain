@@ -222,7 +222,8 @@ nothing.
   verifies or creates the bucket, and establishes the initial bisync baseline.
 - `brain sync init` — (re-)establish the bisync baseline: bootstrap a fresh
   machine, or recover once rclone refuses to sync because one side's listing
-  is empty (see [integrations.md](integrations.md)).
+  is empty (see [integrations.md](integrations.md)). You rarely need to run
+  this by hand anymore — see **auto-resume** below.
 - `brain sync status` — the last run (from the local sync journal), the
   configured triggers (`on_start`/`on_exit`/`watch`), and the count of open
   conflicts.
@@ -231,6 +232,35 @@ nothing.
 Like `config`/`env`/`personalize`/`skills`, `sync` is dispatched **before**
 the `markdown-to-pdf` prerequisite gate, so it always works even when that
 tool is missing.
+
+**Live progress.** A running sync is no longer a silent block: rclone's
+progress streams to the terminal live, with a one-line update roughly every
+10 seconds (files/bytes transferred, percent complete, transfer rate, ETA) —
+useful on the first sync of a large brain, which can take a while.
+
+**Auto-resume (never-miss guarantee).** If a sync is interrupted (Ctrl-C, a
+dropped connection, a crash) mid-baseline, brain never reports it as done —
+an interrupted or errored run always journals as `needs_attention`/`aborted`,
+never `clean`. The *next* plain `brain sync` automatically detects the
+incomplete baseline and transparently resumes it (one internal resync retry,
+journalled with the note "auto-resumed after interrupted baseline") before
+continuing — no need to manually run `brain sync init` first. The guarantee:
+every in-scope file is eventually synced; nothing is silently left behind.
+
+**Deletions propagate both ways.** `rclone bisync` mirrors deletes as well as
+edits: deleting a file locally removes it from the B2 bucket on the next
+sync, and removes it from every other machine the next time *that* machine
+syncs. This is guarded by the `--max-delete` safety check (see
+[integrations.md](integrations.md)) so a wiped or never-initialized side
+can't wipe out the other; short of tripping that guard, delete is a real,
+bidirectional operation, not just a local one.
+
+**Selective sync (optional, off by default).** `sync.exclude` (extra rclone
+exclude patterns) and `sync.max_size` (skip files above a size cap) let you
+keep large or unwanted paths out of the bucket entirely — e.g. bulky media or
+scratch data under a resources directory. Both default to empty, so an
+unconfigured brain syncs everything, unchanged from before; see
+[config.md](config.md) / [data-model.md](data-model.md) for the fields.
 
 **Keep-both conflicts.** When the same file changed on both sides, rclone
 doesn't drop the losing edit: it keeps that copy, and brain renames it to

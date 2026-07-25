@@ -185,8 +185,20 @@ bookkeeping.
   `*.__brainconflict__*`) plus any user-configured `sync.exclude` patterns and
   an optional `sync.max_size` cap (`--max-size`, omitted when unset).
   `src/sync/run.rs` (`run_rclone`) spawns `rclone` with that argv and the
-  env-var remote, and parses its combined stdout/stderr into transferred /
-  deleted / error counts plus an abort reason.
+  env-var remote, and parses its captured stderr into transferred / deleted /
+  error counts plus an abort reason.
+- **Progress streams live instead of blocking silently.** `run_rclone`
+  inherits its own stdout for the child (`Stdio::inherit()`) and pipes only
+  stderr (`Stdio::piped()`) — rclone writes its logs/stats to stderr. That
+  pipe is read line-by-line on the main thread: each line is echoed to
+  brain's stderr as it arrives *and* appended to a capture buffer, so the
+  user watching the terminal sees rclone's live output while brain still gets
+  a full transcript to parse into a `RunOutcome` once the child exits. No
+  extra thread and no deadlock risk: there's exactly one pipe, and it's
+  drained continuously rather than buffered up front. The periodic one-liner
+  that makes this worth watching (`--stats 10s --stats-one-line`, e.g.
+  `Transferred: 12.3G / 144G, 9%, 5.2 MByte/s, ETA 6h`) comes from
+  `args::bisync_args`, alongside `--resilient --recover` (below).
 - **`--max-delete` is the blast-radius guard; `--check-access` is
   deliberately not used.** `max_delete_percent` (from `sync.max_delete_percent`
   in the brain-env `sync` block, default 50) aborts a run that would delete
@@ -204,10 +216,35 @@ bookkeeping.
   listings" / "must run --resync to recover") — its own protection against
   treating a wiped or never-initialized side as "delete everything on the
   other side." `src/sync/run.rs` recognizes this wording as
-  `AbortKind::PriorListingMissing`, and `verify::classify` surfaces it with a
-  pointer at **`brain sync init`**, which re-runs bisync with `--resync` to
-  (re-)establish the baseline listings — the fix for a fresh machine's first
-  sync, or for recovering after this guard trips.
+  `AbortKind::PriorListingMissing`. Historically that meant surfacing a
+  pointer at **`brain sync init`** for the human to re-run with `--resync`;
+  as of the progress/resume work, `command::sync_once` handles the common
+  case (an interrupted or killed `--resync`) itself: `should_auto_resync`
+  (pure) says yes whenever the abort is `PriorListingMissing` **and** the run
+  that just aborted wasn't already a resync (so it retries exactly once,
+  never loops), `sync_once` re-runs bisync as `Direction::Resync`, and the
+  journal note records "auto-resumed after interrupted baseline". `brain
+  sync init` still exists for a genuinely fresh machine's first baseline and
+  as a manual escape hatch, but you no longer have to reach for it after a
+  Ctrl-C mid-sync — the next plain `brain sync` resumes on its own.
+- **Never journal `clean` for an interrupted or errored run.** This is what
+  makes auto-resume safe rather than merely convenient: `verify::classify`
+  only ever returns `Clean` on a full, zero-error rclone exit, so an
+  interrupted run (even one that transferred most of its files before dying)
+  always comes back `NeedsAttention`/`Aborted` and gets auto-resumed (or
+  surfaced) on the next invocation — brain never tells you a sync finished
+  when it didn't, so nothing in scope is silently left un-synced.
+- **Deletions propagate bidirectionally, by design.** `rclone bisync`
+  mirrors deletes exactly like edits: removing a file on one machine deletes
+  it from the B2 bucket on that machine's next sync, and deletes it from
+  every other machine on *that* machine's next sync — there is no
+  local-only delete. The only brake on this is the `--max-delete` guard
+  above; short of tripping it, a delete is real and bidirectional. B2 itself
+  keeps prior file versions after a delete (its own object versioning)
+  unless a bucket lifecycle rule is configured to prune them, so a delete
+  synced by brain is not necessarily unrecoverable at the B2 layer — but
+  brain does not manage or rely on that; treat `--max-delete` as the only
+  safety net brain provides.
 - **The setup flow.** `brain sync setup` (`src/sync/setup.rs`) checks
   `rclone` is on `PATH`, then acts as a guided walkthrough: it asks whether you
   already have a bucket (`ask_has_bucket` / pure `parse_yes_no`), and if not
