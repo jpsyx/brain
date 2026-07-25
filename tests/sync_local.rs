@@ -8,6 +8,7 @@ use std::process::Command;
 use brain::sync::args::{bisync_args, Direction};
 use brain::sync::config::SyncConfig;
 use brain::sync::run::run_rclone;
+use brain::sync::verify::{self, Outcome};
 
 fn rclone_available() -> bool {
     Command::new("rclone").arg("version").output().is_ok_and(|o| o.status.success())
@@ -57,6 +58,54 @@ fn create_and_delete_propagate_bidirectionally() {
     assert!(del.exit_ok, "delete sync failed: {del:?}");
     assert!(!b.join("note.md").exists(), "delete did not propagate A→B");
     assert!(b.join("keep.md").exists(), "unrelated file should survive");
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn same_file_conflict_is_renamed_and_surfaced() {
+    if !rclone_available() {
+        eprintln!("skipping: rclone not on PATH");
+        return;
+    }
+    let base = std::env::temp_dir().join(format!("brain-sync-conflict-it-{}", std::process::id()));
+    let a = base.join("a");
+    let b = base.join("b");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+
+    // Seed 4 files and establish the baseline.
+    for f in ["one", "two", "three", "four"] {
+        std::fs::write(a.join(format!("{f}.md")), format!("orig-{f}")).unwrap();
+    }
+    let resync = run(&a, &b, Direction::Resync);
+    assert!(resync.exit_ok, "resync failed: {resync:?}");
+
+    // Edit the SAME file on both sides with different content + different
+    // mtimes (sleep so rclone's `--conflict-resolve newer` sees a real skew),
+    // producing a same-file conflict rclone can't auto-resolve to one winner.
+    std::fs::write(a.join("one.md"), "A-side-change").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(b.join("one.md"), "B-side-change-different").unwrap();
+
+    let outcome = run(&a, &b, Direction::Both);
+    assert!(outcome.exit_ok, "conflict bisync failed: {outcome:?}");
+
+    // brain's post-pass renames the raw marker to the friendly name.
+    let renamed = brain::sync::conflicts::rename_markers(&a, "testhost", "2026-07-25");
+    assert_eq!(renamed, 1, "expected exactly one conflict copy renamed");
+    assert!(
+        a.join("one (conflict testhost 2026-07-25).md").exists(),
+        "friendly conflict file not found; dir: {:?}",
+        std::fs::read_dir(&a).unwrap().filter_map(Result::ok).map(|e| e.file_name()).collect::<Vec<_>>()
+    );
+    assert_eq!(brain::sync::conflicts::leftover_markers(&a), 0, "no raw markers should remain");
+
+    // Verification must surface the conflict, not report clean.
+    match verify::classify(&outcome, renamed, 0) {
+        Outcome::NeedsAttention(_) => {}
+        other => panic!("expected NeedsAttention for a real conflict, got {other:?}"),
+    }
 
     std::fs::remove_dir_all(&base).ok();
 }
