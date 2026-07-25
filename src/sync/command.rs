@@ -78,6 +78,16 @@ pub fn direction_label(dir: Direction) -> &'static str {
     }
 }
 
+/// Map the `--push`/`--pull` flags to a `Direction` for a bare `brain sync`.
+pub fn direction_from_flags(push: bool, pull: bool) -> Result<Direction> {
+    match (push, pull) {
+        (true, true) => bail!("--push and --pull are mutually exclusive"),
+        (true, false) => Ok(Direction::Push),
+        (false, true) => Ok(Direction::Pull),
+        (false, false) => Ok(Direction::Both),
+    }
+}
+
 /// Format the status line for the most recent journal run (pure).
 #[must_use]
 pub fn format_last_run(run: Option<&SyncRun>) -> String {
@@ -108,7 +118,7 @@ pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
 }
 
 /// Print `brain sync conflicts`.
-pub fn print_conflicts(root: &Path) -> Result<()> {
+pub fn print_conflicts(root: &Path) {
     let conflicts = conflicts::list_conflicts(root);
     if conflicts.is_empty() {
         println!("no open conflict copies.");
@@ -117,7 +127,6 @@ pub fn print_conflicts(root: &Path) -> Result<()> {
             println!("{}", c.path.display());
         }
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -147,6 +156,14 @@ mod tests {
         };
         let line = format_last_run(Some(&r));
         assert!(line.contains("both") && line.contains("clean") && line.contains("3↑"));
+    }
+
+    #[test]
+    fn flags_map_to_direction() {
+        assert_eq!(direction_from_flags(false, false).unwrap(), Direction::Both);
+        assert_eq!(direction_from_flags(true, false).unwrap(), Direction::Push);
+        assert_eq!(direction_from_flags(false, true).unwrap(), Direction::Pull);
+        assert!(direction_from_flags(true, true).is_err());
     }
 
     #[test]
