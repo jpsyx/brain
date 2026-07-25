@@ -1,6 +1,7 @@
 {
-  "root": "~/brain",
   "linear_workspace": "acme",
   "daily_triage_name_pattern": "Morning Triage",
-  "day_rollover_hour": 6
+  "day_rollover_hour": 6,
+  "calendar_id": "",
+  "agenda_dir": "~/Downloads"
 }

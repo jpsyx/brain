@@ -1,10 +1,11 @@
 //! Persistent user configuration and the `brain config` command.
 //!
-//! The store is a JSON object at `~/.config/brain/config.json` (or
-//! `$XDG_CONFIG_HOME/brain/config.json`) — machine-local, never shipped with
-//! the source. Typed consumers (`config::Config`, `paths`) deserialize the
-//! fields they care about from the same file; this module owns the raw
-//! read/modify/write, the declared-variable schema, and the get/set/list CLI.
+//! The store is a JSON object at `<brain-root>/.config/config.json` — inside the
+//! brain root, so it travels with the brain (whatever syncs the brain syncs the
+//! config too). Typed consumers (`config::Config`) deserialize the fields they
+//! care about from the same file; this module owns the raw read/modify/write,
+//! the declared-variable schema, and the get/set/list CLI. The brain-root
+//! pointer itself is the one thing that can't live here (see `crate::paths`).
 //!
 //! It also owns the `markdown-to-pdf` prerequisite: the path is a config
 //! variable, auto-discovered on first run (PATH, conventional bin dirs, then
@@ -29,7 +30,7 @@ mod vars;
 
 pub use markdown_pdf::{ensure_markdown_to_pdf, markdown_to_pdf_command};
 pub use render::{color_enabled, render_list, set_confirmation};
-pub use store::{config_dir, store_path};
+pub use store::config_dir;
 pub use vars::{normalize_name, resolve_all, resolve_one, set};
 
 pub(crate) use store::load_map;

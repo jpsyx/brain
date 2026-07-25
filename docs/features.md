@@ -161,7 +161,7 @@ before clap parses it.
 
 ### `brain config`
 
-Reads and writes brain's persistent config (`~/.config/brain/config.json`):
+Reads and writes brain's persistent config (`<brain-root>/.config/config.json`):
 
 - `brain config list` (or bare `brain config`) — aligned table of every
   variable, its effective value, and its description.
@@ -176,8 +176,8 @@ and the prerequisite/auto-discovery rules.
 ### `brain personalize`
 
 Reads and writes your **personalization** — content *about you*, stored beside
-the config store at `~/.config/brain/personalization.json` (just another brain
-config, under `$HOME` rather than inside the brain root).
+the config store at `<brain-root>/.config/personalization.json` (just another
+brain config, inside the brain root so it travels with the brain).
 
 - `brain personalize` (bare) — first-run onboarding if nothing is set yet:
   a short, skippable prompt for your name, role, and who you work for, then two

@@ -11,12 +11,12 @@ pub(super) struct VarSpec {
 }
 
 /// The full schema, in the order `config list` prints them.
-pub(super) const VARS: [VarSpec; 9] = [
-    VarSpec {
-        name: "root",
-        description: "Path to your brain (PARA) directory. Tilde-expanded. Defaults to ~/brain.",
-        default: Some("~/brain"),
-    },
+///
+/// `root` is intentionally **not** here: the brain-root location can't live
+/// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
+/// or the `~/brain` default and edited by hand, never via `brain config`
+/// (see [`crate::paths`]).
+pub(super) const VARS: [VarSpec; 8] = [
     VarSpec {
         name: "linear_workspace",
         description: "Linear workspace slug (e.g. acme). Builds https://linear.app/<slug>/issue/ for the open-link action.",

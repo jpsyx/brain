@@ -122,26 +122,50 @@ fn missing_markdown_to_pdf_message(configured: Option<&str>, color: bool) -> Str
     )
 }
 
+/// What the startup gate should do, given the configured path's validity and
+/// whether discovery turned something up. Pure so the decision is unit-testable
+/// without the process-exiting shell.
+#[derive(Debug, PartialEq, Eq)]
+enum GateAction {
+    /// The configured path is valid; nothing to do.
+    Pass,
+    /// Persist a freshly discovered path, then pass.
+    Persist(PathBuf),
+    /// Fail with the red message; carries the offending configured path (if any).
+    Fail(Option<String>),
+}
+
+/// The gate decision. A valid configured path passes. Otherwise (unset, or a
+/// stored path that is invalid on *this* machine — e.g. a config.json synced
+/// from another host) we prefer a freshly discovered path before failing, so a
+/// synced-but-stale `markdown_to_pdf_path` self-heals rather than blocking start.
+fn gate_action(configured: Option<&str>, configured_valid: bool, discovered: Option<PathBuf>) -> GateAction {
+    if configured_valid {
+        return GateAction::Pass;
+    }
+    discovered.map_or_else(
+        || GateAction::Fail(configured.map(str::to_owned)),
+        GateAction::Persist,
+    )
+}
+
 /// Startup gate for the `markdown-to-pdf` prerequisite.
 ///
-/// A valid configured path passes; an unset one triggers auto-discovery
-/// (persisted on success); anything else prints the red message and exits
-/// non-zero. Exits directly (not via `anyhow`) so the message prints verbatim
-/// without an `Error:` prefix.
+/// Delegates the decision to [`gate_action`], then applies it: persist a
+/// discovered path (non-fatal on save error, since the tool is usable now) or
+/// print the red message and exit non-zero. Exits directly (not via `anyhow`)
+/// so the message prints verbatim without an `Error:` prefix.
 pub fn ensure_markdown_to_pdf() {
-    let Some(configured) = get("markdown_to_pdf_path") else {
-        if let Some(found) = discover_markdown_to_pdf() {
-            // Persist for next time; a save failure is non-fatal since the
-            // tool itself is present and usable right now.
+    let configured = get("markdown_to_pdf_path");
+    let valid = configured.as_deref().is_some_and(|p| is_executable_file(Path::new(p)));
+    let discovered = if valid { None } else { discover_markdown_to_pdf() };
+    match gate_action(configured.as_deref(), valid, discovered) {
+        GateAction::Pass => {}
+        GateAction::Persist(found) => {
             let _ = set("markdown_to_pdf_path", &found.display().to_string());
-            return;
         }
-        fail_missing(None);
-    };
-    if is_executable_file(Path::new(&configured)) {
-        return;
+        GateAction::Fail(configured) => fail_missing(configured.as_deref()),
     }
-    fail_missing(Some(&configured));
 }
 
 fn fail_missing(configured: Option<&str>) -> ! {
@@ -200,5 +224,33 @@ mod tests {
         assert!(!msg.contains('\x1b')); // color off
         assert!(msg.contains("/bad/run.sh"));
         assert!(msg.contains("missing or not executable"));
+    }
+
+    #[test]
+    fn gate_passes_when_the_configured_path_is_valid() {
+        assert_eq!(gate_action(Some("/ok/mtp"), true, None), GateAction::Pass);
+    }
+
+    #[test]
+    fn gate_rediscovers_when_the_stored_path_is_invalid_on_this_machine() {
+        // A config synced from another host: the stored path doesn't exist here,
+        // but discovery finds a local one → persist it instead of failing.
+        let found = PathBuf::from("/opt/homebrew/bin/markdown-to-pdf");
+        assert_eq!(
+            gate_action(Some("/other/machine/mtp"), false, Some(found.clone())),
+            GateAction::Persist(found)
+        );
+    }
+
+    #[test]
+    fn gate_persists_a_discovered_path_when_unset() {
+        let found = PathBuf::from("/usr/local/bin/markdown-to-pdf");
+        assert_eq!(gate_action(None, false, Some(found.clone())), GateAction::Persist(found));
+    }
+
+    #[test]
+    fn gate_fails_when_invalid_and_nothing_discovered() {
+        assert_eq!(gate_action(Some("/bad/mtp"), false, None), GateAction::Fail(Some("/bad/mtp".to_owned())));
+        assert_eq!(gate_action(None, false, None), GateAction::Fail(None));
     }
 }

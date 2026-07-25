@@ -1,60 +1,76 @@
-//! Brain-root resolution: where `~/brain` actually lives.
+//! Brain-root resolution: where the brain (PARA) directory lives.
 //!
-//! Resolution order: first the `root` field of the shared config store
-//! (`~/.config/brain/config.json`, tilde-expanded), otherwise `$HOME/brain`.
-//! The resolved directory must exist or `brain_root` errors.
+//! Resolution order: the path written in `~/.config/brain-root` (tilde-expanded)
+//! if that file exists and is non-empty, otherwise the default `$HOME/brain`.
 //!
-//! The IO-free pieces (`parse_config_root`, `expand_tilde_with_home`) are
+//! `brain-root` is the **one** machine-local pointer brain needs, and the *only*
+//! thing that can't live inside the brain root itself (you can't store the
+//! brain's location inside the brain — that's circular). It is edited by hand
+//! (or tracked externally, e.g. via jpsyx), never by a `brain` CLI command — it
+//! is deliberately not a `brain config` variable. Everything else brain persists
+//! lives *inside* the resolved root at `<root>/.config/` (config.json,
+//! personalization.json, extensions/, plugins/), so it travels with the brain.
+//!
+//! The IO-free pieces (`parse_brain_root_file`, `expand_tilde_with_home`) are
 //! split out from the env/filesystem-touching wrappers so they can be unit
-//! tested without a real `$HOME`, a real `config.json`, or a real exe path.
+//! tested without a real `$HOME` or a real `brain-root` file.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
 
-/// Resolve the absolute `~/brain` directory, erroring if it does not exist.
+/// Resolve the absolute brain-root directory, erroring if it does not exist.
 pub fn brain_root() -> Result<PathBuf> {
-    let configured = config_root()?;
-    let brain = match configured {
-        Some(raw) => expand_tilde(&raw)?,
-        None => default_brain_root()?,
-    };
-    if !brain.is_dir() {
-        bail!("{} does not exist", brain.display());
+    let root = brain_root_path();
+    if !root.is_dir() {
+        bail!("{} does not exist", root.display());
     }
-    Ok(brain)
+    Ok(root)
 }
 
-fn default_brain_root() -> Result<PathBuf> {
-    let home = home_dir()?;
-    Ok(home.join("brain"))
+/// Resolve the brain-root path **without** requiring it to exist.
+///
+/// Used to derive the config dir (`<root>/.config`), where a missing dir must
+/// read as empty rather than fail — config lookups must never block startup.
+#[must_use]
+pub fn brain_root_path() -> PathBuf {
+    read_brain_root_file().map_or_else(default_brain_root_path, |raw| {
+        expand_tilde(&raw).unwrap_or_else(|_| PathBuf::from(raw))
+    })
 }
 
-/// Read the `root` field from the shared config store
-/// (`~/.config/brain/config.json`). Returns the raw string verbatim — tilde
-/// expansion happens in the caller. A missing file is not an error.
-fn config_root() -> Result<Option<String>> {
-    let path = crate::settings::store_path();
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(err.into()),
-    };
-    parse_config_root(&text).map_err(|e| anyhow!("failed to parse {}: {e}", path.display()))
+/// `$HOME/brain` (best-effort: an unset `$HOME` yields a relative `brain`).
+fn default_brain_root_path() -> PathBuf {
+    home_dir().unwrap_or_default().join("brain")
 }
 
-/// Parse the `root` field out of a `config.json` body. Pure: no IO. An
-/// empty string is treated as "unset" (`None`) so a blank config falls back
-/// to the default root.
-pub fn parse_config_root(text: &str) -> Result<Option<String>> {
-    #[derive(serde::Deserialize)]
-    struct Config {
-        root: Option<String>,
-    }
-    let cfg: Config = serde_json::from_str(text)?;
-    Ok(cfg.root.filter(|s| !s.is_empty()))
+/// The machine-local brain-root pointer file: `$XDG_CONFIG_HOME/brain-root` or
+/// `~/.config/brain-root`. This is a plain `$HOME`-side path (NOT inside the
+/// brain root), so reading it never depends on the root it resolves.
+fn brain_root_file() -> PathBuf {
+    let config_home = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| home_dir().unwrap_or_default().join(".config"), PathBuf::from);
+    config_home.join("brain-root")
 }
 
+/// Read + parse the brain-root pointer. `None` when the file is absent, empty,
+/// or unreadable (so the caller falls back to the default root).
+fn read_brain_root_file() -> Option<String> {
+    std::fs::read_to_string(brain_root_file())
+        .ok()
+        .as_deref()
+        .and_then(parse_brain_root_file)
+}
+
+/// Parse the contents of a `brain-root` file into a path string. Pure: no IO.
+/// The file holds a single path; surrounding whitespace/newlines are trimmed and
+/// an empty file is treated as "unset" (`None`).
+#[must_use]
+pub fn parse_brain_root_file(contents: &str) -> Option<String> {
+    let trimmed = contents.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
 
 /// Expand a leading `~` / `~/` against `$HOME`. Non-tilde paths pass through.
 pub fn expand_tilde(raw: &str) -> Result<PathBuf> {
@@ -87,29 +103,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_reads_root_field() {
-        let got = parse_config_root(r#"{"root": "~/brain"}"#).unwrap();
-        assert_eq!(got, Some("~/brain".to_owned()));
+    fn parse_reads_the_path_line() {
+        assert_eq!(parse_brain_root_file("~/brain"), Some("~/brain".to_owned()));
+        assert_eq!(parse_brain_root_file("/srv/brain"), Some("/srv/brain".to_owned()));
     }
 
     #[test]
-    fn empty_root_is_treated_as_unset() {
-        assert_eq!(parse_config_root(r#"{"root": ""}"#).unwrap(), None);
+    fn parse_trims_surrounding_whitespace_and_newlines() {
+        assert_eq!(parse_brain_root_file("  ~/brain \n"), Some("~/brain".to_owned()));
     }
 
     #[test]
-    fn missing_root_field_is_none() {
-        assert_eq!(parse_config_root("{}").unwrap(), None);
-    }
-
-    #[test]
-    fn null_root_is_none() {
-        assert_eq!(parse_config_root(r#"{"root": null}"#).unwrap(), None);
-    }
-
-    #[test]
-    fn invalid_json_errors() {
-        assert!(parse_config_root("not json").is_err());
+    fn empty_or_blank_file_is_unset() {
+        assert_eq!(parse_brain_root_file(""), None);
+        assert_eq!(parse_brain_root_file("   \n\t"), None);
     }
 
     #[test]

@@ -1,25 +1,23 @@
-//! The raw JSON config store at `~/.config/brain/config.json` (or
-//! `$XDG_CONFIG_HOME/brain/config.json`): locating it and reading/writing the
-//! whole object. A broken or missing file never blocks startup — it reads as
-//! an empty map.
+//! The raw JSON config store at `<brain-root>/.config/config.json`: locating it
+//! and reading/writing the whole object. A broken or missing file never blocks
+//! startup — it reads as an empty map.
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 use serde_json::{Map, Value};
 
-/// The brain config directory: `$XDG_CONFIG_HOME/brain` or `~/.config/brain`.
+/// The brain config directory: `<brain-root>/.config`.
 ///
-/// This is the single home for everything brain persists — the JSON config
-/// store, `personalization.json`, and the skill `extensions/` and `plugins/`
-/// sources. It lives under `$HOME` (never inside the brain root and never in
-/// the jpsyx-configs repo); syncing it across machines is handled externally.
+/// This is the home for everything brain persists — the JSON config store,
+/// `personalization.json`, and the skill `extensions/` and `plugins/` sources.
+/// It lives **inside the brain root**, so it travels with the brain (whatever
+/// syncs the brain dir syncs the config too) and jpsyx has nothing to do with
+/// it. The one exception is the brain-root pointer itself, which can't live
+/// inside the root (see [`crate::paths`]).
 #[must_use]
 pub fn config_dir() -> PathBuf {
-    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|s| !s.is_empty()) {
-        return PathBuf::from(xdg).join("brain");
-    }
-    home_dir().join(".config").join("brain")
+    crate::paths::brain_root_path().join(".config")
 }
 
 /// Absolute path to the JSON config store.
@@ -61,10 +59,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn store_path_prefers_xdg_config_home() {
-        // Documented precedence; we can't safely mutate the process env here,
-        // so assert the shape the resolver produces from HOME.
+    fn store_path_is_config_json_inside_the_brain_root() {
+        // config.json lives at <brain-root>/.config/config.json now, so it
+        // travels with the brain. We can't safely mutate the process env here,
+        // so assert the shape the resolver produces.
         let p = store_path();
-        assert!(p.ends_with("brain/config.json"));
+        assert!(p.ends_with(".config/config.json"));
+        assert_eq!(p.parent(), Some(crate::settings::config_dir().as_path()));
     }
 }

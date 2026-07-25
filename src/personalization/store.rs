@@ -1,9 +1,10 @@
 //! Locating and reading/writing the personalization store.
 //!
 //! Personalization is just another brain config, so it lives at
-//! `personalization.json` in the brain config dir (`~/.config/brain/`) alongside
-//! `config.json` — **not** inside the brain root. A missing or broken file reads
-//! as the default value; it never blocks startup.
+//! `personalization.json` in the brain config dir (`<brain-root>/.config/`)
+//! alongside `config.json` — **inside** the brain root, so it travels with the
+//! brain. A missing or broken file reads as the default value; it never blocks
+//! startup.
 
 use std::path::{Path, PathBuf};
 
@@ -59,7 +60,7 @@ mod tests {
     fn resolved_store_path_is_under_the_brain_config_dir() {
         // Whatever the environment, it resolves beside config.json.
         let p = store_path();
-        assert!(p.ends_with("brain/personalization.json"));
+        assert!(p.ends_with(".config/personalization.json"));
         assert_eq!(p.parent(), Some(crate::settings::config_dir().as_path()));
     }
 }

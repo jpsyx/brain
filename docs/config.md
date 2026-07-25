@@ -1,26 +1,38 @@
 # Configuration
 
 `brain` keeps everything it persists under one **brain config dir**,
-`~/.config/brain/` (or `$XDG_CONFIG_HOME/brain/`):
+`<brain-root>/.config/` (e.g. `~/brain/.config/`):
 
 | File / dir | Holds |
 | --- | --- |
-| `config.json` | paths + runtime knobs (`root`, `claude_cmd`, `markdown_to_pdf_path`, …) |
+| `config.json` | runtime knobs (`claude_cmd`, `markdown_to_pdf_path`, `calendar_id`, …) |
 | `personalization.json` | content *about you* (name, role, who you work for, tag styles) |
 | `extensions/<skill>.md` | additive personalization of a bundled skill (see [features](features.md)) |
 | `plugins/<name>/` | whole user-owned skills installed alongside the bundled cores |
 
-The dir lives under `$HOME` — **not** inside the brain root, and **not** in any
-dotfiles repo (`brain` never writes there). Everything in it is created on
-demand; a fresh checkout has none. Whether and how the dir syncs across machines
-is handled externally (e.g. a dotfiles setup); `brain` itself just reads and
-writes `~/.config/brain/`. Machine-specific values that happen to sync (like a
-discovered `markdown_to_pdf_path`) are re-validated and auto-healed on the
-machine that needs them.
+The config dir lives **inside the brain root**, so it travels with the brain:
+whatever syncs the brain dir across your machines syncs the config too, and no
+dotfiles tool is involved (`brain` never writes any external repo). Everything
+in it is created on demand; a fresh checkout has none. A machine-specific value
+that rides along in the synced `config.json` (a discovered `markdown_to_pdf_path`)
+is re-validated and auto-healed on the machine that needs it.
+
+## The one thing that can't live in the brain root: `root`
+
+The brain-root location can't be stored *inside* the brain root — you'd need to
+know the root to read the setting that tells you the root. So `root` is resolved
+separately and is **not** a `brain config` variable:
+
+1. the path in `~/.config/brain-root` (a one-line file, tilde-expanded), if present;
+2. otherwise the default `~/brain`.
+
+`~/.config/brain-root` is the *only* machine-local piece of brain state. Edit it
+by hand (or track it in your dotfiles); there is deliberately no
+`brain config set root`. It's read-only from brain's side — since brain only
+reads it, a dotfiles tool can safely symlink it (no runtime-write clobber).
 
 This document is mostly about the **config store**
-(`~/.config/brain/config.json`). It is created on demand — you don't commit it,
-and a fresh checkout has none. Manage it with `brain config` rather than
+(`<brain-root>/.config/config.json`). Manage it with `brain config` rather than
 editing it by hand (though hand-editing is fine). For personalization see the
 [Personalization](#personalization) section below and
 [data-model.md](data-model.md).
@@ -50,7 +62,6 @@ the `name=value` form.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `root` | `~/brain` | The brain (PARA) directory `brain` operates on. A leading `~`/`~/` is expanded against `$HOME`. Read by `paths.rs`. |
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command brain spawns for the "Create PDF" action. See below. Read by `settings/`. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
@@ -59,12 +70,12 @@ the `name=value` form.
 | `skills_auto_sync` | `true` | When `true`, a `config`/`personalize` mutation re-renders and installs the bundled skills into the agent registry (`skills::resync_skills`). Default `true` since the B4 cutover; set `false` to manage the registry only via explicit `brain skills sync`. Read by `src/skills/`. |
 
 Every variable is optional; a missing file or missing field falls back to the
-default above. `root` is read by `paths.rs` (and honored by the persistent
-shell, which resolves the brain directory through `paths::brain_root()`); the
-runtime knobs (`daily_triage_name_pattern`, `linear_workspace`,
-`day_rollover_hour`, `claude_cmd`) by `config.rs::Config`;
-`markdown_to_pdf_path` by `settings/`. They all read the same file and ignore
-fields they don't use.
+default above. The brain directory itself is resolved by `paths::brain_root()`
+from `~/.config/brain-root` or the `~/brain` default (see above — it is *not* a
+config variable). The runtime knobs (`daily_triage_name_pattern`,
+`linear_workspace`, `day_rollover_hour`, `claude_cmd`) are read by
+`config.rs::Config`; `markdown_to_pdf_path` by `settings/`. They all read the
+same `config.json` and ignore fields they don't use.
 
 ## The `markdown-to-pdf` prerequisite
 
@@ -76,9 +87,11 @@ PDF" command. Its location is not hardcoded (the repo is public), so:
    `/usr/local/bin`, `/opt/homebrew/bin`, `~/bin`); then the login shell, which
    resolves an autoloaded shell-function wrapper to the script it wraps.
 2. The first hit is persisted to `markdown_to_pdf_path`.
-3. At every startup the configured path is validated. If it is unset and
-   discovery finds nothing, or it is set but missing/not executable, brain
-   prints a red `❌` error and exits, telling you to run
+3. At every startup the configured path is validated. If it is set but
+   missing/not executable on *this* machine (e.g. a `config.json` that synced
+   from another host with a different path), brain re-runs discovery and heals
+   the value automatically. Only if it is unset (or invalid) **and** discovery
+   finds nothing does brain print a red `❌` error and exit, telling you to run
    `brain config set markdown_to_pdf_path=/path/to/markdown-to-pdf`.
 
 The `brain config …` command itself is exempt from this gate, so you can always
@@ -114,9 +127,9 @@ See those modules' unit tests and `tests/root_resolution.rs`.
 ## Personalization
 
 Personalization is content *about you*, stored beside `config.json` in the brain
-config dir at `~/.config/brain/personalization.json`. It is just another brain
-config — it lives under `$HOME`, not inside the brain root. Manage it with
-`brain personalize` (see [features.md](features.md)); the schema lives in
+config dir at `<brain-root>/.config/personalization.json`. It is just another
+brain config — it lives inside the brain root and travels with the brain. Manage
+it with `brain personalize` (see [features.md](features.md)); the schema lives in
 [data-model.md](data-model.md).
 
 | Field | Meaning |

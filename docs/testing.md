@@ -134,7 +134,7 @@ logic to a pure function over mocking:
   navigation/matching logic is pure (`handle_key`, `App`), and only the
   thin `run()` shell touches `/dev/tty`.
 - **No mock for the config store.** `settings` schema resolution runs against
-  an explicit in-memory map, never the real `~/.config/brain/config.json`.
+  an explicit in-memory map, never the real `<brain-root>/.config/config.json`.
   That's a value seam, not a mock.
 
 **Production modules don't get test-only methods.** Setup helpers live in

@@ -38,9 +38,10 @@ pub fn resync_skills() {
     let _ = install::sync(&layout::Layout::real(&home), &real_sources());
 }
 
-/// Extension + plugin sources from the brain config dir
-/// (`~/.config/brain/{extensions,plugins}`). Personalization, extensions, and
-/// plugins all live under the brain config dir, not inside the brain root.
+/// Extension + plugin sources from the brain config dir.
+///
+/// They live at `<brain-root>/.config/{extensions,plugins}` — inside the brain
+/// root, alongside personalization and config, so they travel with the brain.
 #[must_use]
 pub fn real_sources() -> install::Sources {
     let config_dir = crate::settings::config_dir();

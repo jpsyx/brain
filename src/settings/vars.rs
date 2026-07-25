@@ -109,11 +109,20 @@ mod tests {
         // Hermetic: resolve against an empty map, not the real store.
         let rows = resolve_all_from(&Map::new());
         assert_eq!(rows.len(), VARS.len());
-        let root = rows.iter().find(|r| r.name == "root").unwrap();
-        assert_eq!(root.value.as_deref(), Some("~/brain"));
+        // A var with a built-in default resolves to it.
+        let agenda = rows.iter().find(|r| r.name == "agenda_dir").unwrap();
+        assert_eq!(agenda.value.as_deref(), Some("~/Downloads"));
         // No built-in default → unset (until the user or discovery sets it).
         let ws = rows.iter().find(|r| r.name == "linear_workspace").unwrap();
         assert_eq!(ws.value, None);
+    }
+
+    #[test]
+    fn root_is_not_a_config_variable() {
+        // The brain-root pointer is resolved outside the config system, so
+        // `config` neither lists nor accepts it.
+        assert!(resolve_all_from(&Map::new()).iter().all(|r| r.name != "root"));
+        assert!(set("root", "/srv/brain").is_err());
     }
 
     #[test]
@@ -128,11 +137,11 @@ mod tests {
     #[test]
     fn resolve_all_prefers_an_explicit_value_over_the_default() {
         let mut map = Map::new();
-        map.insert("root".to_owned(), Value::from("/srv/brain"));
+        map.insert("agenda_dir".to_owned(), Value::from("/srv/agenda"));
         map.insert("linear_workspace".to_owned(), Value::from("acme"));
         let rows = resolve_all_from(&map);
         let val = |n: &str| rows.iter().find(|r| r.name == n).unwrap().value.clone();
-        assert_eq!(val("root").as_deref(), Some("/srv/brain"));
+        assert_eq!(val("agenda_dir").as_deref(), Some("/srv/agenda"));
         assert_eq!(val("linear_workspace").as_deref(), Some("acme"));
     }
 }

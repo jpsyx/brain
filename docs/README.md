@@ -65,7 +65,7 @@ tests/
   entry_collect.rs   — entry::collect against real temp dir trees
   root_resolution.rs — config parse + tilde expansion composition
 run.sh           — builds when sources change, then execs the binary
-config.example.json — sample config; the real store is ~/.config/brain/ (see config.md)
+config.example.json — sample config; the real store is <brain-root>/.config/ (see config.md)
 docs/            — this directory
 AGENTS.md        — agent contract (root)
 CLAUDE.md        — symlink → AGENTS.md

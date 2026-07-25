@@ -102,14 +102,16 @@ subcommand). Bare `brain` (no `Cmd`) is equivalent to `brain tasks` — the
 tasks view is the startup default.
 
 ### `paths.rs`
-Brain-root resolution. `brain_root()` reads the config store's `root`
-(tilde-expanded) or falls back to `$HOME/brain`, erroring if the result
-isn't a directory. The IO-free pieces (`parse_config_root`,
+Brain-root resolution. `brain_root()` reads the path in `~/.config/brain-root`
+(tilde-expanded) or falls back to `$HOME/brain`, erroring if the result isn't a
+directory; `brain_root_path()` is the non-erroring variant used to derive the
+config dir. `root` is deliberately *not* a config variable — it can't live inside
+the brain root it resolves. The IO-free pieces (`parse_brain_root_file`,
 `expand_tilde_with_home`) are split out so they're unit-testable without a
-real `$HOME` or config file. See [config.md](config.md).
+real `$HOME` or pointer file. See [config.md](config.md).
 
 ### `settings/`
-The persistent config store (`~/.config/brain/config.json`) and the
+The persistent config store (`<brain-root>/.config/config.json`) and the
 `brain config` command. Owns the raw JSON read/modify/write, the declared-
 variable schema, get/set/list (with the aligned, colored `config list` table),
 and the `markdown-to-pdf` prerequisite: auto-discovery (PATH → conventional bin
@@ -122,9 +124,9 @@ prerequisite). See [config.md](config.md).
 
 ### `personalization/`
 The personalization store — content *about you* at
-`~/.config/brain/personalization.json` (beside the config store in
-`settings::config_dir()`; it is just another brain config, under `$HOME` rather
-than inside the brain root). Split into `model` (the `Personalization` schema +
+`<brain-root>/.config/personalization.json` (beside the config store in
+`settings::config_dir()`; it is just another brain config, inside the brain root
+so it travels with the brain). Split into `model` (the `Personalization` schema +
 parse), `store` (path resolution in the brain config dir + load/save), `tags`
 (the `TagStyle`/`TagStyles` model, the
 generic defaults `mit`/`personal`/`work`, and pure label resolution with

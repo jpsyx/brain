@@ -412,13 +412,54 @@ varies per user; brain owns the URL shape, so a user configures the minimum and
 can't get the surrounding format wrong. `Config::linear_base_url` interpolates
 it, and an empty slug simply omits Linear links.
 
-## Why config lives in `~/.config/brain/`, not the repo
+## Why config lives inside the brain root (`<brain-root>/.config/`), not `~/.config/brain`
 
-The store is machine-local and writable (auto-discovery persists into it), and
-the repo is public — so shipping a real `config.json` in the checkout would
-both leak machine-specific values and fight the auto-write. Config therefore
-lives at `~/.config/brain/config.json` (XDG-respecting), managed by
-`brain config`, and never tracked.
+Everything brain persists — `config.json`, `personalization.json`, skill
+`extensions/`, `plugins/` — lives in `<brain-root>/.config/`. The design went
+through three positions and this is the resting one:
+
+1. **A/original:** machine-local `config.json` at `~/.config/brain`, but
+   personalization *inside* the brain root so it synced with the brain.
+2. **Mid-project:** unify *everything* under `~/.config/brain` and sync that dir
+   externally (via jpsyx-configs `home/`).
+3. **Final (here):** unify everything *inside the brain root*.
+
+Position 2 died on a concrete footgun. jpsyx syncs `$HOME` paths by symlinking
+them at a **regenerated mirror** (`home-dist/`, wiped and rebuilt every sync). A
+tool that *writes its config at runtime* (brain does: `config set`, `personalize
+set`, onboarding, `resync_skills`) writing through such a symlink lands its bytes
+in the gitignored mirror, which is then wiped on the next build — the write is
+lost and never committed. brain can't dodge it the way the jpsyx-native
+`email-triage` skill does (writing the repo *source* directly), because brain
+must stay generic and **never know about jpsyx-configs**.
+
+So instead of routing brain's runtime writes through any dotfiles mirror, we put
+its config *inside the brain*. The brain root is already the user's synced,
+portable content; brain's own state rides along with it for free (whatever syncs
+the brain — sub-project C, Backblaze, etc. — syncs the config), and **jpsyx has
+nothing to do with brain config at all**. The repo stays generic (no tracked
+`config.json`), and brain still writes only under `$HOME`.
+
+### The one exception: `root`
+
+The brain-root *location* can't be stored inside the brain root — you'd need the
+root to find the setting that tells you the root (circular). So `root` is
+resolved outside the config system: the path in `~/.config/brain-root` (a
+one-line file, tilde-expanded) if present, else the default `~/brain`. It is the
+**only** machine-local piece of brain state, is **not** a `brain config` variable
+(there is no `brain config set root`), and is edited by hand or tracked in
+dotfiles. Because brain only ever *reads* it, a dotfiles tool can safely
+mirror-symlink it — the runtime-write footgun above doesn't apply to a read-only
+pointer. Pablo tracks it in jpsyx at `home/.config/brain-root` containing
+`~/brain`.
+
+### `markdown_to_pdf_path` and syncing a machine-specific value
+
+`config.json` now syncs across machines, but `markdown_to_pdf_path` is
+machine-specific (the binary sits at a different path per host). The startup gate
+handles this: a stored path that is missing/not-executable on *this* machine
+triggers re-discovery (and re-persist) before failing, so a synced-but-stale
+value self-heals instead of stranding the machine.
 
 ## Why `Ctrl-N` sends `/new` instead of being forwarded to claude
 
@@ -441,23 +482,14 @@ sitting unsent. Sending the Enter as a distinct keystroke a beat later makes
 claude actually submit it. This mirrors the `tasks` sibling's
 `pending_brain_submit` mechanism (learned there first).
 
-## Why personalization lives in the brain config dir, not inside the brain root
+## Why personalization is just another brain config (in the brain root)
 
 Personalization (name, role, who you work for, tag styles, namespaces) is
-content *about you* that should be identical on every machine. An earlier design
-put it *inside the brain root* (`<root>/.config/personalization.json`) so it rode
-along when the brain dir synced. We moved it: personalization is now just another
-brain config, stored beside `config.json` in the brain config dir
-(`~/.config/brain/personalization.json`, `settings::config_dir()`).
-
-The reasons: (1) it unifies "everything brain persists" under one `$HOME` dir
-that a dotfiles setup can sync as a whole, instead of splitting config across the
-brain root and `~/.config/brain`; (2) it keeps the brain root purely user
-content (notes, projects), not brain's own state; (3) `brain` still writes only
-under `$HOME` and **never** touches the jpsyx-configs repo — how `~/.config/brain`
-syncs across machines is handled externally. Machine-specific values that happen
-to sync (e.g. a discovered `markdown_to_pdf_path`) are re-validated and
-auto-healed where needed, so a single synced dir doesn't strand a machine.
+content *about you* that should be identical on every machine. It is stored beside
+`config.json` in the brain config dir (`<brain-root>/.config/personalization.json`,
+`settings::config_dir()`) — just another brain config, riding along when the
+brain dir syncs. See the config-location decision above for why everything brain
+persists lives inside the brain root (and the `root`-pointer exception).
 
 ## Why tag styles (and identity) are personalization, not hardcoded
 
@@ -685,10 +717,14 @@ jpsyx sync and asserts brain-owned links survive.
    `habits`, and `zotero-article-summary` stay jpsyx-owned — the first two were
    never migrated, and `zotero-article-summary` is left in place as a no-regression
    default until Pablo confirms the `zotero-sync` plugin fully supersedes it.)
-5. Persist `~/.config/brain` across machines jpsyx-side **without** the
-   mirror-clobber footgun: it must be tracked/seed-copied, never mirror-symlinked
-   (a naive `home/.config/brain` symlink would point runtime writes at the
-   regenerated `home-dist/` mirror and lose them on the next sync).
+5. Persist brain's config across machines. **Resolved not by jpsyx but by moving
+   the config into the brain root** (`<brain-root>/.config/`), so it syncs with
+   the brain and jpsyx never touches it — see "Why config lives inside the brain
+   root" above. This sidesteps the mirror-clobber footgun entirely (jpsyx would
+   have symlinked `~/.config/brain` at the regenerated `home-dist/` mirror and
+   lost brain's runtime writes on the next sync). The one machine-local remnant,
+   the `root` pointer (`~/.config/brain-root`), *is* jpsyx-tracked — safely,
+   because brain only reads it.
 
 **Rollback:** `scratchpad/b4-snapshot/ROLLBACK.sh` removes brain's built dir and
 brain-owned links, then re-runs `jpsyx sync` to restore the jpsyx-owned registry
