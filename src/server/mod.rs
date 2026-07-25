@@ -6,16 +6,17 @@
 //! [`router::Route`] mapping. [`run`] is the blocking accept loop the detached
 //! daemon runs.
 //!
-//! Routes are placeholders for now: `GET /habits` renders a stub page and
-//! `POST /habits/done` accepts an empty JSON body. Real habits rendering
-//! lands in a later task. Everything else, including the bare root `/`, is a
+//! `GET /habits` renders today's habits page (see [`routes::habits`]) and
+//! `POST /habits/done` marks a habit done by delegating to brain's own
+//! completion machinery. Everything else, including the bare root `/`, is a
 //! 404 (the brain server has no root view).
 
 pub mod lifecycle;
 pub mod router;
+pub mod routes;
 
 use anyhow::{Context, Result};
-use tiny_http::{Header, Response, Server};
+use tiny_http::{Header, Request, Response, Server};
 
 use self::router::Route;
 
@@ -38,21 +39,31 @@ pub fn run(port: u16) -> Result<()> {
         .port();
     lifecycle::write_state(lifecycle::ServerState { pid: std::process::id(), port: actual })?;
 
-    for request in server.incoming_requests() {
-        let response = respond(request.method().as_str(), request.url());
+    for mut request in server.incoming_requests() {
+        let response = respond(&mut request);
         let _ = request.respond(response);
     }
     Ok(())
 }
 
-/// Build the response for a single request, given its method and URL. The
-/// routing decision itself is the pure [`router::route`].
-fn respond(method: &str, url: &str) -> Response<std::io::Cursor<Vec<u8>>> {
-    match router::route(method, url) {
-        Route::HabitsPage => Response::from_string("habits view (coming soon)")
-            .with_header(content_type("text/plain; charset=utf-8")),
+/// Build the response for a single request. The routing decision itself is the
+/// pure [`router::route`]; the handlers ([`routes::habits`]) own the HTML/JSON.
+fn respond(request: &mut Request) -> Response<std::io::Cursor<Vec<u8>>> {
+    let route = router::route(request.method().as_str(), request.url());
+    match route {
+        Route::HabitsPage => {
+            let root = crate::paths::brain_root_path();
+            Response::from_string(routes::habits::page(&root))
+                .with_header(content_type("text/html; charset=utf-8"))
+        }
         Route::HabitsDone => {
-            Response::from_string("{}").with_header(content_type("application/json"))
+            let mut body = String::new();
+            let _ = request.as_reader().read_to_string(&mut body);
+            let root = crate::paths::brain_root_path();
+            let (status, json) = routes::habits::done(&root, &body).response();
+            Response::from_string(json)
+                .with_status_code(status)
+                .with_header(content_type("application/json"))
         }
         Route::NotFound => Response::from_string(String::new()).with_status_code(404),
     }

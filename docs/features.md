@@ -372,10 +372,14 @@ brain (synced, never committed to the repo):
 
 The **brain server** is a small, local-only HTTP daemon: one shared instance
 per machine, reused across every `brain` invocation and tab. It is a general,
-growable localhost service. Today it serves placeholder routes (`GET /habits`
-returns `habits view (coming soon)`; `POST /habits/done` returns `{}`); the
-real habits view and future webhook POST endpoints land later. Everything else,
-including the bare root `/`, is a 404 (the server has no root view).
+growable localhost service. `GET /habits` renders today's habits as a
+flat-design HTML page (grouped by time-of-day, then priority, with a completed
+accordion), and `POST /habits/done` marks a habit done — delegating to brain's
+own completion machinery (the bundled `mark_done.py`, the same path
+`brain tasks complete` runs), so the web "done" spawns habit recurrence exactly
+like the CLI and returns `{"ok": true, "next_due": <date|null>}`. Everything
+else, including the bare root `/`, is a 404 (the server has no root view).
+Future webhook POST endpoints add one module under `src/server/routes/`.
 
 - `brain server start` — start the daemon in the background if it isn't already
   running (idempotent: an existing live server is reused and its URL reprinted).

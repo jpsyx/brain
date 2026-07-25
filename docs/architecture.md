@@ -414,12 +414,23 @@ one shared instance per machine across all `brain` invocations and tabs. Its
   and the `start`/`status`/`kill` CLI actions.
 - `server/mod.rs` — `run(port)`, the blocking accept loop the detached daemon
   runs: binds `127.0.0.1:port` (`0` = OS-assigned), writes the actual bound
-  port to the record, then serves placeholder responses per the router.
+  port to the record, then dispatches each request through the router to a
+  handler in `server/routes/`.
+- `server/routes/` — the route registry (`routes/mod.rs` is one `pub mod` line
+  per endpoint). `routes/habits/` is the `/habits` route in MVC form:
+  `model.rs` (pure `classify` filter+sort of today's habits over a `Habit`
+  struct, plus the thin `load` reader of `<root>/tasks/habits.csv`), `view.rs`
+  (pure HTML rendering into the `web/habits/` shell, with `style.css`/`app.js`
+  inlined via `include_str!`), and `mod.rs` (the thin controller: `page` =
+  load→classify→render, `done` = parse body → reuse `tasks::complete`'s
+  `mark_done.py` → `DoneOutcome`).
 
 The daemon is spawned detached without `unsafe`: `CommandExt::process_group(0)`
-plus null stdio on the current exe (`brain server run --port <p>`). Routes are
-placeholders now; real habits rendering lands in a later task. `tasks_launch`
-best-effort calls `ensure_running()` so the server comes up with the shell.
+plus null stdio on the current exe (`brain server run --port <p>`).
+`tasks_launch` best-effort calls `ensure_running()` so the server comes up with
+the shell. The frontend assets live at the repo root under `web/habits/`
+(`index.html` shell + `style.css` + `app.js`), embedded into the binary at
+compile time.
 
 ### `lib.rs`
 Re-exports the modules so integration tests in `tests/` can link against
