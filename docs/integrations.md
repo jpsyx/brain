@@ -204,8 +204,13 @@ bookkeeping.
   (re-)establish the baseline listings — the fix for a fresh machine's first
   sync, or for recovering after this guard trips.
 - **The setup flow.** `brain sync setup` (`src/sync/setup.rs`) checks
-  `rclone` is on `PATH`, prompts on `/dev/tty` for the bucket + B2 key id +
-  application key (pre-filled with any existing values), validates them,
+  `rclone` is on `PATH`, then acts as a guided walkthrough: it asks whether you
+  already have a bucket (`ask_has_bucket` / pure `parse_yes_no`), and if not
+  prints `bucket_walkthrough()` — the step-by-step Backblaze bucket + app-key
+  guide (private, Default Encryption on, Object Lock off) whose coverage of the
+  critical settings is unit-tested — and pauses. It then prompts on `/dev/tty`
+  for the bucket + B2 key id + application key (pre-filled with any existing
+  values), validates them,
   writes the `sync` block into brain env (`crate::env::set_raw`, **not**
   brain config — see [config.md](config.md)), probes the bucket with `rclone
   lsd` and offers to `rclone mkdir` it if unreachable, then runs one
