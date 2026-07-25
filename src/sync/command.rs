@@ -45,7 +45,15 @@ pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str
     let local = root.to_string_lossy().into_owned();
     let argv = args::bisync_args(cfg, &local, &remote.arg, dir);
 
-    let run = run_rclone(&remote.env, &argv);
+    let mut run = run_rclone(&remote.env, &argv);
+    let resumed = if should_auto_resync(dir, run.abort.as_ref()) {
+        eprintln!("Baseline was incomplete (a prior sync was interrupted); resuming with a resync…");
+        let resync_argv = args::bisync_args(cfg, &local, &remote.arg, Direction::Resync);
+        run = run_rclone(&remote.env, &resync_argv);
+        true
+    } else {
+        false
+    };
     let renamed_count = conflicts::rename_markers(root, &hostname(), date);
     let renamed = u64::try_from(renamed_count).unwrap_or(0);
     let leftover = conflicts::leftover_markers(root);
@@ -61,12 +69,30 @@ pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str
         deleted: run.deleted,
         conflicts: renamed,
         errors: run.errors,
-        note: match &outcome {
-            Outcome::Clean => String::new(),
-            Outcome::NeedsAttention(m) | Outcome::Aborted(m) => m.clone(),
+        note: {
+            let base = match &outcome {
+                Outcome::Clean => String::new(),
+                Outcome::NeedsAttention(m) | Outcome::Aborted(m) => m.clone(),
+            };
+            if resumed {
+                if base.is_empty() { "auto-resumed after interrupted baseline".to_owned() }
+                else { format!("auto-resumed after interrupted baseline; {base}") }
+            } else {
+                base
+            }
         },
     })?;
     Ok(outcome)
+}
+
+/// Whether an interrupted/missing baseline should trigger one automatic resync.
+///
+/// True only when the run aborted with `PriorListingMissing` AND this wasn't
+/// already a resync (a resync re-establishes the baseline, so never loop on it).
+#[must_use]
+pub fn should_auto_resync(dir: Direction, abort: Option<&crate::sync::run::AbortKind>) -> bool {
+    dir != Direction::Resync
+        && matches!(abort, Some(crate::sync::run::AbortKind::PriorListingMissing))
 }
 
 #[must_use]
@@ -189,6 +215,18 @@ mod tests {
         assert_eq!(direction_from_flags(true, false).unwrap(), Direction::Push);
         assert_eq!(direction_from_flags(false, true).unwrap(), Direction::Pull);
         assert!(direction_from_flags(true, true).is_err());
+    }
+
+    #[test]
+    fn auto_resyncs_only_on_prior_listing_missing_and_not_already_a_resync() {
+        use crate::sync::run::AbortKind;
+        assert!(should_auto_resync(Direction::Both, Some(&AbortKind::PriorListingMissing)));
+        assert!(should_auto_resync(Direction::Push, Some(&AbortKind::PriorListingMissing)));
+        // already a resync -> don't loop
+        assert!(!should_auto_resync(Direction::Resync, Some(&AbortKind::PriorListingMissing)));
+        // other aborts / clean -> no auto resync
+        assert!(!should_auto_resync(Direction::Both, Some(&AbortKind::MaxDelete)));
+        assert!(!should_auto_resync(Direction::Both, None));
     }
 
     #[test]
