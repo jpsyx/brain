@@ -127,12 +127,19 @@ the `skills` CLI). After cloning, restore them with:
 npx skills experimental_install     # materializes the pinned skills locally
 ```
 
-Currently pinned: **`rust-skills`** (leonardomso/rust-skills — 265 idiomatic-Rust
-rules; invoke with `/rust-skills`). Add more with `npx skills add <owner>/<repo>`
-(project scope by default) and commit the updated `skills-lock.json`. Do **not**
-rely on globally-installed skills — pin what this repo needs here. (These are
-*developer* skills for people working **on** brain; they are separate from the
-product skills brain ships to users in `skills/`.)
+Currently pinned (all directly relevant to this Rust, TDD-first repo):
+
+- **`rust-skills`** (leonardomso/rust-skills) — 265 idiomatic-Rust rules; invoke
+  with `/rust-skills` when writing/reviewing/refactoring Rust here.
+- **`test-driven-development`** (obra/superpowers) — the red/green loop this
+  repo's "iron law" requires.
+- **`systematic-debugging`** (obra/superpowers) — for any bug/test-failure.
+
+Add more with `npx skills add <owner>/<repo>@<skill>` (project scope by default)
+and commit the updated `skills-lock.json`. Do **not** rely on globally-installed
+skills — pin what this repo needs here. (These are *developer* skills for people
+working **on** brain; they are separate from the product skills brain ships to
+users in `skills/`.)
 
 ## Quick orientation for new agents
 
