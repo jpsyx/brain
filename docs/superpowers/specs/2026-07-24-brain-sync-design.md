@@ -42,30 +42,56 @@ own. See §12 for the decision record.
 | Triggers | **Manual `brain sync`** + **auto on brain start/exit** + a **continuous watcher that is on by default whenever sync is configured**. Plus `/second-brain sync` (shells out to the CLI). |
 | Ledger | Narrows to a **sync journal + CSV-merge baseline** in the machine-local cache (rclone owns file diffing). |
 
-## 3. The config split C forces (machine-level vs brain-internal)
+## 3. Two config stores: **brain env** vs **brain config**
 
-C introduces machine-level state (B2 credentials, bucket) that **must not** ride
-the brain-dir sync. This finally splits brain's config into two stores by
-**lifecycle**, cleanly separating what syncs *with the brain* from what is
-*per-machine*.
+C introduces machine-level state (B2 credentials, bucket, the brain-root path)
+that **must not** ride the brain-dir sync. This splits brain's configuration into
+two clearly-named stores by **lifecycle**, each with its own CLI:
 
-| Store | Path | Holds | Synced how |
-|---|---|---|---|
-| **Machine-level config** | `~/.config/brain/config.json` (fixed XDG path, **outside** the brain root) | `root`, the `sync` block (B2 creds, bucket, trigger flags), `claude_cmd`, `markdown_to_pdf_path`, `calendar_id`, `agenda_dir`, `skills_auto_sync`, … | **Not** by C. The user *may* privately track it in `jpsyx-configs` at `home/.config/brain/` (private repo). brain never knows about jpsyx-configs. |
-| **Brain-internal config** | `<brain-root>/.config/` | `personalization.json`, `extensions/<skill>.md`, `plugins/<name>/` | **By C**, riding the brain-dir sync — your personalization/extensions travel with your brain. |
+| Store | What it is | Path | CLI | Holds | Synced how |
+|---|---|---|---|---|---|
+| **brain env** | machine environment | `~/.config/brain/env.json` (fixed XDG path, **outside** the brain root) | `brain env {list\|get\|set}` | `root`, `markdown_to_pdf_path`, the `sync` block (B2 creds, bucket, trigger flags) | **Not by C.** The user may privately track it in the private `jpsyx-configs` repo at `home/.config/brain/env.json`. brain never knows about jpsyx-configs. |
+| **brain config** | portable preferences | `<brain-root>/.config/config.json` | `brain config {list\|get\|set}` | `linear_workspace`, `daily_triage_name_pattern`, `day_rollover_hour`, `agenda_dir`, `calendar_id`, `claude_cmd`, `skills_auto_sync` | **By C**, riding the brain-dir sync. |
+| **personalization** | content about you | `<brain-root>/.config/` (`personalization.json`, `extensions/`, `plugins/`) | `brain personalize` | identity, tag styles, skill extensions/plugins | **By C**, riding the brain-dir sync. |
 
-- **`root` becomes a key** in `~/.config/brain/config.json`, replacing the
-  `~/.config/brain-root` one-line pointer. Because the config file now lives at a
-  fixed path *outside* the brain root, the old circular-dependency argument ("you
-  need the root to find the setting that names the root") no longer applies:
-  `~/.config/brain/config.json` is found without knowing the root. The legacy
-  `~/.config/brain-root` pointer is still read for back-compat and migrated into
-  the `root` key on first run.
+The rule of thumb: **brain env = would be *wrong* if copied to another machine**
+(absolute paths, machine binaries, secrets); **brain config = *right* on every
+machine** (slugs, preferences, behavior flags). Only three things live in the new
+brain env: `root`, `markdown_to_pdf_path`, and the `sync` block. `brain config`
+keeps managing everything it manages today, and `config.json` **stays** in
+`<brain-root>/.config/` so it travels with the brain.
+
+- **`root` becomes a brain-env key** in `~/.config/brain/env.json`, replacing the
+  `~/.config/brain-root` one-line pointer. Because env.json lives at a fixed path
+  *outside* the brain root, the old circular-dependency argument ("you need the
+  root to find the setting that names the root") no longer applies: env.json is
+  found without knowing the root. The legacy pointer is still read for back-compat
+  and migrated into the `root` key on first run.
+- **`markdown_to_pdf_path` moves from brain config to brain env.** It is a
+  machine-specific binary path (it already "self-heals" per machine today); brain
+  env is its correct home, and moving it removes the self-heal hack for a value
+  that was needlessly riding the sync.
 - **This partially reverses the A-era decision** (decisions.md: "unify everything
-  inside the brain root") that was made to dodge the jpsyx mirror-write footgun.
-  The reversal is correct because C makes the *opposite* problem dominant:
-  machine-level secrets/paths cannot be allowed to sync via the brain dir. See
-  §12 for the footgun's residual handling.
+  inside the brain root") that dodged the jpsyx mirror-write footgun. The reversal
+  is correct because C makes the *opposite* problem dominant: machine-level
+  secrets/paths cannot be allowed to sync via the brain dir. See §12 for the
+  footgun's residual handling.
+
+### 3.1 The `brain env` command
+
+Mirrors `brain config` exactly, over the brain-env store:
+
+| Invocation | Effect |
+|---|---|
+| `brain env` / `brain env list` | Print the brain-env table (`root`, `markdown_to_pdf_path`, a `sync` summary). |
+| `brain env get <field>` | One field's effective value (explicit or default). |
+| `brain env set <field>=<value>` | Set + persist into `~/.config/brain/env.json`. Unknown fields rejected. |
+
+Like `brain config`, `brain env` runs **before** the `markdown-to-pdf` startup
+gate (you must be able to repair your environment). Field-name normalization
+matches `brain config` (lowercase, `-`→`_`). The `sync` block is edited via
+`brain sync setup` (C2), not raw `brain env set`, though individual scalar
+env fields are settable directly.
 
 ## 4. Architecture
 
@@ -173,16 +199,14 @@ the `bundled_skills_carry_no_personal_data` guard applies):
 Both are described generically; no bucket names, hosts, or personal paths in the
 skill text.
 
-## 9. Config schema (`~/.config/brain/config.json`)
+## 9. Config schema
+
+**brain env** (`~/.config/brain/env.json`, machine-local, `brain env` CLI):
 
 ```jsonc
 {
   "root": "~/brain",
-  "claude_cmd": "…",
   "markdown_to_pdf_path": "…",
-  "calendar_id": "…",
-  "agenda_dir": "~/Downloads",
-  "skills_auto_sync": true,
 
   "sync": {
     "enabled": true,
@@ -198,10 +222,25 @@ skill text.
 }
 ```
 
+**brain config** (`<brain-root>/.config/config.json`, synced with the brain,
+`brain config` CLI) — unchanged from today minus `markdown_to_pdf_path`:
+
+```jsonc
+{
+  "linear_workspace": "…",
+  "daily_triage_name_pattern": "Morning Triage",
+  "day_rollover_hour": 6,
+  "agenda_dir": "~/Downloads",
+  "calendar_id": "…",
+  "claude_cmd": "claude --dangerously-skip-permissions",
+  "skills_auto_sync": true
+}
+```
+
 - All `sync` fields optional; a missing `sync` block ⇒ sync disabled, brain
-  unchanged. Unknown top-level keys ignored (forward-compat).
-- `root` accepts `~`-expansion; back-compat falls back to `~/.config/brain-root`
-  then `~/brain`.
+  unchanged. Unknown top-level keys ignored (forward-compat) in both stores.
+- `root` accepts `~`-expansion; back-compat resolution falls back to
+  `~/.config/brain-root` then `~/brain`.
 
 ## 10. Prerequisites & doctor
 
@@ -217,10 +256,11 @@ skill text.
 - **Private bucket + SSE.** Backblaze holds the keys (not zero-knowledge) — an
   accepted tradeoff for simplest recovery. The design leaves a clean seam to
   layer `rclone crypt` later without changing `brain sync`.
-- **Secrets are machine-local.** B2 keys live only in `~/.config/brain/config.json`
-  (outside the synced brain dir), so they never land in the B2 bucket. If the
-  user tracks that file in the **private** `jpsyx-configs` repo, the secret sits
-  in a private repo by their explicit choice; brain itself is agnostic.
+- **Secrets are machine-local.** B2 keys live only in brain env
+  (`~/.config/brain/env.json`, outside the synced brain dir), so they never land
+  in the B2 bucket. If the user tracks that file in the **private** `jpsyx-configs`
+  repo, the secret sits in a private repo by their explicit choice; brain itself
+  is agnostic.
 - **`--max-delete` guard** prevents a corrupted/empty local state from mass-
   deleting the remote brain (and vice-versa); a trip aborts and journals for
   review rather than propagating.
@@ -236,21 +276,27 @@ skill text.
   conflict handling are the hard, dangerous core of sync; rclone bisync is mature
   and correct there. brain keeps only the semantic pieces (CSV merge, conflict
   UX, journal/verify). Recorded in `docs/decisions.md`.
-- **Decision — the residual jpsyx mirror-write footgun.** `~/.config/brain/config.json`
-  is runtime-mutable (`brain config set`, `markdown_to_pdf_path` self-heal). If
-  the user mirror-symlinks it via jpsyx (writes land in the wiped `home-dist/`
-  mirror and are lost), the fix is a **jpsyx-side** concern: seed/copy the file
-  rather than symlink it, or re-commit after changes. brain stays generic and
-  does nothing special. Flagged here so the user handles it in their jpsyx setup;
-  it does not change brain's design.
+- **Decision — the residual jpsyx mirror-write footgun.** Brain env
+  (`~/.config/brain/env.json`) is runtime-mutable (`brain env set`,
+  `markdown_to_pdf_path` self-heal). If the user mirror-symlinks it via jpsyx
+  (writes land in the wiped `home-dist/` mirror and are lost), the fix is a
+  **jpsyx-side** concern: seed/copy the file rather than symlink it, or re-commit
+  after changes. brain stays generic and does nothing special. Flagged here so the
+  user handles it in their jpsyx setup; it does not change brain's design.
+  (Brain config, `<brain-root>/.config/config.json`, is not affected — it rides
+  the Backblaze sync, not jpsyx.)
 
 ## 13. Phase decomposition (each its own spec → plan → RED/GREEN build → docs)
 
-- **C1 — Config relocation & lifecycle split.** Move machine-level config to
-  `~/.config/brain/config.json`; `root` becomes a key (deprecate the pointer,
-  read-back-compat + one-time migration); add the `sync` block **schema** (parse
-  only, no behavior). Establish the invariant that machine-level config is not
-  Backblaze-synced and `~/brain/.config/` is. Pure config parse/migration tests.
+- **C1 — Brain env / brain config split.** Introduce the **brain env** store
+  (`~/.config/brain/env.json`) and the **`brain env {list|get|set}`** CLI
+  mirroring `brain config`; move `root` (from the deprecated pointer, with
+  back-compat read + one-time migration) and `markdown_to_pdf_path` (from brain
+  config) into brain env; add the `sync` block **schema** (parse only, no
+  behavior). `config.json` **stays** in `<brain-root>/.config/` as brain config.
+  Establish the invariant that brain env is not Backblaze-synced and brain config
+  is. Update docs + README to the brain-env/brain-config nomenclature. Pure
+  parse/migration tests.
 - **C2 — Sync core (manual).** rclone bisync transport (private bucket, SSE, creds
   via on-the-fly remote); `brain sync [setup|init|status|--push|--pull]` + bare
   `brain sync`; keep-both conflicts; **bidirectional deletions** with `--max-delete`;
@@ -269,13 +315,14 @@ No cut: the watcher (C4) ships as a first-class trigger, not deferred.
 
 ## 14. Migration (the primary user, no regression)
 
-- Relocate this machine's config from `<brain-root>/.config/config.json` +
-  `~/.config/brain-root` into `~/.config/brain/config.json` with `root` as a key
-  (one-time, automatic, back-compat read).
+- Fold `~/.config/brain-root` into the brain-env `root` key and move
+  `markdown_to_pdf_path` from `config.json` into `~/.config/brain/env.json`
+  (one-time, automatic, back-compat read). `config.json` stays in
+  `<brain-root>/.config/` as brain config.
 - Create the B2 bucket; run `brain sync setup` on each machine to capture that
   machine's B2 key + bucket; enable sync.
-- Track `~/.config/brain/config.json` privately in `jpsyx-configs` at
-  `home/.config/brain/` (handling the §12 footgun on the jpsyx side).
+- Track `~/.config/brain/env.json` privately in `jpsyx-configs` at
+  `home/.config/brain/env.json` (handling the §12 footgun on the jpsyx side).
 - Verify: an edit/add/delete on machine A appears on machine B after a sync;
   tasks/habits merge with no conflict copy; a concurrent prose edit yields exactly
   one conflict copy and resolves via `/second-brain resolve-conflicts`.
@@ -298,10 +345,14 @@ No cut: the watcher (C4) ships as a first-class trigger, not deferred.
 
 ## 16. Docs to update (same change, per phase)
 
-- `docs/config.md` — the two-store lifecycle split; `~/.config/brain/config.json`;
-  `root` as a key; the `sync` block; rclone prerequisite.
-- `docs/features.md` — `brain sync` + subcommands; auto/watcher triggers;
-  `/second-brain sync` + `resolve-conflicts`; conflict-copy behavior.
+- `docs/config.md` — the brain-env vs brain-config split; `~/.config/brain/env.json`;
+  the `brain env` CLI; `root` as an env key; `markdown_to_pdf_path` in env; the
+  `sync` block; rclone prerequisite.
+- `docs/features.md` — `brain env {list|get|set}`; `brain sync` + subcommands;
+  auto/watcher triggers; `/second-brain sync` + `resolve-conflicts`; conflict-copy
+  behavior.
+- `README.md` — the brain-env / brain-config nomenclature and which values live
+  where.
 - `docs/architecture.md` — the sync module + rclone shell; `notify` dependency;
   Lane A/B data flow; journal in the cache.
 - `docs/data-model.md` — the `sync` config block; the optional CSV `modified`
@@ -316,8 +367,10 @@ No cut: the watcher (C4) ships as a first-class trigger, not deferred.
 
 ## 17. Acceptance criteria (program-level; each phase carries its slice)
 
-1. `~/.config/brain/config.json` is the machine-level store; `root` is a key;
-   legacy pointer migrates; secrets never enter the B2 bucket.
+1. `~/.config/brain/env.json` is the brain-env store, managed by `brain env`;
+   `root` and `markdown_to_pdf_path` live there; the legacy pointer migrates;
+   `config.json` stays brain config in the brain root; secrets never enter the
+   B2 bucket.
 2. `brain sync` propagates creates, edits, **and deletes** both ways through a
    private B2 bucket; `--max-delete` guards catastrophes; post-sync verification
    journals anything unreconciled.
