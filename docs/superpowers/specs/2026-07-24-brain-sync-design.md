@@ -392,3 +392,30 @@ No cut: the watcher (C4) ships as a first-class trigger, not deferred.
 - `brain sync setup` UX: pure prompts vs. delegating parts to `rclone config` (C2).
 - Whether a future `rclone crypt` upgrade is worth a config seam now (C2, likely
   "leave the seam, don't build it").
+
+## 19. Deferred backlog (revisit after C5 — do not forget)
+
+These were consciously deferred while shipping C1–C2 + the progress/resume, clean
+output, and brain-server work. Revisit once C3–C5 land; none blocks the core sync.
+
+1. **`--check-access` guard.** Dropped in C2 because it aborts every run unless
+   `RCLONE_TEST` marker files exist on both sides, which brain doesn't manage.
+   `--max-delete` is the current blast-radius guard. Could return with proper
+   marker-file management (create/maintain the marker in the brain root on setup).
+2. **`rclone crypt` (zero-knowledge encryption).** We chose private-bucket SSE
+   (Backblaze holds the keys). A clean seam was left to layer client-side `crypt`
+   later — protects against Backblaze + a leaked B2 key, at the cost of a passphrase
+   the user must not lose (escrow it in a password manager). Optional; spec its own
+   phase if wanted.
+3. **The `mark_done.py` Python coupling.** Habit "done" (the `/habits` POST) and
+   `brain tasks complete` both shell out to the bundled Python `mark_done.py`.
+   The brain *server* is Python-free, but making completion native Rust (mutate the
+   CSV + spawn the next recurrence in Rust) would remove Python from the completion
+   path entirely and kill a long-flagged coupling. Orthogonal to sync.
+4. **CSV `modified` column.** For deterministic per-row 3-way merge in C3, adding a
+   `modified` timestamp to `tasks.csv`/`habits.csv` makes same-field divergent edits
+   resolve by last-writer-wins. Decide in C3; if not added, fall back to
+   keep-local-and-journal. Touches `mark_done.py` + the CSV readers.
+5. **Future server endpoints (webhooks).** `src/server/routes/` is structured so a
+   new endpoint is one route module + one `routes/mod.rs` line. Inbound webhooks
+   (3rd-party services POST to brain) are the motivating future case — not built.
