@@ -1,9 +1,11 @@
 //! Brain-root resolution: where the brain (PARA) directory lives.
 //!
-//! Resolution order: the path written in `~/.config/brain-root` (tilde-expanded)
-//! if that file exists and is non-empty, otherwise the default `$HOME/brain`.
+//! Resolution order: the `root` key in the brain-env store
+//! (`~/.config/brain/env.json`), else the legacy `~/.config/brain-root`
+//! pointer file (kept for back-compat, tilde-expanded), else the default
+//! `$HOME/brain`.
 //!
-//! `brain-root` is the **one** machine-local pointer brain needs, and the *only*
+//! `root` is the **one** machine-local pointer brain needs, and the *only*
 //! thing that can't live inside the brain root itself (you can't store the
 //! brain's location inside the brain — that's circular). It is edited by hand
 //! (or tracked externally, e.g. via jpsyx), never by a `brain` CLI command — it
@@ -11,9 +13,10 @@
 //! lives *inside* the resolved root at `<root>/.config/` (config.json,
 //! personalization.json, extensions/, plugins/), so it travels with the brain.
 //!
-//! The IO-free pieces (`parse_brain_root_file`, `expand_tilde_with_home`) are
-//! split out from the env/filesystem-touching wrappers so they can be unit
-//! tested without a real `$HOME` or a real `brain-root` file.
+//! The IO-free pieces (`resolve_root`, `parse_root_key`, `parse_brain_root_file`,
+//! `expand_tilde_with_home`) are split out from the env/filesystem-touching
+//! wrappers so they can be unit tested without a real `$HOME`, a real
+//! `env.json`, or a real `brain-root` file.
 
 use std::path::{Path, PathBuf};
 
@@ -34,14 +37,47 @@ pub fn brain_root() -> Result<PathBuf> {
 /// read as empty rather than fail — config lookups must never block startup.
 #[must_use]
 pub fn brain_root_path() -> PathBuf {
-    read_brain_root_file().map_or_else(default_brain_root_path, |raw| {
-        expand_tilde(&raw).unwrap_or_else(|_| PathBuf::from(raw))
-    })
+    let home = home_dir().unwrap_or_default();
+    resolve_root(
+        read_env_root().as_deref(),
+        read_brain_root_file().as_deref(),
+        &home,
+    )
 }
 
-/// `$HOME/brain` (best-effort: an unset `$HOME` yields a relative `brain`).
-fn default_brain_root_path() -> PathBuf {
-    home_dir().unwrap_or_default().join("brain")
+/// Pure brain-root precedence: the `root` env key, else the legacy
+/// `~/.config/brain-root` pointer, else the `<home>/brain` default. Each
+/// candidate is tilde-expanded against `home`.
+#[must_use]
+pub fn resolve_root(env_key: Option<&str>, legacy_pointer: Option<&str>, home: &Path) -> PathBuf {
+    let pick = env_key
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| legacy_pointer.map(str::trim).filter(|s| !s.is_empty()));
+    pick.map_or_else(|| home.join("brain"), |raw| expand_tilde_with_home(raw, home))
+}
+
+/// Read the `root` field from `~/.config/brain/env.json`, if any. A missing
+/// file/field reads as `None` so resolution falls through to the legacy pointer.
+fn read_env_root() -> Option<String> {
+    std::fs::read_to_string(machine_config_dir().join("env.json"))
+        .ok()
+        .as_deref()
+        .and_then(parse_root_key)
+}
+
+/// Pull the `root` string field out of a raw `env.json` body. Pure: no IO.
+/// A missing field, non-string value, empty string, or invalid JSON is `None`.
+#[must_use]
+pub fn parse_root_key(env_json: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(env_json)
+        .ok()
+        .as_ref()
+        .and_then(|v| v.get("root"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 /// The machine-local brain-root pointer file: `$XDG_CONFIG_HOME/brain-root` or
@@ -92,15 +128,6 @@ fn read_brain_root_file() -> Option<String> {
 pub fn parse_brain_root_file(contents: &str) -> Option<String> {
     let trimmed = contents.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
-}
-
-/// Expand a leading `~` / `~/` against `$HOME`. Non-tilde paths pass through.
-pub fn expand_tilde(raw: &str) -> Result<PathBuf> {
-    if raw == "~" || raw.starts_with("~/") {
-        let home = home_dir()?;
-        return Ok(expand_tilde_with_home(raw, &home));
-    }
-    Ok(PathBuf::from(raw))
 }
 
 /// Pure tilde expansion against an explicit home directory.
@@ -189,5 +216,29 @@ mod tests {
             machine_config_dir_from(None, Path::new("/Users/x")),
             PathBuf::from("/Users/x/.config/brain")
         );
+    }
+
+    #[test]
+    fn resolve_root_prefers_the_env_key_over_the_legacy_pointer() {
+        let home = Path::new("/Users/x");
+        assert_eq!(
+            resolve_root(Some("~/work-brain"), Some("~/old"), home),
+            PathBuf::from("/Users/x/work-brain")
+        );
+    }
+
+    #[test]
+    fn resolve_root_falls_back_to_the_legacy_pointer_then_default() {
+        let home = Path::new("/Users/x");
+        assert_eq!(resolve_root(None, Some("/srv/brain"), home), PathBuf::from("/srv/brain"));
+        assert_eq!(resolve_root(None, None, home), PathBuf::from("/Users/x/brain"));
+    }
+
+    #[test]
+    fn parse_root_key_reads_the_string_field() {
+        assert_eq!(parse_root_key(r#"{"root": "~/brain"}"#), Some("~/brain".to_owned()));
+        assert_eq!(parse_root_key(r#"{"root": ""}"#), None);
+        assert_eq!(parse_root_key(r#"{"markdown_to_pdf_path": "x"}"#), None);
+        assert_eq!(parse_root_key("not json"), None);
     }
 }
