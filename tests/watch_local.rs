@@ -2,6 +2,12 @@
 //! after a file under the watched root changes. Uses a tiny debounce window and
 //! a test callback — never touches rclone, the lock, or B2. Robust to FS-event
 //! latency via a bounded poll.
+//!
+//! `#[ignore]` by default: FSEvents cold-start latency makes this take 7-10s and
+//! occasionally miss even a generous deadline, so it does not belong in the fast
+//! default suite (the debounce logic itself is covered deterministically by the
+//! pure `watch::Debouncer` unit tests). Run it on demand with
+//! `cargo test --test watch_local -- --ignored`.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -10,6 +16,7 @@ use std::time::{Duration, Instant};
 use brain::sync::watch::spawn_watcher_with;
 
 #[test]
+#[ignore = "FS-event timing (7-10s, FSEvents cold start); run with `cargo test --test watch_local -- --ignored`"]
 fn watcher_fires_after_a_file_changes() {
     let root = std::env::temp_dir().join(format!("brain-watch-it-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
