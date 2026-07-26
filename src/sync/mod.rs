@@ -15,5 +15,6 @@ pub mod progress;
 pub mod remote;
 pub mod run;
 pub mod setup;
+pub mod trigger;
 pub mod verify;
 pub mod watch;
