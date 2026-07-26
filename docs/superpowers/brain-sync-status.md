@@ -22,7 +22,7 @@ pipeline) shipped earlier. Sub-project C (Backblaze sync) is now done end to end
 
 Design docs: parent spec `specs/2026-07-24-brain-sync-design.md`; per-phase
 specs/plans under `specs/` and `plans/`. Rationale in `../decisions.md`.
-State at time of writing: `cargo test --release` green (645 tests), `cargo
+State at time of writing: `cargo test --release` green (651 tests), `cargo
 clippy --release --all-targets` clean.
 
 ---
@@ -54,13 +54,20 @@ unless noted. Update this file (check the box, note the commit) as you land each
   clean.
 
 ### 2. C3.4 — extend `brain check` to diff pending CSV rows
-- [ ] `brain check` today runs a dry-run `rclone bisync` to report pending
+- [x] `brain check` today runs a dry-run `rclone bisync` to report pending
   changes — but the two CSVs are **excluded** from bisync (C3), so `check`
   currently misses pending CSV edits. Add a CSV-diff pass to `check` that
   reports pending `tasks.csv`/`habits.csv` rows (added/changed/deleted vs. the
   cached baseline) alongside the bisync file-lane report.
 - Files: `src/sync/check.rs` (report), reuse `src/sync/csv_sync.rs` baseline +
   `src/sync/csv_merge.rs` diff logic. Keep the pure/impure split; theme output.
+- Landed in `973ad07` (`fix(sync): include task csvs in check`). Notes:
+  `brain check` now compares each managed CSV's cached baseline against the
+  local CSV for push rows and a read-only rclone-fetched remote CSV for pull
+  rows, rendering `+A ~C -D rows` summaries alongside file-lane changes. Remote
+  CSV fetch failures become warnings, not false clean reports. Validation:
+  `cargo test --release` green (651 tests; watcher timing test still ignored by
+  design) and `cargo clippy --release --all-targets` clean.
 
 ### 3. C4 hardening — sync-lock heartbeat  *(optional; deferred in C4)*
 - [ ] The advisory sync lock (`~/.cache/brain/sync/sync.lock`) has one residual
