@@ -10,6 +10,15 @@ use std::path::{Path, PathBuf};
 
 use crate::sync::args::CONFLICT_MARKER;
 
+/// Join `name` onto `dir` when present, else treat `name` as a bare path.
+/// A no-op empty-check used to guard the `Some` branch, but
+/// `Path::new("").join(name) == PathBuf::from(name)`, so `Path::parent()`'s
+/// `Some("")` (single-component relative paths) and `None` both collapse to
+/// the same result here.
+fn join_dir(dir: Option<&Path>, name: &str) -> PathBuf {
+    dir.map_or_else(|| PathBuf::from(name), |d| d.join(name))
+}
+
 /// Build the friendly conflict name for an original path.
 ///
 /// Inserts ` (conflict <host> <date>)` before the extension.
@@ -25,10 +34,66 @@ pub fn conflict_name(original: &Path, host: &str, date: &str) -> PathBuf {
         Some(e) => format!("{tag}.{e}"),
         None => tag,
     };
-    match dir {
-        Some(d) if !d.as_os_str().is_empty() => d.join(name),
-        _ => PathBuf::from(name),
+    join_dir(dir, &name)
+}
+
+/// Recovered parts of a friendly conflict-copy name.
+///
+/// Not yet consumed outside this module — grouping (C5.1 Task 2) and the
+/// `--json` surface (C5.2 Task 3) build on it next.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ParsedConflict {
+    /// Canonical original this copy competes with, e.g. `notes/idea.md`.
+    pub original: PathBuf,
+    pub host: String,
+    pub date: String,
+}
+
+/// Whether `date` is exactly `\d{4}-\d{2}-\d{2}` (no calendar validation).
+///
+/// Only called from `parse_conflict_name`, which isn't yet wired to a
+/// caller — see the `#[allow(dead_code)]` note on `ParsedConflict` above.
+#[allow(dead_code)]
+fn is_conflict_date(date: &str) -> bool {
+    let bytes = date.as_bytes();
+    bytes.len() == 10
+        && bytes[0..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b'-'
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[7] == b'-'
+        && bytes[8..10].iter().all(u8::is_ascii_digit)
+}
+
+/// Inverse of `conflict_name`: from `stem (conflict <host> <date>).ext` recover
+/// the original path + host + date. Returns `None` when `path`'s file name isn't
+/// the exact friendly-conflict grammar.
+#[allow(dead_code)]
+#[must_use]
+pub fn parse_conflict_name(path: &Path) -> Option<ParsedConflict> {
+    const OPEN: &str = " (conflict ";
+
+    let name = path.file_name()?.to_str()?;
+    let open_idx = name.rfind(OPEN)?;
+    let stem = &name[..open_idx];
+    let after_open = &name[open_idx + OPEN.len()..];
+
+    let close_idx = after_open.find(')')?;
+    let paren_content = &after_open[..close_idx];
+    let ext = &after_open[close_idx + 1..];
+    if !ext.is_empty() && !ext.starts_with('.') {
+        return None;
     }
+
+    let (host, date) = paren_content.rsplit_once(' ')?;
+    if host.is_empty() || !is_conflict_date(date) {
+        return None;
+    }
+
+    let name = format!("{stem}{ext}");
+    let original = join_dir(path.parent(), &name);
+
+    Some(ParsedConflict { original, host: host.to_string(), date: date.to_string() })
 }
 
 /// Strip rclone's marker segment `.<MARKER><digits>` off a file name, returning
@@ -57,10 +122,7 @@ pub fn is_marker(path: &Path) -> bool {
 #[must_use]
 pub fn friendly_from_marker(marker_path: &Path, host: &str, date: &str) -> Option<PathBuf> {
     let original_name = strip_marker(&marker_path.file_name()?.to_string_lossy())?;
-    let original = match marker_path.parent() {
-        Some(d) if !d.as_os_str().is_empty() => d.join(original_name),
-        _ => PathBuf::from(original_name),
-    };
+    let original = join_dir(marker_path.parent(), &original_name);
     Some(conflict_name(&original, host, date))
 }
 
@@ -116,6 +178,55 @@ pub fn list_conflicts(root: &Path) -> Vec<ConflictFile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round_trips_conflict_name_for_a_matrix() {
+        for (orig, host, date) in [
+            ("notes/idea.md", "mac", "2026-07-25"),
+            ("README", "server-01", "2026-01-02"), // extensionless
+            ("a/b c/my great note.md", "mac", "2026-12-31"), // spaces in stem + dir
+            ("deep/nested/path/file.tar.gz", "mac", "2026-07-25"), // multi-dot ext
+        ] {
+            let built = conflict_name(Path::new(orig), host, date);
+            let parsed = parse_conflict_name(&built).expect("should parse");
+            assert_eq!(parsed.original, PathBuf::from(orig));
+            assert_eq!(parsed.host, host);
+            assert_eq!(parsed.date, date);
+        }
+    }
+
+    #[test]
+    fn rejects_non_conflict_names() {
+        assert!(parse_conflict_name(Path::new("notes/idea.md")).is_none());
+        // A real title that happens to mention a conflict but isn't the grammar.
+        assert!(parse_conflict_name(Path::new("notes/the (conflict) resolution.md")).is_none());
+        // rclone's raw marker is not a friendly copy.
+        assert!(parse_conflict_name(Path::new(&format!("idea.md.{CONFLICT_MARKER}1"))).is_none());
+    }
+
+    #[test]
+    fn rejects_malformed_date_inside_the_parens() {
+        // Not zero-padded → doesn't match \d{4}-\d{2}-\d{2}.
+        assert!(parse_conflict_name(Path::new("idea (conflict mac 2026-7-5).md")).is_none());
+        // Letters where digits belong.
+        assert!(parse_conflict_name(Path::new("idea (conflict mac 2026-AB-25).md")).is_none());
+    }
+
+    #[test]
+    fn rejects_empty_host() {
+        assert!(parse_conflict_name(Path::new("idea (conflict  2026-07-25).md")).is_none());
+    }
+
+    #[test]
+    fn rejects_missing_closing_paren() {
+        assert!(parse_conflict_name(Path::new("idea (conflict mac 2026-07-25.md")).is_none());
+    }
+
+    #[test]
+    fn rejects_trailing_content_after_the_close_paren_that_isnt_an_extension() {
+        // Non-empty, non-`.`-prefixed content after `)` fails the extension gate.
+        assert!(parse_conflict_name(Path::new("idea (conflict mac 2026-07-25)x.md")).is_none());
+    }
 
     #[test]
     fn list_conflicts_finds_friendly_named_copies_relative_to_root() {
