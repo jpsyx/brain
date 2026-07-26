@@ -94,8 +94,11 @@ unless noted. Update this file (check the box, note the commit) as you land each
   Added hermetic resolve coverage on `test/resolve-cases` in `6c84c9e`.
   Validation: `cargo test --release` green (655 tests; watcher timing test
   still ignored by design) and `cargo clippy --release --all-targets` clean.
-- [ ] Test: the `conflicts --json` `modified: null` / `bytes: null` degraded
+- [x] Test: the `conflicts --json` `modified: null` / `bytes: null` degraded
   path against a real unreadable-metadata case.
+  Added adapter coverage on `test/conflict-meta`; commit SHA pending.
+  Validation: `cargo test --release` green (656 tests; watcher timing test
+  still ignored by design) and `cargo clippy --release --all-targets` clean.
 - [x] Consistency: render the **non-JSON** `brain sync conflicts` list through
   `group_conflicts` (strict parse) too, so it matches `--json` (today it uses
   the looser `list_conflicts` heuristic; no safety impact, cosmetic).
