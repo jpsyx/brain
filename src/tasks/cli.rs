@@ -62,9 +62,8 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Mark a task (or habit) as complete by handing it off to claude with
-    /// a prefilled `/todo done <ID>` prompt. Accepts t123, T123, 123
-    /// (bare number = task), h43, H43. Aliases: `finish`, `done`.
+    /// Mark a task (or habit) as complete in the native CSV store.
+    /// Accepts t123, T123, 123, h43, H43. Aliases: `finish`, `done`.
     #[command(aliases = ["finish", "done"])]
     Complete(CompleteArgs),
 

@@ -326,12 +326,10 @@ After the daily triage process completes (user has either resolved every past-du
 1. Look up today's Morning Triage habit row in `<brain>/tasks/habits.csv` (search for a row with name like "Morning Triage" and today's `due_date`).
 2. If it exists and is NOT already `done`, mark it done via:
    ```
-   python3 ~/.agents/skills/todo/scripts/mark_done.py H<id>
+   brain tasks complete H<id>
    ```
-   `mark_done.py` auto-updates the day's agenda markdown and regenerates
-   the agenda PDF (when one exists) via `update_agenda_on_mutation.py`. You
-   do not need to rewrite the markdown or run the PDF script yourself — see
-   /todo SKILL.md operating principle 7.
+   If the habit appears on an already-written agenda, update that agenda as
+   part of the same workflow; see /todo SKILL.md operating principle 7.
 
 **Why marking it matters — the brain tasks view depends on it.** The brain
 tasks view shows a startup "Today's triage isn't done. Run it now?" modal
@@ -429,10 +427,11 @@ After **all** in-baskets are empty:
 1. Look up the Weekly in-basket processing habit in `<brain>/tasks/habits.csv` (current row name: "Weekly in-basket processing").
 2. If it isn't already `done`, mark it done via:
    ```
-   python3 ~/.agents/skills/todo/scripts/mark_done.py H<id>
+   brain tasks complete H<id>
    ```
-   `mark_done.py` auto-updates the agenda + PDF via
-   `update_agenda_on_mutation.py` (see [Daily triage Step 9](#step-9--mark-morning-triage-habit-done)); no further work needed.
+   If the habit appears on an already-written agenda, update that agenda as
+   part of the same workflow; see
+   [Daily triage Step 9](#step-9--mark-morning-triage-habit-done).
 
 ## Step 4 — Offer to chain into daily triage
 

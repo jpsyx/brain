@@ -1,10 +1,10 @@
 //! `App` command handlers: the `run_*` actions behind palette rows / confirm
-//! Yes-paths (mark-complete, remove, agenda, habits, links), the synchronous
-//! `mark_done.py` runner, and the palette-action dispatcher.
+//! Yes-paths (mark-complete, remove, agenda, habits, links), native completion,
+//! and the palette-action dispatcher.
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::tasks::complete;
 use crate::tui::*;
@@ -108,41 +108,15 @@ impl App<'_> {
     /// generation is structured-with-judgement: the agent picks today's
     /// MITs, deduplicates against yesterday's, and writes the markdown.
     pub(crate) fn run_generate_agenda(&mut self) {
-        let message =
-            "Generate today's agenda. Use the /todo skill's agenda flow to write \
+        let message = "Generate today's agenda. Use the /todo skill's agenda flow to write \
              /tmp/<today>.md, then let me know it's ready so I can open it with Ctrl+A.";
         self.send_brain_prompt(message);
     }
 
-    /// Run `mark_done.py <id>` synchronously, then refresh from disk.
-    /// Output is captured (not streamed) so the tasks shell display stays clean.
+    /// Complete a task or habit natively, then refresh from disk.
     pub(crate) fn mark_task_complete(&mut self, raw_id: &str) -> Result<()> {
         let id = complete::normalize_id(raw_id)?;
-        let home = std::env::var_os("HOME")
-            .ok_or_else(|| anyhow::anyhow!("$HOME is not set"))?;
-        let mark_done = Path::new(&home)
-            .join("global-skills")
-            .join("todo")
-            .join("scripts")
-            .join("mark_done.py");
-        if !mark_done.is_file() {
-            anyhow::bail!(
-                "mark_done.py not found at {} — install the /todo skill first",
-                mark_done.display()
-            );
-        }
-        let output = std::process::Command::new(&mark_done)
-            .arg(&id)
-            .output()
-            .with_context(|| format!("running {}", mark_done.display()))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!(
-                "mark_done.py failed ({}): {}",
-                output.status,
-                stderr.trim()
-            );
-        }
+        complete::complete_in_root(&self.brain_root, &id)?;
         self.reload_tasks()?;
         Ok(())
     }

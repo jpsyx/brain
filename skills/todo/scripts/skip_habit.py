@@ -6,7 +6,7 @@ The rule (see /todo SKILL.md "Skipping a habit"):
 - **Daily habit** (recur_interval == 1 AND recur_unit == "days"): a plain skip
   means **mark today's occurrence done**. Tomorrow the habit is back anyway, so
   "skip it today" is functionally "it's handled for today" — exactly what
-  mark_done does (records completed_date=today and spawns tomorrow's occurrence).
+  brain tasks complete does (records completed_date=today and spawns tomorrow's occurrence).
 
 - **Non-daily habit** (weekly, monthly, every-N-days, …): a plain skip does
   **NOT** mark it done. It simply **defers the due_date to tomorrow**
@@ -39,7 +39,7 @@ _UPDATE_AGENDA = Path(__file__).resolve().parent / "update_agenda_on_mutation.py
 
 
 def _update_agenda(task_id: str, action: str) -> None:
-    """Best-effort agenda side effect (see mark_done.py for rationale)."""
+    """Best-effort agenda side effect."""
     if not _UPDATE_AGENDA.exists():
         return
     try:
@@ -109,7 +109,7 @@ def main() -> int:
     if path != HABITS_CSV:
         print(
             f"skip_habit only operates on habits.csv rows; {row['task_id']} is a "
-            "task. Skipping is a habit concept — use defer_task.py / mark_done.py "
+            "task. Skipping is a habit concept — use defer_task.py / brain tasks complete "
             "for tasks.",
             file=sys.stderr,
         )

@@ -8,7 +8,7 @@ agenda, etc.).
 Per /todo SKILL.md operating principle 7 (the "task-mutation auto-update
 checklist"), every mutator that touches tasks.csv or habits.csv must
 update `/tmp/<today>.md` and regen `$AGENDA_DIR/agenda-<today>.pdf` when
-appropriate. This script is the implementation — callers (`mark_done.py`,
+appropriate. This script is the implementation — callers (`defer_task.py`,
 `defer_task.py`, `defer_habit.py`, `touch_task.py`) invoke it at the
 end of a successful mutation so the LLM doesn't have to.
 
@@ -195,7 +195,7 @@ def _swap_chunk_in_suggested(body, completed_id: str, next_row: dict):
 
 def _swap_chunk_in_mit(body, completed_id: str, next_row: dict):
     """Replace the completed chunk's MIT-callout line with the next chunk's
-    (mark_done.py has already migrated the `mit` tag in the CSV). If the
+    (the completion path has already migrated the `mit` tag in the CSV). If the
     next chunk already has a MIT line, just drop the completed one."""
     next_id = (next_row.get("task_id") or "").strip()
     next_name = (next_row.get("task_name") or "").strip()

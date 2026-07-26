@@ -33,7 +33,7 @@ pub(crate) enum PaletteAction {
     /// "This message is about <ID>:" so the brain agent knows which
     /// task / habit the user is asking about. Requires a selection.
     MessageBrainAboutTask,
-    /// Runs `mark_done.py <selected-id>` synchronously, then reloads
+    /// Completes the selected row natively, then reloads
     /// tasks.csv + habits.csv. Works for both tasks and habits.
     MarkTaskComplete,
     /// Spawn the brain panel with a prefilled "defer this task by N days"

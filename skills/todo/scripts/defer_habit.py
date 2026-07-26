@@ -3,7 +3,7 @@
 
 Advances the habit's due_date by one recurrence interval (or N, with
 --occurrences). Uses the same anchor-to-due-with-catch-up math as
-mark_done's spawn step, so a Monday-weekly habit stays on Mondays
+brain tasks complete's spawn step, so a Monday-weekly habit stays on Mondays
 after skipping. No `completed_date` is recorded — the skipped
 instance is simply not done.
 
@@ -26,7 +26,7 @@ _UPDATE_AGENDA = Path(__file__).resolve().parent / "update_agenda_on_mutation.py
 
 
 def _update_agenda(task_id: str, action: str) -> None:
-    """Best-effort agenda side effect (see mark_done.py for rationale)."""
+    """Best-effort agenda side effect."""
     if not _UPDATE_AGENDA.exists():
         return
     try:

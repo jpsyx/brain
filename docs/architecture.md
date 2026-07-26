@@ -64,7 +64,7 @@ argv
       └─→ settings::ensure_markdown_to_pdf (prereq gate: config path, else discover; red ❌ + exit if unresolved)
            ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
            └─ Cmd::Tasks(rest)       ─→ TasksCli::parse_from(rest) → tasks_launch:
-                                          complete → complete::run (exec mark_done.py)
+                                          complete → complete::run (native CSV completion)
                                           doctor   → doctor::run_doctor
                                           --no-tui → plain::print_plain
                                           else     → tui::run_tui (MERGED SHELL)
@@ -94,7 +94,7 @@ and the shell stays up.
 Owns argv → `Cli` and the top-level `match` over `Cmd`. `brain config …` is
 dispatched first (before the `markdown-to-pdf` gate). Bare `brain` and
 `brain tasks …` both flow into `tasks_launch`, which either runs a tasks
-utility (`complete` → exec `mark_done.py`; `doctor` → `run_doctor`; `--no-tui`
+utility (`complete` → native CSV completion; `doctor` → `run_doctor`; `--no-tui`
 → `plain::print_plain`) or opens the merged shell via `tui::run_tui`. There is
 no plan and no `Exit` mapping: the shell just returns when the user quits.
 
@@ -403,10 +403,10 @@ copies via `resolve`, then runs one ordinary `brain sync`. See
 Everything specific to the **tasks main view**, ported from the old `tasks`
 crate under one namespace: `task` (CSV model + load), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
-markdown), `shortcuts` (the help/footer catalogue), `complete` (exec
-`mark_done.py`), `doctor` (health check), `plain` (`--no-tui` printer), and
-`cli` (the tasks clap args, nested under `brain tasks`). Reuses the crate-level
-`session` / `state` / `pty_pane` shared with the brain-search view.
+markdown), `shortcuts` (the help/footer catalogue), `complete` (native
+task/habit completion), `doctor` (health check), `plain` (`--no-tui` printer),
+and `cli` (the tasks clap args, nested under `brain tasks`). Reuses the
+crate-level `session` / `state` / `pty_pane` shared with the brain-search view.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the
@@ -500,8 +500,8 @@ one shared instance per machine across all `brain` invocations and tabs. Its
   struct, plus the thin `load` reader of `<root>/tasks/habits.csv`), `view.rs`
   (pure HTML rendering into the `web/habits/` shell, with `style.css`/`app.js`
   inlined via `include_str!`), and `mod.rs` (the thin controller: `page` =
-  load→classify→render, `done` = parse body → reuse `tasks::complete`'s
-  `mark_done.py` → `DoneOutcome`).
+  load→classify→render, `done` = parse body → reuse native `tasks::complete`
+  completion → `DoneOutcome`).
 
 The daemon is spawned detached without `unsafe`: `CommandExt::process_group(0)`
 plus null stdio on the current exe (`brain server run --port <p>`).

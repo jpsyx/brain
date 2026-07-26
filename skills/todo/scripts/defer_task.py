@@ -42,7 +42,7 @@ _UPDATE_AGENDA = Path(__file__).resolve().parent / "update_agenda_on_mutation.py
 
 
 def _update_agenda(task_id: str, action: str) -> None:
-    """Best-effort agenda side effect (see mark_done.py for rationale)."""
+    """Best-effort agenda side effect."""
     if not _UPDATE_AGENDA.exists():
         return
     try:

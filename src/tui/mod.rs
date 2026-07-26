@@ -129,8 +129,8 @@ pub(crate) struct App<'a> {
     /// `full_notes || expanded_notes.contains(id)`.
     expanded_notes: HashSet<String>,
     cli: &'a Cli,
-    /// Path to the tasks CSV — held so palette actions can reload after
-    /// mutating it externally (e.g. `mark_done.py`).
+    /// Path to the tasks CSV, held so palette actions can reload after
+    /// mutating it.
     csv_path: PathBuf,
 
     /// Full unfiltered task list — needed to rebuild on Tab view-cycle.

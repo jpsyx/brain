@@ -149,7 +149,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain` | Open the persistent shell on the tasks view (the startup default). |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
-| `brain tasks complete <id>` | Mark a task complete (`mark_done.py`), no TUI. |
+| `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
@@ -504,9 +504,8 @@ The **brain server** is a small, local-only HTTP daemon: one shared instance
 per machine, reused across every `brain` invocation and tab. It is a general,
 growable localhost service. `GET /habits` renders today's habits as a
 flat-design HTML page (grouped by time-of-day, then priority, with a completed
-accordion), and `POST /habits/done` marks a habit done — delegating to brain's
-own completion machinery (the bundled `mark_done.py`, the same path
-`brain tasks complete` runs), so the web "done" spawns habit recurrence exactly
+accordion), and `POST /habits/done` marks a habit done by delegating to brain's
+native completion machinery, so the web "done" spawns habit recurrence exactly
 like the CLI and returns `{"ok": true, "next_due": <date|null>}`. Everything
 else, including the bare root `/`, is a 404 (the server has no root view).
 Future webhook POST endpoints add one module under `src/server/routes/`.
@@ -614,7 +613,7 @@ startup default and `brain tasks` opens straight onto it. The tasks view is
 in-process — a main view of the same shell, not a separate binary — so the
 switch is instant and the brain panel stays open beside it. See
 [integrations.md](integrations.md) for the tasks-view shell-outs
-(`mark_done.py`, agenda / habits).
+(agenda / habits).
 
 ## Help and version
 
