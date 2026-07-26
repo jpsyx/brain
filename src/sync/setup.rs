@@ -120,7 +120,10 @@ pub fn run() -> Result<()> {
 /// used. Same open-the-controlling-terminal pattern as
 /// `personalization::onboarding`, so the prompt works even when the TUI owns
 /// /dev/tty and regardless of stdin redirection.
-fn prompt(label: &str, current: &str) -> Result<String> {
+///
+/// `pub(crate)` so `sync::command`'s interactive `resolve` picker can reuse
+/// this rather than reimplementing the /dev/tty dance.
+pub(crate) fn prompt(label: &str, current: &str) -> Result<String> {
     let tty = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty")?;
     let mut out = tty.try_clone()?;
     let mut reader = BufReader::new(tty);

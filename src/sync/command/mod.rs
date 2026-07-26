@@ -2,7 +2,13 @@
 //!
 //! Ties the pure builders to the rclone shell, the conflict post-pass,
 //! verification, and the journal. Kept thin; the tested logic lives in the
-//! builders it calls.
+//! builders it calls. The `resolve` submodule (`brain sync resolve`) is
+//! self-contained enough to live in its own file; its one externally-called
+//! entry point is re-exported here so `crate::sync::command::resolve` (called
+//! from `main.rs`) keeps resolving unchanged. `ResolveDecision`/
+//! `resolve_decision` have no call sites outside `resolve.rs` itself, so they
+//! stay at their natural `resolve::` path rather than being re-exported
+//! (which `cargo clippy` would flag as unused in this binary crate).
 
 use std::fmt::Write as _;
 use std::fs;
@@ -20,6 +26,9 @@ use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone;
 use crate::sync::verify::{self, Outcome};
 use crate::theme::Theme;
+
+mod resolve;
+pub use resolve::resolve;
 
 /// This machine's short hostname for conflict-copy names. Falls back to "host".
 #[must_use]

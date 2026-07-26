@@ -153,6 +153,12 @@ pub enum SyncAction {
         #[arg(long)]
         json: bool,
     },
+    /// Delete the resolved conflict copies for one or more canonical originals
+    /// (after you've merged into them). With no argument, pick interactively.
+    Resolve {
+        /// Canonical original path(s) to resolve (relative to the brain root).
+        originals: Vec<String>,
+    },
 }
 
 #[derive(Args, Debug)]

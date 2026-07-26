@@ -216,9 +216,8 @@ pub fn group_conflicts(files: &[ConflictFile]) -> Vec<ConflictGroup> {
 /// The copies (from the live conflict set) belonging to `original`, matched via
 /// the recovered `ParsedConflict.original`. Never returns `original` itself.
 ///
-/// Not yet wired into a bin-reachable caller — `brain sync resolve <original>`
-/// (C5.3 Task 4) is its consumer.
-#[allow(dead_code)]
+/// Consumed by `sync::command::resolve_decision` for `brain sync resolve
+/// <original>` (C5.3 Task 4).
 #[must_use]
 pub fn copies_for_original(original: &Path, files: &[ConflictFile]) -> Vec<PathBuf> {
     files
