@@ -90,9 +90,13 @@ unless noted. Update this file (check the box, note the commit) as you land each
 - [ ] Test: resolve of a conflict copy in a **nested subdir**.
 - [ ] Test: the `conflicts --json` `modified: null` / `bytes: null` degraded
   path against a real unreadable-metadata case.
-- [ ] Consistency: render the **non-JSON** `brain sync conflicts` list through
+- [x] Consistency: render the **non-JSON** `brain sync conflicts` list through
   `group_conflicts` (strict parse) too, so it matches `--json` (today it uses
   the looser `list_conflicts` heuristic; no safety impact, cosmetic).
+  Implemented on `fix/conflicts-list`; commit SHA pending explicit commit
+  approval. Validation: `cargo test --release` green (653 tests; watcher
+  timing test still ignored by design) and
+  `cargo clippy --release --all-targets` clean.
 
 ### 5. §19 deferred backlog  *(parent spec §19 + C4 §11 — revisit as wanted)*
 - [ ] `--check-access` marker-file guard (needs create/maintain a marker in the

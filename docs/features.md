@@ -230,8 +230,9 @@ nothing.
   configured triggers (`on_start`/`on_exit`/`watch`, with the watcher's
   debounce window shown as `(3000ms debounce)`), and the count of open
   conflicts.
-- `brain sync conflicts` — list open conflict copies. `--json` emits the same
-  groups as structured JSON (one object per canonical original, its
+- `brain sync conflicts` — list open conflict copies using the same strict
+  friendly-name parser as the structured form. `--json` emits those same
+  groups as JSON (one object per canonical original, its
   `original_exists` flag, and its `copies` with `host`/`date`/`modified`/
   `bytes`) instead of the themed line-list — meant for agents/skills to
   consume, e.g. the `/second-brain resolve-conflicts` skill.
