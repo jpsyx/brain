@@ -10,6 +10,7 @@ pub mod conflicts;
 pub mod csv_merge;
 pub mod csv_sync;
 pub mod journal;
+pub mod lock;
 pub mod progress;
 pub mod remote;
 pub mod run;
