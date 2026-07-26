@@ -334,6 +334,56 @@ existing friendly-named copies under the root (paths relative to the root) for
 `leftover_markers` counts any `__brainconflict__` files the rename pass failed
 to rewrite, which `verify::classify` surfaces as `NeedsAttention`.
 
+## Conflict grouping + `conflicts --json` (C5, `src/sync/conflicts.rs`, `src/sync/command/mod.rs`)
+
+`parse_conflict_name` is the strict inverse of the friendly-name builder
+above: given a path, it recovers a `ParsedConflict { original, host, date }`,
+or `None` if the file name isn't exactly the `name (conflict <host>
+<date>).ext` grammar (rejects raw markers, malformed dates, empty hosts, and
+merely-similar titles). `group_conflicts(files: &[ConflictFile]) ->
+Vec<ConflictGroup>` folds the flat `list_conflicts` output into one group per
+canonical original:
+
+```rust
+struct ConflictGroup { original: PathBuf, copies: Vec<ParsedCopy> }
+struct ParsedCopy { path: PathBuf, host: String, date: String }
+```
+
+Copies that don't parse are dropped; both the group list and each group's
+copies are sorted for deterministic output. `copies_for_original(original,
+files)` returns just one original's copy paths (never the original itself) —
+the lookup `brain sync resolve` uses to know what to delete.
+
+`command::conflicts_json` (`src/sync/command/mod.rs`) renders `&[ConflictGroup]`
+into the JSON `brain sync conflicts --json` prints — a `serde_json::Value`
+array, one object per group:
+
+```json
+[
+  {
+    "original": "notes/idea.md",
+    "original_exists": true,
+    "copies": [
+      {
+        "path": "notes/idea (conflict mac 2026-07-25).md",
+        "host": "mac",
+        "date": "2026-07-25",
+        "modified": "2026-07-25T10:04:11Z",
+        "bytes": 1841
+      }
+    ]
+  }
+]
+```
+
+All paths are relative to the brain root. `original_exists` and each copy's
+`modified`/`bytes` are read off the filesystem by injected closures (kept out
+of the pure builder for testability); a copy whose metadata can't be read
+serializes `modified`/`bytes` as JSON `null` rather than omitting the fields.
+No groups at all serializes as `[]`. This is the shape the `/second-brain
+resolve-conflicts` skill parses; see [integrations.md](integrations.md) for
+the resolve side of the contract.
+
 ## CSV semantic merge (`src/sync/csv_merge.rs`, `src/sync/csv_sync.rs`)
 
 `tasks/tasks.csv` and `tasks/habits.csv` are excluded from the bisync file

@@ -778,6 +778,60 @@ and now the second cleanly skips. Manual sync deliberately skips-with-a-message
 rather than blocking; a short blocking-wait for the human path is a noted possible
 refinement, not shipped.
 
+## C5 — structured conflict list + brain-side deleter for agent-driven resolution
+
+C4 made syncing itself automatic; C5 closes the remaining manual step —
+resolving a keep-both conflict — for an agent rather than only a human at the
+terminal.
+
+**Why a distinct `/second-brain cloud-sync`, not overloading `/second-brain
+sync`.** `/second-brain sync` already means something: rebuild the derived
+lookup CSVs (`projects-lookup.csv`/`zotero-lookup.csv`) from
+`.METADATA.json`. Routing "sync my brain across machines" through that same
+name would silently repurpose an existing, muscle-memory trigger phrase and
+make either request ambiguous. A new, more specific name
+(`/second-brain cloud-sync`) keeps both intact and lets the skill ask a
+clarifying question on genuinely ambiguous phrasing instead of guessing which
+one the user meant.
+
+**Why a structured list (`conflicts --json`) plus a brain-side deleter
+(`resolve`), not pure prose.** An agent resolving conflicts needs to know,
+unambiguously, which files are copies of which original, and needs a safe way
+to remove them once merged — parsing the themed human list or hand-rolling
+`rm` on the wrong file would risk deleting a canonical file or leaving a
+half-merged group. `brain sync conflicts --json` gives an agent a stable,
+tested schema (`ConflictGroup`/`ParsedCopy`, rendered by the pure
+`conflicts_json`); `brain sync resolve <original>` gives it a single
+brain-owned operation that only ever deletes files it can prove are conflict
+copies of that original (via `copies_for_original`), never the original
+itself.
+
+**Why `resolve` refuses when the canonical is missing.** A mistyped or
+already-deleted original with copies still on disk is exactly the case where
+blindly deleting "the copies" is most dangerous — if the canonical is gone,
+one of those copies may be the only surviving version. `resolve_decision`
+special-cases this as `CanonicalMissing` and refuses outright (in preference
+over silently treating it as `NoCopies`), forcing a merge into the canonical
+first.
+
+**Why `resolve` is a pure local delete with no sync of its own.** Folding a
+push into `resolve` would mean every one of N originals in a batch triggers
+its own `rclone bisync`, and would make the command's success depend on
+network/lock state that has nothing to do with "did the delete happen."
+Keeping `resolve` fs-only (no rclone, no journal entry) makes it fast,
+deterministic, and easy to test hermetically; the `/second-brain
+resolve-conflicts` skill runs exactly one ordinary `brain sync` after
+resolving every group, so the deletions still propagate.
+
+**Why C5 only resolves prose keep-both copies, not CSV soft-conflicts.** The
+two shapes aren't the same problem: `tasks.csv`/`habits.csv` already merge
+automatically (C3's id-keyed 3-way merge), and a leftover disagreement there
+is a same-field tiebreak, not a file an agent could "merge and delete" —
+it's already resolved, just noted. Scoping `conflicts --json` and `resolve`
+to the friendly `(conflict …)` file copies keeps both surfaces simple; a CSV
+soft-conflict stays visible only in the sync journal's `csv:` note (see C3
+above), which is the right audience for it.
+
 ## Why `Ctrl-N` sends `/new` instead of being forwarded to claude
 
 Starting a fresh conversation is a frequent gesture, and typing `/new` by hand

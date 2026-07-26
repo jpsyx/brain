@@ -154,7 +154,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, and the Backblaze `sync` block (see below). |
-| `brain sync [--push\|--pull] {setup\|init\|status\|conflicts}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. |
+| `brain sync [--push\|--pull] {setup\|init\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via a dry-run `rclone bisync` (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
@@ -230,7 +230,17 @@ nothing.
   configured triggers (`on_start`/`on_exit`/`watch`, with the watcher's
   debounce window shown as `(3000ms debounce)`), and the count of open
   conflicts.
-- `brain sync conflicts` — list open conflict copies.
+- `brain sync conflicts` — list open conflict copies. `--json` emits the same
+  groups as structured JSON (one object per canonical original, its
+  `original_exists` flag, and its `copies` with `host`/`date`/`modified`/
+  `bytes`) instead of the themed line-list — meant for agents/skills to
+  consume, e.g. the `/second-brain resolve-conflicts` skill.
+- `brain sync resolve <original> [...]` — after you've merged a conflict back
+  into its canonical file, safely delete that original's leftover conflict
+  copies (never the canonical itself). Refuses (and deletes nothing) if the
+  named original doesn't exist — merge into it first. Bare `brain sync
+  resolve` (no arguments) drops into an interactive picker over the currently
+  open conflict groups. Deletion only: it never runs a sync itself.
 
 Like `config`/`env`/`personalize`/`skills`, `sync` is dispatched **before**
 the `markdown-to-pdf` prerequisite gate, so it always works even when that
@@ -373,8 +383,10 @@ unconfigured brain syncs everything, unchanged from before; see
 doesn't drop the losing edit: it keeps that copy, and brain renames it to
 `name (conflict <host> <date>).ext` alongside the winner, so nothing is
 silently lost. Conflict copies are themselves excluded from sync, so they
-don't fan out to every machine. `brain sync conflicts` lists them; picking a
-side and deleting the other is a manual step in this phase.
+don't fan out to every machine. `brain sync conflicts` lists them (`--json`
+for the structured, agent-consumable form); the `/second-brain
+resolve-conflicts` skill reads that JSON, merges each group into its
+canonical file, then clears the copies with `brain sync resolve <original>`.
 
 **Task CSVs merge by id — no conflict copies.** `tasks/tasks.csv` and
 `tasks/habits.csv` don't go through the keep-both path above at all: brain
