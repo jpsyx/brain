@@ -61,7 +61,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | The SessionStart hook, state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/claude_session_start_hook.py`, `scripts/install_hook.sh`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
 | Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, the `sync` block's fields, or **root resolution** (`root` is a brain-env key in `~/.config/brain/env.json`; the legacy `~/.config/brain-root` pointer is read-only back-compat, auto-migrated into `env.json` on first run — root is *not* a `brain config` var) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; root resolution in `src/paths.rs`; the `sync` block schema in `src/sync/config.rs`) |
-| `brain sync` itself (the `sync`/`--push`/`--pull`/`setup`/`init`/`status`/`conflicts` surface), the rclone bisync transport, keep-both conflict naming, the `--max-delete` guard, or the sync journal | `docs/features.md` + `docs/integrations.md` + `docs/architecture.md` + `docs/data-model.md` (pipeline in `src/sync/`: `config`, `remote`, `args`, `run`, `conflicts`, `verify`, `journal`, `setup`, `command`; dispatched before the gate in `src/main.rs`) |
+| `brain sync` itself (the `sync`/`--push`/`--pull`/`setup`/`repair`/`status`/`conflicts` surface), the rclone bisync transport, keep-both conflict naming, the `--max-delete` guard, or the sync journal | `docs/features.md` + `docs/integrations.md` + `docs/architecture.md` + `docs/data-model.md` (pipeline in `src/sync/`: `config`, `remote`, `args`, `run`, `conflicts`, `verify`, `journal`, `setup`, `command`; dispatched before the gate in `src/main.rs`) |
 | The `tasks.csv`/`habits.csv` id-keyed semantic merge (excluding them from bisync, the baseline cache, the merge rules, or the journal's `csv:` note) | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (pure merge in `src/sync/csv_merge.rs`; baseline + rclone `copyto` transport + orchestration in `src/sync/csv_sync.rs`; wired into `src/sync/command.rs::sync_once`; excludes in `src/sync/args.rs`) |
 | The auto-sync triggers (start/exit hooks, the `notify` watcher + debounce, the sync lock) | `docs/features.md` + `docs/architecture.md` + `docs/integrations.md` + `docs/decisions.md` (modules `src/sync/{lock,trigger,watch}.rs`; `debounce_ms` in `src/sync/config.rs`; `format_triggers` in `src/sync/command.rs`; the seam in `src/tui/event_loop/setup.rs`) |
 | The second-brain sync skill rows (`cloud-sync`, `resolve-conflicts`), `brain sync conflicts --json`, and `brain sync resolve` | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/architecture.md` + `docs/decisions.md` (`parse_conflict_name`/`group_conflicts`/`copies_for_original` in `src/sync/conflicts.rs`; `conflicts_json` in `src/sync/command/mod.rs`; `resolve` in `src/sync/command/resolve.rs`; the bundled rows in `skills/second-brain/SKILL.md`) |
@@ -159,9 +159,9 @@ users in `skills/`.)
 - **Keep clippy clean.** `pedantic` + `nursery` are on at `warn`; don't
   add new warnings.
 - **The binary's stdout is only intentional machine-readable/plain CLI output
-  (`brain config`/`env`/`version`, plus clap help/errors).** Never `println!`
-  diagnostics from other paths. Diagnostics go to stderr; the TUI goes to
-  `/dev/tty`.
+  (`brain config`/`env`/`version`, explicit non-TUI `--verbose` logs, plus clap
+  help/errors).** Never `println!` diagnostics from other paths. Diagnostics go
+  to stderr; the TUI goes to `/dev/tty`.
 - **Don't add dependencies casually.** The set is small on purpose. If you
   need one, justify it in `docs/architecture.md`.
 - **Follow the pure/impure split.** New decision logic goes in a pure

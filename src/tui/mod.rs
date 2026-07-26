@@ -67,13 +67,13 @@ pub use event_loop::run_tui;
 // only out-of-module consumer is the unit-test module, so the re-export is
 // test-only.
 #[cfg(test)]
-pub(crate) use event_loop::{ActiveModals, ModalInput, modal_input_target};
-#[cfg(test)]
 pub(crate) use app_brain::advance_submit_countdown;
 pub(crate) use draw::*;
 pub(crate) use draw_help::*;
 pub(crate) use draw_modals::*;
 pub(crate) use draw_palette::*;
+#[cfg(test)]
+pub(crate) use event_loop::{ActiveModals, ModalInput, modal_input_target};
 pub(crate) use handlers::*;
 pub(crate) use keymap::*;
 pub(crate) use links::*;
@@ -219,6 +219,9 @@ pub(crate) struct App<'a> {
     /// Path to the state DB, passed down to claude (via `TASKS_STATE_DB`) so
     /// the hook writes to the same DB this shell reads.
     db_path: PathBuf,
+    /// Verbose run log path, present only when the shell was launched with
+    /// `--verbose`.
+    log_path: Option<PathBuf>,
     /// A one-line note shown in the brain footer (e.g. "couldn't find a
     /// session to resume — starting a new chat"). Cleared on the first focus
     /// switch.

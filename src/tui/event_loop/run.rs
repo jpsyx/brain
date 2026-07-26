@@ -6,9 +6,7 @@
 use std::time::Duration as StdDuration;
 
 use anyhow::Result;
-use crossterm::event::{
-    self, Event, KeyCode, KeyEventKind, KeyModifiers,
-};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{Terminal, backend::Backend};
 
 use crate::main_view::{self, MainView};
@@ -200,6 +198,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                 notes_expanded,
                 link_kind,
                 app.brain_panel_open(),
+                app.log_path.is_some(),
             ));
             continue;
         }

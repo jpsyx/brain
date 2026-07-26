@@ -17,6 +17,7 @@ impl PaletteState {
         context_notes_expanded: bool,
         context_links: LinkKind,
         brain_open: bool,
+        logs_available: bool,
     ) -> Self {
         Self {
             filter: String::new(),
@@ -29,6 +30,7 @@ impl PaletteState {
             context_links,
             task_actions_modal: false,
             brain_open,
+            logs_available,
         }
     }
 
@@ -56,6 +58,7 @@ impl PaletteState {
             // The task actions modal only shows task-scoped commands, so the
             // global "Close brain" never appears here regardless.
             brain_open: false,
+            logs_available: false,
         }
     }
 
@@ -120,6 +123,7 @@ impl PaletteState {
             PaletteAction::OpenLinks
             | PaletteAction::SendBrainMessage
             | PaletteAction::CloseBrain
+            | PaletteAction::ShowLogs
             | PaletteAction::OpenHabitsInBrowser
             | PaletteAction::OpenAgenda
             | PaletteAction::ToggleNotes => cmd.label.to_owned(),
@@ -151,6 +155,8 @@ impl PaletteState {
                     !self.task_actions_modal
                         // "Close brain" only makes sense while a panel is open.
                         && (!matches!(c.action, PaletteAction::CloseBrain) || self.brain_open)
+                        // "Show logs" only appears for verbose TUI runs.
+                        && (!matches!(c.action, PaletteAction::ShowLogs) || self.logs_available)
                 }
             })
             .collect()

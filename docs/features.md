@@ -154,7 +154,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, and the Backblaze `sync` block (see below). |
-| `brain sync [--push\|--pull] {setup\|init\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
+| `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
@@ -162,6 +162,12 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
+
+`--verbose` can be added to any non-version command. In non-TUI mode it mirrors
+brain's run log to stdout and writes the same log to a timestamped file under
+`/tmp/`, then prints the log path at exit. In the persistent TUI, logs still go
+to the file but never to stdout; use the tasks-view command palette's **Show
+logs** row to reveal the file.
 
 ### `brain config`
 
@@ -208,14 +214,17 @@ for back-compat and auto-migrated into the `root` key on first run. See
 Manual, bidirectional cross-machine sync of the brain directory
 (`brain_root()`) to a private Backblaze B2 bucket, via `rclone bisync`. Sync
 is **opt-in**: with no configured `sync` block (see [config.md](config.md)),
-`brain sync` prints "sync is not configured — run `brain sync setup`" and does
-nothing.
+`brain sync`, `brain sync repair`, `brain sync status`, and `brain check` print a
+plain explanation that cloud sync is not set up yet and end with the exact next
+command: `brain sync setup`.
 
 - `brain sync` (bare) — bidirectional sync; a same-file conflict is resolved
   by newest edit.
 - `brain sync --push` — biases this run local-wins on a same-file conflict.
 - `brain sync --pull` — biases this run remote-wins on a same-file conflict.
-- `brain sync setup` — a guided walkthrough. It first asks *"do you already have
+- `brain sync setup` — the first command for a machine that has not enabled
+  cloud sync yet. It says that it is enabling cloud sync on this machine, then
+  runs a guided walkthrough. It first asks *"do you already have
   a Backblaze private bucket to connect to?"*; answering no prints a step-by-step
   guide to creating one (private bucket, Default Encryption **enabled**, Object
   Lock **disabled**, and a bucket-scoped application key) and waits for you before
@@ -223,12 +232,14 @@ nothing.
   block into **brain env**, not brain config — see [config.md](config.md)),
   verifies or creates the bucket, creates the `RCLONE_TEST` check-access marker
   on both sides, and establishes the initial bisync baseline.
-- `brain sync init` — (re-)establish the bisync baseline: bootstrap a fresh
-  machine, or recover once rclone refuses to sync because one side's listing
-  is empty or the check-access marker is missing (see
+- `brain sync repair` — (re-)establish the bisync baseline for a machine that
+  already has `sync` env configured, or recover once rclone refuses to sync
+  because one side's listing is empty or the check-access marker is missing (see
   [integrations.md](integrations.md)). It recreates the `RCLONE_TEST` marker on
-  both sides before the resync. You rarely need to run this by hand anymore —
-  see **auto-resume** below.
+  both sides before the resync. It does **not** collect Backblaze credentials or
+  enable cloud sync; if it is run before setup, brain explains that
+  `brain sync setup` must come first. You rarely need to run this by hand
+  anymore — see **auto-resume** below.
 - `brain sync status` — the last run (from the local sync journal), the
   configured triggers (`on_start`/`on_exit`/`watch`, with the watcher's
   debounce window shown as `(3000ms debounce)`), and the count of open
@@ -385,7 +396,7 @@ an interrupted or errored run always journals as `needs_attention`/`aborted`,
 never `clean`. The *next* plain `brain sync` automatically detects the
 incomplete baseline and transparently resumes it (one internal resync retry,
 journalled with the note "auto-resumed after interrupted baseline") before
-continuing — no need to manually run `brain sync init` first. The guarantee:
+continuing — no need to manually run `brain sync repair` first. The guarantee:
 every in-scope file is eventually synced; nothing is silently left behind.
 
 **Deletions propagate both ways.** `rclone bisync` mirrors deletes as well as

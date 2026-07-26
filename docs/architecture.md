@@ -39,16 +39,20 @@ user types `brain …`
        └─ exec target/release/brain "$@"   (forwards every argument)
 
 the binary:
+  ├─ `brain --verbose …` → writes a timestamped `/tmp` log; non-TUI mirrors logs to stdout
   ├─ `brain config …`  → prints the config table / a value to stdout
   ├─ `brain tasks … --no-tui | complete | doctor` → plain output / mutate / check
   └─ everything else   → opens the persistent TUI on /dev/tty
 ```
 
 The TUI renders to `/dev/tty`, so the binary's **stdout** is only what
-`brain config` prints plus clap's help/errors. The binary opens files, cds
-its own PTY, launches `claude`, and reveals in Finder itself, from inside the
-running shell. See [decisions.md](decisions.md) for *why* it is a pure TUI
-binary, and [integrations.md](integrations.md) for the launch/handoff detail.
+plain CLI surfaces print (`config`, `env`, `version`, clap help/errors) plus
+explicit `--verbose` log mirroring in non-TUI mode. Verbose TUI runs keep
+stdout quiet and expose the log through the tasks command palette. The binary
+opens files, cds its own PTY, launches `claude`, and reveals in Finder itself,
+from inside the running shell. See [decisions.md](decisions.md) for *why* it is
+a pure TUI binary, and [integrations.md](integrations.md) for the launch/handoff
+detail.
 
 ## High-level data flow (inside the binary)
 
@@ -56,9 +60,10 @@ binary, and [integrations.md](integrations.md) for the launch/handoff detail.
 argv
  └─→ Cli::parse                          (cli.rs)
       ├─→ -v / --version / Cmd::Version ─→ print crate version and exit before any gates
+      ├─→ --verbose ─→ logging::init      (timestamped `/tmp` log; stdout mirror unless TUI)
       ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
       ├─→ Cmd::Env ─→ env_command         (list/get/set over env.json; also BEFORE the gate)
-      ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/init/status/conflicts; also BEFORE the gate)
+      ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/repair/status/conflicts; also BEFORE the gate)
       ├─→ Cmd::Check ─→ sync::check::run  (read-only dry-run push/pull report; also BEFORE the gate)
       ├─→ Cmd::Personalize ─→ personalize_command (show/get/set/edit / onboarding; also BEFORE the gate)
       ├─→ Cmd::Server ─→ server_command   (start/status/kill/run — the background HTTP daemon; also BEFORE the gate)
@@ -78,7 +83,7 @@ tui::run_tui(view, cli, …)                  (the persistent shell)
        ├─ session::build_claude_command(root, config.claude_command(), …) + env_for
        │    → PtyPane spawns the configured `claude …`
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
-       ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp)
+       ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; verbose TUI adds "Show logs")
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
        └─ quit → the loop just returns (no plan, no wrapper handoff)
 ```
@@ -100,11 +105,17 @@ utility (`complete` → native CSV completion; `doctor` → `run_doctor`; `--no-
 no plan and no `Exit` mapping: the shell just returns when the user quits.
 
 ### `cli.rs`
-The clap derive surface. `Cli` is a single optional `Cmd`. `Cmd` has just two
-variants: `Tasks(TasksArgs)` (all args after `tasks` forwarded verbatim to the
-tasks CLI parser) and `Config(ConfigArgs)` (with a `list`/`get`/`set`
-subcommand). Bare `brain` (no `Cmd`) is equivalent to `brain tasks` — the
-tasks view is the startup default.
+The clap derive surface. `Cli` owns the global flags (`-v`/`--version` and
+`--verbose`) plus one optional `Cmd`. Bare `brain` (no `Cmd`) is equivalent to
+`brain tasks` — the tasks view is the startup default.
+
+### `logging.rs`
+Optional per-run verbose logging. `logging::init` creates a timestamped
+`/tmp/<rfc3339-nanos>.log` file only when `--verbose` is present, mirrors log
+lines to stdout for non-TUI commands, and prints the final log path at process
+exit. Before the persistent shell takes over `/dev/tty`, `main.rs` disables the
+stdout mirror; the TUI keeps the log path in `App` and offers **Show logs** in
+the tasks command palette.
 
 ### `paths.rs`
 Brain-root resolution. `brain_root()` reads the path in `~/.config/brain-root`
@@ -308,8 +319,8 @@ that runs this whole pipeline; `command::print_status`/`print_conflicts` back
 interactive flow (collect bucket + credentials, verify/create the bucket via
 `rclone lsd`/`mkdir`, write the `sync` block into brain env, bootstrap the
 check-access markers through `sync_once(Direction::Resync)`, then run one
-baseline `sync_once` with `Direction::Resync`) — `brain sync init` reruns just
-that resync, both as the fresh-machine bootstrap and as the recovery path for
+baseline `sync_once` with `Direction::Resync`) — `brain sync repair` reruns just
+that resync on an already configured machine, mainly as the recovery path for
 rclone's own "prior listings missing" guard. See
 [integrations.md](integrations.md) for the rclone handoff detail and
 [data-model.md](data-model.md) for the `sync` config fields and the journal

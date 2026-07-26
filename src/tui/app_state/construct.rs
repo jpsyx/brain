@@ -63,6 +63,7 @@ impl<'a> App<'a> {
             instance,
             brain_root,
             db_path,
+            log_path: crate::logging::path(),
             alert: None,
             pending_brain_submit: 0,
             palette: None,

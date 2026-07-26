@@ -65,6 +65,21 @@ impl App<'_> {
         });
     }
 
+    /// Reveal this run's verbose log directory, then open the log file itself.
+    pub(crate) fn run_show_logs(&mut self, path: &Path) {
+        let result = path.parent().map_or_else(
+            || crate::open_target::open_with_system(path),
+            |dir| {
+                crate::open_target::open_with_system(dir)?;
+                crate::open_target::open_with_system(path)
+            },
+        );
+        self.flash = Some(match result {
+            Ok(()) => FlashKind::Info(format!("✓ opened {}", path.display())),
+            Err(e) => FlashKind::Error(format!("⚠ logs failed: {e}")),
+        });
+    }
+
     /// Ctrl+O / "open link" entry point. Collects the selected entry's
     /// openable links (Linear issue first, then see_also / notes URLs). Zero links is a
     /// silent no-op; a single link opens directly via the injected
@@ -184,6 +199,11 @@ impl App<'_> {
             }
             PaletteAction::OpenAgenda => {
                 self.run_open_agenda();
+            }
+            PaletteAction::ShowLogs => {
+                if let Some(path) = self.log_path.clone() {
+                    self.confirm = Some(ConfirmState::show_logs(path));
+                }
             }
             PaletteAction::ToggleNotes => {
                 self.toggle_notes();

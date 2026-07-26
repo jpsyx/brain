@@ -14,7 +14,7 @@ pub enum AbortKind {
     MaxDelete,
     /// rclone's `--check-access` marker guard failed.
     CheckAccess,
-    /// Baseline listings missing — needs `brain sync init` / `--resync`.
+    /// Baseline listings missing — needs `brain sync repair`.
     PriorListingMissing,
     /// Some other non-zero exit.
     Other,
@@ -57,7 +57,9 @@ fn transferred_count(output: &str) -> u64 {
         .find_map(|rest| {
             let mut tokens = rest.split_whitespace();
             let num = tokens.next()?;
-            (tokens.next() == Some("/")).then(|| num.parse().ok()).flatten()
+            (tokens.next() == Some("/"))
+                .then(|| num.parse().ok())
+                .flatten()
         })
         .unwrap_or(0)
 }
@@ -79,7 +81,10 @@ pub fn parse_outcome(exit_ok: bool, output: &str) -> RunOutcome {
         || lc.contains("check file check failed")
     {
         Some(AbortKind::CheckAccess)
-    } else if lc.contains("cannot find prior") || lc.contains("must run --resync") || lc.contains("run --resync") {
+    } else if lc.contains("cannot find prior")
+        || lc.contains("must run --resync")
+        || lc.contains("run --resync")
+    {
         Some(AbortKind::PriorListingMissing)
     } else {
         Some(AbortKind::Other)
@@ -118,7 +123,13 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
     cmd.stderr(Stdio::piped());
 
     let Ok(mut child) = cmd.spawn() else {
-        return RunOutcome { exit_ok: false, transferred: 0, deleted: 0, errors: 0, abort: Some(AbortKind::Other) };
+        return RunOutcome {
+            exit_ok: false,
+            transferred: 0,
+            deleted: 0,
+            errors: 0,
+            abort: Some(AbortKind::Other),
+        };
     };
 
     let theme = crate::theme::Theme::active();
@@ -260,6 +271,9 @@ mod tests {
 
     #[test]
     fn unknown_nonzero_exit_is_other_not_clean() {
-        assert_eq!(parse_outcome(false, "something went wrong").abort, Some(AbortKind::Other));
+        assert_eq!(
+            parse_outcome(false, "something went wrong").abort,
+            Some(AbortKind::Other)
+        );
     }
 }

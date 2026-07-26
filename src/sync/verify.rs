@@ -35,21 +35,36 @@ impl Outcome {
 pub fn classify(run: &RunOutcome, conflicts: usize, leftover_markers: usize) -> Outcome {
     if let Some(kind) = &run.abort {
         let msg = match kind {
-            AbortKind::MaxDelete => "sync aborted: would delete more than the --max-delete threshold. If intentional, run `brain sync --resync`.",
-            AbortKind::CheckAccess => "sync aborted: check-access marker missing. Run `brain sync init` to recreate the RCLONE_TEST marker and re-establish the baseline.",
-            AbortKind::PriorListingMissing => "sync aborted: baseline listings missing. Run `brain sync init` to re-establish the baseline.",
-            AbortKind::Other => "sync aborted: rclone exited with an error. See `brain sync status`.",
+            AbortKind::MaxDelete => {
+                "sync aborted: would delete more than the --max-delete threshold. If intentional, run `brain sync repair`."
+            }
+            AbortKind::CheckAccess => {
+                "sync aborted: check-access marker missing. Run `brain sync repair` to recreate the RCLONE_TEST marker and re-establish the baseline."
+            }
+            AbortKind::PriorListingMissing => {
+                "sync aborted: baseline listings missing. Run `brain sync repair` to re-establish the baseline."
+            }
+            AbortKind::Other => {
+                "sync aborted: rclone exited with an error. See `brain sync status`."
+            }
         };
         return Outcome::Aborted(msg.to_owned());
     }
     if run.errors > 0 {
-        return Outcome::NeedsAttention(format!("{} transfer error(s); re-run `brain sync`.", run.errors));
+        return Outcome::NeedsAttention(format!(
+            "{} transfer error(s); re-run `brain sync`.",
+            run.errors
+        ));
     }
     if leftover_markers > 0 {
-        return Outcome::NeedsAttention(format!("{leftover_markers} conflict copy(ies) could not be renamed; see `brain sync conflicts`."));
+        return Outcome::NeedsAttention(format!(
+            "{leftover_markers} conflict copy(ies) could not be renamed; see `brain sync conflicts`."
+        ));
     }
     if conflicts > 0 {
-        return Outcome::NeedsAttention(format!("{conflicts} conflict copy(ies) created; review with `brain sync conflicts`."));
+        return Outcome::NeedsAttention(format!(
+            "{conflicts} conflict copy(ies) created; review with `brain sync conflicts`."
+        ));
     }
     Outcome::Clean
 }
@@ -59,7 +74,13 @@ mod tests {
     use super::*;
 
     fn ok_run() -> RunOutcome {
-        RunOutcome { exit_ok: true, transferred: 5, deleted: 1, errors: 0, abort: None }
+        RunOutcome {
+            exit_ok: true,
+            transferred: 5,
+            deleted: 1,
+            errors: 0,
+            abort: None,
+        }
     }
 
     #[test]
@@ -75,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn check_access_abort_points_at_sync_init() {
+    fn check_access_abort_points_at_sync_repair() {
         let mut r = ok_run();
         r.exit_ok = false;
         r.abort = Some(AbortKind::CheckAccess);
@@ -83,12 +104,15 @@ mod tests {
             panic!("expected aborted outcome");
         };
         assert!(msg.contains("check-access"), "{msg}");
-        assert!(msg.contains("brain sync init"), "{msg}");
+        assert!(msg.contains("brain sync repair"), "{msg}");
     }
 
     #[test]
     fn leftover_markers_are_needs_attention() {
-        assert!(matches!(classify(&ok_run(), 0, 1), Outcome::NeedsAttention(_)));
+        assert!(matches!(
+            classify(&ok_run(), 0, 1),
+            Outcome::NeedsAttention(_)
+        ));
     }
 
     #[test]
@@ -102,10 +126,16 @@ mod tests {
     }
 
     #[test]
-    fn max_delete_abort_is_aborted_with_resync_hint() {
-        let r = RunOutcome { exit_ok: false, transferred: 0, deleted: 0, errors: 0, abort: Some(AbortKind::MaxDelete) };
+    fn max_delete_abort_is_aborted_with_repair_hint() {
+        let r = RunOutcome {
+            exit_ok: false,
+            transferred: 0,
+            deleted: 0,
+            errors: 0,
+            abort: Some(AbortKind::MaxDelete),
+        };
         match classify(&r, 0, 0) {
-            Outcome::Aborted(m) => assert!(m.contains("--resync")),
+            Outcome::Aborted(m) => assert!(m.contains("brain sync repair")),
             other => panic!("expected Aborted, got {other:?}"),
         }
     }

@@ -1,8 +1,8 @@
 //! Tests for shell_quote, BrainInputState::finalize, the ConfirmState
 //! constructors / choices / intents, mouse hit-testing, and the submit countdown.
 
-use crate::tui::*;
 use crate::session::shell_quote;
+use crate::tui::*;
 
 // --- shell_quote ---
 
@@ -46,7 +46,10 @@ fn finalize_whitespace_only_buffer_returns_none() {
 fn finalize_trims_the_buffer_inside_the_context_prefix() {
     let mut s = BrainInputState::about("T1".to_owned(), "x".to_owned());
     s.buffer = "  hi there  ".to_owned();
-    assert_eq!(s.finalize().unwrap(), "This message is about T1 (x): hi there");
+    assert_eq!(
+        s.finalize().unwrap(),
+        "This message is about T1 (x): hi there"
+    );
 }
 
 #[test]
@@ -77,6 +80,18 @@ fn run_triage_ctor_carries_task_id_and_label() {
     assert_eq!(s.task_label, "Morning Triage");
 }
 
+#[test]
+fn show_logs_confirm_carries_the_full_log_path() {
+    let s = ConfirmState::show_logs(std::path::PathBuf::from("/tmp/2026.log"));
+    assert_eq!(s.kind, ConfirmKind::ShowLogs);
+    assert_eq!(
+        s.path.as_deref(),
+        Some(std::path::Path::new("/tmp/2026.log"))
+    );
+    assert!(s.prompt.contains("/tmp/2026.log"), "{}", s.prompt);
+    assert_eq!(s.choices(), &[ConfirmChoice::Yes, ConfirmChoice::No]);
+}
+
 // --- ConfirmChoice: the triage modal alone offers a third "Skip" button ---
 
 #[test]
@@ -95,6 +110,7 @@ fn non_triage_confirms_are_yes_no_only() {
         ConfirmState::mark_complete("T1".to_owned(), "x".to_owned()),
         ConfirmState::remove("T1".to_owned(), "x".to_owned()),
         ConfirmState::generate_agenda(),
+        ConfirmState::show_logs(std::path::PathBuf::from("/tmp/x.log")),
     ] {
         assert_eq!(s.choices(), &[ConfirmChoice::Yes, ConfirmChoice::No]);
         assert!(!s.has_skip());
@@ -145,7 +161,10 @@ fn skip_triage_prompt_uses_the_documented_skip_language() {
     // /todo skills' skip trigger) and marks the Morning Triage habit
     // done rather than running a pass. Keep the phrase intact.
     let p = SKIP_TRIAGE_PROMPT.to_lowercase();
-    assert!(p.contains("skip daily triage"), "prompt was: {SKIP_TRIAGE_PROMPT}");
+    assert!(
+        p.contains("skip daily triage"),
+        "prompt was: {SKIP_TRIAGE_PROMPT}"
+    );
 }
 
 // --- ConfirmIntent: green for constructive, red for destructive ---
@@ -165,7 +184,10 @@ fn remove_is_a_danger_intent() {
 
 #[test]
 fn agenda_and_triage_are_success_intents() {
-    assert_eq!(ConfirmState::generate_agenda().intent, ConfirmIntent::Success);
+    assert_eq!(
+        ConfirmState::generate_agenda().intent,
+        ConfirmIntent::Success
+    );
     assert_eq!(
         ConfirmState::run_triage("H1".to_owned(), "Triage".to_owned()).intent,
         ConfirmIntent::Success
@@ -175,7 +197,10 @@ fn agenda_and_triage_are_success_intents() {
 #[test]
 fn intent_accents_differ_success_green_danger_red() {
     // The two intents must map to distinct accents (green vs red).
-    assert_ne!(ConfirmIntent::Success.accent(), ConfirmIntent::Danger.accent());
+    assert_ne!(
+        ConfirmIntent::Success.accent(),
+        ConfirmIntent::Danger.accent()
+    );
     // Sanity: green channel dominates for Success, red for Danger.
     assert_eq!(ConfirmIntent::Success.accent(), Color::Rgb(158, 206, 106));
     assert_eq!(ConfirmIntent::Danger.accent(), Color::Rgb(247, 118, 142));
@@ -194,7 +219,12 @@ fn panel_at_returns_tasks_when_no_brain_panel() {
 fn panel_at_splits_on_the_brain_rect() {
     use ratatui::layout::Rect;
     // 80-col split: tasks on the left, brain occupying x=40..80.
-    let brain = Some(Rect { x: 40, y: 0, width: 40, height: 24 });
+    let brain = Some(Rect {
+        x: 40,
+        y: 0,
+        width: 40,
+        height: 24,
+    });
     // A column inside the brain rect → Brain.
     assert_eq!(panel_at(brain, 50, 10), Panel::Brain);
     assert_eq!(panel_at(brain, 40, 0), Panel::Brain);

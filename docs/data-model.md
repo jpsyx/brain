@@ -323,12 +323,12 @@ it.
 
 rclone's `--check-access` guard requires a marker file named `RCLONE_TEST` at
 both sync roots. brain owns that marker lifecycle through
-`src/sync/check_access.rs`: `brain sync setup` and `brain sync init` write a
+`src/sync/check_access.rs`: `brain sync setup` and `brain sync repair` write a
 generic `<brain-root>/RCLONE_TEST` file and copy it to the remote root before
 the resync baseline is established. The marker contains no secrets and is
 ordinary synced metadata. Normal sync runs do not recreate it; if it is missing
 on either side, rclone aborts and brain reports the recovery path as
-`brain sync init`.
+`brain sync repair`.
 
 ## Conflict-copy naming (`src/sync/conflicts.rs`)
 

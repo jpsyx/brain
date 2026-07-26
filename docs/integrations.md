@@ -17,11 +17,14 @@ handles its own effects.
 
 The binary's **stdout** carries only:
 
-- `brain config …` output (the config table, or a single value), and
-- clap's help / version / error text.
+- `brain config …` output (the config table, or a single value),
+- clap's help / version / error text, and
+- explicit verbose log mirroring for non-TUI commands when `--verbose` is set.
 
 Everything else is a TUI that renders to `/dev/tty`, so nothing an interactive
-session paints reaches stdout. Diagnostics go to stderr.
+session paints reaches stdout. Diagnostics go to stderr. Verbose TUI runs still
+write a timestamped `/tmp` log file; the tasks command palette's **Show logs**
+row asks whether to open both the log directory and the log file via `open`.
 
 ## The tasks view (in-process, no handoff)
 
@@ -120,6 +123,10 @@ or a blob is decided by `open_target::is_textlike`. On a non-iTerm2 terminal
 the editor path falls back to `open <file>`. Nothing is emitted to stdout; the
 shell stays up throughout.
 
+Verbose TUI log reveal reuses the same system handoff: **Show logs** first calls
+`open <parent-dir>` so Finder shows the log directory, then calls `open <log>`
+for the timestamped file itself.
+
 ## Handoff: `markdown-to-pdf` (the "Create PDF" command)
 
 The "Create PDF" command (palette row / `Ctrl-G` on a `.md` file) converts the
@@ -197,7 +204,7 @@ bookkeeping.
   be decrypted.
 - **The bisync argv is built once** by `src/sync/args.rs`
   (`bisync_args`): direction (`brain sync` / `--push` / `--pull` / `brain
-  sync init`) maps to rclone's `--conflict-resolve` (`newer` / `path1` /
+  sync repair`) maps to rclone's `--conflict-resolve` (`newer` / `path1` /
   `path2`), plus `--conflict-loser pathname` + `--conflict-suffix
   __brainconflict__` (the keep-both mechanics — see [features.md](features.md)
   and [data-model.md](data-model.md)), `--max-delete <percent>`, `-v` (so
@@ -231,15 +238,15 @@ bookkeeping.
   block, default 50) aborts a run that would delete more than that share of
   files, without propagating the deletes. rclone's own safety abort ("too many
   deletes") is mapped by `src/sync/verify.rs` to an `Aborted` outcome pointing
-  at `brain sync --resync` (via `brain sync init`) if the deletes were
-  intentional. `--check-access --check-filename RCLONE_TEST` is the path
+  at `brain sync repair` if the deletes were intentional. `--check-access
+  --check-filename RCLONE_TEST` is the path
   symmetry guard: rclone aborts unless both sync roots contain the marker.
   `src/sync/check_access.rs` owns that lifecycle. `brain sync setup` and
-  `brain sync init` write `<brain-root>/RCLONE_TEST`, copy it to the remote
+  `brain sync repair` write `<brain-root>/RCLONE_TEST`, copy it to the remote
   root with `rclone copyto`, and then run the resync. Normal `brain sync`,
   `--push`, and `--pull` do not silently repair missing markers; if the guard
   fails, `src/sync/run.rs` classifies it as `AbortKind::CheckAccess` and
-  `verify.rs` tells the user to run `brain sync init`.
+  `verify.rs` tells the user to run `brain sync repair`.
 - **rclone's own empty-directory guard.** Independently of brain's
   `--max-delete` guard, `rclone bisync` refuses to run at all when one side's
   prior listing has gone fully empty ("cannot find prior Path1 or Path2
@@ -247,15 +254,15 @@ bookkeeping.
   treating a wiped or never-initialized side as "delete everything on the
   other side." `src/sync/run.rs` recognizes this wording as
   `AbortKind::PriorListingMissing`. Historically that meant surfacing a
-  pointer at **`brain sync init`** for the human to re-run with `--resync`;
+  pointer at **`brain sync repair`** for the human to re-run with `--resync`;
   as of the progress/resume work, `command::sync_once` handles the common
   case (an interrupted or killed `--resync`) itself: `should_auto_resync`
   (pure) says yes whenever the abort is `PriorListingMissing` **and** the run
   that just aborted wasn't already a resync (so it retries exactly once,
   never loops), `sync_once` re-runs bisync as `Direction::Resync`, and the
   journal note records "auto-resumed after interrupted baseline". `brain
-  sync init` still exists for a genuinely fresh machine's first baseline and
-  as a manual escape hatch, but you no longer have to reach for it after a
+  sync repair` still exists for restoring the guard marker and baseline on an
+  already configured machine, but you no longer have to reach for it after a
   Ctrl-C mid-sync — the next plain `brain sync` resumes on its own.
 - **Never journal `clean` for an interrupted or errored run.** This is what
   makes auto-resume safe rather than merely convenient: `verify::classify`
@@ -280,7 +287,8 @@ bookkeeping.
   already have a bucket (`ask_has_bucket` / pure `parse_yes_no`), and if not
   prints `bucket_walkthrough()` — the step-by-step Backblaze bucket + app-key
   guide (private, Default Encryption on, Object Lock off) whose coverage of the
-  critical settings is unit-tested — and pauses. It then prompts on `/dev/tty`
+  critical settings is unit-tested — and pauses. It clearly says this enables
+  cloud sync on this machine, then prompts on `/dev/tty`
   for the bucket + B2 key id + application key (pre-filled with any existing
   values), validates them,
   writes the `sync` block into brain env (`crate::env::set_raw`, **not**
@@ -288,9 +296,11 @@ bookkeeping.
   lsd` and offers to `rclone mkdir` it if unreachable, then runs one
   `Direction::Resync` sync to establish the baseline. If the existing `sync`
   block contains crypt fields, setup preserves them when refreshing bucket
-  credentials. `brain sync init` reruns just that last step (the resync), so it
-  doubles as the fresh-machine bootstrap and the recovery path for the
-  empty-directory guard above.
+  credentials. `brain sync repair` reruns just that last step (check-access marker
+  bootstrap + resync), so it is the recovery path for the empty-directory guard
+  above. It requires the `sync`
+  block to already exist; if the user runs it first, brain explains that repair
+  only repairs an existing setup and ends with `brain sync setup`.
 - **The journal.** Every run (whichever direction, including `setup`'s
   initial baseline) is classified — `Clean` / `NeedsAttention` / `Aborted` —
   by `src/sync/verify.rs` and recorded by `src/sync/journal.rs` into a SQLite

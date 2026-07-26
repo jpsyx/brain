@@ -39,6 +39,10 @@ pub struct Cli {
     #[arg(short = 'v', long = "version", action = clap::ArgAction::SetTrue)]
     pub print_version: bool,
 
+    /// Write verbose run logs to stdout and to a timestamped file in /tmp.
+    #[arg(long, global = true)]
+    pub verbose: bool,
+
     #[command(subcommand)]
     pub command: Option<Cmd>,
 }
@@ -154,7 +158,10 @@ pub struct SyncArgs {
 pub enum SyncAction {
     /// Configure the B2 bucket + credentials and establish the baseline.
     Setup,
-    /// (Re)establish the bisync baseline (first run / recovery / fresh machine).
+    /// Repair sync metadata by recreating the marker and baseline.
+    Repair,
+    /// Deprecated alias for `repair`; kept hidden for old docs/scripts.
+    #[command(hide = true)]
     Init,
     /// Show the last run, pending changes, and open conflicts.
     Status,

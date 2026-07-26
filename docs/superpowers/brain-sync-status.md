@@ -15,7 +15,7 @@ pipeline) shipped earlier. Sub-project C (Backblaze sync) is now done end to end
 | Phase | What it delivered | Where |
 |---|---|---|
 | **C1** | brain env / brain config split; `brain env {list\|get\|set}`; `root` + `markdown_to_pdf_path` moved to env; legacy pointer auto-migration; `sync` block schema (parse-only). | `src/env/`, `src/paths.rs` |
-| **C2** | Sync core: `brain sync [setup\|init\|status\|conflicts\|--push\|--pull]` over `rclone bisync`; keep-both conflicts; bidirectional deletes + `--max-delete`; journal + post-sync verify; `brain check`. | `src/sync/{args,remote,run,verify,journal,setup,command,check,conflicts}.rs` |
+| **C2** | Sync core: `brain sync [setup\|repair\|status\|conflicts\|--push\|--pull]` over `rclone bisync`; keep-both conflicts; bidirectional deletes + `--max-delete`; journal + post-sync verify; `brain check`. | `src/sync/{args,remote,run,verify,journal,setup,command,check,conflicts}.rs` |
 | **C3** | id-keyed 3-way CSV merge for `tasks.csv`/`habits.csv` (converges, idempotent; `last_touched` LWW). | `src/sync/{csv_merge,csv_sync}.rs` |
 | **C4** | Auto-sync triggers: `notify` watcher + pure debounce, on-start background sync, detached on-exit sync, optional idle-pull timer, machine-wide advisory sync lock. | `src/sync/{idle,lock,trigger,watch}.rs`, `src/tui/event_loop/setup.rs` |
 | **C5** | Agent-facing conflict resolution + migration: `brain sync conflicts --json`, `brain sync resolve <original>`, `/second-brain cloud-sync` + `/second-brain resolve-conflicts`, hermetic C1-migration test, migration runbook, gated resolve round-trip test, full docs. | `src/sync/{conflicts,command/mod,command/resolve}.rs`, `skills/second-brain/SKILL.md`, `tests/sync_local.rs` |

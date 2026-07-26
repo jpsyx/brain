@@ -567,12 +567,12 @@ would delete more than a configured percent of files). C2 shipped only
 `--max-delete` because `--check-access` requires brain to create and manage
 marker files on both sides; enabling it before that lifecycle existed would
 make every run abort. The §19 hardening slice adds that lifecycle in
-`src/sync/check_access.rs`: setup/init write a generic local `RCLONE_TEST`
+`src/sync/check_access.rs`: setup/repair write a generic local `RCLONE_TEST`
 marker, copy it to the remote root with rclone `copyto`, and then run the
 baseline resync. Normal syncs now pass `--check-access --check-filename
 RCLONE_TEST` and intentionally do not repair missing markers. A missing marker
 means the roots are no longer a confirmed pair, so brain aborts and points the
-user at `brain sync init`.
+user at `brain sync repair`.
 
 **Why `rclone bisync` and not a from-scratch merge.** The brain root isn't
 just markdown notes — it also holds `tasks.csv`/`habits.csv`, which don't
@@ -605,9 +605,9 @@ missing" guard), C2 deliberately does not retry with `--resync` on its own —
 blindly doing that after an abort could paper over exactly the kind of change
 (a wiped directory, a botched previous run) the guard exists to catch.
 Instead the abort is surfaced (`Outcome::Aborted`, with a message pointing at
-`brain sync init` or `brain sync --resync`) and the human decides. This
-mirrors the project's broader pattern of surfacing rather than auto-healing
-anything that touches data loss (contrast the auto-healed
+`brain sync repair`) and the human decides. This mirrors the project's broader
+pattern of surfacing rather than auto-healing anything that touches data loss
+(contrast the auto-healed
 `markdown_to_pdf_path`, which only ever *rediscovers a tool path* — never
 anyone's data). **This still holds for `--max-delete`** — a tripped delete
 guard always surfaces for a human decision, never auto-retried. C3 narrows
@@ -648,7 +648,7 @@ finish writing both sides' listings. Resuming that with another `--resync`
 doesn't discard or override anyone's data — it re-establishes the baseline
 using whatever state already exists on both sides and uploads only what's
 missing, which is the intended recovery path in any case (the *manual* fix
-was already "run `brain sync init`" under C2). Automating just this one,
+was already "run `brain sync repair`" under C2). Automating just this one,
 narrow, low-risk case is what `command::should_auto_resync` encodes (pure:
 `dir != Resync && abort == PriorListingMissing`, so it fires once and never
 loops on a resync's own abort), paired with `--resilient --recover` in the
@@ -1169,3 +1169,25 @@ Every committed code change should include the appropriate SemVer bump in
 the minor version, while compatible fixes and internal changes bump the patch
 version. The project stays in the `0.y.z` line until the user explicitly says it
 is ready for `1.0.0`.
+
+## Why verbose logging is opt-in and stdout is suppressed in the TUI
+
+`brain` keeps default runs quiet because most command output is meant for a
+human or an agent to read directly. `--verbose` creates a timestamped log file
+under `/tmp/` and mirrors those log lines to stdout for short-lived, non-TUI
+commands so a caller can capture one stream. The persistent shell is different:
+stdout is reserved away from full-screen terminal drawing, so verbose TUI runs
+write only to the log file. The tasks command palette carries the discoverable
+escape hatch: **Show logs** asks for confirmation, then opens both the log
+directory and the log file with the system `open`.
+
+## Why sync setup/repair are explicit separate states
+
+`brain sync setup` is the only command that enables cloud sync on a machine: it
+collects Backblaze credentials, writes the machine-local `sync` block, creates
+the `RCLONE_TEST` guard marker, and establishes the first baseline.
+`brain sync repair` deliberately does less: it repairs/re-establishes an existing setup by
+recreating the marker and running a resync. Keeping the commands separate avoids
+silently enabling cloud sync from a recovery command. The UX rule is that any
+sync command run before setup explains which prerequisite is missing and ends
+with the exact next command: `brain sync setup`.

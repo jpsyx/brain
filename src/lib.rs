@@ -13,6 +13,7 @@ pub mod config;
 pub mod confirm;
 pub mod entry;
 pub mod env;
+pub mod logging;
 pub mod main_view;
 pub mod menu;
 pub mod open_target;

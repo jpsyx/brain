@@ -48,7 +48,7 @@ Mirrors `brain config` exactly, over the env store:
 written by **`brain sync setup`** (interactive: bucket + credentials,
 verify/create the bucket, establish the baseline), not by hand-editing
 `env.json` or `brain env set`. See [features.md](features.md) for the full
-command surface (`brain sync [--push|--pull] {setup|init|status|conflicts}`)
+command surface (`brain sync [--push|--pull] {setup|repair|status|conflicts}`)
 and [integrations.md](integrations.md) for the rclone handoff.
 
 Optional `rclone crypt` is enabled by adding an already-obscured

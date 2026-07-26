@@ -50,7 +50,12 @@ pub fn hostname() -> String {
 /// Run one sync in `dir`. `now` supplies the timestamps + date (injected so the
 /// call is testable and to keep clock reads out of pure code). Returns the
 /// verified outcome.
-pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str, &str)) -> Result<Outcome> {
+pub fn sync_once(
+    cfg: &SyncConfig,
+    root: &Path,
+    dir: Direction,
+    now: (&str, &str, &str),
+) -> Result<Outcome> {
     if !cfg.is_configured() {
         bail!("sync is not configured — run `brain sync setup`");
     }
@@ -68,7 +73,9 @@ pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str
         let theme = Theme::active();
         eprintln!(
             "{}",
-            theme.warning("Baseline was incomplete (a prior sync was interrupted); resuming with a resync…")
+            theme.warning(
+                "Baseline was incomplete (a prior sync was interrupted); resuming with a resync…"
+            )
         );
         let resync_argv = args::bisync_args(cfg, &local, &remote.arg, Direction::Resync);
         run = run_rclone(&remote.env, &resync_argv);
@@ -106,8 +113,11 @@ pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str
                 Outcome::NeedsAttention(m) | Outcome::Aborted(m) => m.clone(),
             };
             let base = if resumed {
-                if base.is_empty() { "auto-resumed after interrupted baseline".to_owned() }
-                else { format!("auto-resumed after interrupted baseline; {base}") }
+                if base.is_empty() {
+                    "auto-resumed after interrupted baseline".to_owned()
+                } else {
+                    format!("auto-resumed after interrupted baseline; {base}")
+                }
             } else {
                 base
             };
@@ -123,7 +133,12 @@ pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str
 #[must_use]
 pub fn format_csv_note(outcomes: &[CsvMergeOutcome]) -> String {
     let (added, merged, deleted, soft) = outcomes.iter().fold((0, 0, 0, 0), |acc, o| {
-        (acc.0 + o.added, acc.1 + o.merged, acc.2 + o.deleted, acc.3 + o.soft_conflicts)
+        (
+            acc.0 + o.added,
+            acc.1 + o.merged,
+            acc.2 + o.deleted,
+            acc.3 + o.soft_conflicts,
+        )
     });
     if added == 0 && merged == 0 && deleted == 0 && soft == 0 {
         return String::new();
@@ -152,7 +167,10 @@ pub fn join_notes(a: &str, b: &str) -> String {
 #[must_use]
 pub fn should_auto_resync(dir: Direction, abort: Option<&crate::sync::run::AbortKind>) -> bool {
     dir != Direction::Resync
-        && matches!(abort, Some(crate::sync::run::AbortKind::PriorListingMissing))
+        && matches!(
+            abort,
+            Some(crate::sync::run::AbortKind::PriorListingMissing)
+        )
 }
 
 /// Whether this sync run should create/repair the check-access markers before
@@ -182,6 +200,23 @@ pub fn direction_from_flags(push: bool, pull: bool) -> Result<Direction> {
     }
 }
 
+/// User-facing guidance for sync commands run before `brain sync setup`.
+#[must_use]
+pub fn format_unconfigured_sync_guidance(dir: Direction, theme: Theme) -> String {
+    let setup = theme.accent("brain sync setup");
+    if dir == Direction::Resync {
+        return format!(
+            "{}\n\n`{}` only repairs an existing sync setup: it recreates the RCLONE_TEST marker and re-establishes the rclone baseline. It does not collect Backblaze credentials or enable cloud sync.\n\nRun `{setup}`.",
+            theme.warning("Cloud sync is not set up yet."),
+            theme.accent("brain sync repair"),
+        );
+    }
+    format!(
+        "{}\n\nRun `{setup}` to connect a private Backblaze B2 bucket, save this machine's sync credentials, create the RCLONE_TEST marker, and establish the first baseline.",
+        theme.warning("Cloud sync is not set up yet."),
+    )
+}
+
 /// Format the status line for the most recent journal run (pure).
 #[must_use]
 pub fn format_last_run(run: Option<&SyncRun>, theme: Theme) -> String {
@@ -202,7 +237,11 @@ pub fn format_last_run(run: Option<&SyncRun>, theme: Theme) -> String {
                 theme.accent(&r.transferred.to_string()),
                 theme.accent(&r.deleted.to_string()),
                 theme.accent(&r.conflicts.to_string()),
-                if r.note.is_empty() { String::new() } else { format!(" · {}", theme.muted(&r.note)) },
+                if r.note.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", theme.muted(&r.note))
+                },
             )
         },
     )
@@ -212,10 +251,19 @@ pub fn format_last_run(run: Option<&SyncRun>, theme: Theme) -> String {
 /// trigger/watcher phase lands; `status` shows them so the setup is visible.
 #[must_use]
 pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
-    let yn = |b: bool| if b { theme.success("on") } else { theme.muted("off") };
+    let yn = |b: bool| {
+        if b {
+            theme.success("on")
+        } else {
+            theme.muted("off")
+        }
+    };
     let watch_on = cfg.watch_effective();
     let debounce = if watch_on {
-        format!(" {}", theme.muted(&format!("({}ms debounce)", cfg.debounce_ms)))
+        format!(
+            " {}",
+            theme.muted(&format!("({}ms debounce)", cfg.debounce_ms))
+        )
     } else {
         String::new()
     };
@@ -239,9 +287,8 @@ pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
     let theme = Theme::active();
     if !cfg.is_configured() {
         println!(
-            "{} run `{}`.",
-            theme.warning("sync is not configured —"),
-            theme.accent("brain sync setup")
+            "{}",
+            format_unconfigured_sync_guidance(Direction::Both, theme)
         );
         return Ok(());
     }
@@ -251,7 +298,11 @@ pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
     println!("{}", format_triggers(cfg, theme));
     let conflicts = conflicts::list_conflicts(root);
     let count = conflicts.len();
-    let label = if count > 0 { theme.warning("open conflicts:") } else { theme.muted("open conflicts:") };
+    let label = if count > 0 {
+        theme.warning("open conflicts:")
+    } else {
+        theme.muted("open conflicts:")
+    };
     println!("{} {}", label, theme.accent(&count.to_string()));
     Ok(())
 }
@@ -304,11 +355,20 @@ pub fn conflicts_json(
 /// unreadable mtime degrades to `None` rather than failing the whole command.
 fn copy_meta_from_fs(root: &Path, rel: &Path) -> CopyMeta {
     let Ok(m) = fs::metadata(root.join(rel)) else {
-        return CopyMeta { modified: None, bytes: None };
+        return CopyMeta {
+            modified: None,
+            bytes: None,
+        };
     };
-    let modified =
-        m.modified().ok().map(|t| DateTime::<Utc>::from(t).format("%Y-%m-%dT%H:%M:%SZ").to_string());
-    CopyMeta { modified, bytes: Some(m.len()) }
+    let modified = m.modified().ok().map(|t| {
+        DateTime::<Utc>::from(t)
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string()
+    });
+    CopyMeta {
+        modified,
+        bytes: Some(m.len()),
+    }
 }
 
 /// Human-list paths for `brain sync conflicts`.
@@ -359,7 +419,10 @@ mod tests {
     #[test]
     fn conflicts_json_empty_groups_is_empty_array() {
         let groups: Vec<ConflictGroup> = vec![];
-        let meta = |_: &Path| CopyMeta { modified: None, bytes: None };
+        let meta = |_: &Path| CopyMeta {
+            modified: None,
+            bytes: None,
+        };
         let exists = |_: &Path| false;
         let v = conflicts_json(&groups, meta, exists);
         assert_eq!(v, serde_json::json!([]));
@@ -375,7 +438,10 @@ mod tests {
                 date: "2026-07-25".to_owned(),
             }],
         }];
-        let meta = |_: &Path| CopyMeta { modified: Some("2026-07-25T10:04:11Z".to_owned()), bytes: Some(1841) };
+        let meta = |_: &Path| CopyMeta {
+            modified: Some("2026-07-25T10:04:11Z".to_owned()),
+            bytes: Some(1841),
+        };
         let exists = |_: &Path| true;
         let v = conflicts_json(&groups, meta, exists);
         assert_eq!(
@@ -404,7 +470,10 @@ mod tests {
                 date: "2026-07-25".to_owned(),
             }],
         }];
-        let meta = |_: &Path| CopyMeta { modified: None, bytes: None };
+        let meta = |_: &Path| CopyMeta {
+            modified: None,
+            bytes: None,
+        };
         let exists = |_: &Path| false;
         let v = conflicts_json(&groups, meta, exists);
         let copy = &v[0]["copies"][0];
@@ -475,9 +544,15 @@ mod tests {
         let theme = Theme::dark(false);
         assert!(format_last_run(None, theme).contains("no syncs yet"));
         let r = crate::sync::journal::SyncRun {
-            started_at: "s".into(), finished_at: "2026-07-25T00:00:05Z".into(),
-            direction: "both".into(), outcome: "clean".into(),
-            transferred: 3, deleted: 1, conflicts: 0, errors: 0, note: String::new(),
+            started_at: "s".into(),
+            finished_at: "2026-07-25T00:00:05Z".into(),
+            direction: "both".into(),
+            outcome: "clean".into(),
+            transferred: 3,
+            deleted: 1,
+            conflicts: 0,
+            errors: 0,
+            note: String::new(),
         };
         let line = format_last_run(Some(&r), theme);
         assert!(line.contains("both") && line.contains("clean") && line.contains("3↑"));
@@ -486,16 +561,31 @@ mod tests {
     #[test]
     fn format_last_run_colors_the_outcome_by_value() {
         let clean_run = crate::sync::journal::SyncRun {
-            started_at: "s".into(), finished_at: "2026-07-25T00:00:05Z".into(),
-            direction: "both".into(), outcome: "clean".into(),
-            transferred: 3, deleted: 1, conflicts: 0, errors: 0, note: String::new(),
+            started_at: "s".into(),
+            finished_at: "2026-07-25T00:00:05Z".into(),
+            direction: "both".into(),
+            outcome: "clean".into(),
+            transferred: 3,
+            deleted: 1,
+            conflicts: 0,
+            errors: 0,
+            note: String::new(),
         };
         let line = format_last_run(Some(&clean_run), Theme::dark(true));
-        assert!(line.contains("\x1b[92m"), "clean outcome should be colored success green: {line}");
+        assert!(
+            line.contains("\x1b[92m"),
+            "clean outcome should be colored success green: {line}"
+        );
 
-        let aborted_run = crate::sync::journal::SyncRun { outcome: "aborted".into(), ..clean_run };
+        let aborted_run = crate::sync::journal::SyncRun {
+            outcome: "aborted".into(),
+            ..clean_run
+        };
         let line = format_last_run(Some(&aborted_run), Theme::dark(true));
-        assert!(line.contains("\x1b[91m"), "aborted outcome should be colored error red: {line}");
+        assert!(
+            line.contains("\x1b[91m"),
+            "aborted outcome should be colored error red: {line}"
+        );
     }
 
     #[test]
@@ -511,8 +601,7 @@ mod tests {
 
     #[test]
     fn format_triggers_shows_debounce_window_when_watch_on() {
-        let cfg: SyncConfig =
-            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b"}"#).unwrap();
+        let cfg: SyncConfig = serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b"}"#).unwrap();
         let line = format_triggers(&cfg, Theme::dark(false));
         assert!(line.contains("watch on"), "{line}");
         assert!(line.contains("3000ms"), "{line}");
@@ -531,7 +620,8 @@ mod tests {
     #[test]
     fn format_triggers_shows_idle_pull_interval_when_enabled() {
         let cfg: SyncConfig =
-            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","idle_pull_secs":120}"#).unwrap();
+            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","idle_pull_secs":120}"#)
+                .unwrap();
         let line = format_triggers(&cfg, Theme::dark(false));
         assert!(line.contains("idle-pull 120s"), "{line}");
     }
@@ -541,8 +631,14 @@ mod tests {
         let cfg: SyncConfig =
             serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","on_start":false}"#).unwrap();
         let s = format_triggers(&cfg, Theme::dark(true));
-        assert!(s.contains("\x1b[92m"), "on flags should be success green: {s}");
-        assert!(s.contains("\x1b[90m"), "off flags should be muted gray: {s}");
+        assert!(
+            s.contains("\x1b[92m"),
+            "on flags should be success green: {s}"
+        );
+        assert!(
+            s.contains("\x1b[90m"),
+            "off flags should be muted gray: {s}"
+        );
     }
 
     #[test]
@@ -556,12 +652,24 @@ mod tests {
     #[test]
     fn auto_resyncs_only_on_prior_listing_missing_and_not_already_a_resync() {
         use crate::sync::run::AbortKind;
-        assert!(should_auto_resync(Direction::Both, Some(&AbortKind::PriorListingMissing)));
-        assert!(should_auto_resync(Direction::Push, Some(&AbortKind::PriorListingMissing)));
+        assert!(should_auto_resync(
+            Direction::Both,
+            Some(&AbortKind::PriorListingMissing)
+        ));
+        assert!(should_auto_resync(
+            Direction::Push,
+            Some(&AbortKind::PriorListingMissing)
+        ));
         // already a resync -> don't loop
-        assert!(!should_auto_resync(Direction::Resync, Some(&AbortKind::PriorListingMissing)));
+        assert!(!should_auto_resync(
+            Direction::Resync,
+            Some(&AbortKind::PriorListingMissing)
+        ));
         // other aborts / clean -> no auto resync
-        assert!(!should_auto_resync(Direction::Both, Some(&AbortKind::MaxDelete)));
+        assert!(!should_auto_resync(
+            Direction::Both,
+            Some(&AbortKind::MaxDelete)
+        ));
         assert!(!should_auto_resync(Direction::Both, None));
     }
 
@@ -576,15 +684,30 @@ mod tests {
     #[test]
     fn csv_note_is_empty_when_nothing_changed() {
         assert_eq!(format_csv_note(&[]), "");
-        assert_eq!(format_csv_note(&[crate::sync::csv_sync::CsvMergeOutcome::default()]), "");
+        assert_eq!(
+            format_csv_note(&[crate::sync::csv_sync::CsvMergeOutcome::default()]),
+            ""
+        );
     }
 
     #[test]
     fn csv_note_sums_added_merged_deleted_and_flags_soft_conflicts() {
         use crate::sync::csv_sync::CsvMergeOutcome;
         let outcomes = [
-            CsvMergeOutcome { name: "tasks.csv".into(), added: 2, deleted: 1, merged: 3, soft_conflicts: 1 },
-            CsvMergeOutcome { name: "habits.csv".into(), added: 1, deleted: 0, merged: 0, soft_conflicts: 0 },
+            CsvMergeOutcome {
+                name: "tasks.csv".into(),
+                added: 2,
+                deleted: 1,
+                merged: 3,
+                soft_conflicts: 1,
+            },
+            CsvMergeOutcome {
+                name: "habits.csv".into(),
+                added: 1,
+                deleted: 0,
+                merged: 0,
+                soft_conflicts: 0,
+            },
         ];
         assert_eq!(format_csv_note(&outcomes), "csv: +3 ~3 -1 (1 soft)");
     }
@@ -592,14 +715,39 @@ mod tests {
     #[test]
     fn csv_note_omits_soft_suffix_when_none() {
         use crate::sync::csv_sync::CsvMergeOutcome;
-        let outcomes = [CsvMergeOutcome { name: "tasks.csv".into(), added: 1, ..Default::default() }];
+        let outcomes = [CsvMergeOutcome {
+            name: "tasks.csv".into(),
+            added: 1,
+            ..Default::default()
+        }];
         assert_eq!(format_csv_note(&outcomes), "csv: +1 ~0 -0");
     }
 
     #[test]
     fn sync_once_refuses_when_unconfigured() {
         let cfg: SyncConfig = serde_json::from_str("{}").unwrap();
-        let err = sync_once(&cfg, Path::new("/tmp"), Direction::Both, ("a", "b", "2026-07-25")).unwrap_err();
+        let err = sync_once(
+            &cfg,
+            Path::new("/tmp"),
+            Direction::Both,
+            ("a", "b", "2026-07-25"),
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("brain sync setup"));
+    }
+
+    #[test]
+    fn sync_repair_before_setup_points_to_setup() {
+        let message = format_unconfigured_sync_guidance(Direction::Resync, Theme::dark(false));
+
+        assert!(
+            message.contains("Cloud sync is not set up yet."),
+            "{message}"
+        );
+        assert!(
+            message.contains("`brain sync repair` only repairs an existing sync setup"),
+            "{message}"
+        );
+        assert!(message.contains("Run `brain sync setup`."), "{message}");
     }
 }

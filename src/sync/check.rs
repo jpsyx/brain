@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::sync::config::SyncConfig;
 use crate::sync::csv_merge::parse;
-use crate::sync::csv_sync::{baseline_path, remote_csv_arg, CSVS};
+use crate::sync::csv_sync::{CSVS, baseline_path, remote_csv_arg};
 use crate::sync::progress::{self, Change, Side};
 use crate::theme::Theme;
 
@@ -50,8 +50,12 @@ pub fn diff_csv_rows(base: &str, side: &str) -> CsvSideDiff {
     let base = parse(base);
     let side = parse(side);
     let mut diff = CsvSideDiff::default();
-    let ids: BTreeSet<&str> =
-        base.rows.keys().chain(side.rows.keys()).map(String::as_str).collect();
+    let ids: BTreeSet<&str> = base
+        .rows
+        .keys()
+        .chain(side.rows.keys())
+        .map(String::as_str)
+        .collect();
 
     for id in ids {
         match (base.rows.get(id), side.rows.get(id)) {
@@ -90,7 +94,10 @@ pub fn collect_csv_pending_with_fetch(
 ) -> Vec<CsvPending> {
     csvs.iter()
         .map(|rel| {
-            let name = Path::new(rel).file_name().and_then(|s| s.to_str()).unwrap_or(rel);
+            let name = Path::new(rel)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(rel);
             let base = read_baseline(name);
             let local = std::fs::read_to_string(root.join(rel)).unwrap_or_default();
             let remote = fetch_remote(rel);
@@ -151,12 +158,13 @@ pub fn format_report(push: &[String], pull: &[String], csv: &[CsvPending], theme
     lines.join("\n")
 }
 
-fn pending_count(
-    files: &[String],
-    csv: &[CsvPending],
-    direction: CsvDirection,
-) -> usize {
-    files.len() + csv.iter().filter_map(|pending| csv_diff(pending, direction)).map(CsvSideDiff::total).sum::<usize>()
+fn pending_count(files: &[String], csv: &[CsvPending], direction: CsvDirection) -> usize {
+    files.len()
+        + csv
+            .iter()
+            .filter_map(|pending| csv_diff(pending, direction))
+            .map(CsvSideDiff::total)
+            .sum::<usize>()
 }
 
 fn csv_diff(csv: &CsvPending, direction: CsvDirection) -> Option<CsvSideDiff> {
@@ -229,27 +237,48 @@ fn fetch_remote_csv(
 pub fn run(cfg: &SyncConfig, root: &std::path::Path) {
     let theme = Theme::active();
     if !cfg.is_configured() {
-        println!("{}", theme.warning("sync is not configured — run `brain sync setup`."));
+        println!(
+            "{}",
+            crate::sync::command::format_unconfigured_sync_guidance(
+                crate::sync::args::Direction::Both,
+                theme,
+            )
+        );
         return;
     }
     let remote = crate::sync::remote::build_remote(cfg);
     let local = root.to_string_lossy().into_owned();
-    let mut args =
-        crate::sync::args::bisync_args(cfg, &local, &remote.arg, crate::sync::args::Direction::Both);
+    let mut args = crate::sync::args::bisync_args(
+        cfg,
+        &local,
+        &remote.arg,
+        crate::sync::args::Direction::Both,
+    );
     args.push("--dry-run".into());
     println!("{}", theme.muted("Checking for changes…"));
     let (exit_ok, output) = crate::sync::run::run_rclone_capture(&remote.env, &args);
     // No baseline yet? bisync aborts with prior-listing-missing.
     if !exit_ok && (output.contains("cannot find prior") || output.contains("Must run --resync")) {
-        println!("{}", theme.warning("No sync baseline yet — run `brain sync` to establish it."));
+        println!(
+            "{}",
+            theme.warning("No sync baseline yet — run `brain sync` to establish it.")
+        );
         return;
     }
-    let changes: Vec<Change> =
-        output.lines().filter_map(|l| progress::classify_change(&progress::strip(l))).collect();
-    let push: Vec<String> =
-        changes.iter().filter(|c| c.side == Side::Push).map(|c| c.path.clone()).collect();
-    let pull: Vec<String> =
-        changes.iter().filter(|c| c.side == Side::Pull).map(|c| c.path.clone()).collect();
+    let changes: Vec<Change> = output
+        .lines()
+        .filter_map(|l| progress::classify_change(&progress::strip(l)))
+        .collect();
+    let push: Vec<String> = changes
+        .iter()
+        .filter(|c| c.side == Side::Push)
+        .map(|c| c.path.clone())
+        .collect();
+    let pull: Vec<String> = changes
+        .iter()
+        .filter(|c| c.side == Side::Pull)
+        .map(|c| c.path.clone())
+        .collect();
     let csv = collect_csv_pending(root, &remote.env, &remote.arg);
     println!("{}", format_report(&push, &pull, &csv, theme));
 }
@@ -273,7 +302,10 @@ mod tests {
         let report = format_report(&push, &[], &[], t);
         assert!(report.contains("Changes to push (2)"), "{report:?}");
         assert!(report.contains("2 changes in notes/"), "{report:?}");
-        assert!(report.contains("Run `brain sync` to push your changes."), "{report:?}");
+        assert!(
+            report.contains("Run `brain sync` to push your changes."),
+            "{report:?}"
+        );
     }
 
     #[test]
@@ -282,7 +314,10 @@ mod tests {
         let pull = vec!["remote-added.md".to_string()];
         let report = format_report(&[], &pull, &[], t);
         assert!(report.contains("Changes to pull (1)"), "{report:?}");
-        assert!(report.contains("Run `brain sync` to pull the latest changes."), "{report:?}");
+        assert!(
+            report.contains("Run `brain sync` to pull the latest changes."),
+            "{report:?}"
+        );
     }
 
     #[test]
@@ -293,7 +328,10 @@ mod tests {
         let report = format_report(&push, &pull, &[], t);
         assert!(report.contains("Changes to push (1)"), "{report:?}");
         assert!(report.contains("Changes to pull (1)"), "{report:?}");
-        assert!(report.contains("Run `brain sync` to push and pull all changes."), "{report:?}");
+        assert!(
+            report.contains("Run `brain sync` to push and pull all changes."),
+            "{report:?}"
+        );
     }
 
     #[test]
@@ -311,7 +349,11 @@ mod tests {
 
         assert_eq!(
             diff_csv_rows(base, side),
-            CsvSideDiff { added: 1, changed: 1, deleted: 1 }
+            CsvSideDiff {
+                added: 1,
+                changed: 1,
+                deleted: 1
+            }
         );
     }
 
@@ -325,8 +367,16 @@ mod tests {
             csv_pending_from_texts("tasks.csv", base, local, Some(remote)),
             CsvPending {
                 name: "tasks.csv".to_string(),
-                push: CsvSideDiff { added: 1, changed: 1, deleted: 0 },
-                pull: Some(CsvSideDiff { added: 0, changed: 0, deleted: 1 }),
+                push: CsvSideDiff {
+                    added: 1,
+                    changed: 1,
+                    deleted: 0
+                },
+                pull: Some(CsvSideDiff {
+                    added: 0,
+                    changed: 0,
+                    deleted: 1
+                }),
             }
         );
     }
@@ -336,8 +386,16 @@ mod tests {
         let t = Theme::dark(false);
         let csv = vec![CsvPending {
             name: "tasks.csv".to_string(),
-            push: CsvSideDiff { added: 2, changed: 1, deleted: 0 },
-            pull: Some(CsvSideDiff { added: 0, changed: 0, deleted: 1 }),
+            push: CsvSideDiff {
+                added: 2,
+                changed: 1,
+                deleted: 0,
+            },
+            pull: Some(CsvSideDiff {
+                added: 0,
+                changed: 0,
+                deleted: 1,
+            }),
         }];
 
         let report = format_report(&[], &[], &csv, t);
@@ -346,7 +404,10 @@ mod tests {
         assert!(report.contains("tasks.csv: +2 ~1 -0 rows"), "{report:?}");
         assert!(report.contains("Changes to pull (1)"), "{report:?}");
         assert!(report.contains("tasks.csv: +0 ~0 -1 rows"), "{report:?}");
-        assert!(report.contains("Run `brain sync` to push and pull all changes."), "{report:?}");
+        assert!(
+            report.contains("Run `brain sync` to push and pull all changes."),
+            "{report:?}"
+        );
     }
 
     #[test]
@@ -360,7 +421,10 @@ mod tests {
 
         let report = format_report(&[], &[], &csv, t);
 
-        assert!(report.contains("Could not check remote CSV changes for tasks.csv."), "{report:?}");
+        assert!(
+            report.contains("Could not check remote CSV changes for tasks.csv."),
+            "{report:?}"
+        );
         assert!(!report.contains("In sync"), "{report:?}");
         assert!(!report.contains("Run `brain sync`"), "{report:?}");
     }
@@ -392,10 +456,21 @@ mod tests {
             pending,
             vec![CsvPending {
                 name: "tasks.csv".to_string(),
-                push: CsvSideDiff { added: 1, changed: 1, deleted: 0 },
-                pull: Some(CsvSideDiff { added: 0, changed: 0, deleted: 1 }),
+                push: CsvSideDiff {
+                    added: 1,
+                    changed: 1,
+                    deleted: 0
+                },
+                pull: Some(CsvSideDiff {
+                    added: 0,
+                    changed: 0,
+                    deleted: 1
+                }),
             }]
         );
-        assert_eq!(std::fs::read_to_string(local_path).expect("read local"), local);
+        assert_eq!(
+            std::fs::read_to_string(local_path).expect("read local"),
+            local
+        );
     }
 }

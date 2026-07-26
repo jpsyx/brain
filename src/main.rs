@@ -11,6 +11,7 @@
 //! Layout (mirrors `tasks/`):
 //!   - `cli`         — clap surface (Cli + Cmd)
 //!   - `entry`       — directory walker (walkdir + hidden-file filter)
+//!   - `logging`     — optional per-run verbose log file + stdout mirroring
 //!   - `picker`      — ratatui fuzzy-picker over collected entries
 //!   - `menu`        — command-palette modal shared by the search view
 //!   - `render`      — palette + styled line helpers for the picker
@@ -18,13 +19,15 @@
 //!   - `open_target` — pure "how to open this path" decisions
 //!
 //! The TUI renders to `/dev/tty`; the binary's stdout carries only the small
-//! amount of text emitted by config/env/version surfaces (and clap's help/errors).
+//! amount of text emitted by config/env/version surfaces, explicit verbose logs,
+//! and clap's help/errors.
 
 mod cli;
 mod config;
 mod confirm;
 mod entry;
 mod env;
+mod logging;
 mod main_view;
 mod menu;
 mod open_target;
@@ -65,6 +68,12 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let _log_guard = logging::init(cli.verbose, true)?;
+    logging::log(format!(
+        "argv {:?}",
+        std::env::args().collect::<Vec<String>>()
+    ));
+
     // Load the user's tag styles once for this process so the task renderer can
     // resolve tag labels without threading state through every signature. Cheap,
     // never fails (missing/broken store → generic defaults), so it is safe on
@@ -79,34 +88,40 @@ fn main() -> Result<()> {
     // prerequisite gate — otherwise you could never `config set` your way out
     // of a missing `markdown-to-pdf`.
     if let Some(Cmd::Config(args)) = &cli.command {
+        logging::log("dispatch config");
         return config_command(args);
     }
 
     // `brain env` manages the machine-local env store; like `config`, it runs
     // before the prerequisite gate so you can repair a broken environment.
     if let Some(Cmd::Env(args)) = &cli.command {
+        logging::log("dispatch env");
         return env_command(args);
     }
 
     // `brain sync` needs neither the markdown-to-pdf prerequisite nor the TUI.
     if let Some(Cmd::Sync(args)) = &cli.command {
+        logging::log("dispatch sync");
         return sync_command(args);
     }
 
     // Like `config`, personalization manages the user's own setup, so it runs
     // before the prerequisite gate.
     if let Some(Cmd::Personalize(args)) = &cli.command {
+        logging::log("dispatch personalize");
         return personalize_command(args);
     }
 
     // `skills` manages the skill install; also before the gate.
     if let Some(Cmd::Skills(args)) = &cli.command {
+        logging::log("dispatch skills");
         return skills_command(args);
     }
 
     // `brain server …` manages the background HTTP daemon; it needs neither
     // the markdown-to-pdf prerequisite nor the TUI, so it runs before the gate.
     if let Some(Cmd::Server(args)) = &cli.command {
+        logging::log("dispatch server");
         return server_command(args);
     }
 
@@ -114,11 +129,13 @@ fn main() -> Result<()> {
     // needed); no markdown-to-pdf prerequisite and no TUI, so it runs before the
     // gate.
     if matches!(&cli.command, Some(Cmd::Habits)) {
+        logging::log("dispatch habits");
         return habits_command();
     }
 
     // `brain check` is a read-only report; no TUI, no prerequisite needed.
     if matches!(&cli.command, Some(Cmd::Check)) {
+        logging::log("dispatch check");
         let cfg = crate::sync::config::SyncConfig::load();
         let root = paths::brain_root()?;
         crate::sync::check::run(&cfg, &root);
@@ -140,6 +157,7 @@ fn main() -> Result<()> {
         // complete / doctor / search subcommands), after the natural-language
         // `mark …` rewrite.
         Some(Cmd::Tasks(args)) => {
+            logging::log("dispatch tasks");
             let rewritten = rewrite_mark_grammar(
                 std::iter::once("brain tasks".to_owned())
                     .chain(args.rest)
@@ -228,7 +246,10 @@ fn personalize_command(args: &PersonalizeArgs) -> Result<()> {
 fn config_command(args: &ConfigArgs) -> Result<()> {
     match args.action.as_ref().unwrap_or(&ConfigAction::List) {
         ConfigAction::List => {
-            print!("{}", settings::render_list(&settings::resolve_all(), theme::Theme::active()));
+            print!(
+                "{}",
+                settings::render_list(&settings::resolve_all(), theme::Theme::active())
+            );
         }
         ConfigAction::Get { name } => {
             let name = settings::normalize_name(name);
@@ -245,7 +266,10 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
                 // Any config change re-renders the installed skills so they
                 // never drift from the user's values.
                 skills::resync_skills();
-                println!("{}", settings::set_confirmation(&name, value, theme::Theme::active()));
+                println!(
+                    "{}",
+                    settings::set_confirmation(&name, value, theme::Theme::active())
+                );
             } else {
                 // Interactive: bare `name` with no value.
                 config_set_interactive(&settings::normalize_name(assignment))?;
@@ -255,14 +279,24 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
     Ok(())
 }
 
-/// Handle `brain sync [--push|--pull] {setup|init|status|conflicts|resolve}`.
+/// Handle `brain sync [--push|--pull] {setup|repair|status|conflicts|resolve}`.
 fn sync_command(args: &SyncArgs) -> Result<()> {
     use crate::sync::args::Direction;
     let cfg = crate::sync::config::SyncConfig::load();
     let root = paths::brain_root()?;
     match &args.action {
         Some(SyncAction::Setup) => crate::sync::setup::run(),
-        Some(SyncAction::Init) => run_sync(&cfg, &root, Direction::Resync),
+        Some(SyncAction::Repair) => run_sync(&cfg, &root, Direction::Resync),
+        Some(SyncAction::Init) => {
+            let theme = crate::theme::Theme::active();
+            eprintln!(
+                "{}",
+                theme.warning(
+                    "`brain sync init` was renamed to `brain sync repair`; running repair now."
+                )
+            );
+            run_sync(&cfg, &root, Direction::Resync)
+        }
         Some(SyncAction::Status) => crate::sync::command::print_status(&cfg, &root),
         Some(SyncAction::Conflicts { json }) => crate::sync::command::print_conflicts(&root, *json),
         Some(SyncAction::Resolve { originals }) => crate::sync::command::resolve(&root, originals),
@@ -280,12 +314,21 @@ fn run_sync(
     dir: crate::sync::args::Direction,
 ) -> Result<()> {
     if !cfg.is_configured() {
-        println!("sync is not configured — run `brain sync setup`.");
+        println!(
+            "{}",
+            crate::sync::command::format_unconfigured_sync_guidance(
+                dir,
+                crate::theme::Theme::active(),
+            )
+        );
         return Ok(());
     }
     let Some(_guard) = crate::sync::lock::try_acquire(&crate::sync::lock::default_path()) else {
         let theme = crate::theme::Theme::active();
-        eprintln!("{}", theme.warning("another sync is already running; try again in a moment."));
+        eprintln!(
+            "{}",
+            theme.warning("another sync is already running; try again in a moment.")
+        );
         return Ok(());
     };
     let now = chrono::Utc::now();
@@ -294,7 +337,8 @@ fn run_sync(
     let outcome = crate::sync::command::sync_once(cfg, root, dir, (&ts, &ts, &date))?;
     match outcome {
         crate::sync::verify::Outcome::Clean => println!("sync complete."),
-        crate::sync::verify::Outcome::NeedsAttention(m) | crate::sync::verify::Outcome::Aborted(m) => {
+        crate::sync::verify::Outcome::NeedsAttention(m)
+        | crate::sync::verify::Outcome::Aborted(m) => {
             eprintln!("{m}");
         }
     }
@@ -306,7 +350,10 @@ fn run_sync(
 fn env_command(args: &EnvArgs) -> Result<()> {
     match args.action.as_ref().unwrap_or(&EnvAction::List) {
         EnvAction::List => {
-            println!("{}", settings::render_list(&env::resolve_all(), theme::Theme::active()));
+            println!(
+                "{}",
+                settings::render_list(&env::resolve_all(), theme::Theme::active())
+            );
         }
         EnvAction::Get { name } => {
             let name = settings::normalize_name(name);
@@ -319,7 +366,10 @@ fn env_command(args: &EnvArgs) -> Result<()> {
             if let Some((name, value)) = assignment.split_once('=') {
                 let name = settings::normalize_name(name);
                 env::set(&name, value)?;
-                println!("{}", settings::set_confirmation(&name, value, theme::Theme::active()));
+                println!(
+                    "{}",
+                    settings::set_confirmation(&name, value, theme::Theme::active())
+                );
             } else {
                 env_set_interactive(&settings::normalize_name(assignment))?;
             }
@@ -346,7 +396,10 @@ fn config_set_interactive(name: &str) -> Result<()> {
     let value = value.trim();
     settings::set(name, value)?;
     skills::resync_skills();
-    println!("{}", settings::set_confirmation(name, value, theme::Theme::active()));
+    println!(
+        "{}",
+        settings::set_confirmation(name, value, theme::Theme::active())
+    );
     Ok(())
 }
 
@@ -361,7 +414,10 @@ fn env_set_interactive(name: &str) -> Result<()> {
     };
     let value = value.trim();
     env::set(name, value)?;
-    println!("{}", settings::set_confirmation(name, value, theme::Theme::active()));
+    println!(
+        "{}",
+        settings::set_confirmation(name, value, theme::Theme::active())
+    );
     Ok(())
 }
 
@@ -372,7 +428,9 @@ fn personalize_set_interactive(field: &str) -> Result<()> {
     let field = settings::normalize_name(field);
     let Some(value) = prompt_tty_line(&format!("Set {field} = "))? else {
         // No terminal (headless): can't prompt. Point at the non-interactive form.
-        anyhow::bail!("no terminal for interactive set; use `brain personalize set {field}=<value>`");
+        anyhow::bail!(
+            "no terminal for interactive set; use `brain personalize set {field}=<value>`"
+        );
     };
     personalization::command::run_set(&format!("{field}={}", value.trim()))
 }
@@ -381,7 +439,11 @@ fn personalize_set_interactive(field: &str) -> Result<()> {
 /// controlling terminal (so callers can fall back rather than hang).
 fn prompt_tty_line(prompt: &str) -> Result<Option<String>> {
     use std::io::{BufRead, BufReader, Write};
-    let Ok(tty) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty") else {
+    let Ok(tty) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+    else {
         return Ok(None);
     };
     let mut out = tty.try_clone()?;
@@ -407,7 +469,10 @@ fn tasks_launch(mut cli: TasksCli) -> Result<()> {
         Some(TasksCommand::Search(args)) => Initial::CustomSearch(args.query.join(" ")),
         Some(TasksCommand::Doctor) => {
             let db_path = state::Db::default_path();
-            let settings_dir = std::env::var_os("HOME").map_or_else(|| PathBuf::from(".claude"), |h| PathBuf::from(h).join("brain").join(".claude"));
+            let settings_dir = std::env::var_os("HOME").map_or_else(
+                || PathBuf::from(".claude"),
+                |h| PathBuf::from(h).join("brain").join(".claude"),
+            );
             let diag = tasks::doctor::run_doctor(&db_path, &settings_dir);
             std::process::exit(tasks::doctor::print_report(&diag));
         }
@@ -440,6 +505,7 @@ fn resolve_query(tokens: &[String], today: NaiveDate) -> Initial {
 }
 
 fn tasks_browse(initial: Initial, cli: &mut TasksCli, today: NaiveDate) -> Result<()> {
+    logging::log("tasks browse");
     let csv_path = cli.csv.clone().unwrap_or_else(default_csv_path);
     let all_tasks = tasks::task::load_tasks(&csv_path)?;
     let habits_path = csv_path.with_file_name("habits.csv");
@@ -465,8 +531,11 @@ fn tasks_browse(initial: Initial, cli: &mut TasksCli, today: NaiveDate) -> Resul
     let view = tasks::view::build_view(cli, &selector, start_view, initial_data, today);
 
     if cli.display.no_tui {
+        logging::log("render tasks no-tui");
         tasks::plain::print_plain(&view, today, cli.display.full_notes);
     } else {
+        logging::set_stdout_enabled(false);
+        logging::log("enter tui");
         // Best-effort: bring up the shared background brain server only when the
         // interactive shell opens (not on the `complete` / `doctor` / `--no-tui`
         // one-shots), reused across tabs. A server failure must never block the

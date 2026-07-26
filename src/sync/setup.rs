@@ -6,7 +6,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
@@ -75,10 +75,7 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
     println!("{}", theme.heading("Brain sync setup"));
-    println!(
-        "{} keeps your ~/brain in sync across machines through a private\nBackblaze B2 bucket (encrypted at rest, and an off-site backup).\n",
-        theme.accent("brain sync")
-    );
+    println!("{}", setup_intro(theme));
 
     if !ask_has_bucket(theme)? {
         println!("{}", theme.heading("\nBackblaze bucket walkthrough"));
@@ -156,6 +153,14 @@ fn ask_has_bucket(theme: Theme) -> Result<bool> {
         "",
     )?;
     Ok(parse_yes_no(&answer))
+}
+
+#[must_use]
+pub fn setup_intro(theme: Theme) -> String {
+    format!(
+        "{}\n\nThis will enable cloud sync on this machine: brain will connect to a private Backblaze B2 bucket, save the sync credentials in machine-local brain env, create the RCLONE_TEST safety marker, and establish the first baseline.\n",
+        theme.accent("brain sync setup")
+    )
 }
 
 #[must_use]
@@ -258,6 +263,13 @@ mod tests {
             w.contains("keyID") && w.contains("applicationKey"),
             "must name both credential values to copy"
         );
+    }
+
+    #[test]
+    fn intro_says_setup_enables_cloud_sync() {
+        let intro = setup_intro(Theme::dark(false));
+        assert!(intro.contains("This will enable cloud sync"), "{intro}");
+        assert!(intro.contains("brain sync setup"), "{intro}");
     }
 
     #[test]

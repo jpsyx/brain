@@ -20,7 +20,7 @@ pub enum Direction {
     Push,
     /// Remote wins (`--pull`).
     Pull,
-    /// (Re)establish the baseline (`brain sync init` / `--resync`).
+    /// (Re)establish the baseline (`brain sync repair`).
     Resync,
 }
 
@@ -91,14 +91,26 @@ mod tests {
     }
 
     fn pair_after<'a>(v: &'a [String], flag: &str) -> Option<&'a str> {
-        v.iter().position(|s| s == flag).and_then(|i| v.get(i + 1)).map(String::as_str)
+        v.iter()
+            .position(|s| s == flag)
+            .and_then(|i| v.get(i + 1))
+            .map(String::as_str)
     }
 
     #[test]
     fn both_resolves_newer_push_local_pull_remote() {
-        assert_eq!(pair_after(&args(Direction::Both), "--conflict-resolve"), Some("newer"));
-        assert_eq!(pair_after(&args(Direction::Push), "--conflict-resolve"), Some("path1"));
-        assert_eq!(pair_after(&args(Direction::Pull), "--conflict-resolve"), Some("path2"));
+        assert_eq!(
+            pair_after(&args(Direction::Both), "--conflict-resolve"),
+            Some("newer")
+        );
+        assert_eq!(
+            pair_after(&args(Direction::Push), "--conflict-resolve"),
+            Some("path1")
+        );
+        assert_eq!(
+            pair_after(&args(Direction::Pull), "--conflict-resolve"),
+            Some("path2")
+        );
     }
 
     #[test]
@@ -114,10 +126,19 @@ mod tests {
         assert_eq!(pair_after(&a, "--max-delete"), Some("40"));
         assert!(a.iter().any(|s| s == "--check-access"));
         assert_eq!(pair_after(&a, "--check-filename"), Some("RCLONE_TEST"));
-        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == ".git/**"));
-        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*(conflict *)*"));
+        assert!(
+            a.windows(2)
+                .any(|w| w[0] == "--exclude" && w[1] == ".git/**")
+        );
+        assert!(
+            a.windows(2)
+                .any(|w| w[0] == "--exclude" && w[1] == "*(conflict *)*")
+        );
         // Raw markers must be excluded so they don't re-propagate on later syncs.
-        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*.__brainconflict__*"));
+        assert!(
+            a.windows(2)
+                .any(|w| w[0] == "--exclude" && w[1] == "*.__brainconflict__*")
+        );
     }
 
     #[test]
@@ -125,8 +146,16 @@ mod tests {
         // The two CSVs are merged via the 3-way merge, not bisynced, so they
         // must be excluded from the bisync argv.
         let a = args(Direction::Both);
-        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "tasks/tasks.csv"), "{a:?}");
-        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "tasks/habits.csv"), "{a:?}");
+        assert!(
+            a.windows(2)
+                .any(|w| w[0] == "--exclude" && w[1] == "tasks/tasks.csv"),
+            "{a:?}"
+        );
+        assert!(
+            a.windows(2)
+                .any(|w| w[0] == "--exclude" && w[1] == "tasks/habits.csv"),
+            "{a:?}"
+        );
     }
 
     #[test]
@@ -147,7 +176,11 @@ mod tests {
         let a = args(Direction::Both);
         assert!(a.iter().any(|s| s == "--stats-one-line"), "{a:?}");
         // --stats has a duration value
-        assert!(a.windows(2).any(|w| w[0] == "--stats" && w[1].ends_with('s')), "{a:?}");
+        assert!(
+            a.windows(2)
+                .any(|w| w[0] == "--stats" && w[1].ends_with('s')),
+            "{a:?}"
+        );
     }
 
     #[test]
@@ -162,9 +195,19 @@ mod tests {
         )
         .unwrap();
         let a = bisync_args(&cfg, "/root", "BRAIN:b", Direction::Both);
-        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "**/test-data/**"), "{a:?}");
-        assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*.mp4"), "{a:?}");
-        assert!(a.windows(2).any(|w| w[0] == "--max-size" && w[1] == "100M"), "{a:?}");
+        assert!(
+            a.windows(2)
+                .any(|w| w[0] == "--exclude" && w[1] == "**/test-data/**"),
+            "{a:?}"
+        );
+        assert!(
+            a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*.mp4"),
+            "{a:?}"
+        );
+        assert!(
+            a.windows(2).any(|w| w[0] == "--max-size" && w[1] == "100M"),
+            "{a:?}"
+        );
     }
 
     #[test]

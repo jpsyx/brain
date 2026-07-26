@@ -10,13 +10,13 @@ fn brain(args: &[&str]) -> String {
         "brain {args:?} failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8(output.stdout).expect("version output is utf-8")
+    String::from_utf8(output.stdout).expect("sync help output is utf-8")
 }
 
 #[test]
-fn version_surfaces_match_the_crate_version() {
-    let expected = "brain 0.3.0\n";
-    assert_eq!(brain(&["--version"]), expected);
-    assert_eq!(brain(&["-v"]), expected);
-    assert_eq!(brain(&["version"]), expected);
+fn sync_help_advertises_repair_not_init() {
+    let help = brain(&["sync", "--help"]);
+
+    assert!(help.contains("repair"), "{help}");
+    assert!(!help.contains("init"), "{help}");
 }

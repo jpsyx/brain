@@ -111,7 +111,9 @@ An always-filtering fuzzy picker over `~/brain` (projects / areas / resources
 Shared across the app; a captive modal consumes all input.
 
 - **Help** (`Alt+S`) — the `shortcuts::ALL` reference, grouped. `j/k`, `PgUp/PgDn`, `g`, `?`/`q`/`Esc` close.
-- **Command palette** (`Ctrl+P`, tasks view) — filterable; numbered rows; `Enter` runs, `Esc` closes.
+- **Command palette** (`Ctrl+P`, tasks view) — filterable; numbered rows;
+  `Enter` runs, `Esc` closes. In `--verbose` TUI runs it includes **Show
+  logs**, which asks whether to reveal the timestamped `/tmp` log file.
 - **Task actions** (`Enter` on a task) — per-task command list.
 - **Confirm** — Yes/No (triage adds Skip). `y`/`n`/`Esc`, `←`/`→`/`Tab` move, `Enter` resolves.
 - **Brain-input** (`Ctrl+Shift+M`) — compose a seeded message. `Alt+Enter` newline, `Enter` send.

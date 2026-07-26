@@ -60,6 +60,9 @@ pub(crate) enum PaletteAction {
     /// PDF if needed and opens it. On failure (no markdown for today)
     /// surfaces the GenerateAgenda confirm modal. Global.
     OpenAgenda,
+    /// Ask whether to reveal this run's verbose log file in Finder and open
+    /// the file. Global; only present when this TUI has a verbose log file.
+    ShowLogs,
     /// Toggle the selected entry's notes between a single-line preview and
     /// the full markdown-rendered body. Task-specific; only offered when
     /// the entry actually has notes. Works on habits too.
@@ -85,7 +88,7 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         PaletteAction::OpenAgenda => Some("^A"),
         PaletteAction::ToggleNotes => Some("l"),
         PaletteAction::OpenLinks => Some("^O"),
-        PaletteAction::StartTask | PaletteAction::DeferTask(_) => None,
+        PaletteAction::ShowLogs | PaletteAction::StartTask | PaletteAction::DeferTask(_) => None,
     }
 }
 
@@ -170,6 +173,12 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         label: "Open today's agenda",
         action: PaletteAction::OpenAgenda,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
+        label: "Show logs",
+        action: PaletteAction::ShowLogs,
         scope: PaletteScope::Global,
         works_on_habits: false,
     },
