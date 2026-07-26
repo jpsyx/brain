@@ -6,7 +6,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
@@ -83,7 +83,10 @@ pub fn run() -> Result<()> {
     if !ask_has_bucket(theme)? {
         println!("{}", theme.heading("\nBackblaze bucket walkthrough"));
         println!("\n{}", bucket_walkthrough());
-        prompt(&theme.prompt("Press Enter once your bucket and application key are ready"), "")?;
+        prompt(
+            &theme.prompt("Press Enter once your bucket and application key are ready"),
+            "",
+        )?;
     }
 
     println!("\nEnter your bucket details (from the Backblaze console):");
@@ -93,18 +96,15 @@ pub fn run() -> Result<()> {
     let app_key = prompt(&theme.prompt("B2 applicationKey"), &existing.b2_app_key)?;
     validate(&bucket, &key_id, &app_key)?;
 
-    let block = serde_json::json!({
-        "enabled": true,
-        "b2_bucket": bucket,
-        "b2_path": existing.b2_path,
-        "b2_key_id": key_id,
-        "b2_app_key": app_key,
-    });
+    let block = sync_block(&bucket, &key_id, &app_key, &existing);
     crate::env::set_raw("sync", block)?;
 
     verify_or_create_bucket(theme)?;
 
-    println!("{}", theme.info("Establishing the baseline (this may take a while)…"));
+    println!(
+        "{}",
+        theme.info("Establishing the baseline (this may take a while)…")
+    );
     let cfg = SyncConfig::load();
     let root = crate::paths::brain_root()?;
     let now = chrono::Utc::now();
@@ -124,7 +124,10 @@ pub fn run() -> Result<()> {
 /// `pub(crate)` so `sync::command`'s interactive `resolve` picker can reuse
 /// this rather than reimplementing the /dev/tty dance.
 pub(crate) fn prompt(label: &str, current: &str) -> Result<String> {
-    let tty = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty")?;
+    let tty = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")?;
     let mut out = tty.try_clone()?;
     let mut reader = BufReader::new(tty);
 
@@ -138,7 +141,11 @@ pub(crate) fn prompt(label: &str, current: &str) -> Result<String> {
     let mut line = String::new();
     reader.read_line(&mut line)?;
     let trimmed = line.trim();
-    Ok(if trimmed.is_empty() { current.to_owned() } else { trimmed.to_owned() })
+    Ok(if trimmed.is_empty() {
+        current.to_owned()
+    } else {
+        trimmed.to_owned()
+    })
 }
 
 /// Ask whether the user already has a bucket. Thin `/dev/tty` shell over
@@ -149,6 +156,26 @@ fn ask_has_bucket(theme: Theme) -> Result<bool> {
         "",
     )?;
     Ok(parse_yes_no(&answer))
+}
+
+#[must_use]
+fn sync_block(
+    bucket: &str,
+    key_id: &str,
+    app_key: &str,
+    existing: &SyncConfig,
+) -> serde_json::Value {
+    serde_json::json!({
+        "enabled": true,
+        "b2_bucket": bucket,
+        "b2_path": existing.b2_path,
+        "b2_key_id": key_id,
+        "b2_app_key": app_key,
+        "crypt_password": existing.crypt_password,
+        "crypt_password2": existing.crypt_password2,
+        "crypt_filename_encryption": existing.crypt_filename_encryption,
+        "crypt_directory_name_encryption": existing.crypt_directory_name_encryption,
+    })
 }
 
 fn rclone_present() -> bool {
@@ -172,7 +199,10 @@ fn verify_or_create_bucket(theme: Theme) -> Result<()> {
     if ok {
         return Ok(());
     }
-    println!("{}", theme.warning("Bucket not reachable; attempting to create it…"));
+    println!(
+        "{}",
+        theme.warning("Bucket not reachable; attempting to create it…")
+    );
     let mut mk = std::process::Command::new("rclone");
     mk.arg("mkdir").arg(&remote.arg);
     for (k, v) in &remote.env {
@@ -220,10 +250,36 @@ mod tests {
             w.contains("Object Lock") && w.contains("Disable"),
             "must tell them to Disable Object Lock"
         );
-        assert!(w.contains("Application Key"), "must cover creating an application key");
+        assert!(
+            w.contains("Application Key"),
+            "must cover creating an application key"
+        );
         assert!(
             w.contains("keyID") && w.contains("applicationKey"),
             "must name both credential values to copy"
         );
+    }
+
+    #[test]
+    fn sync_block_preserves_existing_crypt_fields() {
+        let existing = SyncConfig {
+            b2_path: "prefix".to_owned(),
+            crypt_password: "obscured-pass".to_owned(),
+            crypt_password2: "obscured-salt".to_owned(),
+            crypt_filename_encryption: "obfuscate".to_owned(),
+            crypt_directory_name_encryption: false,
+            ..SyncConfig::default()
+        };
+
+        let block = sync_block("bucket", "key-id", "app-key", &existing);
+
+        assert_eq!(block["b2_bucket"], "bucket");
+        assert_eq!(block["b2_key_id"], "key-id");
+        assert_eq!(block["b2_app_key"], "app-key");
+        assert_eq!(block["b2_path"], "prefix");
+        assert_eq!(block["crypt_password"], "obscured-pass");
+        assert_eq!(block["crypt_password2"], "obscured-salt");
+        assert_eq!(block["crypt_filename_encryption"], "obfuscate");
+        assert_eq!(block["crypt_directory_name_encryption"], false);
     }
 }

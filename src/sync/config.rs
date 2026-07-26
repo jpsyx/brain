@@ -14,6 +14,11 @@ pub struct SyncConfig {
     pub b2_path: String,
     pub b2_key_id: String,
     pub b2_app_key: String,
+    pub crypt_password: String,
+    pub crypt_password2: String,
+    pub crypt_filename_encryption: String,
+    #[serde(default = "default_true")]
+    pub crypt_directory_name_encryption: bool,
     #[serde(default = "default_true")]
     pub on_start: bool,
     #[serde(default = "default_true")]
@@ -71,6 +76,12 @@ impl SyncConfig {
     pub fn debounce(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.debounce_ms)
     }
+
+    /// True when rclone crypt should wrap the B2 remote.
+    #[must_use]
+    pub fn crypt_enabled(&self) -> bool {
+        !self.crypt_password.trim().is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -88,6 +99,7 @@ mod tests {
         assert_eq!(c.max_delete_percent, 50);
         assert!(c.on_start && c.on_exit && c.watch);
         assert_eq!(c.debounce_ms, 3000);
+        assert!(!c.crypt_enabled());
     }
 
     #[test]
@@ -117,5 +129,24 @@ mod tests {
         let c: SyncConfig = serde_json::from_str("{}").unwrap();
         assert!(c.exclude.is_empty());
         assert!(c.max_size.is_empty());
+    }
+
+    #[test]
+    fn crypt_fields_parse_and_enable_only_with_a_password() {
+        let c = parse(
+            r#"{
+                "crypt_password": "obscured-pass",
+                "crypt_password2": "obscured-salt",
+                "crypt_filename_encryption": "obfuscate",
+                "crypt_directory_name_encryption": false
+            }"#,
+        );
+
+        assert!(c.crypt_enabled());
+        assert_eq!(c.crypt_password, "obscured-pass");
+        assert_eq!(c.crypt_password2, "obscured-salt");
+        assert_eq!(c.crypt_filename_encryption, "obfuscate");
+        assert!(!c.crypt_directory_name_encryption);
+        assert!(!parse(r#"{"crypt_password": "   "}"#).crypt_enabled());
     }
 }

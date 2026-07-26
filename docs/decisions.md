@@ -548,6 +548,18 @@ every invocation costs nothing (it's a handful of string ops) and keeps the
 credential's *only* copy where `brain env`/`brain sync setup` already manage
 it.
 
+**Why `rclone crypt` is an optional env-defined layer, not a new sync
+surface.** C2 chose private-bucket server-side encryption first because it has
+no extra passphrase to escrow or lose. The §19 crypt slice adds the zero-knowledge
+option without changing `brain sync`: if `sync.crypt_password` is empty,
+`build_remote` returns the existing `BRAIN:<bucket>/<path>` target; if it is
+set, the same function defines `BRAINCRYPT` in env vars and returns
+`BRAINCRYPT:`. That keeps the transfer, CSV merge, check-access marker, journal,
+and trigger code oblivious to the encryption layer. The tradeoff remains
+explicitly on the user: brain can store rclone-obscured values in machine-local
+env, but it cannot recover encrypted remote data after the original passphrases
+are lost.
+
 **Why `--max-delete` shipped first, and why `--check-access` is now enabled.** rclone offers `--check-access`
 as a symmetry guard (both sides must show matching `RCLONE_TEST` marker files,
 or the run aborts) and `--max-delete` as a blast-radius guard (abort if a run
