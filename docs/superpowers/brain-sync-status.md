@@ -87,11 +87,11 @@ unless noted. Update this file (check the box, note the commit) as you land each
 ### 4. C5 optional follow-ups  *(from the C5 final adversarial review)*
 - [x] Test: `brain sync resolve` with **multiple originals** in one call
   (the skill batches; `resolve_many` only loops today — no integration test).
-  Added hermetic resolve coverage on `test/resolve-cases`; commit SHA pending.
+  Added hermetic resolve coverage on `test/resolve-cases` in `6c84c9e`.
   Validation: `cargo test --release` green (655 tests; watcher timing test
   still ignored by design) and `cargo clippy --release --all-targets` clean.
 - [x] Test: resolve of a conflict copy in a **nested subdir**.
-  Added hermetic resolve coverage on `test/resolve-cases`; commit SHA pending.
+  Added hermetic resolve coverage on `test/resolve-cases` in `6c84c9e`.
   Validation: `cargo test --release` green (655 tests; watcher timing test
   still ignored by design) and `cargo clippy --release --all-targets` clean.
 - [ ] Test: the `conflicts --json` `modified: null` / `bytes: null` degraded
