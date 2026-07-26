@@ -96,7 +96,7 @@ unless noted. Update this file (check the box, note the commit) as you land each
   still ignored by design) and `cargo clippy --release --all-targets` clean.
 - [x] Test: the `conflicts --json` `modified: null` / `bytes: null` degraded
   path against a real unreadable-metadata case.
-  Added adapter coverage on `test/conflict-meta`; commit SHA pending.
+  Added adapter coverage on `test/conflict-meta` in `4438837`.
   Validation: `cargo test --release` green (656 tests; watcher timing test
   still ignored by design) and `cargo clippy --release --all-targets` clean.
 - [x] Consistency: render the **non-JSON** `brain sync conflicts` list through
