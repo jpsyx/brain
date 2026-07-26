@@ -192,11 +192,12 @@ pub fn format_last_run(run: Option<&SyncRun>, theme: Theme) -> String {
 pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
     let yn = |b: bool| if b { theme.success("on") } else { theme.muted("off") };
     format!(
-        "{} on-start {} · on-exit {} · watch {}",
+        "{} on-start {} · on-exit {} · watch {} {}",
         theme.muted("triggers:"),
         yn(cfg.on_start),
         yn(cfg.on_exit),
         yn(cfg.watch_effective()),
+        theme.muted(&format!("({}ms debounce)", cfg.debounce_ms)),
     )
 }
 
@@ -289,6 +290,15 @@ mod tests {
         assert!(s.contains("on-start off"), "{s}");
         assert!(s.contains("on-exit on"), "{s}"); // default true
         assert!(s.contains("watch on"), "{s}"); // configured + default watch
+    }
+
+    #[test]
+    fn format_triggers_shows_debounce_window_when_watch_on() {
+        let cfg: SyncConfig =
+            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b"}"#).unwrap();
+        let line = format_triggers(&cfg, Theme::dark(false));
+        assert!(line.contains("watch on"), "{line}");
+        assert!(line.contains("3000ms"), "{line}");
     }
 
     #[test]
