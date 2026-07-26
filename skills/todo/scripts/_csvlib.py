@@ -1,6 +1,6 @@
 """Shared helpers for tasks.csv / habits.csv mutators.
 
-Keeps add_task / defer_task / mark_done DRY. Not a CLI; imported only.
+Keeps task/habit mutator scripts DRY. Not a CLI; imported only.
 """
 import csv
 import re

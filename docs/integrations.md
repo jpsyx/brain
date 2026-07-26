@@ -27,11 +27,13 @@ session paints reaches stdout. Diagnostics go to stderr.
 
 The tasks CSVs (`~/brain/tasks/{tasks,habits}.csv`) are read directly by
 `brain`'s tasks main view (`crate::tasks`), and `brain tasks …` launches the
-merged shell (or runs a tasks utility) in-process. The tasks-view side effects
-that *do* shell out live in the tasks modules:
+merged shell (or runs a tasks utility) in-process. The tasks-view command
+helpers and shell-outs live in the tasks modules:
 
-- **`~/global-skills/todo/scripts/mark_done.py`** — `brain tasks complete <id>`
-  and the palette's mark-complete action `exec`/invoke it to mutate the CSVs.
+- **`brain tasks complete <id>`** — native task/habit completion in the
+  binary. The CLI, TUI palette action, and `/habits/done` route all share this
+  Rust path, so status, `completed_date`, `last_touched`, habit recurrence, and
+  chunked-task MIT migration stay consistent without a Python completion script.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
 - **`brain habits` / palette "Open habits in browser"** — bring up the bundled
   brain server (`server::lifecycle::ensure_running`) and open its `/habits`

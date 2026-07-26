@@ -118,7 +118,7 @@ def main() -> int:
                 return 2
             # Inheritance per SKILL.md "Chunked tasks":
             #   - hard_deadline: all chunks (set via `common`)
-            #   - mit:           only chunk 1; mark_done migrates it forward
+            #   - mit:           only chunk 1; brain tasks complete migrates it forward
             #   - blocked_by:    user-supplied on chunk 1; chunks 2..N point at the previous chunk
             base_type = args.type or ""
             type_without_mit = _strip_mit(base_type)

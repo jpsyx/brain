@@ -230,7 +230,11 @@ mod tests {
             );
         }
         // Ships its generic references + its script suite.
-        for r in ["references/schema.md", "references/commands.md", "scripts/mark_done.py"] {
+        for r in [
+            "references/schema.md",
+            "references/commands.md",
+            "scripts/add_task.py",
+        ] {
             assert!(
                 todo.files.iter().any(|f| f.rel_path.as_path() == Path::new(r)),
                 "bundles {r}"

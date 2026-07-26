@@ -100,7 +100,7 @@ pub(crate) enum ConfirmChoice {
 /// skip trigger ("skip daily triage") so the brain marks today's Morning
 /// Triage habit done and runs no triage pass.
 pub(crate) const SKIP_TRIAGE_PROMPT: &str = "Skip daily triage today. Per the triage skill's \
-skip rule, mark today's Morning Triage habit done (mark_done.py) and run nothing else.";
+skip rule, mark today's Morning Triage habit done and run nothing else.";
 
 /// State for the confirmation modal. Most modals are Yes/No; the
 /// daily-triage modal also offers Skip (see [`ConfirmState::choices`]).

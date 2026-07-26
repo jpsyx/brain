@@ -989,7 +989,7 @@ copy reproduces the original flow byte-for-behavior while the repo stays generic
 A guard test (`bundled_skills_carry_no_personal_data`) fails the build if any
 bundled skill grows a personal token, so this line can't silently erode.
 
-Cross-skill script calls (todo's `mark_done.py`, `find_chronic_ignored.py`, …)
+Cross-skill script calls (todo's `find_chronic_ignored.py`, …)
 standardized on the install-registry path `~/.agents/skills/todo/scripts/<name>.py`
 rather than the old `~/global-skills/...` (jpsyx) or `~/.claude/skills/...`
 (one-frontend) forms: that path is frontend-agnostic and is exactly where
@@ -1123,7 +1123,7 @@ brain-owned links, then re-runs `jpsyx sync` to restore the jpsyx-owned registry
 (the migrated skills must still exist under `home/global-skills` in the jpsyx
 checkout, or be restored with `git checkout -- home/global-skills` first).
 
-## Why the `/habits` route inlines its assets and reuses `mark_done.py`
+## Why the `/habits` route inlines its assets and reuses native completion
 
 The `/habits` page (`src/server/routes/habits/`) is a straight MVC port of the
 old Python `habits/server.py`, with three deliberate choices:
@@ -1138,12 +1138,11 @@ old Python `habits/server.py`, with three deliberate choices:
   only functional change from the Python original is `fetch('/api/done')` →
   `fetch('/habits/done')`.
 - **Mark-done reuses brain's own completion, not a reimplementation.** `done`
-  delegates to the bundled `mark_done.py` via `crate::tasks::complete`'s
-  `normalize_id` + `mark_done_path`, so the web "done" is byte-for-byte the same
-  mutation (status, completed_date, habit recurrence spawn, agenda side effects)
-  as `brain tasks complete`. It **spawn-and-waits** (capturing stdout to parse
-  the `next occurrence:` line) rather than `exec`ing the way the CLI path does —
-  an `exec` would replace the server process and kill the daemon.
+  delegates to `crate::tasks::complete`, so the web "done" is the same native
+  mutation (status, completed_date, `last_touched`, habit recurrence spawn, and
+  chunked-task MIT migration) as `brain tasks complete`. The server calls the
+  Rust API directly rather than shelling out, so no helper script or Rust toolchain
+  is required at runtime.
 - **A dedicated `Habit` struct, not the shared `Task`.** `tasks::task::Task`
   deliberately drops `ideal_time` (it is `#[allow(dead_code)]` in the habit
   loader), but the habits view sorts and groups by time-of-day, so it needs it.

@@ -114,7 +114,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    `defer_count`, `completed_date`, `last_touched`, habit-spawn, and
    link consistency correct. `last_touched` is auto-bumped by every
    mutator (`add_task.py`, `defer_task.py`, `defer_habit.py`,
-   `skip_habit.py`, `mark_done.py`, `touch_task.py`,
+   `skip_habit.py`, `brain tasks complete`, `touch_task.py`,
    `backlog_task.py`, `set_linear_issue.py`) so chronic-ignore
    detection and CSV sync have real recency signals to work with; if
    you ever read-modify-write a row outside those
@@ -177,9 +177,8 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    the `agenda` zsh function (`agenda today`, `agenda tomorrow`,
    `agenda 2026-06-09`, or bare `agenda` for the latest).
 
-   **Task-mutation auto-update — handled by the mutator scripts.**
-   `mark_done.py`, `defer_task.py`, `defer_habit.py`, and
-   `touch_task.py` each invoke
+   **Task-mutation auto-update — handled by the mutator paths.**
+   `defer_task.py`, `defer_habit.py`, and `touch_task.py` each invoke
    [scripts/update_agenda_on_mutation.py](scripts/update_agenda_on_mutation.py)
    at the end of a successful mutation. That script performs the
    full checklist programmatically: drops the task from MIT
@@ -190,14 +189,20 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    on disk (no PDF → no regen, per the carve-out below). Idempotent
    — safe to re-run, no-op when there's nothing to do.
 
+   Completion is native in the `brain` binary: use
+   `brain tasks complete <id>` for tasks and habits. If the completed
+   item appears on an already-written agenda, update that agenda as
+   part of the same workflow.
+
    **You do NOT need to run any of that yourself after invoking a
    mutator script.** Don't grep the agenda, don't rewrite the
    markdown, don't regen the PDF — the scripts already did it.
    Trust the side effect and move on. The only time you should
    touch `/tmp/<today>.md` directly is when the user explicitly
    asks for an agenda change that isn't a mutation (e.g. "redo the
-   Suggested order", "swap T48 and T54", "rebuild from scratch")
-   or when you read-modify-write a CSV row by hand instead of via
+   Suggested order", "swap T48 and T54", "rebuild from scratch"),
+   when you complete a task/habit via `brain tasks complete`, or
+   when you read-modify-write a CSV row by hand instead of via
    a script (which you shouldn't — see operating principle 1).
 
    The script's behavior, for reference (you don't need to
@@ -830,8 +835,8 @@ question:
 > Morning Reading, …" (list only the still-`not_started` habits
 > whose typical time window has already passed.)
 
-Mark anything they confirm as `done` via the usual
-`mark_done.py <H##>` flow BEFORE generating the agenda, so the
+Mark anything they confirm as `done` via
+`brain tasks complete <H##>` BEFORE generating the agenda, so the
 agenda reflects reality and doesn't list already-completed work in
 the Suggested order. Items the user explicitly says they haven't
 done stay in the agenda even if "late".
@@ -933,7 +938,7 @@ batched.
 1. **Already-done habits.** If wall-clock is past ~8 AM AND any
    habits have `ideal_time < now` AND `status == not_started`,
    ask once which ones the user already did off-system. Mark
-   those done via `mark_done.py <H##>` BEFORE Phase 3 so they
+   those done via `brain tasks complete <H##>` BEFORE Phase 3 so they
    drop out of "Today's habits".
 2. **Hard-deadline still real?** For every hard-deadline task with
    `defer_count >= 1`, ask whether the deadline still holds (per
@@ -1278,9 +1283,9 @@ skill and `/second-brain` execute the same rules via
 you believe it's necessary.** Sync is a safe, idempotent
 reconciliation (apply rules + cleanup), not a destructive op, so it
 needs no confirmation. Run it without asking whenever the system
-signals it's needed — most commonly when a mutator script prints a
-`run /todo sync to refresh` reminder (e.g. after `mark_done.py` /
-`defer_task.py` on a project-linked task), or any time you've made
+signals it's needed — most commonly when a mutator path prints a
+`run /todo sync to refresh` reminder (e.g. after `brain tasks complete`
+or `defer_task.py` on a project-linked task), or any time you've made
 changes that could leave the task↔project link, habit table, or
 automation-rule state stale. Report what sync did in passing; don't
 gate it behind a question. (This is an explicit standing instruction
@@ -1394,9 +1399,8 @@ naming, ID issuance, sequential `blocked_by`, and inheritance.
   needs to land by then.
 - **`mit` goes on chunk 1 only.** Putting it on all five would
   inflate the MIT callout with the same logical task. When chunk i
-  is marked done via `mark_done.py`, the MIT tag automatically
-  migrates to chunk i+1 (handled by `_migrate_mit_to_next_chunk` in
-  [`mark_done.py`](scripts/mark_done.py)). The user always has
+  is marked done via `brain tasks complete`, the MIT tag automatically
+  migrates to chunk i+1 inside the binary. The user always has
   exactly one actionable MIT for the chunked work.
 
 ### Surfacing chunks in the agenda / `/todo today` / `/todo what`

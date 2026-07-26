@@ -20,9 +20,10 @@ no emojis. Multi-value cells use `|` separator. Dates in ISO 8601
 `(i/N)` (e.g. `Draft whitepaper (2/5)`) are time-boxed chunks of a
 single logical task. The trailing `(i/N)` fraction is the canonical
 chunk marker and is parsed by
-[`_csvlib.parse_chunk_name`](../scripts/_csvlib.py) — used by
-`mark_done.py` to migrate the `mit` tag forward when a chunk
-completes. See [SKILL.md "Chunked tasks"](../SKILL.md#chunked-tasks)
+[`_csvlib.parse_chunk_name`](../scripts/_csvlib.py) and by the
+native `brain tasks complete` path to migrate the `mit` tag forward
+when a chunk completes. See
+[SKILL.md "Chunked tasks"](../SKILL.md#chunked-tasks)
 for the full lifecycle. Don't use this naming pattern for anything
 other than chunks; otherwise the script-level chunk detection
 misfires.
@@ -69,7 +70,7 @@ the user can reference rows in follow-ups** ("done T42", "defer 17 +3d").
 | 17 | `defer_count` | int | Starts at 0. Increments on every defer. `>=3` triggers triage warning. |
 | 18 | `created_date` | date | Auto-set on insert. |
 | 19 | `completed_date` | date \| empty | Auto-set when `status` flips to `done`. |
-| 20 | `last_touched` | date | Auto-bumped to today by every row mutator (`add_task.py`, `defer_task.py`, `defer_habit.py`, `skip_habit.py`, `mark_done.py`, `touch_task.py`, `backlog_task.py`, `set_linear_issue.py`, and `apply_sync_rules.py --fix`). Drives chronic-ignore detection for tasks and last-writer-wins CSV sync for both tasks and habits. Backfilled from `created_date` on migration. |
+| 20 | `last_touched` | date | Auto-bumped to today by every row mutator (`add_task.py`, `defer_task.py`, `defer_habit.py`, `skip_habit.py`, `brain tasks complete`, `touch_task.py`, `backlog_task.py`, `set_linear_issue.py`, and `apply_sync_rules.py --fix`). Drives chronic-ignore detection for tasks and last-writer-wins CSV sync for both tasks and habits. Backfilled from `created_date` on migration. |
 | 23 | `backlogged_date` | date \| empty | Set by `backlog_task.py` when a task enters `status=backlog`; cleared on restore. Drives the 6-month auto-purge (`purge_old_backlog.py`) and the monthly backlog-review. |
 
 ## habits.csv columns

@@ -55,21 +55,20 @@ Run via:
     are backfilled from `created_date` (fallback: today). Migration
     rule that runs on every `--fix` invocation; idempotent after the
     initial add. Mutators (`add_task.py`, `defer_task.py`,
-    `defer_habit.py`, `skip_habit.py`, `mark_done.py`,
+    `defer_habit.py`, `skip_habit.py`, `brain tasks complete`,
     `touch_task.py`, `backlog_task.py`, `set_linear_issue.py`) keep
     the column fresh by calling `_csvlib.touch_row()` on every row
     mutation; `apply_sync_rules.py --fix` does the same for rows it
     repairs.
-8. **Habit spawn on completion** — handled by [mark_done.py](../scripts/mark_done.py),
+8. **Habit spawn on completion** — handled by `brain tasks complete`,
    not the sync. When a habits.csv row flips to `done`, a new row is
-   appended with a fresh `H###` `task_id` (via
-   [next_id.py](../scripts/next_id.py)), `status = not_started`, and
-   `due_date` computed by [next_habit_occurrence.py](../scripts/next_habit_occurrence.py):
+   appended with a fresh `H###` `task_id`, `status = not_started`, and
+   `due_date` computed with the native anchor-to-due recurrence logic:
    anchor to the **original due_date** plus N × interval, where N is
    the smallest integer that makes the result **strictly after today**.
    A stale Monday-weekly habit lands on the next future Monday;
    a daily habit completed today schedules tomorrow. LLMs are bad at
-   calendar arithmetic — always use the script.
+   calendar arithmetic — always use the binary command.
 
 ## Bidirectional task ↔ project link
 

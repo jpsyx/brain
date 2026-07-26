@@ -47,9 +47,9 @@ name fragments still work.**
 
 ## State changes
 
-- **`/todo done <task>`** — set `status=done`, `completed_date=today`.
-  If the row is in habits.csv, also append next occurrence. See
-  [scripts/mark_done.py](../scripts/mark_done.py).
+- **`/todo done <task>`** — run `brain tasks complete <task>` to set
+  `status=done`, `completed_date=today`, and `last_touched=today`.
+  If the row is in habits.csv, the binary also appends the next occurrence.
 - **`/todo defer <task> +Nd|YYYY-MM-DD`** — push `due_date`,
   increment `defer_count`. Warns at `defer_count >= 3`. See
   [scripts/defer_task.py](../scripts/defer_task.py).
@@ -74,7 +74,7 @@ name fragments still work.**
 - **`/todo defer-habit <habit> [--occurrences N]`** — skip the next
   N occurrences of a habit (default 1). Advances `due_date` by N
   recurrence intervals using the same anchor-to-due-with-catch-up
-  math as `mark_done`, so a Monday-weekly habit stays on Mondays
+  math as `brain tasks complete`, so a Monday-weekly habit stays on Mondays
   after skipping. Use this instead of `defer` for habits — raw
   `+Nd` would knock weekly/monthly cycles off-rhythm. No
   `completed_date` is recorded (the skipped instance is simply not
@@ -122,13 +122,13 @@ assistant first.
   workday. Markdown output.
   **Persistence:** every time you build or rework an agenda,
   **write it to `/tmp/<TARGET_DATE>.md`** (overwriting). When
-  tasks on a persisted agenda are completed or deferred via the
-  mutator scripts (`mark_done.py`, `defer_task.py`,
-  `defer_habit.py`, `touch_task.py`), those scripts auto-update
-  the file via
+  tasks on a persisted agenda are deferred or touched via the
+  mutator scripts (`defer_task.py`, `defer_habit.py`, `touch_task.py`),
+  those scripts auto-update the file via
   [scripts/update_agenda_on_mutation.py](../scripts/update_agenda_on_mutation.py)
-  — see SKILL.md operating principle 7. For non-mutation reworks
-  (drops, swaps, manual reorderings), rewrite the file yourself.
+  — see SKILL.md operating principle 7. For completions
+  (`brain tasks complete <id>`) and non-mutation reworks (drops, swaps,
+  manual reorderings), rewrite the file yourself.
   The user reads these files via the `agenda` zsh helper
   (`agenda today` / `agenda tomorrow` / `agenda YYYY-MM-DD` /
   bare `agenda` for the latest). Source:
