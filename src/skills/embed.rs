@@ -171,6 +171,23 @@ mod tests {
                 "declares the `{hook}` extension hook"
             );
         }
+        // Cloud-sync (brain sync) commands, distinct from the lookup-CSV
+        // `/second-brain sync` above. (The docs/ writeup for the broader
+        // cloud-sync feature lands in a separate docs task.)
+        assert!(text.contains("/second-brain cloud-sync"), "documents /second-brain cloud-sync");
+        assert!(
+            text.contains("/second-brain resolve-conflicts"),
+            "documents /second-brain resolve-conflicts"
+        );
+        assert!(
+            text.contains("brain sync conflicts --json"),
+            "documents the conflicts --json invocation"
+        );
+        assert!(text.contains("brain sync resolve"), "documents brain sync resolve");
+        assert!(
+            text.contains("different operation from"),
+            "documents the cloud-sync vs lookup-sync distinction"
+        );
     }
 
     #[test]

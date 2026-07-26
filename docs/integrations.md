@@ -281,7 +281,23 @@ bookkeeping.
   `sync_once` also feeds the *count of copies renamed* into `verify::classify`
   so the run is still reported `NeedsAttention` (journalled `conflicts=N`) — a
   real conflict is never masked as clean. `brain sync conflicts` lists what's
-  still open; resolving one is a manual step in this phase.
+  still open; resolving a group is the agent-driven flow described next.
+- **The conflict-resolution contract for agents (C5).** `brain sync conflicts
+  --json` is the structured enumerator the `/second-brain resolve-conflicts`
+  skill (and any other agent) consumes: it re-derives `ConflictGroup`/
+  `ParsedCopy` from the on-disk friendly names via `conflicts::parse_conflict_name`
+  + `conflicts::group_conflicts`, then `command::conflicts_json` renders each
+  group as `{ "original", "original_exists", "copies": [{ "path", "host",
+  "date", "modified", "bytes" }] }` (paths relative to the brain root;
+  `modified`/`bytes` are `null` when the file's metadata can't be read).
+  `brain sync resolve <original> [...]` is the matching brain-side deleter: it
+  looks up that original's copies via `conflicts::copies_for_original` and
+  deletes them (never the canonical file itself), refusing outright
+  (`ResolveDecision::CanonicalMissing` in `src/sync/command/resolve.rs`) if the
+  canonical original doesn't exist on disk — the skill must merge into it
+  first. `resolve` never invokes `rclone` or the journal; it's a pure local
+  filesystem delete, so the skill runs one ordinary `brain sync` afterward to
+  push the resolution out.
 - **The two task CSVs skip bisync entirely; they're merged out-of-band.**
   `tasks/tasks.csv` and `tasks/habits.csv` are added to `args::bisync_args`'s
   default excludes (`src/sync/args.rs`), so Lane-A bisync never touches them —

@@ -2,22 +2,33 @@
 //!
 //! Ties the pure builders to the rclone shell, the conflict post-pass,
 //! verification, and the journal. Kept thin; the tested logic lives in the
-//! builders it calls.
+//! builders it calls. The `resolve` submodule (`brain sync resolve`) is
+//! self-contained enough to live in its own file; its one externally-called
+//! entry point is re-exported here so `crate::sync::command::resolve` (called
+//! from `main.rs`) keeps resolving unchanged. `ResolveDecision`/
+//! `resolve_decision` have no call sites outside `resolve.rs` itself, so they
+//! stay at their natural `resolve::` path rather than being re-exported
+//! (which `cargo clippy` would flag as unused in this binary crate).
 
 use std::fmt::Write as _;
+use std::fs;
 use std::path::Path;
 
 use anyhow::{Result, bail};
+use chrono::{DateTime, Utc};
 
 use crate::sync::args::{self, Direction};
 use crate::sync::config::SyncConfig;
-use crate::sync::conflicts;
+use crate::sync::conflicts::{self, ConflictGroup};
 use crate::sync::csv_sync::CsvMergeOutcome;
 use crate::sync::journal::{Journal, SyncRun};
 use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone;
 use crate::sync::verify::{self, Outcome};
 use crate::theme::Theme;
+
+mod resolve;
+pub use resolve::resolve;
 
 /// This machine's short hostname for conflict-copy names. Falls back to "host".
 #[must_use]
@@ -229,23 +240,147 @@ pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Print `brain sync conflicts`.
-pub fn print_conflicts(root: &Path) {
+/// Per-copy filesystem metadata, injected so [`conflicts_json`] stays pure.
+pub struct CopyMeta {
+    pub modified: Option<String>,
+    pub bytes: Option<u64>,
+}
+
+/// Build the `brain sync conflicts --json` value. Pure.
+///
+/// `meta(rel_path)` supplies each copy's metadata (`None` fields serialize to
+/// JSON `null`); `exists(original)` says whether the canonical file is
+/// present. An empty `groups` slice builds an empty JSON array.
+#[must_use]
+pub fn conflicts_json(
+    groups: &[ConflictGroup],
+    meta: impl Fn(&Path) -> CopyMeta,
+    exists: impl Fn(&Path) -> bool,
+) -> serde_json::Value {
+    let value: Vec<serde_json::Value> = groups
+        .iter()
+        .map(|g| {
+            let copies: Vec<serde_json::Value> = g
+                .copies
+                .iter()
+                .map(|c| {
+                    let m = meta(&c.path);
+                    serde_json::json!({
+                        "path": c.path.display().to_string(),
+                        "host": c.host,
+                        "date": c.date,
+                        "modified": m.modified,
+                        "bytes": m.bytes,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "original": g.original.display().to_string(),
+                "original_exists": exists(&g.original),
+                "copies": copies,
+            })
+        })
+        .collect();
+    serde_json::Value::Array(value)
+}
+
+/// Read a copy's mtime/size off disk for [`conflicts_json`]; missing file or
+/// unreadable mtime degrades to `None` rather than failing the whole command.
+fn copy_meta_from_fs(root: &Path, rel: &Path) -> CopyMeta {
+    let Ok(m) = fs::metadata(root.join(rel)) else {
+        return CopyMeta { modified: None, bytes: None };
+    };
+    let modified =
+        m.modified().ok().map(|t| DateTime::<Utc>::from(t).format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    CopyMeta { modified, bytes: Some(m.len()) }
+}
+
+/// Print `brain sync conflicts`. `json == true` emits the structured
+/// `conflicts_json` shape to stdout; otherwise this is byte-for-byte the
+/// original themed human list.
+pub fn print_conflicts(root: &Path, json: bool) -> Result<()> {
     let theme = Theme::active();
     let conflicts = conflicts::list_conflicts(root);
-    if conflicts.is_empty() {
+    if json {
+        let groups = conflicts::group_conflicts(&conflicts);
+        let meta = |rel: &Path| copy_meta_from_fs(root, rel);
+        let exists = |rel: &Path| root.join(rel).exists();
+        let value = conflicts_json(&groups, meta, exists);
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else if conflicts.is_empty() {
         println!("{}", theme.muted("no open conflict copies."));
     } else {
         for c in conflicts {
             println!("{}", theme.value(&c.path.display().to_string()));
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
+    use crate::sync::conflicts::{ConflictGroup, ParsedCopy};
     use crate::theme::Theme;
+
+    #[test]
+    fn conflicts_json_empty_groups_is_empty_array() {
+        let groups: Vec<ConflictGroup> = vec![];
+        let meta = |_: &Path| CopyMeta { modified: None, bytes: None };
+        let exists = |_: &Path| false;
+        let v = conflicts_json(&groups, meta, exists);
+        assert_eq!(v, serde_json::json!([]));
+    }
+
+    #[test]
+    fn conflicts_json_builds_group_with_injected_copy_metadata() {
+        let groups = vec![ConflictGroup {
+            original: PathBuf::from("resources/ai/idea.md"),
+            copies: vec![ParsedCopy {
+                path: PathBuf::from("resources/ai/idea (conflict mac 2026-07-25).md"),
+                host: "mac".to_owned(),
+                date: "2026-07-25".to_owned(),
+            }],
+        }];
+        let meta = |_: &Path| CopyMeta { modified: Some("2026-07-25T10:04:11Z".to_owned()), bytes: Some(1841) };
+        let exists = |_: &Path| true;
+        let v = conflicts_json(&groups, meta, exists);
+        assert_eq!(
+            v,
+            serde_json::json!([{
+                "original": "resources/ai/idea.md",
+                "original_exists": true,
+                "copies": [{
+                    "path": "resources/ai/idea (conflict mac 2026-07-25).md",
+                    "host": "mac",
+                    "date": "2026-07-25",
+                    "modified": "2026-07-25T10:04:11Z",
+                    "bytes": 1841
+                }]
+            }])
+        );
+    }
+
+    #[test]
+    fn conflicts_json_missing_metadata_serializes_as_null_not_omitted() {
+        let groups = vec![ConflictGroup {
+            original: PathBuf::from("notes.md"),
+            copies: vec![ParsedCopy {
+                path: PathBuf::from("notes (conflict mac 2026-07-25).md"),
+                host: "mac".to_owned(),
+                date: "2026-07-25".to_owned(),
+            }],
+        }];
+        let meta = |_: &Path| CopyMeta { modified: None, bytes: None };
+        let exists = |_: &Path| false;
+        let v = conflicts_json(&groups, meta, exists);
+        let copy = &v[0]["copies"][0];
+        assert!(copy["modified"].is_null(), "{v}");
+        assert!(copy["bytes"].is_null(), "{v}");
+        assert_eq!(v[0]["original_exists"], false);
+    }
 
     #[test]
     fn hostname_is_nonempty_and_unqualified() {

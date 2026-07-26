@@ -154,7 +154,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, and the Backblaze `sync` block (see below). |
-| `brain sync [--push\|--pull] {setup\|init\|status\|conflicts}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. |
+| `brain sync [--push\|--pull] {setup\|init\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via a dry-run `rclone bisync` (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
@@ -230,7 +230,22 @@ nothing.
   configured triggers (`on_start`/`on_exit`/`watch`, with the watcher's
   debounce window shown as `(3000ms debounce)`), and the count of open
   conflicts.
-- `brain sync conflicts` — list open conflict copies.
+- `brain sync conflicts` — list open conflict copies. `--json` emits the same
+  groups as structured JSON (one object per canonical original, its
+  `original_exists` flag, and its `copies` with `host`/`date`/`modified`/
+  `bytes`) instead of the themed line-list — meant for agents/skills to
+  consume, e.g. the `/second-brain resolve-conflicts` skill.
+- `brain sync resolve <original> [...]` — after you've merged a conflict back
+  into its canonical file, safely delete that original's leftover conflict
+  copies (never the canonical itself). Refuses (and deletes nothing) if the
+  named original doesn't exist — merge into it first. Bare `brain sync
+  resolve` (no arguments) drops into an interactive picker over the currently
+  open conflict groups. Deletion only: it never runs a sync itself.
+  - *Caveat:* a conflict copy is recognized purely by its
+    `name (conflict <host> <YYYY-MM-DD>).ext` shape, so a genuine file you
+    happened to name exactly that way is indistinguishable from a real
+    conflict copy — `conflicts`/`resolve` would treat it as one. Don't hand-name
+    files in that pattern.
 
 Like `config`/`env`/`personalize`/`skills`, `sync` is dispatched **before**
 the `markdown-to-pdf` prerequisite gate, so it always works even when that
@@ -269,6 +284,60 @@ swallowed, so a trigger never crashes or hangs the shell. Set any flag to
 `false` to disable that trigger; with no `sync` block configured at all,
 nothing changes (no watcher thread, no start/exit sync). `brain sync status`
 shows the effective trigger state and the debounce window.
+
+#### Migrating a machine to sync
+
+A short runbook for bringing sync online: once for a new bucket, then once
+per machine you want to join it.
+
+1. **One-time: create the bucket.** Before the first machine can connect,
+   someone creates a private Backblaze B2 bucket to sync to — Default
+   Encryption **enabled** (B2 manages the keys), Object Lock **disabled**, and
+   a bucket-scoped application key. This step happens in the Backblaze
+   console, outside brain; if you tell `brain sync setup` (below) you don't
+   have a bucket yet, it walks you through creating one and waits for you to
+   finish before continuing.
+2. **Per machine: `brain sync setup`.** On every machine you want on sync —
+   including the one that just made the bucket — run `brain sync setup`. It
+   confirms `rclone` is installed, collects the B2 bucket name and the
+   application key/keyID (either from a bucket you already have, or the
+   walkthrough from step 1), writes the `sync` block into that machine's
+   `~/.config/brain/env.json` (see [`brain env`](#brain-env) above — this is
+   machine-local and never rides into the bucket itself), and establishes the
+   bisync baseline. On a brand-new machine with an empty `~/brain`, that
+   initial baseline is effectively a full pull of everything already in the
+   bucket.
+3. **Verify the triggers.** Run `brain sync status` and confirm it reports
+   the effective `on_start`/`on_exit`/`watch` triggers and the last run.
+   Auto-sync is on by default the moment `brain sync setup` finishes — you
+   don't need to flip anything else on.
+4. **Env auto-migration.** The legacy `~/.config/brain-root` pointer and
+   `config.json`'s `markdown_to_pdf_path` are migrated into
+   `~/.config/brain/env.json` on every first launch of the new binary — a
+   no-op on a brand-new machine with no legacy pointer or config to migrate —
+   see [`brain env`](#brain-env) above. No manual step needed; it happens
+   quietly, before `sync setup` even starts.
+5. **Confirm it actually works, across two machines:**
+   - An edit, add, or delete on machine A shows up on machine B after each
+     machine's next `brain sync` (or automatically, once the triggers above
+     are live).
+   - `tasks.csv` and `habits.csv` merge silently — editing or completing
+     different tasks on both machines never leaves behind a `(conflict …)`
+     copy of either file.
+   - Editing the *same* prose file on both machines at once (before either
+     syncs) produces exactly one keep-both `(conflict …)` copy, which
+     `/second-brain resolve-conflicts` merges back into the canonical file and
+     clears with `brain sync resolve`.
+
+Once these five steps check out, the machine is fully onboarded: sync runs
+itself from here via the triggers in the previous section.
+
+**Optional: syncing your own env.json.** `brain` itself doesn't care how
+`~/.config/brain/env.json` gets onto a machine — it just reads a standard XDG
+config file. If you want to skip re-running `brain sync setup` by hand on
+every new machine, you can track that file privately in your own dotfiles
+repo (or similar) and let it carry your bucket + credentials across your
+machines. This is entirely optional and outside brain's own sync mechanism.
 
 ### `brain check`
 
@@ -319,8 +388,10 @@ unconfigured brain syncs everything, unchanged from before; see
 doesn't drop the losing edit: it keeps that copy, and brain renames it to
 `name (conflict <host> <date>).ext` alongside the winner, so nothing is
 silently lost. Conflict copies are themselves excluded from sync, so they
-don't fan out to every machine. `brain sync conflicts` lists them; picking a
-side and deleting the other is a manual step in this phase.
+don't fan out to every machine. `brain sync conflicts` lists them (`--json`
+for the structured, agent-consumable form); the `/second-brain
+resolve-conflicts` skill reads that JSON, merges each group into its
+canonical file, then clears the copies with `brain sync resolve <original>`.
 
 **Task CSVs merge by id — no conflict copies.** `tasks/tasks.csv` and
 `tasks/habits.csv` don't go through the keep-both path above at all: brain

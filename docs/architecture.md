@@ -362,6 +362,32 @@ it calls `trigger::spawn_detached_sync()` (when `on_exit`) and drops the watcher
 handle. All gated, all best-effort: an unconfigured brain gets no watcher thread
 and no syncs. C4 adds no keybinding, palette row, or menu row.
 
+**The C5 conflict enumerator + resolver** builds on `conflicts.rs` to give
+agents (not just humans) a way to close out a keep-both conflict. Still pure
+where it can be:
+
+- `conflicts.rs` gains `parse_conflict_name` (the strict inverse of
+  `conflict_name`: friendly name → `ParsedConflict { original, host, date }`,
+  or `None` on anything that isn't the exact grammar), `group_conflicts`
+  (folds flat `list_conflicts` output into `ConflictGroup`/`ParsedCopy`,
+  sorted for deterministic output), and `copies_for_original` (the copies
+  belonging to one canonical original, used by `resolve`).
+- `command/mod.rs` gains `conflicts_json`, a pure builder (fs metadata and
+  existence checks injected as closures) that renders `&[ConflictGroup]` into
+  the `serde_json::Value` array `brain sync conflicts --json` prints — see
+  [data-model.md](data-model.md) for the exact shape.
+- `command/resolve.rs` backs `brain sync resolve <original> [...]`: the pure
+  `resolve_decision` classifies each original as `Delete(copies)` /
+  `CanonicalMissing` / `NoCopies`, and the thin shell around it deletes the
+  copies (never the canonical file) and never touches rclone or the journal.
+  Bare `brain sync resolve` (no args) drops into an interactive picker over
+  the open conflict groups.
+
+Together these back the `/second-brain resolve-conflicts` skill: it reads
+`conflicts --json`, merges each group into its canonical file, deletes the
+copies via `resolve`, then runs one ordinary `brain sync`. See
+[integrations.md](integrations.md) for that contract in full.
+
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`
 crate under one namespace: `task` (CSV model + load), `view` (sub-views +

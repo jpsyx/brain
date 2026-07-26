@@ -760,8 +760,8 @@ user can correct your choices before anything leaves the project.
 ### "Sync the second brain" / "/second-brain sync"
 
 Use when the user asks to sync, rebuild, or refresh the lookup
-CSVs (e.g. "/second-brain sync", "sync the brain", "rebuild the
-lookups", "the CSVs are out of date").
+CSVs (e.g. "/second-brain sync", "rebuild the lookups", "the CSVs
+are out of date").
 
 Walks every `.METADATA.json` under `projects/` and `resources/`,
 rewrites `projects-lookup.csv` and `zotero-lookup.csv` from scratch,
@@ -809,6 +809,107 @@ What the sync derives:
 If the user has renamed a resource subdirectory, the new
 `directory` column is derived from the filesystem path — no manual
 CSV editing needed.
+
+### "Cloud-sync the brain" / "/second-brain cloud-sync"
+
+**This is a different operation from [Sync the second
+brain](#sync-the-second-brain--second-brain-sync) above.** That command
+rebuilds the derived lookup CSVs (`projects-lookup.csv` /
+`zotero-lookup.csv`) from `.METADATA.json` files. This command,
+`/second-brain cloud-sync`, instead syncs the brain's actual files
+across the user's machines via the `brain sync` CLI (bisync + CSV
+merge + verify). Don't confuse the two, and don't let one satisfy a
+request meant for the other. If the phrasing is genuinely ambiguous
+(a bare "sync my brain" with no signal toward local CSVs vs.
+across-machines), ask one quick clarifying question — "rebuild the
+lookup CSVs, or push/pull your files to the cloud?" — rather than
+guessing.
+
+Trigger phrases: "cloud-sync", "cloud-sync my brain", "push my brain
+to the cloud", "pull the latest brain", "sync across machines".
+
+1. Run the sync:
+   ```
+   brain sync
+   ```
+   If the user asked for a one-directional push or pull, bias it:
+   `brain sync --push` or `brain sync --pull`. Echo the command's
+   summary output to the user.
+2. If the output says sync is not configured, point the user at
+   `brain sync setup` and stop — there's nothing further to do here.
+3. Otherwise, check status and surface it inline:
+   ```
+   brain sync status
+   ```
+   Report the last run and the **open-conflicts count**. If it's 0,
+   say so plainly ("no conflicts, you're in sync"). **If open
+   conflicts is greater than 0**, tell the user their brain needs
+   attention and point them at
+   [Resolve sync conflicts](#resolve-sync-conflicts--second-brain-resolve-conflicts)
+   (`/second-brain resolve-conflicts`).
+4. End with the standard [additions table](#always-end-with-an-additions-table)
+   summarizing what synced and the conflict count.
+
+### "Resolve sync conflicts" / "/second-brain resolve-conflicts"
+
+Use when the user asks to resolve conflicts, fix the sync conflicts,
+or merge the conflict copies left behind by `brain sync`.
+
+**Scope:** this flow handles prose keep-both `(conflict …)` copies
+only. The two task CSVs (`tasks.csv` / `habits.csv`) merge
+automatically during `brain sync` via id-keyed semantic merge; any
+residual soft-conflicts there show up only in the sync journal and
+are out of scope for this flow.
+
+1. **List the conflicts:**
+   ```
+   brain sync conflicts --json
+   ```
+   This returns an array of groups, each shaped like:
+   ```json
+   {
+     "original": "<rel path>",
+     "original_exists": true,
+     "copies": [
+       { "path": "<rel path>", "host": "...", "date": "YYYY-MM-DD", "modified": "<RFC3339 or null>", "bytes": 123 }
+     ]
+   }
+   ```
+   If the array is empty, tell the user there's nothing to resolve
+   and stop.
+2. **Merge every group into its canonical file**, before deleting
+   anything:
+   - Read the canonical `original` (if `original_exists`) and every
+     competing `copies[].path` under `<brain>`.
+   - Use `host`, `date`, and `modified` as the recency signal to
+     reason about which edits are newest.
+   - Merge divergent content into the canonical `original`: union
+     genuinely additive edits from each copy; on a true clash
+     (the same passage edited two incompatible ways), prefer the
+     version from the copy with the newest `modified`; preserve both
+     sides where they're genuinely additive rather than picking a
+     "winner" that drops content. Follow this skill's normal content
+     conventions (naming, headings, cross-links) while merging.
+   - If `original_exists` is false, promote the best copy to the
+     `original` path first, then fold in the rest.
+   - **Write the merged result to `original` on disk before moving
+     to the next group.** Repeat for every group in the list.
+3. **Delete all resolved copies in one call**, once every group's
+   canonical file has been written:
+   ```
+   brain sync resolve <original1> <original2> …
+   ```
+   `resolve` takes any number of originals, so batch every group
+   from step 1 into a single invocation rather than calling it once
+   per group — it refuses if a listed canonical file is missing, and
+   it does not run any sync itself. Shell-quote any original whose
+   path contains spaces (e.g. `brain sync resolve "my notes.md"`).
+4. **Propagate the resolved state** with a single final sync:
+   ```
+   brain sync
+   ```
+5. End with the standard [additions table](#always-end-with-an-additions-table)
+   listing each resolved file and a short note on what was merged.
 
 ### CSV tooling — keep it simple
 

@@ -203,3 +203,93 @@ fn same_file_conflict_is_renamed_and_surfaced() {
 
     std::fs::remove_dir_all(&base).ok();
 }
+
+/// C5 end-to-end resolve round-trip.
+///
+/// Beat 1 (edit/add/delete propagate A→B) is proven by
+/// `create_and_delete_propagate_bidirectionally`; beat 2 (the two CSVs merge
+/// with no `(conflict …)` copy, idempotently) is proven by
+/// `csv_sync_one_converges_local_and_remote_and_is_idempotent`. THIS test
+/// proves beat 3: a real rclone-generated conflict is enumerated via the C5
+/// grouping surface (`list_conflicts`/`group_conflicts`) and then resolved via
+/// the real `brain sync resolve` command (`command::resolve`), leaving only
+/// the (merged) canonical behind.
+#[test]
+fn conflict_copy_is_enumerated_and_resolved_leaving_only_the_canonical() {
+    if !rclone_available() {
+        eprintln!("skipping: rclone not on PATH");
+        return;
+    }
+    let base = std::env::temp_dir().join(format!("brain-sync-resolve-it-{}", std::process::id()));
+    let a = base.join("a");
+    let b = base.join("b");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+
+    // Seed a few files and establish the baseline (recipe from
+    // `same_file_conflict_is_renamed_and_surfaced`).
+    for f in ["one", "two", "three"] {
+        std::fs::write(a.join(format!("{f}.md")), format!("orig-{f}")).unwrap();
+    }
+    let resync = run(&a, &b, Direction::Resync);
+    assert!(resync.exit_ok, "resync failed: {resync:?}");
+
+    // Edit the SAME file on both sides with different content + a real mtime
+    // skew, producing a same-file conflict rclone can't auto-resolve to one
+    // winner.
+    std::fs::write(a.join("one.md"), "A-side-change").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(b.join("one.md"), "B-side-change-different").unwrap();
+
+    let outcome = run(&a, &b, Direction::Both);
+    assert!(outcome.exit_ok, "conflict bisync failed: {outcome:?}");
+
+    let host = "testhost";
+    let date = "2026-07-25";
+    let renamed = brain::sync::conflicts::rename_markers(&a, host, date);
+    assert_eq!(renamed, 1, "expected exactly one conflict copy renamed");
+    assert!(
+        a.join("one (conflict testhost 2026-07-25).md").exists(),
+        "friendly conflict file not found; dir: {:?}",
+        std::fs::read_dir(&a).unwrap().filter_map(Result::ok).map(|e| e.file_name()).collect::<Vec<_>>()
+    );
+
+    // Enumerate via the C5 grouping surface: this is what the resolve skill
+    // actually consumes, so prove it sees the real rclone conflict.
+    let files = brain::sync::conflicts::list_conflicts(&a);
+    let groups = brain::sync::conflicts::group_conflicts(&files);
+    assert_eq!(groups.len(), 1, "expected exactly one conflict group, got {groups:?}");
+    let group = &groups[0];
+    assert_eq!(group.original, Path::new("one.md"));
+    assert_eq!(group.copies.len(), 1, "expected exactly one copy for one.md");
+    assert_eq!(group.copies[0].host, host);
+    assert_eq!(group.copies[0].date, date);
+
+    // Simulate the agent's merge: overwrite the canonical (the bisync winner
+    // already sitting at a/one.md) with the merged result.
+    std::fs::write(a.join("one.md"), "merged: A-side + B-side").unwrap();
+
+    // Resolve via the real command: deletes the conflict copy, never touches
+    // the canonical, runs no sync.
+    brain::sync::command::resolve(&a, &["one.md".to_string()]).unwrap();
+
+    // End state: canonical survives with the merged content, the friendly
+    // copy is gone, and no markers/conflicts remain.
+    assert_eq!(
+        std::fs::read_to_string(a.join("one.md")).unwrap(),
+        "merged: A-side + B-side",
+        "canonical must survive resolve with the merged content"
+    );
+    assert!(
+        !a.join("one (conflict testhost 2026-07-25).md").exists(),
+        "the conflict copy must be deleted by resolve"
+    );
+    assert!(brain::sync::conflicts::list_conflicts(&a).is_empty(), "no open conflicts should remain");
+    assert_eq!(brain::sync::conflicts::leftover_markers(&a), 0, "no raw markers should remain");
+
+    // Unrelated seed files survive untouched.
+    assert!(a.join("two.md").exists());
+    assert!(a.join("three.md").exists());
+
+    std::fs::remove_dir_all(&base).ok();
+}

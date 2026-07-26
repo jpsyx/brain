@@ -145,8 +145,20 @@ pub enum SyncAction {
     Init,
     /// Show the last run, pending changes, and open conflicts.
     Status,
-    /// List open conflict copies.
-    Conflicts,
+    /// List open conflict copies. With `--json`, emit structured JSON
+    /// (one object per original, with its copies + filesystem metadata)
+    /// instead of the themed human-readable list.
+    Conflicts {
+        /// Emit structured JSON instead of the themed human-readable list.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete the resolved conflict copies for one or more canonical originals
+    /// (after you've merged into them). With no argument, pick interactively.
+    Resolve {
+        /// Canonical original path(s) to resolve (relative to the brain root).
+        originals: Vec<String>,
+    },
 }
 
 #[derive(Args, Debug)]
