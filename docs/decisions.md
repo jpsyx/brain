@@ -776,14 +776,17 @@ second `brain` shell + a manual `brain sync` can all want to sync at once, and t
 `rclone bisync` runs against the same bucket at the same time is exactly what must
 not happen. A single PID-file lock at `~/.cache/brain/sync/sync.lock`, taken
 atomically (`create_new`/O_EXCL) and reaped when stale (owner PID no longer alive
-via `kill -0` — a live owner is never reaped, so a long first sync is safe), gives
-"one sync at a time, machine-wide" cheaply, with
-no daemon or IPC. Crucially the lock wraps **all** sync entry points, including
-the manual `run_sync` in `main.rs` — which closes a latent C2/C3 race that existed
-before C4: two concurrent manual `brain sync` invocations could previously collide,
-and now the second cleanly skips. Manual sync deliberately skips-with-a-message
-rather than blocking; a short blocking-wait for the human path is a noted possible
-refinement, not shipped.
+via `kill -0` or heartbeat mtime older than the stale cap), gives "one sync at a
+time, machine-wide" cheaply, with no daemon or IPC. The heartbeat is the minimal
+extra mechanism needed to avoid the SIGKILL + PID-recycle wedge: a real long
+sync keeps refreshing the lockfile mtime, but a stale lock left behind by a dead
+process stops refreshing and becomes reapable even if the old PID number later
+belongs to an unrelated live process. Crucially the lock wraps **all** sync entry
+points, including the manual `run_sync` in `main.rs`, which closes a latent
+C2/C3 race that existed before C4: two concurrent manual `brain sync`
+invocations could previously collide, and now the second cleanly skips. Manual
+sync deliberately skips-with-a-message rather than blocking; a short
+blocking-wait for the human path is a noted possible refinement, not shipped.
 
 ## C5 — structured conflict list + brain-side deleter for agent-driven resolution
 

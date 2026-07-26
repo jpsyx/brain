@@ -4,7 +4,7 @@
 
 **Goal:** Make sync **automatic**. Sync on the persistent shell's start (background) and exit (detached fire-and-forget), plus a debounced `notify` filesystem watcher over the brain root — all gated on `sync.on_start`/`on_exit`/`watch` (default-on when configured). Every trigger reuses `sync_once`, coalesces through a new machine-wide advisory lock, never blocks/slows the shell, and stays decoupled from the brain HTTP server.
 
-**Architecture:** A small, pure-first trigger layer added to `src/sync/`. The **pure** cores — `lock::is_stale`, the `watch::Debouncer` state machine, `watch::is_watch_relevant`, `SyncConfig::debounce` — carry the decisions and the tests. The **thin** shells — `lock::try_acquire`/`Guard` (atomic lockfile), `watch::spawn_watcher` (the `notify` shell), `trigger::{run_locked_sync, sync_in_background, spawn_detached_sync}` — do IO/threads/`Command` over the tested cores. One TUI seam in `run_tui` wires the three triggers. The lock also closes a pre-existing race: two concurrent `brain sync` invocations.
+**Architecture:** A small, pure-first trigger layer added to `src/sync/`. The **pure** cores — `lock::is_stale`, the `watch::Debouncer` state machine, `watch::is_watch_relevant`, `SyncConfig::debounce` — carry the decisions and the tests. The **thin** shells — `lock::try_acquire`/`Guard` (atomic lockfile + heartbeat), `watch::spawn_watcher` (the `notify` shell), `trigger::{run_locked_sync, sync_in_background, spawn_detached_sync}` — do IO/threads/`Command` over the tested cores. One TUI seam in `run_tui` wires the three triggers. The lock also closes a pre-existing race: two concurrent `brain sync` invocations.
 
 **Tech Stack:** Rust, `anyhow`, `serde`/`serde_json`, `chrono` (already a dep), **`notify` 6 (new dependency)** for OS-native FS events, `std::thread` + `std::sync::mpsc`, `std::process::Command` with `process_group(0)` for detach (mirrors `src/server/lifecycle.rs`, no `unsafe`). `cargo test --release` + `cargo clippy --release --all-targets`.
 
@@ -18,7 +18,7 @@ Phase **C4** of the [brain-sync spec](../specs/2026-07-24-brain-sync-design.md),
 
 | File | Responsibility | Pure? |
 | --- | --- | --- |
-| `src/sync/lock.rs` (new) | Machine-wide advisory lock at `~/.cache/brain/sync/sync.lock`: pure `is_stale`; atomic `try_acquire` → `Guard` (reap-stale, release-on-drop) | pure decision + thin IO |
+| `src/sync/lock.rs` (new) | Machine-wide advisory lock at `~/.cache/brain/sync/sync.lock`: pure `is_stale`; atomic `try_acquire` → `Guard` (heartbeat while held, reap-stale, release-on-drop) | pure decision + thin IO |
 | `src/sync/watch.rs` (new) | Pure `Debouncer` (3s quiescence state machine) + `is_watch_relevant` predicate; the `notify` shell `spawn_watcher` + `WatcherHandle` | pure core + thin `notify` shell |
 | `src/sync/trigger.rs` (new) | `run_locked_sync` (lock → `sync_once`), `sync_in_background` (spawn a thread), `spawn_detached_sync` (detached `brain sync` child for exit) | thin (over tested cores) |
 | `src/sync/config.rs` (edit) | `debounce_ms` field (default 3000) + `debounce() -> Duration` | pure |

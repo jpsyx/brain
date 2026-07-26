@@ -336,12 +336,14 @@ the IO/threads/`Command`:
 
 - `lock.rs` — the machine-wide advisory sync lock at
   `~/.cache/brain/sync/sync.lock` (a PID file beside the journal). Pure
-  `is_stale(owner_alive)` decides reap-ability (PID-liveness only — a live owner
-  is never reaped); `try_acquire(path)` is the atomic (`create_new`/O_EXCL) thin
-  IO shell returning `Option<Guard>` (`None` when a live sync holds it), and
-  `Guard` removes the file on drop only if it still holds our PID. It
-  wraps **all** sync entry points, including the manual `run_sync` in
-  `main.rs`, closing a pre-existing concurrent-`brain sync` race.
+  `is_stale(owner_alive, age, cap)` decides reap-ability (dead owner or
+  heartbeat mtime past the cap); `try_acquire(path)` is the atomic
+  (`create_new`/O_EXCL) thin IO shell returning `Option<Guard>` (`None` when a
+  live, fresh sync holds it), and `Guard` owns a heartbeat thread that refreshes
+  the lockfile mtime until drop. Drop stops the heartbeat and removes the file
+  only if it still holds our PID. It wraps **all** sync entry points, including
+  the manual `run_sync` in `main.rs`, closing a pre-existing concurrent-`brain
+  sync` race.
 - `watch.rs` — the pure `Debouncer` (a clock-injected quiescence state machine:
   `on_event`/`time_until_fire`/`poll`) and the pure `is_watch_relevant(path)`
   exclude predicate, plus the thin `notify` shell `spawn_watcher_with` (owns the
