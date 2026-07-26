@@ -297,12 +297,13 @@ The C4 machine-wide advisory sync lock is a single file at
 `~/.cache/brain/sync/sync.lock` (beside the sync journal, machine-local cache,
 never synced). Its "record" is intentionally minimal: **the file's contents are
 the bare owning PID** (the decimal `std::process::id()`, no JSON, no timestamp).
-It is created atomically with `create_new` (O_EXCL), so a second
-acquirer can't race in; `try_acquire` returns `Some(Guard)` on success (the
-`Guard` removes the file on drop, but only if it still holds our PID) or `None`
-when a live sync already holds it. A stale lock (owner PID no longer alive per
-`kill -0`, or an unreadable/garbage file) is reaped and re-taken; a live owner
-is never reaped, however long its sync runs. See
+The timestamp is the file's mtime: `Guard` refreshes it from a heartbeat thread
+while the sync is running. It is created atomically with `create_new` (O_EXCL),
+so a second acquirer can't race in; `try_acquire` returns `Some(Guard)` on
+success (the `Guard` stops the heartbeat and removes the file on drop, but only
+if it still holds our PID) or `None` when a live, fresh sync already holds it. A
+stale lock (owner PID no longer alive per `kill -0`, heartbeat mtime older than
+the stale cap, or an unreadable/garbage file) is reaped and re-taken. See
 [integrations.md](integrations.md) for how every sync trigger coalesces through
 it.
 

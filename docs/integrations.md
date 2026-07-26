@@ -349,18 +349,16 @@ above automatically. Its own outside-world touchpoints:
   cache). It holds the owning process's PID and is taken atomically via
   `create_new` (O_EXCL), so only one sync runs at a time across every trigger
   and every `brain` invocation on the machine (the extras skip rather than
-  queue). `Guard` removes the file on drop, but only if it still holds **our**
-  PID, so a Guard whose lock was reaped out from under it (a crash-recovery
-  race) never deletes the new owner's lock. A crash that leaves a stale file is
-  reaped on the next acquire, which classifies staleness purely by
-  **PID-liveness** (the same `server::lifecycle::pid_alive` `kill -0` probe the
-  server uses): a **live owner is never reaped**, so a long-running sync (a
-  large first sync can take many minutes) keeps the lock as long as it needs. A
-  missing or garbage lockfile reads as stale/reapable. (The one residual: a
-  SIGKILLed holder whose PID is later recycled to an unrelated live process
-  wedges the lock until the file is removed by hand.) The manual `run_sync` in
-  `main.rs` takes this lock too, closing a pre-existing concurrent-`brain sync`
-  race.
+  queue). `Guard` owns a heartbeat thread that refreshes the lockfile mtime
+  while the sync is still running. A later acquire reaps the lock when either
+  the owner PID is dead (the same `server::lifecycle::pid_alive` `kill -0`
+  probe the server uses) or the heartbeat mtime is older than the stale cap;
+  that closes the SIGKILL + PID-recycle wedge. `Guard` stops the heartbeat and
+  removes the file on drop, but only if it still holds **our** PID, so a Guard
+  whose lock was reaped out from under it (a crash-recovery race) never deletes
+  the new owner's lock. A missing or garbage lockfile reads as stale/reapable.
+  The manual `run_sync` in `main.rs` takes this lock too, closing a pre-existing
+  concurrent-`brain sync` race.
 - **The detached `on_exit` child** (`trigger::spawn_detached_sync`) spawns the
   current exe as `brain sync` fully detached — `process_group(0)` (its own
   process group, so it outlives the parent) plus stdin/stdout/stderr all set to

@@ -67,7 +67,7 @@ shells stay thin.
 
 | File | Responsibility | Pure? |
 |---|---|---|
-| `src/sync/lock.rs` *(new)* | The machine-wide advisory lock at `~/.cache/brain/sync/sync.lock`: `try_acquire() -> Option<Guard>` (non-blocking; `None` when another sync holds it), `Guard` releases on drop + reaps a stale lock (dead-PID record). Pure staleness decision (`is_stale(pid_alive, age)`) + thin FS/PID shell. | pure decision + thin IO |
+| `src/sync/lock.rs` *(new)* | The machine-wide advisory lock at `~/.cache/brain/sync/sync.lock`: `try_acquire() -> Option<Guard>` (non-blocking; `None` when another sync holds it), `Guard` releases on drop, refreshes the lockfile mtime while held, and reaps stale locks (dead PID or heartbeat past the cap). Pure staleness decision (`is_stale(pid_alive, age, cap)`) + thin FS/PID/thread shell. | pure decision + thin IO |
 | `src/sync/trigger.rs` *(new)* | The shell-facing entry points: `sync_in_background(reason)` — acquire the lock, run `sync_once`, journal, drop the lock, all on a spawned thread (no-op + return if the lock is held or sync unconfigured); and `spawn_detached_sync()` — spawn a fully detached `brain sync` child for `on_exit`. Reuses `command::sync_once`. | thin (wraps tested core) |
 | `src/sync/watch.rs` *(new)* | `Debouncer` — the **pure** debounce state machine: fold a stream of `(event, now)` into "fire now?" decisions with a 3s quiescence window + coalescing while a sync is in flight. Plus `spawn_watcher(root, cfg) -> WatcherHandle`: the thin `notify` shell that feeds events into the `Debouncer` and calls `trigger::sync_in_background` when it says fire. `WatcherHandle` stops the thread on drop. | pure `Debouncer` + thin `notify` shell |
 | `src/sync/config.rs` *(extend)* | Add `debounce_ms` (default 3000) to `SyncConfig`; `debounce()` helper returning a `Duration`. | pure |
@@ -92,9 +92,11 @@ subcommands. `brain sync status` (§8) is extended to show watcher/trigger state
     generous cap) → take it, write our PID, return a `Guard`.
   - a live lock held by another process → return `None`; the caller **skips** this
     sync (logs a one-line debug note to stderr, never blocks).
-- **`Guard` drops** → remove the lock file. A crash leaves a stale file that the
-  next `try_acquire` reaps via the PID-liveness check (same `pid_alive` probe the
-  server lifecycle already uses).
+- **`Guard` drops** → stop the heartbeat and remove the lock file if it still
+  holds our PID. While held, a heartbeat thread refreshes the lockfile mtime. A
+  crash leaves a stale file that the next `try_acquire` reaps via the
+  PID-liveness check (same `pid_alive` probe the server lifecycle already uses)
+  or the heartbeat age cap, closing the SIGKILL + PID-recycle wedge.
 - **Why skip, not queue:** triggers are frequent and idempotent — if a sync is
   already running, the in-flight run (or the next debounce fire) will pick up
   whatever changed. Queuing would just stack redundant rclone runs. The watcher's
@@ -165,9 +167,10 @@ flags.
   Deterministic — `now` is injected, no real clock, no sleeps.
 - **`is_watch_relevant` / exclude predicate:** `.git/`, `.cache/`, `.DS_Store`,
   conflict copies excluded; a normal note/CSV included.
-- **`lock::is_stale`** classifier: live PID → not stale; dead PID or over-age →
-  stale/reapable. Lock round-trip (`try_acquire` twice in-process → second is
-  `None`; drop the first → third acquires) against a temp `HOME`/cache.
+- **`lock::is_stale`** classifier: live PID + fresh heartbeat → not stale; dead
+  PID or over-age heartbeat → stale/reapable. Lock round-trip (`try_acquire`
+  twice in-process → second is `None`; drop the first → third acquires) against
+  a temp `HOME`/cache; heartbeat refresh against a short injected interval.
 - **`config`:** `debounce_ms` default 3000; `debounce()` → `Duration`; absent
   block still disables everything.
 - **`format_triggers`:** on/off rendering incl. `watch_effective` interaction;
@@ -271,8 +274,8 @@ Each a self-contained RED→GREEN TDD slice:
 - The exact detach mechanism for `spawn_detached_sync` on macOS/Linux
   (`setsid` / `process_group(0)` via `std::os::unix` + stdio to `/dev/null`) —
   pick the portable-unix spelling at C4.4; the shape is settled.
-- Stale-lock age cap (a generous upper bound, e.g. 10 min, purely as a backstop
-  behind the PID-liveness reap) — fix the constant at C4.1.
+- Stale-lock age cap: fixed at 10 minutes, with `Guard` refreshing the lockfile
+  mtime every 60 seconds while a sync is alive.
 - Whether the `on_start` sync should be pull-biased (`--pull`) to prioritize
   landing remote changes fast, or a plain bidirectional `both` — lean plain `both`
   (bisync reconciles both directions anyway); confirm at C4.5.
