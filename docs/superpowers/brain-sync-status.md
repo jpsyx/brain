@@ -33,7 +33,7 @@ Pick up in roughly this order. Each is a self-contained RED→GREEN TDD slice
 unless noted. Update this file (check the box, note the commit) as you land each.
 
 ### 1. C3.3 — `last_touched` writer audit  *(natural loose end of C3)*
-- [ ] Audit every task/habit **writer** so it bumps `last_touched` on **every**
+- [x] Audit every task/habit **writer** so it bumps `last_touched` on **every**
   mutation. If writers don't, the same-field CSV 3-way merge can't resolve
   last-writer-wins accurately (it falls back safely to keep-local + journal, so
   this is correctness-sharpening, not a crash).
@@ -44,6 +44,14 @@ unless noted. Update this file (check the box, note the commit) as you land each
 - Deliverable: each writer sets `last_touched` to "now" on mutate; a test (pure
   where possible) proving it. Cross-ref `src/sync/csv_merge.rs` for how the
   field is consumed.
+- Landed in `7fbb60d` (`fix: stamp task csv mutations`). Notes: `habits.csv`
+  now carries `last_touched` parity with `tasks.csv`; bundled task/habit
+  mutators stamp rows via `_csvlib.touch_row`, legacy habit files gain the
+  column on mutation, `apply_sync_rules.py --fix` stamps rows it repairs, and
+  the Rust habit loader preserves the timestamp when present. Validation:
+  `cargo test --release` green (646 unit tests plus integration suite; watcher
+  timing test still ignored by design) and `cargo clippy --release --all-targets`
+  clean.
 
 ### 2. C3.4 — extend `brain check` to diff pending CSV rows
 - [ ] `brain check` today runs a dry-run `rclone bisync` to report pending
