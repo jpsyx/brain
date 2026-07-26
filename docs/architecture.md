@@ -324,6 +324,43 @@ pure `check::format_report` for the themed summary. No journal entry, no
 conflict post-pass, no baseline mutation — it never calls `rclone bisync`
 without `--dry-run`.
 
+**The C4 auto-sync trigger layer** (`lock.rs`/`watch.rs`/`trigger.rs`, wired
+into the shell lifecycle) makes sync automatic while keeping the pure/impure
+split. The **pure** cores carry the decisions and the tests; the thin shells do
+the IO/threads/`Command`:
+
+- `lock.rs` — the machine-wide advisory sync lock at
+  `~/.cache/brain/sync/sync.lock` (a PID file beside the journal). Pure
+  `is_stale(owner_alive, age, cap)` decides reap-ability; `try_acquire(path)`
+  is the atomic (`create_new`/O_EXCL) thin IO shell returning `Option<Guard>`
+  (`None` when a live sync holds it), and `Guard` removes the file on drop. It
+  wraps **all** sync entry points, including the manual `run_sync` in
+  `main.rs`, closing a pre-existing concurrent-`brain sync` race.
+- `watch.rs` — the pure `Debouncer` (a clock-injected quiescence state machine:
+  `on_event`/`time_until_fire`/`poll`) and the pure `is_watch_relevant(path)`
+  exclude predicate, plus the thin `notify` shell `spawn_watcher_with` (owns the
+  `RecommendedWatcher`, the mpsc event channel, and the debounce loop) and
+  `spawn_watcher` (the real auto-sync watcher). `WatcherHandle` stops the thread
+  on drop (drop the `Watcher` → the channel disconnects → the loop exits; no
+  join, so teardown never blocks). The on-fire sync runs synchronously in the
+  watcher thread, so the sync's own writes buffer in the channel and coalesce
+  into at most one no-op follow-up.
+- `trigger.rs` — the shell-facing entry points over the lock, all reusing
+  `command::sync_once`: `run_locked_sync(dir)` (lock → `sync_once`, no-op when
+  unconfigured or the lock is held), `sync_in_background()` (spawn a thread for
+  the `on_start` hook), and `spawn_detached_sync()` (a fully detached
+  `brain sync` child, `process_group(0)` + null stdio, for the `on_exit` hook).
+- `config.rs` gains `debounce_ms` (default 3000) and `debounce() -> Duration`;
+  `command::format_triggers` renders the debounce window in `brain sync status`.
+
+**The `run_tui` lifecycle seam** (`src/tui/event_loop/setup.rs`) is the one wire
+point: after the startup work and before the event loop it kicks
+`trigger::sync_in_background()` (when `on_start`) and holds a
+`watch::spawn_watcher` handle (when `watch_effective()`); after the loop returns
+it calls `trigger::spawn_detached_sync()` (when `on_exit`) and drops the watcher
+handle. All gated, all best-effort: an unconfigured brain gets no watcher thread
+and no syncs. C4 adds no keybinding, palette row, or menu row.
+
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`
 crate under one namespace: `task` (CSV model + load), `view` (sub-views +
@@ -365,7 +402,10 @@ structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 (`build_search`), constructs the `App`, then `open_or_focus_brain(None)` spawns
 the initial `claude` PTY (resume-vs-fresh) and `focus_tasks()` returns focus to
 the tasks main view so `j`/`k` work at once. It runs the startup daily-triage
-check, then the event loop; on return it releases the session lock. The brain
+check, then wires the C4 auto-sync triggers (a background `on_start` sync and,
+when `watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
+loop, and on return fires the detached `on_exit` sync, drops the watcher handle,
+and releases the session lock. The brain
 panel is **closeable** (claude exit → `close_brain` drops the PTY and the main
 view goes full-width); `open_or_focus_brain` (`Ctrl+M`) re-opens it. The
 brain-directory view keeps its own `scope`/`rescope`/`search_refresh` for
@@ -487,6 +527,14 @@ sibling so the two projects share a stack:
   webhook POST endpoints later). Chosen over axum/actix specifically to avoid
   pulling a Tokio async runtime into an otherwise synchronous CLI; the brain
   server is a tiny localhost daemon, so an async stack would be pure overhead.
+- `notify` (8.x) — OS-native filesystem events (FSEvents on macOS, inotify on
+  Linux) for the **C4 auto-sync watcher** (`src/sync/watch.rs`). It is the only
+  correct, cross-platform, OS-native FS-event crate; the alternative is a
+  polling loop we explicitly rejected as wasteful (it would burn CPU walking the
+  tree on a timer, where `notify` blocks on a channel and costs nothing when
+  idle). We use the raw `RecommendedWatcher` and do the debouncing in our own
+  tested `watch::Debouncer`, so we depend on neither `notify-debouncer-full` nor
+  `notify-debouncer-mini` and the decision logic stays pure and ours.
 
 `brain sync` also depends on **`rclone`**, but as an external command it
 shells out to (`src/sync/run.rs`), not a Cargo crate: brain builds the argv
