@@ -224,6 +224,10 @@ nothing, with no watcher thread and no start/exit sync).
 | `b2_path` | `String` | `""` | Optional path prefix within the bucket. |
 | `b2_key_id` | `String` | `""` | B2 application key id. |
 | `b2_app_key` | `String` | `""` | B2 application key (secret; stays machine-local in `env.json`, never synced). |
+| `crypt_password` | `String` | `""` | Optional rclone-obscured crypt password. Empty disables the `rclone crypt` layer. |
+| `crypt_password2` | `String` | `""` | Optional rclone-obscured crypt salt. Used only when `crypt_password` is non-empty. |
+| `crypt_filename_encryption` | `String` | `""` | Optional rclone crypt filename mode override (empty uses rclone's default, `standard`). |
+| `crypt_directory_name_encryption` | `bool` | `true` | Whether rclone crypt encrypts directory names. |
 | `on_start` | `bool` | `true` | Fire a background sync when the shell starts (C4). |
 | `on_exit` | `bool` | `true` | Fire a detached, fire-and-forget sync when the shell exits (C4). |
 | `watch` | `bool` | `true` | Run the debounced filesystem watcher while the shell is open (C4). See `watch_effective` below. |
@@ -240,6 +244,10 @@ Two derived predicates:
 - `SyncConfig::watch_effective()` — `is_configured() && watch`. The watcher is
   on by default whenever sync is configured; `watch: false` is the explicit
   opt-out.
+- `SyncConfig::crypt_enabled()` — `!crypt_password.trim().is_empty()`. When
+  true, `sync::remote::build_remote` returns the env-defined `BRAINCRYPT:`
+  remote layered over the B2 remote instead of the raw `BRAIN:<bucket>/<path>`
+  target.
 
 `SyncConfig::load()` reads the `sync` key out of the brain-env store
 (`env::load_map()`) and deserializes it, falling back to `SyncConfig::default()`

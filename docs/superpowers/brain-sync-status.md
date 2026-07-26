@@ -111,9 +111,10 @@ unless noted. Update this file (check the box, note the commit) as you land each
   brain root on setup). Landed in `edad620` (`Add check-access sync guard`).
   Validation: `cargo test --release` green (664 tests; watcher timing test
   still ignored by design) and `cargo clippy --release --all-targets` clean.
-- [ ] `rclone crypt` (zero-knowledge client-side encryption) — a clean seam was
+- [x] `rclone crypt` (zero-knowledge client-side encryption) — a clean seam was
   left; layering it must not change the `brain sync` surface. Passphrase escrow
-  is the user's responsibility.
+  is the user's responsibility. Implemented on `feat/rclone-crypt`; commit SHA
+  pending.
 - [ ] Native-Rust `mark_done.py` (remove the Python coupling from the
   completion path: mutate the CSV + spawn the next recurrence in Rust).
 - [ ] Inbound webhook endpoints (`src/server/routes/` is structured for one

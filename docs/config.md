@@ -30,7 +30,7 @@ Everything in it is created on demand; a fresh checkout has none.
 | --- | --- | --- |
 | `root` | `~/brain` | Absolute or `~`-relative path to the brain (PARA) directory on **this machine**. Replaces the legacy `~/.config/brain-root` pointer file (still read for back-compat; see below). |
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
-| `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, `on_start`, `on_exit`, `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives `brain sync` (bidirectional sync of the brain root via `rclone bisync`; see [features.md](features.md) and [integrations.md](integrations.md)). As of C4 the `on_start`/`on_exit`/`watch` flags are live automatic triggers (see below); `debounce_ms` (default 3000) sets the watcher's quiescence window. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
+| `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `on_start`, `on_exit`, `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives `brain sync` (bidirectional sync of the brain root via `rclone bisync`; see [features.md](features.md) and [integrations.md](integrations.md)). As of C4 the `on_start`/`on_exit`/`watch` flags are live automatic triggers (see below); `debounce_ms` (default 3000) sets the watcher's quiescence window. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
 
 ### The `brain env` command
 
@@ -50,6 +50,13 @@ verify/create the bucket, establish the baseline), not by hand-editing
 `env.json` or `brain env set`. See [features.md](features.md) for the full
 command surface (`brain sync [--push|--pull] {setup|init|status|conflicts}`)
 and [integrations.md](integrations.md) for the rclone handoff.
+
+Optional `rclone crypt` is enabled by adding an already-obscured
+`crypt_password` to the same machine-local `sync` block; `crypt_password2` is
+an optional obscured salt. Generate those values with `rclone obscure` and
+escrow the original passphrases in a password manager. brain stores only the
+obscured rclone values and cannot recover encrypted remote data if the original
+passphrases are lost.
 
 Like `config`/`env`/`personalize`/`skills`, `brain sync` is dispatched
 **before** the `markdown-to-pdf` prerequisite gate (see below), so it works

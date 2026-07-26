@@ -163,14 +163,29 @@ bucket by shelling out to `rclone bisync`. It's a handoff like
 it drives an existing tool and manages the surrounding safety and
 bookkeeping.
 
-- **Credentials never touch argv or disk.** `src/sync/remote.rs`
+- **Credentials never touch argv or rclone config.** `src/sync/remote.rs`
   (`build_remote`) turns the brain-env `sync` block (`b2_bucket`, `b2_path`,
   `b2_key_id`, `b2_app_key`) into `RCLONE_CONFIG_BRAIN_*` environment
   variables (`_TYPE`/`_ACCOUNT`/`_KEY`) passed to the rclone child process,
   plus a `BRAIN:<bucket>[/<path>]` remote argument that carries no secret.
-  There is no persisted `rclone.conf` anywhere: the remote is reconstructed
-  from brain env on every invocation, and because credentials ride in the
-  child's environment rather than its argv, they never show up in `ps` output.
+  If `sync.crypt_password` is set, the same builder appends a second
+  env-defined remote, `BRAINCRYPT`, with
+  `RCLONE_CONFIG_BRAINCRYPT_TYPE=crypt`,
+  `RCLONE_CONFIG_BRAINCRYPT_REMOTE=<BRAIN arg>`, and the optional crypt
+  password/salt/filename settings from the `sync` block, then returns
+  `BRAINCRYPT:` as the argv target. There is no persisted `rclone.conf`
+  anywhere: remotes are reconstructed from brain env on every invocation, and
+  because credentials ride in the child's environment rather than its argv,
+  they never show up in `ps` output.
+- **`rclone crypt` is optional and password escrow is external.** Crypt is off
+  when `sync.crypt_password` is empty. To enable it, store rclone-obscured
+  values in the machine-local `sync` block (`rclone obscure <passphrase>` for
+  `crypt_password`, and optionally a different obscured salt for
+  `crypt_password2`). `crypt_filename_encryption` can override rclone's default
+  filename mode, and `crypt_directory_name_encryption=false` leaves directory
+  names readable. brain does not generate, remember, recover, or sync the
+  original passphrases; losing them means existing encrypted remote data cannot
+  be decrypted.
 - **The bisync argv is built once** by `src/sync/args.rs`
   (`bisync_args`): direction (`brain sync` / `--push` / `--pull` / `brain
   sync init`) maps to rclone's `--conflict-resolve` (`newer` / `path1` /
@@ -262,9 +277,11 @@ bookkeeping.
   writes the `sync` block into brain env (`crate::env::set_raw`, **not**
   brain config — see [config.md](config.md)), probes the bucket with `rclone
   lsd` and offers to `rclone mkdir` it if unreachable, then runs one
-  `Direction::Resync` sync to establish the baseline. `brain sync init` reruns
-  just that last step (the resync), so it doubles as the fresh-machine
-  bootstrap and the recovery path for the empty-directory guard above.
+  `Direction::Resync` sync to establish the baseline. If the existing `sync`
+  block contains crypt fields, setup preserves them when refreshing bucket
+  credentials. `brain sync init` reruns just that last step (the resync), so it
+  doubles as the fresh-machine bootstrap and the recovery path for the
+  empty-directory guard above.
 - **The journal.** Every run (whichever direction, including `setup`'s
   initial baseline) is classified — `Clean` / `NeedsAttention` / `Aborted` —
   by `src/sync/verify.rs` and recorded by `src/sync/journal.rs` into a SQLite
