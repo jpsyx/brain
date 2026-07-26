@@ -217,6 +217,50 @@ mod tests {
     }
 
     #[test]
+    fn resolve_deletes_copies_for_multiple_originals_in_one_call() {
+        let tmp = std::env::temp_dir().join(format!("brain-resolve-many-{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("idea.md"), b"merged idea").unwrap();
+        fs::write(tmp.join("other.md"), b"merged other").unwrap();
+        fs::write(tmp.join("idea (conflict mac 2026-07-25).md"), b"idea loser").unwrap();
+        fs::write(tmp.join("other (conflict mac 2026-07-25).md"), b"other loser").unwrap();
+
+        resolve(&tmp, &["idea.md".to_owned(), "other.md".to_owned()]).unwrap();
+
+        assert!(tmp.join("idea.md").exists(), "first canonical must survive resolve");
+        assert!(tmp.join("other.md").exists(), "second canonical must survive resolve");
+        assert!(
+            !tmp.join("idea (conflict mac 2026-07-25).md").exists(),
+            "first conflict copy must be deleted"
+        );
+        assert!(
+            !tmp.join("other (conflict mac 2026-07-25).md").exists(),
+            "second conflict copy must be deleted"
+        );
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn resolve_deletes_nested_subdir_conflict_copy() {
+        let tmp = std::env::temp_dir().join(format!("brain-resolve-nested-{}", std::process::id()));
+        let dir = tmp.join("projects");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("idea.md"), b"merged").unwrap();
+        fs::write(dir.join("idea (conflict mac 2026-07-25).md"), b"loser").unwrap();
+
+        resolve(&tmp, &["projects/idea.md".to_owned()]).unwrap();
+
+        assert!(dir.join("idea.md").exists(), "nested canonical must survive resolve");
+        assert!(
+            !dir.join("idea (conflict mac 2026-07-25).md").exists(),
+            "nested conflict copy must be deleted"
+        );
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
     fn resolve_leaves_everything_when_canonical_is_missing() {
         let tmp = std::env::temp_dir().join(format!("brain-resolve-missing-{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
