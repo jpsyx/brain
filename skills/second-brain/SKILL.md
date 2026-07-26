@@ -902,7 +902,8 @@ are out of scope for this flow.
    `resolve` takes any number of originals, so batch every group
    from step 1 into a single invocation rather than calling it once
    per group — it refuses if a listed canonical file is missing, and
-   it does not run any sync itself.
+   it does not run any sync itself. Shell-quote any original whose
+   path contains spaces (e.g. `brain sync resolve "my notes.md"`).
 4. **Propagate the resolved state** with a single final sync:
    ```
    brain sync

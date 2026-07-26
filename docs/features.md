@@ -241,6 +241,11 @@ nothing.
   named original doesn't exist — merge into it first. Bare `brain sync
   resolve` (no arguments) drops into an interactive picker over the currently
   open conflict groups. Deletion only: it never runs a sync itself.
+  - *Caveat:* a conflict copy is recognized purely by its
+    `name (conflict <host> <YYYY-MM-DD>).ext` shape, so a genuine file you
+    happened to name exactly that way is indistinguishable from a real
+    conflict copy — `conflicts`/`resolve` would treat it as one. Don't hand-name
+    files in that pattern.
 
 Like `config`/`env`/`personalize`/`skills`, `sync` is dispatched **before**
 the `markdown-to-pdf` prerequisite gate, so it always works even when that
