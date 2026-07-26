@@ -398,6 +398,33 @@ mod tests {
     }
 
     #[test]
+    fn conflicts_json_missing_fs_metadata_serializes_as_null() {
+        let tmp = std::env::temp_dir().join(format!("brain-conflict-meta-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let groups = vec![ConflictGroup {
+            original: PathBuf::from("notes.md"),
+            copies: vec![ParsedCopy {
+                path: PathBuf::from("notes (conflict mac 2026-07-25).md"),
+                host: "mac".to_owned(),
+                date: "2026-07-25".to_owned(),
+            }],
+        }];
+
+        let v = conflicts_json(
+            &groups,
+            |rel| copy_meta_from_fs(&tmp, rel),
+            |rel| tmp.join(rel).exists(),
+        );
+
+        let copy = &v[0]["copies"][0];
+        assert!(copy["modified"].is_null(), "{v}");
+        assert!(copy["bytes"].is_null(), "{v}");
+        assert_eq!(v[0]["original_exists"], false);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
     fn conflict_display_paths_drop_loose_non_parseable_matches() {
         let files = vec![
             crate::sync::conflicts::ConflictFile {
