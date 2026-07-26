@@ -319,10 +319,15 @@ builds the same `Direction::Both` argv via `args::bisync_args` but appends
 counterpart to `run::run_rclone` — no live terminal output, just `(exit_ok,
 combined_output)`), then classifies the captured detection-phase lines with
 `progress::classify_change`/`Side` (the same parser `progress.rs` already
-exposed for a future live file-list) and hands the push/pull path lists to the
-pure `check::format_report` for the themed summary. No journal entry, no
-conflict post-pass, no baseline mutation — it never calls `rclone bisync`
-without `--dry-run`.
+exposed for a future live file-list). It then runs the CSV lane's read-only
+counterpart: `check::collect_csv_pending_with_fetch` reads the cached
+`csv_sync::baseline_path` text and the local task/habit CSVs, fetches each
+remote CSV through `csv_sync::remote_csv_arg` + rclone `copyto`, and compares
+both sides to the baseline with `csv_merge::parse`-backed row diffs. The pure
+`check::format_report` receives both the file path lists and the CSV row
+counts for the themed summary. No journal entry, no conflict post-pass, no
+baseline mutation: it never calls `rclone bisync` without `--dry-run`, and
+its CSV pass never writes local files, remotes, or baselines.
 
 **The C4 auto-sync trigger layer** (`lock.rs`/`watch.rs`/`trigger.rs`, wired
 into the shell lifecycle) makes sync automatic while keeping the pure/impure
