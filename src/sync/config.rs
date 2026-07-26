@@ -94,7 +94,7 @@ mod tests {
     fn debounce_defaults_to_3s_and_maps_to_duration() {
         let c = parse("{}");
         assert_eq!(c.debounce_ms, 3000);
-        assert_eq!(c.debounce(), std::time::Duration::from_millis(3000));
+        assert_eq!(c.debounce(), std::time::Duration::from_secs(3));
         let c2 = parse(r#"{"debounce_ms": 500}"#);
         assert_eq!(c2.debounce(), std::time::Duration::from_millis(500));
     }

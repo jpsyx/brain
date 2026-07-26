@@ -1,6 +1,14 @@
-//! Shell-facing sync triggers. All reuse `command::sync_once` under the sync
-//! lock and are best-effort: a held lock, an unconfigured brain, or a spawn
-//! failure is swallowed — a trigger never crashes or blocks the shell.
+//! Shell-facing sync triggers over the sync lock.
+//!
+//! All reuse `command::sync_once` and are best-effort: a held lock, an
+//! unconfigured brain, or a spawn failure is swallowed, so a trigger never
+//! crashes or blocks the shell.
+
+// `run_locked_sync` is called by `watch::spawn_watcher`; all three are wired
+// into the shell by the TUI lifecycle seam (on_start / watcher / on_exit) in a
+// later slice. Until that lands the binary has no caller, so scope a `dead_code`
+// allow here. Remove when the TUI seam lands.
+#![allow(dead_code)]
 
 use std::process::{Command, Stdio};
 
@@ -8,9 +16,10 @@ use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
 use crate::sync::{command, lock};
 
-/// Run one sync now, under the lock, synchronously. No-op (returns immediately)
-/// when sync is unconfigured or another sync holds the lock. Used by the watcher
-/// (in its own thread) and by `sync_in_background`.
+/// Run one sync now, under the lock, synchronously.
+///
+/// No-op (returns immediately) when sync is unconfigured or another sync holds
+/// the lock. Used by the watcher (in its own thread) and by `sync_in_background`.
 pub fn run_locked_sync(dir: Direction) {
     let cfg = SyncConfig::load();
     if !cfg.is_configured() {
@@ -29,15 +38,18 @@ pub fn run_locked_sync(dir: Direction) {
     // _guard drops here, releasing the lock.
 }
 
-/// Kick one background sync on a detached thread and return at once — used by the
-/// `on_start` hook so shell startup never blocks on the network.
+/// Kick one background sync on a detached thread and return at once.
+///
+/// Used by the `on_start` hook so shell startup never blocks on the network.
 pub fn sync_in_background() {
     std::thread::spawn(|| run_locked_sync(Direction::Both));
 }
 
 /// Spawn `brain sync` as a fully detached child (own process group, null stdio)
-/// so it outlives the shell — used by the `on_exit` hook. The child acquires the
-/// lock itself; if a sync is already running it skips (that run covers the exit).
+/// so it outlives the shell.
+///
+/// Used by the `on_exit` hook. The child acquires the lock itself; if a sync is
+/// already running it skips (that run covers the exit).
 pub fn spawn_detached_sync() {
     use std::os::unix::process::CommandExt as _;
     if let Ok(exe) = std::env::current_exe() {

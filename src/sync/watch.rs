@@ -1,18 +1,24 @@
-//! The filesystem watcher: a **pure** debounce state machine + a path-relevance
-//! predicate.
+//! The filesystem watcher.
 //!
-//! A later slice adds the thin `notify` shell that feeds them. The watcher runs
-//! in-process for the shell's lifetime; when it fires, one locked sync runs
-//! synchronously in the watcher thread, so the sync's own writes buffer in the
-//! event channel and coalesce into at most one no-op follow-up (no loop).
+//! A **pure** debounce state machine + a path-relevance predicate, plus the thin
+//! `notify` shell that feeds them. The watcher runs in-process for the shell's
+//! lifetime; when it fires, one locked sync runs synchronously in the watcher
+//! thread, so the sync's own writes buffer in the event channel and coalesce
+//! into at most one no-op follow-up (no loop).
 
-// The `notify` shell that consumes these lands in the next slice; until then the
-// binary crate has no caller for them, so scope a `dead_code` allow here. Remove
-// when `spawn_watcher` wires them up.
+// The pure core is consumed by the lib (and its integration test) through
+// `spawn_watcher_with`, but the *binary* only reaches these once the TUI
+// lifecycle seam wires `spawn_watcher` in a later slice. Until then the bin has
+// no caller, so scope a `dead_code` allow. Remove when the TUI seam lands.
 #![allow(dead_code)]
 
 use std::path::{Component, Path};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
+
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+
+use crate::sync::config::SyncConfig;
 
 /// Coalesces a stream of filesystem events into "fire once things go quiet"
 /// decisions. Pure: `now` is injected, so it tests without sleeps or a clock.
@@ -72,6 +78,80 @@ pub fn is_watch_relevant(path: &Path) -> bool {
         }
     }
     true
+}
+
+/// Stops the watcher thread when dropped.
+///
+/// Dropping the inner `Watcher` closes the event channel, so the loop observes
+/// `Disconnected` and exits. We do **not** join the thread: shell teardown must
+/// never block on an in-flight sync (spec §10); a detached final pass is harmless
+/// (the lock coalesces it).
+pub struct WatcherHandle {
+    _watcher: RecommendedWatcher,
+}
+
+/// Start watching `root` recursively; call `on_fire` once each time changes
+/// settle for `window`.
+///
+/// The one relevant IO/thread shell over the pure `Debouncer` +
+/// `is_watch_relevant`; `on_fire` runs synchronously in the loop, so events
+/// during it buffer in the channel and coalesce (spec §6).
+pub fn spawn_watcher_with<F>(
+    root: &Path,
+    window: Duration,
+    on_fire: F,
+) -> anyhow::Result<WatcherHandle>
+where
+    F: Fn() + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
+    let mut watcher = notify::recommended_watcher(move |res| {
+        let _ = tx.send(res);
+    })?;
+    watcher.watch(root, RecursiveMode::Recursive)?;
+
+    std::thread::spawn(move || {
+        let mut deb = Debouncer::new(window);
+        loop {
+            let now = Instant::now();
+            // Block indefinitely when disarmed; else only until the fire is due.
+            let recv = match deb.time_until_fire(now) {
+                None => rx.recv().map_err(|_| ()),
+                Some(d) => match rx.recv_timeout(d) {
+                    Ok(ev) => Ok(ev),
+                    Err(mpsc::RecvTimeoutError::Timeout) => Err(()), // maybe fire
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break, // handle dropped
+                },
+            };
+            match recv {
+                Ok(Ok(event)) => {
+                    if event.paths.iter().any(|p| is_watch_relevant(p)) {
+                        deb.on_event(Instant::now());
+                    }
+                }
+                Ok(Err(_)) => {} // a notify error event; ignore
+                Err(()) => {
+                    // Either the channel closed (recv error) or a timeout elapsed.
+                    if deb.poll(Instant::now()) {
+                        on_fire();
+                    } else {
+                        // recv() returned Disconnected (handle dropped) → stop.
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    Ok(WatcherHandle { _watcher: watcher })
+}
+
+/// Start the real auto-sync watcher: fires a locked bidirectional sync when
+/// changes under `root` settle for the configured debounce window.
+pub fn spawn_watcher(root: &Path, cfg: &SyncConfig) -> anyhow::Result<WatcherHandle> {
+    spawn_watcher_with(root, cfg.debounce(), || {
+        crate::sync::trigger::run_locked_sync(crate::sync::args::Direction::Both);
+    })
 }
 
 #[cfg(test)]
