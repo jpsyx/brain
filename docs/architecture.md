@@ -379,10 +379,11 @@ where it can be:
   (folds flat `list_conflicts` output into `ConflictGroup`/`ParsedCopy`,
   sorted for deterministic output), and `copies_for_original` (the copies
   belonging to one canonical original, used by `resolve`).
-- `command/mod.rs` gains `conflicts_json`, a pure builder (fs metadata and
-  existence checks injected as closures) that renders `&[ConflictGroup]` into
-  the `serde_json::Value` array `brain sync conflicts --json` prints — see
-  [data-model.md](data-model.md) for the exact shape.
+- `command/mod.rs` gains `conflict_display_paths`, which renders the human
+  line-list from the same strict groups, and `conflicts_json`, a pure builder
+  (fs metadata and existence checks injected as closures) that renders
+  `&[ConflictGroup]` into the `serde_json::Value` array `brain sync conflicts
+  --json` prints — see [data-model.md](data-model.md) for the exact shape.
 - `command/resolve.rs` backs `brain sync resolve <original> [...]`: the pure
   `resolve_decision` classifies each original as `Delete(copies)` /
   `CanonicalMissing` / `NoCopies`, and the thin shell around it deletes the

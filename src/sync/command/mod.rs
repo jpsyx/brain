@@ -295,9 +295,21 @@ fn copy_meta_from_fs(root: &Path, rel: &Path) -> CopyMeta {
     CopyMeta { modified, bytes: Some(m.len()) }
 }
 
+/// Human-list paths for `brain sync conflicts`.
+///
+/// Built from the same strict grouping parser as `--json` so both surfaces
+/// agree on what is a real friendly conflict copy.
+#[must_use]
+pub fn conflict_display_paths(files: &[conflicts::ConflictFile]) -> Vec<std::path::PathBuf> {
+    conflicts::group_conflicts(files)
+        .into_iter()
+        .flat_map(|group| group.copies.into_iter().map(|copy| copy.path))
+        .collect()
+}
+
 /// Print `brain sync conflicts`. `json == true` emits the structured
-/// `conflicts_json` shape to stdout; otherwise this is byte-for-byte the
-/// original themed human list.
+/// `conflicts_json` shape to stdout; otherwise this is the themed human list
+/// rendered through the same strict grouping path.
 pub fn print_conflicts(root: &Path, json: bool) -> Result<()> {
     let theme = Theme::active();
     let conflicts = conflicts::list_conflicts(root);
@@ -307,11 +319,14 @@ pub fn print_conflicts(root: &Path, json: bool) -> Result<()> {
         let exists = |rel: &Path| root.join(rel).exists();
         let value = conflicts_json(&groups, meta, exists);
         println!("{}", serde_json::to_string_pretty(&value)?);
-    } else if conflicts.is_empty() {
-        println!("{}", theme.muted("no open conflict copies."));
     } else {
-        for c in conflicts {
-            println!("{}", theme.value(&c.path.display().to_string()));
+        let display_paths = conflict_display_paths(&conflicts);
+        if display_paths.is_empty() {
+            println!("{}", theme.muted("no open conflict copies."));
+        } else {
+            for path in display_paths {
+                println!("{}", theme.value(&path.display().to_string()));
+            }
         }
     }
     Ok(())
@@ -380,6 +395,23 @@ mod tests {
         assert!(copy["modified"].is_null(), "{v}");
         assert!(copy["bytes"].is_null(), "{v}");
         assert_eq!(v[0]["original_exists"], false);
+    }
+
+    #[test]
+    fn conflict_display_paths_drop_loose_non_parseable_matches() {
+        let files = vec![
+            crate::sync::conflicts::ConflictFile {
+                path: PathBuf::from("idea (conflict mac 2026-07-25).md"),
+            },
+            crate::sync::conflicts::ConflictFile {
+                path: PathBuf::from("not actually (conflict text).md"),
+            },
+        ];
+
+        assert_eq!(
+            conflict_display_paths(&files),
+            vec![PathBuf::from("idea (conflict mac 2026-07-25).md")]
+        );
     }
 
     #[test]

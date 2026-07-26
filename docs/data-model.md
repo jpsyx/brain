@@ -355,6 +355,10 @@ copies are sorted for deterministic output. `copies_for_original(original,
 files)` returns just one original's copy paths (never the original itself) —
 the lookup `brain sync resolve` uses to know what to delete.
 
+The plain `brain sync conflicts` line-list is derived from those same
+`ConflictGroup` values, not directly from the looser filesystem scan, so it
+matches `--json` on what counts as an open conflict copy.
+
 `command::conflicts_json` (`src/sync/command/mod.rs`) renders `&[ConflictGroup]`
 into the JSON `brain sync conflicts --json` prints — a `serde_json::Value`
 array, one object per group:

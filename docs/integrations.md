@@ -282,11 +282,12 @@ bookkeeping.
   so the run is still reported `NeedsAttention` (journalled `conflicts=N`) — a
   real conflict is never masked as clean. `brain sync conflicts` lists what's
   still open; resolving a group is the agent-driven flow described next.
-- **The conflict-resolution contract for agents (C5).** `brain sync conflicts
-  --json` is the structured enumerator the `/second-brain resolve-conflicts`
-  skill (and any other agent) consumes: it re-derives `ConflictGroup`/
-  `ParsedCopy` from the on-disk friendly names via `conflicts::parse_conflict_name`
-  + `conflicts::group_conflicts`, then `command::conflicts_json` renders each
+- **The conflict-resolution contract for agents (C5).** `brain sync conflicts`
+  re-derives `ConflictGroup`/`ParsedCopy` from the on-disk friendly names via
+  `conflicts::parse_conflict_name` + `conflicts::group_conflicts`, so the
+  themed human list and `--json` agree on which files are real conflict copies.
+  `--json` is the structured enumerator the `/second-brain resolve-conflicts`
+  skill (and any other agent) consumes: `command::conflicts_json` renders each
   group as `{ "original", "original_exists", "copies": [{ "path", "host",
   "date", "modified", "bytes" }] }` (paths relative to the brain root;
   `modified`/`bytes` are `null` when the file's metadata can't be read).
