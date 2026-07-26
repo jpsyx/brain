@@ -629,5 +629,11 @@ switch is instant and the brain panel stays open beside it. See
 ## Help and version
 
 `brain --help` / `brain -h` print the clap-generated usage (with the
-long-form command descriptions and the TUI key summary). `brain --version`
-prints the crate version. Both are printed by clap straight to stdout.
+long-form command descriptions and the TUI key summary). `brain --version`,
+`brain -v`, and `brain version` all print the same crate version line:
+`brain <semver>`. Version output exits before the startup prerequisite gate.
+
+The crate version in `Cargo.toml` is the single source of truth. Every committed
+change bumps it according to SemVer: before v1, additive user-visible features
+bump the minor version and compatible fixes/internal changes bump the patch
+version. The user will explicitly decide when `brain` is ready for `1.0.0`.

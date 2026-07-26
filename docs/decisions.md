@@ -1159,3 +1159,13 @@ old Python `habits/server.py`, with three deliberate choices:
   small, purpose-built `Habit` deserialized straight from the CSV, and confines
   all filter/sort decisions to the pure `classify` (unit-tested against
   hand-built rows).
+
+## Versioning
+
+`brain` uses the Cargo crate version as the single version source. The CLI
+prints that value through `brain --version`, `brain -v`, and `brain version`.
+Every committed code change should include the appropriate SemVer bump in
+`Cargo.toml` and `Cargo.lock`: before v1, additive user-visible features bump
+the minor version, while compatible fixes and internal changes bump the patch
+version. The project stays in the `0.y.z` line until the user explicitly says it
+is ready for `1.0.0`.

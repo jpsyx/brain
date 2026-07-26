@@ -158,9 +158,10 @@ users in `skills/`.)
 - **No `unsafe`.** `[lints.rust] unsafe_code = "forbid"` enforces it.
 - **Keep clippy clean.** `pedantic` + `nursery` are on at `warn`; don't
   add new warnings.
-- **The binary's stdout is only `brain config` output (plus clap
-  help/errors).** Never `println!` diagnostics from other paths. Diagnostics
-  go to stderr; the TUI goes to `/dev/tty`.
+- **The binary's stdout is only intentional machine-readable/plain CLI output
+  (`brain config`/`env`/`version`, plus clap help/errors).** Never `println!`
+  diagnostics from other paths. Diagnostics go to stderr; the TUI goes to
+  `/dev/tty`.
 - **Don't add dependencies casually.** The set is small on purpose. If you
   need one, justify it in `docs/architecture.md`.
 - **Follow the pure/impure split.** New decision logic goes in a pure
@@ -223,3 +224,8 @@ users in `skills/`.)
 - **`docs/` is the durable record.** The repo is under git, but we keep no
   `.difit/` decision-log file: design rationale goes in `docs/decisions.md`,
   not a per-branch scratch file.
+- **Bump the crate version for every committed change.** `Cargo.toml` is the
+  single version source and `Cargo.lock` must move with it. Choose the SemVer
+  bump yourself: before v1, additive user-visible features bump the minor
+  version, and compatible fixes/internal changes bump the patch version. Do not
+  ask for confirmation; the user will say when `brain` is ready for `1.0.0`.

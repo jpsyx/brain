@@ -18,7 +18,7 @@
 //!   - `open_target` — pure "how to open this path" decisions
 //!
 //! The TUI renders to `/dev/tty`; the binary's stdout carries only the small
-//! amount of text emitted by `brain config` (and clap's help/errors).
+//! amount of text emitted by config/env/version surfaces (and clap's help/errors).
 
 mod cli;
 mod config;
@@ -59,6 +59,11 @@ use crate::tasks::view::View;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.print_version || matches!(&cli.command, Some(Cmd::Version)) {
+        print!("{}", crate::cli::version_line());
+        return Ok(());
+    }
 
     // Load the user's tag styles once for this process so the task renderer can
     // resolve tag labels without threading state through every signature. Cheap,
@@ -142,6 +147,7 @@ fn main() -> Result<()> {
             );
             tasks_launch(TasksCli::parse_from(rewritten))
         }
+        Some(Cmd::Version) => unreachable!("version is dispatched before the gate"),
         // Handled before the prerequisite gate above.
         Some(Cmd::Config(_)) => unreachable!("config is dispatched before the gate"),
         Some(Cmd::Env(_)) => unreachable!("env is dispatched before the gate"),

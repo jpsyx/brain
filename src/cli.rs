@@ -9,7 +9,8 @@ use clap::{Args, Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "brain",
-    version,
+    version = env!("CARGO_PKG_VERSION"),
+    disable_version_flag = true,
     about = "Brain CLI: central terminal dispatch for ~/brain and the task system.",
     long_about = "Brain CLI: the central terminal dispatch for the user's second\n\
                   brain and task system. Bare `brain` opens a persistent shell\n\
@@ -34,8 +35,17 @@ use clap::{Args, Parser, Subcommand};
                   command palette, and Alt-? shows help."
 )]
 pub struct Cli {
+    /// Print the brain version.
+    #[arg(short = 'v', long = "version", action = clap::ArgAction::SetTrue)]
+    pub print_version: bool,
+
     #[command(subcommand)]
     pub command: Option<Cmd>,
+}
+
+#[must_use]
+pub fn version_line() -> String {
+    format!("brain {}\n", env!("CARGO_PKG_VERSION"))
 }
 
 #[derive(Subcommand, Debug)]
@@ -48,6 +58,9 @@ pub enum Cmd {
     /// `brain tasks search lamaze` all work. Bare `brain` is equivalent to
     /// `brain tasks` (the tasks view is the startup default).
     Tasks(TasksArgs),
+
+    /// Print the brain version.
+    Version,
 
     /// Read or change brain's portable config (`<brain-root>/.config/config.json`,
     /// synced with the brain). Machine-local settings live in `brain env` instead.

@@ -55,6 +55,7 @@ binary, and [integrations.md](integrations.md) for the launch/handoff detail.
 ```
 argv
  └─→ Cli::parse                          (cli.rs)
+      ├─→ -v / --version / Cmd::Version ─→ print crate version and exit before any gates
       ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
       ├─→ Cmd::Env ─→ env_command         (list/get/set over env.json; also BEFORE the gate)
       ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/init/status/conflicts; also BEFORE the gate)
