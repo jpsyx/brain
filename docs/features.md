@@ -402,9 +402,10 @@ add, complete, delete, or edit different fields on the same task converge
 cleanly, so neither file ever produces a `(conflict …)` copy. A side that
 marks a task `status=done` always wins that row's status and completed date;
 a same-field disagreement otherwise resolves by whichever side's
-`last_touched` is more recent (`tasks.csv` only — `habits.csv` has no
-`last_touched`, so it falls back to a deterministic tiebreak, journalled as a
-soft conflict). See [data-model.md](data-model.md) for the merge rules and
+`last_touched` is more recent. Both `tasks.csv` and `habits.csv` carry that
+column; legacy rows without a parseable timestamp fall back to a deterministic
+tiebreak, journalled as a soft conflict. See [data-model.md](data-model.md)
+for the merge rules and
 [integrations.md](integrations.md) for the transport.
 
 **Doctor.** `brain tasks doctor` reports rclone/sync health as one

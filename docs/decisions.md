@@ -685,23 +685,19 @@ produce a conflict copy at all — see the design spec
 (`docs/superpowers/specs/2026-07-25-brain-sync-c3-csv-merge.md`) for the full
 write-up.
 
-**Why the merge reuses `tasks.csv`'s existing `last_touched` column instead
-of adding a new one.** Same-field last-writer-wins needs a per-row modified
-timestamp, and `tasks.csv` already has `last_touched` (maintained by the
-writers that touch the file — `mark_done.py`, add/edit scripts — for other
-purposes). Reusing it means tasks needed **no schema change** to gain the
-merge; a new column would have meant migrating every existing row and every
-writer, for a value the file already carries.
+**Why the merge uses each row's `last_touched` column.** Same-field
+last-writer-wins needs a per-row modified timestamp, and `tasks.csv` already
+had `last_touched` for chronic-ignore detection. C3.3 extended that same
+column to `habits.csv` and audited the bundled writers so every task/habit
+row mutation stamps the changed row before writing. That gives both CSVs the
+same recency semantics without adding a sync-only metadata file.
 
-**Why `habits.csv` falls back to a lexicographic tiebreak instead of getting
-the same column.** `habits.csv` has no `last_touched`, and same-field
-collisions there are rare — mostly `status`, which completion-wins already
-resolves outright before the per-column merge even runs. Rather than add a
-column for that residual case, the merge picks the lexicographically-greater
-cell value deterministically and journals it as a soft conflict: it still
-converges, just without recency semantics. Adding `last_touched` to
-`habits.csv` for full parity with tasks is a noted, deliberately-deferred
-follow-up, not a C3 requirement.
+**Why the lexicographic tiebreak still exists.** A first sync may encounter a
+legacy or hand-authored CSV without a usable `last_touched` value. Rather
+than abort or let side ordering decide the winner, the merge picks the
+lexicographically-greater cell value deterministically and journals it as a
+soft conflict. That fallback is for damaged or pre-C3.3 rows; normal task and
+habit rows resolve by timestamp.
 
 **Why convergence and idempotency are load-bearing properties, not nice-to-
 haves.** Two machines must reach the *same* merged file regardless of which

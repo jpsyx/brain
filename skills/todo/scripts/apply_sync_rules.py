@@ -14,7 +14,7 @@ Rules enforced (see ../references/sync-rules.md for the canonical doc):
    are reported. See ../references/task-project-link.md.
 7. No-sub-tasks check: notes containing '- [ ]' Markdown-style checkboxes
    are flagged with a hint to /todo turn-into-project.
-8. last_touched (tasks.csv only): if column is missing it is added;
+8. last_touched: if column is missing it is added;
    empty values are backfilled from created_date (fallback: today).
 
 Usage:
@@ -53,6 +53,10 @@ def write_csv(path: Path, columns, rows):
             w.writerow({c: r.get(c, "") for c in columns})
 
 
+def touch_row(row: dict, today: str) -> None:
+    row["last_touched"] = today
+
+
 def load_json(path: Path):
     with open(path) as f:
         return json.load(f)
@@ -87,15 +91,15 @@ def main() -> int:
         cols, rows = read_csv(path)
         changed = False
 
-        # rule 8: last_touched column (tasks.csv only)
-        if path == TASKS and "last_touched" not in cols:
+        # rule 8: last_touched column
+        if "last_touched" not in cols:
             if args.fix:
                 cols = cols + ["last_touched"]
-                fixes_applied.append("tasks.csv: added last_touched column")
+                fixes_applied.append(f"{path.name}: added last_touched column")
                 changed = True
             else:
                 issues.append(
-                    f"tasks.csv: missing last_touched column "
+                    f"{path.name}: missing last_touched column "
                     f"(--fix will add it and backfill {len(rows)} row(s) from created_date)"
                 )
 
@@ -104,6 +108,7 @@ def main() -> int:
             if r.get("status") == "done" and not (r.get("completed_date") or "").strip():
                 if args.fix:
                     r["completed_date"] = today
+                    touch_row(r, today)
                     fixes_applied.append(f"{path.name}: set completed_date on '{r.get('task_id')} {r.get('task_name')}'")
                     changed = True
                 else:
@@ -114,6 +119,7 @@ def main() -> int:
                 if not v:
                     if args.fix:
                         r["defer_count"] = "0"
+                        touch_row(r, today)
                         changed = True
                     else:
                         issues.append(f"{path.name}: '{r.get('task_id')} {r.get('task_name')}' has empty defer_count")
@@ -127,17 +133,17 @@ def main() -> int:
                     f"— consider /todo turn-into-project"
                 )
 
-        # rule 8 (cont.): backfill empty last_touched on tasks.csv
-        if path == TASKS and "last_touched" in cols:
+        # rule 8 (cont.): backfill empty last_touched
+        if "last_touched" in cols:
             missing_lt = [r for r in rows if (r.get("last_touched") or "").strip() == ""]
             if missing_lt:
                 if args.fix:
                     for r in missing_lt:
                         r["last_touched"] = (r.get("created_date") or "").strip() or today
-                    fixes_applied.append(f"tasks.csv: backfilled last_touched on {len(missing_lt)} row(s) (from created_date)")
+                    fixes_applied.append(f"{path.name}: backfilled last_touched on {len(missing_lt)} row(s) (from created_date)")
                     changed = True
                 else:
-                    issues.append(f"tasks.csv: {len(missing_lt)} row(s) have empty last_touched (run with --fix to backfill from created_date)")
+                    issues.append(f"{path.name}: {len(missing_lt)} row(s) have empty last_touched (run with --fix to backfill from created_date)")
 
         if args.fix and changed:
             write_csv(path, cols, rows)

@@ -315,6 +315,8 @@ bookkeeping.
   copyto`, then overwrites the baseline with the same merged text. A missing
   baseline (first run on a machine) means every row reads as newly added, so
   the first CSV sync is a safe union of both sides rather than a guess. The
+  bundled task/habit writers stamp `last_touched` on every row mutation, so
+  same-field CSV conflicts normally resolve by row recency on both tables. The
   merge outcome (added/merged/deleted/soft-conflict counts) is folded into the
   sync journal's `note` column as a `csv: +A ~M -D` segment (see
   [data-model.md](data-model.md)); a CSV-merge failure never changes the

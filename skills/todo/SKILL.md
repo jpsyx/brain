@@ -113,9 +113,11 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
 1. **Never edit CSVs by hand.** Use [scripts/](scripts/) — they keep
    `defer_count`, `completed_date`, `last_touched`, habit-spawn, and
    link consistency correct. `last_touched` is auto-bumped by every
-   mutator (`add_task.py`, `defer_task.py`, `mark_done.py`,
-   `touch_task.py`) so chronic-ignore detection has a real signal to
-   work with; if you ever read-modify-write a row outside those
+   mutator (`add_task.py`, `defer_task.py`, `defer_habit.py`,
+   `skip_habit.py`, `mark_done.py`, `touch_task.py`,
+   `backlog_task.py`, `set_linear_issue.py`) so chronic-ignore
+   detection and CSV sync have real recency signals to work with; if
+   you ever read-modify-write a row outside those
    scripts, call `_csvlib.touch_row(row)` before writing.
 2. **Defaults stay empty.** `energy_level` and `context` default
    empty. Fill them in only when obvious from the task itself, OR

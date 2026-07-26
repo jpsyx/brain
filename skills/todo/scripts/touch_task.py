@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""Bump a task's last_touched to today without changing anything else.
+"""Bump a task or habit's last_touched to today without changing anything else.
 
 Used by /triage's chronic-ignore "revive" action: the user explicitly
 acknowledges a stale task so it won't be flagged again until it goes
 quiet for another 21+ days. No status, priority, due_date, or defer_count
 change — just the touch.
-
-Habits.csv rows have no last_touched column; this script errors out on
-those instead of silently no-opping.
 
 Usage:
     touch_task.py <task_id_or_fuzzy>
@@ -43,8 +40,8 @@ def main() -> int:
     path, cols, rows, idx, row = locate(args.needle)
     if "last_touched" not in cols:
         print(
-            f"{path.name} has no last_touched column (habits have inherent recurrence; "
-            f"task '{row.get('task_id')}' isn't a tasks.csv row).",
+            f"{path.name} has no last_touched column; run apply_sync_rules.py --fix "
+            f"before touching '{row.get('task_id')}'.",
             file=sys.stderr,
         )
         return 2

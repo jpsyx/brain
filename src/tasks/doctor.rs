@@ -131,10 +131,7 @@ pub fn print_report(diag: &Diagnosis) -> i32 {
     println!("tasks doctor");
     println!("  {} state DB: {}", ok(diag.db_present), diag.db_path.display());
     if diag.db_present {
-        println!(
-            "  {} state DB schema",
-            ok(diag.db_schema_ok),
-        );
+        println!("  {} state DB schema", ok(diag.db_schema_ok));
     } else {
         println!("    (will be created on first tasks-shell run)");
     }

@@ -41,9 +41,9 @@ pub struct TaskRow {
 }
 
 /// One row of `habits.csv`. Mostly overlaps tasks but has its own recurrence
-/// fields (`recur_interval`, `recur_unit`) and no `task_type` / `blocked_by`
-/// / `last_touched`. We map both into the shared `Task` struct so the
-/// rendering pipeline doesn't need a separate path.
+/// fields (`recur_interval`, `recur_unit`) and no `task_type` / `blocked_by`.
+/// We map both into the shared `Task` struct so the rendering pipeline doesn't
+/// need a separate path.
 #[derive(Debug, Deserialize)]
 pub struct HabitRow {
     pub task_id: String,
@@ -73,6 +73,8 @@ pub struct HabitRow {
     #[allow(dead_code)]
     pub created_date: String,
     pub completed_date: String,
+    #[serde(default)]
+    pub last_touched: String,
 }
 
 impl Task {
@@ -116,7 +118,7 @@ impl Task {
             context: row.context,
             estimated_duration: row.estimated_duration.parse().ok(),
             defer_count: 0,
-            last_touched: None,
+            last_touched: parse_date_field(&row.last_touched),
             see_also: row.see_also,
             blocked_by: Vec::new(),
             completed_date: parse_date_field(&row.completed_date),
@@ -173,7 +175,7 @@ pub fn load_habits(path: &Path) -> Result<Vec<Task>> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_date_field;
+    use super::{load_habits, parse_date_field};
     use chrono::NaiveDate;
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
@@ -205,5 +207,21 @@ mod tests {
     fn parse_date_malformed_returns_none() {
         assert!(parse_date_field("not-a-date").is_none());
         assert!(parse_date_field("2026/06/23").is_none());
+    }
+
+    #[test]
+    fn load_habits_reads_last_touched_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("habits.csv");
+        std::fs::write(
+            &path,
+            "task_id,task_name,status,priority,due_date,hard_deadline,assignee,see_also,notes,project,energy_level,context,estimated_duration,ideal_time,recur_interval,recur_unit,created_date,completed_date,last_touched\n\
+H1,Stretch,not_started,p2,2026-07-27,false,me,,,,,,,,1,days,2026-07-01,,2026-07-26\n",
+        )
+        .unwrap();
+
+        let habits = load_habits(&path).unwrap();
+
+        assert_eq!(habits[0].last_touched, Some(d(2026, 7, 26)));
     }
 }
