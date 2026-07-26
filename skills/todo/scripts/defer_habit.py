@@ -19,7 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _csvlib import locate, write_csv
+from _csvlib import locate, touch_row, write_csv
 from next_habit_occurrence import next_due
 
 _UPDATE_AGENDA = Path(__file__).resolve().parent / "update_agenda_on_mutation.py"
@@ -67,6 +67,7 @@ def main() -> int:
         new_due = next_due(new_due, interval, unit)
 
     rows[idx]["due_date"] = new_due
+    touch_row(rows[idx])
     write_csv(path, cols, rows)
 
     new = rows[idx]

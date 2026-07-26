@@ -52,8 +52,7 @@ def shift_due(due_str: str, delta_days: int) -> str:
 
 
 def touch_row(row: dict) -> None:
-    """Set last_touched to today on this row. Safe to call on habit rows too —
-    write_csv filters keys not in the file's columns, so the no-op is silent."""
+    """Set last_touched to today on this row."""
     row["last_touched"] = today_iso()
 
 
@@ -146,6 +145,8 @@ def read_csv(path: Path):
 
 
 def write_csv(path: Path, columns, rows):
+    if any((r.get("last_touched") or "").strip() for r in rows) and "last_touched" not in columns:
+        columns = list(columns) + ["last_touched"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
         w.writeheader()

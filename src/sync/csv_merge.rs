@@ -125,8 +125,8 @@ fn resolve_conflict(
     let (oi, ti) = (&o[i], &t[i]);
     cols.last_touched.map_or_else(
         || {
-            // No `last_touched` (e.g. habits): the lexicographically-greater
-            // value wins deterministically, and we flag the collision.
+            // No usable `last_touched`: the lexicographically-greater value
+            // wins deterministically, and we flag the collision.
             let col = header.get(i).map_or("", String::as_str);
             notes.push(format!("task_id {id}: conflicting {col} values; kept the greater"));
             if oi >= ti { oi.clone() } else { ti.clone() }
@@ -408,12 +408,12 @@ mod tests {
         assert!(m.rows.contains_key("2"));
     }
 
-    // Habits: no `last_touched` column, so same-field conflicts fall back to
-    // lexicographically-greater with a soft note.
+    // Legacy/no-column tables fall back to lexicographically-greater with a
+    // soft note.
     const HAB: &[&str] = &["task_id", "status", "notes"];
 
     #[test]
-    fn habits_same_field_conflict_uses_lexicographic_fallback_with_note() {
+    fn missing_last_touched_uses_lexicographic_fallback_with_note() {
         let base = tbl(HAB, &[&["1", "open", "orig"]]);
         let ours = tbl(HAB, &[&["1", "open", "apple"]]);
         let theirs = tbl(HAB, &[&["1", "open", "zebra"]]);

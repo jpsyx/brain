@@ -31,7 +31,7 @@ HABIT_COLS = [
     "hard_deadline", "assignee", "see_also", "notes", "project",
     "energy_level", "context", "estimated_duration",
     "recur_interval", "recur_unit",
-    "created_date", "completed_date",
+    "created_date", "completed_date", "last_touched",
 ]
 
 

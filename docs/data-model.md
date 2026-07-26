@@ -428,15 +428,13 @@ all three tables and resolves each id independently:
      resolved by `resolve_conflict`.
 
 `resolve_conflict` is last-writer-wins keyed off the row's own
-`last_touched` column when the table has one — `tasks.csv` already carries
-`last_touched`, so **no schema change** was needed: the side with the
-greater `last_touched` wins, with ties broken by the greater cell value so
-the outcome never depends on which side is "ours" vs. "theirs" (needed for
-convergence, below). `habits.csv` has no `last_touched`, so a same-field
-collision there falls back to a deterministic lexicographic tiebreak (the
-greater cell value wins), noted as a soft conflict in the `Report`. Adding
-`last_touched` to `habits.csv` for full parity with tasks is a noted,
-deliberately-deferred follow-up (see [decisions.md](decisions.md)).
+`last_touched` column. Both `tasks.csv` and `habits.csv` carry it, and every
+row mutator stamps the changed row before writing; the side with the greater
+`last_touched` wins, with ties broken by the greater cell value so the
+outcome never depends on which side is "ours" vs. "theirs" (needed for
+convergence, below). A legacy or malformed table without the column still
+falls back to a deterministic lexicographic tiebreak (the greater cell value
+wins), noted as a soft conflict in the `Report`.
 
 The header is chosen once per merge as whichever non-empty table has the
 most columns (preferring `ours`, then `theirs`, then `base`), so a schema

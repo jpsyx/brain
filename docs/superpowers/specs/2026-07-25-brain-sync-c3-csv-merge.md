@@ -49,23 +49,18 @@ normal file lane (keep-both fallback); C3 gives them a semantic merge.
 `Report` carries counts (added/deleted/merged) and any soft notes (deleted-vs-edited,
 un-resolvable same-field with no timestamp) for the journal + `brain sync status`.
 
-## 4. Convergence timestamp — reuse `last_touched`, don't add a column (for tasks)
+## 4. Convergence timestamp — `last_touched`
 
-`tasks.csv` **already has `last_touched`**. The merge uses it as the per-row modified
-time for same-field last-writer-wins, so **tasks need no schema change**. A row whose
-`last_touched` is empty/unparseable is treated as oldest (loses a same-field tie).
+`tasks.csv` already had `last_touched`; C3.3 extended the same column to
+`habits.csv`. The merge uses it as the per-row modified time for same-field
+last-writer-wins on both CSVs. A row whose `last_touched` is empty/unparseable
+falls back to the deterministic value tiebreak (the lexicographically-greater
+value wins) so legacy or damaged rows still converge and journal a soft note.
 
-`habits.csv` has **no** `last_touched`. Habit same-field conflicts are rare and mostly
-about `status` (covered by completion-wins). For the residual case (both machines edit
-the same non-status habit field differently between syncs), use a **deterministic
-value tiebreak** (e.g. the lexicographically-greater value wins) so it still converges,
-and journal it. Adding `last_touched` to `habits.csv` for full parity is a clean
-follow-up (noted, not required for C3).
-
-**Writers must bump `last_touched`.** Whatever mutates `tasks.csv` (the `/todo`
-skill's `mark_done.py` + add/edit scripts, and brain's own writes) should set
-`last_touched` to now on every change, or same-field LWW degrades to the empty-loses
-default. Audit + fix in C3 (ties into deferred item #3, the `mark_done.py` coupling).
+**Writers must bump `last_touched`.** Whatever mutates `tasks.csv` or
+`habits.csv` (the `/todo` skill scripts, the `/habits` server path through
+`mark_done.py`, and brain's own writes) sets `last_touched` to now on every row
+change, or same-field LWW degrades to the fallback above.
 
 ## 5. Transport + baseline
 
@@ -115,8 +110,8 @@ keep-both; reuse `last_touched`; convergence rules), the `AGENTS.md` docs-contra
 1. `tasks.csv`/`habits.csv` are excluded from bisync and never produce `(conflict …)`
    copies.
 2. Add/complete/delete/different-field edits from two machines all converge; a
-   same-field divergence resolves by `last_touched` LWW (tasks) or a deterministic
-   tiebreak (habits), journalled.
+   same-field divergence resolves by `last_touched` LWW, with a deterministic
+   journalled fallback for legacy/no-timestamp rows.
 3. `merge` is deterministic + convergent + idempotent (property-tested).
 4. Baselines cached in `~/.cache/brain/sync/baselines/`; first-run union is safe.
 5. `brain check` reports pending CSV changes; the journal records CSV merge outcomes.

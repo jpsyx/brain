@@ -69,14 +69,12 @@ the user can reference rows in follow-ups** ("done T42", "defer 17 +3d").
 | 17 | `defer_count` | int | Starts at 0. Increments on every defer. `>=3` triggers triage warning. |
 | 18 | `created_date` | date | Auto-set on insert. |
 | 19 | `completed_date` | date \| empty | Auto-set when `status` flips to `done`. |
-| 20 | `last_touched` | date | Auto-bumped to today by every mutator (`add_task.py`, `defer_task.py`, `mark_done.py`, `touch_task.py`, `backlog_task.py`). Drives chronic-ignore detection: `is_stale` = `today - last_touched >= 21d AND status != done`. Backfilled from `created_date` on migration. Habits.csv has no equivalent — recurrence is their natural touch cadence. |
+| 20 | `last_touched` | date | Auto-bumped to today by every row mutator (`add_task.py`, `defer_task.py`, `defer_habit.py`, `skip_habit.py`, `mark_done.py`, `touch_task.py`, `backlog_task.py`, `set_linear_issue.py`, and `apply_sync_rules.py --fix`). Drives chronic-ignore detection for tasks and last-writer-wins CSV sync for both tasks and habits. Backfilled from `created_date` on migration. |
 | 23 | `backlogged_date` | date \| empty | Set by `backlog_task.py` when a task enters `status=backlog`; cleared on restore. Drives the 6-month auto-purge (`purge_old_backlog.py`) and the monthly backlog-review. |
 
 ## habits.csv columns
 
-Same as tasks.csv columns 1–15 + 18–19, plus:
-
-(Habits.csv intentionally has no `last_touched` — recurrence cycles serve as the natural touch cadence.)
+Same as tasks.csv columns 1–15 + 18–20, plus:
 
 | Column | Notes |
 |---|---|

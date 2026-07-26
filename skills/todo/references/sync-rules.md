@@ -26,7 +26,8 @@ Run via:
    `backlog` tasks from "Today" / "What should I work on" / "Agenda"
    views.
 4a. **`is_stale`** — `(today - last_touched) >= 21` AND `status NOT IN
-    ('done', 'backlog')`. Tasks-only (habits don't have `last_touched`).
+    ('done', 'backlog')`. Tasks-only even though habits also carry
+    `last_touched`; habit recurrence controls their freshness.
     Backlog tasks can't be stale — they're parked on purpose.
 4b. **`is_stuck_in_progress`** — `status == 'in_progress'` AND
     `(today - last_touched) >= 14`.
@@ -49,13 +50,16 @@ Run via:
 7. **Habit cleanup** — see [cleanup_done_habits.py](../scripts/cleanup_done_habits.py).
    Drop habits.csv rows where `status == 'done'` AND
    `completed_date <= today - 7d`.
-7a. **`last_touched` column + backfill (tasks.csv only)** — if the
+7a. **`last_touched` column + backfill** — if the
     column is missing it is added; rows whose `last_touched` is empty
     are backfilled from `created_date` (fallback: today). Migration
     rule that runs on every `--fix` invocation; idempotent after the
     initial add. Mutators (`add_task.py`, `defer_task.py`,
-    `mark_done.py`, `touch_task.py`) keep the column fresh by calling
-    `_csvlib.touch_row()` on every write.
+    `defer_habit.py`, `skip_habit.py`, `mark_done.py`,
+    `touch_task.py`, `backlog_task.py`, `set_linear_issue.py`) keep
+    the column fresh by calling `_csvlib.touch_row()` on every row
+    mutation; `apply_sync_rules.py --fix` does the same for rows it
+    repairs.
 8. **Habit spawn on completion** — handled by [mark_done.py](../scripts/mark_done.py),
    not the sync. When a habits.csv row flips to `done`, a new row is
    appended with a fresh `H###` `task_id` (via
