@@ -212,10 +212,11 @@ reads it to drive a real `rclone bisync` transport (see
 of C4 the `on_start`/`on_exit`/`watch` flags are live automatic triggers
 (background sync on shell start, a detached sync on exit, and a debounced
 filesystem watcher while the shell is open — `debounce_ms` sets the watcher's
-quiescence window). An absent `sync` block parses to all defaults, so sync reads
+quiescence window). `idle_pull_secs` optionally adds a periodic pull while the
+shell stays open. An absent `sync` block parses to all defaults, so sync reads
 as fully disabled and brain behaves exactly as if the key didn't exist
 (`brain sync` prints "sync is not configured — run `brain sync setup`" and does
-nothing, with no watcher thread and no start/exit sync).
+nothing, with no watcher thread, no idle timer, and no start/exit sync).
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -232,6 +233,7 @@ nothing, with no watcher thread and no start/exit sync).
 | `on_exit` | `bool` | `true` | Fire a detached, fire-and-forget sync when the shell exits (C4). |
 | `watch` | `bool` | `true` | Run the debounced filesystem watcher while the shell is open (C4). See `watch_effective` below. |
 | `debounce_ms` | `u64` | `3000` | The watcher's quiescence window in milliseconds: a sync fires once changes under the brain root settle for this long. `debounce()` maps it to a `Duration`. |
+| `idle_pull_secs` | `u64` | `0` | Optional periodic pull interval while the shell is open. `0` disables the timer; a positive value maps to `idle_pull_interval()`. |
 | `max_delete_percent` | `u8` | `50` | Bisync safety guard: the max percent of files a sync run may delete before aborting. |
 | `exclude` | `Vec<String>` | `[]` | Extra rclone exclude patterns, appended to the built-in excludes (e.g. `"**/test-data/**"`). |
 | `max_size` | `String` | `""` | Skip files larger than this rclone size string (e.g. `"100M"`); empty means no cap. |
@@ -244,6 +246,8 @@ Two derived predicates:
 - `SyncConfig::watch_effective()` — `is_configured() && watch`. The watcher is
   on by default whenever sync is configured; `watch: false` is the explicit
   opt-out.
+- `SyncConfig::idle_pull_interval()` — `Some(Duration)` only when sync is
+  configured and `idle_pull_secs > 0`; missing or `0` means no idle-pull timer.
 - `SyncConfig::crypt_enabled()` — `!crypt_password.trim().is_empty()`. When
   true, `sync::remote::build_remote` returns the env-defined `BRAINCRYPT:`
   remote layered over the B2 remote instead of the raw `BRAIN:<bucket>/<path>`

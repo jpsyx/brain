@@ -332,7 +332,8 @@ counts for the themed summary. No journal entry, no conflict post-pass, no
 baseline mutation: it never calls `rclone bisync` without `--dry-run`, and
 its CSV pass never writes local files, remotes, or baselines.
 
-**The C4 auto-sync trigger layer** (`lock.rs`/`watch.rs`/`trigger.rs`, wired
+**The C4 auto-sync trigger layer** (`lock.rs`/`watch.rs`/`trigger.rs` plus the
+idle-pull timer, wired
 into the shell lifecycle) makes sync automatic while keeping the pure/impure
 split. The **pure** cores carry the decisions and the tests; the thin shells do
 the IO/threads/`Command`:
@@ -361,16 +362,23 @@ the IO/threads/`Command`:
   unconfigured or the lock is held), `sync_in_background()` (spawn a thread for
   the `on_start` hook), and `spawn_detached_sync()` (a fully detached
   `brain sync` child, `process_group(0)` + null stdio, for the `on_exit` hook).
-- `config.rs` gains `debounce_ms` (default 3000) and `debounce() -> Duration`;
-  `command::format_triggers` renders the debounce window in `brain sync status`.
+- `idle.rs` — the shell-lifetime idle-pull timer. `spawn_idle_puller_with`
+  owns the stop channel and injected callback for tests; `spawn_idle_puller`
+  runs `trigger::run_locked_sync(Direction::Pull)` every
+  `sync.idle_pull_secs` seconds when that opt-in interval is configured.
+- `config.rs` carries `debounce_ms` (default 3000), `debounce() -> Duration`,
+  and the opt-in `idle_pull_secs` / `idle_pull_interval()` pair;
+  `command::format_triggers` renders both intervals in `brain sync status`.
 
 **The `run_tui` lifecycle seam** (`src/tui/event_loop/setup.rs`) is the one wire
 point: after the startup work and before the event loop it kicks
 `trigger::sync_in_background()` (when `on_start`) and holds a
-`watch::spawn_watcher` handle (when `watch_effective()`); after the loop returns
-it calls `trigger::spawn_detached_sync()` (when `on_exit`) and drops the watcher
-handle. All gated, all best-effort: an unconfigured brain gets no watcher thread
-and no syncs. C4 adds no keybinding, palette row, or menu row.
+`watch::spawn_watcher` handle (when `watch_effective()`) plus an
+`idle::spawn_idle_puller` handle (when `idle_pull_secs > 0`); after the loop
+returns it calls `trigger::spawn_detached_sync()` (when `on_exit`) and drops
+the watcher/timer handles. All gated, all best-effort: an unconfigured brain
+gets no watcher thread, no timer, and no syncs. C4 adds no keybinding, palette
+row, or menu row.
 
 **The C5 conflict enumerator + resolver** builds on `conflicts.rs` to give
 agents (not just humans) a way to close out a keep-both conflict. Still pure
@@ -440,10 +448,11 @@ structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 (`build_search`), constructs the `App`, then `open_or_focus_brain(None)` spawns
 the initial `claude` PTY (resume-vs-fresh) and `focus_tasks()` returns focus to
 the tasks main view so `j`/`k` work at once. It runs the startup daily-triage
-check, then wires the C4 auto-sync triggers (a background `on_start` sync and,
-when `watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
-loop, and on return fires the detached `on_exit` sync, drops the watcher handle,
-and releases the session lock. The brain
+check, then wires the C4 auto-sync triggers (a background `on_start` sync,
+when `watch_effective()`, a held `watch::spawn_watcher` handle, and when
+configured, a held idle-pull timer), runs the event loop, and on return fires
+the detached `on_exit` sync, drops the watcher/timer handles, and releases the
+session lock. The brain
 panel is **closeable** (claude exit → `close_brain` drops the PTY and the main
 view goes full-width); `open_or_focus_brain` (`Ctrl+M`) re-opens it. The
 brain-directory view keeps its own `scope`/`rescope`/`search_refresh` for

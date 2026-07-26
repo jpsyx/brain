@@ -17,12 +17,12 @@ pipeline) shipped earlier. Sub-project C (Backblaze sync) is now done end to end
 | **C1** | brain env / brain config split; `brain env {list\|get\|set}`; `root` + `markdown_to_pdf_path` moved to env; legacy pointer auto-migration; `sync` block schema (parse-only). | `src/env/`, `src/paths.rs` |
 | **C2** | Sync core: `brain sync [setup\|init\|status\|conflicts\|--push\|--pull]` over `rclone bisync`; keep-both conflicts; bidirectional deletes + `--max-delete`; journal + post-sync verify; `brain check`. | `src/sync/{args,remote,run,verify,journal,setup,command,check,conflicts}.rs` |
 | **C3** | id-keyed 3-way CSV merge for `tasks.csv`/`habits.csv` (converges, idempotent; `last_touched` LWW). | `src/sync/{csv_merge,csv_sync}.rs` |
-| **C4** | Auto-sync triggers: `notify` watcher + pure debounce, on-start background sync, detached on-exit sync, machine-wide advisory sync lock. | `src/sync/{lock,trigger,watch}.rs`, `src/tui/event_loop/setup.rs` |
+| **C4** | Auto-sync triggers: `notify` watcher + pure debounce, on-start background sync, detached on-exit sync, optional idle-pull timer, machine-wide advisory sync lock. | `src/sync/{idle,lock,trigger,watch}.rs`, `src/tui/event_loop/setup.rs` |
 | **C5** | Agent-facing conflict resolution + migration: `brain sync conflicts --json`, `brain sync resolve <original>`, `/second-brain cloud-sync` + `/second-brain resolve-conflicts`, hermetic C1-migration test, migration runbook, gated resolve round-trip test, full docs. | `src/sync/{conflicts,command/mod,command/resolve}.rs`, `skills/second-brain/SKILL.md`, `tests/sync_local.rs` |
 
 Design docs: parent spec `specs/2026-07-24-brain-sync-design.md`; per-phase
 specs/plans under `specs/` and `plans/`. Rationale in `../decisions.md`.
-State at time of writing: `cargo test --release` green (672 tests), `cargo
+State at time of writing: `cargo test --release` green (675 tests), `cargo
 clippy --release --all-targets` clean.
 
 ---
@@ -132,8 +132,14 @@ unless noted. Update this file (check the box, note the commit) as you land each
   (`feat(server): capture inbound webhooks`). Validation:
   `cargo test --release` green (672 tests; watcher timing test still ignored by
   design) and `cargo clippy --release --all-targets` clean.
-- [ ] C4 idle-pull timer (`sync.idle_pull_secs`) and/or a standalone always-on
-  sync daemon (reuses the `sync_once`-under-lock core).
+- [x] C4 idle-pull timer (`sync.idle_pull_secs`) while the shell is open
+  (opt-in; `0` disables it). Landed in `4726114`
+  (`feat(sync): add idle pull timer`). Notes: positive intervals start a
+  shell-lifetime timer that runs locked `Direction::Pull` syncs, coalescing
+  with all existing triggers; the standalone always-on daemon remains out of
+  scope unless a future need appears. Validation: `cargo test --release` green
+  (675 tests; watcher timing test still ignored by design) and
+  `cargo clippy --release --all-targets` clean.
 
 ---
 

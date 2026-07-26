@@ -35,6 +35,9 @@ pub struct SyncConfig {
     /// Watcher quiescence window in milliseconds (fire a sync once changes settle).
     #[serde(default = "default_debounce_ms")]
     pub debounce_ms: u64,
+    /// Periodic pull interval while the shell is open; 0 disables the timer.
+    #[serde(default)]
+    pub idle_pull_secs: u64,
 }
 
 fn default_true() -> bool {
@@ -77,6 +80,19 @@ impl SyncConfig {
         std::time::Duration::from_millis(self.debounce_ms)
     }
 
+    /// Effective idle-pull state: opt-in and only when sync is configured.
+    #[must_use]
+    pub fn idle_pull_effective(&self) -> bool {
+        self.is_configured() && self.idle_pull_secs > 0
+    }
+
+    /// The idle-pull interval, or `None` when the timer is disabled.
+    #[must_use]
+    pub fn idle_pull_interval(&self) -> Option<std::time::Duration> {
+        self.idle_pull_effective()
+            .then(|| std::time::Duration::from_secs(self.idle_pull_secs))
+    }
+
     /// True when rclone crypt should wrap the B2 remote.
     #[must_use]
     pub fn crypt_enabled(&self) -> bool {
@@ -99,6 +115,9 @@ mod tests {
         assert_eq!(c.max_delete_percent, 50);
         assert!(c.on_start && c.on_exit && c.watch);
         assert_eq!(c.debounce_ms, 3000);
+        assert_eq!(c.idle_pull_secs, 0);
+        assert!(!c.idle_pull_effective());
+        assert_eq!(c.idle_pull_interval(), None);
         assert!(!c.crypt_enabled());
     }
 
@@ -122,6 +141,21 @@ mod tests {
     fn watch_defaults_on_when_configured_and_off_when_disabled() {
         assert!(parse(r#"{"enabled": true, "b2_bucket": "b"}"#).watch_effective());
         assert!(!parse(r#"{"enabled": true, "b2_bucket": "b", "watch": false}"#).watch_effective());
+    }
+
+    #[test]
+    fn idle_pull_is_opt_in_and_only_effective_when_configured() {
+        let configured = parse(r#"{"enabled": true, "b2_bucket": "b", "idle_pull_secs": 120}"#);
+        assert_eq!(configured.idle_pull_secs, 120);
+        assert!(configured.idle_pull_effective());
+        assert_eq!(
+            configured.idle_pull_interval(),
+            Some(std::time::Duration::from_secs(120))
+        );
+
+        let unconfigured = parse(r#"{"idle_pull_secs": 120}"#);
+        assert!(!unconfigured.idle_pull_effective());
+        assert_eq!(unconfigured.idle_pull_interval(), None);
     }
 
     #[test]
