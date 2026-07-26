@@ -22,7 +22,7 @@ pipeline) shipped earlier. Sub-project C (Backblaze sync) is now done end to end
 
 Design docs: parent spec `specs/2026-07-24-brain-sync-design.md`; per-phase
 specs/plans under `specs/` and `plans/`. Rationale in `../decisions.md`.
-State at time of writing: `cargo test --release` green (651 tests), `cargo
+State at time of writing: `cargo test --release` green (652 tests), `cargo
 clippy --release --all-targets` clean.
 
 ---
@@ -70,13 +70,19 @@ unless noted. Update this file (check the box, note the commit) as you land each
   design) and `cargo clippy --release --all-targets` clean.
 
 ### 3. C4 hardening — sync-lock heartbeat  *(optional; deferred in C4)*
-- [ ] The advisory sync lock (`~/.cache/brain/sync/sync.lock`) has one residual
+- [x] The advisory sync lock (`~/.cache/brain/sync/sync.lock`) has one residual
   edge: a SIGKILLed holder whose PID gets recycled to a live unrelated process
   wedges the lock until the file is removed by hand. A heartbeat (refresh the
   lockfile mtime during a sync + a short staleness cap alongside the existing
   PID-liveness check) closes it. Deferred in C4 as "not worth the extra thread
   for now" — do it only if the wedge is actually hit.
 - Files: `src/sync/lock.rs` (pure `is_stale` already takes an age cap).
+- Landed in `7ea4cf5` (`fix(sync): heartbeat sync lock`). Notes: `Guard` now owns a
+  heartbeat thread that refreshes the lockfile mtime while held; stale detection
+  reaps dead-PID locks and live-PID locks whose heartbeat exceeds the cap,
+  closing the PID-recycle wedge. Validation: `cargo test --release` green (652
+  tests; watcher timing test still ignored by design) and
+  `cargo clippy --release --all-targets` clean.
 
 ### 4. C5 optional follow-ups  *(from the C5 final adversarial review)*
 - [ ] Test: `brain sync resolve` with **multiple originals** in one call
