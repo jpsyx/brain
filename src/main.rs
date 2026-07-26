@@ -279,6 +279,11 @@ fn run_sync(
         println!("sync is not configured — run `brain sync setup`.");
         return Ok(());
     }
+    let Some(_guard) = crate::sync::lock::try_acquire(&crate::sync::lock::default_path()) else {
+        let theme = crate::theme::Theme::active();
+        eprintln!("{}", theme.warning("another sync is already running; try again in a moment."));
+        return Ok(());
+    };
     let now = chrono::Utc::now();
     let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let date = now.format("%Y-%m-%d").to_string();
