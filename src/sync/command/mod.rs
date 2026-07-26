@@ -219,13 +219,18 @@ pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
     } else {
         String::new()
     };
+    let idle = cfg.idle_pull_interval().map_or_else(
+        || theme.muted("off"),
+        |interval| theme.success(&format!("{}s", interval.as_secs())),
+    );
     format!(
-        "{} on-start {} · on-exit {} · watch {}{}",
+        "{} on-start {} · on-exit {} · watch {}{} · idle-pull {}",
         theme.muted("triggers:"),
         yn(cfg.on_start),
         yn(cfg.on_exit),
         yn(watch_on),
         debounce,
+        idle,
     )
 }
 
@@ -501,6 +506,7 @@ mod tests {
         assert!(s.contains("on-start off"), "{s}");
         assert!(s.contains("on-exit on"), "{s}"); // default true
         assert!(s.contains("watch on"), "{s}"); // configured + default watch
+        assert!(s.contains("idle-pull off"), "{s}"); // default opt-out
     }
 
     #[test]
@@ -520,6 +526,14 @@ mod tests {
         let line = format_triggers(&cfg, Theme::dark(false));
         assert!(line.contains("watch off"), "{line}");
         assert!(!line.contains("debounce"), "{line}");
+    }
+
+    #[test]
+    fn format_triggers_shows_idle_pull_interval_when_enabled() {
+        let cfg: SyncConfig =
+            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","idle_pull_secs":120}"#).unwrap();
+        let line = format_triggers(&cfg, Theme::dark(false));
+        assert!(line.contains("idle-pull 120s"), "{line}");
     }
 
     #[test]

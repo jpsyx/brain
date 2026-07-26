@@ -260,10 +260,9 @@ progress streams to the terminal live, with a one-line update roughly every
 10 seconds (files/bytes transferred, percent complete, transfer rate, ETA) —
 useful on the first sync of a large brain, which can take a while.
 
-**Automatic sync (start / exit / watcher).** On a configured machine you
+**Automatic sync (start / exit / watcher / idle pull).** On a configured machine you
 rarely run `brain sync` by hand: the persistent shell syncs for you, gated by
-three brain-env flags (all default on when sync is configured; see
-[config.md](config.md)).
+machine-local brain-env fields (see [config.md](config.md)).
 
 - **On start (`sync.on_start`).** Opening the shell (bare `brain`) kicks a
   background sync so you start on the latest brain. It runs on its own thread
@@ -278,16 +277,22 @@ three brain-env flags (all default on when sync is configured; see
   `debounce_ms` quiescence window, default 3000ms). A burst of edits coalesces
   into a single sync. VCS/cache/OS cruft and existing conflict copies never
   trigger it (it mirrors the bisync exclude set).
+- **Idle pull (`sync.idle_pull_secs`).** Optional and off by default. Set a
+  positive interval to pull remote changes periodically while the shell stays
+  open, so another machine's edits arrive without closing and reopening
+  `brain`.
 
-All three reuse the same `sync_once` machinery (so every auto-sync is
+All four reuse the same `sync_once` machinery (so every auto-sync is
 journalled exactly like a manual one) and **coalesce** through a machine-wide
-lock: concurrent triggers (start + watcher + a second shell + a manual
-`brain sync`) never run two rclone syncs at once, the extras skip cleanly. All
-are best-effort: a held lock, an unconfigured brain, or a spawn failure is
-swallowed, so a trigger never crashes or hangs the shell. Set any flag to
-`false` to disable that trigger; with no `sync` block configured at all,
-nothing changes (no watcher thread, no start/exit sync). `brain sync status`
-shows the effective trigger state and the debounce window.
+lock: concurrent triggers (start + watcher + idle pull + a second shell + a
+manual `brain sync`) never run two rclone syncs at once, the extras skip
+cleanly. All are best-effort: a held lock, an unconfigured brain, or a spawn
+failure is swallowed, so a trigger never crashes or hangs the shell. Set any
+boolean flag to `false` to disable that trigger, and leave `idle_pull_secs` at
+`0` to disable the timer; with no `sync` block configured at all, nothing
+changes (no watcher thread, no timer, no start/exit sync). `brain sync status`
+shows the effective trigger state, the debounce window, and the idle-pull
+interval.
 
 #### Migrating a machine to sync
 
@@ -312,7 +317,7 @@ per machine you want to join it.
    initial baseline is effectively a full pull of everything already in the
    bucket.
 3. **Verify the triggers.** Run `brain sync status` and confirm it reports
-   the effective `on_start`/`on_exit`/`watch` triggers and the last run.
+   the effective `on_start`/`on_exit`/`watch`/`idle-pull` triggers and the last run.
    Auto-sync is on by default the moment `brain sync setup` finishes — you
    don't need to flip anything else on.
 4. **Env auto-migration.** The legacy `~/.config/brain-root` pointer and

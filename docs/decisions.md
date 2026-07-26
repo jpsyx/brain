@@ -736,8 +736,8 @@ enough to prevent the old blind spot where task/habit edits were invisible to
 
 ## C4 — auto-sync triggers (start / exit hooks, the `notify` watcher, the sync lock)
 
-C4 makes sync automatic. The durable choices below are the ones a later phase (an
-idle-pull timer, or a standalone daemon) should keep rather than "simplify."
+C4 makes sync automatic. The durable choices below are the ones a later phase
+(such as a standalone daemon) should keep rather than "simplify."
 
 **Why the watcher is an in-process shell thread, not a daemon.** The parent sync
 spec frames C4 as "TUI lifecycle hooks + debounce": the watcher's lifetime is the
@@ -752,6 +752,15 @@ tradeoff is no live sync while *no* shell is open; `on_start` (next open),
 `on_exit` (last close), and manual `brain sync` cover that gap. If always-on sync
 is ever wanted, the deferred daemon is a clean add — the `sync_once`-under-lock
 core built here is exactly what it would reuse.
+
+**Why idle pull is a shell-lifetime timer, not an always-on daemon.** The idle
+puller solves only the long-open-shell gap: another machine may push while this
+shell has no local filesystem events, so the watcher would stay quiet until the
+next local edit or reopen. A timer inside the shell reuses the existing C4 lock
+and trigger core with no new lifecycle surface. It is opt-in (`idle_pull_secs =
+0` by default) because periodic network work is surprising on machines that only
+wanted start/exit/watch sync. Always-on sync while no shell is open remains a
+separate daemon feature with its own lifecycle and status semantics.
 
 **Why the exit sync is a detached fire-and-forget child, not an in-process
 thread.** Quitting must never wait on the network. An in-process thread joined at

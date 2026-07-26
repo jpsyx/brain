@@ -150,6 +150,7 @@ pub fn run_tui(
     } else {
         None
     };
+    let idle_puller = crate::sync::idle::spawn_idle_puller(&sync_cfg);
 
     let result = event_loop(&mut terminal, &mut app);
 
@@ -158,6 +159,7 @@ pub fn run_tui(
     if sync_configured && sync_cfg.on_exit {
         crate::sync::trigger::spawn_detached_sync();
     }
+    drop(idle_puller);
     drop(watcher);
 
     // Release our session lock so the next open (this shell or another)

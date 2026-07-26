@@ -30,7 +30,7 @@ Everything in it is created on demand; a fresh checkout has none.
 | --- | --- | --- |
 | `root` | `~/brain` | Absolute or `~`-relative path to the brain (PARA) directory on **this machine**. Replaces the legacy `~/.config/brain-root` pointer file (still read for back-compat; see below). |
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
-| `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `on_start`, `on_exit`, `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives `brain sync` (bidirectional sync of the brain root via `rclone bisync`; see [features.md](features.md) and [integrations.md](integrations.md)). As of C4 the `on_start`/`on_exit`/`watch` flags are live automatic triggers (see below); `debounce_ms` (default 3000) sets the watcher's quiescence window. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
+| `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `on_start`, `on_exit`, `watch`, `debounce_ms`, `idle_pull_secs`, `max_delete_percent`, `exclude`, `max_size`. Drives `brain sync` (bidirectional sync of the brain root via `rclone bisync`; see [features.md](features.md) and [integrations.md](integrations.md)). As of C4 the `on_start`/`on_exit`/`watch` flags are live automatic triggers (see below); `debounce_ms` (default 3000) sets the watcher's quiescence window, and `idle_pull_secs` (default 0) optionally pulls on a timer while the shell is open. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
 
 ### The `brain env` command
 
@@ -62,12 +62,13 @@ Like `config`/`env`/`personalize`/`skills`, `brain sync` is dispatched
 **before** the `markdown-to-pdf` prerequisite gate (see below), so it works
 even when that tool is missing.
 
-#### Auto-sync triggers (`on_start` / `on_exit` / `watch` / `debounce_ms`)
+#### Auto-sync triggers (`on_start` / `on_exit` / `watch` / `debounce_ms` / `idle_pull_secs`)
 
-Four `sync`-block fields control the C4 automatic sync. They are **brain env**
-fields (machine-local, in `~/.config/brain/env.json`, never synced), so each
-machine chooses its own trigger behavior. All are on by default whenever sync is
-configured; a machine with no `sync` block runs none of them.
+Five `sync`-block fields control automatic sync. They are **brain env** fields
+(machine-local, in `~/.config/brain/env.json`, never synced), so each machine
+chooses its own trigger behavior. The start/exit/watch triggers are on by
+default whenever sync is configured; the idle pull timer is opt-in. A machine
+with no `sync` block runs none of them.
 
 | Field | Default | What it does | Disable with |
 | --- | --- | --- | --- |
@@ -75,13 +76,16 @@ configured; a machine with no `sync` block runs none of them.
 | `on_exit` | `true` | Spawn a detached, fire-and-forget `brain sync` when the shell quits, so your last edits push without the shell waiting. | `on_exit=false` |
 | `watch` | `true` | Run a debounced filesystem watcher while the shell is open, auto-syncing shortly after edits under `~/brain` settle. | `watch=false` |
 | `debounce_ms` | `3000` | The watcher's quiescence window (ms): a sync fires once changes settle for this long, so a burst of edits coalesces into one sync. | lower/raise the number |
+| `idle_pull_secs` | `0` | Optional periodic pull while the shell is open, useful for long-lived shells that should notice edits from another machine without reopening. `0` disables it. | set a positive number of seconds |
 
 `SyncConfig::watch_effective()` folds `is_configured()` into `watch`, so the
 watcher is on only when sync is actually configured *and* `watch` isn't
-explicitly `false`. These flags live in the `sync` block written by
-`brain sync setup`; `brain sync status` shows their effective state plus the
-debounce window at a glance. See [features.md](features.md) for the user-facing
-behavior and [data-model.md](data-model.md) for the schema.
+explicitly `false`; `SyncConfig::idle_pull_interval()` similarly returns an
+interval only when sync is configured and `idle_pull_secs > 0`. These flags live
+in the `sync` block written by `brain sync setup`; `brain sync status` shows
+their effective state plus the debounce and idle-pull intervals at a glance.
+See [features.md](features.md) for the user-facing behavior and
+[data-model.md](data-model.md) for the schema.
 
 **`rclone` is a soft prerequisite, not a startup gate.** Unlike
 `markdown-to-pdf`, brain never blocks startup or any command on `rclone`

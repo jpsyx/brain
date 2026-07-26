@@ -369,9 +369,9 @@ bookkeeping.
   not installed · sync off`), which never affects the doctor's overall
   pass/fail.
 
-## Auto-sync triggers (the sync lock, the exit child, the watcher)
+## Auto-sync triggers (the sync lock, the exit child, the watcher, the idle puller)
 
-The C4 auto-sync layer (`src/sync/{lock,watch,trigger}.rs`, wired into
+The C4 auto-sync layer (`src/sync/{lock,watch,trigger,idle}.rs`, wired into
 `src/tui/event_loop/setup.rs`'s `run_tui`) drives the same `rclone` handoff
 above automatically. Its own outside-world touchpoints:
 
@@ -408,6 +408,13 @@ above automatically. Its own outside-world touchpoints:
   one locked sync **synchronously in the watcher thread**, so the sync's own
   pull writes buffer in the event channel and coalesce into at most one no-op
   follow-up rather than looping.
+- **The idle puller** (`sync.idle_pull_secs`) is an opt-in shell-lifetime timer.
+  When set to a positive number, `src/sync/idle.rs` wakes on that interval and
+  calls `trigger::run_locked_sync(Direction::Pull)`, so remote edits from
+  another machine can arrive while the shell remains open. The same lock makes
+  each tick skip cleanly if a manual sync, watcher sync, start sync, or prior
+  timer tick is already running. Dropping the handle stops the sleeping thread;
+  it is not an always-on daemon and it does no work while `brain` is closed.
 
 ## The auto-rebuild
 
