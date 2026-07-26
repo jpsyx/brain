@@ -270,6 +270,60 @@ swallowed, so a trigger never crashes or hangs the shell. Set any flag to
 nothing changes (no watcher thread, no start/exit sync). `brain sync status`
 shows the effective trigger state and the debounce window.
 
+#### Migrating a machine to sync
+
+A short runbook for bringing sync online: once for a new bucket, then once
+per machine you want to join it.
+
+1. **One-time: create the bucket.** Before the first machine can connect,
+   someone creates a private Backblaze B2 bucket to sync to — Default
+   Encryption **enabled** (B2 manages the keys), Object Lock **disabled**, and
+   a bucket-scoped application key. This step happens in the Backblaze
+   console, outside brain; if you tell `brain sync setup` (below) you don't
+   have a bucket yet, it walks you through creating one and waits for you to
+   finish before continuing.
+2. **Per machine: `brain sync setup`.** On every machine you want on sync —
+   including the one that just made the bucket — run `brain sync setup`. It
+   confirms `rclone` is installed, collects the B2 bucket name and the
+   application key/keyID (either from a bucket you already have, or the
+   walkthrough from step 1), writes the `sync` block into that machine's
+   `~/.config/brain/env.json` (see [`brain env`](#brain-env) above — this is
+   machine-local and never rides into the bucket itself), and establishes the
+   bisync baseline. On a brand-new machine with an empty `~/brain`, that
+   initial baseline is effectively a full pull of everything already in the
+   bucket.
+3. **Verify the triggers.** Run `brain sync status` and confirm it reports
+   the effective `on_start`/`on_exit`/`watch` triggers and the last run.
+   Auto-sync is on by default the moment `brain sync setup` finishes — you
+   don't need to flip anything else on.
+4. **Env auto-migration.** The legacy `~/.config/brain-root` pointer and
+   `config.json`'s `markdown_to_pdf_path` are migrated into
+   `~/.config/brain/env.json` on every first launch of the new binary — a
+   no-op on a brand-new machine with no legacy pointer or config to migrate —
+   see [`brain env`](#brain-env) above. No manual step needed; it happens
+   quietly, before `sync setup` even starts.
+5. **Confirm it actually works, across two machines:**
+   - An edit, add, or delete on machine A shows up on machine B after each
+     machine's next `brain sync` (or automatically, once the triggers above
+     are live).
+   - `tasks.csv` and `habits.csv` merge silently — editing or completing
+     different tasks on both machines never leaves behind a `(conflict …)`
+     copy of either file.
+   - Editing the *same* prose file on both machines at once (before either
+     syncs) produces exactly one keep-both `(conflict …)` copy, which
+     `/second-brain resolve-conflicts` merges back into the canonical file and
+     clears with `brain sync resolve`.
+
+Once these five steps check out, the machine is fully onboarded: sync runs
+itself from here via the triggers in the previous section.
+
+**Optional: syncing your own env.json.** `brain` itself doesn't care how
+`~/.config/brain/env.json` gets onto a machine — it just reads a standard XDG
+config file. If you want to skip re-running `brain sync setup` by hand on
+every new machine, you can track that file privately in your own dotfiles
+repo (or similar) and let it carry your bucket + credentials across your
+machines. This is entirely optional and outside brain's own sync mechanism.
+
 ### `brain check`
 
 A read-only report of what a plain `brain sync` would do, without doing it.
