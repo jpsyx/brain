@@ -506,9 +506,13 @@ growable localhost service. `GET /habits` renders today's habits as a
 flat-design HTML page (grouped by time-of-day, then priority, with a completed
 accordion), and `POST /habits/done` marks a habit done by delegating to brain's
 native completion machinery, so the web "done" spawns habit recurrence exactly
-like the CLI and returns `{"ok": true, "next_due": <date|null>}`. Everything
-else, including the bare root `/`, is a 404 (the server has no root view).
-Future webhook POST endpoints add one module under `src/server/routes/`.
+like the CLI and returns `{"ok": true, "next_due": <date|null>}`.
+`POST /webhooks/capture` captures any non-empty request body under
+`<brain-root>/scratch/webhooks/` and returns
+`{"ok": true, "path": "scratch/webhooks/<timestamp>-<seq>.<json|txt>"}` with
+HTTP 202, giving local webhook relays a generic inbox without vendor-specific
+schema. Empty capture bodies return HTTP 400. Everything else, including the
+bare root `/`, is a 404 (the server has no root view).
 
 - `brain server start` — start the daemon in the background if it isn't already
   running (idempotent: an existing live server is reused and its URL reprinted).
@@ -520,7 +524,9 @@ Future webhook POST endpoints add one module under `src/server/routes/`.
 The daemon prefers port `8787`, falling back to an OS-assigned port if it's
 taken, and records its `{pid, port}` at `~/.cache/brain/server.json`. Opening
 the shell (`brain` / `brain tasks`) best-effort brings the server up, so it is
-normally already running. A server failure never blocks the shell.
+normally already running. A server failure never blocks the shell. The server
+binds only to `127.0.0.1`; exposing `/webhooks/capture` through a public tunnel
+requires an auth layer outside this slice.
 
 ### Prerequisite: `markdown-to-pdf`
 

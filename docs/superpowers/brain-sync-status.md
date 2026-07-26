@@ -22,7 +22,7 @@ pipeline) shipped earlier. Sub-project C (Backblaze sync) is now done end to end
 
 Design docs: parent spec `specs/2026-07-24-brain-sync-design.md`; per-phase
 specs/plans under `specs/` and `plans/`. Rationale in `../decisions.md`.
-State at time of writing: `cargo test --release` green (667 tests), `cargo
+State at time of writing: `cargo test --release` green (672 tests), `cargo
 clippy --release --all-targets` clean.
 
 ---
@@ -126,8 +126,12 @@ unless noted. Update this file (check the box, note the commit) as you land each
   design) and `cargo clippy --release --all-targets` clean. The bundled
   `mark_done.py` was removed; active brain skills and global skill references
   now point at `brain tasks complete`.
-- [ ] Inbound webhook endpoints (`src/server/routes/` is structured for one
-  route module + one `routes/mod.rs` line per endpoint).
+- [x] Inbound webhook endpoints (`POST /webhooks/capture` stores non-empty
+  payloads under `scratch/webhooks/` for later triage; generic/local-only;
+  public tunnels require external auth). Landed in `d13640a`
+  (`feat(server): capture inbound webhooks`). Validation:
+  `cargo test --release` green (672 tests; watcher timing test still ignored by
+  design) and `cargo clippy --release --all-targets` clean.
 - [ ] C4 idle-pull timer (`sync.idle_pull_secs`) and/or a standalone always-on
   sync daemon (reuses the `sync_once`-under-lock core).
 

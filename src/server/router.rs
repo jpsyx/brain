@@ -7,10 +7,12 @@
 /// [`Route::NotFound`]; the brain server has no root view.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
-    /// `GET /habits`: the habits page (placeholder for now).
+    /// `GET /habits`: the habits page.
     HabitsPage,
-    /// `POST /habits/done`: mark a habit done (placeholder for now).
+    /// `POST /habits/done`: mark a habit done.
     HabitsDone,
+    /// `POST /webhooks/capture`: store an inbound webhook payload for triage.
+    WebhookCapture,
     /// Anything else.
     NotFound,
 }
@@ -25,6 +27,7 @@ pub fn route(method: &str, path: &str) -> Route {
     match (method, path) {
         ("GET", "/habits") => Route::HabitsPage,
         ("POST", "/habits/done") => Route::HabitsDone,
+        ("POST", "/webhooks/capture") => Route::WebhookCapture,
         _ => Route::NotFound,
     }
 }
@@ -41,6 +44,11 @@ mod tests {
     #[test]
     fn post_habits_done_is_habits_done() {
         assert_eq!(route("POST", "/habits/done"), Route::HabitsDone);
+    }
+
+    #[test]
+    fn post_webhooks_capture_is_the_capture_endpoint() {
+        assert_eq!(route("POST", "/webhooks/capture"), Route::WebhookCapture);
     }
 
     #[test]
