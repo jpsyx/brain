@@ -138,8 +138,11 @@ pub fn run_tui(
     app.seed_triage_day(chrono::Local::now().naive_local());
 
     // Auto-sync triggers (C4). All best-effort; none blocks the event loop.
+    // Gated on `is_configured` so an unconfigured brain spawns no thread on start
+    // and forks no detached child on exit (the triggers would no-op anyway).
     let sync_cfg = crate::sync::config::SyncConfig::load();
-    if sync_cfg.on_start {
+    let sync_configured = sync_cfg.is_configured();
+    if sync_configured && sync_cfg.on_start {
         crate::sync::trigger::sync_in_background();
     }
     let watcher = if sync_cfg.watch_effective() {
@@ -152,7 +155,7 @@ pub fn run_tui(
 
     // On exit, kick a detached final sync (it acquires the sync lock itself) and
     // stop the watcher thread promptly.
-    if sync_cfg.on_exit {
+    if sync_configured && sync_cfg.on_exit {
         crate::sync::trigger::spawn_detached_sync();
     }
     drop(watcher);

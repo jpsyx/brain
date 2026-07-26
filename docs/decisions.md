@@ -768,8 +768,9 @@ race).** Concurrent triggers are the norm under C4: shell start + the watcher + 
 second `brain` shell + a manual `brain sync` can all want to sync at once, and two
 `rclone bisync` runs against the same bucket at the same time is exactly what must
 not happen. A single PID-file lock at `~/.cache/brain/sync/sync.lock`, taken
-atomically (`create_new`/O_EXCL) and reaped when stale (dead PID via `kill -0`, or
-a 600-second age backstop), gives "one sync at a time, machine-wide" cheaply, with
+atomically (`create_new`/O_EXCL) and reaped when stale (owner PID no longer alive
+via `kill -0` — a live owner is never reaped, so a long first sync is safe), gives
+"one sync at a time, machine-wide" cheaply, with
 no daemon or IPC. Crucially the lock wraps **all** sync entry points, including
 the manual `run_sync` in `main.rs` — which closes a latent C2/C3 race that existed
 before C4: two concurrent manual `brain sync` invocations could previously collide,

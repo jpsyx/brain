@@ -49,17 +49,6 @@ impl Debouncer {
             _ => false,
         }
     }
-
-    // Part of the pure `Debouncer` API (exercised by the unit tests and available
-    // to lib consumers); the binary's watcher loop drives the timer via
-    // `time_until_fire`/`poll` and never queries `is_armed`, so it is dead in the
-    // bin build only. Scoped allow (not a blanket file allow) instead of dropping
-    // a tested public method.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn is_armed(&self) -> bool {
-        self.deadline.is_some()
-    }
 }
 
 /// Whether a changed path should trigger a sync. Mirrors the bisync exclude set
@@ -73,6 +62,9 @@ pub fn is_watch_relevant(path: &Path) -> bool {
                 return false;
             }
             if s.contains("(conflict ") && s.contains(')') {
+                return false;
+            }
+            if s.contains(crate::sync::args::CONFLICT_MARKER) {
                 return false;
             }
         }
@@ -163,7 +155,6 @@ mod tests {
     #[test]
     fn disarmed_debouncer_never_fires() {
         let mut d = Debouncer::new(Duration::from_secs(3));
-        assert!(!d.is_armed());
         assert!(!d.poll(Instant::now()));
         assert_eq!(d.time_until_fire(Instant::now()), None);
     }
@@ -205,6 +196,13 @@ mod tests {
         assert!(!is_watch_relevant(Path::new("notes/.DS_Store")));
         assert!(!is_watch_relevant(Path::new(".cache/x")));
         assert!(!is_watch_relevant(Path::new("notes/idea (conflict mac 2026-07-25).md")));
+    }
+
+    #[test]
+    fn excludes_the_raw_rclone_conflict_marker() {
+        // The marker rclone leaves before the friendly rename must not re-trigger
+        // a sync (mirrors the bisync `*.__brainconflict__*` exclude).
+        assert!(!is_watch_relevant(Path::new("notes/idea.md.__brainconflict__")));
     }
 
     #[test]

@@ -191,13 +191,19 @@ pub fn format_last_run(run: Option<&SyncRun>, theme: Theme) -> String {
 #[must_use]
 pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
     let yn = |b: bool| if b { theme.success("on") } else { theme.muted("off") };
+    let watch_on = cfg.watch_effective();
+    let debounce = if watch_on {
+        format!(" {}", theme.muted(&format!("({}ms debounce)", cfg.debounce_ms)))
+    } else {
+        String::new()
+    };
     format!(
-        "{} on-start {} · on-exit {} · watch {} {}",
+        "{} on-start {} · on-exit {} · watch {}{}",
         theme.muted("triggers:"),
         yn(cfg.on_start),
         yn(cfg.on_exit),
-        yn(cfg.watch_effective()),
-        theme.muted(&format!("({}ms debounce)", cfg.debounce_ms)),
+        yn(watch_on),
+        debounce,
     )
 }
 
@@ -299,6 +305,16 @@ mod tests {
         let line = format_triggers(&cfg, Theme::dark(false));
         assert!(line.contains("watch on"), "{line}");
         assert!(line.contains("3000ms"), "{line}");
+    }
+
+    #[test]
+    fn format_triggers_hides_debounce_window_when_watch_off() {
+        // watch is disabled → the debounce window is meaningless, so don't show it.
+        let cfg: SyncConfig =
+            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","watch":false}"#).unwrap();
+        let line = format_triggers(&cfg, Theme::dark(false));
+        assert!(line.contains("watch off"), "{line}");
+        assert!(!line.contains("debounce"), "{line}");
     }
 
     #[test]
