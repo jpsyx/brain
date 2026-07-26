@@ -208,13 +208,14 @@ target) but is a top-level key of the same JSON object — see below.
 `sync::SyncConfig` (`src/sync/config.rs`) is a typed view of the `sync` object
 nested under `~/.config/brain/env.json`'s top level. As of C2, `brain sync`
 reads it to drive a real `rclone bisync` transport (see
-[integrations.md](integrations.md) and [architecture.md](architecture.md));
-`on_start`/`on_exit`/`watch` are configured now but only *act* as automatic
-triggers in a later sub-project-C phase — today `brain sync status` just
-displays them, and every sync is a manual `brain sync` invocation. An absent
-`sync` block parses to all defaults, so sync reads as fully disabled and brain
-behaves exactly as if the key didn't exist (`brain sync` prints "sync is not
-configured — run `brain sync setup`" and does nothing).
+[integrations.md](integrations.md) and [architecture.md](architecture.md)); as
+of C4 the `on_start`/`on_exit`/`watch` flags are live automatic triggers
+(background sync on shell start, a detached sync on exit, and a debounced
+filesystem watcher while the shell is open — `debounce_ms` sets the watcher's
+quiescence window). An absent `sync` block parses to all defaults, so sync reads
+as fully disabled and brain behaves exactly as if the key didn't exist
+(`brain sync` prints "sync is not configured — run `brain sync setup`" and does
+nothing, with no watcher thread and no start/exit sync).
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -223,9 +224,10 @@ configured — run `brain sync setup`" and does nothing).
 | `b2_path` | `String` | `""` | Optional path prefix within the bucket. |
 | `b2_key_id` | `String` | `""` | B2 application key id. |
 | `b2_app_key` | `String` | `""` | B2 application key (secret; stays machine-local in `env.json`, never synced). |
-| `on_start` | `bool` | `true` | Whether a future sync trigger fires on brain startup. |
-| `on_exit` | `bool` | `true` | Whether a future sync trigger fires on brain exit. |
-| `watch` | `bool` | `true` | Whether a future continuous watcher runs. See `watch_effective` below. |
+| `on_start` | `bool` | `true` | Fire a background sync when the shell starts (C4). |
+| `on_exit` | `bool` | `true` | Fire a detached, fire-and-forget sync when the shell exits (C4). |
+| `watch` | `bool` | `true` | Run the debounced filesystem watcher while the shell is open (C4). See `watch_effective` below. |
+| `debounce_ms` | `u64` | `3000` | The watcher's quiescence window in milliseconds: a sync fires once changes under the brain root settle for this long. `debounce()` maps it to a `Duration`. |
 | `max_delete_percent` | `u8` | `50` | Bisync safety guard: the max percent of files a sync run may delete before aborting. |
 | `exclude` | `Vec<String>` | `[]` | Extra rclone exclude patterns, appended to the built-in excludes (e.g. `"**/test-data/**"`). |
 | `max_size` | `String` | `""` | Skip files larger than this rclone size string (e.g. `"100M"`); empty means no cap. |
@@ -288,6 +290,21 @@ baseline"** — `command::sync_once` sets this when a run aborted with
 resync (see [integrations.md](integrations.md) and
 [decisions.md](decisions.md) for why this one abort kind is safe to
 auto-retry while others are not).
+
+## Sync lock (`src/sync/lock.rs`, `~/.cache/brain/sync/sync.lock`)
+
+The C4 machine-wide advisory sync lock is a single file at
+`~/.cache/brain/sync/sync.lock` (beside the sync journal, machine-local cache,
+never synced). Its "record" is intentionally minimal: **the file's contents are
+the bare owning PID** (the decimal `std::process::id()`, no JSON, no timestamp).
+It is created atomically with `create_new` (O_EXCL), so a second
+acquirer can't race in; `try_acquire` returns `Some(Guard)` on success (the
+`Guard` removes the file on drop, but only if it still holds our PID) or `None`
+when a live sync already holds it. A stale lock (owner PID no longer alive per
+`kill -0`, or an unreadable/garbage file) is reaped and re-taken; a live owner
+is never reaped, however long its sync runs. See
+[integrations.md](integrations.md) for how every sync trigger coalesces through
+it.
 
 ## Conflict-copy naming (`src/sync/conflicts.rs`)
 

@@ -313,6 +313,48 @@ bookkeeping.
   not installed · sync off`), which never affects the doctor's overall
   pass/fail.
 
+## Auto-sync triggers (the sync lock, the exit child, the watcher)
+
+The C4 auto-sync layer (`src/sync/{lock,watch,trigger}.rs`, wired into
+`src/tui/event_loop/setup.rs`'s `run_tui`) drives the same `rclone` handoff
+above automatically. Its own outside-world touchpoints:
+
+- **The machine-wide sync lock** (`src/sync/lock.rs`) is a PID file at
+  `~/.cache/brain/sync/sync.lock` (beside the sync journal, machine-local
+  cache). It holds the owning process's PID and is taken atomically via
+  `create_new` (O_EXCL), so only one sync runs at a time across every trigger
+  and every `brain` invocation on the machine (the extras skip rather than
+  queue). `Guard` removes the file on drop, but only if it still holds **our**
+  PID, so a Guard whose lock was reaped out from under it (a crash-recovery
+  race) never deletes the new owner's lock. A crash that leaves a stale file is
+  reaped on the next acquire, which classifies staleness purely by
+  **PID-liveness** (the same `server::lifecycle::pid_alive` `kill -0` probe the
+  server uses): a **live owner is never reaped**, so a long-running sync (a
+  large first sync can take many minutes) keeps the lock as long as it needs. A
+  missing or garbage lockfile reads as stale/reapable. (The one residual: a
+  SIGKILLed holder whose PID is later recycled to an unrelated live process
+  wedges the lock until the file is removed by hand.) The manual `run_sync` in
+  `main.rs` takes this lock too, closing a pre-existing concurrent-`brain sync`
+  race.
+- **The detached `on_exit` child** (`trigger::spawn_detached_sync`) spawns the
+  current exe as `brain sync` fully detached — `process_group(0)` (its own
+  process group, so it outlives the parent) plus stdin/stdout/stderr all set to
+  `Stdio::null()` — mirroring how `src/server/lifecycle.rs` spawns the server
+  daemon, and needing no `unsafe`. The shell finishes teardown and exits at
+  once; the child acquires the sync lock itself and pushes the final state in
+  the background (if a sync is already running it skips, since that run covers
+  the exit).
+- **The watcher's exclude set** (`watch::is_watch_relevant`, a pure path
+  predicate) mirrors the bisync filter (see `args::bisync_args`'s default
+  excludes above): a changed path under `.git`, `.cache`, or a `.DS_Store`, or
+  an existing friendly conflict copy (`*(conflict *)*`), never triggers a sync.
+  So a VCS write, a cache churn, or a conflict copy fanning in from another
+  machine can't kick the watcher. The watcher runs `notify` recursively over the
+  brain root; when relevant changes settle for the `debounce_ms` window it runs
+  one locked sync **synchronously in the watcher thread**, so the sync's own
+  pull writes buffer in the event channel and coalesce into at most one no-op
+  follow-up rather than looping.
+
 ## The auto-rebuild
 
 `run.sh` rebuilds `target/release/brain` whenever `Cargo.toml` or any

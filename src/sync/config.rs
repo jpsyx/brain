@@ -27,6 +27,9 @@ pub struct SyncConfig {
     pub exclude: Vec<String>,
     /// Skip files larger than this rclone size string (e.g. "100M"); empty = no cap.
     pub max_size: String,
+    /// Watcher quiescence window in milliseconds (fire a sync once changes settle).
+    #[serde(default = "default_debounce_ms")]
+    pub debounce_ms: u64,
 }
 
 fn default_true() -> bool {
@@ -34,6 +37,9 @@ fn default_true() -> bool {
 }
 fn default_max_delete() -> u8 {
     50
+}
+fn default_debounce_ms() -> u64 {
+    3000
 }
 
 impl SyncConfig {
@@ -59,6 +65,12 @@ impl SyncConfig {
     pub fn watch_effective(&self) -> bool {
         self.is_configured() && self.watch
     }
+
+    /// The watcher's quiescence window.
+    #[must_use]
+    pub fn debounce(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.debounce_ms)
+    }
 }
 
 #[cfg(test)]
@@ -75,6 +87,16 @@ mod tests {
         assert!(!c.enabled && !c.is_configured() && !c.watch_effective());
         assert_eq!(c.max_delete_percent, 50);
         assert!(c.on_start && c.on_exit && c.watch);
+        assert_eq!(c.debounce_ms, 3000);
+    }
+
+    #[test]
+    fn debounce_defaults_to_3s_and_maps_to_duration() {
+        let c = parse("{}");
+        assert_eq!(c.debounce_ms, 3000);
+        assert_eq!(c.debounce(), std::time::Duration::from_secs(3));
+        let c2 = parse(r#"{"debounce_ms": 500}"#);
+        assert_eq!(c2.debounce(), std::time::Duration::from_millis(500));
     }
 
     #[test]

@@ -116,7 +116,7 @@ pub fn run_tui(
         Box::new(ZshFunctionRunner::new("")),
         config,
         instance.clone(),
-        brain_root,
+        brain_root.clone(),
         db_path,
         db,
         search,
@@ -136,7 +136,29 @@ pub fn run_tui(
     // configured rollover hour into a new day does. Multi-day sessions get a
     // fresh check via `App::advance_triage_day` on each refresh.
     app.seed_triage_day(chrono::Local::now().naive_local());
+
+    // Auto-sync triggers (C4). All best-effort; none blocks the event loop.
+    // Gated on `is_configured` so an unconfigured brain spawns no thread on start
+    // and forks no detached child on exit (the triggers would no-op anyway).
+    let sync_cfg = crate::sync::config::SyncConfig::load();
+    let sync_configured = sync_cfg.is_configured();
+    if sync_configured && sync_cfg.on_start {
+        crate::sync::trigger::sync_in_background();
+    }
+    let watcher = if sync_cfg.watch_effective() {
+        crate::sync::watch::spawn_watcher(&brain_root, &sync_cfg).ok()
+    } else {
+        None
+    };
+
     let result = event_loop(&mut terminal, &mut app);
+
+    // On exit, kick a detached final sync (it acquires the sync lock itself) and
+    // stop the watcher thread promptly.
+    if sync_configured && sync_cfg.on_exit {
+        crate::sync::trigger::spawn_detached_sync();
+    }
+    drop(watcher);
 
     // Release our session lock so the next open (this shell or another)
     // resumes the session this shell was driving.

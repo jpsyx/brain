@@ -603,12 +603,13 @@ guard always surfaces for a human decision, never auto-retried. C3 narrows
 the "no auto-resync" rule to that one case; see below for why
 `PriorListingMissing` specifically is safe to auto-retry.
 
-## C3 — brain sync progress, resume, and selective sync
+## Brain sync progress, resume, and selective sync (built on C2, pre-C3)
 
 Built on top of C2 after a real first sync on a 144 GB brain surfaced three
 gaps: a long baseline looked like a silent hang, an interrupted sync had no
 easy resume path, and there was no way to keep giant non-note files out of
-the bucket. See the design spec
+the bucket. (This is the interstitial progress/resume work, not phase C3 —
+C3 is the id-keyed CSV semantic merge below.) See the design spec
 (`docs/superpowers/specs/2026-07-25-brain-sync-progress-resume.md`) for the
 full write-up; the durable decisions are below.
 
@@ -714,6 +715,68 @@ churning it forever. Both are asserted directly as unit tests in
 whole scheme's safety — no silent divergence, no human ever needing to
 adjudicate a task-CSV conflict — depends on the merge being a genuine
 mathematical convergence, not just "usually agrees."
+
+## C4 — auto-sync triggers (start / exit hooks, the `notify` watcher, the sync lock)
+
+C4 makes sync automatic. The durable choices below are the ones a later phase (an
+idle-pull timer, or a standalone daemon) should keep rather than "simplify."
+
+**Why the watcher is an in-process shell thread, not a daemon.** The parent sync
+spec frames C4 as "TUI lifecycle hooks + debounce": the watcher's lifetime is the
+shell's lifetime. A standalone always-on daemon would mean a whole second
+lifecycle to build and own (spawn, a PID/port record, `status`/`kill`,
+stale-record reaping), i.e. the `src/server/` machinery duplicated for sync,
+which isn't worth it when the persistent shell is the default `brain` invocation
+and is almost always open. Folding the watcher into the brain HTTP server instead was
+also rejected: it would couple sync to the `/habits` server being up (it can be
+killed independently) and mix two unrelated concerns in one daemon. The accepted
+tradeoff is no live sync while *no* shell is open; `on_start` (next open),
+`on_exit` (last close), and manual `brain sync` cover that gap. If always-on sync
+is ever wanted, the deferred daemon is a clean add — the `sync_once`-under-lock
+core built here is exactly what it would reuse.
+
+**Why the exit sync is a detached fire-and-forget child, not an in-process
+thread.** Quitting must never wait on the network. An in-process thread joined at
+exit would block teardown; an unjoined in-process thread would be killed the
+instant the process exits, cutting the push short. So `on_exit` spawns
+`brain sync` as a fully detached child (`process_group(0)` + null stdio, no
+`unsafe`, mirroring how the brain server daemon is spawned): the shell exits
+instantly and the child finishes the push in the background under the sync lock.
+
+**Why event-driven `notify`, not polling.** `notify` watches the brain root via
+the OS-native backend (FSEvents / inotify): it is push-based, so the watcher
+thread blocks on a channel and consumes zero CPU when nothing changes. A polling
+loop (re-walking the tree on a timer) would burn CPU proportional to the brain's
+size for the common case of "nothing changed," which is wasteful on a large
+brain. We use the raw `RecommendedWatcher` and keep the debounce logic in our own
+tested pure `Debouncer`, so we depend on neither `notify-debouncer-full` nor
+`notify-debouncer-mini` and the decision logic stays pure and unit-testable
+(clock injected, no sleeps).
+
+**Why triggers skip rather than queue (coalescing).** Triggers are frequent and
+idempotent, so when a sync is already running the in-flight run (or the next
+debounce fire) will pick up whatever changed; queuing would just stack redundant
+rclone runs. So `try_acquire` is non-blocking and a caller that can't take the
+lock simply skips. The watcher's `Debouncer` re-arms after a skip, so pending
+changes aren't stranded. This also gives self-trigger suppression for free: the
+watcher runs its sync **synchronously in its own thread** while holding the lock,
+so the pull's own file writes land while the lock is held and coalesce into at
+most one cheap no-op follow-up rather than an infinite re-sync loop.
+
+**Why a machine-wide advisory sync lock (and that it closes a pre-existing
+race).** Concurrent triggers are the norm under C4: shell start + the watcher + a
+second `brain` shell + a manual `brain sync` can all want to sync at once, and two
+`rclone bisync` runs against the same bucket at the same time is exactly what must
+not happen. A single PID-file lock at `~/.cache/brain/sync/sync.lock`, taken
+atomically (`create_new`/O_EXCL) and reaped when stale (owner PID no longer alive
+via `kill -0` — a live owner is never reaped, so a long first sync is safe), gives
+"one sync at a time, machine-wide" cheaply, with
+no daemon or IPC. Crucially the lock wraps **all** sync entry points, including
+the manual `run_sync` in `main.rs` — which closes a latent C2/C3 race that existed
+before C4: two concurrent manual `brain sync` invocations could previously collide,
+and now the second cleanly skips. Manual sync deliberately skips-with-a-message
+rather than blocking; a short blocking-wait for the human path is a noted possible
+refinement, not shipped.
 
 ## Why `Ctrl-N` sends `/new` instead of being forwarded to claude
 
