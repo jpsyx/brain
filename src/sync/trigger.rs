@@ -4,12 +4,6 @@
 //! unconfigured brain, or a spawn failure is swallowed, so a trigger never
 //! crashes or blocks the shell.
 
-// `run_locked_sync` is called by `watch::spawn_watcher`; all three are wired
-// into the shell by the TUI lifecycle seam (on_start / watcher / on_exit) in a
-// later slice. Until that lands the binary has no caller, so scope a `dead_code`
-// allow here. Remove when the TUI seam lands.
-#![allow(dead_code)]
-
 use std::process::{Command, Stdio};
 
 use crate::sync::args::Direction;

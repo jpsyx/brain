@@ -6,12 +6,6 @@
 //! thread, so the sync's own writes buffer in the event channel and coalesce
 //! into at most one no-op follow-up (no loop).
 
-// The pure core is consumed by the lib (and its integration test) through
-// `spawn_watcher_with`, but the *binary* only reaches these once the TUI
-// lifecycle seam wires `spawn_watcher` in a later slice. Until then the bin has
-// no caller, so scope a `dead_code` allow. Remove when the TUI seam lands.
-#![allow(dead_code)]
-
 use std::path::{Component, Path};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -56,7 +50,13 @@ impl Debouncer {
         }
     }
 
+    // Part of the pure `Debouncer` API (exercised by the unit tests and available
+    // to lib consumers); the binary's watcher loop drives the timer via
+    // `time_until_fire`/`poll` and never queries `is_armed`, so it is dead in the
+    // bin build only. Scoped allow (not a blanket file allow) instead of dropping
+    // a tested public method.
     #[must_use]
+    #[allow(dead_code)]
     pub fn is_armed(&self) -> bool {
         self.deadline.is_some()
     }
