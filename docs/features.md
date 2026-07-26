@@ -221,11 +221,14 @@ nothing.
   Lock **disabled**, and a bucket-scoped application key) and waits for you before
   continuing. Then it collects the B2 bucket + credentials (writes the `sync`
   block into **brain env**, not brain config — see [config.md](config.md)),
-  verifies or creates the bucket, and establishes the initial bisync baseline.
+  verifies or creates the bucket, creates the `RCLONE_TEST` check-access marker
+  on both sides, and establishes the initial bisync baseline.
 - `brain sync init` — (re-)establish the bisync baseline: bootstrap a fresh
   machine, or recover once rclone refuses to sync because one side's listing
-  is empty (see [integrations.md](integrations.md)). You rarely need to run
-  this by hand anymore — see **auto-resume** below.
+  is empty or the check-access marker is missing (see
+  [integrations.md](integrations.md)). It recreates the `RCLONE_TEST` marker on
+  both sides before the resync. You rarely need to run this by hand anymore —
+  see **auto-resume** below.
 - `brain sync status` — the last run (from the local sync journal), the
   configured triggers (`on_start`/`on_exit`/`watch`, with the watcher's
   debounce window shown as `(3000ms debounce)`), and the count of open

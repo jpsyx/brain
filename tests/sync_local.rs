@@ -7,6 +7,7 @@ use std::process::Command;
 
 use brain::sync::args::{bisync_args, Direction};
 use brain::sync::config::SyncConfig;
+use brain::sync::remote::Remote;
 use brain::sync::run::run_rclone;
 use brain::sync::verify::{self, Outcome};
 
@@ -19,6 +20,10 @@ fn cfg() -> SyncConfig {
 }
 
 fn run(a: &Path, b: &Path, dir: Direction) -> brain::sync::run::RunOutcome {
+    if dir == Direction::Resync {
+        let remote = Remote { env: Vec::new(), arg: b.to_string_lossy().into_owned() };
+        brain::sync::check_access::ensure_markers(a, &remote).unwrap();
+    }
     let args = bisync_args(&cfg(), &a.to_string_lossy(), &b.to_string_lossy(), dir);
     run_rclone(&[], &args)
 }

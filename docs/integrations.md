@@ -182,10 +182,11 @@ bookkeeping.
   as 0), `--stats 10s --stats-one-line` (periodic one-line progress instead of
   rclone's default one-shot summary), `--resilient --recover` (so an
   interrupted run can resume on the next invocation without forcing a full
-  `--resync`), and default excludes (`.git/**`, `.DS_Store`, `.cache/**`,
-  friendly conflict copies `*(conflict *)*`, and raw markers
-  `*.__brainconflict__*`) plus any user-configured `sync.exclude` patterns and
-  an optional `sync.max_size` cap (`--max-size`, omitted when unset).
+  `--resync`), `--check-access --check-filename RCLONE_TEST`, and default
+  excludes (`.git/**`, `.DS_Store`, `.cache/**`, friendly conflict copies
+  `*(conflict *)*`, and raw markers `*.__brainconflict__*`) plus any
+  user-configured `sync.exclude` patterns and an optional `sync.max_size` cap
+  (`--max-size`, omitted when unset).
   `src/sync/run.rs` (`run_rclone`) spawns `rclone` with that argv and the
   env-var remote, and parses its captured stderr into transferred / deleted /
   error counts plus an abort reason.
@@ -201,17 +202,20 @@ bookkeeping.
   that makes this worth watching (`--stats 10s --stats-one-line`, e.g.
   `Transferred: 12.3G / 144G, 9%, 5.2 MByte/s, ETA 6h`) comes from
   `args::bisync_args`, alongside `--resilient --recover` (below).
-- **`--max-delete` is the blast-radius guard; `--check-access` is
-  deliberately not used.** `max_delete_percent` (from `sync.max_delete_percent`
-  in the brain-env `sync` block, default 50) aborts a run that would delete
-  more than that share of files, without propagating the deletes — rclone's
-  own safety abort ("too many deletes"), which `src/sync/verify.rs` maps to a
-  `NeedsAttention`/`Aborted` outcome pointing at `brain sync --resync` (via
-  `brain sync init`) if the deletes were intentional. `--check-access` is
-  intentionally **not** passed: it aborts every run unless matching
-  `RCLONE_TEST` marker files exist on both sides of the sync, and brain does
-  not create or manage those markers in this phase, so turning it on would
-  make every run fail. `--max-delete` is the guard brain relies on instead.
+- **`--max-delete` and `--check-access` are both active guards.**
+  `max_delete_percent` (from `sync.max_delete_percent` in the brain-env `sync`
+  block, default 50) aborts a run that would delete more than that share of
+  files, without propagating the deletes. rclone's own safety abort ("too many
+  deletes") is mapped by `src/sync/verify.rs` to an `Aborted` outcome pointing
+  at `brain sync --resync` (via `brain sync init`) if the deletes were
+  intentional. `--check-access --check-filename RCLONE_TEST` is the path
+  symmetry guard: rclone aborts unless both sync roots contain the marker.
+  `src/sync/check_access.rs` owns that lifecycle. `brain sync setup` and
+  `brain sync init` write `<brain-root>/RCLONE_TEST`, copy it to the remote
+  root with `rclone copyto`, and then run the resync. Normal `brain sync`,
+  `--push`, and `--pull` do not silently repair missing markers; if the guard
+  fails, `src/sync/run.rs` classifies it as `AbortKind::CheckAccess` and
+  `verify.rs` tells the user to run `brain sync init`.
 - **rclone's own empty-directory guard.** Independently of brain's
   `--max-delete` guard, `rclone bisync` refuses to run at all when one side's
   prior listing has gone fully empty ("cannot find prior Path1 or Path2

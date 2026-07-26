@@ -107,8 +107,10 @@ unless noted. Update this file (check the box, note the commit) as you land each
   design) and `cargo clippy --release --all-targets` clean.
 
 ### 5. §19 deferred backlog  *(parent spec §19 + C4 §11 — revisit as wanted)*
-- [ ] `--check-access` marker-file guard (needs create/maintain a marker in the
-  brain root on setup).
+- [x] `--check-access` marker-file guard (needs create/maintain a marker in the
+  brain root on setup). Implemented on `feat/check-access`; commit SHA pending.
+  Validation: `cargo test --release` green (664 tests; watcher timing test
+  still ignored by design) and `cargo clippy --release --all-targets` clean.
 - [ ] `rclone crypt` (zero-knowledge client-side encryption) — a clean seam was
   left; layering it must not change the `brain sync` surface. Passphrase escrow
   is the user's responsibility.

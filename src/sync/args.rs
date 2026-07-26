@@ -2,9 +2,7 @@
 //!
 //! Covers direction → conflict resolution bias, the keep-both conflict
 //! flags, the default exclude filters, the `--max-delete` guard, and (for a
-//! baseline) `--resync`. (`--check-access` is intentionally not used yet: it
-//! aborts every run unless `RCLONE_TEST` marker files exist on both sides, which
-//! brain does not manage in C2; `--max-delete` is the blast-radius guard.)
+//! baseline) `--resync`, and the `--check-access` marker guard.
 //!
 //! Also emits periodic one-line progress (`--stats 10s --stats-one-line`),
 //! `--resilient`/`--recover` so an interrupted run can resume without a full
@@ -58,6 +56,8 @@ pub fn bisync_args(cfg: &SyncConfig, local: &str, remote_arg: &str, dir: Directi
     a.extend(["--conflict-loser".into(), "pathname".into()]);
     a.extend(["--conflict-suffix".into(), CONFLICT_MARKER.into()]);
     a.extend(["--max-delete".into(), cfg.max_delete_percent.to_string()]);
+    a.push("--check-access".into());
+    a.extend(["--check-filename".into(), "RCLONE_TEST".into()]);
     a.push("-v".into());
     a.extend(["--stats".into(), "10s".into()]);
     a.push("--stats-one-line".into());
@@ -109,11 +109,11 @@ mod tests {
     }
 
     #[test]
-    fn carries_max_delete_and_excludes_but_not_check_access() {
+    fn carries_max_delete_check_access_and_excludes() {
         let a = args(Direction::Both);
         assert_eq!(pair_after(&a, "--max-delete"), Some("40"));
-        // --check-access aborts without RCLONE_TEST markers brain doesn't manage.
-        assert!(!a.iter().any(|s| s == "--check-access"));
+        assert!(a.iter().any(|s| s == "--check-access"));
+        assert_eq!(pair_after(&a, "--check-filename"), Some("RCLONE_TEST"));
         assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == ".git/**"));
         assert!(a.windows(2).any(|w| w[0] == "--exclude" && w[1] == "*(conflict *)*"));
         // Raw markers must be excluded so they don't re-propagate on later syncs.

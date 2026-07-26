@@ -283,8 +283,10 @@ verify → journal**: `config` (`SyncConfig`, parsed from the brain-env `sync`
 block) feeds `remote::build_remote` (the B2 remote as `RCLONE_CONFIG_*` env
 vars, never on argv) and `args::bisync_args` (the full `rclone bisync` argv:
 conflict resolution bias for the direction, keep-both flags, `--max-delete`,
-default excludes, plus `--stats 10s --stats-one-line` for live progress and
-`--resilient --recover` for resumability); `run::run_rclone` spawns `rclone`
+default excludes, `--check-access --check-filename RCLONE_TEST`, plus
+`--stats 10s --stats-one-line` for live progress and `--resilient --recover`
+for resumability); `check_access.rs` creates/repairs the root-level marker on
+local + remote before resync runs; `run::run_rclone` spawns `rclone`
 with that env + argv, streaming its stderr live to the terminal while
 capturing it, and parses the capture into transferred/deleted/error counts
 and an abort reason; if that abort is an incomplete baseline
@@ -303,7 +305,8 @@ machine-local, never synced). `command::sync_once` is the thin orchestrator
 that runs this whole pipeline; `command::print_status`/`print_conflicts` back
 `brain sync status`/`brain sync conflicts`. `setup.rs` is `brain sync setup`'s
 interactive flow (collect bucket + credentials, verify/create the bucket via
-`rclone lsd`/`mkdir`, write the `sync` block into brain env, then run one
+`rclone lsd`/`mkdir`, write the `sync` block into brain env, bootstrap the
+check-access markers through `sync_once(Direction::Resync)`, then run one
 baseline `sync_once` with `Direction::Resync`) — `brain sync init` reruns just
 that resync, both as the fresh-machine bootstrap and as the recovery path for
 rclone's own "prior listings missing" guard. See

@@ -307,6 +307,17 @@ the stale cap, or an unreadable/garbage file) is reaped and re-taken. See
 [integrations.md](integrations.md) for how every sync trigger coalesces through
 it.
 
+## Check-access marker (`RCLONE_TEST`)
+
+rclone's `--check-access` guard requires a marker file named `RCLONE_TEST` at
+both sync roots. brain owns that marker lifecycle through
+`src/sync/check_access.rs`: `brain sync setup` and `brain sync init` write a
+generic `<brain-root>/RCLONE_TEST` file and copy it to the remote root before
+the resync baseline is established. The marker contains no secrets and is
+ordinary synced metadata. Normal sync runs do not recreate it; if it is missing
+on either side, rclone aborts and brain reports the recovery path as
+`brain sync init`.
+
 ## Conflict-copy naming (`src/sync/conflicts.rs`)
 
 `rclone bisync` is configured (`args::bisync_args`) to keep, not drop, the
