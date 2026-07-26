@@ -1,7 +1,7 @@
 # Brain sync (Sub-project C) — design
 
 - **Date:** 2026-07-24
-- **Status:** Design — forks resolved; ready for phase-by-phase implementation planning (C1 first).
+- **Status:** ✅ **Shipped — C1–C5 all merged to `main` (2026-07-26).** Sub-project C is complete. For current program state and remaining follow-ups (C3.3, C3.4, C4 lock heartbeat, C5 optional tests, and the §19 backlog below), see [brain-sync-status.md](../brain-sync-status.md).
 - **Scope of this document:** the **full design for Sub-project C**, the last of
   the A → B → C program that makes `brain` generic. A (personalization/config
   foundation) and B (skill pipeline) are shipped. C adds **cross-machine sync of
