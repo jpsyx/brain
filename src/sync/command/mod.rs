@@ -59,6 +59,10 @@ pub fn sync_once(cfg: &SyncConfig, root: &Path, dir: Direction, now: (&str, &str
     let local = root.to_string_lossy().into_owned();
     let argv = args::bisync_args(cfg, &local, &remote.arg, dir);
 
+    if should_bootstrap_check_access(dir) {
+        crate::sync::check_access::ensure_markers(root, &remote)?;
+    }
+
     let mut run = run_rclone(&remote.env, &argv);
     let resumed = if should_auto_resync(dir, run.abort.as_ref()) {
         let theme = Theme::active();
@@ -149,6 +153,13 @@ pub fn join_notes(a: &str, b: &str) -> String {
 pub fn should_auto_resync(dir: Direction, abort: Option<&crate::sync::run::AbortKind>) -> bool {
     dir != Direction::Resync
         && matches!(abort, Some(crate::sync::run::AbortKind::PriorListingMissing))
+}
+
+/// Whether this sync run should create/repair the check-access markers before
+/// invoking rclone.
+#[must_use]
+pub fn should_bootstrap_check_access(dir: Direction) -> bool {
+    dir == Direction::Resync
 }
 
 #[must_use]
@@ -538,6 +549,14 @@ mod tests {
         // other aborts / clean -> no auto resync
         assert!(!should_auto_resync(Direction::Both, Some(&AbortKind::MaxDelete)));
         assert!(!should_auto_resync(Direction::Both, None));
+    }
+
+    #[test]
+    fn check_access_bootstrap_runs_only_for_resync() {
+        assert!(should_bootstrap_check_access(Direction::Resync));
+        assert!(!should_bootstrap_check_access(Direction::Both));
+        assert!(!should_bootstrap_check_access(Direction::Push));
+        assert!(!should_bootstrap_check_access(Direction::Pull));
     }
 
     #[test]

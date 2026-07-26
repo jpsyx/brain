@@ -526,7 +526,7 @@ to symlink because brain only ever reads it — `env.json` is not read-only, so
 the same trick doesn't apply). See the brain-sync design spec §12 for the full
 record.
 
-## C2 — `brain sync`'s rclone transport: env-var creds, `--max-delete` over `--check-access`, bisync over a custom merge
+## C2/§19 — `brain sync`'s rclone transport: env-var creds, `--max-delete` + `--check-access`, bisync over a custom merge
 
 C1 shipped only a parse-only `SyncConfig`; C2 is the first phase that actually
 moves bytes. The choices below are the ones a future phase (a triggers/watch
@@ -548,20 +548,19 @@ every invocation costs nothing (it's a handful of string ops) and keeps the
 credential's *only* copy where `brain env`/`brain sync setup` already manage
 it.
 
-**Why `--max-delete` and not `--check-access`.** rclone offers `--check-access`
+**Why `--max-delete` shipped first, and why `--check-access` is now enabled.** rclone offers `--check-access`
 as a symmetry guard (both sides must show matching `RCLONE_TEST` marker files,
 or the run aborts) and `--max-delete` as a blast-radius guard (abort if a run
-would delete more than a configured percent of files). We only use the
-latter. `--check-access` requires brain to *create and manage* those marker
-files on both sides — a whole feature C2 doesn't build — so turning it on
-today would make every single run abort. `--max-delete` needs no such
-bookkeeping: it just counts what bisync is about to delete against
-`sync.max_delete_percent` (default 50) and refuses the run (without
-propagating any deletes) if that threshold is exceeded. It's the cheaper guard
-that already covers the failure mode we actually care about (a wiped or
-mostly-empty side quietly deleting everything on the other machine); a future
-phase can add `--check-access` on top once it owns the marker-file lifecycle,
-but it isn't a prerequisite for a safe first sync.
+would delete more than a configured percent of files). C2 shipped only
+`--max-delete` because `--check-access` requires brain to create and manage
+marker files on both sides; enabling it before that lifecycle existed would
+make every run abort. The §19 hardening slice adds that lifecycle in
+`src/sync/check_access.rs`: setup/init write a generic local `RCLONE_TEST`
+marker, copy it to the remote root with rclone `copyto`, and then run the
+baseline resync. Normal syncs now pass `--check-access --check-filename
+RCLONE_TEST` and intentionally do not repair missing markers. A missing marker
+means the roots are no longer a confirmed pair, so brain aborts and points the
+user at `brain sync init`.
 
 **Why `rclone bisync` and not a from-scratch merge.** The brain root isn't
 just markdown notes — it also holds `tasks.csv`/`habits.csv`, which don't

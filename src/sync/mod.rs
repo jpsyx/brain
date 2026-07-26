@@ -4,6 +4,7 @@
 
 pub mod args;
 pub mod check;
+pub mod check_access;
 pub mod command;
 pub mod config;
 pub mod conflicts;

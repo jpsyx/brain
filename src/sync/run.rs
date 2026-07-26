@@ -12,6 +12,8 @@ use super::progress;
 pub enum AbortKind {
     /// `--max-delete` guard tripped (rclone's "too many deletes" safety abort).
     MaxDelete,
+    /// rclone's `--check-access` marker guard failed.
+    CheckAccess,
     /// Baseline listings missing — needs `brain sync init` / `--resync`.
     PriorListingMissing,
     /// Some other non-zero exit.
@@ -72,6 +74,11 @@ pub fn parse_outcome(exit_ok: bool, output: &str) -> RunOutcome {
         None
     } else if lc.contains("--max-delete") || lc.contains("too many deletes") {
         Some(AbortKind::MaxDelete)
+    } else if lc.contains("--check-access")
+        || lc.contains("access test failed")
+        || lc.contains("check file check failed")
+    {
+        Some(AbortKind::CheckAccess)
     } else if lc.contains("cannot find prior") || lc.contains("must run --resync") || lc.contains("run --resync") {
         Some(AbortKind::PriorListingMissing)
     } else {
@@ -236,6 +243,19 @@ mod tests {
              NOTICE: Failed to bisync: bisync aborted\n",
         );
         assert_eq!(o.abort, Some(AbortKind::PriorListingMissing));
+    }
+
+    #[test]
+    fn detects_check_access_abort_before_generic_resync_text() {
+        let o = parse_outcome(
+            false,
+            "NOTICE: --check-access: Failed to find any files named RCLONE_TEST\n\
+             ERROR : Access test failed: Path1 count 0, Path2 count 0 - RCLONE_TEST\n\
+             ERROR : Bisync critical error: check file check failed\n\
+             ERROR : Bisync aborted. Must run --resync to recover.\n\
+             NOTICE: Failed to bisync: bisync aborted\n",
+        );
+        assert_eq!(o.abort, Some(AbortKind::CheckAccess));
     }
 
     #[test]

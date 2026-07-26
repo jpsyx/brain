@@ -36,6 +36,7 @@ pub fn classify(run: &RunOutcome, conflicts: usize, leftover_markers: usize) -> 
     if let Some(kind) = &run.abort {
         let msg = match kind {
             AbortKind::MaxDelete => "sync aborted: would delete more than the --max-delete threshold. If intentional, run `brain sync --resync`.",
+            AbortKind::CheckAccess => "sync aborted: check-access marker missing. Run `brain sync init` to recreate the RCLONE_TEST marker and re-establish the baseline.",
             AbortKind::PriorListingMissing => "sync aborted: baseline listings missing. Run `brain sync init` to re-establish the baseline.",
             AbortKind::Other => "sync aborted: rclone exited with an error. See `brain sync status`.",
         };
@@ -71,6 +72,18 @@ mod tests {
         let mut r = ok_run();
         r.errors = 2;
         assert!(matches!(classify(&r, 0, 0), Outcome::NeedsAttention(_)));
+    }
+
+    #[test]
+    fn check_access_abort_points_at_sync_init() {
+        let mut r = ok_run();
+        r.exit_ok = false;
+        r.abort = Some(AbortKind::CheckAccess);
+        let Outcome::Aborted(msg) = classify(&r, 0, 0) else {
+            panic!("expected aborted outcome");
+        };
+        assert!(msg.contains("check-access"), "{msg}");
+        assert!(msg.contains("brain sync init"), "{msg}");
     }
 
     #[test]
