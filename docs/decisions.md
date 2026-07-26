@@ -712,6 +712,17 @@ whole scheme's safety — no silent divergence, no human ever needing to
 adjudicate a task-CSV conflict — depends on the merge being a genuine
 mathematical convergence, not just "usually agrees."
 
+**Why `brain check` reports CSV row deltas instead of simulating the full
+merge.** `check` is a read-only "what would move?" report, and its value is
+fast, low-risk visibility before running `brain sync`. For the task CSV lane,
+that means comparing each side to the cached baseline and reporting added,
+changed, and deleted rows. Running the full merge in check output would expose
+merge adjudication details without committing the merged state anywhere, which
+could confuse the contract: `brain sync` is still the only command that applies
+last-writer-wins, writes both sides, and refreshes the baseline. Row deltas are
+enough to prevent the old blind spot where task/habit edits were invisible to
+`brain check`.
+
 ## C4 — auto-sync triggers (start / exit hooks, the `notify` watcher, the sync lock)
 
 C4 makes sync automatic. The durable choices below are the ones a later phase (an

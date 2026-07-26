@@ -19,7 +19,7 @@ use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone_capture;
 
 /// The two CSVs reconciled out-of-band, as repo-relative paths.
-const CSVS: [&str; 2] = ["tasks/tasks.csv", "tasks/habits.csv"];
+pub const CSVS: [&str; 2] = ["tasks/tasks.csv", "tasks/habits.csv"];
 
 /// Counts folded into the sync journal for one merged CSV.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

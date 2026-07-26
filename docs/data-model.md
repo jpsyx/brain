@@ -388,8 +388,8 @@ the resolve side of the contract.
 
 `tasks/tasks.csv` and `tasks/habits.csv` are excluded from the bisync file
 lane (`args::bisync_args`'s default excludes) and reconciled instead by a
-pure, id-keyed 3-way merge, so the two files never produce a `(conflict
-…)` copy the way a bisync'd file would (see [integrations.md](integrations.md)
+pure, id-keyed 3-way merge, so the two files never produce a `(conflict …)`
+copy the way a bisync'd file would (see [integrations.md](integrations.md)
 for the transport, [decisions.md](decisions.md) for why).
 
 `Table` (`csv_merge.rs`) is the parsed shape, keyed by the first column:
@@ -464,6 +464,15 @@ CSVs into one segment appended to the sync journal's `note` column (see
 "Sync journal" above), e.g. `csv: +3 ~2 -1 (1 soft)` (added/merged/deleted
 counts, plus a soft-conflict count when nonzero); empty when nothing
 changed, so a clean run's note isn't cluttered by a no-op CSV pass.
+
+**Read-only pending diff.** `brain check` does not run the full 3-way merge
+or update any CSV state. Instead `check::CsvSideDiff` compares one side
+against the cached baseline by `task_id` and counts whole-row additions,
+changes, and deletions. `check::CsvPending` holds one push diff
+(`baseline` vs. local CSV) and, when the remote fetch succeeds, one pull diff
+(`baseline` vs. remote CSV). This is a preview of pending row movement, not a
+merge-result adjudication: same-field last-writer-wins is still applied only
+by `brain sync`.
 
 ## Binary stdout (the output "schema")
 

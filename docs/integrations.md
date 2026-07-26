@@ -323,6 +323,13 @@ bookkeeping.
   bisync run's own outcome, and the step is skipped entirely when that run
   aborted. See [decisions.md](decisions.md) for why this file pair gets a
   semantic merge instead of keep-both.
+- **`brain check` has a read-only CSV lane too.** Since those two CSVs are
+  excluded from dry-run bisync, `src/sync/check.rs` reads the same cached
+  baselines, reads the local CSVs, fetches each remote CSV with `rclone copyto`
+  into a temp file, and reports row-level `+A ~C -D` push/pull deltas. It never
+  writes local files, remotes, or baselines; if a remote CSV cannot be fetched,
+  the local row diff is still shown and the remote side is reported as
+  unchecked.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.
