@@ -258,10 +258,7 @@ fn sync_command(args: &SyncArgs) -> Result<()> {
         Some(SyncAction::Setup) => crate::sync::setup::run(),
         Some(SyncAction::Init) => run_sync(&cfg, &root, Direction::Resync),
         Some(SyncAction::Status) => crate::sync::command::print_status(&cfg, &root),
-        Some(SyncAction::Conflicts) => {
-            crate::sync::command::print_conflicts(&root);
-            Ok(())
-        }
+        Some(SyncAction::Conflicts { json }) => crate::sync::command::print_conflicts(&root, *json),
         None => {
             let dir = crate::sync::command::direction_from_flags(args.push, args.pull)?;
             run_sync(&cfg, &root, dir)

@@ -39,10 +39,9 @@ pub fn conflict_name(original: &Path, host: &str, date: &str) -> PathBuf {
 
 /// Recovered parts of a friendly conflict-copy name.
 ///
-/// Consumed within this module by `group_conflicts`/`copies_for_original`, but
-/// not yet reachable from the bin's own call graph — the `--json` CLI surface
-/// (C5.2 Task 3) wires it in next.
-#[allow(dead_code)]
+/// Consumed within this module by `group_conflicts`/`copies_for_original`,
+/// and reachable from the bin via `print_conflicts`'s `--json` branch
+/// (`group_conflicts` → `parse_conflict_name`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ParsedConflict {
     /// Canonical original this copy competes with, e.g. `notes/idea.md`.
@@ -52,11 +51,6 @@ pub struct ParsedConflict {
 }
 
 /// Whether `date` is exactly `\d{4}-\d{2}-\d{2}` (no calendar validation).
-///
-/// Only reachable via `parse_conflict_name`, which isn't yet wired into a
-/// bin-reachable caller — see the `#[allow(dead_code)]` note on
-/// `ParsedConflict` above.
-#[allow(dead_code)]
 fn is_conflict_date(date: &str) -> bool {
     let bytes = date.as_bytes();
     bytes.len() == 10
@@ -70,7 +64,6 @@ fn is_conflict_date(date: &str) -> bool {
 /// Inverse of `conflict_name`: from `stem (conflict <host> <date>).ext` recover
 /// the original path + host + date. Returns `None` when `path`'s file name isn't
 /// the exact friendly-conflict grammar.
-#[allow(dead_code)]
 #[must_use]
 pub fn parse_conflict_name(path: &Path) -> Option<ParsedConflict> {
     const OPEN: &str = " (conflict ";
@@ -179,17 +172,15 @@ pub fn list_conflicts(root: &Path) -> Vec<ConflictFile> {
 
 /// A canonical original and its open conflict copies.
 ///
-/// Not yet consumed outside this module's tests — the `--json` surface
-/// (C5.2 Task 3) builds on it next.
-#[allow(dead_code)]
+/// Consumed by `crate::sync::command::conflicts_json` for `brain sync
+/// conflicts --json`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ConflictGroup {
     pub original: PathBuf,
     pub copies: Vec<ParsedCopy>,
 }
 
-/// One conflict copy within a `ConflictGroup`.
-#[allow(dead_code)]
+/// One conflict copy within a [`ConflictGroup`].
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ParsedCopy {
     /// Relative to root, as it came from `ConflictFile`.
@@ -202,12 +193,8 @@ pub struct ParsedCopy {
 ///
 /// Copies whose name doesn't parse as a friendly conflict are dropped. Output
 /// is sorted by original, and by path within each group, so it's deterministic
-/// regardless of input order (later serialized to JSON, where byte-stable
-/// output matters).
-///
-/// Not yet wired into a bin-reachable caller — see the `#[allow(dead_code)]`
-/// note on `ConflictGroup` above.
-#[allow(dead_code)]
+/// regardless of input order (serialized to JSON by `--json`, where
+/// byte-stable output matters).
 #[must_use]
 pub fn group_conflicts(files: &[ConflictFile]) -> Vec<ConflictGroup> {
     let mut groups: Vec<ConflictGroup> = Vec::new();
@@ -229,8 +216,8 @@ pub fn group_conflicts(files: &[ConflictFile]) -> Vec<ConflictGroup> {
 /// The copies (from the live conflict set) belonging to `original`, matched via
 /// the recovered `ParsedConflict.original`. Never returns `original` itself.
 ///
-/// Not yet wired into a bin-reachable caller — see the `#[allow(dead_code)]`
-/// note on `ConflictGroup` above.
+/// Not yet wired into a bin-reachable caller — `brain sync resolve <original>`
+/// (C5.3 Task 4) is its consumer.
 #[allow(dead_code)]
 #[must_use]
 pub fn copies_for_original(original: &Path, files: &[ConflictFile]) -> Vec<PathBuf> {
