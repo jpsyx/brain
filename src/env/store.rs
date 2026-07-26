@@ -3,7 +3,7 @@
 //! startup — it reads as an empty map. Brain env is machine-local (`root`,
 //! `markdown_to_pdf_path`, the `sync` block) and is NOT Backblaze-synced.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::{Map, Value};
@@ -14,11 +14,13 @@ pub fn env_path() -> PathBuf {
     crate::paths::machine_config_dir().join("env.json")
 }
 
-/// Read the store as a JSON object. A missing/unreadable/non-object file yields
-/// an empty map — a broken env never blocks startup.
+/// Read a JSON object at an explicit `path`. A missing/unreadable/non-object
+/// file yields an empty map — a broken env never blocks startup. Split out of
+/// [`load_map`] so the migration (`env::migrate`) can read a store at an
+/// explicit dir hermetically, without going through the real `env_path()`.
 #[must_use]
-pub(crate) fn load_map() -> Map<String, Value> {
-    std::fs::read_to_string(env_path())
+pub(super) fn load_map_at(path: &Path) -> Map<String, Value> {
+    std::fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         .and_then(|v| match v {
@@ -28,14 +30,27 @@ pub(crate) fn load_map() -> Map<String, Value> {
         .unwrap_or_default()
 }
 
-pub(super) fn save_map(map: &Map<String, Value>) -> Result<()> {
-    let path = env_path();
+/// Read the store as a JSON object. A missing/unreadable/non-object file yields
+/// an empty map — a broken env never blocks startup.
+#[must_use]
+pub(crate) fn load_map() -> Map<String, Value> {
+    load_map_at(&env_path())
+}
+
+/// Write `map` as the JSON object at an explicit `path`, creating parent dirs
+/// as needed. Split out of [`save_map`] for the same reason as
+/// [`load_map_at`].
+pub(super) fn save_map_at(path: &Path, map: &Map<String, Value>) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
     let body = serde_json::to_string_pretty(&Value::Object(map.clone()))?;
-    std::fs::write(&path, format!("{body}\n"))?;
+    std::fs::write(path, format!("{body}\n"))?;
     Ok(())
+}
+
+pub(super) fn save_map(map: &Map<String, Value>) -> Result<()> {
+    save_map_at(&env_path(), map)
 }
 
 #[cfg(test)]
