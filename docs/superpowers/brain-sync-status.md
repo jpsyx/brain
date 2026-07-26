@@ -108,7 +108,7 @@ unless noted. Update this file (check the box, note the commit) as you land each
 
 ### 5. §19 deferred backlog  *(parent spec §19 + C4 §11 — revisit as wanted)*
 - [x] `--check-access` marker-file guard (needs create/maintain a marker in the
-  brain root on setup). Implemented on `feat/check-access`; commit SHA pending.
+  brain root on setup). Landed in `edad620` (`Add check-access sync guard`).
   Validation: `cargo test --release` green (664 tests; watcher timing test
   still ignored by design) and `cargo clippy --release --all-targets` clean.
 - [ ] `rclone crypt` (zero-knowledge client-side encryption) — a clean seam was
