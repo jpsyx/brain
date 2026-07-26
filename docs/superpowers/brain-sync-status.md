@@ -22,7 +22,7 @@ pipeline) shipped earlier. Sub-project C (Backblaze sync) is now done end to end
 
 Design docs: parent spec `specs/2026-07-24-brain-sync-design.md`; per-phase
 specs/plans under `specs/` and `plans/`. Rationale in `../decisions.md`.
-State at time of writing: `cargo test --release` green (652 tests), `cargo
+State at time of writing: `cargo test --release` green (667 tests), `cargo
 clippy --release --all-targets` clean.
 
 ---
@@ -37,10 +37,10 @@ unless noted. Update this file (check the box, note the commit) as you land each
   mutation. If writers don't, the same-field CSV 3-way merge can't resolve
   last-writer-wins accurately (it falls back safely to keep-local + journal, so
   this is correctness-sharpening, not a crash).
-- Writers to check: the `todo` skill scripts (`skills/todo/scripts/*.py`,
-  incl. `touch_task.py`, `add_task.py`, `mark_done.py`), the second-brain
-  `sync.py`, any brain-side Rust that writes the CSVs, and the `/habits` server
-  POST path.
+- Writers checked: the `todo` skill scripts (`skills/todo/scripts/*.py`,
+  incl. `touch_task.py` and `add_task.py`), native `brain tasks complete`, the
+  second-brain `sync.py`, any brain-side Rust that writes the CSVs, and the
+  `/habits` server POST path.
 - Deliverable: each writer sets `last_touched` to "now" on mutate; a test (pure
   where possible) proving it. Cross-ref `src/sync/csv_merge.rs` for how the
   field is consumed.
@@ -117,8 +117,15 @@ unless noted. Update this file (check the box, note the commit) as you land each
   (`Add optional rclone crypt sync layer`). Validation: `cargo test --release`
   green (668 tests; watcher timing test still ignored by design) and
   `cargo clippy --release --all-targets` clean.
-- [ ] Native-Rust `mark_done.py` (remove the Python coupling from the
-  completion path: mutate the CSV + spawn the next recurrence in Rust).
+- [x] Native Rust completion (removed the Python coupling from the completion
+  path: `brain tasks complete <id>` now mutates CSVs, bumps `last_touched`,
+  migrates chunked-task MIT, and spawns habit recurrence inside the binary;
+  `/habits/done` and the TUI palette use the same Rust API). Landed in
+  `58c81d6` (`feat: complete tasks natively`). Validation:
+  `cargo test --release` green (667 tests; watcher timing test still ignored by
+  design) and `cargo clippy --release --all-targets` clean. The bundled
+  `mark_done.py` was removed; active brain skills and global skill references
+  now point at `brain tasks complete`.
 - [ ] Inbound webhook endpoints (`src/server/routes/` is structured for one
   route module + one `routes/mod.rs` line per endpoint).
 - [ ] C4 idle-pull timer (`sync.idle_pull_secs`) and/or a standalone always-on
