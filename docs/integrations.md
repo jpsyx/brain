@@ -38,6 +38,13 @@ helpers and shell-outs live in the tasks modules:
 - **`brain habits` / palette "Open habits in browser"** — bring up the bundled
   brain server (`server::lifecycle::ensure_running`) and open its `/habits`
   page via the system `open`; they no longer shell out to a zsh function.
+- **`POST /webhooks/capture`** — a local-only brain-server inbox for inbound
+  webhook relays. It writes a non-empty request body to
+  `<brain-root>/scratch/webhooks/<timestamp>-<seq>.<json|txt>` and returns the
+  brain-root-relative path as JSON. The endpoint is intentionally
+  vendor-neutral and unauthenticated because the daemon binds only to
+  `127.0.0.1`; do not expose it directly to the public internet without an
+  external auth layer.
 - **`cd <root> && <claude_cmd> …`** — the brain panel's PTY, shared by both
   main views (see below).
 

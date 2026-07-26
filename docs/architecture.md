@@ -483,8 +483,9 @@ The **brain server**: a small, synchronous, localhost HTTP daemon (`tiny_http`),
 one shared instance per machine across all `brain` invocations and tabs. Its
 `{pid, port}` record lives at `~/.cache/brain/server.json`.
 - `server/router.rs` — pure `route(method, path) -> Route` (`HabitsPage` for
-  `GET /habits`, `HabitsDone` for `POST /habits/done`, `NotFound` for everything
-  else including the bare root `/`); query strings are stripped before matching.
+  `GET /habits`, `HabitsDone` for `POST /habits/done`, `WebhookCapture` for
+  `POST /webhooks/capture`, `NotFound` for everything else including the bare
+  root `/`); query strings are stripped before matching.
 - `server/lifecycle.rs` — the daemon record + management: pure `is_live` and
   `choose_port` decisions, thin IO probes (`read_state`/`write_state`/
   `remove_state`, `pid_alive` via `kill -0`, `port_reachable` via a timed TCP
@@ -501,7 +502,9 @@ one shared instance per machine across all `brain` invocations and tabs. Its
   (pure HTML rendering into the `web/habits/` shell, with `style.css`/`app.js`
   inlined via `include_str!`), and `mod.rs` (the thin controller: `page` =
   load→classify→render, `done` = parse body → reuse native `tasks::complete`
-  completion → `DoneOutcome`).
+  completion → `DoneOutcome`). `routes/webhooks/` owns the generic
+  `/webhooks/capture` endpoint: pure-ish filename/response decisions plus the
+  thin write to `<root>/scratch/webhooks/<timestamp>-<seq>.<json|txt>`.
 
 The daemon is spawned detached without `unsafe`: `CommandExt::process_group(0)`
 plus null stdio on the current exe (`brain server run --port <p>`).

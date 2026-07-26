@@ -8,8 +8,9 @@
 //!
 //! `GET /habits` renders today's habits page (see [`routes::habits`]) and
 //! `POST /habits/done` marks a habit done by delegating to brain's own
-//! completion machinery. Everything else, including the bare root `/`, is a
-//! 404 (the brain server has no root view).
+//! completion machinery. `POST /webhooks/capture` stores an arbitrary
+//! non-empty request body for later triage. Everything else, including the bare
+//! root `/`, is a 404 (the brain server has no root view).
 
 pub mod lifecycle;
 pub mod router;
@@ -45,7 +46,10 @@ pub fn run(port: u16) -> Result<()> {
         .to_ip()
         .context("resolving the bound server address")?
         .port();
-    lifecycle::write_state(lifecycle::ServerState { pid: std::process::id(), port: actual })?;
+    lifecycle::write_state(lifecycle::ServerState {
+        pid: std::process::id(),
+        port: actual,
+    })?;
 
     for mut request in server.incoming_requests() {
         let response = respond(&mut request);
@@ -69,6 +73,15 @@ fn respond(request: &mut Request) -> Response<std::io::Cursor<Vec<u8>>> {
             let _ = request.as_reader().read_to_string(&mut body);
             let root = crate::paths::brain_root_path();
             let (status, json) = routes::habits::done(&root, &body).response();
+            Response::from_string(json)
+                .with_status_code(status)
+                .with_header(content_type("application/json"))
+        }
+        Route::WebhookCapture => {
+            let mut body = String::new();
+            let _ = request.as_reader().read_to_string(&mut body);
+            let root = crate::paths::brain_root_path();
+            let (status, json) = routes::webhooks::capture(&root, &body).response();
             Response::from_string(json)
                 .with_status_code(status)
                 .with_header(content_type("application/json"))
