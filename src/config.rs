@@ -37,13 +37,6 @@ pub struct Config {
     /// late-night session isn't nagged for a "new day" the moment the clock
     /// passes 00:00. Defaults to 6 (6 AM); an out-of-range value falls back.
     pub day_rollover_hour: u32,
-
-    /// Command used to launch the brain panel's Claude session. brain appends
-    /// its own `--resume`/`--session-id` flags after this, so the value is the
-    /// base command plus any flags (e.g. `claude --dangerously-skip-permissions`).
-    /// It is interpreted by the login shell, so brain never depends on a shell
-    /// alias. Blank falls back to the default; see [`Config::claude_command`].
-    pub claude_cmd: String,
 }
 
 impl Default for Config {
@@ -52,14 +45,9 @@ impl Default for Config {
             daily_triage_name_pattern: "Morning Triage".to_owned(),
             linear_workspace: String::new(),
             day_rollover_hour: 6,
-            claude_cmd: DEFAULT_CLAUDE_CMD.to_owned(),
         }
     }
 }
-
-/// Default brain-panel launch command. Mirrors how the user runs claude
-/// interactively (skip the permission prompts); overridable via `brain config`.
-pub const DEFAULT_CLAUDE_CMD: &str = "claude --dangerously-skip-permissions";
 
 impl Config {
     /// Load the typed config from the shared store. Returns defaults when the
@@ -79,18 +67,6 @@ impl Config {
             String::new()
         } else {
             format!("https://linear.app/{ws}/issue/")
-        }
-    }
-
-    /// The configured brain-panel launch command, or the built-in default when
-    /// unset/blank. brain appends `--resume`/`--session-id` after this.
-    #[must_use]
-    pub fn claude_command(&self) -> &str {
-        let cmd = self.claude_cmd.trim();
-        if cmd.is_empty() {
-            DEFAULT_CLAUDE_CMD
-        } else {
-            cmd
         }
     }
 }
@@ -138,31 +114,6 @@ mod tests {
     #[test]
     fn default_day_rollover_hour_is_six_am() {
         assert_eq!(Config::default().day_rollover_hour, 6);
-    }
-
-    #[test]
-    fn default_claude_command_matches_the_permissionless_launch() {
-        // The brain panel launches this; the default mirrors how the user runs
-        // claude interactively, and it is overridable via `brain config`.
-        assert_eq!(
-            Config::default().claude_command(),
-            "claude --dangerously-skip-permissions"
-        );
-    }
-
-    #[test]
-    fn explicit_claude_command_overrides_default() {
-        let cfg: Config = serde_json::from_str(r#"{"claude_cmd": "claude --resume"}"#).unwrap();
-        assert_eq!(cfg.claude_command(), "claude --resume");
-    }
-
-    #[test]
-    fn blank_claude_command_falls_back_to_default() {
-        let cfg: Config = serde_json::from_str(r#"{"claude_cmd": "   "}"#).unwrap();
-        assert_eq!(
-            cfg.claude_command(),
-            "claude --dangerously-skip-permissions"
-        );
     }
 
     #[test]

@@ -2,9 +2,9 @@
 //! managed by `brain env {list|get|set}`.
 //!
 //! Holds values that would be *wrong* on another machine — `root`,
-//! `markdown_to_pdf_path`, and the Backblaze `sync` block — so it is never
-//! Backblaze-synced (contrast `crate::settings`, the brain **config** store
-//! that rides the brain-dir sync).
+//! `markdown_to_pdf_path`, agent launch commands, and the Backblaze `sync`
+//! block — so it is never Backblaze-synced (contrast `crate::settings`, the
+//! brain **config** store that rides the brain-dir sync).
 
 mod migrate;
 mod schema;
@@ -12,6 +12,6 @@ mod store;
 mod vars;
 
 pub use migrate::migrate;
-pub use vars::{codex_command, get, resolve_all, resolve_one, set, set_raw};
+pub use vars::{claude_command, codex_command, get, resolve_all, resolve_one, set, set_raw};
 
 pub(crate) use store::load_map;

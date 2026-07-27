@@ -78,7 +78,7 @@ inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex` (or
 
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
-| Claude | `claude_cmd` in brain config, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> --resume <id>` or `--session-id <id>` |
+| Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> --resume <id>` or `--session-id <id>` |
 | Codex | `codex_cmd` in brain env, default `codex` | `cd <root> && <codex_cmd> resume <id>` when resuming a known Codex id; fresh launches are `cd <root> && <codex_cmd>` with no Claude-only flags |
 
 Both commands are built by `session::build_llm_command`, which splices the

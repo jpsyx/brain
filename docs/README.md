@@ -9,10 +9,10 @@
 `brain` is the user's **central terminal dispatch** for everything around
 their second brain and task system: manage tasks (agenda, triage, habits),
 fuzzy-pick a note across the PARA buckets, or think with an always-on
-`claude` brain panel. Bare `brain` opens a **persistent shell** with two main
+agent brain panel. Bare `brain` opens a **persistent shell** with two main
 views (tasks and brain-directory search) alongside a session-resuming
-`claude` brain panel. The only subcommands are `brain tasks …` and `brain
-config`.
+agent brain panel. The main subcommands are `brain tasks …`, `brain config …`,
+and `brain env …`.
 
 This directory is the source-of-truth for *what* `brain` does and *why*.
 The code is the source-of-truth for *how*. They must agree on *what*.
@@ -30,7 +30,7 @@ The code is the source-of-truth for *how*. They must agree on *what*.
 4. **[keybindings.md](keybindings.md)** — the app-level, tasks-view, and
    brain-search-view key tables, plus the kitty-protocol caveat.
 5. **[integrations.md](integrations.md)** — `run.sh`, the brain panel's
-   `claude` launch (`claude_cmd`), the file-open / Finder / PDF / trash
+   Claude/Codex launch (`claude_cmd`, `codex_cmd`), the file-open / Finder / PDF / trash
    handoffs, the tasks-view shell-outs, and the SessionStart hook / state DB.
 6. **[config.md](config.md)** — the config store, the `brain config`
    command, the `markdown-to-pdf` prerequisite, and root resolution.
@@ -46,14 +46,14 @@ The code is the source-of-truth for *how*. They must agree on *what*.
 src/
   main.rs        — entry point, command dispatch (bare brain → tasks view)
   lib.rs         — public re-exports for integration tests
-  cli.rs         — clap surface (Cli + Cmd: tasks / config)
-  config.rs      — typed knobs (triage pattern, linear, rollover, claude_cmd)
+  cli.rs         — clap surface (Cli + Cmd: tasks / config / env / sync)
+  config.rs      — typed knobs (triage pattern, linear, rollover)
   paths.rs       — brain-root resolution (config store / $HOME, tilde expand)
   settings/      — config store + `brain config` + markdown-to-pdf prereq
   entry.rs       — Bucket + Entry; walkdir collection with hidden filter
   tui/           — persistent shell (tasks view + search view + agent panel)
   pty_pane.rs    — PTY-backed brain panel (portable-pty + vt100)
-  session.rs     — pure claude command/env + resume-vs-fresh plan
+  session.rs     — pure agent command/env + resume-vs-fresh plan
   state.rs       — SQLite session store + layout pref (lock + recency)
   picker/        — ratatui fuzzy picker (matching, grouping, navigation)
   menu/          — ratatui command palette (Ctrl-p overlay)

@@ -142,7 +142,7 @@ brain splits what it persists into **two stores**, by lifecycle:
   (managed by `brain env`, mirroring `brain config`). Holds everything that
   would be *wrong* if copied to another machine: your brain's location on
   *this* machine, a machine-specific binary path, and (parse-only for now) B2
-  sync credentials, and the local Codex launch command. It lives **outside**
+  sync credentials, and the local agent launch commands. It lives **outside**
   your brain root on purpose, so it
   never syncs along with it.
 
@@ -150,6 +150,7 @@ brain splits what it persists into **two stores**, by lifecycle:
   | --- | --- |
   | `root` | where your brain (PARA directory) lives on this machine |
   | `markdown_to_pdf_path` | path to the `markdown-to-pdf` binary on this machine |
+  | `claude_cmd` | command used to launch Claude on this machine |
   | `codex_cmd` | command used to launch Codex on this machine |
   | `sync` | Backblaze B2 sync config (bucket, credentials, trigger flags) |
 
@@ -176,7 +177,7 @@ supported way to change it going forward.
 brain config list                        # every variable, value, description
 brain config get calendar_id             # one value
 brain config set calendar_id=me@work.com # set + persist (re-renders skills)
-brain config set claude-cmd              # bare name → prompts interactively
+brain env set claude_cmd='claude --dangerously-skip-permissions'
 ```
 
 | Variable | Default | Meaning |
@@ -186,11 +187,10 @@ brain config set claude-cmd              # bare name → prompts interactively
 | `day_rollover_hour` | `6` | Hour (0–23) the "logical day" rolls over for the triage re-check. |
 | `agenda_dir` | `~/Downloads` | Where the generated daily-agenda PDF is written. |
 | `calendar_id` | *(empty)* | Calendar to pull busy blocks from when building the agenda. Empty = no calendar. |
-| `claude_cmd` | `claude --dangerously-skip-permissions` | Command the brain panel launches; brain appends `--resume`/`--session-id`. |
 | `skills_auto_sync` | `true` | When true, every `config`/`personalize` change re-renders + reinstalls your skills. Set false to sync only via `brain skills sync`. |
 
 Names normalize (`-`→`_`, lower-cased), so `Linear-Workspace` works. `root` and
-`markdown_to_pdf_path` are **not** here — they're brain-env values (see below).
+agent launch commands are **not** here — they're brain-env values (see below).
 
 ### `brain env`: machine-local values
 
@@ -201,6 +201,7 @@ Names normalize (`-`→`_`, lower-cased), so `Linear-Workspace` works. `root` an
 brain env list                 # every env variable, value, description
 brain env get root             # your brain's location on this machine
 brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf
+brain env set claude_cmd='claude --dangerously-skip-permissions'
 brain env set codex_cmd='codex --model gpt-5'
 ```
 
@@ -208,6 +209,7 @@ brain env set codex_cmd='codex --model gpt-5'
 | --- | --- | --- |
 | `root` | `~/brain` | Where your brain (PARA directory) lives on this machine. |
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on this machine. |
+| `claude_cmd` | `claude --dangerously-skip-permissions` | Command the Claude brain panel launches on this machine. |
 | `codex_cmd` | `codex` | Command the Codex brain panel launches on this machine. |
 
 ### The `markdown-to-pdf` prerequisite

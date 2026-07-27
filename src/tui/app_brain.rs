@@ -105,7 +105,7 @@ impl App<'_> {
         };
 
         let llm_cmd = match self.agent_kind {
-            AgentKind::Claude => self.config.claude_command().to_owned(),
+            AgentKind::Claude => crate::env::claude_command(),
             AgentKind::Codex => crate::env::codex_command(),
         };
         let command =

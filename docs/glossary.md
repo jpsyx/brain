@@ -47,7 +47,7 @@ These are deliberately distinct and use different modifiers:
 | Plain English | What it is | Code |
 | --- | --- | --- |
 | **agent frontend** | Which CLI runs in the brain panel: Claude by default or Codex for a `--codex` shell. | `session::AgentKind`; `cli::Cli::agent_kind` |
-| **the launch command** / **`claude_cmd` / `codex_cmd`** | The configured command the brain panel runs for the selected frontend. `claude_cmd` lives in brain config and gets `--resume`/`--session-id`; `codex_cmd` lives in brain env and gets Codex-shaped args. | `config::Config::claude_command`, `env::codex_command`, `session::build_llm_command` |
+| **the launch command** / **`claude_cmd` / `codex_cmd`** | The configured command the brain panel runs for the selected frontend. Both live in brain env because installed CLI paths and wrapper flags are machine-local; Claude gets `--resume`/`--session-id`, while Codex gets Codex-shaped args. | `env::claude_command`, `env::codex_command`, `session::build_llm_command` |
 | **session store** / **state DB** | The SQLite DB (`~/.cache/brain/state.db`) that tracks which Claude session the brain panel resumes (lock + recency). Codex panels launch fresh until brain has a Codex hook/store. | `src/state.rs` |
 | **the hook** | The Claude `SessionStart` hook that attributes new sessions to this shell instance. | `scripts/claude_session_start_hook.py` |
 | **run.sh** | The entry-point script that rebuilds the binary when the sources change, then `exec`s it (no plan, no shell-side effects). | `run.sh` |

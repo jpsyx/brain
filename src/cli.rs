@@ -106,7 +106,7 @@ pub enum Cmd {
     Config(ConfigArgs),
 
     /// Read or change your machine-local brain env (`~/.config/brain/env.json`):
-    /// `root`, `markdown_to_pdf_path`, `codex_cmd`, and the Backblaze `sync` block.
+    /// `root`, `markdown_to_pdf_path`, agent commands, and the Backblaze `sync` block.
     Env(EnvArgs),
 
     /// Sync your brain across machines via Backblaze B2 (`brain sync setup` first).

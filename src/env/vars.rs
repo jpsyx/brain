@@ -5,7 +5,9 @@
 use anyhow::{Result, bail};
 use serde_json::Value;
 
-use super::schema::{DEFAULT_CODEX_CMD, VARS, default_of, is_known, known_names};
+use super::schema::{
+    DEFAULT_CLAUDE_CMD, DEFAULT_CODEX_CMD, VARS, default_of, is_known, known_names,
+};
 use super::store::{load_map, save_map};
 use crate::settings::Resolved;
 
@@ -35,6 +37,12 @@ pub fn resolve_one(name: &str) -> Option<String> {
     if name == "root" {
         return Some(crate::paths::brain_root_path().display().to_string());
     }
+    if name == "claude_cmd" {
+        return Some(claude_command());
+    }
+    if name == "codex_cmd" {
+        return Some(codex_command());
+    }
     get(name).or_else(|| default_of(name).map(str::to_owned))
 }
 
@@ -42,13 +50,44 @@ pub fn resolve_one(name: &str) -> Option<String> {
 /// blank. brain appends any frontend-specific resume arguments after this.
 #[must_use]
 pub fn codex_command() -> String {
-    let cmd = get("codex_cmd").unwrap_or_else(|| DEFAULT_CODEX_CMD.to_owned());
+    agent_command("codex_cmd", DEFAULT_CODEX_CMD)
+}
+
+/// The configured Claude launch command, or the built-in default when unset or
+/// blank.
+///
+/// A legacy `brain config claude_cmd` value is honored only when the env value
+/// has not been set yet, so existing users keep their launch command.
+#[must_use]
+pub fn claude_command() -> String {
+    let cmd = get("claude_cmd")
+        .or_else(legacy_claude_command)
+        .unwrap_or_else(|| DEFAULT_CLAUDE_CMD.to_owned());
+    trim_or_default(&cmd, DEFAULT_CLAUDE_CMD)
+}
+
+fn agent_command(name: &str, default: &str) -> String {
+    let cmd = get(name).unwrap_or_else(|| default.to_owned());
+    trim_or_default(&cmd, default)
+}
+
+fn trim_or_default(cmd: &str, default: &str) -> String {
     let trimmed = cmd.trim();
     if trimmed.is_empty() {
-        DEFAULT_CODEX_CMD.to_owned()
+        default.to_owned()
     } else {
         trimmed.to_owned()
     }
+}
+
+fn legacy_claude_command() -> Option<String> {
+    crate::settings::load_map()
+        .get("claude_cmd")
+        .and_then(value_to_string)
+        .and_then(|cmd| {
+            let trimmed = cmd.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_owned())
+        })
 }
 
 /// Persist `name=value` into the env store. Unknown names are rejected.
@@ -88,11 +127,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolve_all_lists_root_markdown_to_pdf_path_and_codex_cmd() {
+    fn resolve_all_lists_root_markdown_to_pdf_path_and_agent_cmds() {
         let rows = resolve_all();
-        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.len(), 4);
         assert!(rows.iter().any(|r| r.name == "root"));
         assert!(rows.iter().any(|r| r.name == "markdown_to_pdf_path"));
+        assert!(rows.iter().any(|r| r.name == "claude_cmd"));
         assert!(rows.iter().any(|r| r.name == "codex_cmd"));
         assert!(
             rows.iter()
@@ -136,5 +176,21 @@ mod tests {
     #[test]
     fn codex_command_defaults_to_codex() {
         assert_eq!(codex_command(), "codex");
+    }
+
+    #[test]
+    fn claude_command_defaults_to_permissionless_claude() {
+        assert_eq!(claude_command(), "claude --dangerously-skip-permissions");
+    }
+
+    #[test]
+    fn agent_command_rows_show_effective_defaults() {
+        let rows = resolve_all();
+        let val = |n: &str| rows.iter().find(|r| r.name == n).unwrap().value.clone();
+        assert_eq!(
+            val("claude_cmd").as_deref(),
+            Some("claude --dangerously-skip-permissions")
+        );
+        assert_eq!(val("codex_cmd").as_deref(), Some("codex"));
     }
 }

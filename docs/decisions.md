@@ -115,11 +115,12 @@ per-bucket search verbs). Those effects had to happen in the **parent shell**
 binary printed a small `key=value` **plan** to stdout and a `brain` zsh wrapper
 executed it. That whole mechanism is **gone**. Every capability now lives
 *inside* the persistent shell, which performs its own file-open, Finder-reveal,
-PDF, trash, and `claude`-launch actions by spawning processes; nothing needs to
+PDF, trash, and agent-launch actions by spawning processes; nothing needs to
 mutate the parent shell. So there is no plan protocol and no wrapper: `run.sh`
 just builds the binary when the sources change and `exec`s it directly. The
-`claude` launch that once relied on the `cl` alias is now driven by the
-configurable `claude_cmd`. See [integrations.md](integrations.md).
+agent launch that once relied on shell aliases is now driven by the
+configurable `claude_cmd` / `codex_cmd` env values. See
+[integrations.md](integrations.md).
 
 ## Why the TUI renders to `/dev/tty`, not stdout
 
@@ -266,10 +267,11 @@ the user asked to know when their conversation didn't carry over.
 
 The brain panel must control frontend-specific session arguments, so it can't
 defer to a shell alias that might inject incompatible flags. Claude remains the
-default and uses the portable `claude_cmd` config value
-(`config::Config::claude_command`, default
-`claude --dangerously-skip-permissions`); brain appends its own
-`--resume` / `--session-id` after that configured base command.
+default and uses `claude_cmd` in brain env (default
+`claude --dangerously-skip-permissions`); brain appends its own `--resume` /
+`--session-id` after that configured base command. A legacy
+`brain config claude_cmd` value is honored only when env has no `claude_cmd`,
+so existing installs keep working while new edits are machine-local.
 
 Codex is selected per run with `--codex` and uses `codex_cmd` in brain env
 (default `codex`) because the right Codex wrapper/model flags can be
@@ -488,14 +490,14 @@ config into two stores by **lifecycle**, not just location:
 
 - **brain env** (`~/.config/brain/env.json`, machine-local, `brain env` CLI) —
   anything that would be *wrong* if copied to another machine: `root`,
-  `markdown_to_pdf_path`, and the Backblaze `sync` block (bucket, credentials,
-  trigger flags). Lives at a fixed XDG-style path **outside** the brain root,
-  so it is structurally exempt from whatever syncs the brain directory.
+  `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, and the Backblaze `sync`
+  block (bucket, credentials, trigger flags). Lives at a fixed XDG-style path
+  **outside** the brain root, so it is structurally exempt from whatever syncs
+  the brain directory.
 - **brain config** (`<brain-root>/.config/config.json`, `brain config` CLI) —
   everything that's *right* on every machine: `linear_workspace`,
   `daily_triage_name_pattern`, `day_rollover_hour`, `agenda_dir`,
-  `calendar_id`, `claude_cmd`, `skills_auto_sync`. Unchanged in shape and
-  location; it keeps riding the brain-dir sync exactly as before.
+  `calendar_id`, `skills_auto_sync`. It keeps riding the brain-dir sync.
 
 **The rule of thumb:** *wrong-if-synced ⇒ brain env; right-on-every-machine ⇒
 brain config.* Personalization (`personalization.json`, `extensions/`,

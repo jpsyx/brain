@@ -284,12 +284,10 @@ the results.
 ### `config.rs`
 Typed view of the runtime knobs, deserialized from the shared config store
 (see `settings/`). Fields: `daily_triage_name_pattern`, `linear_workspace`,
-`day_rollover_hour`, and `claude_cmd`; `linear_base_url()` interpolates the
-workspace slug into the full issue-URL prefix, and `claude_command()` returns
-the configured brain-panel launch command (or the default `claude
---dangerously-skip-permissions` when blank). Missing file/fields fall back to
-defaults, and keys read elsewhere (e.g. `agenda_dir`, `skills_auto_sync`, or
-brain-env values in the separate `env.json`) are ignored here.
+and `day_rollover_hour`; `linear_base_url()` interpolates the workspace slug
+into the full issue-URL prefix. Missing file/fields fall back to defaults, and
+keys read elsewhere (e.g. `agenda_dir`, `skills_auto_sync`, or brain-env values
+in the separate `env.json`) are ignored here.
 
 ### `sync/`
 `brain sync`: manual, bidirectional cross-machine sync of the brain root to a
@@ -492,9 +490,9 @@ for Codex today), `build_llm_command` (`cd <root> && <claude_cmd> --resume
 <id>` / `--session-id <id>` for Claude; `cd <root> && <codex_cmd> resume <id>`
 for a known Codex resume id; no Claude flags for fresh Codex), and `env_for`
 (the `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` env handed to Claude
-for the SessionStart hook). `claude_cmd` is portable brain config; `codex_cmd`
-is machine-local brain env. Both configured commands are spliced in verbatim so
-they may carry their own flags, and brain never depends on a shell alias.
+for the SessionStart hook). `claude_cmd` and `codex_cmd` are machine-local brain
+env values. Both configured commands are spliced in verbatim so they may carry
+their own flags, and brain never depends on a shell alias.
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `~/.cache/brain/state.db`.

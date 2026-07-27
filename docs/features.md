@@ -71,7 +71,8 @@ says so in the status line. See [integrations.md](integrations.md) and
 [data-model.md](data-model.md) for the lock-and-recency model.
 
 Codex is selected per run with `brain --codex` or `brain tasks --codex` and
-uses `codex_cmd` from brain env (default `codex`). Codex does not currently use
+uses `codex_cmd` from brain env (default `codex`). Claude uses `claude_cmd`
+from brain env (default `claude --dangerously-skip-permissions`). Codex does not currently use
 the Claude hook-backed state DB, so Codex panels launch fresh. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
 queue key; Claude still receives `Enter`.
@@ -161,7 +162,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
-| `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, `codex_cmd`, and the Backblaze `sync` block (see below). |
+| `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, and the Backblaze `sync` block (see below). |
 | `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
@@ -183,8 +184,8 @@ lifecycle decisions, doctor probes, and skill install counts.
 
 Reads and writes brain's persistent, **portable** config
 (`<brain-root>/.config/config.json`) — the values that are right on every
-machine (Linear workspace, triage settings, the calendar id, `claude_cmd`,
-…). Rides whatever syncs the brain directory.
+machine (Linear workspace, triage settings, the calendar id, …). Rides whatever
+syncs the brain directory.
 
 - `brain config list` (or bare `brain config`) — aligned table of every
   variable, its effective value, and its description.
@@ -202,7 +203,7 @@ Reads and writes your **machine-local** brain env
 (`~/.config/brain/env.json`) — values that would be *wrong* if copied to
 another machine: `root` (where your brain lives on this machine),
 `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
-self-healing), `codex_cmd` (this machine's Codex launch command), and the
+self-healing), `claude_cmd`/`codex_cmd` (this machine's agent launch commands), and the
 Backblaze `sync` block (written by `brain sync setup`, below — see
 [config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:

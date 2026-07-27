@@ -10,10 +10,13 @@ pub(super) struct VarSpec {
 /// Default Codex launch command for the brain panel.
 pub(super) const DEFAULT_CODEX_CMD: &str = "codex";
 
+/// Default Claude launch command for the brain panel.
+pub(super) const DEFAULT_CLAUDE_CMD: &str = "claude --dangerously-skip-permissions";
+
 /// The brain-env schema, in `brain env list` order. `root`,
-/// `markdown_to_pdf_path`, and `codex_cmd` are machine-local; the `sync` block
-/// is edited via `brain sync setup`, not raw `brain env set`.
-pub(super) const VARS: [VarSpec; 3] = [
+/// `markdown_to_pdf_path`, `claude_cmd`, and `codex_cmd` are machine-local; the
+/// `sync` block is edited via `brain sync setup`, not raw `brain env set`.
+pub(super) const VARS: [VarSpec; 4] = [
     VarSpec {
         name: "root",
         description: "Absolute or ~-relative path to the brain (PARA) directory on THIS machine. Defaults to ~/brain; a legacy ~/.config/brain-root pointer is migrated into this key.",
@@ -23,6 +26,11 @@ pub(super) const VARS: [VarSpec; 3] = [
         name: "markdown_to_pdf_path",
         description: "Path to the markdown-to-pdf command on THIS machine. Auto-discovered on first run; required for the Create-PDF action.",
         default: None,
+    },
+    VarSpec {
+        name: "claude_cmd",
+        description: "Command used to launch Claude for the brain panel on THIS machine. Defaults to `claude --dangerously-skip-permissions`; brain appends Claude resume args.",
+        default: Some(DEFAULT_CLAUDE_CMD),
     },
     VarSpec {
         name: "codex_cmd",

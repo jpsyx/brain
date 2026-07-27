@@ -16,7 +16,7 @@ pub(super) struct VarSpec {
 /// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
 /// or the `~/brain` default and edited by hand, never via `brain config`
 /// (see [`crate::paths`]).
-pub(super) const VARS: [VarSpec; 7] = [
+pub(super) const VARS: [VarSpec; 6] = [
     VarSpec {
         name: "linear_workspace",
         description: "Linear workspace slug (e.g. acme). Builds https://linear.app/<slug>/issue/ for the open-link action.",
@@ -43,11 +43,6 @@ pub(super) const VARS: [VarSpec; 7] = [
         default: None,
     },
     VarSpec {
-        name: "claude_cmd",
-        description: "Command that launches the brain panel's Claude session; --resume/--session-id are appended. Defaults to `claude --dangerously-skip-permissions`.",
-        default: Some("claude --dangerously-skip-permissions"),
-    },
-    VarSpec {
         name: "skills_auto_sync",
         description: "When true, config/personalize changes re-render and install the bundled skills into the agent registry. Default true; set false to manage the registry only via explicit `brain skills sync`.",
         default: Some("true"),
@@ -71,8 +66,5 @@ pub(super) fn default_of(name: &str) -> Option<&'static str> {
 }
 
 pub(super) fn known_names() -> String {
-    VARS.iter()
-        .map(|v| v.name)
-        .collect::<Vec<_>>()
-        .join(", ")
+    VARS.iter().map(|v| v.name).collect::<Vec<_>>().join(", ")
 }

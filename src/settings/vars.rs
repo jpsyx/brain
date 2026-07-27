@@ -57,7 +57,10 @@ fn parse_value(raw: &str) -> Value {
 /// a typo can't silently rot in the store.
 pub fn set(name: &str, value: &str) -> Result<()> {
     if !is_known(name) {
-        bail!("unknown config variable `{name}` (known: {})", known_names());
+        bail!(
+            "unknown config variable `{name}` (known: {})",
+            known_names()
+        );
     }
     let mut map = load_map();
     map.insert(name.to_owned(), parse_value(value));
@@ -121,15 +124,35 @@ mod tests {
     fn root_is_not_a_config_variable() {
         // The brain-root pointer is resolved outside the config system, so
         // `config` neither lists nor accepts it.
-        assert!(resolve_all_from(&Map::new()).iter().all(|r| r.name != "root"));
+        assert!(
+            resolve_all_from(&Map::new())
+                .iter()
+                .all(|r| r.name != "root")
+        );
         assert!(set("root", "/srv/brain").is_err());
     }
 
     #[test]
     fn markdown_to_pdf_path_is_no_longer_a_brain_config_variable() {
         // It moved to brain env; `brain config` must reject it.
-        assert!(resolve_all_from(&Map::new()).iter().all(|r| r.name != "markdown_to_pdf_path"));
+        assert!(
+            resolve_all_from(&Map::new())
+                .iter()
+                .all(|r| r.name != "markdown_to_pdf_path")
+        );
         assert!(set("markdown_to_pdf_path", "/x").is_err());
+    }
+
+    #[test]
+    fn claude_cmd_is_no_longer_a_brain_config_variable() {
+        // Agent launch commands are machine-local, so `brain config` must
+        // reject them and `brain env` owns the user-facing setting.
+        assert!(
+            resolve_all_from(&Map::new())
+                .iter()
+                .all(|r| r.name != "claude_cmd")
+        );
+        assert!(set("claude_cmd", "claude").is_err());
     }
 
     #[test]
