@@ -13,7 +13,7 @@ fn verbose_non_tui_commands_mirror_logs_and_print_the_log_path() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8(output.stdout).expect("verbose output is utf-8");
-    assert!(stdout.contains("brain start 0.3.0"), "{stdout}");
+    assert!(stdout.contains("brain start 0.4.0"), "{stdout}");
     assert!(stdout.contains("dispatch config"), "{stdout}");
 
     let log_path = stdout
@@ -29,7 +29,7 @@ fn verbose_non_tui_commands_mirror_logs_and_print_the_log_path() {
     );
 
     let file = std::fs::read_to_string(log_path).expect("log file exists");
-    assert!(file.contains("brain start 0.3.0"), "{file}");
+    assert!(file.contains("brain start 0.4.0"), "{file}");
     assert!(file.contains("dispatch config"), "{file}");
     let _ = std::fs::remove_file(log_path);
 }

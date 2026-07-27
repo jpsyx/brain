@@ -203,6 +203,14 @@ users in `skills/`.)
     do the common thing.
   When you add or change any command, provide both paths (flags for everything +
   an interactive fallback for missing values) and make the output beautiful.
+- **Default output should narrate long-running work.** `--verbose` is for
+  detailed logs and debugging, not for basic reassurance. If a command may spend
+  noticeable time checking files, touching the network, acquiring locks,
+  probing tools, merging data, or waiting on a child process, print a concise
+  themed line before each phase that says what brain is about to do and, when
+  useful, which local root / remote / file family it is looking at. A user
+  should never wonder whether brain is hung. Keep this deterministic and
+  factual: it is a progress trace, not a debug dump or hidden reasoning.
 - **Aesthetics matter — theme every bit of CLI output.** brain's non-TUI CLI
   output (`brain sync`, `sync setup`/`status`, `config`, `env`, `personalize`,
   `doctor`, gates, prompts) should look considered, not utilitarian. All color

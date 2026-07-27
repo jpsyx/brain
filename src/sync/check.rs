@@ -77,6 +77,26 @@ pub fn csv_pending_from_texts(
     local: &str,
     remote: Option<&str>,
 ) -> CsvPending {
+    if base.trim().is_empty()
+        && let Some(remote_text) = remote
+    {
+        let local_table = parse(local);
+        let remote_table = parse(remote_text);
+        if local_table == remote_table {
+            return CsvPending {
+                name: name.to_owned(),
+                push: CsvSideDiff::default(),
+                pull: Some(CsvSideDiff::default()),
+            };
+        }
+        if !local_table.rows.is_empty() && !remote_table.rows.is_empty() {
+            return CsvPending {
+                name: name.to_owned(),
+                push: diff_csv_rows(remote_text, local),
+                pull: Some(CsvSideDiff::default()),
+            };
+        }
+    }
     CsvPending {
         name: name.to_owned(),
         push: diff_csv_rows(base, local),
@@ -145,6 +165,13 @@ pub fn format_report(push: &[String], pull: &[String], csv: &[CsvPending], theme
         return lines.join("\n");
     }
 
+    if has_csv_deltas(csv) {
+        lines.push(String::new());
+        lines.push(theme.muted(
+            "CSV rows are compared against this machine's cached baseline; pull rows are not proof that another machine made the change. brain sync will merge tasks.csv/habits.csv by id.",
+        ));
+    }
+
     let brain_sync = theme.accent("brain sync");
     let suggestion = match (push_count == 0, pull_count == 0) {
         (false, false) => format!("Run `{brain_sync}` to push and pull all changes."),
@@ -193,6 +220,12 @@ fn unchecked_remote_csvs(csv: &[CsvPending]) -> Vec<String> {
         .filter(|pending| pending.pull.is_none())
         .map(|pending| pending.name.clone())
         .collect()
+}
+
+fn has_csv_deltas(csv: &[CsvPending]) -> bool {
+    csv.iter().any(|pending| {
+        !pending.push.is_empty() || pending.pull.is_some_and(|diff| !diff.is_empty())
+    })
 }
 
 fn collect_csv_pending(
@@ -382,6 +415,58 @@ mod tests {
     }
 
     #[test]
+    fn csv_pending_with_missing_baseline_does_not_double_count_identical_sides() {
+        let csv = "task_id,title,status\n1,same,open\n2,also same,open\n";
+
+        assert_eq!(
+            csv_pending_from_texts("tasks.csv", "", csv, Some(csv)),
+            CsvPending {
+                name: "tasks.csv".to_string(),
+                push: CsvSideDiff::default(),
+                pull: Some(CsvSideDiff::default()),
+            }
+        );
+    }
+
+    #[test]
+    fn csv_pending_with_missing_baseline_treats_remote_as_provisional_snapshot() {
+        let remote = "task_id,title,status\n1,old,open\n";
+        let local = "task_id,title,status\n1,old,open\n2,new local,open\n";
+
+        assert_eq!(
+            csv_pending_from_texts("tasks.csv", "", local, Some(remote)),
+            CsvPending {
+                name: "tasks.csv".to_string(),
+                push: CsvSideDiff {
+                    added: 1,
+                    changed: 0,
+                    deleted: 0,
+                },
+                pull: Some(CsvSideDiff::default()),
+            }
+        );
+    }
+
+    #[test]
+    fn csv_pending_with_missing_baseline_and_empty_local_reports_pull_only() {
+        let remote = "task_id,title,status\n1,remote,open\n";
+        let local = "task_id,title,status\n";
+
+        assert_eq!(
+            csv_pending_from_texts("tasks.csv", "", local, Some(remote)),
+            CsvPending {
+                name: "tasks.csv".to_string(),
+                push: CsvSideDiff::default(),
+                pull: Some(CsvSideDiff {
+                    added: 1,
+                    changed: 0,
+                    deleted: 0,
+                }),
+            }
+        );
+    }
+
+    #[test]
     fn report_counts_csv_rows_and_shows_csv_summaries() {
         let t = Theme::dark(false);
         let csv = vec![CsvPending {
@@ -406,6 +491,37 @@ mod tests {
         assert!(report.contains("tasks.csv: +0 ~0 -1 rows"), "{report:?}");
         assert!(
             report.contains("Run `brain sync` to push and pull all changes."),
+            "{report:?}"
+        );
+    }
+
+    #[test]
+    fn report_explains_csv_deltas_are_baseline_diffs_not_provenance() {
+        let t = Theme::dark(false);
+        let csv = vec![CsvPending {
+            name: "tasks.csv".to_string(),
+            push: CsvSideDiff {
+                added: 1,
+                ..Default::default()
+            },
+            pull: Some(CsvSideDiff {
+                changed: 1,
+                ..Default::default()
+            }),
+        }];
+
+        let report = format_report(&[], &[], &csv, t);
+
+        assert!(
+            report.contains("CSV rows are compared against this machine's cached baseline"),
+            "{report:?}"
+        );
+        assert!(
+            report.contains("not proof that another machine made the change"),
+            "{report:?}"
+        );
+        assert!(
+            report.contains("brain sync will merge tasks.csv/habits.csv by id"),
             "{report:?}"
         );
     }

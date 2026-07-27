@@ -734,6 +734,18 @@ last-writer-wins, writes both sides, and refreshes the baseline. Row deltas are
 enough to prevent the old blind spot where task/habit edits were invisible to
 `brain check`.
 
+**Why `brain check` treats CSV pull rows as baseline diffs, not provenance.**
+The CSV lane has no per-machine author field; its source of truth for "what
+changed" is this machine's cached last-synced baseline. That means a pull row
+in `brain check` literally means "the remote CSV differs from this machine's
+baseline", not "another machine definitely made this change." To keep first-run
+and repaired-baseline cases from looking absurd, `check` has a small read-only
+heuristic when the baseline is missing: if local and remote CSVs are identical,
+it reports no CSV movement; if both are non-empty and differ, it treats the
+remote CSV as a provisional snapshot for local deltas. The real sync still does
+the full id-keyed 3-way merge and refreshes the baseline; this heuristic only
+makes the preview less misleading.
+
 ## C4 — auto-sync triggers (start / exit hooks, the `notify` watcher, the sync lock)
 
 C4 makes sync automatic. The durable choices below are the ones a later phase

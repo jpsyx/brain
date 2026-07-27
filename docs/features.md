@@ -266,10 +266,13 @@ Like `config`/`env`/`personalize`/`skills`, `sync` is dispatched **before**
 the `markdown-to-pdf` prerequisite gate, so it always works even when that
 tool is missing.
 
-**Live progress.** A running sync is no longer a silent block: rclone's
-progress streams to the terminal live, with a one-line update roughly every
-10 seconds (files/bytes transferred, percent complete, transfer rate, ETA) —
-useful on the first sync of a large brain, which can take a while.
+**Live progress.** A running sync is no longer a silent block. Before any slow
+work begins, brain prints the sync mode, local root, remote target, and the
+plain-English plan. It then announces the safety-marker check, rclone handoff,
+and task/habit CSV merge before each phase starts. During the rclone phase,
+file progress streams to the terminal live, with a one-line update roughly
+every 10 seconds (files/bytes transferred, percent complete, transfer rate,
+ETA) — useful on the first sync of a large brain, which can take a while.
 
 **Automatic sync (start / exit / watcher / idle pull).** On a configured machine you
 rarely run `brain sync` by hand: the persistent shell syncs for you, gated by
@@ -373,8 +376,11 @@ baseline with the local CSV for rows to push, fetches the remote CSV with
 `rclone copyto` into a temp file, and compares that remote text with the same
 baseline for rows to pull. CSV summaries show row deltas as `+A ~C -D rows`
 (added, changed, deleted), and a failed remote CSV fetch becomes a warning
-instead of a false clean report. The command never writes local CSVs, remote
-CSVs, or baselines.
+instead of a false clean report. If this machine's CSV baseline is missing,
+`check` avoids the confusing "everything pushes and pulls" preview: identical
+local/remote CSVs report cleanly, and when both sides are non-empty it treats
+the remote CSV as a provisional snapshot for local row deltas. The command
+never writes local CSVs, remote CSVs, or baselines.
 
 - Nothing pending on either side: a single `✓ In sync — nothing to push or
   pull.` line.
@@ -382,7 +388,11 @@ CSVs, or baselines.
   (only for the side(s) that have pending changes), each followed by grouped
   file summaries (e.g. `2 changes in notes/`) and CSV row summaries
   (e.g. `tasks.csv: +2 ~1 -0 rows`), then a suggestion line naming the right
-  follow-up (`brain sync` to push, to pull, or to push and pull).
+  follow-up (`brain sync` to push, to pull, or to push and pull). When CSV row
+  summaries are present, the report says they are comparisons against this
+  machine's cached baseline, not proof that another machine made the change;
+  `brain sync` still merges `tasks.csv`/`habits.csv` by id and refreshes the
+  baseline.
 
 Like `sync`, `check` is dispatched before the `markdown-to-pdf` prerequisite
 gate and needs no configuration beyond what `brain sync setup` already wrote;

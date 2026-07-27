@@ -500,7 +500,11 @@ changes, and deletions. `check::CsvPending` holds one push diff
 (`baseline` vs. local CSV) and, when the remote fetch succeeds, one pull diff
 (`baseline` vs. remote CSV). This is a preview of pending row movement, not a
 merge-result adjudication: same-field last-writer-wins is still applied only
-by `brain sync`.
+by `brain sync`. If the baseline text is missing, `check` treats identical
+local/remote CSVs as clean instead of double-counting both sides; when both
+sides are non-empty and differ, it uses the remote CSV as a provisional
+snapshot for local deltas so a local-only task addition does not appear as a
+spurious pull.
 
 ## Binary stdout (the output "schema")
 

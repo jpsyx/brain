@@ -22,7 +22,7 @@ use crate::sync::config::SyncConfig;
 use crate::sync::conflicts::{self, ConflictGroup};
 use crate::sync::csv_sync::CsvMergeOutcome;
 use crate::sync::journal::{Journal, SyncRun};
-use crate::sync::remote::build_remote;
+use crate::sync::remote::{Remote, build_remote};
 use crate::sync::run::run_rclone;
 use crate::sync::verify::{self, Outcome};
 use crate::theme::Theme;
@@ -63,14 +63,20 @@ pub fn sync_once(
     let remote = build_remote(cfg);
     let local = root.to_string_lossy().into_owned();
     let argv = args::bisync_args(cfg, &local, &remote.arg, dir);
+    let theme = Theme::active();
+    eprintln!("{}", format_sync_plan(cfg, root, dir, theme));
 
     if should_bootstrap_check_access(dir) {
+        eprintln!("{}", theme.info("Checking the sync safety marker…"));
         crate::sync::check_access::ensure_markers(root, &remote)?;
     }
 
+    eprintln!(
+        "{}",
+        theme.info("Starting rclone sync; live file progress follows…")
+    );
     let mut run = run_rclone(&remote.env, &argv);
     let resumed = if should_auto_resync(dir, run.abort.as_ref()) {
-        let theme = Theme::active();
         eprintln!(
             "{}",
             theme.warning(
@@ -94,6 +100,7 @@ pub fn sync_once(
     let csv_note = if matches!(outcome, Outcome::Aborted(_)) {
         String::new()
     } else {
+        eprintln!("{}", theme.info("Merging task and habit CSVs by row id…"));
         format_csv_note(&crate::sync::csv_sync::sync_csvs(cfg, root))
     };
 
@@ -178,6 +185,45 @@ pub fn should_auto_resync(dir: Direction, abort: Option<&crate::sync::run::Abort
 #[must_use]
 pub fn should_bootstrap_check_access(dir: Direction) -> bool {
     dir == Direction::Resync
+}
+
+#[must_use]
+pub fn format_sync_plan(cfg: &SyncConfig, root: &Path, dir: Direction, theme: Theme) -> String {
+    let remote = build_remote(cfg);
+    format_sync_plan_for_remote(root, &remote, dir, theme)
+}
+
+#[must_use]
+pub fn format_sync_plan_for_remote(
+    root: &Path,
+    remote: &Remote,
+    dir: Direction,
+    theme: Theme,
+) -> String {
+    let heading = match dir {
+        Direction::Both => "Syncing brain",
+        Direction::Push => "Pushing local brain changes",
+        Direction::Pull => "Pulling remote brain changes",
+        Direction::Resync => "Repairing cloud sync metadata",
+    };
+    let mode = match dir {
+        Direction::Both => "compare local and remote changes, then sync both directions",
+        Direction::Push => "prefer local edits for same-file conflicts",
+        Direction::Pull => "prefer remote edits for same-file conflicts",
+        Direction::Resync => "recreate the RCLONE_TEST marker and re-establish the rclone baseline",
+    };
+    format!(
+        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
+        theme.heading(heading),
+        theme.muted("local:"),
+        theme.value(&root.display().to_string()),
+        theme.muted("remote:"),
+        theme.value(&remote.arg),
+        theme.muted("plan:"),
+        mode,
+        theme.muted("then:"),
+        "merge task and habit CSVs by row id",
+    )
 }
 
 #[must_use]
@@ -679,6 +725,26 @@ mod tests {
         assert!(!should_bootstrap_check_access(Direction::Both));
         assert!(!should_bootstrap_check_access(Direction::Push));
         assert!(!should_bootstrap_check_access(Direction::Pull));
+    }
+
+    #[test]
+    fn sync_plan_for_repair_names_each_slow_phase_up_front() {
+        let cfg: SyncConfig =
+            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"bucket","b2_path":"brain-root"}"#)
+                .unwrap();
+        let plan = format_sync_plan(
+            &cfg,
+            Path::new("/tmp/brain"),
+            Direction::Resync,
+            Theme::dark(false),
+        );
+
+        assert!(plan.contains("Repairing cloud sync metadata"), "{plan}");
+        assert!(plan.contains("local: /tmp/brain"), "{plan}");
+        assert!(plan.contains("remote: BRAIN:bucket/brain-root"), "{plan}");
+        assert!(plan.contains("recreate the RCLONE_TEST marker"), "{plan}");
+        assert!(plan.contains("re-establish the rclone baseline"), "{plan}");
+        assert!(plan.contains("merge task and habit CSVs"), "{plan}");
     }
 
     #[test]

@@ -202,6 +202,12 @@ bookkeeping.
   names readable. brain does not generate, remember, recover, or sync the
   original passphrases; losing them means existing encrypted remote data cannot
   be decrypted.
+- **The sync plan is printed before slow work starts.** `command::format_sync_plan`
+  names the mode (`brain sync`, `--push`, `--pull`, or `brain sync repair`),
+  local root, remote target, and the next phases before marker repair or rclone
+  can block. `sync_once` then prints short phase lines before the check-access
+  marker copy, the rclone process, and the task/habit CSV merge. These are
+  default user-facing progress lines, separate from `--verbose` debug logging.
 - **The bisync argv is built once** by `src/sync/args.rs`
   (`bisync_args`): direction (`brain sync` / `--push` / `--pull` / `brain
   sync repair`) maps to rclone's `--conflict-resolve` (`newer` / `path1` /
@@ -370,7 +376,11 @@ bookkeeping.
   into a temp file, and reports row-level `+A ~C -D` push/pull deltas. It never
   writes local files, remotes, or baselines; if a remote CSV cannot be fetched,
   the local row diff is still shown and the remote side is reported as
-  unchecked.
+  unchecked. When the cached baseline is missing, the preview avoids
+  double-counting: identical local/remote CSVs are clean, and when both sides
+  are non-empty and differ, the remote CSV is used as a provisional snapshot
+  for local row deltas. The report explicitly says CSV rows are baseline diffs,
+  not provenance, and that `brain sync` will merge by id.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.
