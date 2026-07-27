@@ -73,8 +73,8 @@ Finder/editor for files, `markdown-to-pdf` for conversions).
 ## The Brain Panel: Claude Or Codex
 
 The persistent shell's brain panel spawns the selected agent frontend itself,
-inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex` (or
-`brain tasks --codex`) to run Codex instead.
+inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex`,
+`brain -cx`, `brain tasks --codex`, or `brain tasks -cx` to run Codex instead.
 
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |

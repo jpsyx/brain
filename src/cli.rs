@@ -6,6 +6,28 @@
 
 use clap::{Args, Parser, Subcommand};
 
+#[must_use]
+pub fn parse() -> Cli {
+    Cli::parse_from(normalize_codex_aliases(std::env::args()))
+}
+
+fn normalize_codex_aliases<I, S>(args: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    args.into_iter()
+        .map(Into::into)
+        .map(|arg| {
+            if arg == "-cx" {
+                "--codex".to_owned()
+            } else {
+                arg
+            }
+        })
+        .collect()
+}
+
 #[derive(Parser, Debug)]
 #[command(
     name = "brain",
@@ -43,7 +65,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
 
-    /// Use Codex instead of Claude for the brain panel.
+    /// Use Codex instead of Claude for the brain panel. Alias: -cx.
     #[arg(long, global = true)]
     pub codex: bool,
 
@@ -76,6 +98,13 @@ mod tests {
     #[test]
     fn codex_flag_selects_codex_frontend() {
         let cli = Cli::try_parse_from(["brain", "--codex"]).expect("parse");
+        assert!(cli.codex);
+        assert_eq!(cli.agent_kind(), AgentKind::Codex);
+    }
+
+    #[test]
+    fn cx_alias_selects_codex_frontend() {
+        let cli = Cli::try_parse_from(normalize_codex_aliases(["brain", "-cx"])).expect("parse");
         assert!(cli.codex);
         assert_eq!(cli.agent_kind(), AgentKind::Codex);
     }

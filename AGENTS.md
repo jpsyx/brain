@@ -18,7 +18,7 @@ Bare `brain` (and `brain tasks …`) opens a **persistent shell** (`tui/`) with
 **two main views** — the **tasks view** (task management, agenda, triage; the
 startup default) and the **brain-directory search view** (fuzzy-pick over
 `~/brain`) — plus one app-level **brain panel** (an interactive agent session
-in a PTY, Claude by default or Codex with `--codex`, open at startup and
+in a PTY, Claude by default or Codex with `--codex` / `-cx`, open at startup and
 shared by both views). Switch views with `Ctrl+L`/`Ctrl+H` (cycle) or
 `Ctrl+T`/`Ctrl+B` (jump). Read [docs/glossary.md](docs/glossary.md) first for
 the main-view / sub-view / brain-panel vocabulary.
@@ -58,7 +58,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | A **tasks-view** keybinding | `docs/keybindings.md`, the `src/tasks/shortcuts.rs` table (footer + help modal), `compact_footer_line` in `src/tasks/render/chrome.rs`, **and** (if it's also a palette / task-action row) `shortcut_for` in `src/tui/palette/command.rs` |
 | A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+?`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
 | A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu/model.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
-| How the brain panel launches Claude or Codex (`claude_cmd`, `codex_cmd`, `--codex`), or the file-open / Finder path | `docs/integrations.md` (launch builder in `src/session.rs`, agent launch commands in `src/env/`, openers in `src/open_target.rs`) |
+| How the brain panel launches Claude or Codex (`claude_cmd`, `codex_cmd`, `--codex` / `-cx`), or the file-open / Finder path | `docs/integrations.md` (launch builder in `src/session.rs`, agent launch commands in `src/env/`, openers in `src/open_target.rs`) |
 | The SessionStart hook, state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/claude_session_start_hook.py`, `scripts/install_hook.sh`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
 | Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, the `sync` block's fields, or **root resolution** (`root` is a brain-env key in `~/.config/brain/env.json`; the legacy `~/.config/brain-root` pointer is read-only back-compat, auto-migrated into `env.json` on first run — root is *not* a `brain config` var) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; root resolution in `src/paths.rs`; the `sync` block schema in `src/sync/config.rs`) |

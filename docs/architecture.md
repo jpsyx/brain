@@ -81,7 +81,7 @@ tui::run_tui(view, cli, …)                  (the persistent shell)
  └─→ App event loop (tasks view + search view + agent PTY)
        ├─ state::Db: reap dead locks, pick_resume / claim or register_fresh
        ├─ session::build_llm_command(root, agent_kind, command, …) + env_for
-       │    → PtyPane spawns configured Claude (default) or Codex (`--codex`)
+       │    → PtyPane spawns configured Claude (default) or Codex (`--codex` / `-cx`)
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
        ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; verbose TUI adds "Show logs")
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up

@@ -15,7 +15,7 @@ it (split) or closed (main view full-width).
 | **main view** | One of the two full-screen surfaces you switch between. | `main_view::MainView` (`src/main_view.rs`) |
 | **tasks view** | The task-management surface (agenda, triage, habits). The **default** at startup. | `MainView::Tasks`; state in the tasks App fields / `src/tasks/` modules |
 | **brain directory view** / **brain search view** | The fuzzy-search-over-`~/brain` surface (this was *bare `brain`* before the merge). | `MainView::BrainSearch`; `src/picker/`, `src/entry.rs` |
-| **brain panel** | The always-available agent chat session in a PTY. Claude is the default; `--codex` selects Codex for the run. App-level: it does **not** belong to either main view and stays open across a main-view switch. (Formerly called the *claude panel* in the `tasks` project.) | `src/pty_pane.rs` (`PtyPane`); `App.brain: Option<PtyPane>`; `App.agent_kind` |
+| **brain panel** | The always-available agent chat session in a PTY. Claude is the default; `--codex` / `-cx` selects Codex for the run. App-level: it does **not** belong to either main view and stays open across a main-view switch. (Formerly called the *claude panel* in the `tasks` project.) | `src/pty_pane.rs` (`PtyPane`); `App.brain: Option<PtyPane>`; `App.agent_kind` |
 | **panel** | Generic term; in this app the only panel is the brain panel. | — |
 | **sub-view** | One of the tabbed modes *inside* the tasks view (`today`, `mit`, `past_due`, `week`, `habits`, `backlog`, `all`). These were called "views" in the old `tasks` project. `Tab` / `Shift+Tab` cycle them; only meaningful in the tasks view. | `view::View` + `View::CYCLE` (`src/tasks/view/`) |
 | **focus** | Which surface receives keystrokes: the active main view, or the brain panel. `Alt+H`/`Alt+L` move focus between the spatial left/right halves. | `App.focus` |
@@ -46,7 +46,7 @@ These are deliberately distinct and use different modifiers:
 
 | Plain English | What it is | Code |
 | --- | --- | --- |
-| **agent frontend** | Which CLI runs in the brain panel: Claude by default or Codex for a `--codex` shell. | `session::AgentKind`; `cli::Cli::agent_kind` |
+| **agent frontend** | Which CLI runs in the brain panel: Claude by default or Codex for a `--codex` / `-cx` shell. | `session::AgentKind`; `cli::Cli::agent_kind` |
 | **the launch command** / **`claude_cmd` / `codex_cmd`** | The configured command the brain panel runs for the selected frontend. Both live in brain env because installed CLI paths and wrapper flags are machine-local; Claude gets `--resume`/`--session-id`, while Codex gets Codex-shaped args. | `env::claude_command`, `env::codex_command`, `session::build_llm_command` |
 | **session store** / **state DB** | The SQLite DB (`~/.cache/brain/state.db`) that tracks which Claude session the brain panel resumes (lock + recency). Codex panels launch fresh until brain has a Codex hook/store. | `src/state.rs` |
 | **the hook** | The Claude `SessionStart` hook that attributes new sessions to this shell instance. | `scripts/claude_session_start_hook.py` |

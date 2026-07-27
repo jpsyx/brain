@@ -273,7 +273,7 @@ default and uses `claude_cmd` in brain env (default
 `brain config claude_cmd` value is honored only when env has no `claude_cmd`,
 so existing installs keep working while new edits are machine-local.
 
-Codex is selected per run with `--codex` and uses `codex_cmd` in brain env
+Codex is selected per run with `--codex` / `-cx` and uses `codex_cmd` in brain env
 (default `codex`) because the right Codex wrapper/model flags can be
 machine-specific. `session::build_llm_command` splices either configured base
 command in verbatim, then appends the selected frontend's own session shape:

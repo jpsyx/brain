@@ -65,6 +65,7 @@ means adding a palette row or a keybinding, not another command to memorize.
 ```sh
 brain                 # persistent shell, tasks view (Claude brain panel)
 brain --codex         # same shell, with Codex in the brain panel
+brain -cx            # short alias for --codex
 brain tasks           # same shell, launched on the tasks view explicitly
 brain tasks today --no-tui        # print today's tasks, no TUI
 brain tasks complete t123         # mark a task complete
@@ -106,7 +107,7 @@ work and how to make them yours without forking the repo.
 - [`markdown-to-pdf`](#the-markdown-to-pdf-prerequisite) on your `PATH` — brain
   uses it to turn notes/agendas into PDFs. Auto-discovered on first run.
 - The `claude` CLI for the default brain panel, or the `codex` CLI if you run
-  `brain --codex`.
+  `brain --codex` / `brain -cx`.
 
 **Point brain at your brain**
 

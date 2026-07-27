@@ -19,7 +19,7 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
   areas, resources, and archive (the picker described later in this doc);
   formerly what bare `brain` opened.
 - **Brain panel** — a live, interactive agent session in an embedded PTY,
-  Claude by default or Codex with `--codex`, open at startup and shared by both
+  Claude by default or Codex with `--codex` / `-cx`, open at startup and shared by both
   main views. It does not belong to either view: switching views leaves it open;
   closing it (`Ctrl+X`, or the agent
   exiting) makes the active main view full-width.
@@ -70,7 +70,8 @@ never sent a message), it can't be resumed — brain starts a fresh chat and
 says so in the status line. See [integrations.md](integrations.md) and
 [data-model.md](data-model.md) for the lock-and-recency model.
 
-Codex is selected per run with `brain --codex` or `brain tasks --codex` and
+Codex is selected per run with `brain --codex`, `brain -cx`,
+`brain tasks --codex`, or `brain tasks -cx` and
 uses `codex_cmd` from brain env (default `codex`). Claude uses `claude_cmd`
 from brain env (default `claude --dangerously-skip-permissions`). Codex does not currently use
 the Claude hook-backed state DB, so Codex panels launch fresh. When brain
@@ -155,8 +156,8 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | Command | Behavior |
 | --- | --- |
 | `brain` | Open the persistent shell on the tasks view (the startup default) with the default Claude brain panel. |
-| `brain --codex` | Open the same shell with Codex in the brain panel. Claude remains the default. |
-| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` may be passed before or after `tasks` to use Codex in the brain panel. |
+| `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. Claude remains the default. |
+| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` may be passed before or after `tasks` to use Codex in the brain panel. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
 | `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |

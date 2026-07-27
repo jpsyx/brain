@@ -50,18 +50,17 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 use chrono::{Local, NaiveDate};
-use clap::Parser;
-
 use crate::cli::{
-    Cli, Cmd, ConfigAction, ConfigArgs, EnvAction, EnvArgs, PersonalizeAction, PersonalizeArgs,
+    Cmd, ConfigAction, ConfigArgs, EnvAction, EnvArgs, PersonalizeAction, PersonalizeArgs,
     SyncAction, SyncArgs,
 };
+use clap::Parser;
 use crate::tasks::cli::{Cli as TasksCli, Command as TasksCommand};
 use crate::tasks::selector::{Selector, parse_selector};
 use crate::tasks::view::View;
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let cli = cli::parse();
     let agent_kind = cli.agent_kind();
 
     if cli.print_version || matches!(&cli.command, Some(Cmd::Version)) {
@@ -666,12 +665,13 @@ fn default_csv_path() -> PathBuf {
     root.join("tasks").join("tasks.csv")
 }
 
-/// Remove a trailing-delegated `--codex` and report whether it was present.
-/// Top-level clap handles `brain --codex`; this catches `brain tasks --codex`,
-/// because `tasks` intentionally captures hyphenated trailing args verbatim.
+/// Remove a trailing-delegated Codex flag and report whether it was present.
+/// Top-level clap handles `brain --codex` / `brain -cx`; this catches
+/// `brain tasks --codex` / `brain tasks -cx`, because `tasks` intentionally
+/// captures hyphenated trailing args verbatim.
 fn take_codex_flag(args: &mut Vec<String>) -> bool {
     let before = args.len();
-    args.retain(|arg| arg != "--codex");
+    args.retain(|arg| arg != "--codex" && arg != "-cx");
     args.len() != before
 }
 
@@ -707,6 +707,13 @@ mod tests {
     #[test]
     fn take_codex_flag_removes_tasks_trailing_flag() {
         let mut args = vec!["today".to_owned(), "--codex".to_owned(), "--mit".to_owned()];
+        assert!(take_codex_flag(&mut args));
+        assert_eq!(args, vec!["today".to_owned(), "--mit".to_owned()]);
+    }
+
+    #[test]
+    fn take_codex_flag_removes_tasks_trailing_cx_alias() {
+        let mut args = vec!["today".to_owned(), "-cx".to_owned(), "--mit".to_owned()];
         assert!(take_codex_flag(&mut args));
         assert_eq!(args, vec!["today".to_owned(), "--mit".to_owned()]);
     }

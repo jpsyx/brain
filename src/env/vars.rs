@@ -174,23 +174,24 @@ mod tests {
     }
 
     #[test]
-    fn codex_command_defaults_to_codex() {
-        assert_eq!(codex_command(), "codex");
+    fn blank_codex_command_defaults_to_codex() {
+        assert_eq!(trim_or_default("", DEFAULT_CODEX_CMD), "codex");
     }
 
     #[test]
-    fn claude_command_defaults_to_permissionless_claude() {
-        assert_eq!(claude_command(), "claude --dangerously-skip-permissions");
-    }
-
-    #[test]
-    fn agent_command_rows_show_effective_defaults() {
-        let rows = resolve_all();
-        let val = |n: &str| rows.iter().find(|r| r.name == n).unwrap().value.clone();
+    fn blank_claude_command_defaults_to_permissionless_claude() {
         assert_eq!(
-            val("claude_cmd").as_deref(),
+            trim_or_default("", DEFAULT_CLAUDE_CMD),
+            "claude --dangerously-skip-permissions"
+        );
+    }
+
+    #[test]
+    fn agent_command_schema_declares_defaults() {
+        assert_eq!(
+            default_of("claude_cmd"),
             Some("claude --dangerously-skip-permissions")
         );
-        assert_eq!(val("codex_cmd").as_deref(), Some("codex"));
+        assert_eq!(default_of("codex_cmd"), Some("codex"));
     }
 }
