@@ -25,7 +25,7 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 | `Ctrl+T` | Jump to the **tasks** view | Main-panel focus only |
 | `Ctrl+B` | Jump to the **brain-directory** view | Main-panel focus only |
 | `Alt+H` / `Alt+L` | Focus the **left** / **right** panel | Spatial: follows the layout when the brain panel is swapped sides. `Alt+H` from the brain panel is the reliable way back to the main view |
-| `Alt+U` / `Alt+D` | Scroll the focused panel a half-page up / down | Brain panel scrolls its scrollback; the main view pages. Fires while Claude has focus or a filter is active |
+| `Alt+U` / `Alt+D` | Scroll the focused panel a half-page up / down | Brain panel scrolls its scrollback; the main view pages. Fires while the selected agent has focus or a filter is active. Also accepts macOS Option-produced equivalents when richer keyboard reporting surfaces those instead of Alt-modified ASCII |
 | `Ctrl+M` | Open (or focus) the brain panel | Resumes the latest Claude session; Codex panels currently launch fresh. Needs the kitty protocol to stay distinct from Enter |
 | `Ctrl+N` | Start a new agent session in the brain panel | Types `/new` and submits or queues it. Only while the panel is open |
 | `Ctrl+X` | Close the brain panel (ends its agent session) | The main view goes full-width. From either panel |
@@ -128,4 +128,4 @@ are distinct from `Enter`, `Ctrl+H`/`Ctrl+L` from Backspace/Tab-family, and
 
 - `Ctrl+M` / `Ctrl+Enter` / `Ctrl+Shift+M` collapse to `Enter` → use the palette.
 - `Ctrl+H` collapses to Backspace, so **cycle-view-left is unavailable**; use `Ctrl+L` (right) or the palette. `Ctrl+T` / `Ctrl+B` / `Ctrl+L` have no aliasing.
-- `Alt+S`, `Ctrl+D`, `Ctrl+A`, `Ctrl+Q`, `Ctrl+X`, `Ctrl+N` are all reliable (Meta sequence or control bytes with no aliasing).
+- `Alt+S`, `Alt+U`, `Alt+D`, `Ctrl+D`, `Ctrl+A`, `Ctrl+Q`, `Ctrl+X`, `Ctrl+N` are all reliable (Meta sequence, macOS Option-glyph fallback, or control bytes with no aliasing).

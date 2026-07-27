@@ -1,9 +1,9 @@
 //! Tests for the pure key classifiers: count prefix, view shortcuts, search
 //! delegation, and the app-level chords.
 
-use crate::tui::*;
 use crate::tasks::view::View;
-use crossterm::event::KeyCode;
+use crate::tui::*;
+use crossterm::event::{KeyCode, KeyModifiers};
 
 // --- accumulate_count (vim-style count prefix) ---
 
@@ -202,7 +202,10 @@ fn bare_letter_stays_in_search_mode() {
 fn view_shortcut_bare_letters_map_to_views() {
     assert_eq!(view_shortcut(KeyCode::Char('t'), false), Some(View::Today));
     assert_eq!(view_shortcut(KeyCode::Char('m'), false), Some(View::Mit));
-    assert_eq!(view_shortcut(KeyCode::Char('p'), false), Some(View::PastDue));
+    assert_eq!(
+        view_shortcut(KeyCode::Char('p'), false),
+        Some(View::PastDue)
+    );
     assert_eq!(view_shortcut(KeyCode::Char('w'), false), Some(View::Week));
     assert_eq!(view_shortcut(KeyCode::Char('a'), false), Some(View::All));
 }
@@ -259,6 +262,44 @@ fn ctrl_other_keys_do_not_quit() {
     assert!(!ctrl_quits(KeyCode::Char('x'), true));
 }
 
+// --- alt_scroll_direction ---
+
+#[test]
+fn alt_u_and_alt_d_scroll_by_focused_panel() {
+    assert_eq!(
+        alt_scroll_direction(KeyCode::Char('u'), KeyModifiers::ALT),
+        Some(true)
+    );
+    assert_eq!(
+        alt_scroll_direction(KeyCode::Char('D'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+        Some(false)
+    );
+}
+
+#[test]
+fn option_generated_macos_glyphs_scroll_too() {
+    assert_eq!(
+        alt_scroll_direction(KeyCode::Char('\u{00a8}'), KeyModifiers::NONE),
+        Some(true)
+    );
+    assert_eq!(
+        alt_scroll_direction(KeyCode::Char('\u{2202}'), KeyModifiers::NONE),
+        Some(false)
+    );
+}
+
+#[test]
+fn non_scroll_alt_keys_are_ignored() {
+    assert_eq!(
+        alt_scroll_direction(KeyCode::Char('s'), KeyModifiers::ALT),
+        None
+    );
+    assert_eq!(
+        alt_scroll_direction(KeyCode::Enter, KeyModifiers::ALT),
+        None
+    );
+}
+
 // --- ctrl_opens_links ---
 
 #[test]
@@ -302,4 +343,3 @@ fn ctrl_other_keys_do_not_remove_task() {
     assert!(!ctrl_removes_task(KeyCode::Char('d'), true));
     assert!(!ctrl_removes_task(KeyCode::Delete, true));
 }
-

@@ -40,10 +40,11 @@ the focused panel's border brightens and the unfocused one dims. The shell
 starts focused on the tasks view so task navigation works immediately; the
 brain panel is still spawned at startup with the selected frontend ready
 one `Alt+`-switch away. `Alt+U` / `Alt+D` scroll the focused panel a half-page
-up / down
-(the brain panel by half its visible rows, the search panel by a page of its
-match list) — a keyboard-only alternative to the wheel that fires even while
-the agent has focus or the filter is being typed.
+up / down (the brain panel by half its visible rows, the search panel by a page
+of its match list): a keyboard-only alternative to the wheel that fires even
+while the selected agent has focus or the filter is being typed. macOS
+Option-produced equivalents are accepted too, so richer keyboard reporting in
+embedded frontends does not strand the scroll binding.
 
 **Closing vs quitting.** Exiting the agent (for Claude, `Ctrl-C` to end the
 turn, then `Ctrl-C` again to exit) **closes the brain panel** — the main view goes

@@ -7,7 +7,7 @@ use std::time::Duration as StdDuration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use ratatui::{Terminal, backend::Backend};
+use ratatui::{backend::Backend, Terminal};
 
 use crate::main_view::{self, MainView};
 use crate::tui::*;
@@ -147,21 +147,17 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                     app.focus_brain();
                     continue;
                 }
-                // Alt+U / Alt+D scroll the focused panel a half-page up / down.
-                // Handled here (before the panel-key dispatch below forwards to
-                // Claude) so they work even while the brain panel is focused or
-                // the search filter is active — the brain panel scrolls its
-                // scrollback, the tasks panel moves the selection.
-                KeyCode::Char('u' | 'U') => {
-                    app.scroll_focused_half_page(true);
-                    continue;
-                }
-                KeyCode::Char('d' | 'D') => {
-                    app.scroll_focused_half_page(false);
-                    continue;
-                }
                 _ => {}
             }
+        }
+        // Alt+U / Alt+D scroll the focused panel a half-page up / down.
+        // Handled here (before the panel-key dispatch below forwards to the
+        // child agent) so they work even while the brain panel is focused or
+        // the search filter is active. Some terminals report macOS Option
+        // glyphs instead of Alt-modified ASCII in richer keyboard modes.
+        if let Some(up) = alt_scroll_direction(k.code, k.modifiers) {
+            app.scroll_focused_half_page(up);
+            continue;
         }
 
         // App-level main-view switching (main panel only, so the brain panel

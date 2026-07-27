@@ -331,13 +331,16 @@ We deliberately did **not** re-enable motion reporting to chase the wheel:
 
 Instead, **`Alt+U` / `Alt+D` are the supported way to scroll** (half-page up /
 down of the focused panel; see [keybindings.md](keybindings.md)). They are
-handled as ordinary key events, intercepted before forwarding to `claude`, so
-they work in every terminal, in every panel, even while Claude has focus or
-the search filter is being typed — with **zero** dependency on mouse
-reporting. The `1007` (alternate-scroll) DECRST is still worth keeping: it is
-cheap, harmless where unsupported, and keeps the wheel from turning into stray
-arrow keys for terminals where the wheel *does* reach the app. The `tasks` and
-`dif` siblings make the same call and document it inline in their
+handled as ordinary key events, intercepted before forwarding to the selected
+agent, so they work in every terminal, in every panel, even while Claude or
+Codex has focus or the search filter is being typed, with **zero** dependency
+on mouse reporting. Brain also accepts the macOS Option-produced `U` and `D`
+glyphs as equivalent scroll chords, because richer keyboard modes in embedded
+frontends can surface those glyphs instead of Alt-modified ASCII. The `1007`
+(alternate-scroll) DECRST is still worth keeping: it is cheap, harmless where
+unsupported, and keeps the wheel from turning into stray arrow keys for
+terminals where the wheel *does* reach the app. The `tasks` and `dif` siblings
+make the same call and document it inline in their
 `keybindings.md` mouse sections (neither keeps a decisions log).
 
 ## Why "Create PDF" is `Ctrl-G` and a contextual, leading palette row

@@ -1,11 +1,8 @@
 //! Pure key-decision helpers + PTY byte encoding (no `App` mutation).
 
-
-use crossterm::event::{
-        KeyCode, KeyModifiers,
-    };
-use ratatui::layout::{Position, Rect};
 use crate::tasks::view::View;
+use crossterm::event::{KeyCode, KeyModifiers};
+use ratatui::layout::{Position, Rect};
 
 use super::Panel;
 
@@ -208,6 +205,22 @@ pub(crate) fn ctrl_opens_palette(code: KeyCode) -> bool {
 /// panel's normal mode, forwarded to claude in the brain panel).
 pub(crate) fn ctrl_quits(code: KeyCode, ctrl: bool) -> bool {
     ctrl && matches!(code, KeyCode::Char('q' | 'Q'))
+}
+
+/// Whether a keystroke scrolls the focused panel by a half page. Normally this
+/// is `Alt+U` / `Alt+D`. In richer keyboard modes on macOS, Option can surface
+/// as the produced glyph instead of an Alt-modified ASCII key, so accept those
+/// equivalent glyphs too.
+#[must_use]
+pub(crate) fn alt_scroll_direction(code: KeyCode, modifiers: KeyModifiers) -> Option<bool> {
+    let modified = modifiers.intersects(KeyModifiers::ALT | KeyModifiers::META);
+    match code {
+        KeyCode::Char('u' | 'U') if modified => Some(true),
+        KeyCode::Char('d' | 'D') if modified => Some(false),
+        KeyCode::Char('\u{00a8}' | '\u{0308}') => Some(true),
+        KeyCode::Char('\u{2202}') => Some(false),
+        _ => None,
+    }
 }
 
 /// Whether a keystroke fires the "open links" action (Linear issue +
