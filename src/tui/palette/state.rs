@@ -125,6 +125,7 @@ impl PaletteState {
             | PaletteAction::CloseBrain
             | PaletteAction::ShowLogs
             | PaletteAction::OpenHabitsInBrowser
+            | PaletteAction::SyncBrainNow
             | PaletteAction::OpenAgenda
             | PaletteAction::ToggleNotes => cmd.label.to_owned(),
         }

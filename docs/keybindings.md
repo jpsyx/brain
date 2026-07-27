@@ -113,7 +113,8 @@ Shared across the app; a captive modal consumes all input.
 - **Help** (`Alt+S`) — the `shortcuts::ALL` reference, grouped. `j/k`, `PgUp/PgDn`, `g`, `?`/`q`/`Esc` close.
 - **Command palette** (`Ctrl+P`, tasks view) — filterable; numbered rows;
   `Enter` runs, `Esc` closes. In `--verbose` TUI runs it includes **Show
-  logs**, which asks whether to reveal the timestamped `/tmp` log file.
+  logs**, which asks whether to reveal the timestamped `/tmp` log file. It
+  also includes **Sync brain now** with no direct shortcut.
 - **Task actions** (`Enter` on a task) — per-task command list.
 - **Confirm** — Yes/No (triage adds Skip). `y`/`n`/`Esc`, `←`/`→`/`Tab` move, `Enter` resolves.
 - **Brain-input** (`Ctrl+Shift+M`) — compose a seeded message. `Alt+Enter` newline, `Enter` send.

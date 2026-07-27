@@ -55,6 +55,8 @@ pub(crate) enum PaletteAction {
     /// server (started on demand via `server::lifecycle::ensure_running`).
     /// Global.
     OpenHabitsInBrowser,
+    /// Kick a best-effort background `brain sync` now. Global; no shortcut.
+    SyncBrainNow,
     /// Open today's agenda — same code path as the `Ctrl+A` shortcut.
     /// Routes through the `agenda` zsh function, which generates the
     /// PDF if needed and opens it. On failure (no markdown for today)
@@ -88,7 +90,10 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         PaletteAction::OpenAgenda => Some("^A"),
         PaletteAction::ToggleNotes => Some("l"),
         PaletteAction::OpenLinks => Some("^O"),
-        PaletteAction::ShowLogs | PaletteAction::StartTask | PaletteAction::DeferTask(_) => None,
+        PaletteAction::ShowLogs
+        | PaletteAction::StartTask
+        | PaletteAction::DeferTask(_)
+        | PaletteAction::SyncBrainNow => None,
     }
 }
 
@@ -167,6 +172,12 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         label: "Open habits in browser",
         action: PaletteAction::OpenHabitsInBrowser,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
+        label: "Sync brain now",
+        action: PaletteAction::SyncBrainNow,
         scope: PaletteScope::Global,
         works_on_habits: false,
     },

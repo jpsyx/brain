@@ -305,9 +305,25 @@ fn full_palette_lists_actions_in_canonical_order() {
             PaletteAction::DeferTask(7),
             PaletteAction::DeferTask(14),
             PaletteAction::OpenHabitsInBrowser,
+            PaletteAction::SyncBrainNow,
             PaletteAction::OpenAgenda,
         ]
     );
+}
+
+#[test]
+fn sync_brain_palette_command_has_no_shortcut() {
+    use crate::tui::palette::shortcut_for;
+
+    let state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    let rows = state.numbered_entries();
+
+    assert!(
+        rows.iter()
+            .any(|(label, shortcut)| label.contains("Sync brain now") && shortcut.is_none()),
+        "{rows:?}"
+    );
+    assert_eq!(shortcut_for(PaletteAction::SyncBrainNow), None);
 }
 
 #[test]

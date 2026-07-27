@@ -197,6 +197,10 @@ impl App<'_> {
             PaletteAction::OpenHabitsInBrowser => {
                 self.run_open_habits();
             }
+            PaletteAction::SyncBrainNow => {
+                crate::sync::trigger::spawn_detached_sync();
+                self.flash = Some(FlashKind::Info("✓ sync started".to_owned()));
+            }
             PaletteAction::OpenAgenda => {
                 self.run_open_agenda();
             }

@@ -606,7 +606,8 @@ list.
     directory.
 - **Command palette**: `Ctrl-p` opens the top-level command palette (the
   menu) as a modal overlay for any action `brain` can run; `Esc` closes it
-  back to the picker.
+  back to the picker. The tasks-view palette includes **Sync brain now**, which
+  kicks off a nonblocking background `brain sync` and has no direct shortcut.
 - **Cancel**: `Esc` / `Ctrl-c` exits with no action.
 
 See [keybindings.md](keybindings.md) for the complete key table including
