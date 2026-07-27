@@ -167,7 +167,9 @@ before clap parses it.
 brain's run log to stdout and writes the same log to a timestamped file under
 `/tmp/`, then prints the log path at exit. In the persistent TUI, logs still go
 to the file but never to stdout; use the tasks-view command palette's **Show
-logs** row to reveal the file.
+logs** row to reveal the file. The log includes command dispatch, normalized
+arguments, task CSV paths and mutation results, sync/rclone phases, server
+lifecycle decisions, doctor probes, and skill install counts.
 
 ### `brain config`
 
@@ -368,7 +370,9 @@ A read-only report of what a plain `brain sync` would do, without doing it.
 Runs the same `rclone bisync` argv as `brain sync` (bare, `Direction::Both`)
 but with `--dry-run` appended, so the normal file lane transfers and writes
 nothing. Detected file changes are classified and grouped exactly like the
-live sync's detection phase.
+live sync's detection phase. Before doing remote work, it prints the phase it
+is entering: first the rclone dry-run for regular files, then the task/habit
+CSV baseline check.
 
 Because `tasks/tasks.csv` and `tasks/habits.csv` are excluded from bisync,
 `check` also performs a read-only CSV pass: it compares the cached CSV
@@ -451,7 +455,9 @@ for the merge rules and
 **Doctor.** `brain tasks doctor` reports rclone/sync health as one
 informational line: `rclone ✓ <version> · sync configured` or
 `rclone ✗ not installed · sync off`. An unconfigured (or rclone-less) sync is
-a normal, healthy state — it never fails the doctor check.
+a normal, healthy state — it never fails the doctor check. Before probing, the
+doctor prints the state DB path, the SessionStart hook settings file, and the
+external/env checks it is about to run.
 
 ### `brain personalize`
 
@@ -508,6 +514,14 @@ when `skills_auto_sync` is `true` (the default since the B4 cutover; set it
 `brain-knowledge-capture`, `second-brain`, `contacts`, and `todo`. See
 [config.md](config.md) and the sub-project B spec.
 
+Before writing anything, `brain skills sync` prints the built-skill directory,
+the shared registry directory, the number of frontend skill directories it will
+fan out to, and the extension/plugin source directories it will read. That
+progress trace is default output; `--verbose` remains only for detailed run
+logs. Automatic skill refresh after `brain config set` / `brain personalize set`
+uses the same principle: it prints that installed skills are being refreshed
+before writing built copies or registry links.
+
 **Customizing skills without forking.** Two mechanisms, both stored with your
 brain (synced, never committed to the repo):
 
@@ -553,6 +567,10 @@ the shell (`brain` / `brain tasks`) best-effort brings the server up, so it is
 normally already running. A server failure never blocks the shell. The server
 binds only to `127.0.0.1`; exposing `/webhooks/capture` through a public tunnel
 requires an auth layer outside this slice.
+
+`brain server start` and `brain habits` both print the server-state path and
+plan before checking or spawning the daemon. `brain habits` then prints the
+local `/habits` URL before handing it to the system browser.
 
 ### Prerequisite: `markdown-to-pdf`
 

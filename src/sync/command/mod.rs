@@ -64,19 +64,32 @@ pub fn sync_once(
     let local = root.to_string_lossy().into_owned();
     let argv = args::bisync_args(cfg, &local, &remote.arg, dir);
     let theme = Theme::active();
+    crate::logging::log(format!(
+        "sync_once direction={} root={} remote={}",
+        direction_label(dir),
+        root.display(),
+        remote.arg
+    ));
     eprintln!("{}", format_sync_plan(cfg, root, dir, theme));
 
     if should_bootstrap_check_access(dir) {
+        crate::logging::log("sync check-access markers");
         eprintln!("{}", theme.info("Checking the sync safety marker…"));
         crate::sync::check_access::ensure_markers(root, &remote)?;
     }
 
+    crate::logging::log("sync rclone start");
     eprintln!(
         "{}",
         theme.info("Starting rclone sync; live file progress follows…")
     );
     let mut run = run_rclone(&remote.env, &argv);
+    crate::logging::log(format!(
+        "sync rclone done exit_ok={} transferred={} deleted={} errors={} abort={:?}",
+        run.exit_ok, run.transferred, run.deleted, run.errors, run.abort
+    ));
     let resumed = if should_auto_resync(dir, run.abort.as_ref()) {
+        crate::logging::log("sync auto-resync start");
         eprintln!(
             "{}",
             theme.warning(
@@ -85,26 +98,45 @@ pub fn sync_once(
         );
         let resync_argv = args::bisync_args(cfg, &local, &remote.arg, Direction::Resync);
         run = run_rclone(&remote.env, &resync_argv);
+        crate::logging::log(format!(
+            "sync auto-resync done exit_ok={} transferred={} deleted={} errors={} abort={:?}",
+            run.exit_ok, run.transferred, run.deleted, run.errors, run.abort
+        ));
         true
     } else {
         false
     };
+    crate::logging::log("sync rename conflict markers");
     let renamed_count = conflicts::rename_markers(root, &hostname(), date);
     let renamed = u64::try_from(renamed_count).unwrap_or(0);
     let leftover = conflicts::leftover_markers(root);
     let outcome = verify::classify(&run, renamed_count, leftover);
+    crate::logging::log(format!(
+        "sync verify outcome={} renamed_conflicts={} leftover_markers={}",
+        outcome.label(),
+        renamed_count,
+        leftover
+    ));
 
     // The two task CSVs are excluded from bisync and reconciled out-of-band via
     // the 3-way merge. Best-effort: skip on an abort, and never let a CSV
     // failure change the bisync outcome — just record what merged.
     let csv_note = if matches!(outcome, Outcome::Aborted(_)) {
+        crate::logging::log("sync csv merge skipped after abort");
         String::new()
     } else {
+        crate::logging::log("sync csv merge start");
         eprintln!("{}", theme.info("Merging task and habit CSVs by row id…"));
-        format_csv_note(&crate::sync::csv_sync::sync_csvs(cfg, root))
+        let note = format_csv_note(&crate::sync::csv_sync::sync_csvs(cfg, root));
+        crate::logging::log(format!("sync csv merge note={note:?}"));
+        note
     };
 
     let journal = Journal::open(&Journal::default_path())?;
+    crate::logging::log(format!(
+        "sync journal {}",
+        Journal::default_path().display()
+    ));
     journal.record(&SyncRun {
         started_at: started_at.to_owned(),
         finished_at: finished_at.to_owned(),
@@ -131,6 +163,7 @@ pub fn sync_once(
             join_notes(&base, &csv_note)
         },
     })?;
+    crate::logging::log("sync journal recorded");
     Ok(outcome)
 }
 
@@ -332,18 +365,25 @@ pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
 pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
     let theme = Theme::active();
     if !cfg.is_configured() {
+        crate::logging::log("sync status unconfigured");
         println!(
             "{}",
             format_unconfigured_sync_guidance(Direction::Both, theme)
         );
         return Ok(());
     }
+    crate::logging::log(format!(
+        "sync status journal={} root={}",
+        Journal::default_path().display(),
+        root.display()
+    ));
     let journal = Journal::open(&Journal::default_path())?;
     let recent = journal.recent(1)?;
     println!("{}", format_last_run(recent.first(), theme));
     println!("{}", format_triggers(cfg, theme));
     let conflicts = conflicts::list_conflicts(root);
     let count = conflicts.len();
+    crate::logging::log(format!("sync status conflicts={count}"));
     let label = if count > 0 {
         theme.warning("open conflicts:")
     } else {
@@ -434,7 +474,12 @@ pub fn conflict_display_paths(files: &[conflicts::ConflictFile]) -> Vec<std::pat
 /// rendered through the same strict grouping path.
 pub fn print_conflicts(root: &Path, json: bool) -> Result<()> {
     let theme = Theme::active();
+    crate::logging::log(format!(
+        "sync conflicts scan root={} json={json}",
+        root.display()
+    ));
     let conflicts = conflicts::list_conflicts(root);
+    crate::logging::log(format!("sync conflicts raw_copies={}", conflicts.len()));
     if json {
         let groups = conflicts::group_conflicts(&conflicts);
         let meta = |rel: &Path| copy_meta_from_fs(root, rel);

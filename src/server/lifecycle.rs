@@ -67,6 +67,7 @@ pub fn choose_port(preferred_free: bool, preferred: u16) -> u16 {
 /// Read and parse the daemon record; `None` when it is absent or unparseable.
 #[must_use]
 pub fn read_state() -> Option<ServerState> {
+    crate::logging::log(format!("server read state {}", state_path().display()));
     let raw = std::fs::read_to_string(state_path()).ok()?;
     serde_json::from_str(&raw).ok()
 }
@@ -78,9 +79,14 @@ pub fn read_state() -> Option<ServerState> {
 /// be written.
 pub fn write_state(state: ServerState) -> Result<()> {
     let path = state_path();
+    crate::logging::log(format!(
+        "server write state path={} pid={} port={}",
+        path.display(),
+        state.pid,
+        state.port
+    ));
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)
-            .with_context(|| format!("creating {}", dir.display()))?;
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
     let json = serde_json::to_string(&state).context("serializing server state")?;
     std::fs::write(&path, json).with_context(|| format!("writing {}", path.display()))?;
@@ -89,6 +95,7 @@ pub fn write_state(state: ServerState) -> Result<()> {
 
 /// Delete the daemon record, if present. Best-effort.
 pub fn remove_state() {
+    crate::logging::log(format!("server remove state {}", state_path().display()));
     let _ = std::fs::remove_file(state_path());
 }
 
@@ -121,9 +128,19 @@ fn preferred_is_free(preferred: u16) -> bool {
 #[must_use]
 pub fn running() -> Option<u16> {
     let state = read_state()?;
-    if is_live(Some(&state), pid_alive(state.pid), port_reachable(state.port)) {
+    crate::logging::log(format!(
+        "server state found pid={} port={}",
+        state.pid, state.port
+    ));
+    if is_live(
+        Some(&state),
+        pid_alive(state.pid),
+        port_reachable(state.port),
+    ) {
+        crate::logging::log(format!("server live port={}", state.port));
         Some(state.port)
     } else {
+        crate::logging::log("server state stale");
         remove_state();
         None
     }
@@ -138,21 +155,37 @@ pub fn running() -> Option<u16> {
 /// [`SPAWN_WAIT`].
 pub fn ensure_running() -> Result<u16> {
     if let Some(port) = running() {
+        crate::logging::log(format!("server reuse port={port}"));
         return Ok(port);
     }
     let port = choose_port(preferred_is_free(PREFERRED_PORT), PREFERRED_PORT);
+    crate::logging::log(format!("server spawn requested_port={port}"));
     spawn_daemon(port).context("spawning the brain server daemon")?;
 
     let deadline = Instant::now() + SPAWN_WAIT;
     loop {
         if let Some(port) = running() {
+            crate::logging::log(format!("server spawned port={port}"));
             return Ok(port);
         }
         if Instant::now() >= deadline {
+            crate::logging::log("server spawn timed out");
             anyhow::bail!("brain server did not come up within {SPAWN_WAIT:?}");
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+#[must_use]
+pub fn format_ensure_plan(theme: Theme) -> String {
+    format!(
+        "{}\n  {} {}\n  {} {}",
+        theme.heading("Checking the brain server"),
+        theme.muted("state:"),
+        "~/.cache/brain/server.json",
+        theme.muted("plan:"),
+        "reuse a live daemon, or start one if needed",
+    )
 }
 
 /// Spawn `brain server run --port <port>` detached (own process group, null
@@ -161,6 +194,10 @@ pub fn ensure_running() -> Result<u16> {
 fn spawn_daemon(port: u16) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let exe = std::env::current_exe().context("resolving the current executable")?;
+    crate::logging::log(format!(
+        "spawn brain server exe={} port={port}",
+        exe.display()
+    ));
     std::process::Command::new(exe)
         .args(["server", "run", "--port", &port.to_string()])
         .stdin(std::process::Stdio::null())
@@ -180,6 +217,8 @@ fn spawn_daemon(port: u16) -> Result<()> {
 /// Propagates a spawn/startup failure from [`ensure_running`].
 pub fn start() -> Result<()> {
     let theme = Theme::active();
+    eprintln!("{}", format_ensure_plan(theme));
+    crate::logging::log("server start ensure_running");
     let port = ensure_running()?;
     let mut out = std::io::stdout();
     writeln!(out, "{}", theme.success(&running_line(port)))?;
@@ -209,6 +248,7 @@ pub fn kill() -> Result<()> {
     let mut out = std::io::stdout();
     match read_state() {
         Some(state) => {
+            crate::logging::log(format!("server kill pid={}", state.pid));
             let _ = std::process::Command::new("kill")
                 .arg(state.pid.to_string())
                 .stdout(std::process::Stdio::null())
@@ -265,5 +305,15 @@ mod tests {
     #[test]
     fn choose_port_falls_back_to_zero_when_busy() {
         assert_eq!(choose_port(false, 8787), 0);
+    }
+
+    #[test]
+    fn ensure_plan_says_server_state_and_daemon_spawn_may_happen() {
+        let plan = format_ensure_plan(Theme::dark(false));
+
+        assert!(plan.contains("Checking the brain server"), "{plan}");
+        assert!(plan.contains("state: ~/.cache/brain/server.json"), "{plan}");
+        assert!(plan.contains("reuse a live daemon"), "{plan}");
+        assert!(plan.contains("start one if needed"), "{plan}");
     }
 }

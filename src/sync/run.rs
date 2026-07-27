@@ -114,6 +114,7 @@ pub fn parse_outcome(exit_ok: bool, output: &str) -> RunOutcome {
 /// buffered by us).
 #[must_use]
 pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
+    crate::logging::log(format!("spawn rclone args={args:?} env_keys={}", env.len()));
     let mut cmd = Command::new("rclone");
     cmd.args(args);
     for (k, v) in env {
@@ -123,6 +124,7 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
     cmd.stderr(Stdio::piped());
 
     let Ok(mut child) = cmd.spawn() else {
+        crate::logging::log("spawn rclone failed");
         return RunOutcome {
             exit_ok: false,
             transferred: 0,
@@ -139,6 +141,7 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
     if let Some(stderr) = child.stderr.take() {
         let mut err_out = std::io::stderr();
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            crate::logging::log(format!("rclone stderr {line}"));
             captured.push_str(&line);
             captured.push('\n');
 
@@ -158,6 +161,7 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
     }
 
     let exit_ok = child.wait().is_ok_and(|status| status.success());
+    crate::logging::log(format!("rclone exited success={exit_ok}"));
     let mut outcome = parse_outcome(exit_ok, &captured);
     outcome.transferred = u64::try_from(copied).unwrap_or(0);
     outcome.deleted = u64::try_from(deleted).unwrap_or(0);
@@ -171,6 +175,10 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
 /// caller (`check::run`) decides what the user sees.
 #[must_use]
 pub fn run_rclone_capture(env: &[(String, String)], args: &[String]) -> (bool, String) {
+    crate::logging::log(format!(
+        "spawn rclone capture args={args:?} env_keys={}",
+        env.len()
+    ));
     let mut cmd = Command::new("rclone");
     cmd.args(args);
     for (k, v) in env {
@@ -180,9 +188,17 @@ pub fn run_rclone_capture(env: &[(String, String)], args: &[String]) -> (bool, S
         Ok(o) => {
             let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&o.stderr));
+            crate::logging::log(format!(
+                "rclone capture exited success={} bytes={}",
+                o.status.success(),
+                text.len()
+            ));
             (o.status.success(), text)
         }
-        Err(_) => (false, String::new()),
+        Err(err) => {
+            crate::logging::log(format!("spawn rclone capture failed: {err}"));
+            (false, String::new())
+        }
     }
 }
 

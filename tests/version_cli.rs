@@ -15,7 +15,7 @@ fn brain(args: &[&str]) -> String {
 
 #[test]
 fn version_surfaces_match_the_crate_version() {
-    let expected = "brain 0.4.0\n";
+    let expected = concat!("brain ", env!("CARGO_PKG_VERSION"), "\n");
     assert_eq!(brain(&["--version"]), expected);
     assert_eq!(brain(&["-v"]), expected);
     assert_eq!(brain(&["version"]), expected);

@@ -31,16 +31,29 @@ pub struct Report {
 /// extensions from `sources`. Idempotent.
 pub fn sync(layout: &Layout, sources: &Sources) -> Result<Report> {
     let mut skills = embed::bundled_skills();
+    crate::logging::log(format!("skills bundled count={}", skills.len()));
     if let Some(dir) = &sources.plugins_dir {
-        skills.extend(plugin::discover(dir));
+        let plugins = plugin::discover(dir);
+        crate::logging::log(format!(
+            "skills plugin dir={} count={}",
+            dir.display(),
+            plugins.len()
+        ));
+        skills.extend(plugins);
     }
 
     let mut installed = Vec::new();
     for skill in &skills {
+        crate::logging::log(format!("skills install {}", skill.name));
         let ext = sources
             .extensions_dir
             .as_deref()
             .and_then(|d| extension::load(&skill.name, d));
+        crate::logging::log(format!(
+            "skills extension {} loaded={}",
+            skill.name,
+            ext.is_some()
+        ));
         write_built(skill, ext.as_ref(), layout)?;
         for link in link_ops(&skill.name, layout) {
             create_symlink(&link)?;
@@ -101,7 +114,8 @@ mod tests {
 
     fn sandbox() -> PathBuf {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("brain-skills-test-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("brain-skills-test-{}-{n}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
@@ -115,7 +129,11 @@ mod tests {
 
         let built = layout.built_dir.join("article-summarizer").join("SKILL.md");
         assert!(built.is_file());
-        assert!(fs::read_to_string(&built).unwrap().contains("article-summarizer"));
+        assert!(
+            fs::read_to_string(&built)
+                .unwrap()
+                .contains("article-summarizer")
+        );
 
         let registry = layout.agents_dir.join("article-summarizer");
         assert_eq!(
@@ -145,7 +163,13 @@ mod tests {
         };
         let report = sync(&layout, &sources).unwrap();
         assert!(report.installed.iter().any(|n| n == "my-plugin"));
-        assert!(layout.agents_dir.join("my-plugin").join("SKILL.md").is_file());
+        assert!(
+            layout
+                .agents_dir
+                .join("my-plugin")
+                .join("SKILL.md")
+                .is_file()
+        );
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -156,7 +180,11 @@ mod tests {
         let plugins = root.join("plugins");
         let p = plugins.join("hooked");
         fs::create_dir_all(&p).unwrap();
-        fs::write(p.join("SKILL.md"), "# H\n<!-- brain:ext hooked:start -->\nrest\n").unwrap();
+        fs::write(
+            p.join("SKILL.md"),
+            "# H\n<!-- brain:ext hooked:start -->\nrest\n",
+        )
+        .unwrap();
         let exts = root.join("extensions");
         fs::create_dir_all(&exts).unwrap();
         fs::write(exts.join("hooked.md"), "[hooked:start]\nINJECTED\n").unwrap();

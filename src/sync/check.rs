@@ -233,11 +233,19 @@ fn collect_csv_pending(
     remote_env: &[(String, String)],
     remote_arg: &str,
 ) -> Vec<CsvPending> {
+    crate::logging::log(format!("check csv pending root={}", root.display()));
     collect_csv_pending_with_fetch(
         root,
         &CSVS,
-        |name| std::fs::read_to_string(baseline_path(name)).unwrap_or_default(),
-        |rel| fetch_remote_csv(remote_env, remote_arg, rel),
+        |name| {
+            let path = baseline_path(name);
+            crate::logging::log(format!("check csv baseline {}", path.display()));
+            std::fs::read_to_string(path).unwrap_or_default()
+        },
+        |rel| {
+            crate::logging::log(format!("check csv remote {rel}"));
+            fetch_remote_csv(remote_env, remote_arg, rel)
+        },
     )
 }
 
@@ -256,6 +264,10 @@ fn fetch_remote_csv(
         remote_csv_arg(remote_arg, rel),
         tmp.to_string_lossy().into_owned(),
     ];
+    crate::logging::log(format!(
+        "check fetch remote csv rel={rel} tmp={}",
+        tmp.display()
+    ));
     let (ok, _) = crate::sync::run::run_rclone_capture(remote_env, &args);
     let text = ok.then(|| std::fs::read_to_string(&tmp).ok()).flatten();
     let _ = std::fs::remove_file(&tmp);
@@ -270,6 +282,7 @@ fn fetch_remote_csv(
 pub fn run(cfg: &SyncConfig, root: &std::path::Path) {
     let theme = Theme::active();
     if !cfg.is_configured() {
+        crate::logging::log("check unconfigured");
         println!(
             "{}",
             crate::sync::command::format_unconfigured_sync_guidance(
@@ -280,6 +293,11 @@ pub fn run(cfg: &SyncConfig, root: &std::path::Path) {
         return;
     }
     let remote = crate::sync::remote::build_remote(cfg);
+    crate::logging::log(format!(
+        "check root={} remote={}",
+        root.display(),
+        remote.arg
+    ));
     let local = root.to_string_lossy().into_owned();
     let mut args = crate::sync::args::bisync_args(
         cfg,
@@ -288,10 +306,20 @@ pub fn run(cfg: &SyncConfig, root: &std::path::Path) {
         crate::sync::args::Direction::Both,
     );
     args.push("--dry-run".into());
-    println!("{}", theme.muted("Checking for changes…"));
+    println!(
+        "{}",
+        theme.muted("Checking file changes with rclone dry-run…")
+    );
+    crate::logging::log("check rclone dry-run start");
     let (exit_ok, output) = crate::sync::run::run_rclone_capture(&remote.env, &args);
+    crate::logging::log(format!(
+        "check rclone dry-run done exit_ok={} output_bytes={}",
+        exit_ok,
+        output.len()
+    ));
     // No baseline yet? bisync aborts with prior-listing-missing.
     if !exit_ok && (output.contains("cannot find prior") || output.contains("Must run --resync")) {
+        crate::logging::log("check missing baseline");
         println!(
             "{}",
             theme.warning("No sync baseline yet — run `brain sync` to establish it.")
@@ -312,7 +340,14 @@ pub fn run(cfg: &SyncConfig, root: &std::path::Path) {
         .filter(|c| c.side == Side::Pull)
         .map(|c| c.path.clone())
         .collect();
+    crate::logging::log(format!(
+        "check file changes push={} pull={}",
+        push.len(),
+        pull.len()
+    ));
+    println!("{}", theme.muted("Checking task and habit CSV baselines…"));
     let csv = collect_csv_pending(root, &remote.env, &remote.arg);
+    crate::logging::log(format!("check csv files={}", csv.len()));
     println!("{}", format_report(&push, &pull, &csv, theme));
 }
 

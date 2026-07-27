@@ -43,23 +43,62 @@ impl Diagnosis {
 /// `~/brain/.claude` as the production locations.
 #[must_use]
 pub fn run_doctor(db_path: &Path, settings_dir: &Path) -> Diagnosis {
+    crate::logging::log(format!(
+        "doctor start db={} settings_dir={}",
+        db_path.display(),
+        settings_dir.display()
+    ));
     let mut diag = Diagnosis {
         db_path: db_path.to_path_buf(),
         db_schema_ok: true, // vacuous when DB is missing
         settings_path: settings_dir.join("settings.json"),
         ..Default::default()
     };
+    crate::logging::log("doctor check state db");
     diag.db_present = db_path.is_file();
     if diag.db_present {
         diag.db_schema_ok = check_db_schema(db_path).is_ok();
     }
+    crate::logging::log(format!(
+        "doctor state db present={} schema_ok={}",
+        diag.db_present, diag.db_schema_ok
+    ));
+    crate::logging::log(format!(
+        "doctor check SessionStart hook {}",
+        diag.settings_path.display()
+    ));
     if let Some(cmd) = find_session_start_hook(&diag.settings_path) {
         diag.hook_installed = true;
         diag.hook_command = Some(cmd);
     }
+    crate::logging::log(format!("doctor hook installed={}", diag.hook_installed));
+    crate::logging::log("doctor probe rclone");
     diag.rclone_version = detect_rclone_version();
+    crate::logging::log(format!("doctor rclone version={:?}", diag.rclone_version));
+    crate::logging::log("doctor load sync config");
     diag.sync_configured = crate::sync::config::SyncConfig::load().is_configured();
+    crate::logging::log(format!("doctor sync configured={}", diag.sync_configured));
     diag
+}
+
+#[must_use]
+pub fn format_doctor_plan(
+    db_path: &Path,
+    settings_path: &Path,
+    theme: crate::theme::Theme,
+) -> String {
+    format!(
+        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
+        theme.heading("Checking brain task environment"),
+        theme.muted("state DB:"),
+        theme.value(&db_path.display().to_string()),
+        theme.muted("SessionStart hook:"),
+        theme.value(&settings_path.display().to_string()),
+        theme.muted("rclone:"),
+        "probing PATH",
+        theme.muted("sync config:"),
+        "reading brain env",
+    )
 }
 
 /// Detect `rclone` on `PATH` by running `rclone version` and parsing the
@@ -113,13 +152,20 @@ fn find_session_start_hook(settings_path: &Path) -> Option<String> {
 
 /// One-line rclone/sync health summary for `brain tasks doctor`.
 #[must_use]
-pub fn sync_line(rclone_version: Option<&str>, configured: bool, theme: crate::theme::Theme) -> String {
+pub fn sync_line(
+    rclone_version: Option<&str>,
+    configured: bool,
+    theme: crate::theme::Theme,
+) -> String {
     let rclone = rclone_version.map_or_else(
         || theme.error("rclone ✗ not installed"),
         |v| theme.success(&format!("rclone ✓ {v}")),
     );
-    let sync =
-        if configured { theme.success("sync configured") } else { theme.muted("sync off") };
+    let sync = if configured {
+        theme.success("sync configured")
+    } else {
+        theme.muted("sync off")
+    };
     format!("{rclone} · {sync}")
 }
 
@@ -129,7 +175,11 @@ pub fn sync_line(rclone_version: Option<&str>, configured: bool, theme: crate::t
 pub fn print_report(diag: &Diagnosis) -> i32 {
     let ok = |b: bool| if b { "✓" } else { "✗" };
     println!("tasks doctor");
-    println!("  {} state DB: {}", ok(diag.db_present), diag.db_path.display());
+    println!(
+        "  {} state DB: {}",
+        ok(diag.db_present),
+        diag.db_path.display()
+    );
     if diag.db_present {
         println!("  {} state DB schema", ok(diag.db_schema_ok));
     } else {
@@ -150,7 +200,11 @@ pub fn print_report(diag: &Diagnosis) -> i32 {
     }
     println!(
         "  {}",
-        sync_line(diag.rclone_version.as_deref(), diag.sync_configured, crate::theme::Theme::active())
+        sync_line(
+            diag.rclone_version.as_deref(),
+            diag.sync_configured,
+            crate::theme::Theme::active()
+        )
     );
     i32::from(!diag.is_ok())
 }
@@ -172,10 +226,37 @@ mod tests {
     fn sync_line_colors_rclone_and_config_status() {
         let colored = crate::theme::Theme::dark(true);
         let installed = sync_line(Some("1.74.2"), true, colored);
-        assert!(installed.contains("\x1b[92m"), "rclone ✓ and 'sync configured' should be success green: {installed}");
+        assert!(
+            installed.contains("\x1b[92m"),
+            "rclone ✓ and 'sync configured' should be success green: {installed}"
+        );
 
         let missing = sync_line(None, false, colored);
-        assert!(missing.contains("\x1b[91m"), "rclone ✗ should be error red: {missing}");
-        assert!(missing.contains("\x1b[90m"), "'sync off' should be muted gray: {missing}");
+        assert!(
+            missing.contains("\x1b[91m"),
+            "rclone ✗ should be error red: {missing}"
+        );
+        assert!(
+            missing.contains("\x1b[90m"),
+            "'sync off' should be muted gray: {missing}"
+        );
+    }
+
+    #[test]
+    fn doctor_plan_names_every_check_before_running() {
+        let plan = format_doctor_plan(
+            Path::new("/tmp/brain/state.db"),
+            Path::new("/tmp/brain/.claude/settings.json"),
+            crate::theme::Theme::dark(false),
+        );
+
+        assert!(plan.contains("Checking brain task environment"), "{plan}");
+        assert!(plan.contains("state DB: /tmp/brain/state.db"), "{plan}");
+        assert!(
+            plan.contains("SessionStart hook: /tmp/brain/.claude/settings.json"),
+            "{plan}"
+        );
+        assert!(plan.contains("rclone: probing PATH"), "{plan}");
+        assert!(plan.contains("sync config: reading brain env"), "{plan}");
     }
 }

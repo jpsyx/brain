@@ -115,7 +115,10 @@ Optional per-run verbose logging. `logging::init` creates a timestamped
 lines to stdout for non-TUI commands, and prints the final log path at process
 exit. Before the persistent shell takes over `/dev/tty`, `main.rs` disables the
 stdout mirror; the TUI keeps the log path in `App` and offers **Show logs** in
-the tasks command palette.
+the tasks command palette. Command handlers and thin IO shells call
+`logging::log` at phase boundaries: dispatch, config/env/personalize actions,
+task CSV loads and writes, sync/rclone work, server lifecycle probes, doctor
+checks, and skill installation.
 
 ### `paths.rs`
 Brain-root resolution. `brain_root()` reads the path in `~/.config/brain-root`
@@ -167,12 +170,14 @@ content lands in a trailing "Personal extensions" section), `render` (base skill
 built dir + registry + frontend dirs, and the pure `link_ops` target
 computation), `install` (collect bundled + plugins, write built + create the
 two-hop symlinks; thin FS shell over `link_ops`), and `command`
-(`brain skills sync [--root <sandbox>]`). `resync_skills()` (the A
-seam) runs the pipeline, gated by `skills_auto_sync` (**default `true`** since
-the B4 cutover) so a mutation re-renders the live registry; set the flag `false`
-to manage skills only via explicit `brain skills sync`. jpsyx delegates to
-`brain skills sync` and never prunes brain-owned links (they resolve into brain's
-built dir, outside jpsyx's sources). See the B spec under `docs/superpowers/specs/`.
+(`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the built
+dir, registry, frontend count, and extension/plugin sources before the FS shell
+runs). `resync_skills()` (the A seam) runs the pipeline, gated by
+`skills_auto_sync` (**default `true`** since the B4 cutover) so a mutation
+re-renders the live registry; set the flag `false` to manage skills only via
+explicit `brain skills sync`. jpsyx delegates to `brain skills sync` and never
+prunes brain-owned links (they resolve into brain's built dir, outside jpsyx's
+sources). See the B spec under `docs/superpowers/specs/`.
 
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =
@@ -340,7 +345,8 @@ counterpart: `check::collect_csv_pending_with_fetch` reads the cached
 remote CSV through `csv_sync::remote_csv_arg` + rclone `copyto`, and compares
 both sides to the baseline with `csv_merge::parse`-backed row diffs. The pure
 `check::format_report` receives both the file path lists and the CSV row
-counts for the themed summary. No journal entry, no conflict post-pass, no
+counts for the themed summary. The command prints default progress before the
+rclone dry-run and before the CSV baseline pass. No journal entry, no conflict post-pass, no
 baseline mutation: it never calls `rclone bisync` without `--dry-run`, and
 its CSV pass never writes local files, remotes, or baselines.
 
@@ -511,7 +517,8 @@ one shared instance per machine across all `brain` invocations and tabs. Its
   `choose_port` decisions, thin IO probes (`read_state`/`write_state`/
   `remove_state`, `pid_alive` via `kill -0`, `port_reachable` via a timed TCP
   connect), `running()` (reap-if-stale), `ensure_running()` (reuse-or-spawn),
-  and the `start`/`status`/`kill` CLI actions.
+  `format_ensure_plan` (the progress line printed before CLI waits on daemon
+  reuse/spawn), and the `start`/`status`/`kill` CLI actions.
 - `server/mod.rs` — `run(port)`, the blocking accept loop the detached daemon
   runs: binds `127.0.0.1:port` (`0` = OS-assigned), writes the actual bound
   port to the record, then dispatches each request through the router to a

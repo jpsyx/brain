@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use chrono::{Datelike, Local, NaiveDate};
 
 use crate::theme::Theme;
@@ -65,9 +65,15 @@ pub fn normalize_id(raw: &str) -> Result<String> {
 }
 
 pub fn run(raw_id: &str) -> Result<()> {
+    crate::logging::log(format!("tasks complete raw_id={raw_id}"));
     let root = crate::paths::brain_root()?;
+    crate::logging::log(format!("complete root {}", root.display()));
     let today = Local::now().date_naive();
     let result = complete_in_root_with_today(&root, raw_id, today)?;
+    crate::logging::log(format!(
+        "complete result kind={:?} id={}",
+        result.kind, result.task_id
+    ));
     print_result(&result);
     Ok(())
 }
@@ -84,17 +90,24 @@ pub fn complete_in_root_with_today(
     let tasks_dir = root.join("tasks");
     let tasks_path = tasks_dir.join("tasks.csv");
     let habits_path = tasks_dir.join("habits.csv");
+    if let Ok(normalized) = normalize_id(raw_id) {
+        crate::logging::log(format!("complete normalized_id={normalized}"));
+    }
+    crate::logging::log(format!("read tasks csv {}", tasks_path.display()));
     let mut tasks = read_csv(&tasks_path)?;
+    crate::logging::log(format!("read habits csv {}", habits_path.display()));
     let mut habits = read_csv(&habits_path)?;
     let located = locate(&tasks, &habits, raw_id)?;
     match located {
         Located::Task(idx) => {
             let result = complete_task(&mut tasks, idx, today)?;
+            crate::logging::log(format!("write tasks csv {}", tasks_path.display()));
             write_csv(&tasks_path, &tasks)?;
             Ok(result)
         }
         Located::Habit(idx) => {
             let result = complete_habit(&tasks_dir, &mut habits, idx, today)?;
+            crate::logging::log(format!("write habits csv {}", habits_path.display()));
             write_csv(&habits_path, &habits)?;
             Ok(result)
         }
@@ -497,7 +510,7 @@ fn nonempty(row: &Row, column: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{complete_in_root_with_today, normalize_id, CompletionKind};
+    use super::{CompletionKind, complete_in_root_with_today, normalize_id};
     use chrono::NaiveDate;
 
     #[test]
@@ -592,8 +605,11 @@ mod tests {
         assert_eq!(result.kind, CompletionKind::Habit);
         assert_eq!(result.next_due.as_deref(), Some("2026-07-27"));
         let written = std::fs::read_to_string(tasks_dir.join("habits.csv")).unwrap();
-        assert!(written
-            .contains("H1,Morning pages,done,2026-07-24,1,days,2026-07-24,2026-07-26,2026-07-26"));
+        assert!(
+            written.contains(
+                "H1,Morning pages,done,2026-07-24,1,days,2026-07-24,2026-07-26,2026-07-26"
+            )
+        );
         assert!(written.contains("H2,Morning pages,not_started,2026-07-27,1,days,2026-07-26,,"));
         assert_eq!(
             std::fs::read_to_string(tasks_dir.join(".habits_next_id")).unwrap(),

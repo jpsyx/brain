@@ -182,8 +182,11 @@ fn main() -> Result<()> {
 /// `/habits` page in the browser. Best-effort open (fire-and-forget).
 fn habits_command() -> Result<()> {
     let theme = crate::theme::Theme::active();
+    eprintln!("{}", crate::server::lifecycle::format_ensure_plan(theme));
+    logging::log("habits ensure server");
     let port = crate::server::lifecycle::ensure_running()?;
     let target = crate::server::url(port, "/habits");
+    logging::log(format!("habits open {target}"));
     println!("{}", theme.info(&format!("Opening {target}")));
     open_in_browser(&target);
     Ok(())
@@ -192,6 +195,7 @@ fn habits_command() -> Result<()> {
 /// Open a URL in the system browser via macOS `open <url>`. Fire-and-forget:
 /// a spawn failure never fails the caller (the URL is already printed).
 fn open_in_browser(url: &str) {
+    logging::log(format!("spawn open {url}"));
     let _ = std::process::Command::new("open").arg(url).spawn();
 }
 
@@ -200,10 +204,22 @@ fn open_in_browser(url: &str) {
 fn server_command(args: &crate::cli::ServerArgs) -> Result<()> {
     use crate::cli::ServerAction;
     match &args.action {
-        ServerAction::Start => crate::server::lifecycle::start(),
-        ServerAction::Status => crate::server::lifecycle::status(),
-        ServerAction::Kill => crate::server::lifecycle::kill(),
-        ServerAction::Run { port } => crate::server::run(*port),
+        ServerAction::Start => {
+            logging::log("server start");
+            crate::server::lifecycle::start()
+        }
+        ServerAction::Status => {
+            logging::log("server status");
+            crate::server::lifecycle::status()
+        }
+        ServerAction::Kill => {
+            logging::log("server kill");
+            crate::server::lifecycle::kill()
+        }
+        ServerAction::Run { port } => {
+            logging::log(format!("server run port={port}"));
+            crate::server::run(*port)
+        }
     }
 }
 
@@ -213,6 +229,10 @@ fn skills_command(args: &crate::cli::SkillsArgs) -> Result<()> {
         Some(crate::cli::SkillsAction::Sync { root }) => root.as_deref(),
         None => None,
     };
+    logging::log(format!(
+        "skills sync root={}",
+        root.map_or_else(|| "(real)".to_owned(), |p| p.display().to_string())
+    ));
     skills::command::run_sync(root)
 }
 
@@ -222,22 +242,31 @@ fn skills_command(args: &crate::cli::SkillsArgs) -> Result<()> {
 fn personalize_command(args: &PersonalizeArgs) -> Result<()> {
     match args.action.as_ref() {
         Some(PersonalizeAction::Show) => {
+            logging::log("personalize show");
             personalization::command::run_show();
             Ok(())
         }
         Some(PersonalizeAction::Get { field }) => {
+            logging::log(format!("personalize get field={field}"));
             personalization::command::run_get(field);
             Ok(())
         }
         Some(PersonalizeAction::Set { assignment }) => {
+            logging::log(format!("personalize set assignment={assignment:?}"));
             if assignment.contains('=') {
                 personalization::command::run_set(assignment)
             } else {
                 personalize_set_interactive(assignment)
             }
         }
-        Some(PersonalizeAction::Edit) => personalization::command::run_edit(),
-        None => personalization::onboarding::run_or_show(),
+        Some(PersonalizeAction::Edit) => {
+            logging::log("personalize edit");
+            personalization::command::run_edit()
+        }
+        None => {
+            logging::log("personalize default");
+            personalization::onboarding::run_or_show()
+        }
     }
 }
 
@@ -246,6 +275,7 @@ fn personalize_command(args: &PersonalizeArgs) -> Result<()> {
 fn config_command(args: &ConfigArgs) -> Result<()> {
     match args.action.as_ref().unwrap_or(&ConfigAction::List) {
         ConfigAction::List => {
+            logging::log("config list");
             print!(
                 "{}",
                 settings::render_list(&settings::resolve_all(), theme::Theme::active())
@@ -253,6 +283,7 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
         }
         ConfigAction::Get { name } => {
             let name = settings::normalize_name(name);
+            logging::log(format!("config get name={name}"));
             match settings::resolve_one(&name) {
                 Some(v) => println!("{v}"),
                 None => eprintln!("{name} is unset"),
@@ -262,6 +293,7 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
             if let Some((raw_name, value)) = assignment.split_once('=') {
                 // Non-interactive: `name=value`.
                 let (name, value) = (settings::normalize_name(raw_name), value.trim());
+                logging::log(format!("config set name={name}"));
                 settings::set(&name, value)?;
                 // Any config change re-renders the installed skills so they
                 // never drift from the user's values.
@@ -272,6 +304,7 @@ fn config_command(args: &ConfigArgs) -> Result<()> {
                 );
             } else {
                 // Interactive: bare `name` with no value.
+                logging::log(format!("config set interactive name={assignment}"));
                 config_set_interactive(&settings::normalize_name(assignment))?;
             }
         }
@@ -285,8 +318,14 @@ fn sync_command(args: &SyncArgs) -> Result<()> {
     let cfg = crate::sync::config::SyncConfig::load();
     let root = paths::brain_root()?;
     match &args.action {
-        Some(SyncAction::Setup) => crate::sync::setup::run(),
-        Some(SyncAction::Repair) => run_sync(&cfg, &root, Direction::Resync),
+        Some(SyncAction::Setup) => {
+            logging::log("sync setup");
+            crate::sync::setup::run()
+        }
+        Some(SyncAction::Repair) => {
+            logging::log("sync repair");
+            run_sync(&cfg, &root, Direction::Resync)
+        }
         Some(SyncAction::Init) => {
             let theme = crate::theme::Theme::active();
             eprintln!(
@@ -295,13 +334,27 @@ fn sync_command(args: &SyncArgs) -> Result<()> {
                     "`brain sync init` was renamed to `brain sync repair`; running repair now."
                 )
             );
+            logging::log("sync init alias -> repair");
             run_sync(&cfg, &root, Direction::Resync)
         }
-        Some(SyncAction::Status) => crate::sync::command::print_status(&cfg, &root),
-        Some(SyncAction::Conflicts { json }) => crate::sync::command::print_conflicts(&root, *json),
-        Some(SyncAction::Resolve { originals }) => crate::sync::command::resolve(&root, originals),
+        Some(SyncAction::Status) => {
+            logging::log("sync status");
+            crate::sync::command::print_status(&cfg, &root)
+        }
+        Some(SyncAction::Conflicts { json }) => {
+            logging::log(format!("sync conflicts json={json}"));
+            crate::sync::command::print_conflicts(&root, *json)
+        }
+        Some(SyncAction::Resolve { originals }) => {
+            logging::log(format!("sync resolve originals={originals:?}"));
+            crate::sync::command::resolve(&root, originals)
+        }
         None => {
             let dir = crate::sync::command::direction_from_flags(args.push, args.pull)?;
+            logging::log(format!(
+                "sync run direction={}",
+                crate::sync::command::direction_label(dir)
+            ));
             run_sync(&cfg, &root, dir)
         }
     }
@@ -314,6 +367,7 @@ fn run_sync(
     dir: crate::sync::args::Direction,
 ) -> Result<()> {
     if !cfg.is_configured() {
+        logging::log("sync not configured");
         println!(
             "{}",
             crate::sync::command::format_unconfigured_sync_guidance(
@@ -323,8 +377,13 @@ fn run_sync(
         );
         return Ok(());
     }
+    logging::log(format!(
+        "sync acquire lock {}",
+        crate::sync::lock::default_path().display()
+    ));
     let Some(_guard) = crate::sync::lock::try_acquire(&crate::sync::lock::default_path()) else {
         let theme = crate::theme::Theme::active();
+        logging::log("sync lock busy");
         eprintln!(
             "{}",
             theme.warning("another sync is already running; try again in a moment.")
@@ -334,7 +393,9 @@ fn run_sync(
     let now = chrono::Utc::now();
     let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let date = now.format("%Y-%m-%d").to_string();
+    logging::log(format!("sync start ts={ts}"));
     let outcome = crate::sync::command::sync_once(cfg, root, dir, (&ts, &ts, &date))?;
+    logging::log(format!("sync outcome={}", outcome.label()));
     match outcome {
         crate::sync::verify::Outcome::Clean => println!("sync complete."),
         crate::sync::verify::Outcome::NeedsAttention(m)
@@ -350,6 +411,7 @@ fn run_sync(
 fn env_command(args: &EnvArgs) -> Result<()> {
     match args.action.as_ref().unwrap_or(&EnvAction::List) {
         EnvAction::List => {
+            logging::log("env list");
             println!(
                 "{}",
                 settings::render_list(&env::resolve_all(), theme::Theme::active())
@@ -357,6 +419,7 @@ fn env_command(args: &EnvArgs) -> Result<()> {
         }
         EnvAction::Get { name } => {
             let name = settings::normalize_name(name);
+            logging::log(format!("env get name={name}"));
             match env::resolve_one(&name) {
                 Some(v) => println!("{v}"),
                 None => eprintln!("{name} is unset"),
@@ -365,12 +428,14 @@ fn env_command(args: &EnvArgs) -> Result<()> {
         EnvAction::Set { assignment } => {
             if let Some((name, value)) = assignment.split_once('=') {
                 let name = settings::normalize_name(name);
+                logging::log(format!("env set name={name}"));
                 env::set(&name, value)?;
                 println!(
                     "{}",
                     settings::set_confirmation(&name, value, theme::Theme::active())
                 );
             } else {
+                logging::log(format!("env set interactive name={assignment}"));
                 env_set_interactive(&settings::normalize_name(assignment))?;
             }
         }
@@ -473,6 +538,14 @@ fn tasks_launch(mut cli: TasksCli) -> Result<()> {
                 || PathBuf::from(".claude"),
                 |h| PathBuf::from(h).join("brain").join(".claude"),
             );
+            eprintln!(
+                "{}",
+                tasks::doctor::format_doctor_plan(
+                    &db_path,
+                    &settings_dir.join("settings.json"),
+                    theme::Theme::active(),
+                )
+            );
             let diag = tasks::doctor::run_doctor(&db_path, &settings_dir);
             std::process::exit(tasks::doctor::print_report(&diag));
         }
@@ -507,9 +580,13 @@ fn resolve_query(tokens: &[String], today: NaiveDate) -> Initial {
 fn tasks_browse(initial: Initial, cli: &mut TasksCli, today: NaiveDate) -> Result<()> {
     logging::log("tasks browse");
     let csv_path = cli.csv.clone().unwrap_or_else(default_csv_path);
+    logging::log(format!("tasks csv {}", csv_path.display()));
     let all_tasks = tasks::task::load_tasks(&csv_path)?;
+    logging::log(format!("loaded {} tasks", all_tasks.len()));
     let habits_path = csv_path.with_file_name("habits.csv");
+    logging::log(format!("habits csv {}", habits_path.display()));
     let habits = tasks::task::load_habits(&habits_path).unwrap_or_default();
+    logging::log(format!("loaded {} habits", habits.len()));
 
     let (selector, start_view, initial_search) = match initial {
         Initial::View(v) => (v.selector(today), Some(v), None),
@@ -528,7 +605,19 @@ fn tasks_browse(initial: Initial, cli: &mut TasksCli, today: NaiveDate) -> Resul
     } else {
         all_tasks.clone()
     };
+    logging::log(format!(
+        "build tasks view start_view={:?} initial_rows={} no_tui={}",
+        start_view,
+        initial_data.len(),
+        cli.display.no_tui,
+    ));
     let view = tasks::view::build_view(cli, &selector, start_view, initial_data, today);
+    logging::log(format!(
+        "built tasks view title={:?} shown={} total={}",
+        view.title,
+        view.tasks.len(),
+        view.total,
+    ));
 
     if cli.display.no_tui {
         logging::log("render tasks no-tui");

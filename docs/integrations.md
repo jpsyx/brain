@@ -22,9 +22,16 @@ The binary's **stdout** carries only:
 - explicit verbose log mirroring for non-TUI commands when `--verbose` is set.
 
 Everything else is a TUI that renders to `/dev/tty`, so nothing an interactive
-session paints reaches stdout. Diagnostics go to stderr. Verbose TUI runs still
-write a timestamped `/tmp` log file; the tasks command palette's **Show logs**
-row asks whether to open both the log directory and the log file via `open`.
+session paints reaches stdout. Diagnostics and default progress narration go to
+stderr: long-running one-shot commands print concise phase plans before they
+probe the filesystem, start daemons, spawn external tools, touch the network, or
+write install trees. Verbose TUI runs still write a timestamped `/tmp` log file;
+the tasks command palette's **Show logs** row asks whether to open both the log
+directory and the log file via `open`. Verbose logs are intentionally more
+detailed than the default progress trace: they include the selected command
+action, non-secret argv/path details, task CSV load/write paths, rclone raw
+stderr, CSV merge notes, server state decisions, doctor probe results, and skill
+install counts.
 
 ## The tasks view (in-process, no handoff)
 
@@ -37,10 +44,17 @@ helpers and shell-outs live in the tasks modules:
   binary. The CLI, TUI palette action, and `/habits/done` route all share this
   Rust path, so status, `completed_date`, `last_touched`, habit recurrence, and
   chunked-task MIT migration stay consistent without a Python completion script.
+  Verbose runs log the resolved brain root, normalized id (when applicable),
+  CSV files read/written, and completion result.
+- **`brain tasks doctor`** — prints a progress plan via
+  `tasks::doctor::format_doctor_plan` before checking the state DB schema,
+  SessionStart hook settings, `rclone version`, and sync env.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
 - **`brain habits` / palette "Open habits in browser"** — bring up the bundled
   brain server (`server::lifecycle::ensure_running`) and open its `/habits`
-  page via the system `open`; they no longer shell out to a zsh function.
+  page via the system `open`; the CLI path prints the server-state plan before
+  waiting on the daemon and then prints the URL it is opening. They no longer
+  shell out to a zsh function.
 - **`POST /webhooks/capture`** — a local-only brain-server inbox for inbound
   webhook relays. It writes a non-empty request body to
   `<brain-root>/scratch/webhooks/<timestamp>-<seq>.<json|txt>` and returns the

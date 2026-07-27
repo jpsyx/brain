@@ -30,12 +30,33 @@ use std::path::PathBuf;
 /// failed sync must never fail the mutation that triggered it.
 pub fn resync_skills() {
     if !auto_sync_enabled() {
+        crate::logging::log("skills auto-sync skipped");
         return;
     }
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        crate::logging::log("skills auto-sync skipped: HOME is not set");
         return;
     };
-    let _ = install::sync(&layout::Layout::real(&home), &real_sources());
+    let theme = crate::theme::Theme::active();
+    eprintln!("{}", format_resync_plan(theme));
+    crate::logging::log("skills auto-sync start");
+    if let Err(err) = install::sync(&layout::Layout::real(&home), &real_sources()) {
+        crate::logging::log(format!("skills auto-sync failed: {err:#}"));
+    } else {
+        crate::logging::log("skills auto-sync complete");
+    }
+}
+
+#[must_use]
+pub fn format_resync_plan(theme: crate::theme::Theme) -> String {
+    format!(
+        "{}\n  {} {}\n  {} {}",
+        theme.heading("Refreshing installed brain skills"),
+        theme.muted("reason:"),
+        "config changed",
+        theme.muted("plan:"),
+        "render bundled skills, apply extensions/plugins, and refresh registry links",
+    )
 }
 
 /// Extension + plugin sources from the brain config dir.
@@ -53,4 +74,16 @@ pub fn real_sources() -> install::Sources {
 
 fn auto_sync_enabled() -> bool {
     crate::settings::resolve_one("skills_auto_sync").as_deref() == Some("true")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn resync_plan_names_the_skill_registry_refresh() {
+        let plan = super::format_resync_plan(crate::theme::Theme::dark(false));
+
+        assert!(plan.contains("Refreshing installed brain skills"), "{plan}");
+        assert!(plan.contains("reason: config changed"), "{plan}");
+        assert!(plan.contains("plan: render bundled skills"), "{plan}");
+    }
 }
