@@ -1,11 +1,31 @@
-//! Pure builders for launching the brain panel's `claude` child.
+//! Pure builders for launching the brain panel's agent child.
 //!
 //! brain decides *what* session to run (resume a prior one, or start a
-//! fresh one with a chosen id) and *how* to invoke claude. The actual
+//! fresh one with a chosen id) and *how* to invoke the agent. The actual
 //! spawning + DB locking lives in `tui`; everything here is pure so it can
-//! be unit-tested without a PTY, a DB, or a real claude.
+//! be unit-tested without a PTY, a DB, or a real agent CLI.
 
 use std::path::Path;
+
+/// Which agent frontend the brain panel is running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentKind {
+    /// Claude Code.
+    Claude,
+    /// OpenAI Codex.
+    Codex,
+}
+
+impl AgentKind {
+    /// Human label for UI copy.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude",
+            Self::Codex => "Codex",
+        }
+    }
+}
 
 /// What the brain panel should launch this run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,27 +53,24 @@ pub fn shell_quote(s: &str) -> String {
     format!("'{escaped}'")
 }
 
-/// Build the shell command handed to the PTY:
-/// `cd <root> && <claude_cmd> --resume <id> [<prompt>]` (resume) or
-/// `cd <root> && <claude_cmd> --session-id <id> [<prompt>]` (fresh).
+/// Build the shell command handed to the PTY.
 ///
-/// We cd into the brain root so claude resolves that directory's
-/// `.claude/settings.json` (where the SessionStart hook is wired). `claude_cmd`
-/// is the user-configurable launch command (`config::Config::claude_command`),
-/// spliced in verbatim so it may carry its own flags; brain always appends the
-/// `--resume` / `--session-id` flag it controls. brain never relies on a shell
-/// alias for this.
+/// We cd into the brain root so the child resolves project-local settings and
+/// paths. `llm_cmd` is the user-configurable launch command, spliced in
+/// verbatim so it may carry its own flags; brain appends the frontend-specific
+/// resume arguments after it. brain never relies on a shell alias for this.
 ///
 /// When `prompt` is `Some(non-empty)`, it's appended as a single quoted
-/// argument; claude submits it on launch and stays interactive, so the
+/// argument; the agent submits it on launch and stays interactive, so the
 /// conversation is already seeded with the request (used by the tasks view's
 /// Defer / Start / Remove / agenda / triage / message-about-task actions).
 /// The brain-search view always passes `None` — its panel is typed into by
 /// hand.
 #[must_use]
-pub fn build_claude_command(
+pub fn build_llm_command(
     brain_root: &Path,
-    claude_cmd: &str,
+    agent_kind: AgentKind,
+    llm_cmd: &str,
     plan: &Plan,
     prompt: Option<&str>,
 ) -> String {
@@ -61,17 +78,22 @@ pub fn build_claude_command(
         "cd".to_owned(),
         shell_quote(&brain_root.display().to_string()),
         "&&".to_owned(),
-        claude_cmd.trim().to_owned(),
+        llm_cmd.trim().to_owned(),
     ];
-    match plan {
-        Plan::Resume(id) => {
+    match (agent_kind, plan) {
+        (AgentKind::Claude, Plan::Resume(id)) => {
             parts.push("--resume".to_owned());
             parts.push(shell_quote(id));
         }
-        Plan::Fresh(id) => {
+        (AgentKind::Claude, Plan::Fresh(id)) => {
             parts.push("--session-id".to_owned());
             parts.push(shell_quote(id));
         }
+        (AgentKind::Codex, Plan::Resume(id)) => {
+            parts.push("resume".to_owned());
+            parts.push(shell_quote(id));
+        }
+        (AgentKind::Codex, Plan::Fresh(_)) => {}
     }
     if let Some(p) = prompt {
         let trimmed = p.trim();
@@ -95,7 +117,7 @@ pub fn project_dir_name(brain_root: &Path) -> String {
     brain_root.to_string_lossy().replace(['/', '.'], "-")
 }
 
-/// Env vars injected into the claude child so the SessionStart hook can
+/// Env vars injected into the Claude child so the SessionStart hook can
 /// attribute the session to this brain shell (and update the DB on
 /// `/new` / `/clear` re-sessions).
 #[must_use]
@@ -103,10 +125,7 @@ pub fn env_for(instance: &str, pid: i32, db_path: &Path) -> Vec<(String, String)
     vec![
         ("BRAIN_INSTANCE_ID".to_owned(), instance.to_owned()),
         ("BRAIN_PID".to_owned(), pid.to_string()),
-        (
-            "BRAIN_STATE_DB".to_owned(),
-            db_path.display().to_string(),
-        ),
+        ("BRAIN_STATE_DB".to_owned(), db_path.display().to_string()),
     ]
 }
 
@@ -129,8 +148,9 @@ mod tests {
 
     #[test]
     fn fresh_command_uses_session_id_flag() {
-        let cmd = build_claude_command(
+        let cmd = build_llm_command(
             &PathBuf::from("/Users/x/brain"),
+            AgentKind::Claude,
             "claude",
             &Plan::Fresh("uuid-1".to_owned()),
             None,
@@ -142,8 +162,9 @@ mod tests {
 
     #[test]
     fn resume_command_uses_resume_flag() {
-        let cmd = build_claude_command(
+        let cmd = build_llm_command(
             &PathBuf::from("/Users/x/brain"),
+            AgentKind::Claude,
             "claude",
             &Plan::Resume("sess-9".to_owned()),
             None,
@@ -157,8 +178,9 @@ mod tests {
         // The configured command may carry its own flags; brain's --resume must
         // come after them, and the command is not shell-quoted (the shell
         // interprets its flags).
-        let cmd = build_claude_command(
+        let cmd = build_llm_command(
             &PathBuf::from("/Users/x/brain"),
+            AgentKind::Claude,
             "claude --dangerously-skip-permissions",
             &Plan::Resume("sess-9".to_owned()),
             None,
@@ -171,8 +193,9 @@ mod tests {
 
     #[test]
     fn prompt_is_appended_as_a_quoted_arg() {
-        let cmd = build_claude_command(
+        let cmd = build_llm_command(
             &PathBuf::from("/Users/x/brain"),
+            AgentKind::Claude,
             "claude",
             &Plan::Fresh("uuid-1".to_owned()),
             Some("Defer T123 by 7 days"),
@@ -182,8 +205,9 @@ mod tests {
 
     #[test]
     fn empty_prompt_adds_no_trailing_arg() {
-        let cmd = build_claude_command(
+        let cmd = build_llm_command(
             &PathBuf::from("/Users/x/brain"),
+            AgentKind::Claude,
             "claude",
             &Plan::Resume("sess-9".to_owned()),
             Some("   "),
@@ -194,13 +218,43 @@ mod tests {
 
     #[test]
     fn prompt_with_a_single_quote_is_escaped() {
-        let cmd = build_claude_command(
+        let cmd = build_llm_command(
             &PathBuf::from("/Users/x/brain"),
+            AgentKind::Claude,
             "claude",
             &Plan::Fresh("u".to_owned()),
             Some("don't break"),
         );
         assert!(cmd.contains(r"'don'\''t break'"));
+    }
+
+    #[test]
+    fn codex_resume_uses_resume_subcommand() {
+        let cmd = build_llm_command(
+            &PathBuf::from("/Users/x/brain"),
+            AgentKind::Codex,
+            "codex",
+            &Plan::Resume("sess-9".to_owned()),
+            None,
+        );
+        assert_eq!(cmd, "cd '/Users/x/brain' && codex resume 'sess-9'");
+    }
+
+    #[test]
+    fn codex_fresh_uses_configured_base_command_without_claude_flags() {
+        let cmd = build_llm_command(
+            &PathBuf::from("/Users/x/brain"),
+            AgentKind::Codex,
+            "codex --model gpt-5",
+            &Plan::Fresh("uuid-1".to_owned()),
+            Some("Start here"),
+        );
+        assert_eq!(
+            cmd,
+            "cd '/Users/x/brain' && codex --model gpt-5 'Start here'"
+        );
+        assert!(!cmd.contains("--session-id"));
+        assert!(!cmd.contains("--resume"));
     }
 
     #[test]

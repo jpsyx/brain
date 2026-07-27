@@ -4,11 +4,12 @@
 
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
-| **brain env** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** the brain root) | `brain env {list\|get\|set}` | **No** — machine-local, never rides whatever syncs the brain directory | `root`, `markdown_to_pdf_path`, the `sync` block |
+| **brain env** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** the brain root) | `brain env {list\|get\|set}` | **No** — machine-local, never rides whatever syncs the brain directory | `root`, `markdown_to_pdf_path`, `codex_cmd`, the `sync` block |
 | **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes** — travels with the brain | `linear_workspace`, `daily_triage_name_pattern`, `day_rollover_hour`, `agenda_dir`, `calendar_id`, `claude_cmd`, `skills_auto_sync` |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
-another machine** — absolute paths, machine-specific binaries, secrets.
+another machine** — absolute paths, machine-specific binaries, secrets, and
+machine-specific frontend launch commands.
 **brain config holds anything that's *right* on every machine** — slugs,
 preferences, behavior flags. [Personalization](#personalization) (below) is a
 third store, content *about you*, which also lives inside the brain root and
@@ -30,6 +31,7 @@ Everything in it is created on demand; a fresh checkout has none.
 | --- | --- | --- |
 | `root` | `~/brain` | Absolute or `~`-relative path to the brain (PARA) directory on **this machine**. Replaces the legacy `~/.config/brain-root` pointer file (still read for back-compat; see below). |
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
+| `codex_cmd` | `codex` | Command that launches the brain panel's Codex frontend on **this machine**. brain appends `resume <id>` only when it has a Codex session id to resume; fresh Codex panels launch without Claude-only `--session-id` / `--resume` flags. Blank falls back to `codex`. |
 | `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `on_start`, `on_exit`, `watch`, `debounce_ms`, `idle_pull_secs`, `max_delete_percent`, `exclude`, `max_size`. Drives `brain sync` (bidirectional sync of the brain root via `rclone bisync`; see [features.md](features.md) and [integrations.md](integrations.md)). As of C4 the `on_start`/`on_exit`/`watch` flags are live automatic triggers (see below); `debounce_ms` (default 3000) sets the watcher's quiescence window, and `idle_pull_secs` (default 0) optionally pulls on a timer while the shell is open. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
 
 ### The `brain env` command
@@ -182,12 +184,13 @@ the `name=value` form.
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
-| `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's `claude` session; brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Interpreted by the shell, so brain never depends on a shell alias. Blank falls back to the default. Read by `config.rs` (`claude_command()`), used by `session::build_claude_command`. Also settable as `claude-cmd` (the dash normalizes to an underscore). |
+| `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend; brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Interpreted by the shell, so brain never depends on a shell alias. Blank falls back to the default. Read by `config.rs` (`claude_command()`), used by `session::build_llm_command`. Also settable as `claude-cmd` (the dash normalizes to an underscore). |
 | `skills_auto_sync` | `true` | When `true`, a `config`/`personalize` mutation re-renders and installs the bundled skills into the agent registry (`skills::resync_skills`). Default `true` since the B4 cutover; set `false` to manage the registry only via explicit `brain skills sync`. Read by `src/skills/`. |
 
-`markdown_to_pdf_path` is **not** in this table — it moved to
+`markdown_to_pdf_path` and `codex_cmd` are **not** in this table — they live in
 [brain env](#brain-env-configbrainenvjson) (`brain env set
-markdown_to_pdf_path=…`), since it's a machine-specific binary path.
+markdown_to_pdf_path=…`, `brain env set codex_cmd=…`), since they are
+machine-specific values.
 
 Every variable is optional; a missing file or missing field falls back to the
 default above. The brain directory itself is resolved by `paths::brain_root_path()`
@@ -223,7 +226,8 @@ The IO-touching wrappers are thin; the decisions worth testing are pure:
 
 - `settings/` units — schema resolution, the `config list` table layout, the
   prerequisite message wording, shell-output path extraction, value coercion.
-- `env/` units — the env schema/vars (`root`, `markdown_to_pdf_path`), the
+- `env/` units — the env schema/vars (`root`, `markdown_to_pdf_path`,
+  `codex_cmd`), the
   migration `plan` (pointer→`root`, config→env `markdown_to_pdf_path`
   relocation), and the store round-trip.
 - `sync::config` units — `SyncConfig` field defaults, `is_configured`,

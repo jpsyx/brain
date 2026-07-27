@@ -76,12 +76,12 @@ argv
                                           else     → tui::run_tui (MERGED SHELL)
 
 tui::run_tui(view, cli, …)                  (the persistent shell)
- ├─→ paths::brain_root()                     (config `root` → else $HOME/brain)
+ ├─→ paths::brain_root()                     (env `root` → legacy pointer → else $HOME/brain)
  ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)
- └─→ App event loop (tasks view + search view + claude PTY)
+ └─→ App event loop (tasks view + search view + agent PTY)
        ├─ state::Db: reap dead locks, pick_resume / claim or register_fresh
-       ├─ session::build_claude_command(root, config.claude_command(), …) + env_for
-       │    → PtyPane spawns the configured `claude …`
+       ├─ session::build_llm_command(root, agent_kind, command, …) + env_for
+       │    → PtyPane spawns configured Claude (default) or Codex (`--codex`)
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
        ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; verbose TUI adds "Show logs")
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
@@ -486,15 +486,15 @@ rendering. Reader / writer / waiter threads; `send` / `resize` /
 `scroll_*` / `is_alive`. A near-verbatim port of `tasks/src/pty_pane.rs`.
 
 ### `session.rs`
-Pure launch planning: `Plan::{Resume,Fresh}` (chosen from the DB's resume
-candidate + a fresh UUID), `build_claude_command` (`cd <root> && <claude_cmd>
---resume <id>` or `--session-id <id>`), and `env_for` (the
-`BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` env handed to the child
-for the SessionStart hook). `claude_cmd` is the user-configurable launch
-command (`config::Config::claude_command`, default `claude
---dangerously-skip-permissions`) spliced in verbatim so it may carry its own
-flags; brain always appends the `--resume` / `--session-id` flag it controls,
-so it never depends on a shell alias.
+Pure launch planning: `AgentKind::{Claude,Codex}`, `Plan::{Resume,Fresh}`
+(chosen from the DB's resume candidate + a fresh UUID for Claude, fresh-only
+for Codex today), `build_llm_command` (`cd <root> && <claude_cmd> --resume
+<id>` / `--session-id <id>` for Claude; `cd <root> && <codex_cmd> resume <id>`
+for a known Codex resume id; no Claude flags for fresh Codex), and `env_for`
+(the `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` env handed to Claude
+for the SessionStart hook). `claude_cmd` is portable brain config; `codex_cmd`
+is machine-local brain env. Both configured commands are spliced in verbatim so
+they may carry their own flags, and brain never depends on a shell alias.
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `~/.cache/brain/state.db`.

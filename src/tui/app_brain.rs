@@ -14,10 +14,10 @@ use super::*;
 use std::path::{Path, PathBuf};
 
 use crate::pty_pane::PtyPane;
-use crate::session::{self, Plan};
+use crate::session::{self, AgentKind, Plan};
 
 impl App<'_> {
-    /// Whether the brain panel is on screen (a live claude PTY).
+    /// Whether the brain panel is on screen (a live agent PTY).
     pub(crate) fn brain_panel_open(&self) -> bool {
         self.brain.is_some()
     }
@@ -51,7 +51,7 @@ impl App<'_> {
     /// already-open panel has it typed into the running conversation. Opening
     /// the panel never quits the shell.
     pub(crate) fn open_or_focus_brain(&mut self, prompt: Option<&str>) {
-        // Already open with a live claude: reuse the existing session — focus
+        // Already open with a live agent: reuse the existing session — focus
         // it and, if a prompt was supplied, type it into the running
         // conversation. We never spawn a second session while one is up.
         if self.brain.as_ref().is_some_and(PtyPane::is_alive) {
@@ -61,14 +61,14 @@ impl App<'_> {
                 if let Some(pty) = self.brain.as_ref() {
                     send_prompt_to_pty(pty, p);
                 }
-                // The Return that submits `p` is deferred a couple of event-loop
-                // ticks (see `advance_submit_countdown`) so claude doesn't
-                // coalesce it into the pasted text and leave it sitting unsent.
+                // The frontend-specific submit key is deferred a couple of
+                // event-loop ticks (see `advance_submit_countdown`) so the
+                // agent doesn't coalesce it into the pasted text.
                 self.pending_brain_submit = BRAIN_SUBMIT_DELAY_TICKS;
             }
             return;
         }
-        // A panel whose claude died (between the loop's auto-close tick and
+        // A panel whose agent died (between the loop's auto-close tick and
         // this call) is torn down first so we don't type into a dead PTY;
         // the resume path below picks the same session back up.
         if self.brain.is_some() {
@@ -78,21 +78,25 @@ impl App<'_> {
         let pid = i32::try_from(std::process::id()).unwrap_or(0);
         let mut resume = None;
         let mut skipped_missing = false;
-        for id in self.db.free_sessions_by_recency() {
-            if !session_transcript_exists(&self.brain_root, &id) {
-                skipped_missing = true;
-                continue;
-            }
-            if self.db.claim(&id, &self.instance, pid).unwrap_or(false) {
-                resume = Some(id);
-                break;
+        if self.agent_kind == AgentKind::Claude {
+            for id in self.db.free_sessions_by_recency() {
+                if !session_transcript_exists(&self.brain_root, &id) {
+                    skipped_missing = true;
+                    continue;
+                }
+                if self.db.claim(&id, &self.instance, pid).unwrap_or(false) {
+                    resume = Some(id);
+                    break;
+                }
             }
         }
 
         let new_id = uuid::Uuid::new_v4().to_string();
         let plan = Plan::decide(resume, new_id.clone());
         self.alert = if matches!(plan, Plan::Fresh(_)) {
-            let _ = self.db.register_fresh(&new_id, &self.instance, pid);
+            if self.agent_kind == AgentKind::Claude {
+                let _ = self.db.register_fresh(&new_id, &self.instance, pid);
+            }
             skipped_missing.then(|| {
                 "⚠ couldn't find a session to resume — starting a new brain chat".to_owned()
             })
@@ -100,8 +104,12 @@ impl App<'_> {
             None
         };
 
+        let llm_cmd = match self.agent_kind {
+            AgentKind::Claude => self.config.claude_command().to_owned(),
+            AgentKind::Codex => crate::env::codex_command(),
+        };
         let command =
-            session::build_claude_command(&self.brain_root, self.config.claude_command(), &plan, prompt);
+            session::build_llm_command(&self.brain_root, self.agent_kind, &llm_cmd, &plan, prompt);
         let env = session::env_for(&self.instance, pid, &self.db_path);
         // Placeholder size; the first draw resizes the PTY to the real panel.
         self.brain =
@@ -111,7 +119,7 @@ impl App<'_> {
         }
     }
 
-    /// Close the brain panel: drop the PTY (its Drop impl kills the claude
+    /// Close the brain panel: drop the PTY (its Drop impl kills the agent
     /// child, ending the session process), release the session lock so a
     /// later open (or another shell) can resume it via recency, hand the
     /// screen back to full-width tasks, and reload so a brain action whose
@@ -153,9 +161,9 @@ impl App<'_> {
     }
 
     /// Advance the deferred-submit countdown one event-loop tick. When it
-    /// reaches zero, send a lone `Return` to the brain PTY to submit the
-    /// prompt seeded a few ticks earlier. No-op when nothing is pending or the
-    /// panel has since closed. Called once per event-loop iteration.
+    /// reaches zero, send the frontend-specific submit key to the brain PTY for
+    /// the prompt seeded a few ticks earlier. No-op when nothing is pending or
+    /// the panel has since closed. Called once per event-loop iteration.
     pub(crate) fn tick_brain_submit(&mut self) {
         let (next, fire) = advance_submit_countdown(self.pending_brain_submit);
         self.pending_brain_submit = next;
@@ -163,7 +171,7 @@ impl App<'_> {
             if let Some(pty) = self.brain.as_ref() {
                 if pty.is_alive() {
                     pty.scroll_to_bottom();
-                    pty.send(vec![b'\r']);
+                    pty.send(submit_key_for_agent(self.agent_kind));
                 }
             }
         }
@@ -203,20 +211,17 @@ pub(crate) fn session_transcript_exists(brain_root: &Path, id: &str) -> bool {
     let Ok(entries) = std::fs::read_dir(&base) else {
         return false;
     };
-    entries
-        .flatten()
-        .any(|e| e.path().join(&file).is_file())
+    entries.flatten().any(|e| e.path().join(&file).is_file())
 }
 
-/// Type a prefilled prompt into an already-running claude PTY. Internal
-/// newlines are sent as `Alt+Enter` (`ESC` + `CR`) — claude's readline treats
+/// Type a prefilled prompt into an already-running agent PTY. Internal
+/// newlines are sent as `Alt+Enter` (`ESC` + `CR`) — agent frontends treat
 /// that as "insert newline", not "submit" — so a multi-line prompt arrives
-/// intact. The submitting `Return` is deliberately NOT appended here: claude
-/// coalesces a burst of bytes ending in `\r` into a single paste, where the
-/// trailing `CR` lands as a literal newline rather than a submit, leaving the
-/// message sitting unsent in the input. The caller defers the `Return` a
+/// intact. The submitting key is deliberately NOT appended here: frontends can
+/// coalesce a burst of bytes ending in a submit key into a single paste, leaving
+/// the message sitting unsent in the input. The caller defers the submit key a
 /// couple of event-loop ticks (`App::pending_brain_submit` / `tick_brain_submit`)
-/// so it arrives as a distinct keystroke and actually submits.
+/// so it arrives as a distinct keystroke and actually submits or queues.
 pub(crate) fn send_prompt_to_pty(pty: &PtyPane, prompt: &str) {
     let trimmed = prompt.trim();
     if trimmed.is_empty() {
@@ -235,15 +240,23 @@ pub(crate) fn send_prompt_to_pty(pty: &PtyPane, prompt: &str) {
     pty.send(bytes);
 }
 
+/// Keystroke that submits or queues an injected prompt for the active frontend.
+#[must_use]
+pub(crate) fn submit_key_for_agent(agent_kind: AgentKind) -> Vec<u8> {
+    match agent_kind {
+        AgentKind::Claude => vec![b'\r'],
+        AgentKind::Codex => vec![b'\t'],
+    }
+}
+
 /// Event-loop ticks to wait after seeding a prompt before sending the
-/// submitting `Return`. Each tick is ~one poll interval (~50ms), so two ticks
-/// puts a comfortable gap between the pasted text and the Enter — enough that
-/// claude stops treating the `\r` as part of the paste and submits.
+/// frontend-specific submit key. Each tick is ~one poll interval (~50ms), so
+/// two ticks puts a comfortable gap between the pasted text and the submit key.
 const BRAIN_SUBMIT_DELAY_TICKS: u8 = 2;
 
 /// Advance the deferred-submit countdown by one tick. Returns the new count
-/// and whether the submitting `Return` should be sent now — true only on the
-/// tick the count reaches zero, so the Enter fires exactly once.
+/// and whether the submitting key should be sent now — true only on the tick
+/// the count reaches zero, so the key fires exactly once.
 pub(crate) const fn advance_submit_countdown(pending: u8) -> (u8, bool) {
     match pending {
         0 => (0, false),

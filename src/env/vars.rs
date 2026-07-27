@@ -5,7 +5,7 @@
 use anyhow::{Result, bail};
 use serde_json::Value;
 
-use super::schema::{VARS, default_of, is_known, known_names};
+use super::schema::{DEFAULT_CODEX_CMD, VARS, default_of, is_known, known_names};
 use super::store::{load_map, save_map};
 use crate::settings::Resolved;
 
@@ -36,6 +36,19 @@ pub fn resolve_one(name: &str) -> Option<String> {
         return Some(crate::paths::brain_root_path().display().to_string());
     }
     get(name).or_else(|| default_of(name).map(str::to_owned))
+}
+
+/// The configured Codex launch command, or the built-in default when unset or
+/// blank. brain appends any frontend-specific resume arguments after this.
+#[must_use]
+pub fn codex_command() -> String {
+    let cmd = get("codex_cmd").unwrap_or_else(|| DEFAULT_CODEX_CMD.to_owned());
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        DEFAULT_CODEX_CMD.to_owned()
+    } else {
+        trimmed.to_owned()
+    }
 }
 
 /// Persist `name=value` into the env store. Unknown names are rejected.
@@ -75,12 +88,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolve_all_lists_root_and_markdown_to_pdf_path() {
+    fn resolve_all_lists_root_markdown_to_pdf_path_and_codex_cmd() {
         let rows = resolve_all();
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         assert!(rows.iter().any(|r| r.name == "root"));
         assert!(rows.iter().any(|r| r.name == "markdown_to_pdf_path"));
-        assert!(rows.iter().find(|r| r.name == "root").unwrap().value.is_some());
+        assert!(rows.iter().any(|r| r.name == "codex_cmd"));
+        assert!(
+            rows.iter()
+                .find(|r| r.name == "root")
+                .unwrap()
+                .value
+                .is_some()
+        );
     }
 
     #[test]
@@ -104,7 +124,17 @@ mod tests {
         let root = rows.iter().find(|r| r.name == "root").unwrap();
         assert_eq!(
             root.value.as_deref(),
-            Some(crate::paths::brain_root_path().display().to_string().as_str())
+            Some(
+                crate::paths::brain_root_path()
+                    .display()
+                    .to_string()
+                    .as_str()
+            )
         );
+    }
+
+    #[test]
+    fn codex_command_defaults_to_codex() {
+        assert_eq!(codex_command(), "codex");
     }
 }

@@ -7,10 +7,13 @@ pub(super) struct VarSpec {
     pub(super) default: Option<&'static str>,
 }
 
-/// The brain-env schema, in `brain env list` order. `root` and
-/// `markdown_to_pdf_path` are machine-local; the `sync` block is edited via
-/// `brain sync setup` (C2), not raw `brain env set`.
-pub(super) const VARS: [VarSpec; 2] = [
+/// Default Codex launch command for the brain panel.
+pub(super) const DEFAULT_CODEX_CMD: &str = "codex";
+
+/// The brain-env schema, in `brain env list` order. `root`,
+/// `markdown_to_pdf_path`, and `codex_cmd` are machine-local; the `sync` block
+/// is edited via `brain sync setup`, not raw `brain env set`.
+pub(super) const VARS: [VarSpec; 3] = [
     VarSpec {
         name: "root",
         description: "Absolute or ~-relative path to the brain (PARA) directory on THIS machine. Defaults to ~/brain; a legacy ~/.config/brain-root pointer is migrated into this key.",
@@ -20,6 +23,11 @@ pub(super) const VARS: [VarSpec; 2] = [
         name: "markdown_to_pdf_path",
         description: "Path to the markdown-to-pdf command on THIS machine. Auto-discovered on first run; required for the Create-PDF action.",
         default: None,
+    },
+    VarSpec {
+        name: "codex_cmd",
+        description: "Command used to launch Codex for the brain panel on THIS machine. Defaults to codex; brain appends Codex resume args when resuming.",
+        default: Some(DEFAULT_CODEX_CMD),
     },
 ];
 

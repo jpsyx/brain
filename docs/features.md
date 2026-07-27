@@ -18,9 +18,10 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
 - **Brain-directory (search) view** — the fuzzy search across projects,
   areas, resources, and archive (the picker described later in this doc);
   formerly what bare `brain` opened.
-- **Brain panel** — a live, interactive `claude` session in an embedded PTY,
-  open at startup and shared by both main views. It does not belong to either
-  view: switching views leaves it open; closing it (`Ctrl+X`, or claude
+- **Brain panel** — a live, interactive agent session in an embedded PTY,
+  Claude by default or Codex with `--codex`, open at startup and shared by both
+  main views. It does not belong to either view: switching views leaves it open;
+  closing it (`Ctrl+X`, or the agent
   exiting) makes the active main view full-width.
 
 Switch main views with `Ctrl+L`/`Ctrl+H` (cycle) or `Ctrl+T` (tasks) /
@@ -36,24 +37,24 @@ shell.
 
 `Alt+H` focuses the left panel and `Alt+L` the right (vim-style, spatial);
 the focused panel's border brightens and the unfocused one dims. The shell
-starts focused on the search panel so a query can be typed immediately; the
-brain panel is still spawned at startup with the resumed conversation ready
+starts focused on the tasks view so task navigation works immediately; the
+brain panel is still spawned at startup with the selected frontend ready
 one `Alt+`-switch away. `Alt+U` / `Alt+D` scroll the focused panel a half-page
 up / down
 (the brain panel by half its visible rows, the search panel by a page of its
 match list) — a keyboard-only alternative to the wheel that fires even while
-Claude has focus or the filter is being typed.
+the agent has focus or the filter is being typed.
 
-**Closing vs quitting.** Exiting claude (e.g. `Ctrl-C` to end the turn, then
-`Ctrl-C` again to exit claude) **closes the brain panel** — search goes
+**Closing vs quitting.** Exiting the agent (for Claude, `Ctrl-C` to end the
+turn, then `Ctrl-C` again to exit) **closes the brain panel** — the main view goes
 full-width and the shell keeps running. It does *not* quit `brain`. To
 **re-open** the panel, run **Message brain** (`Ctrl-M`, or the palette row —
 which only appears while the panel is closed); it resumes your latest
 session. To **quit `brain`** entirely, press `Esc` or `Ctrl-c` from the
 **search** panel.
 
-**Start a new session.** `Ctrl+N` starts a fresh Claude conversation in the
-brain panel: it sends `/new` + Enter to the running `claude` for you. It fires
+**Start a new session.** `Ctrl+N` starts a fresh agent conversation in the
+brain panel: it sends `/new` to the running frontend for you. It fires
 from either panel while the panel is open (no need to focus the brain panel
 first). When the panel is closed, `Ctrl+N` keeps its search meaning (move the
 selection down).
@@ -68,6 +69,12 @@ session it would resume has no transcript yet (you opened brain last time but
 never sent a message), it can't be resumed — brain starts a fresh chat and
 says so in the status line. See [integrations.md](integrations.md) and
 [data-model.md](data-model.md) for the lock-and-recency model.
+
+Codex is selected per run with `brain --codex` or `brain tasks --codex` and
+uses `codex_cmd` from brain env (default `codex`). Codex does not currently use
+the Claude hook-backed state DB, so Codex panels launch fresh. When brain
+injects a prompt into an already-open Codex panel, it sends `Tab` as the final
+queue key; Claude still receives `Enter`.
 
 **Swap the layout.** The palette's "Move brain panel to the left/right"
 command flips which side the brain panel sits on; the choice is persisted
@@ -146,14 +153,15 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 
 | Command | Behavior |
 | --- | --- |
-| `brain` | Open the persistent shell on the tasks view (the startup default). |
-| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. |
+| `brain` | Open the persistent shell on the tasks view (the startup default) with the default Claude brain panel. |
+| `brain --codex` | Open the same shell with Codex in the brain panel. Claude remains the default. |
+| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` may be passed before or after `tasks` to use Codex in the brain panel. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
 | `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
-| `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, and the Backblaze `sync` block (see below). |
+| `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, `codex_cmd`, and the Backblaze `sync` block (see below). |
 | `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
@@ -194,8 +202,9 @@ Reads and writes your **machine-local** brain env
 (`~/.config/brain/env.json`) — values that would be *wrong* if copied to
 another machine: `root` (where your brain lives on this machine),
 `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
-self-healing), and the Backblaze `sync` block (written by `brain sync setup`,
-below — see [config.md](config.md) for its fields). Mirrors `brain
+self-healing), `codex_cmd` (this machine's Codex launch command), and the
+Backblaze `sync` block (written by `brain sync setup`, below — see
+[config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:
 
 - `brain env list` (or bare `brain env`) — aligned table of every env

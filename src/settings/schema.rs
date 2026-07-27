@@ -44,7 +44,7 @@ pub(super) const VARS: [VarSpec; 7] = [
     },
     VarSpec {
         name: "claude_cmd",
-        description: "Command that launches the brain panel's claude session; --resume/--session-id are appended. Defaults to `claude --dangerously-skip-permissions`.",
+        description: "Command that launches the brain panel's Claude session; --resume/--session-id are appended. Defaults to `claude --dangerously-skip-permissions`.",
         default: Some("claude --dangerously-skip-permissions"),
     },
     VarSpec {

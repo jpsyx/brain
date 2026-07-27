@@ -1,4 +1,4 @@
-//! Rendering the brain panel: the bordered `claude` PTY (via `tui-term`), its
+//! Rendering the brain panel: the bordered agent PTY (via `tui-term`), its
 //! focus-aware title/border, cursor placement, and the footer that shows the
 //! resume alert or the normal hint.
 
@@ -23,7 +23,12 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     } else {
         Color::Rgb(78, 92, 122) // very dim
     };
-    let title_status = if alive { "Brain" } else { "Brain · exited" };
+    let agent = app.agent_kind.label();
+    let title_status = if alive {
+        format!("Brain · {agent}")
+    } else {
+        format!("Brain · {agent} exited")
+    };
     let title = Line::from(vec![
         Span::raw(" "),
         Span::styled(
@@ -102,10 +107,10 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
             Span::styled("^X", key),
             Span::styled(" close brain", dim),
         ]),
-        // The event loop closes the panel as soon as claude exits, so this
+        // The event loop closes the panel as soon as the agent exits, so this
         // shows for at most one frame before tasks goes full-width.
         None => Line::from(Span::styled(
-            " claude exited — closing panel…",
+            format!(" {agent} exited: closing panel..."),
             Style::default()
                 .fg(Color::Rgb(255, 199, 119))
                 .add_modifier(Modifier::BOLD),

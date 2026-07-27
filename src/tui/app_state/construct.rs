@@ -20,6 +20,7 @@ impl<'a> App<'a> {
         agenda_runner: Box<dyn ShellRunner>,
         open_runner: Box<dyn ShellRunner>,
         config: Config,
+        agent_kind: AgentKind,
         instance: String,
         brain_root: PathBuf,
         db_path: PathBuf,
@@ -36,6 +37,7 @@ impl<'a> App<'a> {
             // first same-day refresh doesn't re-fire the nudge.
             triage_day: today,
             config,
+            agent_kind,
             full_notes: cli.display.full_notes,
             expanded_notes: HashSet::new(),
             cli,

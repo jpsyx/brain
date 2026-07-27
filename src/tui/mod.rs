@@ -18,7 +18,7 @@
 //! PTY's stdin as raw bytes — Alt+H is the reliable way to pop focus back to
 //! tasks from there. (We deliberately avoid a Space leader and Alt+arrow
 //! chords: both collide with editing inside Claude's input.) Ctrl+X closes
-//! the panel and ends its claude session.
+//! the panel and ends its agent session.
 //!
 //! Module layout:
 //! - This file owns the [`App`] shell type (and `Panel`) so every submodule
@@ -67,7 +67,7 @@ pub use event_loop::run_tui;
 // only out-of-module consumer is the unit-test module, so the re-export is
 // test-only.
 #[cfg(test)]
-pub(crate) use app_brain::advance_submit_countdown;
+pub(crate) use app_brain::{advance_submit_countdown, submit_key_for_agent};
 pub(crate) use draw::*;
 pub(crate) use draw_help::*;
 pub(crate) use draw_modals::*;
@@ -93,6 +93,7 @@ use ratatui::{layout::Rect, style::Color, text::Line};
 use crate::config::Config;
 use crate::main_view::MainView;
 use crate::pty_pane::PtyPane;
+use crate::session::AgentKind;
 use crate::state::{Db, PanelSide};
 use crate::tasks::cli::Cli;
 use crate::tasks::task::Task;
@@ -116,6 +117,8 @@ pub(crate) struct App<'a> {
     /// re-check) can reach `daily_triage_name_pattern` and
     /// `day_rollover_hour` without re-loading the file.
     config: Config,
+    /// Agent frontend running in the brain panel for this shell.
+    agent_kind: AgentKind,
     /// The logical day (see `logical_day`) the daily-triage nudge was last
     /// evaluated for. A refresh only re-runs the check when the current
     /// logical day differs from this, so the modal fires at most once per
@@ -181,12 +184,13 @@ pub(crate) struct App<'a> {
     last_inner_height: u16,
     last_content_rows: u16,
 
-    /// The persistent brain panel: an interactive `claude` PTY. `None` until
+    /// The persistent brain panel: an interactive agent PTY. `None` until
     /// the user opens it (Ctrl+M, a brain action, …); once open the layout
     /// splits 50/50 and the panel persists until the user closes it (Ctrl+X /
-    /// "Close brain") or claude exits. Opening it resumes the
-    /// most-recently-active free session (lock + recency, see `state`), so the
-    /// conversation survives closing the panel and quitting the shell.
+    /// "Close brain") or the agent exits. Opening it resumes the
+    /// most-recently-active free Claude session (lock + recency, see `state`);
+    /// Codex panels currently launch fresh because the state DB is populated by
+    /// the Claude SessionStart hook.
     brain: Option<PtyPane>,
     focus: Panel,
 
@@ -209,14 +213,14 @@ pub(crate) struct App<'a> {
     brain_rect: Option<Rect>,
 
     /// This shell's lineage id (one per running tasks shell). Owns the lock on
-    /// whatever brain session it's currently driving; the SessionStart hook
+    /// whatever Claude session it's currently driving; the SessionStart hook
     /// attributes session rows to it via `TASKS_INSTANCE_ID`.
     instance: String,
-    /// The directory claude runs in for the brain panel (`~/brain`). Used to
+    /// The directory the agent runs in for the brain panel (`~/brain`). Used to
     /// resolve the SessionStart hook's `.claude/settings.json` and to locate
     /// session transcripts on disk before a `--resume`.
     brain_root: PathBuf,
-    /// Path to the state DB, passed down to claude (via `TASKS_STATE_DB`) so
+    /// Path to the state DB, passed down to Claude (via `BRAIN_STATE_DB`) so
     /// the hook writes to the same DB this shell reads.
     db_path: PathBuf,
     /// Verbose run log path, present only when the shell was launched with

@@ -38,7 +38,7 @@ pub struct Config {
     /// passes 00:00. Defaults to 6 (6 AM); an out-of-range value falls back.
     pub day_rollover_hour: u32,
 
-    /// Command used to launch the brain panel's claude session. brain appends
+    /// Command used to launch the brain panel's Claude session. brain appends
     /// its own `--resume`/`--session-id` flags after this, so the value is the
     /// base command plus any flags (e.g. `claude --dangerously-skip-permissions`).
     /// It is interpreted by the login shell, so brain never depends on a shell

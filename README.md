@@ -3,7 +3,7 @@
 **`brain` is the central terminal dispatch for the user's second brain and
 task system.** It's the one command to reach everything you do from the
 terminal around `~/brain`: manage tasks, fuzzy-pick a note across the PARA
-buckets, or think alongside a `claude` session rooted in the brain. Bare
+buckets, or think alongside an agent session rooted in the brain. Bare
 `brain` opens a persistent shell with all of it.
 
 Anything brain-related or task-related — notes, projects, areas,
@@ -56,14 +56,15 @@ installing the bundled skills. Then read the [User manual](#user-manual) below.
 
 The user lives in the terminal and would rather type one command than
 remember a dozen. So `brain` is the front door: a persistent shell with two
-main views (tasks and brain-directory search) and an always-on `claude`
+main views (tasks and brain-directory search) and an always-on agent
 brain panel, plus Finder / `$EDITOR` handoffs for files. Adding a capability
 means adding a palette row or a keybinding, not another command to memorize.
 
 ## Usage
 
 ```sh
-brain                 # persistent shell, tasks view (the startup default)
+brain                 # persistent shell, tasks view (Claude brain panel)
+brain --codex         # same shell, with Codex in the brain panel
 brain tasks           # same shell, launched on the tasks view explicitly
 brain tasks today --no-tui        # print today's tasks, no TUI
 brain tasks complete t123         # mark a task complete
@@ -84,7 +85,7 @@ reveal in Finder. Full key tables: [docs/keybindings.md](docs/keybindings.md).
 commands, so it needs no wrapper: `run.sh` builds it when the sources change
 and `exec`s it directly, forwarding args. Everything the user does happens
 inside the persistent TUI, which renders to `/dev/tty` and performs its own
-file-open, Finder-reveal, and `claude`-launch actions by spawning
+file-open, Finder-reveal, and agent-launch actions by spawning
 processes. The binary's stdout carries only `brain config` output plus
 clap's help/errors. Details: [docs/architecture.md](docs/architecture.md)
 and [docs/integrations.md](docs/integrations.md).
@@ -104,7 +105,8 @@ work and how to make them yours without forking the repo.
 - A Rust toolchain (only to build; `run.sh` builds on first run and when sources change).
 - [`markdown-to-pdf`](#the-markdown-to-pdf-prerequisite) on your `PATH` — brain
   uses it to turn notes/agendas into PDFs. Auto-discovered on first run.
-- The `claude` CLI, if you want the brain panel (an in-TUI Claude session).
+- The `claude` CLI for the default brain panel, or the `codex` CLI if you run
+  `brain --codex`.
 
 **Point brain at your brain**
 
@@ -140,14 +142,16 @@ brain splits what it persists into **two stores**, by lifecycle:
   (managed by `brain env`, mirroring `brain config`). Holds everything that
   would be *wrong* if copied to another machine: your brain's location on
   *this* machine, a machine-specific binary path, and (parse-only for now) B2
-  sync credentials. It lives **outside** your brain root on purpose, so it
+  sync credentials, and the local Codex launch command. It lives **outside**
+  your brain root on purpose, so it
   never syncs along with it.
 
   | Variable | What it is |
   | --- | --- |
   | `root` | where your brain (PARA directory) lives on this machine |
   | `markdown_to_pdf_path` | path to the `markdown-to-pdf` binary on this machine |
-  | `sync` | Backblaze B2 sync config (bucket, credentials, trigger flags) — schema only for now, no sync behavior yet |
+  | `codex_cmd` | command used to launch Codex on this machine |
+  | `sync` | Backblaze B2 sync config (bucket, credentials, trigger flags) |
 
   The rule of thumb: **wrong if synced → brain env; right everywhere → brain
   config.**
@@ -197,12 +201,14 @@ Names normalize (`-`→`_`, lower-cased), so `Linear-Workspace` works. `root` an
 brain env list                 # every env variable, value, description
 brain env get root             # your brain's location on this machine
 brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf
+brain env set codex_cmd='codex --model gpt-5'
 ```
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `root` | `~/brain` | Where your brain (PARA directory) lives on this machine. |
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on this machine. |
+| `codex_cmd` | `codex` | Command the Codex brain panel launches on this machine. |
 
 ### The `markdown-to-pdf` prerequisite
 

@@ -45,7 +45,7 @@ Decisions taken during the merge (see the conversation that produced it):
 
 The user lives in the terminal and wants **one command** to reach
 everything around `~/brain`: manage tasks, jump to a note, search across PARA
-buckets, or think with a claude session rooted in the brain. Rather than
+buckets, or think with an agent session rooted in the brain. Rather than
 memorize several separate entry points, `brain` is the front door: a single
 persistent shell with two main views (tasks and brain-directory search) and an
 always-on brain panel. New top-level capabilities should be added as a main
@@ -168,7 +168,7 @@ directive) anymore.
 Every decision worth testing is pulled into a pure function:
 `parse_config_root`, `expand_tilde_with_home`, `is_textlike`,
 `finder_target`, `handle_key`, the `App` matching/navigation, the render
-helpers, and `session::build_claude_command`. The thin shells that touch
+helpers, and `session::build_llm_command`. The thin shells that touch
 `/dev/tty`, `$HOME`, the exe path, or `std::process::Command` stay
 untested by design. `lib.rs` re-exports the modules so integration tests
 can link them; the binary declares the same modules privately. This mirrors
@@ -262,17 +262,25 @@ look in the same place. When the fallback to a fresh chat is caused by a
 missing transcript, we surface it in the status line rather than silently —
 the user asked to know when their conversation didn't carry over.
 
-## Why the brain panel launches a configurable `claude_cmd`
+## Why the brain panel launch is frontend-aware
 
-The brain panel must control the `--resume` / `--session-id` flag to drive the
-resume model, so it can't defer to a shell alias that might inject its own
-flags. Rather than hardcode bare `claude`, the launch command is the
-configurable `claude_cmd` (`config::Config::claude_command`, default `claude
---dangerously-skip-permissions` — what the user's old `cl` alias resolved to).
-`session::build_claude_command` splices that command in verbatim and then
-appends brain's own `--resume` / `--session-id`, so a user can point the panel
-at a different wrapper or add flags without brain losing control of the resume
-flag, and brain never depends on a shell alias.
+The brain panel must control frontend-specific session arguments, so it can't
+defer to a shell alias that might inject incompatible flags. Claude remains the
+default and uses the portable `claude_cmd` config value
+(`config::Config::claude_command`, default
+`claude --dangerously-skip-permissions`); brain appends its own
+`--resume` / `--session-id` after that configured base command.
+
+Codex is selected per run with `--codex` and uses `codex_cmd` in brain env
+(default `codex`) because the right Codex wrapper/model flags can be
+machine-specific. `session::build_llm_command` splices either configured base
+command in verbatim, then appends the selected frontend's own session shape:
+Claude gets `--resume <id>` or `--session-id <id>`; Codex gets `resume <id>`
+only when a Codex id is known and no Claude-only flags for fresh launches.
+
+brain's current state DB is intentionally still Claude-scoped because it is
+populated by the Claude `SessionStart` hook. Passing those ids to Codex would be
+wrong, so Codex panels launch fresh until brain has a Codex-specific hook/store.
 
 ## Why we disable alternate scroll (and motion) reporting for the mouse
 
@@ -286,7 +294,7 @@ a raw `\x1b[?1002l\x1b[?1003l\x1b[?1007l` (see
 - `1007` (xterm **alternate scroll**) off because it is the subtle reason the
   wheel appeared dead in the brain shell. On the alternate screen, iTerm2
   (default) and xterm translate the wheel into **arrow keys** instead of mouse
-  events. The brain shell opens **focused on the claude panel**, so those
+  events. The brain shell opens with the brain panel unfocused, so those
   arrows were forwarded straight into `claude` and *neither* panel scrolled.
   Disabling alternate scroll forces real wheel mouse events, which
   `handle_mouse` routes to whichever panel the cursor is over, independent of
@@ -874,7 +882,7 @@ to the friendly `(conflict …)` file copies keeps both surfaces simple; a CSV
 soft-conflict stays visible only in the sync journal's `csv:` note (see C3
 above), which is the right audience for it.
 
-## Why `Ctrl-N` sends `/new` instead of being forwarded to claude
+## Why `Ctrl-N` sends `/new` instead of being forwarded to the agent
 
 Starting a fresh conversation is a frequent gesture, and typing `/new` by hand
 each time is friction. `Ctrl-N` is intercepted before the brain-panel key
@@ -887,13 +895,13 @@ because `/new` is what makes Claude rotate its own id, which the SessionStart
 hook then records as the session to resume next time (the same path
 `/new`-typed-by-hand already takes).
 
-The submitting `Return` is **deferred a couple of event-loop ticks**
-(`advance_submit_countdown` / `App::tick_new_submit`), not appended to the
-`/new` burst: claude coalesces a chunk of bytes ending in `\r` into a single
-paste, where the trailing `CR` lands as a literal newline and leaves `/new`
-sitting unsent. Sending the Enter as a distinct keystroke a beat later makes
-claude actually submit it. This mirrors the `tasks` sibling's
-`pending_brain_submit` mechanism (learned there first).
+The submitting key is **deferred a couple of event-loop ticks**
+(`advance_submit_countdown` / `App::tick_brain_submit`), not appended to the
+`/new` burst: agent frontends can coalesce a chunk of bytes ending in a submit
+key into a single paste, leaving `/new` sitting unsent. Sending the final key as
+a distinct keystroke a beat later makes the frontend actually submit or queue
+it. Claude gets `Enter`; Codex gets `Tab`, because Codex treats `Enter` as an
+immediate steer/action key and uses `Tab` to queue a message behind active work.
 
 ## Why personalization is just another brain config (in the brain root)
 

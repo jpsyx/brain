@@ -71,9 +71,9 @@ first move is a failing test that reproduces it, *then* the fix.
   + flip. `open_in_memory` / `with_pid_alive` are the test seams
   (deterministic clock + injectable pid probe), so no real process or wall
   clock is involved.
-- **Launch builders** (`session.rs`). `Plan::decide` (resume vs fresh),
-  `build_claude_command` (`--resume` vs `--session-id`, shell-quoting), and
-  `env_for`.
+- **Launch builders** (`session.rs`). `AgentKind`, `Plan::decide` (resume vs
+  fresh), `build_llm_command` (Claude `--resume`/`--session-id`, Codex `resume`
+  and no Claude flags for fresh launches, shell-quoting), and `env_for`.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).
@@ -91,16 +91,16 @@ first move is a failing test that reproduces it, *then* the fix.
 ## What we deliberately don't test
 
 - **The interactive event loop.** `tui::run_tui` opens `/dev/tty`, toggles raw
-  mode, pushes kitty flags, spawns the claude PTY, and runs the panel loop. We
+  mode, pushes kitty flags, spawns the selected agent PTY, and runs the panel loop. We
   test the *pure* logic it calls (`handle_key`, `App::*`, `focus_*`,
   `panel_borders`, `key_to_bytes`, the render helpers); we don't drive a real
-  terminal or a real claude.
+  terminal or a real Claude/Codex process.
 - **Ratatui frame output.** We assert on the `Line`s we build, not on
   which cell ratatui painted them into.
 - **`std::process::Command` / system `open` / `osascript`.** Spawning
-  Finder, the editor tab, or claude is not a unit. We test the pure builders
+  Finder, the editor tab, or the agent CLI is not a unit. We test the pure builders
   (`finder_target`, `edit_shell_command`, `iterm_new_tab_applescript`,
-  `build_claude_command`), not the spawn.
+  `build_llm_command`), not the spawn.
 - **The SessionStart hook script.** It's a separate Python process; its
   behavior is covered by a manual smoke test against a temp DB, not the Rust
   suite.

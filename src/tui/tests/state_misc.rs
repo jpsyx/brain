@@ -1,6 +1,7 @@
 //! Tests for shell_quote, BrainInputState::finalize, the ConfirmState
 //! constructors / choices / intents, mouse hit-testing, and the submit countdown.
 
+use crate::session::AgentKind;
 use crate::session::shell_quote;
 use crate::tui::*;
 
@@ -266,4 +267,10 @@ fn submit_countdown_fires_the_return_exactly_once() {
     assert_eq!((after_second, fire_second), (0, true));
     // …and once at zero it stays quiet, so the Enter is sent only once.
     assert_eq!(advance_submit_countdown(after_second), (0, false));
+}
+
+#[test]
+fn injected_prompt_submit_key_matches_agent_frontend() {
+    assert_eq!(submit_key_for_agent(AgentKind::Claude), vec![b'\r']);
+    assert_eq!(submit_key_for_agent(AgentKind::Codex), vec![b'\t']);
 }

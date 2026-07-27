@@ -62,6 +62,7 @@ use crate::tasks::view::View;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let agent_kind = cli.agent_kind();
 
     if cli.print_version || matches!(&cli.command, Some(Cmd::Version)) {
         print!("{}", crate::cli::version_line());
@@ -151,19 +152,24 @@ fn main() -> Result<()> {
     match cli.command {
         // Bare `brain` opens the merged persistent shell in its default
         // (tasks) view with the brain panel already open.
-        None => tasks_launch(TasksCli::parse_from(["brain"])),
+        None => tasks_launch(TasksCli::parse_from(["brain"]), agent_kind),
         // `brain tasks …` — delegate everything after `tasks` to the tasks
         // CLI parser (positional view/date/search, filter flags, and the
         // complete / doctor / search subcommands), after the natural-language
         // `mark …` rewrite.
-        Some(Cmd::Tasks(args)) => {
+        Some(Cmd::Tasks(mut args)) => {
             logging::log("dispatch tasks");
+            let agent_kind = if take_codex_flag(&mut args.rest) {
+                session::AgentKind::Codex
+            } else {
+                agent_kind
+            };
             let rewritten = rewrite_mark_grammar(
                 std::iter::once("brain tasks".to_owned())
                     .chain(args.rest)
                     .collect(),
             );
-            tasks_launch(TasksCli::parse_from(rewritten))
+            tasks_launch(TasksCli::parse_from(rewritten), agent_kind)
         }
         Some(Cmd::Version) => unreachable!("version is dispatched before the gate"),
         // Handled before the prerequisite gate above.
@@ -527,7 +533,7 @@ fn prompt_tty_line(prompt: &str) -> Result<Option<String>> {
 /// Ported from the old `tasks` binary's `main`/`browse`: the `complete` /
 /// `doctor` / `search` subcommands are one-shot utilities; everything else
 /// resolves an initial view and opens the persistent shell via `tui::run_tui`.
-fn tasks_launch(mut cli: TasksCli) -> Result<()> {
+fn tasks_launch(mut cli: TasksCli, agent_kind: session::AgentKind) -> Result<()> {
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
         Some(TasksCommand::Complete(args)) => return tasks::complete::run(&args.id),
@@ -551,7 +557,7 @@ fn tasks_launch(mut cli: TasksCli) -> Result<()> {
         }
         None => resolve_query(&cli.query, today),
     };
-    tasks_browse(initial, &mut cli, today)
+    tasks_browse(initial, &mut cli, today, agent_kind)
 }
 
 /// What the tasks positional input resolves to (mirrors the old `tasks`
@@ -577,7 +583,12 @@ fn resolve_query(tokens: &[String], today: NaiveDate) -> Initial {
     Initial::CustomSearch(tokens.join(" "))
 }
 
-fn tasks_browse(initial: Initial, cli: &mut TasksCli, today: NaiveDate) -> Result<()> {
+fn tasks_browse(
+    initial: Initial,
+    cli: &mut TasksCli,
+    today: NaiveDate,
+    agent_kind: session::AgentKind,
+) -> Result<()> {
     logging::log("tasks browse");
     let csv_path = cli.csv.clone().unwrap_or_else(default_csv_path);
     logging::log(format!("tasks csv {}", csv_path.display()));
@@ -633,6 +644,7 @@ fn tasks_browse(initial: Initial, cli: &mut TasksCli, today: NaiveDate) -> Resul
         tui::run_tui(
             &view,
             cli,
+            agent_kind,
             today,
             csv_path,
             all_tasks,
@@ -652,6 +664,15 @@ fn default_csv_path() -> PathBuf {
         PathBuf::from(home).join("brain")
     });
     root.join("tasks").join("tasks.csv")
+}
+
+/// Remove a trailing-delegated `--codex` and report whether it was present.
+/// Top-level clap handles `brain --codex`; this catches `brain tasks --codex`,
+/// because `tasks` intentionally captures hyphenated trailing args verbatim.
+fn take_codex_flag(args: &mut Vec<String>) -> bool {
+    let before = args.len();
+    args.retain(|arg| arg != "--codex");
+    args.len() != before
 }
 
 /// Translate natural-language completion grammar into `complete <ID>` before
@@ -677,4 +698,23 @@ fn rewrite_mark_grammar(args: Vec<String>) -> Vec<String> {
     out.push(args[id_pos].clone());
     out.extend_from_slice(&args[id_pos + 1 + consume..]);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn take_codex_flag_removes_tasks_trailing_flag() {
+        let mut args = vec!["today".to_owned(), "--codex".to_owned(), "--mit".to_owned()];
+        assert!(take_codex_flag(&mut args));
+        assert_eq!(args, vec!["today".to_owned(), "--mit".to_owned()]);
+    }
+
+    #[test]
+    fn take_codex_flag_leaves_args_when_absent() {
+        let mut args = vec!["today".to_owned()];
+        assert!(!take_codex_flag(&mut args));
+        assert_eq!(args, vec!["today".to_owned()]);
+    }
 }

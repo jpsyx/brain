@@ -17,8 +17,8 @@ binary was merged in; it no longer exists.) It's a small Rust CLI
 Bare `brain` (and `brain tasks …`) opens a **persistent shell** (`tui/`) with
 **two main views** — the **tasks view** (task management, agenda, triage; the
 startup default) and the **brain-directory search view** (fuzzy-pick over
-`~/brain`) — plus one app-level **brain panel** (an interactive `claude`
-session in a PTY that resumes your latest conversation, open at startup and
+`~/brain`) — plus one app-level **brain panel** (an interactive agent session
+in a PTY, Claude by default or Codex with `--codex`, open at startup and
 shared by both views). Switch views with `Ctrl+L`/`Ctrl+H` (cycle) or
 `Ctrl+T`/`Ctrl+B` (jump). Read [docs/glossary.md](docs/glossary.md) first for
 the main-view / sub-view / brain-panel vocabulary.
@@ -30,19 +30,20 @@ default). There are **no** shell-mutating one-shot commands and **no** plan
 protocol, so `brain` needs no wrapper: `run.sh` builds the binary when the
 sources change and `exec`s it directly. Everything the user does happens
 inside the TUI, which renders to `/dev/tty` and performs its own file-open,
-Finder-reveal, and `claude`-launch actions by spawning processes; the
+Finder-reveal, and agent-launch actions by spawning processes; the
 binary's stdout carries only `brain config` output plus clap help/errors. The
 persistent shell keeps state (`~/.cache/brain/state.db`, table
 `brain_sessions`) to resume the right Claude session (lock + recency) and
-remember the panel layout, fed by a single Claude `SessionStart` hook
-(`scripts/claude_session_start_hook.py`, keyed on `BRAIN_*`).
+remember the panel layout. Claude sessions are fed by a single Claude
+`SessionStart` hook (`scripts/claude_session_start_hook.py`, keyed on
+`BRAIN_*`); Codex panels launch fresh until brain has a Codex session hook.
 
 For a deeper map, see [docs/architecture.md](docs/architecture.md).
 
 ## The docs/ contract
 
 **Whenever you add a feature, change a keybinding, change how the brain
-panel launches `claude`, change root resolution, or change the module
+panel launches an agent frontend, change root resolution, or change the module
 shape, update the relevant file under `docs/` in the same change.**
 
 The docs are the source-of-truth for *what* `brain` does and *why*. Code
@@ -57,10 +58,10 @@ is the source-of-truth for *how*. They must agree on *what*.
 | A **tasks-view** keybinding | `docs/keybindings.md`, the `src/tasks/shortcuts.rs` table (footer + help modal), `compact_footer_line` in `src/tasks/render/chrome.rs`, **and** (if it's also a palette / task-action row) `shortcut_for` in `src/tui/palette/command.rs` |
 | A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+?`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
 | A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu/model.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
-| How the brain panel launches `claude` (`claude_cmd`), or the file-open / Finder path | `docs/integrations.md` (launch builder in `src/session.rs`, `claude_cmd` in `src/config.rs`/`src/settings/`, openers in `src/open_target.rs`) |
+| How the brain panel launches Claude or Codex (`claude_cmd`, `codex_cmd`, `--codex`), or the file-open / Finder path | `docs/integrations.md` (launch builder in `src/session.rs`, `claude_cmd` in `src/config.rs`/`src/settings/`, `codex_cmd` in `src/env/`, openers in `src/open_target.rs`) |
 | The SessionStart hook, state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/claude_session_start_hook.py`, `scripts/install_hook.sh`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
-| Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, the `sync` block's fields, or **root resolution** (`root` is a brain-env key in `~/.config/brain/env.json`; the legacy `~/.config/brain-root` pointer is read-only back-compat, auto-migrated into `env.json` on first run — root is *not* a `brain config` var) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; root resolution in `src/paths.rs`; the `sync` block schema in `src/sync/config.rs`) |
+| Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `codex_cmd`, the `sync` block's fields, or **root resolution** (`root` is a brain-env key in `~/.config/brain/env.json`; the legacy `~/.config/brain-root` pointer is read-only back-compat, auto-migrated into `env.json` on first run — root is *not* a `brain config` var) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; root resolution in `src/paths.rs`; the `sync` block schema in `src/sync/config.rs`) |
 | `brain sync` itself (the `sync`/`--push`/`--pull`/`setup`/`repair`/`status`/`conflicts` surface), the rclone bisync transport, keep-both conflict naming, the `--max-delete` guard, or the sync journal | `docs/features.md` + `docs/integrations.md` + `docs/architecture.md` + `docs/data-model.md` (pipeline in `src/sync/`: `config`, `remote`, `args`, `run`, `conflicts`, `verify`, `journal`, `setup`, `command`; dispatched before the gate in `src/main.rs`) |
 | The `tasks.csv`/`habits.csv` id-keyed semantic merge (excluding them from bisync, the baseline cache, the merge rules, or the journal's `csv:` note) | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (pure merge in `src/sync/csv_merge.rs`; baseline + rclone `copyto` transport + orchestration in `src/sync/csv_sync.rs`; wired into `src/sync/command.rs::sync_once`; excludes in `src/sync/args.rs`) |
 | The auto-sync triggers (start/exit hooks, the `notify` watcher + debounce, the sync lock) | `docs/features.md` + `docs/architecture.md` + `docs/integrations.md` + `docs/decisions.md` (modules `src/sync/{lock,trigger,watch}.rs`; `debounce_ms` in `src/sync/config.rs`; `format_triggers` in `src/sync/command.rs`; the seam in `src/tui/event_loop/setup.rs`) |
@@ -88,7 +89,7 @@ If a change spans categories, update all the relevant docs. Do not defer.
 Then the next red. When fixing a bug: first a failing test that reproduces
 it, *then* the fix. Push every decision worth testing into a **pure
 function** (the picker's matching, menu `handle_key`, `is_textlike`,
-config parsing, `session::build_claude_command`) and test that, rather than
+config parsing, `session::build_llm_command`) and test that, rather than
 mocking the terminal or the filesystem. See
 [docs/testing.md](docs/testing.md) for the full strategy and layout.
 

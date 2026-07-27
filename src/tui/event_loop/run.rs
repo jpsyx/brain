@@ -102,7 +102,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             continue;
         }
 
-        // Ctrl+X closes the brain panel (and ends its claude session) from
+        // Ctrl+X closes the brain panel (and ends its agent session) from
         // either panel. Intercepted before forwarding so it works even while
         // the brain panel is focused. No-op when no panel is open. 0x18, so
         // no kitty-protocol dependency.

@@ -103,7 +103,8 @@ picker itself:
 ## Persistent state (`state.rs`, `~/.cache/brain/state.db`)
 
 The persistent shell tracks Claude sessions and the layout preference in
-SQLite (WAL). Two tables:
+SQLite (WAL). Codex panels currently launch fresh because this DB is populated
+by the Claude SessionStart hook, not by Codex. Two tables:
 
 ```sql
 brain_sessions(
@@ -195,8 +196,9 @@ location, resolution, and the `brain env` command; this section is the schema.
 | --- | --- | --- | --- |
 | `root` | `String` | `~/brain` | Path to the brain (PARA) directory on this machine. Resolved by `paths::resolve_root` (env key → legacy `~/.config/brain-root` pointer → default); `env::vars::resolve_one("root")` always shows the same value `paths::brain_root_path()` uses. |
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
+| `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Read by `env::codex_command`; blank falls back to `codex`. |
 
-Both variables render through the same `Resolved { name, value, description }`
+All scalar env variables render through the same `Resolved { name, value, description }`
 type `brain config` uses (re-exported from `settings::schema::Resolved`), so
 `brain env list` shares its table layout with `brain config list`.
 

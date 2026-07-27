@@ -82,8 +82,8 @@ pub const ALL: &[Shortcut] = &[
     // --- Brain ---
     Shortcut { keys: "^M", label: "brain", desc: "Open / focus the brain panel (resumes your latest session)", group: Group::Brain, in_footer: true },
     Shortcut { keys: "^⇧M", label: "brain·task", desc: "Message brain about the selected task (hold Shift; needs kitty protocol)", group: Group::Brain, in_footer: false },
-    Shortcut { keys: "^X", label: "close brain", desc: "Close the brain panel and end its claude session", group: Group::Brain, in_footer: false },
-    Shortcut { keys: "^N", label: "new session", desc: "Start a new claude session in the brain panel (types /new and submits it)", group: Group::Brain, in_footer: false },
+    Shortcut { keys: "^X", label: "close brain", desc: "Close the brain panel and end its agent session", group: Group::Brain, in_footer: false },
+    Shortcut { keys: "^N", label: "new session", desc: "Start a new agent session in the brain panel (types /new and submits it)", group: Group::Brain, in_footer: false },
     Shortcut { keys: "Alt+H / Alt+L", label: "switch", desc: "Focus the tasks / brain panel (Alt+H always returns to tasks)", group: Group::Brain, in_footer: false },
     Shortcut { keys: "Alt+U / Alt+D", label: "scroll", desc: "Scroll the focused panel a half-page up / down (fires while typing or in the brain panel)", group: Group::Brain, in_footer: false },
     Shortcut { keys: "^A", label: "agenda", desc: "Open today's agenda (offers to generate it when missing)", group: Group::Brain, in_footer: false },

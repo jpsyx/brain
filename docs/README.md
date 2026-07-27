@@ -51,7 +51,7 @@ src/
   paths.rs       — brain-root resolution (config store / $HOME, tilde expand)
   settings/      — config store + `brain config` + markdown-to-pdf prereq
   entry.rs       — Bucket + Entry; walkdir collection with hidden filter
-  tui/           — persistent shell (tasks view + search view + claude panel)
+  tui/           — persistent shell (tasks view + search view + agent panel)
   pty_pane.rs    — PTY-backed brain panel (portable-pty + vt100)
   session.rs     — pure claude command/env + resume-vs-fresh plan
   state.rs       — SQLite session store + layout pref (lock + recency)

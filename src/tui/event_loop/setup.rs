@@ -17,6 +17,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::config::Config;
+use crate::session::AgentKind;
 use crate::state::Db;
 use crate::tasks::cli::Cli;
 use crate::tasks::task::Task;
@@ -40,6 +41,7 @@ fn disable_mouse_motion_reporting<W: std::io::Write>(w: &mut W) {
 pub fn run_tui(
     view: &ViewSpec,
     cli: &Cli,
+    agent_kind: AgentKind,
     today: NaiveDate,
     csv_path: PathBuf,
     all_tasks: Vec<Task>,
@@ -83,8 +85,8 @@ pub fn run_tui(
     let mut terminal = Terminal::new(backend)?;
 
     // Persistent state: open the session DB. Each tasks-shell invocation gets
-    // a fresh instance id; the SessionStart hook reads `TASKS_INSTANCE_ID` to
-    // attribute the brain panel's claude sessions to this shell.
+    // a fresh instance id; the Claude SessionStart hook reads BRAIN_* env vars
+    // to attribute brain-panel Claude sessions to this shell.
     let db_path = Db::default_path();
     let db = Db::open(&db_path)?;
     let config = Config::load();
@@ -93,7 +95,7 @@ pub fn run_tui(
     // sessions become resumable. A failure here must never block startup.
     let _ = db.reap_dead_locks();
     let instance = uuid::Uuid::new_v4().to_string();
-    // Honor the configured `root` (config.json), falling back to `$HOME/brain`
+    // Honor the configured `root` (brain env), falling back to `$HOME/brain`
     // when it is unset or the resolved directory does not exist.
     let brain_root = crate::paths::brain_root().unwrap_or_else(|_| {
         std::env::var_os("HOME").map_or_else(|| PathBuf::from("brain"), |h| PathBuf::from(h).join("brain"))
@@ -115,6 +117,7 @@ pub fn run_tui(
         // shells `/usr/bin/open <url>` directly.
         Box::new(ZshFunctionRunner::new("")),
         config,
+        agent_kind,
         instance.clone(),
         brain_root.clone(),
         db_path,

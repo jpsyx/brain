@@ -16,7 +16,7 @@ use clap::{Args, Parser, Subcommand};
                   brain and task system. Bare `brain` opens a persistent shell\n\
                   with two main views (tasks: management, agenda, triage, the\n\
                   startup default; and a fuzzy search over ~/brain), plus an\n\
-                  app-level brain panel running an interactive claude session.\n\
+                  app-level brain panel running an interactive agent session.\n\
                   \n\
                   Subcommands:\n\
                   \n\
@@ -43,6 +43,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
 
+    /// Use Codex instead of Claude for the brain panel.
+    #[arg(long, global = true)]
+    pub codex: bool,
+
     #[command(subcommand)]
     pub command: Option<Cmd>,
 }
@@ -50,6 +54,37 @@ pub struct Cli {
 #[must_use]
 pub fn version_line() -> String {
     format!("brain {}\n", env!("CARGO_PKG_VERSION"))
+}
+
+impl Cli {
+    /// Selected brain-panel agent frontend.
+    #[must_use]
+    pub const fn agent_kind(&self) -> crate::session::AgentKind {
+        if self.codex {
+            crate::session::AgentKind::Codex
+        } else {
+            crate::session::AgentKind::Claude
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::AgentKind;
+
+    #[test]
+    fn codex_flag_selects_codex_frontend() {
+        let cli = Cli::try_parse_from(["brain", "--codex"]).expect("parse");
+        assert!(cli.codex);
+        assert_eq!(cli.agent_kind(), AgentKind::Codex);
+    }
+
+    #[test]
+    fn claude_is_the_default_frontend() {
+        let cli = Cli::try_parse_from(["brain"]).expect("parse");
+        assert_eq!(cli.agent_kind(), AgentKind::Claude);
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -71,7 +106,7 @@ pub enum Cmd {
     Config(ConfigArgs),
 
     /// Read or change your machine-local brain env (`~/.config/brain/env.json`):
-    /// `root`, `markdown_to_pdf_path`, and the Backblaze `sync` block.
+    /// `root`, `markdown_to_pdf_path`, `codex_cmd`, and the Backblaze `sync` block.
     Env(EnvArgs),
 
     /// Sync your brain across machines via Backblaze B2 (`brain sync setup` first).

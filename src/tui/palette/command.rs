@@ -26,7 +26,7 @@ pub(crate) enum PaletteAction {
     /// Open (or focus) the persistent brain panel, resuming the shell's
     /// most-recently-active session. The user types directly into it.
     SendBrainMessage,
-    /// Close the brain panel and end its claude session. Only offered while
+    /// Close the brain panel and end its agent session. Only offered while
     /// a panel is open.
     CloseBrain,
     /// Like `SendBrainMessage`, but the entered text is prefixed with

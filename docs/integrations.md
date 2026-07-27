@@ -62,28 +62,38 @@ helpers and shell-outs live in the tasks modules:
   vendor-neutral and unauthenticated because the daemon binds only to
   `127.0.0.1`; do not expose it directly to the public internet without an
   external auth layer.
-- **`cd <root> && <claude_cmd> …`** — the brain panel's PTY, shared by both
+- **`cd <root> && <agent_cmd> …`** — the brain panel's PTY, shared by both
   main views (see below).
 
 This is the "central dispatch" design: `brain` is the single terminal command,
 and each capability is either an in-process main view (tasks, brain-directory
-search) or a spawned process it drives (claude for conversational work,
+search) or a spawned process it drives (Claude or Codex for conversational work,
 Finder/editor for files, `markdown-to-pdf` for conversions).
 
-## The brain panel: claude session + SessionStart hook + state DB
+## The Brain Panel: Claude Or Codex
 
-The persistent shell's brain panel spawns `claude` itself, inside a PTY
-(`pty_pane.rs`), running `cd <root> && <claude_cmd> --resume <id>` or
-`--session-id <id>` (`session::build_claude_command`). `<claude_cmd>` is the
-configurable launch command (`config::Config::claude_command`, config variable
-`claude_cmd`, default `claude --dangerously-skip-permissions`), spliced in
-verbatim so it may carry its own flags; brain always appends the `--resume` /
-`--session-id` flag it controls, so it never depends on a shell alias. The
-PTY's working directory is **also** set to `<brain_root>` (resolved via
-`paths::brain_root()`, honoring the `root` config), so claude resolves its
-project dir (and the SessionStart hook in `.claude/settings.json`) under the
-brain root from the first instant — every brain session is scoped there, so
-resume always looks in the same place.
+The persistent shell's brain panel spawns the selected agent frontend itself,
+inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex` (or
+`brain tasks --codex`) to run Codex instead.
+
+| Frontend | Command source | Resume/fresh command shape |
+| --- | --- | --- |
+| Claude | `claude_cmd` in brain config, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> --resume <id>` or `--session-id <id>` |
+| Codex | `codex_cmd` in brain env, default `codex` | `cd <root> && <codex_cmd> resume <id>` when resuming a known Codex id; fresh launches are `cd <root> && <codex_cmd>` with no Claude-only flags |
+
+Both commands are built by `session::build_llm_command`, which splices the
+configured base command in verbatim so it may carry its own flags. brain never
+depends on a shell alias. The PTY's working directory is **also** set to
+`<brain_root>` (resolved via `paths::brain_root()`, honoring the `root` env
+key), so the agent starts scoped to the brain root from the first instant.
+
+When brain injects a prompt into an already-open panel, it sends the text first
+and the final submit key a couple of event-loop ticks later so the frontend
+doesn't treat the submit key as part of a paste. Claude receives `Enter`.
+Codex receives `Tab`, because Codex uses `Tab` to queue a message behind active
+work and treats `Enter` as immediate steering.
+
+## Claude Sessions: SessionStart Hook + State DB
 
 Which session to run is decided by the **lock + recency** model in
 `state.rs` (DB at `~/.cache/brain/state.db`, WAL):
@@ -100,7 +110,7 @@ Which session to run is decided by the **lock + recency** model in
    it skipped a missing-transcript candidate, shows a status-line alert:
    *"couldn't find a session to resume — starting a new brain chat"*.
 2. brain passes `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` into
-   the claude child's environment (`session::env_for`).
+   the Claude child's environment (`session::env_for`).
 3. A **SessionStart hook** —
    `scripts/claude_session_start_hook.py`, wired into
    `~/brain/.claude/settings.json` under `hooks.SessionStart` — fires on
@@ -109,9 +119,13 @@ Which session to run is decided by the **lock + recency** model in
    the instance's other sessions, so a `/new` mid-run becomes the session
    brain resumes next time and the prior conversation stays resumable. With
    the env vars absent (ambient `~/brain` claude usage), the hook is a no-op.
-4. When the panel closes (claude exits) or the shell quits, brain `release`s
+4. When the panel closes (Claude exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
+
+Codex does not currently use this Claude hook-backed DB. Until brain has a
+Codex session hook/store, Codex panels launch fresh instead of attempting to
+resume a Claude session id.
 
 **One hook, one DB, one namespace.** Before the merge, `brain` and `tasks`
 each ran their own SessionStart hook keyed on separate env-var namespaces
