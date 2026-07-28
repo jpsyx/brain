@@ -237,8 +237,8 @@ configuration lives outside the brain root.
 During a configured run, sync prints the current phase as it proceeds: the
 comparison and selected direction, rclone's live file progress, and the task /
 habit CSV merge. If `rclone` is missing, it stops before remote work and prints
-the exact Homebrew command (`brew install rclone`) plus the official installer
-command.
+two clearly labeled installation choices: the Homebrew command
+(`brew install rclone`) or the official installer command.
 
 - `brain sync` (bare) — bidirectional sync; a same-file conflict is resolved
   by newest edit.

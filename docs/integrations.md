@@ -237,10 +237,10 @@ bookkeeping.
   user-facing progress lines, separate from `--verbose` debug logging.
 - **rclone is an external prerequisite.** Brain checks that the executable can
   start before touching the remote. When it is missing, sync stops with an
-  install guide: Homebrew users can run `brew install rclone`; everyone else
-  can use rclone's official installer command. Brain does not bundle rclone,
-  keeping its release, signing, and architecture updates independent from the
-  transport's upstream releases.
+  install guide with two explicit choices: Homebrew users can run `brew install
+  rclone`, or everyone else can use rclone's official installer command. Brain
+  does not bundle rclone, keeping its release, signing, and architecture
+  updates independent from the transport's upstream releases.
 - **The bisync argv is built once** by `src/sync/args.rs`
   (`bisync_args`): direction (`brain sync` / `--push` / `--pull` / `brain
   sync repair`) maps to rclone's `--conflict-resolve` (`newer` / `path1` /

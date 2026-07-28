@@ -815,6 +815,14 @@ mod tests {
     fn missing_rclone_guidance_names_both_install_commands() {
         let message = crate::sync::run::missing_rclone_guidance(Theme::dark(false), "brain sync");
         assert!(message.contains("rclone is not installed"), "{message}");
+        assert!(
+            message.contains("If you have Homebrew installed, use this option:"),
+            "{message}"
+        );
+        assert!(
+            message.contains("If you do not have Homebrew, use this option:"),
+            "{message}"
+        );
         assert!(message.contains("brew install rclone"), "{message}");
         assert!(
             message.contains("sudo -v ; curl https://rclone.org/install.sh | sudo bash"),

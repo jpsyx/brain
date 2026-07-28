@@ -45,11 +45,12 @@ pub fn rclone_present() -> bool {
 #[must_use]
 pub fn missing_rclone_guidance(theme: crate::theme::Theme, retry_command: &str) -> String {
     format!(
-        "{}\n\n{}\n  {}\n{}\n  {}\n\n{}",
+        "{}\n\n{}\n\n{}\n  {}\n\n{}\n  {}\n\n{}",
         theme.error("rclone is not installed."),
-        theme.info("Install rclone before syncing."),
+        theme.info("Choose one of these installation options:"),
+        theme.muted("If you have Homebrew installed, use this option:"),
         theme.accent("brew install rclone"),
-        theme.muted("Otherwise, use rclone's official installer:"),
+        theme.muted("If you do not have Homebrew, use this option:"),
         theme.accent("sudo -v ; curl https://rclone.org/install.sh | sudo bash"),
         theme.muted(&format!("Then run `{retry_command}` again.")),
     )
