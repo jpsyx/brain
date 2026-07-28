@@ -41,7 +41,7 @@ fn list_table_cells(rows: &[Resolved]) -> Vec<[String; 3]> {
         cells.push([
             format!("{:<name_w$}", r.name),
             format!("{:<value_w$}", value_of(r)),
-            r.description.to_owned(),
+            r.description.clone(),
         ]);
     }
     cells

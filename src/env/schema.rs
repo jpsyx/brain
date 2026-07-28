@@ -13,9 +13,8 @@ pub(super) const DEFAULT_CODEX_CMD: &str = "codex";
 /// Default Claude launch command for the brain panel.
 pub(super) const DEFAULT_CLAUDE_CMD: &str = "claude --dangerously-skip-permissions";
 
-/// The brain-env schema, in `brain env list` order. `root`,
-/// `markdown_to_pdf_path`, `claude_cmd`, and `codex_cmd` are machine-local; the
-/// `sync` block is edited via `brain sync setup`, not raw `brain env set`.
+/// The declared scalar brain-env schema, in `brain env list` order. Nested
+/// values from the raw env object are listed after these rows.
 pub(super) const VARS: [VarSpec; 4] = [
     VarSpec {
         name: "root",

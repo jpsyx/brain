@@ -199,12 +199,16 @@ location, resolution, and the `brain env` command; this section is the schema.
 | `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Read by `env::claude_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
 | `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Read by `env::codex_command`; blank falls back to `codex`. |
 
-All scalar env variables render through the same `Resolved { name, value, description }`
-type `brain config` uses (re-exported from `settings::schema::Resolved`), so
-`brain env list` shares its table layout with `brain config list`.
+All declared env variables and recursively flattened nested values render
+through the same `Resolved { name, value, description }` type `brain config`
+uses (re-exported from `settings::schema::Resolved`), so `brain env list`
+shares its table layout with `brain config list`. Nested paths use dot
+notation, for example `sync.remote.key_id`; array elements use numeric path
+segments.
 
-A third field, `sync`, is not in `VARS` (it isn't a scalar `brain env set`
-target) but is a top-level key of the same JSON object — see below.
+The `sync` field is not in `VARS`, but its nested values are still listable and
+addressable with dotted `brain env get` and `brain env set` paths. The sync
+setup flow remains the preferred way to create or validate the complete block.
 
 ## Sync config (`sync/`, the `sync` block in `env.json`)
 

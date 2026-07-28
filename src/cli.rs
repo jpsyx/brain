@@ -199,7 +199,8 @@ pub enum EnvAction {
         /// Variable name (e.g. `root`).
         name: String,
     },
-    /// Set an env variable: `brain env set <name>=<value>`.
+    /// Set an env variable: `brain env set <name>=<value>`. Nested values use
+    /// dot notation, for example `sync.b2_bucket`.
     Set {
         /// A single `name=value` assignment.
         assignment: String,

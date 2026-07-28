@@ -41,9 +41,9 @@ Mirrors `brain config` exactly, over the env store:
 
 | Command | Effect |
 | --- | --- |
-| `brain env list` | Print every env variable, its effective value, and its description as an aligned table. Bare `brain env` also lists. |
-| `brain env get <name>` | Print the effective value of one variable (explicit value, else built-in default). |
-| `brain env set <name>=<value>` | Set a variable and persist it into `~/.config/brain/env.json`. Unknown names are rejected. |
+| `brain env list` | Print every env value, including recursively nested objects, using dot-separated paths such as `sync.b2_bucket`. Bare `brain env` also lists. |
+| `brain env get <name>` | Print the effective value of one variable or dotted nested path, such as `sync.b2_bucket`. |
+| `brain env set <name>=<value>` | Set a scalar variable or dotted nested path and persist it into `~/.config/brain/env.json`, preserving sibling values. |
 
 ### The `brain sync` command
 

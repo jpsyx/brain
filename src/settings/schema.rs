@@ -52,9 +52,9 @@ pub(super) const VARS: [VarSpec; 6] = [
 /// A variable paired with its effective value (explicit override, else the
 /// built-in default, else `None`).
 pub struct Resolved {
-    pub name: &'static str,
+    pub name: String,
     pub value: Option<String>,
-    pub description: &'static str,
+    pub description: String,
 }
 
 pub(super) fn is_known(name: &str) -> bool {

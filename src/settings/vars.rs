@@ -78,12 +78,12 @@ pub fn resolve_all() -> Vec<Resolved> {
 pub(super) fn resolve_all_from(map: &Map<String, Value>) -> Vec<Resolved> {
     VARS.iter()
         .map(|v| Resolved {
-            name: v.name,
+            name: v.name.to_owned(),
             value: map
                 .get(v.name)
                 .and_then(value_to_string)
                 .or_else(|| v.default.map(str::to_owned)),
-            description: v.description,
+            description: v.description.to_owned(),
         })
         .collect()
 }

@@ -210,11 +210,13 @@ Backblaze `sync` block (written by `brain sync setup`, below — see
 [config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:
 
-- `brain env list` (or bare `brain env`) — aligned table of every env
-  variable, its effective value, and its description.
-- `brain env get <name>` — the effective value of one variable.
-- `brain env set <name>=<value>` — set and persist a variable (unknown
-  names rejected).
+- `brain env list` (or bare `brain env`) — aligned table of every env value,
+  recursively flattened into dot-separated paths.
+- `brain env get <name>` — the effective value of one variable or nested path,
+  such as `sync.b2_bucket`.
+- `brain env set <name>=<value>` — set and persist a variable or nested path,
+  preserving sibling values. Nested values can be addressed as
+  `objName.key1.key2`.
 
 `env`, like `config`, runs before the `markdown-to-pdf` prerequisite gate.
 `~/.config/brain/env.json` is never Backblaze-synced (it lives outside the
