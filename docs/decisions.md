@@ -545,6 +545,14 @@ C1 shipped only a parse-only `SyncConfig`; C2 is the first phase that actually
 moves bytes. The choices below are the ones a future phase (a triggers/watch
 phase, or a conflict-resolve UI) needs to keep, not accidentally "simplify."
 
+**Why rclone remains external instead of bundled.** Rclone is an independently
+released cross-platform transport binary, while brain owns the user-facing
+workflow and safety/bookkeeping around it. Bundling it would couple brain's
+release, signing, and architecture updates to rclone's. The sync command now
+checks for rclone before remote work and prints both the Homebrew and official
+installer commands when it is absent, making the dependency explicit without
+duplicating its distribution pipeline.
+
 **Why credentials are `RCLONE_CONFIG_*` env vars, never a persisted
 `rclone.conf`, and never on argv.** The brain-env `sync` block already holds
 the B2 key id/app key as plaintext (machine-local, never synced — see the C1

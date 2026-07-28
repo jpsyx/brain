@@ -72,6 +72,14 @@ pub fn sync_once(
     ));
     eprintln!("{}", format_sync_plan(cfg, root, dir, theme));
 
+    if !crate::sync::run::rclone_present() {
+        return Ok(Outcome::Aborted(
+            crate::sync::run::missing_rclone_guidance(theme, "brain sync"),
+        ));
+    }
+
+    eprintln!("{}", theme.info(sync_progress(dir)));
+
     if should_bootstrap_check_access(dir) {
         crate::logging::log("sync check-access markers");
         eprintln!("{}", theme.info("Checking the sync safety marker…"));
@@ -239,24 +247,24 @@ pub fn format_sync_plan_for_remote(
         Direction::Pull => "Pulling remote brain changes",
         Direction::Resync => "Repairing cloud sync metadata",
     };
-    let mode = match dir {
-        Direction::Both => "compare local and remote changes, then sync both directions",
-        Direction::Push => "prefer local edits for same-file conflicts",
-        Direction::Pull => "prefer remote edits for same-file conflicts",
-        Direction::Resync => "recreate the RCLONE_TEST marker and re-establish the rclone baseline",
-    };
     format!(
-        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
+        "{}\n  {} {}\n  {} {}",
         theme.heading(heading),
         theme.muted("local:"),
         theme.value(&root.display().to_string()),
         theme.muted("remote:"),
         theme.value(&remote.arg),
-        theme.muted("plan:"),
-        mode,
-        theme.muted("then:"),
-        "merge task and habit CSVs by row id",
     )
+}
+
+#[must_use]
+pub fn sync_progress(dir: Direction) -> &'static str {
+    match dir {
+        Direction::Both => "Comparing local and remote changes, then syncing both directions…",
+        Direction::Push => "Comparing local and remote changes, then pushing local changes…",
+        Direction::Pull => "Comparing local and remote changes, then pulling remote changes…",
+        Direction::Resync => "Checking the sync marker and rebuilding the rclone baseline…",
+    }
 }
 
 #[must_use]
@@ -787,9 +795,31 @@ mod tests {
         assert!(plan.contains("Repairing cloud sync metadata"), "{plan}");
         assert!(plan.contains("local: /tmp/brain"), "{plan}");
         assert!(plan.contains("remote: BRAIN:bucket/brain-root"), "{plan}");
-        assert!(plan.contains("recreate the RCLONE_TEST marker"), "{plan}");
-        assert!(plan.contains("re-establish the rclone baseline"), "{plan}");
-        assert!(plan.contains("merge task and habit CSVs"), "{plan}");
+        assert!(!plan.contains("plan:"), "{plan}");
+        assert!(!plan.contains("then:"), "{plan}");
+    }
+
+    #[test]
+    fn sync_progress_describes_each_direction_without_a_plan_block() {
+        assert_eq!(
+            sync_progress(Direction::Both),
+            "Comparing local and remote changes, then syncing both directions…"
+        );
+        assert_eq!(
+            sync_progress(Direction::Push),
+            "Comparing local and remote changes, then pushing local changes…"
+        );
+    }
+
+    #[test]
+    fn missing_rclone_guidance_names_both_install_commands() {
+        let message = crate::sync::run::missing_rclone_guidance(Theme::dark(false), "brain sync");
+        assert!(message.contains("rclone is not installed"), "{message}");
+        assert!(message.contains("brew install rclone"), "{message}");
+        assert!(
+            message.contains("sudo -v ; curl https://rclone.org/install.sh | sudo bash"),
+            "{message}"
+        );
     }
 
     #[test]

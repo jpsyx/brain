@@ -234,6 +234,12 @@ command: `brain sync setup`. These commands create the configured brain root on
 demand if it does not exist yet; `brain env` does not create it because env
 configuration lives outside the brain root.
 
+During a configured run, sync prints the current phase as it proceeds: the
+comparison and selected direction, rclone's live file progress, and the task /
+habit CSV merge. If `rclone` is missing, it stops before remote work and prints
+the exact Homebrew command (`brew install rclone`) plus the official installer
+command.
+
 - `brain sync` (bare) — bidirectional sync; a same-file conflict is resolved
   by newest edit.
 - `brain sync --push` — biases this run local-wins on a same-file conflict.

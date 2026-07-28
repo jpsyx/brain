@@ -230,12 +230,17 @@ bookkeeping.
   names readable. brain does not generate, remember, recover, or sync the
   original passphrases; losing them means existing encrypted remote data cannot
   be decrypted.
-- **The sync plan is printed before slow work starts.** `command::format_sync_plan`
-  names the mode (`brain sync`, `--push`, `--pull`, or `brain sync repair`),
-  local root, remote target, and the next phases before marker repair or rclone
-  can block. `sync_once` then prints short phase lines before the check-access
-  marker copy, the rclone process, and the task/habit CSV merge. These are
-  default user-facing progress lines, separate from `--verbose` debug logging.
+- **Progress is narrated as work happens.** `command::format_sync_plan` prints
+  only the mode, local root, and remote target. `sync_once` then prints a phase
+  line describing the comparison and direction before marker repair and the
+  rclone process, followed by a task/habit CSV merge phase. These are default
+  user-facing progress lines, separate from `--verbose` debug logging.
+- **rclone is an external prerequisite.** Brain checks that the executable can
+  start before touching the remote. When it is missing, sync stops with an
+  install guide: Homebrew users can run `brew install rclone`; everyone else
+  can use rclone's official installer command. Brain does not bundle rclone,
+  keeping its release, signing, and architecture updates independent from the
+  transport's upstream releases.
 - **The bisync argv is built once** by `src/sync/args.rs`
   (`bisync_args`): direction (`brain sync` / `--push` / `--pull` / `brain
   sync repair`) maps to rclone's `--conflict-resolve` (`newer` / `path1` /

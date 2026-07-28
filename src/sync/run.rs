@@ -30,6 +30,31 @@ pub struct RunOutcome {
     pub abort: Option<AbortKind>,
 }
 
+/// Return whether the external rclone executable can be launched.
+#[must_use]
+pub fn rclone_present() -> bool {
+    Command::new("rclone")
+        .arg("version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok()
+}
+
+/// Explain how to install the external rclone transport when it is missing.
+#[must_use]
+pub fn missing_rclone_guidance(theme: crate::theme::Theme, retry_command: &str) -> String {
+    format!(
+        "{}\n\n{}\n  {}\n{}\n  {}\n\n{}",
+        theme.error("rclone is not installed."),
+        theme.info("Install rclone before syncing."),
+        theme.accent("brew install rclone"),
+        theme.muted("Otherwise, use rclone's official installer:"),
+        theme.accent("sudo -v ; curl https://rclone.org/install.sh | sudo bash"),
+        theme.muted(&format!("Then run `{retry_command}` again.")),
+    )
+}
+
 /// Pull a plain integer count out of the first matching `<label>` line, e.g.
 /// `Deleted:                1 (files), 0 (dirs), 10 B (freed)` -> `1` or
 /// `Errors:                 2 (fatal error encountered)` -> `2`. The value is

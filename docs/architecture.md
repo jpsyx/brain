@@ -301,8 +301,8 @@ conflict resolution bias for the direction, keep-both flags, `--max-delete`,
 default excludes, `--check-access --check-filename RCLONE_TEST`, plus
 `--stats 10s --stats-one-line` for live progress and `--resilient --recover`
 for resumability); `check_access.rs` creates/repairs the root-level marker on
-local + remote before resync runs; `run::run_rclone` spawns `rclone`
-with that env + argv, streaming its stderr live to the terminal while
+local + remote before resync runs; `run::run_rclone` checks for the external
+`rclone` executable before spawning it, then streams its stderr live to the terminal while
 capturing it, and parses the capture into transferred/deleted/error counts
 and an abort reason; if that abort is an incomplete baseline
 (`AbortKind::PriorListingMissing`) and this run wasn't already a resync,

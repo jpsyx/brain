@@ -256,6 +256,9 @@ Two derived predicates:
   remote layered over the B2 remote instead of the raw `BRAIN:<bucket>/<path>`
   target.
 
+The sync transport executable is not part of this data model. `brain sync`
+checks for external `rclone` before invoking the configured remote.
+
 `SyncConfig::load()` reads the `sync` key out of the brain-env store
 (`env::load_map()`) and deserializes it, falling back to `SyncConfig::default()`
 on a missing key or a parse failure — a broken or absent `sync` block never

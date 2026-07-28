@@ -65,12 +65,10 @@ pub fn validate(bucket: &str, key_id: &str, app_key: &str) -> Result<()> {
 /// the bucket, and runs the initial baseline sync. Never unit-tested (I/O + net).
 pub fn run() -> Result<()> {
     let theme = Theme::active();
-    if !rclone_present() {
+    if !crate::sync::run::rclone_present() {
         eprintln!(
             "{}",
-            theme.error(
-                "rclone is not installed. Install it (https://rclone.org/downloads/) and re-run `brain sync setup`."
-            )
+            crate::sync::run::missing_rclone_guidance(theme, "brain sync setup")
         );
         return Ok(());
     }
@@ -181,13 +179,6 @@ fn sync_block(
         "crypt_filename_encryption": existing.crypt_filename_encryption,
         "crypt_directory_name_encryption": existing.crypt_directory_name_encryption,
     })
-}
-
-fn rclone_present() -> bool {
-    std::process::Command::new("rclone")
-        .arg("version")
-        .output()
-        .is_ok_and(|o| o.status.success())
 }
 
 /// Probe the configured bucket with rclone; offer to create it if missing.
