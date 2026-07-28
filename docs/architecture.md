@@ -121,10 +121,10 @@ task CSV loads and writes, sync/rclone work, server lifecycle probes, doctor
 checks, and skill installation.
 
 ### `paths.rs`
-Brain-root resolution. `brain_root()` reads the path in `~/.config/brain-root`
-(tilde-expanded) or falls back to `$HOME/brain`, erroring if the result isn't a
-directory; `brain_root_path()` is the non-erroring variant used to derive the
-config dir. `root` is deliberately *not* a config variable — it can't live inside
+Brain-root resolution. `brain_root()` reads the configured root and creates the
+resolved directory (including missing parents) when a command needs it;
+`brain_root_path()` is the side-effect-free variant used to derive the config
+dir. `root` is deliberately *not* a config variable — it can't live inside
 the brain root it resolves. The IO-free pieces (`parse_brain_root_file`,
 `expand_tilde_with_home`) are split out so they're unit-testable without a
 real `$HOME` or pointer file. See [config.md](config.md).

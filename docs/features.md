@@ -230,7 +230,9 @@ Manual, bidirectional cross-machine sync of the brain directory
 is **opt-in**: with no configured `sync` block (see [config.md](config.md)),
 `brain sync`, `brain sync repair`, `brain sync status`, and `brain check` print a
 plain explanation that cloud sync is not set up yet and end with the exact next
-command: `brain sync setup`.
+command: `brain sync setup`. These commands create the configured brain root on
+demand if it does not exist yet; `brain env` does not create it because env
+configuration lives outside the brain root.
 
 - `brain sync` (bare) — bidirectional sync; a same-file conflict is resolved
   by newest edit.

@@ -20,14 +20,12 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 
-/// Resolve the absolute brain-root directory, erroring if it does not exist.
+/// Resolve the absolute brain-root directory, creating it when needed.
 pub fn brain_root() -> Result<PathBuf> {
     let root = brain_root_path();
-    if !root.is_dir() {
-        bail!("{} does not exist", root.display());
-    }
+    std::fs::create_dir_all(&root)?;
     Ok(root)
 }
 

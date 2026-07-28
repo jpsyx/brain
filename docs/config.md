@@ -112,10 +112,10 @@ Resolution order (`paths::brain_root_path`):
    back-compat, tilde-expanded against `$HOME`), if present and non-empty;
 3. otherwise the default `~/brain`.
 
-`brain_root()` (used when the directory must actually exist) additionally
-requires the resolved path to be an existing directory, or it errors with
-`"<path> does not exist"`. `brain_root_path()` (used to derive the config dir)
-never requires this, so config lookups don't block startup on a missing brain.
+`brain_root()` (used when a command actually needs the directory) creates the
+resolved path and any missing parent directories on demand.
+`brain_root_path()` (used to derive the config dir) remains side-effect-free, so
+env and config lookups don't create or require a brain directory.
 
 **Migration.** On every startup brain runs a one-time, idempotent migration
 (`env::migrate`): if `env.json` has no `root` key yet and the legacy

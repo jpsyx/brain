@@ -194,7 +194,7 @@ location, resolution, and the `brain env` command; this section is the schema.
 
 | Variable | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `root` | `String` | `~/brain` | Path to the brain (PARA) directory on this machine. Resolved by `paths::resolve_root` (env key → legacy `~/.config/brain-root` pointer → default); `env::vars::resolve_one("root")` always shows the same value `paths::brain_root_path()` uses. |
+| `root` | `String` | `~/brain` | Path to the brain (PARA) directory on this machine. Resolved by `paths::resolve_root` (env key → legacy `~/.config/brain-root` pointer → default); commands that need the directory use `paths::brain_root()`, which creates it on demand, while `env::vars::resolve_one("root")` and `paths::brain_root_path()` remain side-effect-free. |
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
 | `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Read by `env::claude_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
 | `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Read by `env::codex_command`; blank falls back to `codex`. |
