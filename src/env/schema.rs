@@ -77,7 +77,8 @@ pub(super) fn is_known(name: &str) -> bool {
     VARS.iter().any(|v| v.name == name)
 }
 
-pub(super) fn is_sensitive(name: &str) -> bool {
+#[must_use]
+pub fn is_sensitive(name: &str) -> bool {
     matches!(
         name,
         "twilio_auth_token"

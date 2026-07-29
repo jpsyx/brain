@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.9.7"
+version = "0.9.8"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
@@ -36,7 +36,6 @@ hmac = "0.12"
 notify = "8"
 nucleo-matcher = "0.3"
 regex = "1"
-rpassword = "7"
 # PTY-backed brain panel: portable-pty spawns the interactive `claude` child,
 # vt100 parses its byte stream into a screen buffer, and tui-term renders that
 # buffer inside ratatui. Mirrors the `tasks` sibling project's stack.

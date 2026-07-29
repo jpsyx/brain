@@ -135,6 +135,16 @@ mod tests {
         assert!(matches!(cli.command, Some(Cmd::Receiver(args))
             if matches!(args.action, ReceiverServerAction::Restart)));
     }
+
+    #[test]
+    fn receiver_and_env_set_allow_interactive_mode() {
+        let receiver = Cli::try_parse_from(["brain", "receiver", "set"]).expect("parse");
+        assert!(matches!(receiver.command, Some(Cmd::Receiver(args))
+            if matches!(args.action, ReceiverServerAction::Set { assignment: None })));
+        let env = Cli::try_parse_from(["brain", "env", "set"]).expect("parse");
+        assert!(matches!(env.command, Some(Cmd::Env(args))
+            if matches!(args.action, Some(EnvAction::Set { assignment: None }))));
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -204,7 +214,7 @@ pub enum ConfigAction {
     },
     /// Set a variable: `brain config set <name>=<value>`.
     Set {
-        /// A single `name=value` assignment.
+        /// A single `name=value` assignment. Omit to choose interactively.
         assignment: String,
     },
 }
@@ -228,7 +238,7 @@ pub enum EnvAction {
     /// dot notation, for example `sync.b2_bucket`.
     Set {
         /// A single `name=value` assignment.
-        assignment: String,
+        assignment: Option<String>,
     },
 }
 
@@ -334,6 +344,11 @@ pub struct ReceiverArgs {
 pub enum ReceiverServerAction {
     /// Interactively configure receiver addresses and allowlists.
     Setup,
+    /// Set one receiver environment variable, or choose one interactively.
+    Set {
+        /// `name=value`; omit to choose from the receiver environment variables.
+        assignment: Option<String>,
+    },
     /// Ask the running brain TUI to start receiving SMS and email.
     Start,
     /// Show the receiver server state.

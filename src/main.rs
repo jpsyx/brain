@@ -196,13 +196,18 @@ fn receiver_server_command(args: &crate::cli::ReceiverArgs) -> Result<()> {
     if matches!(&args.action, ReceiverServerAction::Setup) {
         return receiver_setup();
     }
+    if let ReceiverServerAction::Set { assignment } = &args.action {
+        return receiver_set(assignment.as_deref());
+    }
     let command = match &args.action {
         ReceiverServerAction::Start => "start",
         ReceiverServerAction::Stop => "stop",
         ReceiverServerAction::Restart => "restart",
         ReceiverServerAction::Status => "status",
         ReceiverServerAction::Logs => "logs",
-        ReceiverServerAction::Setup => unreachable!("setup handled above"),
+        ReceiverServerAction::Setup | ReceiverServerAction::Set { .. } => {
+            unreachable!("receiver setup/set handled above")
+        }
     };
     match crate::server::receiver::send_control(command) {
         Ok(response) => {
@@ -427,7 +432,8 @@ fn prompt_receiver_value(name: &str, label: &str, secret: bool) -> Result<()> {
     };
     let prompt = format!("{} {}: ", theme::Theme::active().prompt(label), hint);
     let input = if secret {
-        rpassword::prompt_password(prompt)?
+        prompt_masked_line(&prompt)?
+            .ok_or_else(|| anyhow!("receiver setup needs an interactive terminal"))?
     } else {
         let Some(value) = prompt_tty_line(&prompt)? else {
             anyhow::bail!("receiver setup needs an interactive terminal; nothing was changed");
@@ -440,6 +446,105 @@ fn prompt_receiver_value(name: &str, label: &str, secret: bool) -> Result<()> {
         value => value.to_owned(),
     };
     crate::env::set(name, &value)
+}
+
+fn receiver_env_fields() -> Vec<(&'static str, &'static str, &'static str, bool)> {
+    [
+        "brain_receiver_public_url",
+        "twilio_account_sid",
+        "twilio_auth_token",
+        "twilio_from_number",
+        "resend_api_key",
+        "resend_from_email",
+        "resend_webhook_signing_secret",
+    ]
+    .into_iter()
+    .map(|name| {
+        let (label, description, secret) = receiver_provider_prompt(name);
+        (name, label, description, secret)
+    })
+    .collect()
+}
+
+fn receiver_set(assignment: Option<&str>) -> Result<()> {
+    let fields = receiver_env_fields();
+    let name = if let Some(assignment) = assignment {
+        assignment
+            .split_once('=')
+            .map_or_else(|| assignment.to_owned(), |(name, _)| name.to_owned())
+    } else {
+        println!("{}", theme::Theme::active().heading("Receiver environment"));
+        for (index, (name, label, description, _)) in fields.iter().enumerate() {
+            println!("  {}) {}", index + 1, theme::Theme::active().accent(label));
+            println!("     {}", theme::Theme::active().muted(&format!("{name}: {description}")));
+        }
+        let Some(choice) = prompt_tty_line("Choose a variable number: ")? else {
+            anyhow::bail!("receiver set needs an interactive terminal");
+        };
+        let index = choice
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|index| (1..=fields.len()).contains(index))
+            .ok_or_else(|| anyhow!("choose a number from 1 to {}", fields.len()))?;
+        fields[index - 1].0.to_owned()
+    };
+    let Some((_, label, _, secret)) = fields.iter().find(|(field, ..)| *field == name) else {
+        anyhow::bail!("unknown receiver environment variable: {name}");
+    };
+    if let Some((_, value)) = assignment.and_then(|value| value.split_once('=')) {
+        return crate::env::set(&name, value);
+    }
+    prompt_receiver_value(&name, label, *secret)
+}
+
+fn masked_echo(value: &str) -> String {
+    "*".repeat(value.chars().count())
+}
+
+fn prompt_masked_line(prompt: &str) -> Result<Option<String>> {
+    use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+    use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+    use std::io::Write;
+    let Ok(tty) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+    else {
+        return Ok(None);
+    };
+    let mut out = tty.try_clone()?;
+    write!(out, "{prompt}")?;
+    out.flush()?;
+    enable_raw_mode()?;
+    let result = (|| -> Result<Option<String>> {
+        let mut value = String::new();
+        loop {
+            let Event::Key(key) = event::read()? else { continue };
+            if key.kind == KeyEventKind::Release {
+                continue;
+            }
+            match key.code {
+                KeyCode::Char(ch) => {
+                    value.push(ch);
+                    write!(out, "{}", masked_echo(&ch.to_string()))?;
+                    out.flush()?;
+                }
+                KeyCode::Backspace if value.pop().is_some() => {
+                    write!(out, "\x08 \x08")?;
+                    out.flush()?;
+                }
+                KeyCode::Enter => {
+                    writeln!(out)?;
+                    return Ok(Some(value));
+                }
+                KeyCode::Esc => return Ok(None),
+                _ => {}
+            }
+        }
+    })();
+    disable_raw_mode()?;
+    result
 }
 
 fn ensure_hook_entry(settings: &mut serde_json::Value, event: &str, command: &str) {
@@ -514,7 +619,7 @@ fn install_receiver_hooks(root: &std::path::Path) -> Result<()> {
 #[cfg(test)]
 mod receiver_setup_tests {
     use super::{
-        ensure_hook_entry, parse_receiver_channels, receiver_provider_fields,
+        ensure_hook_entry, masked_echo, parse_receiver_channels, receiver_provider_fields,
         receiver_webhook_url,
         ReceiverSetupChannels,
     };
@@ -570,6 +675,13 @@ mod receiver_setup_tests {
                 "resend_webhook_signing_secret",
             ]
         );
+    }
+
+    #[test]
+    fn masked_echo_uses_one_star_per_character() {
+        assert_eq!(masked_echo("abc"), "***");
+        assert_eq!(masked_echo("éx"), "**");
+        assert_eq!(masked_echo(""), "");
     }
 }
 
@@ -831,7 +943,9 @@ fn env_command(args: &EnvArgs) -> Result<()> {
             }
         }
         EnvAction::Set { assignment } => {
-            if let Some((name, value)) = assignment.split_once('=') {
+            if let Some(assignment) = assignment.as_deref()
+                && let Some((name, value)) = assignment.split_once('=')
+            {
                 let name = settings::normalize_name(name);
                 logging::log(format!("env set name={name}"));
                 env::set(&name, value)?;
@@ -840,8 +954,8 @@ fn env_command(args: &EnvArgs) -> Result<()> {
                     settings::set_confirmation(&name, value, theme::Theme::active())
                 );
             } else {
-                logging::log(format!("env set interactive name={assignment}"));
-                env_set_interactive(&settings::normalize_name(assignment))?;
+                logging::log("env set interactive");
+                env_set_interactive(assignment.as_deref())?;
             }
         }
     }
@@ -877,16 +991,40 @@ fn config_set_interactive(name: &str) -> Result<()> {
 /// `/dev/tty`, then writes via [`env::set`] (which already validates the
 /// name) and prints the same themed confirmation as the non-interactive path.
 /// Mirrors [`config_set_interactive`].
-fn env_set_interactive(name: &str) -> Result<()> {
-    let Some(value) = prompt_tty_line(&format!("Set {name} = "))? else {
+fn env_set_interactive(requested: Option<&str>) -> Result<()> {
+    let name = if let Some(name) = requested {
+        settings::normalize_name(name)
+    } else {
+        let rows = env::resolve_all();
+        println!("{}", theme::Theme::active().heading("Brain environment"));
+        for (index, row) in rows.iter().enumerate() {
+            println!("  {}) {}", index + 1, theme::Theme::active().accent(&row.name));
+            println!("     {}", theme::Theme::active().muted(&row.description));
+        }
+        let Some(choice) = prompt_tty_line("Choose a variable number: ")? else {
+            anyhow::bail!("brain env set needs an interactive terminal");
+        };
+        let index = choice
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|index| (1..=rows.len()).contains(index))
+            .ok_or_else(|| anyhow!("choose a number from 1 to {}", rows.len()))?;
+        rows[index - 1].name.clone()
+    };
+    let Some(value) = (if env::is_sensitive(&name) {
+        prompt_masked_line(&format!("Set {name} = "))?
+    } else {
+        prompt_tty_line(&format!("Set {name} = "))?
+    }) else {
         // No terminal (headless): can't prompt. Point at the non-interactive form.
         anyhow::bail!("no terminal for interactive set; use `brain env set {name}=<value>`");
     };
     let value = value.trim();
-    env::set(name, value)?;
+    env::set(&name, value)?;
     println!(
         "{}",
-        settings::set_confirmation(name, value, theme::Theme::active())
+        settings::set_confirmation(&name, value, theme::Theme::active())
     );
     Ok(())
 }

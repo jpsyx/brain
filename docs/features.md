@@ -165,14 +165,14 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
-| `brain env [list\|get\|set]` | Read or change your machine-local brain env: `root`, `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, and the Backblaze `sync` block (see below). |
+| `brain env [list\|get\|set]` | Read or change your machine-local brain env. Use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
 | `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
 | `brain --with-receiver` | Open the TUI and explicitly start its TUI-owned receiver server. |
-| `brain receiver {setup\|start\|status\|stop\|restart\|logs}` | Configure or control the TUI-owned SMS/email listener. It cannot run without an active brain TUI. |
+| `brain receiver {setup\|set\|start\|status\|stop\|restart\|logs}` | Configure, edit, or control the TUI-owned SMS/email listener. `receiver set` edits one receiver environment variable or opens a described selector. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.

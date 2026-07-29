@@ -12,6 +12,7 @@ mod store;
 mod vars;
 
 pub use migrate::migrate;
+pub use schema::is_sensitive;
 pub use vars::{claude_command, codex_command, get, resolve_all, resolve_one, set, set_raw};
 
 pub(crate) use store::load_map;
