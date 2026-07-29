@@ -138,10 +138,11 @@ there is now exactly **one** hook (`scripts/claude_session_start_hook.py`, keyed
 on `BRAIN_*`), one DB (`~/.cache/brain/state.db`, table `brain_sessions`), and
 one namespace. `scripts/install_hook.sh` installs it and strips the legacy
 `tasks` SessionStart hook and ensures both the SessionStart and brain
-`claude_stop_hook.py` Stop hook are present. Run it from the brain checkout:
-`./scripts/install_hook.sh`. The Stop hook is required for receiver jobs: it
-records the completed assistant response so the TUI can deliver it over SMS or
-email without exposing the full thinking trace. It is safe to run repeatedly.
+`claude_stop_hook.py` Stop hook are present. `brain receiver setup` now does
+this automatically. The standalone `./scripts/install_hook.sh` remains a
+repair path for users who change Claude settings manually. The Stop hook is
+required for receiver jobs: it records the completed assistant response so the
+TUI can deliver it over SMS or email without exposing the full thinking trace.
 
 ## System `open` and the editor
 

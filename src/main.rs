@@ -258,12 +258,86 @@ fn receiver_setup() -> Result<()> {
         };
         settings::set(name, &value)?;
     }
+    install_receiver_hooks(&crate::paths::brain_root()?)?;
     println!("{}", theme.success("receiver configuration saved"));
     println!(
         "{}",
         theme.muted("Provider secrets remain machine-local. Set TWILIO_*/RESEND_* and BRAIN_RECEIVER_PUBLIC_URL before starting the receiver.")
     );
     Ok(())
+}
+
+fn ensure_hook_entry(settings: &mut serde_json::Value, event: &str, command: &str) {
+    let hooks = settings
+        .as_object_mut()
+        .expect("settings JSON root is an object")
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+    let events = hooks
+        .as_object_mut()
+        .expect("hooks JSON is an object")
+        .entry(event)
+        .or_insert_with(|| serde_json::json!([]));
+    let list = events.as_array_mut().expect("hook event is an array");
+    let exists = list.iter().any(|entry| {
+        entry
+            .get("hooks")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|items| {
+                items.iter().any(|item| item.get("command").and_then(serde_json::Value::as_str) == Some(command))
+            })
+    });
+    if !exists {
+        list.push(serde_json::json!({
+            "hooks": [{"type": "command", "command": command}]
+        }));
+    }
+}
+
+fn install_receiver_hooks(root: &std::path::Path) -> Result<()> {
+    let hook_dir = root.join(".claude").join("brain-hooks");
+    std::fs::create_dir_all(&hook_dir)?;
+    let session_path = hook_dir.join("claude_session_start_hook.py");
+    let stop_path = hook_dir.join("claude_stop_hook.py");
+    std::fs::write(
+        &session_path,
+        include_str!("../scripts/claude_session_start_hook.py"),
+    )?;
+    std::fs::write(&stop_path, include_str!("../scripts/claude_stop_hook.py"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&session_path, std::fs::Permissions::from_mode(0o755))?;
+        std::fs::set_permissions(&stop_path, std::fs::Permissions::from_mode(0o755))?;
+    }
+    let settings_path = root.join(".claude").join("settings.json");
+    let mut settings = if settings_path.is_file() {
+        serde_json::from_str(&std::fs::read_to_string(&settings_path)?)?
+    } else {
+        serde_json::json!({})
+    };
+    let session = session_path.to_string_lossy().into_owned();
+    let stop = stop_path.to_string_lossy().into_owned();
+    ensure_hook_entry(&mut settings, "SessionStart", &session);
+    ensure_hook_entry(&mut settings, "Stop", &stop);
+    std::fs::write(settings_path, serde_json::to_vec_pretty(&settings)?)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod receiver_setup_tests {
+    use super::ensure_hook_entry;
+    use serde_json::json;
+
+    #[test]
+    fn hook_merge_is_idempotent_and_preserves_other_settings() {
+        let mut settings = json!({"permissions": {"allow": ["Read"]}});
+        ensure_hook_entry(&mut settings, "SessionStart", "/tmp/session.py");
+        ensure_hook_entry(&mut settings, "SessionStart", "/tmp/session.py");
+        let hooks = settings["hooks"]["SessionStart"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(settings["permissions"]["allow"][0], "Read");
+    }
 }
 
 /// Handle `brain habits`: ensure the shared brain server is up, then open its
