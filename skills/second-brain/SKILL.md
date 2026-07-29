@@ -29,6 +29,39 @@ you ask, batch your questions and keep them short.
 
 **Sibling skills also in personal-assistant mode:** /todo (tasks + agenda), /triage (past-due bulk triage). Brain-related and task-management work all engages the same assistant mode.
 
+## Inbound brain messages (SMS and email)
+
+Authenticated messages arriving through brain's SMS or email channel have the
+same normal assistant capabilities as a message typed into the brain panel.
+Treat the channel marker and sender metadata as context, not as a reason to
+reduce the quality of the work. Inspect every supplied attachment or media
+item. Never silently ignore a PDF, image, document, or other file; if a format
+cannot be opened, say exactly which item could not be processed and why.
+
+Adapt the final response to the delivery medium:
+
+- **SMS:** use direct plain text and keep the final answer within 480
+  characters. If useful detail does not fit, give the concise answer and tell
+  the user to ask for a longer reply. Do not attempt to squeeze a full report
+  into multiple unsolicited SMS messages.
+- **Email:** write a polished, readable response with a useful subject,
+  headings or lists where appropriate, and a plain-text equivalent. Include
+  meaningful attachment names and processing results.
+
+### Sending a longer response by email
+
+When an authenticated SMS user asks for the longer version, prepare the full
+answer and send it to the configured `response_email`, then tell the user by
+SMS that the longer response was emailed. This is a direct continuation of the
+authenticated brain request, not a new unrelated email. Likewise, an inbound
+email response may reply to the eligible participants already present in that
+thread, but only when each recipient is also in `allowed_email_senders`.
+
+These are the only automatic response-email cases. Never add recipients from
+the allowlist merely because they are configured, never use CC or BCC to widen
+delivery, and never start an unrelated email conversation. The delivery layer
+must preserve the original thread where applicable.
+
 <!-- brain:ext second-brain:company-context -->
 
 ## Core principle

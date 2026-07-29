@@ -55,13 +55,12 @@ helpers and shell-outs live in the tasks modules:
   page via the system `open`; the CLI path prints the server-state plan before
   waiting on the daemon and then prints the URL it is opening. They no longer
   shell out to a zsh function.
-- **`POST /webhooks/capture`** — a local-only brain-server inbox for inbound
-  webhook relays. It writes a non-empty request body to
-  `<brain-root>/scratch/webhooks/<timestamp>-<seq>.<json|txt>` and returns the
-  brain-root-relative path as JSON. The endpoint is intentionally
-  vendor-neutral and unauthenticated because the daemon binds only to
-  `127.0.0.1`; do not expose it directly to the public internet without an
-  external auth layer.
+- **Messaging server** — the opt-in TUI-owned listener accepts only `POST /sms`
+  and `POST /email`. Twilio requests must pass the exact URL/form HMAC and SMS
+  sender allowlist. Resend requests must pass Svix signature verification and
+  the email sender allowlist. The listener stops with the owning TUI, so a
+  machine does not receive remote messages unless the user explicitly starts
+  it with `brain --with-server` or the command palette.
 - **`cd <root> && <agent_cmd> …`** — the brain panel's PTY, shared by both
   main views (see below).
 
@@ -93,7 +92,7 @@ doesn't treat the submit key as part of a paste. Claude receives `Enter`.
 Codex receives `Tab`, because Codex uses `Tab` to queue a message behind active
 work and treats `Enter` as immediate steering.
 
-## Claude Sessions: SessionStart Hook + State DB
+## Claude Sessions: SessionStart/Stop Hooks + State DB
 
 Which session to run is decided by the **lock + recency** model in
 `state.rs` (DB at `~/.cache/brain/state.db`, WAL):
@@ -119,7 +118,11 @@ Which session to run is decided by the **lock + recency** model in
    the instance's other sessions, so a `/new` mid-run becomes the session
    brain resumes next time and the prior conversation stays resumable. With
    the env vars absent (ambient `~/brain` claude usage), the hook is a no-op.
-4. When the panel closes (Claude exits) or the shell quits, brain `release`s
+4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
+   `last_assistant_message` under `~/.cache/brain/responses/<session-id>.json`.
+   The TUI consumes this only for an active SMS/email job, sends the
+   channel-specific final response, and then closes that remote PTY safely.
+5. When the panel closes (Claude exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
 

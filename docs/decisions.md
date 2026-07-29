@@ -1323,3 +1323,15 @@ row id rather than the `current.json` in-flight marker specifically to avoid the
 "sync hasn't written its marker yet" start-gap: a new journal row is an
 unambiguous "a sync cycle finished" signal, and the deadline covers the
 offline/stuck case so the nudge is never lost.
+## TUI-owned messaging server
+
+The external messaging listener is deliberately owned by the singleton brain
+TUI. `brain --with-server` or an explicit command-palette action starts it;
+ordinary TUI startup does not. This keeps synced brain installations on
+non-public machines from accepting SMS or email, and guarantees that incoming
+messages always have a live agent panel to receive them. Work is queued rather
+than interrupting an active LLM turn.
+
+The habits server remains a separate local-only service. The generic capture
+placeholder was removed because it did not provide authenticated, channel-aware
+assistant behavior.

@@ -48,6 +48,7 @@ pub(crate) struct PaletteState {
     pub(super) brain_open: bool,
     /// Whether this verbose run has a log file the TUI can reveal.
     pub(super) logs_available: bool,
+    pub(super) messaging_server_running: bool,
 }
 
 /// Visual intent of a confirm modal — drives the accent (border, title,

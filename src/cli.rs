@@ -69,6 +69,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub codex: bool,
 
+    /// Start the TUI-owned messaging server alongside the brain shell.
+    #[arg(long, global = true)]
+    pub with_server: bool,
+
     #[command(subcommand)]
     pub command: Option<Cmd>,
 }
@@ -114,6 +118,23 @@ mod tests {
         let cli = Cli::try_parse_from(["brain"]).expect("parse");
         assert_eq!(cli.agent_kind(), AgentKind::Claude);
     }
+
+    #[test]
+    fn with_server_is_opt_in() {
+        assert!(!Cli::try_parse_from(["brain"]).expect("parse").with_server);
+        assert!(
+            Cli::try_parse_from(["brain", "--with-server"])
+                .expect("parse")
+                .with_server
+        );
+    }
+
+    #[test]
+    fn messaging_server_commands_parse() {
+        let cli = Cli::try_parse_from(["brain", "messaging-server", "restart"]).expect("parse");
+        assert!(matches!(cli.command, Some(Cmd::MessagingServer(args))
+            if matches!(args.action, MessagingServerAction::Restart)));
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -153,6 +174,9 @@ pub enum Cmd {
     /// Manage the background brain server (the local HTTP service; `start`,
     /// `status`, `kill`). One shared daemon per machine.
     Server(ServerArgs),
+
+    /// Control the TUI-owned external messaging server.
+    MessagingServer(MessagingServerArgs),
 
     /// Open today's habits page in your browser (starts the brain server if needed).
     Habits,
@@ -297,6 +321,26 @@ pub enum SkillsAction {
 pub struct ServerArgs {
     #[command(subcommand)]
     pub action: ServerAction,
+}
+
+#[derive(Args, Debug)]
+pub struct MessagingServerArgs {
+    #[command(subcommand)]
+    pub action: MessagingServerAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum MessagingServerAction {
+    /// Ask the running brain TUI to start receiving SMS and email.
+    Start,
+    /// Show the messaging server state.
+    Status,
+    /// Ask the running brain TUI to stop receiving messages.
+    Stop,
+    /// Restart the TUI-owned messaging server.
+    Restart,
+    /// Show recent messaging-server logs.
+    Logs,
 }
 
 #[derive(Subcommand, Debug)]

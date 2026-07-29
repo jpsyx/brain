@@ -67,6 +67,24 @@ pub enum PanelSide {
     Right,
 }
 
+/// Conversation role persisted for a brain session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionChannel {
+    Interactive,
+    Sms,
+    Email,
+}
+
+impl SessionChannel {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Interactive => "interactive",
+            Self::Sms => "sms",
+            Self::Email => "email",
+        }
+    }
+}
+
 impl PanelSide {
     /// Default: brain panel on the right, search on the left.
     pub const DEFAULT: Self = Self::Right;
@@ -175,6 +193,12 @@ impl Db {
                 COMMIT;",
             )?;
         }
+        if version < 2 {
+            self.conn.execute_batch(
+                "ALTER TABLE brain_sessions ADD COLUMN channel TEXT NOT NULL DEFAULT 'interactive';
+                 PRAGMA user_version = 2;",
+            )?;
+        }
         Ok(())
     }
 
@@ -256,11 +280,47 @@ impl Db {
         self.conn.execute(
             "INSERT INTO brain_sessions
                (claude_session_id, brain_instance_id, locked_pid, source,
-                created_at, last_active_at)
-             VALUES (?1, ?2, ?3, 'fresh', ?4, ?4)",
-            rusqlite::params![claude_session_id, instance, pid, now],
+                channel, created_at, last_active_at)
+             VALUES (?1, ?2, ?3, 'fresh', ?4, ?5, ?5)",
+            rusqlite::params![
+                claude_session_id,
+                instance,
+                pid,
+                SessionChannel::Interactive.as_str(),
+                now
+            ],
         )?;
         Ok(())
+    }
+
+    pub fn register_channel_fresh(
+        &self,
+        claude_session_id: &str,
+        instance: &str,
+        pid: i32,
+        channel: SessionChannel,
+    ) -> Result<()> {
+        let now = self.now();
+        self.conn.execute(
+            "INSERT INTO brain_sessions
+               (claude_session_id, brain_instance_id, locked_pid, source,
+                channel, created_at, last_active_at)
+             VALUES (?1, ?2, ?3, 'fresh', ?4, ?5, ?5)",
+            rusqlite::params![claude_session_id, instance, pid, channel.as_str(), now],
+        )?;
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn session_for_channel(&self, channel: SessionChannel) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT claude_session_id FROM brain_sessions
+                 WHERE channel = ?1 ORDER BY last_active_at DESC LIMIT 1",
+                [channel.as_str()],
+                |row| row.get(0),
+            )
+            .ok()
     }
 
     /// Release every lock held by `instance` and stamp `last_active`, so the
@@ -282,11 +342,9 @@ impl Db {
     pub fn get_panel_side(&self) -> PanelSide {
         let raw: Option<String> = self
             .conn
-            .query_row(
-                "SELECT value FROM meta WHERE key = 'panel_side'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT value FROM meta WHERE key = 'panel_side'", [], |r| {
+                r.get(0)
+            })
             .ok();
         raw.map_or(PanelSide::DEFAULT, |s| PanelSide::parse(&s))
     }
@@ -360,9 +418,7 @@ mod tests {
     #[test]
     fn reap_dead_locks_frees_sessions_held_by_dead_pids() {
         // pid 1 is "dead", everything else alive.
-        let db = Db::open_in_memory()
-            .unwrap()
-            .with_pid_alive(|pid| pid != 1);
+        let db = Db::open_in_memory().unwrap().with_pid_alive(|pid| pid != 1);
         seed(&db, "dead", "i1", Some(1), 100);
         seed(&db, "alive", "i2", Some(2), 200);
         db.reap_dead_locks().unwrap();
@@ -382,6 +438,24 @@ mod tests {
             db.free_sessions_by_recency().is_empty(),
             "B sees nothing free"
         );
+    }
+
+    #[test]
+    fn channel_sessions_are_kept_separate_from_interactive_sessions() {
+        let db = Db::open_in_memory().unwrap();
+        db.register_channel_fresh("sms-1", "i1", 10, SessionChannel::Sms)
+            .unwrap();
+        db.register_channel_fresh("email-1", "i1", 10, SessionChannel::Email)
+            .unwrap();
+        assert_eq!(
+            db.session_for_channel(SessionChannel::Sms).as_deref(),
+            Some("sms-1")
+        );
+        assert_eq!(
+            db.session_for_channel(SessionChannel::Email).as_deref(),
+            Some("email-1")
+        );
+        assert_eq!(db.session_for_channel(SessionChannel::Interactive), None);
     }
 
     #[test]

@@ -63,9 +63,9 @@ selection down).
 **Session resume.** On startup the brain panel resumes your **most recent
 Claude session** — the continuous conversation picks up where it left off.
 If you type `/new` (or `/clear`) inside claude — or press `Ctrl+N` — that
-fresh session becomes the one brain resumes next time. Running `brain` in a second terminal does
-**not** reuse the session a live `brain` already holds (no tangled threads):
-it resumes the next-most-recent free session, or starts fresh. If the
+fresh session becomes the one brain resumes next time. Only one interactive
+`brain` shell may run at a time; a second terminal receives a clear
+already-running message. If the
 session it would resume has no transcript yet (you opened brain last time but
 never sent a message), it can't be resumed — brain starts a fresh chat and
 says so in the status line. See [integrations.md](integrations.md) and
@@ -170,6 +170,8 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
+| `brain --with-server` | Open the TUI and explicitly start its TUI-owned messaging server. |
+| `brain messaging-server {start\|status\|stop\|restart\|logs}` | Control or inspect the TUI-owned SMS/email listener. It cannot run without an active brain TUI. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
@@ -607,21 +609,16 @@ brain (synced, never committed to the repo):
   sync installs them alongside the bundled cores, into the same registry and
   frontends.
 
-### `brain server`
+### Habits and messaging servers
 
-The **brain server** is a small, local-only HTTP daemon: one shared instance
-per machine, reused across every `brain` invocation and tab. It is a general,
-growable localhost service. `GET /habits` renders today's habits as a
-flat-design HTML page (grouped by time-of-day, then priority, with a completed
-accordion), and `POST /habits/done` marks a habit done by delegating to brain's
-native completion machinery, so the web "done" spawns habit recurrence exactly
-like the CLI and returns `{"ok": true, "next_due": <date|null>}`.
-`POST /webhooks/capture` captures any non-empty request body under
-`<brain-root>/scratch/webhooks/` and returns
-`{"ok": true, "path": "scratch/webhooks/<timestamp>-<seq>.<json|txt>"}` with
-HTTP 202, giving local webhook relays a generic inbox without vendor-specific
-schema. Empty capture bodies return HTTP 400. Everything else, including the
-bare root `/`, is a 404 (the server has no root view).
+The habits server remains a local-only service. `GET /habits` renders today's
+habits as a flat-design HTML page, and `POST /habits/done` delegates to native
+completion machinery. It is separate from external message intake.
+
+The messaging server is owned by the running TUI and is opt-in. It exposes only
+authenticated `POST /sms` and `POST /email` routes. Twilio signatures and phone
+allowlists protect SMS/MMS; Resend/Svix signatures and email allowlists protect
+email. The former generic `/webhooks/capture` route has been removed.
 
 - `brain server start` — start the daemon in the background if it isn't already
   running (idempotent: an existing live server is reused and its URL reprinted).
@@ -630,12 +627,11 @@ bare root `/`, is a 404 (the server has no root view).
 - `brain server run --port <p>` — the internal blocking accept loop the spawned
   daemon runs; hidden from `--help` (you never invoke it directly).
 
-The daemon prefers port `8787`, falling back to an OS-assigned port if it's
-taken, and records its `{pid, port}` at `~/.cache/brain/server.json`. Opening
-the shell (`brain` / `brain tasks`) best-effort brings the server up, so it is
-normally already running. A server failure never blocks the shell. The server
-binds only to `127.0.0.1`; exposing `/webhooks/capture` through a public tunnel
-requires an auth layer outside this slice.
+The habits daemon prefers port `8787`. The messaging listener uses port `8788`
+and exists only while its owning TUI exists. Start it with `brain --with-server`
+or the global palette. `brain messaging-server status` works from another
+terminal through the TUI control socket; start/stop/restart also route through
+that socket and never create a second brain shell.
 
 `brain server start` and `brain habits` both print the server-state path and
 plan before checking or spawning the daemon. `brain habits` then prints the

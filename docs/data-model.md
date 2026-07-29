@@ -112,6 +112,7 @@ brain_sessions(
   brain_instance_id  TEXT NOT NULL,  -- one per running `brain` shell (a lineage)
   locked_pid         INTEGER,        -- live brain holding it, or NULL when free
   source             TEXT,           -- last SessionStart source (startup/resume/clear/…)
+  channel            TEXT NOT NULL DEFAULT 'interactive', -- interactive | sms | email
   created_at         INTEGER NOT NULL,
   last_active_at     INTEGER NOT NULL
 )
@@ -130,6 +131,10 @@ meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- key 'panel_side' = 'left' | 
 - `claim` → lock a free session to this shell's PID (loses cleanly if
   another shell grabbed it first).
 - `register_fresh` → insert a brand-new session, locked.
+- Channel sessions are reserved for exactly one reusable SMS session and one
+  reusable email session. Remote messages select their channel row, while
+  interactive work uses the `interactive` role. A `/new` inbound command
+  creates a fresh row for that same channel.
 - `release` → when the panel closes (claude exits) or the shell quits, clear
   this instance's locks and stamp `last_active` (floats it to the top of the
   next resume — so re-opening with "Message brain" picks it back up, and a

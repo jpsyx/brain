@@ -5,7 +5,7 @@
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
 | **brain env** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** the brain root) | `brain env {list\|get\|set}` | **No** — machine-local, never rides whatever syncs the brain directory | `root`, `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, the `sync` block |
-| **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes** — travels with the brain | `linear_workspace`, `daily_triage_name_pattern`, `day_rollover_hour`, `agenda_dir`, `calendar_id`, `skills_auto_sync` |
+| **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes** — travels with the brain | `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
 another machine** — absolute paths, machine-specific binaries, secrets, and
@@ -156,6 +156,22 @@ This document is mostly about the **config store**
 editing it by hand (though hand-editing is fine). For personalization see the
 [Personalization](#personalization) section below and
 [data-model.md](data-model.md).
+
+### Messaging response configuration
+
+These portable values configure who may issue remote brain messages and where
+long-form SMS responses are delivered:
+
+| Variable | Meaning |
+| --- | --- |
+| `response_email` | The user's email address for long responses requested over SMS. |
+| `allowed_sms_senders` | Comma-separated phone numbers permitted to send SMS/MMS messages. |
+| `allowed_email_senders` | Comma-separated email addresses permitted to issue brain messages and participate in automatic thread replies. |
+
+Provider secrets remain machine-local environment values. The messaging server
+also requires `TWILIO_AUTH_TOKEN`, `BRAIN_MESSAGING_PUBLIC_URL`, and
+`RESEND_WEBHOOK_SIGNING_SECRET` before accepting requests. A missing secret or
+empty allowlist fails closed.
 
 ## The `brain config` command
 

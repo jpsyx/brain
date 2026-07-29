@@ -1,4 +1,4 @@
-//! The brain server: a small, sync, localhost HTTP daemon.
+//! The local habits server and TUI-owned messaging server.
 //!
 //! One shared daemon per machine, reused across every `brain` invocation and
 //! tab. [`lifecycle`] owns the on-disk daemon record and the `start` /
@@ -8,13 +8,16 @@
 //!
 //! `GET /habits` renders today's habits page (see [`routes::habits`]) and
 //! `POST /habits/done` marks a habit done by delegating to brain's own
-//! completion machinery. `POST /webhooks/capture` stores an arbitrary
-//! non-empty request body for later triage. Everything else, including the bare
-//! root `/`, is a 404 (the brain server has no root view).
+//! completion machinery. External `/sms` and `/email` routes are served only
+//! by [`messaging`] while an interactive TUI owns the listener.
 
+pub mod delivery;
 pub mod lifecycle;
+pub mod messaging;
+pub mod reply;
 pub mod router;
 pub mod routes;
+pub mod security;
 
 use anyhow::{Context, Result};
 use tiny_http::{Header, Request, Response, Server};
@@ -77,14 +80,9 @@ fn respond(request: &mut Request) -> Response<std::io::Cursor<Vec<u8>>> {
                 .with_status_code(status)
                 .with_header(content_type("application/json"))
         }
-        Route::WebhookCapture => {
-            let mut body = String::new();
-            let _ = request.as_reader().read_to_string(&mut body);
-            let root = crate::paths::brain_root_path();
-            let (status, json) = routes::webhooks::capture(&root, &body).response();
-            Response::from_string(json)
-                .with_status_code(status)
-                .with_header(content_type("application/json"))
+        Route::Sms | Route::Email => {
+            Response::from_string("messaging server is not attached to this process")
+                .with_status_code(503)
         }
         Route::NotFound => Response::from_string(String::new()).with_status_code(404),
     }

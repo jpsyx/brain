@@ -126,7 +126,19 @@ pub fn env_for(instance: &str, pid: i32, db_path: &Path) -> Vec<(String, String)
         ("BRAIN_INSTANCE_ID".to_owned(), instance.to_owned()),
         ("BRAIN_PID".to_owned(), pid.to_string()),
         ("BRAIN_STATE_DB".to_owned(), db_path.display().to_string()),
+        (
+            "BRAIN_RESPONSE_DIR".to_owned(),
+            response_dir().display().to_string(),
+        ),
     ]
+}
+
+#[must_use]
+pub fn response_dir() -> std::path::PathBuf {
+    std::env::var_os("HOME").map_or_else(
+        || std::path::PathBuf::from(".cache/brain/responses"),
+        |home| std::path::PathBuf::from(home).join(".cache/brain/responses"),
+    )
 }
 
 #[cfg(test)]

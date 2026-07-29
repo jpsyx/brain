@@ -48,16 +48,16 @@ mod tui;
 
 use std::path::PathBuf;
 
-use anyhow::{Result, anyhow};
-use chrono::{Local, NaiveDate};
 use crate::cli::{
     Cmd, ConfigAction, ConfigArgs, EnvAction, EnvArgs, PersonalizeAction, PersonalizeArgs,
     SyncAction, SyncArgs,
 };
-use clap::Parser;
 use crate::tasks::cli::{Cli as TasksCli, Command as TasksCommand};
 use crate::tasks::selector::{Selector, parse_selector};
 use crate::tasks::view::View;
+use anyhow::{Result, anyhow};
+use chrono::{Local, NaiveDate};
+use clap::Parser;
 
 fn main() -> Result<()> {
     let cli = cli::parse();
@@ -125,6 +125,11 @@ fn main() -> Result<()> {
         return server_command(args);
     }
 
+    if let Some(Cmd::MessagingServer(args)) = &cli.command {
+        logging::log("dispatch messaging-server");
+        return messaging_server_command(args);
+    }
+
     // `brain habits` just opens the bundled habits page (starting the server if
     // needed); no markdown-to-pdf prerequisite and no TUI, so it runs before the
     // gate.
@@ -151,7 +156,7 @@ fn main() -> Result<()> {
     match cli.command {
         // Bare `brain` opens the merged persistent shell in its default
         // (tasks) view with the brain panel already open.
-        None => tasks_launch(TasksCli::parse_from(["brain"]), agent_kind),
+        None => tasks_launch(TasksCli::parse_from(["brain"]), agent_kind, cli.with_server),
         // `brain tasks …` — delegate everything after `tasks` to the tasks
         // CLI parser (positional view/date/search, filter flags, and the
         // complete / doctor / search subcommands), after the natural-language
@@ -168,7 +173,7 @@ fn main() -> Result<()> {
                     .chain(args.rest)
                     .collect(),
             );
-            tasks_launch(TasksCli::parse_from(rewritten), agent_kind)
+            tasks_launch(TasksCli::parse_from(rewritten), agent_kind, cli.with_server)
         }
         Some(Cmd::Version) => unreachable!("version is dispatched before the gate"),
         // Handled before the prerequisite gate above.
@@ -178,8 +183,38 @@ fn main() -> Result<()> {
         Some(Cmd::Personalize(_)) => unreachable!("personalize is dispatched before the gate"),
         Some(Cmd::Skills(_)) => unreachable!("skills is dispatched before the gate"),
         Some(Cmd::Server(_)) => unreachable!("server is dispatched before the gate"),
+        Some(Cmd::MessagingServer(_)) => {
+            unreachable!("messaging-server is dispatched before the gate")
+        }
         Some(Cmd::Habits) => unreachable!("habits is dispatched before the gate"),
         Some(Cmd::Check) => unreachable!("check is dispatched before the gate"),
+    }
+}
+
+fn messaging_server_command(args: &crate::cli::MessagingServerArgs) -> Result<()> {
+    use crate::cli::MessagingServerAction;
+    let command = match &args.action {
+        MessagingServerAction::Start => "start",
+        MessagingServerAction::Stop => "stop",
+        MessagingServerAction::Restart => "restart",
+        MessagingServerAction::Status => "status",
+        MessagingServerAction::Logs => "logs",
+    };
+    match crate::server::messaging::send_control(command) {
+        Ok(response) => {
+            print!("{response}");
+            Ok(())
+        }
+        Err(_) => {
+            if matches!(&args.action, MessagingServerAction::Status) {
+                println!("messaging server is stopped (no brain TUI is running)");
+                Ok(())
+            } else {
+                anyhow::bail!(
+                    "the messaging server belongs to the running brain TUI; use `brain --with-server` or the command palette"
+                )
+            }
+        }
     }
 }
 
@@ -542,7 +577,11 @@ fn prompt_tty_line(prompt: &str) -> Result<Option<String>> {
 /// Ported from the old `tasks` binary's `main`/`browse`: the `complete` /
 /// `doctor` / `search` subcommands are one-shot utilities; everything else
 /// resolves an initial view and opens the persistent shell via `tui::run_tui`.
-fn tasks_launch(mut cli: TasksCli, agent_kind: session::AgentKind) -> Result<()> {
+fn tasks_launch(
+    mut cli: TasksCli,
+    agent_kind: session::AgentKind,
+    with_server: bool,
+) -> Result<()> {
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
         Some(TasksCommand::Complete(args)) => return tasks::complete::run(&args.id),
@@ -566,7 +605,7 @@ fn tasks_launch(mut cli: TasksCli, agent_kind: session::AgentKind) -> Result<()>
         }
         None => resolve_query(&cli.query, today),
     };
-    tasks_browse(initial, &mut cli, today, agent_kind)
+    tasks_browse(initial, &mut cli, today, agent_kind, with_server)
 }
 
 /// What the tasks positional input resolves to (mirrors the old `tasks`
@@ -597,6 +636,7 @@ fn tasks_browse(
     cli: &mut TasksCli,
     today: NaiveDate,
     agent_kind: session::AgentKind,
+    with_server: bool,
 ) -> Result<()> {
     logging::log("tasks browse");
     let csv_path = cli.csv.clone().unwrap_or_else(default_csv_path);
@@ -645,11 +685,6 @@ fn tasks_browse(
     } else {
         logging::set_stdout_enabled(false);
         logging::log("enter tui");
-        // Best-effort: bring up the shared background brain server only when the
-        // interactive shell opens (not on the `complete` / `doctor` / `--no-tui`
-        // one-shots), reused across tabs. A server failure must never block the
-        // shell.
-        let _ = crate::server::lifecycle::ensure_running();
         tui::run_tui(
             &view,
             cli,
@@ -660,6 +695,7 @@ fn tasks_browse(
             habits,
             start_view,
             initial_search,
+            with_server,
         )?;
     }
     Ok(())

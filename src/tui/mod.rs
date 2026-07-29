@@ -46,11 +46,13 @@ mod event_loop;
 mod handlers;
 mod keymap;
 mod links;
+mod messaging_state;
 mod modal_state;
 mod modals;
 mod palette;
 mod search_view;
 mod shell;
+mod singleton;
 
 #[cfg(test)]
 mod tests;
@@ -85,6 +87,7 @@ pub(crate) use shell::*;
 use std::collections::HashSet;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 use chrono::NaiveDate;
@@ -285,6 +288,22 @@ pub(crate) struct App<'a> {
     /// lifetime of the tasks shell; tracks which brain session this shell is
     /// driving (lock + recency).
     pub(crate) db: Db,
+    /// The optional messaging listener is owned by this TUI and therefore
+    /// cannot outlive it. Inbound work waits here until the active agent turn
+    /// is safe to switch.
+    pub(crate) messaging_server: Option<crate::server::messaging::MessagingServer>,
+    pub(crate) messaging_control: Option<crate::server::messaging::ControlSocket>,
+    pub(crate) messaging_rx: Option<Receiver<crate::server::messaging::InboundMessage>>,
+    pub(crate) messaging_queue: Vec<crate::server::messaging::InboundMessage>,
+    pub(crate) requested_messaging_channel: Option<crate::state::SessionChannel>,
+    pub(crate) messaging_lease: Option<messaging_state::Lease>,
+    pub(crate) messaging_generation: u64,
+    pub(crate) messaging_sender: Option<String>,
+    pub(crate) messaging_session_id: Option<String>,
+    pub(crate) interactive_session_id: Option<String>,
+    pub(crate) messaging_resume_session: Option<String>,
+    pub(crate) messaging_started: Option<std::time::Instant>,
+    pub(crate) messaging_delay_sent: bool,
 }
 
 /// In-shell fuzzy filter: score `tasks` against `query`, keeping matches in

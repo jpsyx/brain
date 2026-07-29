@@ -48,7 +48,9 @@ pub fn run_tui(
     all_habits: Vec<Task>,
     active_view: Option<View>,
     initial_search: Option<String>,
+    with_server: bool,
 ) -> Result<()> {
+    let _singleton = crate::tui::singleton::Guard::acquire()?;
     // First-run onboarding: seed personalization with a short skippable prompt
     // on the normal terminal, *before* we take over the screen. No-op when
     // already personalized or when there is no tty. Never blocks startup.
@@ -98,7 +100,10 @@ pub fn run_tui(
     // Honor the configured `root` (brain env), falling back to `$HOME/brain`
     // when it is unset or the resolved directory does not exist.
     let brain_root = crate::paths::brain_root().unwrap_or_else(|_| {
-        std::env::var_os("HOME").map_or_else(|| PathBuf::from("brain"), |h| PathBuf::from(h).join("brain"))
+        std::env::var_os("HOME").map_or_else(
+            || PathBuf::from("brain"),
+            |h| PathBuf::from(h).join("brain"),
+        )
     });
 
     let panel_side = db.get_panel_side();
@@ -125,6 +130,10 @@ pub fn run_tui(
         search,
         panel_side,
     );
+    app.messaging_control = crate::server::messaging::ControlSocket::bind().ok();
+    if with_server {
+        app.start_messaging_server();
+    }
     // The brain panel opens at startup (resuming the latest session), but focus
     // stays on the tasks main view so `j`/`k` work immediately. `open_or_focus_
     // brain` focuses the panel, so flip focus back to the main view afterward.
@@ -146,12 +155,17 @@ pub fn run_tui(
     // `tick_triage_gate` runs the real check once the sync completes (or a short
     // fail-open deadline passes). With no startup sync, check right away.
     if startup_sync {
-        let seen = crate::sync::journal::Journal::open(&crate::sync::journal::Journal::default_path())
-            .ok()
-            .and_then(|j| j.latest_id().ok())
-            .flatten();
+        let seen =
+            crate::sync::journal::Journal::open(&crate::sync::journal::Journal::default_path())
+                .ok()
+                .and_then(|j| j.latest_id().ok())
+                .flatten();
         crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
-        app.arm_triage_gate(seen, std::time::Instant::now(), std::time::Duration::from_secs(10));
+        app.arm_triage_gate(
+            seen,
+            std::time::Instant::now(),
+            std::time::Duration::from_secs(10),
+        );
     } else {
         // No sync coming — the local state is authoritative, so check now. The
         // confirm modal it may set renders on the very first frame.
@@ -188,7 +202,11 @@ pub fn run_tui(
         let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
     }
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
     result
 }

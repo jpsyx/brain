@@ -16,6 +16,7 @@ set -euo pipefail
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 hook_path="${script_dir}/claude_session_start_hook.py"
+stop_hook_path="${script_dir}/claude_stop_hook.py"
 settings_dir="${HOME}/brain/.claude"
 settings_path="${settings_dir}/settings.json"
 
@@ -26,6 +27,10 @@ fi
 
 if [[ ! -f "$hook_path" ]]; then
   echo "install_hook.sh: hook script missing at $hook_path" >&2
+  exit 1
+fi
+if [[ ! -f "$stop_hook_path" ]]; then
+  echo "install_hook.sh: stop hook script missing at $stop_hook_path" >&2
   exit 1
 fi
 
@@ -40,7 +45,7 @@ fi
 #  2. Drop the legacy standalone tasks SessionStart hook (…/rc/tasks/scripts/…).
 #  3. Ensure .hooks.SessionStart contains our brain entry exactly once.
 tmp="$(mktemp)"
-jq --arg cmd "$hook_path" '
+jq --arg cmd "$hook_path" --arg stopcmd "$stop_hook_path" '
   .hooks //= {} |
   # 1. Strip the legacy tasks Stop hook, if present.
   (if (.hooks | has("Stop")) then
@@ -63,6 +68,13 @@ jq --arg cmd "$hook_path" '
     .hooks.SessionStart += [{
       "hooks": [{ "type": "command", "command": $cmd }]
     }]
+  end |
+  # 4. Ensure the brain Stop hook is installed exactly once.
+  .hooks.Stop //= [] |
+  if (.hooks.Stop | map(.hooks // [] | map(.command) | flatten | index($stopcmd)) | any) then
+    .
+  else
+    .hooks.Stop += [{ "hooks": [{ "type": "command", "command": $stopcmd }] }]
   end
 ' "$settings_path" > "$tmp"
 

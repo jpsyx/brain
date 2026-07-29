@@ -5,14 +5,16 @@
 /// A resolved brain-server route. Everything the server does NOT recognize
 /// (unknown paths, the bare root `/`, wrong methods) collapses to
 /// [`Route::NotFound`]; the brain server has no root view.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
     /// `GET /habits`: the habits page.
     HabitsPage,
     /// `POST /habits/done`: mark a habit done.
     HabitsDone,
-    /// `POST /webhooks/capture`: store an inbound webhook payload for triage.
-    WebhookCapture,
+    /// `POST /sms`: receive an authenticated Twilio SMS/MMS webhook.
+    Sms,
+    /// `POST /email`: receive an authenticated Resend email webhook.
+    Email,
     /// Anything else.
     NotFound,
 }
@@ -27,7 +29,8 @@ pub fn route(method: &str, path: &str) -> Route {
     match (method, path) {
         ("GET", "/habits") => Route::HabitsPage,
         ("POST", "/habits/done") => Route::HabitsDone,
-        ("POST", "/webhooks/capture") => Route::WebhookCapture,
+        ("POST", "/sms") => Route::Sms,
+        ("POST", "/email") => Route::Email,
         _ => Route::NotFound,
     }
 }
@@ -48,7 +51,17 @@ mod tests {
 
     #[test]
     fn post_webhooks_capture_is_the_capture_endpoint() {
-        assert_eq!(route("POST", "/webhooks/capture"), Route::WebhookCapture);
+        assert_eq!(route("POST", "/webhooks/capture"), Route::NotFound);
+    }
+
+    #[test]
+    fn post_sms_is_the_sms_endpoint() {
+        assert_eq!(route("POST", "/sms"), Route::Sms);
+    }
+
+    #[test]
+    fn post_email_is_the_email_endpoint() {
+        assert_eq!(route("POST", "/email"), Route::Email);
     }
 
     #[test]

@@ -16,7 +16,22 @@ pub(super) struct VarSpec {
 /// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
 /// or the `~/brain` default and edited by hand, never via `brain config`
 /// (see [`crate::paths`]).
-pub(super) const VARS: [VarSpec; 6] = [
+pub(super) const VARS: [VarSpec; 9] = [
+    VarSpec {
+        name: "response_email",
+        description: "Email address for long-form responses requested by SMS and authenticated brain messages.",
+        default: None,
+    },
+    VarSpec {
+        name: "allowed_sms_senders",
+        description: "Comma-separated phone numbers permitted to send messages to the brain.",
+        default: None,
+    },
+    VarSpec {
+        name: "allowed_email_senders",
+        description: "Comma-separated email addresses permitted to send messages to the brain.",
+        default: None,
+    },
     VarSpec {
         name: "linear_workspace",
         description: "Linear workspace slug (e.g. acme). Builds https://linear.app/<slug>/issue/ for the open-link action.",

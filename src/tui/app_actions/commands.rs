@@ -146,6 +146,22 @@ impl App<'_> {
             PaletteAction::CloseBrain => {
                 self.close_brain();
             }
+            PaletteAction::StartMessagingServer => self.start_messaging_server(),
+            PaletteAction::StopMessagingServer => {
+                self.messaging_server = None;
+                self.messaging_rx = None;
+                self.flash = Some(FlashKind::Info("messaging server stopped".to_owned()));
+            }
+            PaletteAction::RestartMessagingServer => {
+                self.messaging_server = None;
+                self.messaging_rx = None;
+                self.start_messaging_server();
+            }
+            PaletteAction::ShowMessagingServerLogs => {
+                self.flash = Some(FlashKind::Info(
+                    "messaging-server logs are written to the brain run log".to_owned(),
+                ));
+            }
             PaletteAction::MessageBrainAboutTask => {
                 // Clone (id, name) before mutating self.brain_input so
                 // the borrow on visible_tasks ends first.

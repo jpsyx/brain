@@ -29,6 +29,10 @@ pub(crate) enum PaletteAction {
     /// Close the brain panel and end its agent session. Only offered while
     /// a panel is open.
     CloseBrain,
+    StartMessagingServer,
+    StopMessagingServer,
+    RestartMessagingServer,
+    ShowMessagingServerLogs,
     /// Like `SendBrainMessage`, but the entered text is prefixed with
     /// "This message is about <ID>:" so the brain agent knows which
     /// task / habit the user is asking about. Requires a selection.
@@ -91,6 +95,10 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         PaletteAction::ToggleNotes => Some("l"),
         PaletteAction::OpenLinks => Some("^O"),
         PaletteAction::ShowLogs
+        | PaletteAction::StartMessagingServer
+        | PaletteAction::StopMessagingServer
+        | PaletteAction::RestartMessagingServer
+        | PaletteAction::ShowMessagingServerLogs
         | PaletteAction::StartTask
         | PaletteAction::DeferTask(_)
         | PaletteAction::SyncBrainNow => None,
@@ -132,6 +140,30 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         label: "Close brain",
         action: PaletteAction::CloseBrain,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
+        label: "Start messaging server",
+        action: PaletteAction::StartMessagingServer,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
+        label: "Stop messaging server",
+        action: PaletteAction::StopMessagingServer,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
+        label: "Restart messaging server",
+        action: PaletteAction::RestartMessagingServer,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
+        label: "Show messaging-server logs",
+        action: PaletteAction::ShowMessagingServerLogs,
         scope: PaletteScope::Global,
         works_on_habits: false,
     },

@@ -214,6 +214,14 @@ impl PtyPane {
         }
     }
 
+    /// Snapshot the visible terminal contents for a completed remote reply.
+    #[must_use]
+    pub fn contents(&self) -> String {
+        self.parser
+            .read()
+            .map_or_else(|_| String::new(), |parser| parser.screen().contents())
+    }
+
     #[must_use]
     pub fn is_alive(&self) -> bool {
         self.exit_status.read().is_ok_and(|s| s.is_none())

@@ -7,7 +7,7 @@ use std::time::Duration as StdDuration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use ratatui::{backend::Backend, Terminal};
+use ratatui::{Terminal, backend::Backend};
 
 use crate::main_view::{self, MainView};
 use crate::tui::*;
@@ -31,6 +31,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // every iteration (including idle 50ms polls) so the Enter lands a
         // couple of ticks after the text, letting claude submit it.
         app.tick_brain_submit();
+        app.tick_messaging();
 
         // If the startup daily-triage nudge was deferred pending a background
         // sync, resolve it here once that sync lands (or its deadline passes):
@@ -201,6 +202,9 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                 app.brain_panel_open(),
                 app.log_path.is_some(),
             ));
+            if let Some(palette) = app.palette.as_mut() {
+                palette.messaging_server_running = app.messaging_server.is_some();
+            }
             continue;
         }
 

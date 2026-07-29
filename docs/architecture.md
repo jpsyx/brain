@@ -529,40 +529,23 @@ it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
 ### `server/`
-The **brain server**: a small, synchronous, localhost HTTP daemon (`tiny_http`),
-one shared instance per machine across all `brain` invocations and tabs. Its
-`{pid, port}` record lives at `~/.cache/brain/server.json`.
-- `server/router.rs` — pure `route(method, path) -> Route` (`HabitsPage` for
-  `GET /habits`, `HabitsDone` for `POST /habits/done`, `WebhookCapture` for
-  `POST /webhooks/capture`, `NotFound` for everything else including the bare
-  root `/`); query strings are stripped before matching.
-- `server/lifecycle.rs` — the daemon record + management: pure `is_live` and
-  `choose_port` decisions, thin IO probes (`read_state`/`write_state`/
-  `remove_state`, `pid_alive` via `kill -0`, `port_reachable` via a timed TCP
-  connect), `running()` (reap-if-stale), `ensure_running()` (reuse-or-spawn),
-  `format_ensure_plan` (the progress line printed before CLI waits on daemon
-  reuse/spawn), and the `start`/`status`/`kill` CLI actions.
-- `server/mod.rs` — `run(port)`, the blocking accept loop the detached daemon
-  runs: binds `127.0.0.1:port` (`0` = OS-assigned), writes the actual bound
-  port to the record, then dispatches each request through the router to a
-  handler in `server/routes/`.
-- `server/routes/` — the route registry (`routes/mod.rs` is one `pub mod` line
-  per endpoint). `routes/habits/` is the `/habits` route in MVC form:
-  `model.rs` (pure `classify` filter+sort of today's habits over a `Habit`
-  struct, plus the thin `load` reader of `<root>/tasks/habits.csv`), `view.rs`
-  (pure HTML rendering into the `web/habits/` shell, with `style.css`/`app.js`
-  inlined via `include_str!`), and `mod.rs` (the thin controller: `page` =
-  load→classify→render, `done` = parse body → reuse native `tasks::complete`
-  completion → `DoneOutcome`). `routes/webhooks/` owns the generic
-  `/webhooks/capture` endpoint: pure-ish filename/response decisions plus the
-  thin write to `<root>/scratch/webhooks/<timestamp>-<seq>.<json|txt>`.
+Brain has two separate HTTP services. The habits server remains local-only and
+serves the habits frontend. The messaging server is a TUI-owned, opt-in
+listener on `/sms` and `/email`; it is never started by ordinary TUI startup
+and cannot outlive the interactive shell.
+- `server/router.rs` — pure route mapping for `/habits`, `/habits/done`, `/sms`,
+  and `/email`. The former `/webhooks/capture` placeholder is removed.
+- `server/messaging.rs` — the blocking `tiny_http` listener, provider payload
+  parsing, authenticated sender checks, and a channel feeding the owning TUI.
+- `server/security.rs` — pure Twilio HMAC, Resend/Svix HMAC, and exact
+  allowlist decisions.
+- `server/lifecycle.rs` — the legacy local habits-server lifecycle.
+- `server/routes/habits/` — the habits MVC route and embedded frontend.
 
-The daemon is spawned detached without `unsafe`: `CommandExt::process_group(0)`
-plus null stdio on the current exe (`brain server run --port <p>`).
-`tasks_launch` best-effort calls `ensure_running()` so the server comes up with
-the shell. The frontend assets live at the repo root under `web/habits/`
-(`index.html` shell + `style.css` + `app.js`), embedded into the binary at
-compile time.
+`brain --with-server` starts the messaging listener after the TUI singleton is
+acquired. The global palette can start, stop, restart, and inspect it while
+the TUI is alive. Inbound work is queued into the TUI and is never allowed to
+interrupt an active agent turn.
 
 ### `lib.rs`
 Re-exports the modules so integration tests in `tests/` can link against

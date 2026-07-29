@@ -299,6 +299,7 @@ fn full_palette_lists_actions_in_canonical_order() {
             PaletteAction::MarkTaskComplete,
             PaletteAction::MessageBrainAboutTask,
             PaletteAction::SendBrainMessage,
+            PaletteAction::StartMessagingServer,
             PaletteAction::ToggleNotes,
             PaletteAction::RemoveTask,
             PaletteAction::DeferTask(1),
