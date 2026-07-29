@@ -36,6 +36,9 @@ impl<'a> App<'a> {
             // current logical day right after the startup triage check so the
             // first same-day refresh doesn't re-fire the nudge.
             triage_day: today,
+            // Armed by `run_tui` only when a startup sync is pending; otherwise
+            // the triage check runs immediately and this stays None.
+            triage_gate: None,
             config,
             agent_kind,
             full_notes: cli.display.full_notes,

@@ -84,6 +84,20 @@ impl Journal {
         Ok(())
     }
 
+    /// The highest row id recorded, or `None` when the journal is empty.
+    ///
+    /// A monotonic "have any new runs completed since I last looked?" cursor:
+    /// each `record` inserts one autoincrement row, so a later `latest_id`
+    /// strictly greater than an earlier one means at least one sync finished in
+    /// between. Used by the startup triage gate to know when a background sync
+    /// has landed.
+    pub fn latest_id(&self) -> Result<Option<i64>> {
+        let id: Option<i64> = self
+            .conn
+            .query_row("SELECT MAX(id) FROM sync_runs", [], |row| row.get(0))?;
+        Ok(id)
+    }
+
     /// Most-recent runs, newest first.
     pub fn recent(&self, limit: usize) -> Result<Vec<SyncRun>> {
         let mut stmt = self.conn.prepare(
@@ -143,5 +157,16 @@ mod tests {
     #[test]
     fn default_path_is_under_cache_brain_sync() {
         assert!(Journal::default_path().ends_with(".cache/brain/sync/journal.db"));
+    }
+
+    #[test]
+    fn latest_id_is_none_when_empty_then_grows_with_each_record() {
+        let j = mem();
+        assert_eq!(j.latest_id().unwrap(), None, "no runs yet");
+        j.record(&run("both")).unwrap();
+        let first = j.latest_id().unwrap().expect("one run recorded");
+        j.record(&run("pull")).unwrap();
+        let second = j.latest_id().unwrap().expect("two runs recorded");
+        assert!(second > first, "a completed run advances the cursor");
     }
 }

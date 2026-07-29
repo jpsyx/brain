@@ -480,12 +480,20 @@ structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `run_tui()` opens the state DB, builds the brain-search picker
 (`build_search`), constructs the `App`, then `open_or_focus_brain(None)` spawns
 the initial `claude` PTY (resume-vs-fresh) and `focus_tasks()` returns focus to
-the tasks main view so `j`/`k` work at once. It runs the startup daily-triage
-check, then wires the auto-sync triggers (a detached `on_start` background sync,
-when `watch_effective()`, a held `watch::spawn_watcher` handle, and when
-configured, a held idle-pull timer), runs the event loop, and on return fires
-the detached `on_exit` sync, drops the watcher/timer handles, and releases the
-session lock. The brain
+the tasks main view so `j`/`k` work at once. It then wires the auto-sync
+triggers (a detached `on_start` background sync, when `watch_effective()` a held
+`watch::spawn_watcher` handle, and when configured a held idle-pull timer), runs
+the event loop, and on return fires the detached `on_exit` sync, drops the
+watcher/timer handles, and releases the session lock. The **daily-triage nudge**
+is coupled to that startup sync: when an `on_start` sync is pending, `run_tui`
+does *not* run the check immediately — it captures the sync journal's latest row
+id, kicks the sync, and calls `App::arm_triage_gate` (deferral, no modal). Each
+event-loop tick then calls `App::tick_triage_gate`, which — once a newer journal
+row appears (the sync finished) or a ~10s fail-open deadline passes — reloads
+the synced CSVs and runs `check_daily_triage` exactly once, so the modal
+reflects post-sync completion state (pure `triage_gate_resolved` decides
+resolution). With no startup sync, the check runs immediately as before. The
+brain
 panel is **closeable** (claude exit → `close_brain` drops the PTY and the main
 view goes full-width); `open_or_focus_brain` (`Ctrl+M`) re-opens it. The
 brain-directory view keeps its own `scope`/`rescope`/`search_refresh` for

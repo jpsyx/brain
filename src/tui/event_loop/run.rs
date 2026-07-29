@@ -32,6 +32,11 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // couple of ticks after the text, letting claude submit it.
         app.tick_brain_submit();
 
+        // If the startup daily-triage nudge was deferred pending a background
+        // sync, resolve it here once that sync lands (or its deadline passes):
+        // reload the synced CSVs and show the modal only if triage is still due.
+        app.tick_triage_gate();
+
         terminal.draw(|f| draw(f, app))?;
 
         if !event::poll(poll_interval)? {

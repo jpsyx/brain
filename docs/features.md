@@ -362,6 +362,17 @@ changes (no watcher thread, no timer, no start/exit sync). `brain sync status`
 shows the effective trigger state, the debounce window, and the idle-pull
 interval.
 
+**The daily-triage nudge waits for the startup sync.** Today's triage may have
+been done or skipped on another machine, and that only reaches this machine's
+`habits.csv` once the startup sync lands. So on a machine with `on_start` sync
+enabled, brain does **not** show the triage modal at open — the shell is usable
+immediately, with no modal to dismiss. It waits for the startup sync to finish
+(or a short ~10s fail-open deadline if the sync is slow/offline), reloads the
+synced tasks/habits, and only *then* shows the "run today's triage?" modal — and
+only if triage is still not done for today. If another machine already handled
+it, no modal ever appears. With no startup sync configured, the check runs
+immediately at open as before.
+
 #### Migrating a machine to sync
 
 A short runbook for bringing sync online: once for a new bucket, then once
@@ -502,6 +513,13 @@ column; legacy rows without a parseable timestamp fall back to a deterministic
 tiebreak, journalled as a soft conflict. See [data-model.md](data-model.md)
 for the merge rules and
 [integrations.md](integrations.md) for the transport.
+
+The two id counters (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) that say
+which id to hand out next are also excluded from bisync and reconciled
+separately, by the simplest safe rule: **take the highest**. Whichever machine's
+counter is larger wins, both sides are raised to it, and neither machine ever
+re-hands-out an id the other already used — no id collisions, regardless of
+which machine synced last.
 
 **Doctor.** `brain tasks doctor` reports rclone/sync health as one
 informational line: `rclone ✓ <version> · sync configured` or

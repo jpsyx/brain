@@ -8,6 +8,7 @@ pub mod check_access;
 pub mod command;
 pub mod config;
 pub mod conflicts;
+pub mod counters;
 pub mod current;
 pub mod follow;
 pub mod csv_merge;

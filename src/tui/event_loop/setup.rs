@@ -130,24 +130,39 @@ pub fn run_tui(
     // brain` focuses the panel, so flip focus back to the main view afterward.
     app.open_or_focus_brain(None);
     app.focus_tasks();
-    // Run the startup daily-triage check before entering the event
-    // loop. The confirm modal it may set renders on the very first
-    // frame so the user lands on the prompt rather than the tasks list.
-    app.check_daily_triage();
-    // Anchor the triage re-check to the current logical day so a same-day
-    // refresh (`r`) doesn't immediately re-fire the nudge; only crossing the
-    // configured rollover hour into a new day does. Multi-day sessions get a
-    // fresh check via `App::advance_triage_day` on each refresh.
-    app.seed_triage_day(chrono::Local::now().naive_local());
 
     // Auto-sync triggers (C4). All best-effort; none blocks the event loop.
     // Gated on `is_configured` so an unconfigured brain spawns no thread on start
     // and forks no detached child on exit (the triggers would no-op anyway).
     let sync_cfg = crate::sync::config::SyncConfig::load();
     let sync_configured = sync_cfg.is_configured();
-    if sync_configured && sync_cfg.on_start {
+    let startup_sync = sync_configured && sync_cfg.on_start;
+
+    // The daily-triage nudge must reflect *post-sync* state: another machine may
+    // already have done or skipped today's triage, and that only reaches this
+    // machine's `habits.csv` once the startup sync lands. So when a startup sync
+    // is pending, DON'T show the modal now — the shell stays usable immediately.
+    // Instead capture the journal baseline, kick the sync, and *arm the gate*;
+    // `tick_triage_gate` runs the real check once the sync completes (or a short
+    // fail-open deadline passes). With no startup sync, check right away.
+    if startup_sync {
+        let seen = crate::sync::journal::Journal::open(&crate::sync::journal::Journal::default_path())
+            .ok()
+            .and_then(|j| j.latest_id().ok())
+            .flatten();
         crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
+        app.arm_triage_gate(seen, std::time::Instant::now(), std::time::Duration::from_secs(10));
+    } else {
+        // No sync coming — the local state is authoritative, so check now. The
+        // confirm modal it may set renders on the very first frame.
+        app.check_daily_triage();
     }
+    // Anchor the triage re-check to the current logical day so a same-day
+    // refresh (`r`) doesn't immediately re-fire the nudge; only crossing the
+    // configured rollover hour into a new day does. Multi-day sessions get a
+    // fresh check via `App::advance_triage_day` on each refresh.
+    app.seed_triage_day(chrono::Local::now().naive_local());
+
     let watcher = if sync_cfg.watch_effective() {
         crate::sync::watch::spawn_watcher(&brain_root, &sync_cfg).ok()
     } else {

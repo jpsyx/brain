@@ -30,10 +30,13 @@ pub const CONFLICT_MARKER: &str = "__brainconflict__";
 
 /// Default excludes: VCS/OS cruft, the machine-local cache, friendly conflict
 /// copies, raw rclone conflict markers (so neither fans out on later syncs; the
-/// marker exclude does not stop rclone from creating the initial copy), and the
-/// two task CSVs (`tasks/tasks.csv`, `tasks/habits.csv`) which are reconciled
-/// out-of-band via the id-keyed 3-way merge in `csv_sync`, not by bisync.
-const EXCLUDES: [&str; 7] = [
+/// marker exclude does not stop rclone from creating the initial copy), the two
+/// task CSVs (`tasks/tasks.csv`, `tasks/habits.csv`) reconciled out-of-band via
+/// the id-keyed 3-way merge in `csv_sync`, and the two id counters
+/// (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) reconciled out-of-band via
+/// the max-merge in `counters` (bisync's newer-wins would regress a counter and
+/// cause id collisions), not by bisync.
+const EXCLUDES: [&str; 9] = [
     ".git/**",
     ".DS_Store",
     ".cache/**",
@@ -41,6 +44,8 @@ const EXCLUDES: [&str; 7] = [
     "*.__brainconflict__*",
     "tasks/tasks.csv",
     "tasks/habits.csv",
+    "tasks/.tasks_next_id",
+    "tasks/.habits_next_id",
 ];
 
 /// Build the full argv for `rclone bisync <local> <remote>` for this direction.
@@ -169,6 +174,23 @@ mod tests {
         assert!(
             a.windows(2)
                 .any(|w| w[0] == "--exclude" && w[1] == "tasks/habits.csv"),
+            "{a:?}"
+        );
+    }
+
+    #[test]
+    fn excludes_the_id_counters_so_they_max_merge_out_of_band() {
+        // The id counters are max-merged out-of-band; bisync's newer-wins would
+        // regress a counter and cause id collisions, so they must be excluded.
+        let a = args(Direction::Both);
+        assert!(
+            a.windows(2)
+                .any(|w| w[0] == "--exclude" && w[1] == "tasks/.tasks_next_id"),
+            "{a:?}"
+        );
+        assert!(
+            a.windows(2)
+                .any(|w| w[0] == "--exclude" && w[1] == "tasks/.habits_next_id"),
             "{a:?}"
         );
     }

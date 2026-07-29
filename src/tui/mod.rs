@@ -85,6 +85,7 @@ pub(crate) use shell::*;
 use std::collections::HashSet;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use chrono::NaiveDate;
 use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
@@ -111,6 +112,21 @@ pub(crate) enum Panel {
 /// selected task.
 const SELECTED_BG: Color = Color::Rgb(50, 56, 78);
 
+/// Deferral state for the startup daily-triage nudge while a background sync is
+/// still running. See `App::triage_gate` and `App::tick_triage_gate`.
+pub(crate) struct TriageGate {
+    /// Newest sync-journal row id when the gate was armed; the gate resolves
+    /// once a strictly-newer row appears (a background sync finished). `None`
+    /// when the journal was empty at arm time.
+    pub(crate) seen_journal_id: Option<i64>,
+    /// Fail-open backstop: resolve no later than this even if no sync ever
+    /// completes (offline / stuck), so the nudge is never lost forever.
+    pub(crate) deadline: Instant,
+    /// Next instant we're allowed to poll the journal, to throttle the DB reads
+    /// down from the 50ms event-loop tick.
+    pub(crate) next_poll: Instant,
+}
+
 pub(crate) struct App<'a> {
     today: NaiveDate,
     /// Runtime config, held so post-startup actions (the `r`-hotkey triage
@@ -124,6 +140,13 @@ pub(crate) struct App<'a> {
     /// logical day differs from this, so the modal fires at most once per
     /// day even across a multi-day session.
     triage_day: NaiveDate,
+    /// While a startup background sync is still in flight, the daily-triage
+    /// check is *deferred* (not shown) so the shell is usable immediately and
+    /// the nudge is only ever evaluated against post-sync data. `Some` means
+    /// "waiting for that sync to land"; `tick_triage_gate` clears it and runs
+    /// the check once the sync completes (a newer journal row) or the fail-open
+    /// deadline passes. `None` once resolved, or when no startup sync ran.
+    triage_gate: Option<TriageGate>,
     /// When set (via the `--full-notes` flag), every task starts with its
     /// notes expanded. The per-task `l` toggle still layers on top.
     full_notes: bool,

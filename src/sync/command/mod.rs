@@ -164,6 +164,11 @@ pub fn sync_once(
         reporter.line(&theme.info("Merging task and habit CSVs by row id…"));
         let note = format_csv_note(&crate::sync::csv_sync::sync_csvs(cfg, root));
         crate::logging::log(format!("sync csv merge note={note:?}"));
+        // Reconcile the monotonic id counters by max, so neither machine ever
+        // reuses an id the other already handed out. Best-effort, like the CSVs.
+        reporter.line(&theme.info("Reconciling task and habit id counters…"));
+        let counters = crate::sync::counters::sync_counters(cfg, root);
+        crate::logging::log(format!("sync id counters {counters:?}"));
         note
     };
 

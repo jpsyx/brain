@@ -1281,3 +1281,45 @@ of leaving it at rclone's HOME-dependent default. Two payoffs:
   post-upgrade run on each machine starts from a fresh workdir and auto-resyncs
   once, which is exactly what heals a machine already wedged by the old
   concurrent-run bug.)
+
+## Why the id counters are max-merged, not bisynced
+
+`tasks/.tasks_next_id` and `tasks/.habits_next_id` hold the next integer id to
+hand out for a new task / habit. They used to ride the normal bisync lane, which
+resolves a divergence by **newer mtime**. That is wrong for a monotonic counter:
+if the machine holding the *lower* value wrote more recently, bisync would pick
+the lower value, and that machine would then re-hand-out ids the other machine
+had already assigned — colliding in the id-keyed CSV merge (two different rows
+sharing one `task_id`). So the counters are now excluded from bisync and
+reconciled out-of-band by `counters::merge_counter` = `max(local, remote)`.
+
+Max is the whole rule, deliberately. It is stateless (needs no 3-way baseline
+like the CSVs), convergent, idempotent, and monotonic, so it can never regress a
+counter and never lets an id be reused. We explicitly did *not* add smarter
+rules (e.g. reconciling against the merged CSV's `max_existing_id`): "always take
+the highest next-id" is sufficient to avoid every collision, and the simpler
+rule is the more robust one. A missing/garbage counter on a side is treated as
+absent; if both are absent the file stays absent and allocation falls back to
+`max_existing_id + 1` at hand-out time.
+
+## Why the daily-triage nudge waits for the startup sync
+
+The triage nudge asks "today's triage isn't done — run it now?" based on whether
+today's `Morning Triage` habit is completed in `habits.csv`. But that file is
+reconciled by the startup sync, and another machine may already have done or
+skipped today's triage. If the modal is shown at open — before the sync lands —
+it is based on stale local data: the user sees a triage prompt that the incoming
+sync is about to render moot.
+
+We considered showing the modal immediately in a disabled "syncing…" state and
+then resolving it, but the simpler and better behavior is to **not show it at
+all until we know the truth**. On a machine with `on_start` sync, `run_tui`
+defers the check: the shell is fully usable at once (no modal to dismiss), and
+`tick_triage_gate` runs the real `check_daily_triage` only after the startup
+sync completes (detected by a newer sync-journal row) or a short ~10s fail-open
+deadline. The modal then appears only if triage is genuinely still due; if
+another machine handled it, it never appears. The gate keys on the journal's
+row id rather than the `current.json` in-flight marker specifically to avoid the
+"sync hasn't written its marker yet" start-gap: a new journal row is an
+unambiguous "a sync cycle finished" signal, and the deadline covers the
+offline/stuck case so the nudge is never lost.

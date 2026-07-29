@@ -405,6 +405,18 @@ bookkeeping.
   bisync run's own outcome, and the step is skipped entirely when that run
   aborted. See [decisions.md](decisions.md) for why this file pair gets a
   semantic merge instead of keep-both.
+- **The two id counters are max-merged out-of-band, right after the CSVs.**
+  `tasks/.tasks_next_id` and `tasks/.habits_next_id` hold the next integer id to
+  hand out. They're excluded from bisync too, because bisync's newer-mtime rule
+  would let a machine with a *lower* counter that wrote more recently win, and it
+  would then re-hand-out ids the other machine already assigned. Instead
+  `command::sync_once` calls `crate::sync::counters::sync_counters`: for each
+  counter it fetches the remote value (same `rclone copyto` transport), reads the
+  local value, and writes/pushes `max(local, remote)` — the only rule that can't
+  lose an id. Max-merge is stateless (no baseline): `max` is convergent,
+  idempotent, and monotonic. Missing/garbage on a side is treated as absent; if
+  both sides are absent the file stays absent and id allocation falls back to
+  `max_existing_id + 1`. Best-effort and skipped after an abort, like the CSVs.
 - **`brain check` has a read-only CSV lane too.** Since those two CSVs are
   excluded from dry-run bisync, `src/sync/check.rs` reads the same cached
   baselines, reads the local CSVs, fetches each remote CSV with `rclone copyto`

@@ -447,6 +447,13 @@ pure, id-keyed 3-way merge, so the two files never produce a `(conflict …)`
 copy the way a bisync'd file would (see [integrations.md](integrations.md)
 for the transport, [decisions.md](decisions.md) for why).
 
+Their two id counters, `tasks/.tasks_next_id` and `tasks/.habits_next_id`, are
+likewise excluded from bisync and reconciled out-of-band — but by a simpler
+rule: `counters::merge_counter` takes `max(local, remote)` (stateless, no
+baseline), the only rule that never regresses a monotonic counter and so never
+lets a machine reuse an id the other already assigned. `None` on both sides
+leaves the file absent, and id allocation falls back to `max_existing_id + 1`.
+
 `Table` (`csv_merge.rs`) is the parsed shape, keyed by the first column:
 
 ```rust
