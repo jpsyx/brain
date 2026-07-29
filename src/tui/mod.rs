@@ -299,6 +299,7 @@ pub(crate) struct App<'a> {
     pub(crate) messaging_lease: Option<messaging_state::Lease>,
     pub(crate) messaging_generation: u64,
     pub(crate) messaging_sender: Option<String>,
+    pub(crate) messaging_recipients: Vec<String>,
     pub(crate) messaging_session_id: Option<String>,
     pub(crate) interactive_session_id: Option<String>,
     pub(crate) messaging_resume_session: Option<String>,

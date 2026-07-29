@@ -130,6 +130,31 @@ mod attachment_tests {
     }
 }
 
+#[cfg(test)]
+mod email_tests {
+    use super::email_participants;
+    use serde_json::json;
+
+    #[test]
+    fn participants_include_from_to_cc_and_reply_to() {
+        let data = json!({
+            "from": "sender@example.com",
+            "to": ["brain@example.com"],
+            "cc": ["copy@example.com"],
+            "reply_to": ["reply@example.com"]
+        });
+        assert_eq!(
+            email_participants(&data),
+            vec![
+                "sender@example.com",
+                "brain@example.com",
+                "copy@example.com",
+                "reply@example.com"
+            ]
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Channel {
     Sms,
@@ -141,6 +166,7 @@ pub struct InboundMessage {
     pub channel: Channel,
     pub body: String,
     pub sender: String,
+    pub participants: Vec<String>,
     pub provider_id: Option<String>,
     pub attachments: Vec<Attachment>,
 }
@@ -365,7 +391,8 @@ fn parse_sms(
     Ok(InboundMessage {
         channel: Channel::Sms,
         body: text,
-        sender,
+        sender: sender.clone(),
+        participants: vec![sender],
         provider_id: fields.get("MessageSid").cloned(),
         attachments: fields
             .iter()
@@ -385,7 +412,7 @@ struct ResendWebhook {
     data: ResendData,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, serde::Serialize)]
 struct ResendData {
     #[serde(default)]
     from: String,
@@ -395,9 +422,11 @@ struct ResendData {
     email_id: Option<String>,
     #[serde(default)]
     attachments: Vec<ResendAttachment>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, serde::Serialize)]
 struct ResendAttachment {
     #[serde(default)]
     url: String,
@@ -454,10 +483,13 @@ fn parse_email(
     if !crate::server::security::sender_allowed(&webhook.data.from, &security.allowed_email) {
         return Err((403, "email sender is not allowed".to_owned()));
     }
+    let raw_data = serde_json::to_value(&webhook.data)
+        .map_err(|_| (400, "invalid Resend email data".to_owned()))?;
     Ok(InboundMessage {
         channel: Channel::Email,
         body: webhook.data.text,
         sender: webhook.data.from,
+        participants: email_participants(&raw_data),
         provider_id: webhook.data.email_id,
         attachments: webhook
             .data
@@ -469,6 +501,26 @@ fn parse_email(
             })
             .collect(),
     })
+}
+
+fn email_participants(data: &serde_json::Value) -> Vec<String> {
+    let mut participants = Vec::new();
+    if let Some(from) = data.get("from").and_then(serde_json::Value::as_str) {
+        participants.push(from.to_owned());
+    }
+    for field in ["to", "cc", "reply_to"] {
+        match data.get(field) {
+            Some(serde_json::Value::String(value)) => participants.push(value.clone()),
+            Some(serde_json::Value::Array(values)) => participants.extend(
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_owned),
+            ),
+            _ => {}
+        }
+    }
+    participants
 }
 
 fn fetch_resend_email(email_id: &str) -> Result<(String, Vec<ResendAttachment>), (u16, String)> {

@@ -106,7 +106,7 @@ impl App<'_> {
                         }
                         crate::server::messaging::Channel::Email => {
                             let recipients = crate::server::delivery::allowed_thread_recipients(
-                                std::slice::from_ref(&message.sender),
+                                &message.participants,
                                 &self.config.allowed_email(),
                                 &self.config.response_email,
                             );
@@ -138,7 +138,7 @@ impl App<'_> {
             crate::server::messaging::Channel::Email => {
                 let _ = crate::server::reply::email_html(&message.body);
                 let _ = crate::server::delivery::allowed_thread_recipients(
-                    std::slice::from_ref(&message.sender),
+                    &message.participants,
                     &self.config.allowed_email(),
                     &self.config.response_email,
                 );
@@ -174,6 +174,7 @@ impl App<'_> {
             crate::server::messaging::Channel::Email => crate::state::SessionChannel::Email,
         });
         self.messaging_sender = Some(message.sender.clone());
+        self.messaging_recipients.clone_from(&message.participants);
         self.messaging_generation = self.messaging_generation.saturating_add(1);
         self.messaging_started = Some(std::time::Instant::now());
         self.messaging_delay_sent = false;
@@ -227,7 +228,7 @@ impl App<'_> {
             }
             crate::server::messaging::Channel::Email => {
                 let recipients = crate::server::delivery::allowed_thread_recipients(
-                    std::slice::from_ref(&sender),
+                    &self.messaging_recipients,
                     &self.config.allowed_email(),
                     &self.config.response_email,
                 );
@@ -270,7 +271,7 @@ impl App<'_> {
             }
             crate::server::messaging::Channel::Email => {
                 let recipients = crate::server::delivery::allowed_thread_recipients(
-                    &[sender],
+                    &self.messaging_recipients,
                     &self.config.allowed_email(),
                     &self.config.response_email,
                 );
@@ -289,6 +290,7 @@ impl App<'_> {
         let _ = self.db.release(&self.instance);
         self.messaging_resume_session = self.interactive_session_id.take();
         self.messaging_sender = None;
+        self.messaging_recipients.clear();
         self.messaging_session_id = None;
         self.messaging_started = None;
         self.messaging_delay_sent = false;
@@ -448,7 +450,7 @@ impl App<'_> {
                     }
                     crate::server::messaging::Channel::Email => {
                         let recipients = crate::server::delivery::allowed_thread_recipients(
-                            &[sender],
+                            &self.messaging_recipients,
                             &self.config.allowed_email(),
                             &self.config.response_email,
                         );
@@ -472,6 +474,7 @@ impl App<'_> {
         if completed_remote {
             self.messaging_resume_session = self.interactive_session_id.take();
             self.messaging_sender = None;
+            self.messaging_recipients.clear();
         }
         self.reload_after_brain();
     }

@@ -88,6 +88,7 @@ impl<'a> App<'a> {
             messaging_lease: None,
             messaging_generation: 0,
             messaging_sender: None,
+            messaging_recipients: Vec::new(),
             messaging_session_id: None,
             interactive_session_id: None,
             messaging_resume_session: None,
