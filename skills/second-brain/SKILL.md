@@ -57,6 +57,12 @@ authenticated brain request, not a new unrelated email. Likewise, an inbound
 email response may reply to the eligible participants already present in that
 thread, but only when each recipient is also in `allowed_email_senders`.
 
+When email receiving is configured, an authenticated receiver user may also
+explicitly ask Brain to email something to themselves for any reason, such as
+"send me today's agenda" or "email me the summary." This sends to the
+configured `response_email` without another permission prompt. If email is not
+configured, do not offer or attempt this delivery path.
+
 These are the only automatic response-email cases. Never add recipients from
 the allowlist merely because they are configured, never use CC or BCC to widen
 delivery, and never start an unrelated email conversation. The delivery layer

@@ -353,6 +353,9 @@ fn parse_sms(
     if request.method() != &Method::Post {
         return Err((405, "method not allowed".to_owned()));
     }
+    if security.allowed_sms.is_empty() {
+        return Err((503, "SMS receiving is not configured".to_owned()));
+    }
     let fields = parse_form(body)?;
     if security.twilio_auth_token.is_empty() || security.public_url.is_empty() {
         return Err((503, "Twilio security is not configured".to_owned()));
@@ -439,6 +442,9 @@ fn parse_email(
     body: &[u8],
     security: &SecurityConfig,
 ) -> Result<InboundMessage, (u16, String)> {
+    if security.allowed_email.is_empty() {
+        return Err((503, "email receiving is not configured".to_owned()));
+    }
     if security.resend_signing_secret.is_empty() {
         return Err((503, "Resend security is not configured".to_owned()));
     }

@@ -225,12 +225,22 @@ fn receiver_server_command(args: &crate::cli::ReceiverArgs) -> Result<()> {
 fn receiver_setup() -> Result<()> {
     let theme = theme::Theme::active();
     println!("{}", theme.heading("Set up the brain receiver"));
+    println!("{}", theme.muted("Choose which channels to configure:"));
+    println!("  {}", theme.accent("1) Email"));
+    println!("  {}", theme.accent("2) SMS"));
+    println!("  {}", theme.accent("3) Both"));
+    let Some(channel_input) = prompt_tty_line(&format!("{} ", theme.prompt("Choose 1, 2, or 3:")))? else {
+        anyhow::bail!("receiver setup needs an interactive terminal; nothing was changed");
+    };
+    let Some(channels) = parse_receiver_channels(channel_input.trim()) else {
+        anyhow::bail!("choose 1 for email, 2 for SMS, or 3 for both");
+    };
     println!(
         "{}",
         theme.muted("Press Enter to keep an existing value. Type /clear to erase it.")
     );
     let current = crate::config::Config::load();
-    for (name, label, description, old) in [
+    let prompts = [
         (
             "response_email",
             "Email address for longer SMS replies",
@@ -249,7 +259,12 @@ fn receiver_setup() -> Result<()> {
             "Only these senders can trigger Brain; replies stay limited to eligible people in the email thread.",
             current.allowed_email_senders,
         ),
-    ] {
+    ];
+    for (name, label, description, old) in prompts.into_iter().filter(|(name, ..)| match *name {
+        "response_email" | "allowed_email_senders" => channels.email(),
+        "allowed_sms_senders" => channels.sms(),
+        _ => false,
+    }) {
         println!("{}", theme.muted(description));
         let hint = if old.trim().is_empty() {
             theme.muted("(not set)")
@@ -273,6 +288,32 @@ fn receiver_setup() -> Result<()> {
         theme.muted("Provider secrets remain machine-local. Set TWILIO_*/RESEND_* and BRAIN_RECEIVER_PUBLIC_URL before starting the receiver.")
     );
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReceiverSetupChannels {
+    Email,
+    Sms,
+    Both,
+}
+
+impl ReceiverSetupChannels {
+    const fn email(self) -> bool {
+        matches!(self, Self::Email | Self::Both)
+    }
+
+    const fn sms(self) -> bool {
+        matches!(self, Self::Sms | Self::Both)
+    }
+}
+
+fn parse_receiver_channels(input: &str) -> Option<ReceiverSetupChannels> {
+    match input {
+        "1" => Some(ReceiverSetupChannels::Email),
+        "2" => Some(ReceiverSetupChannels::Sms),
+        "3" => Some(ReceiverSetupChannels::Both),
+        _ => None,
+    }
 }
 
 fn ensure_hook_entry(settings: &mut serde_json::Value, event: &str, command: &str) {
@@ -346,7 +387,7 @@ fn install_receiver_hooks(root: &std::path::Path) -> Result<()> {
 
 #[cfg(test)]
 mod receiver_setup_tests {
-    use super::ensure_hook_entry;
+    use super::{ensure_hook_entry, parse_receiver_channels, ReceiverSetupChannels};
     use serde_json::json;
 
     #[test]
@@ -357,6 +398,14 @@ mod receiver_setup_tests {
         let hooks = settings["hooks"]["SessionStart"].as_array().unwrap();
         assert_eq!(hooks.len(), 1);
         assert_eq!(settings["permissions"]["allow"][0], "Read");
+    }
+
+    #[test]
+    fn channel_menu_selects_only_the_requested_configuration() {
+        assert_eq!(parse_receiver_channels("1"), Some(ReceiverSetupChannels::Email));
+        assert_eq!(parse_receiver_channels("2"), Some(ReceiverSetupChannels::Sms));
+        assert_eq!(parse_receiver_channels("3"), Some(ReceiverSetupChannels::Both));
+        assert_eq!(parse_receiver_channels("4"), None);
     }
 }
 
