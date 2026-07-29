@@ -215,8 +215,7 @@ pub(crate) struct App<'a> {
     /// splits 50/50 and the panel persists until the user closes it (Ctrl+X /
     /// "Close brain") or the agent exits. Opening it resumes the
     /// most-recently-active free Claude session (lock + recency, see `state`);
-    /// Codex panels currently launch fresh because the state DB is populated by
-    /// the Claude SessionStart hook.
+    /// Codex panels launch fresh, but use the same receiver completion hooks.
     brain: Option<PtyPane>,
     focus: Panel,
 
