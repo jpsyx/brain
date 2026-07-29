@@ -103,8 +103,9 @@ picker itself:
 ## Persistent state (`state.rs`, `~/.cache/brain/state.db`)
 
 The persistent shell tracks Claude sessions and the layout preference in
-SQLite (WAL). Codex panels currently launch fresh because this DB is populated
-by the Claude SessionStart hook, not by Codex. Two tables:
+SQLite (WAL). Codex panels currently launch fresh because their launch semantics
+remain frontend-specific. Receiver completion is hook-backed in both frontends.
+Two tables:
 
 ```sql
 brain_sessions(

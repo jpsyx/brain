@@ -126,9 +126,12 @@ Which session to run is decided by the **lock + recency** model in
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
 
-Codex does not currently use this Claude hook-backed DB. Until brain has a
-Codex session hook/store, Codex panels launch fresh instead of attempting to
-resume a Claude session id.
+Codex panels use the same hook scripts and state DB. Receiver setup writes
+equivalent `SessionStart` and `Stop` entries to `~/.codex/hooks.json`; current
+Codex CLI versions may ask you to trust those hooks once in the Codex UI.
+Claude and Codex remain separate session stores, but both frontends now report
+session starts and completed receiver turns through the same brain response
+protocol.
 
 **One hook, one DB, one namespace.** Before the merge, `brain` and `tasks`
 each ran their own SessionStart hook keyed on separate env-var namespaces

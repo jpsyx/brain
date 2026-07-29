@@ -321,6 +321,18 @@ fn install_receiver_hooks(root: &std::path::Path) -> Result<()> {
     ensure_hook_entry(&mut settings, "SessionStart", &session);
     ensure_hook_entry(&mut settings, "Stop", &stop);
     std::fs::write(settings_path, serde_json::to_vec_pretty(&settings)?)?;
+    let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
+    let codex_dir = std::path::PathBuf::from(home).join(".codex");
+    std::fs::create_dir_all(&codex_dir)?;
+    let codex_hooks_path = codex_dir.join("hooks.json");
+    let mut codex_hooks = if codex_hooks_path.is_file() {
+        serde_json::from_str(&std::fs::read_to_string(&codex_hooks_path)?)?
+    } else {
+        serde_json::json!({})
+    };
+    ensure_hook_entry(&mut codex_hooks, "SessionStart", &session);
+    ensure_hook_entry(&mut codex_hooks, "Stop", &stop);
+    std::fs::write(codex_hooks_path, serde_json::to_vec_pretty(&codex_hooks)?)?;
     Ok(())
 }
 

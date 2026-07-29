@@ -74,8 +74,9 @@ says so in the status line. See [integrations.md](integrations.md) and
 Codex is selected per run with `brain --codex`, `brain -cx`,
 `brain tasks --codex`, or `brain tasks -cx` and
 uses `codex_cmd` from brain env (default `codex`). Claude uses `claude_cmd`
-from brain env (default `claude --dangerously-skip-permissions`). Codex does not currently use
-the Claude hook-backed state DB, so Codex panels launch fresh. When brain
+from brain env (default `claude --dangerously-skip-permissions`). Codex panels
+launch fresh, but receiver setup installs equivalent Codex hooks so remote
+prompts and completion delivery work the same way. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
 queue key; Claude still receives `Enter`.
 

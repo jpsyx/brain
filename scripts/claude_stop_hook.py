@@ -14,7 +14,7 @@ def main() -> None:
         return
     try:
         payload = json.load(sys.stdin)
-        session_id = payload.get("session_id")
+        session_id = payload.get("session_id") or payload.get("thread_id")
         message = payload.get("last_assistant_message")
         if not session_id or not isinstance(message, str) or not message.strip():
             return

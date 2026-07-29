@@ -238,3 +238,9 @@ users in `skills/`.)
   bump yourself: before v1, additive user-visible features bump the minor
   version, and compatible fixes/internal changes bump the patch version. Do not
   ask for confirmation; the user will say when `brain` is ready for `1.0.0`.
+- **Every LLM capability must work with both Claude and Codex.** When adding
+  or changing brain-panel behavior, implement and test equivalent lifecycle,
+  prompt, completion, and delivery behavior for both frontends. If one agent
+  exposes a different integration surface (for example, Claude settings versus
+  Codex `~/.codex/hooks.json`), bridge the difference inside brain rather than
+  silently leaving one frontend unsupported.

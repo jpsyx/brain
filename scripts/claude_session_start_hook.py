@@ -45,7 +45,7 @@ def main() -> None:
         data = json.load(sys.stdin)
     except Exception:
         return
-    session_id = data.get("session_id")
+    session_id = data.get("session_id") or data.get("thread_id")
     if not session_id:
         return
     source = data.get("source")
