@@ -230,19 +230,27 @@ fn receiver_setup() -> Result<()> {
         theme.muted("Press Enter to keep an existing value. Type /clear to erase it.")
     );
     let current = crate::config::Config::load();
-    for (name, label, old) in [
-        ("response_email", "Your response email", current.response_email),
+    for (name, label, description, old) in [
+        (
+            "response_email",
+            "Email address for longer SMS replies",
+            "When you text the receiver and ask for a reply too long for SMS, Brain sends the full answer here.",
+            current.response_email,
+        ),
         (
             "allowed_sms_senders",
-            "Allowed SMS numbers (comma-separated)",
+            "Phone numbers allowed to text Brain (comma-separated)",
+            "Messages from any other phone number are rejected before they reach the LLM.",
             current.allowed_sms_senders,
         ),
         (
             "allowed_email_senders",
-            "Allowed email senders (comma-separated)",
+            "Email addresses allowed to contact Brain (comma-separated)",
+            "Only these senders can trigger Brain; replies stay limited to eligible people in the email thread.",
             current.allowed_email_senders,
         ),
     ] {
+        println!("{}", theme.muted(description));
         let hint = if old.trim().is_empty() {
             theme.muted("(not set)")
         } else {
