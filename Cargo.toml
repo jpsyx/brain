@@ -36,6 +36,7 @@ hmac = "0.12"
 notify = "8"
 nucleo-matcher = "0.3"
 regex = "1"
+rpassword = "7"
 # PTY-backed brain panel: portable-pty spawns the interactive `claude` child,
 # vt100 parses its byte stream into a screen buffer, and tui-term renders that
 # buffer inside ratatui. Mirrors the `tasks` sibling project's stack.

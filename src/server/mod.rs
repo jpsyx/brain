@@ -13,6 +13,7 @@
 
 pub mod delivery;
 pub mod lifecycle;
+pub(super) mod provider;
 pub mod receiver;
 pub mod reply;
 pub mod router;

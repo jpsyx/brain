@@ -26,9 +26,12 @@ pub fn allowed_thread_recipients(
 /// Send a final SMS through Twilio. The credentials are read only when a
 /// remote job completes, never from the portable brain config.
 pub fn send_sms(to: &str, body: &str) -> anyhow::Result<()> {
-    let account = std::env::var("TWILIO_ACCOUNT_SID")?;
-    let token = std::env::var("TWILIO_AUTH_TOKEN")?;
-    let from = std::env::var("TWILIO_FROM_NUMBER")?;
+    let account = super::provider::get("TWILIO_ACCOUNT_SID", "twilio_account_sid")
+        .ok_or_else(|| anyhow::anyhow!("TWILIO_ACCOUNT_SID is not configured"))?;
+    let token = super::provider::get("TWILIO_AUTH_TOKEN", "twilio_auth_token")
+        .ok_or_else(|| anyhow::anyhow!("TWILIO_AUTH_TOKEN is not configured"))?;
+    let from = super::provider::get("TWILIO_FROM_NUMBER", "twilio_from_number")
+        .ok_or_else(|| anyhow::anyhow!("TWILIO_FROM_NUMBER is not configured"))?;
     let endpoint = format!("https://api.twilio.com/2010-04-01/Accounts/{account}/Messages.json");
     let status = std::process::Command::new("curl")
         .args([
@@ -53,8 +56,10 @@ pub fn send_sms(to: &str, body: &str) -> anyhow::Result<()> {
 /// Send a threaded email through Resend. The caller has already applied the
 /// participant/allowlist intersection before invoking this function.
 pub fn send_email(to: &[String], subject: &str, text: &str, html: &str) -> anyhow::Result<()> {
-    let key = std::env::var("RESEND_API_KEY")?;
-    let from = std::env::var("RESEND_FROM_EMAIL")?;
+    let key = super::provider::get("RESEND_API_KEY", "resend_api_key")
+        .ok_or_else(|| anyhow::anyhow!("RESEND_API_KEY is not configured"))?;
+    let from = super::provider::get("RESEND_FROM_EMAIL", "resend_from_email")
+        .ok_or_else(|| anyhow::anyhow!("RESEND_FROM_EMAIL is not configured"))?;
     let payload = serde_json::json!({
         "from": from,
         "to": to,

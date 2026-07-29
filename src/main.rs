@@ -239,6 +239,11 @@ fn receiver_setup() -> Result<()> {
         "{}",
         theme.muted("Press Enter to keep an existing value. Type /clear to erase it.")
     );
+    for name in receiver_provider_fields(channels) {
+        let (label, description, secret) = receiver_provider_prompt(name);
+        println!("{}", theme.muted(description));
+        prompt_receiver_value(name, label, secret)?;
+    }
     let current = crate::config::Config::load();
     let prompts = [
         (
@@ -283,10 +288,39 @@ fn receiver_setup() -> Result<()> {
     }
     install_receiver_hooks(&crate::paths::brain_root()?)?;
     println!("{}", theme.success("receiver configuration saved"));
-    println!(
-        "{}",
-        theme.muted("Provider secrets remain machine-local. Set TWILIO_*/RESEND_* and BRAIN_RECEIVER_PUBLIC_URL before starting the receiver.")
-    );
+    let public_url = crate::env::get("brain_receiver_public_url").unwrap_or_default();
+    match channels {
+        ReceiverSetupChannels::Sms => println!(
+            "{}",
+            theme.muted(&format!(
+                "Twilio webhook URL: {}",
+                receiver_webhook_url(&public_url, "sms")
+            ))
+        ),
+        ReceiverSetupChannels::Email => println!(
+            "{}",
+            theme.muted(&format!(
+                "Resend webhook URL: {}",
+                receiver_webhook_url(&public_url, "email")
+            ))
+        ),
+        ReceiverSetupChannels::Both => {
+            println!(
+                "{}",
+                theme.muted(&format!(
+                    "Twilio webhook URL: {}",
+                    receiver_webhook_url(&public_url, "sms")
+                ))
+            );
+            println!(
+                "{}",
+                theme.muted(&format!(
+                    "Resend webhook URL: {}",
+                    receiver_webhook_url(&public_url, "email")
+                ))
+            );
+        }
+    }
     Ok(())
 }
 
@@ -314,6 +348,98 @@ fn parse_receiver_channels(input: &str) -> Option<ReceiverSetupChannels> {
         "3" => Some(ReceiverSetupChannels::Both),
         _ => None,
     }
+}
+
+fn receiver_webhook_url(public_base_url: &str, channel: &str) -> String {
+    format!(
+        "{}/{}",
+        public_base_url.trim_end_matches('/'),
+        channel.trim_start_matches('/')
+    )
+}
+
+fn receiver_provider_fields(channels: ReceiverSetupChannels) -> Vec<&'static str> {
+    let mut fields = vec!["brain_receiver_public_url"];
+    if channels.sms() {
+        fields.extend([
+            "twilio_account_sid",
+            "twilio_auth_token",
+            "twilio_from_number",
+        ]);
+    }
+    if channels.email() {
+        fields.extend([
+            "resend_api_key",
+            "resend_from_email",
+            "resend_webhook_signing_secret",
+        ]);
+    }
+    fields
+}
+
+fn receiver_provider_prompt(name: &str) -> (&'static str, &'static str, bool) {
+    match name {
+        "brain_receiver_public_url" => (
+            "Public base URL",
+            "Enter the public base URL. Brain derives /sms and /email webhook paths from it.",
+            false,
+        ),
+        "twilio_account_sid" => (
+            "Twilio Account SID",
+            "Your Twilio Account SID for SMS delivery and media downloads.",
+            false,
+        ),
+        "twilio_auth_token" => (
+            "Twilio Auth Token",
+            "Your Twilio Auth Token. Input is hidden and stored only in machine-local env.",
+            true,
+        ),
+        "twilio_from_number" => (
+            "Twilio From number",
+            "The Twilio phone number Brain uses for outbound SMS.",
+            false,
+        ),
+        "resend_api_key" => (
+            "Resend API key",
+            "Your Resend API key for receiving and sending email. Input is hidden.",
+            true,
+        ),
+        "resend_from_email" => (
+            "Resend From email",
+            "The verified Resend sender address for outbound email.",
+            false,
+        ),
+        "resend_webhook_signing_secret" => (
+            "Resend webhook signing secret",
+            "The Resend/Svix webhook signing secret. Input is hidden.",
+            true,
+        ),
+        _ => unreachable!("unknown receiver provider field: {name}"),
+    }
+}
+
+fn prompt_receiver_value(name: &str, label: &str, secret: bool) -> Result<()> {
+    let old = crate::env::get(name).unwrap_or_default();
+    let hint = if old.trim().is_empty() {
+        "(not set)"
+    } else {
+        "(saved)"
+    };
+    let prompt = format!("{} {}: ", theme::Theme::active().prompt(label), hint);
+    let input = if secret {
+        rpassword::prompt_password(prompt)?
+    } else {
+        let Some(value) = prompt_tty_line(&prompt)? else {
+            anyhow::bail!("receiver setup needs an interactive terminal; nothing was changed");
+        };
+        value
+    };
+    let value = match input.trim() {
+        "" => old,
+        "/clear" => String::new(),
+        value => value.to_owned(),
+    };
+    crate::env::set(name, &value)
 }
 
 fn ensure_hook_entry(settings: &mut serde_json::Value, event: &str, command: &str) {
@@ -387,7 +513,11 @@ fn install_receiver_hooks(root: &std::path::Path) -> Result<()> {
 
 #[cfg(test)]
 mod receiver_setup_tests {
-    use super::{ensure_hook_entry, parse_receiver_channels, ReceiverSetupChannels};
+    use super::{
+        ensure_hook_entry, parse_receiver_channels, receiver_provider_fields,
+        receiver_webhook_url,
+        ReceiverSetupChannels,
+    };
     use serde_json::json;
 
     #[test]
@@ -406,6 +536,40 @@ mod receiver_setup_tests {
         assert_eq!(parse_receiver_channels("2"), Some(ReceiverSetupChannels::Sms));
         assert_eq!(parse_receiver_channels("3"), Some(ReceiverSetupChannels::Both));
         assert_eq!(parse_receiver_channels("4"), None);
+    }
+
+    #[test]
+    fn public_base_url_expands_to_exact_webhook_endpoints() {
+        assert_eq!(
+            receiver_webhook_url("https://brain.example.com/", "sms"),
+            "https://brain.example.com/sms"
+        );
+        assert_eq!(
+            receiver_webhook_url("https://brain.example.com", "email"),
+            "https://brain.example.com/email"
+        );
+    }
+
+    #[test]
+    fn provider_setup_fields_follow_selected_channels() {
+        assert_eq!(
+            receiver_provider_fields(ReceiverSetupChannels::Sms),
+            [
+                "brain_receiver_public_url",
+                "twilio_account_sid",
+                "twilio_auth_token",
+                "twilio_from_number",
+            ]
+        );
+        assert_eq!(
+            receiver_provider_fields(ReceiverSetupChannels::Email),
+            [
+                "brain_receiver_public_url",
+                "resend_api_key",
+                "resend_from_email",
+                "resend_webhook_signing_secret",
+            ]
+        );
     }
 }
 

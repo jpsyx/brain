@@ -628,9 +628,12 @@ email. The former generic `/webhooks/capture` route has been removed.
 - `brain server run --port <p>` — the internal blocking accept loop the spawned
   daemon runs; hidden from `--help` (you never invoke it directly).
 
-`brain receiver setup` walks through the response email and sender allowlists;
-blank keeps an existing value and `/clear` erases it. The habits daemon prefers
-port `8787`. The receiver listener uses port `8788`
+`brain receiver setup` walks through the selected channel's provider
+credentials, one public base URL, the response email, and sender allowlists.
+Secrets are hidden while typing and stored in machine-local brain env. Blank
+keeps an existing value and `/clear` erases it. The setup output shows the
+exact `/sms` and/or `/email` webhook URL to enter in the provider portal. The
+habits daemon prefers port `8787`. The receiver listener uses port `8788`
 and exists only while its owning TUI exists. Start it with `brain --with-receiver`
 or the global palette. `brain receiver status` works from another
 terminal through the TUI control socket; start/stop/restart also route through

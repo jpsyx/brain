@@ -169,6 +169,13 @@ fn resolve_one_from_map(map: &Map<String, Value>, name: &str) -> Option<String> 
     }
     map.get(name)
         .and_then(value_to_string)
+        .map(|value| {
+            if super::schema::is_sensitive(name) && !value.trim().is_empty() {
+                "(set)".to_owned()
+            } else {
+                value
+            }
+        })
         .or_else(|| default_of(name).map(str::to_owned))
 }
 
@@ -348,5 +355,24 @@ mod tests {
         assert_eq!(map["sync"]["enabled"], Value::Bool(true));
         assert_eq!(map["sync"]["remote"]["bucket"], Value::from("brain"));
         assert_eq!(map["sync"]["remote"]["key_id"], Value::from("abc"));
+    }
+
+    #[test]
+    fn receiver_secrets_are_known_but_redacted_from_env_output() {
+        let mut map = Map::new();
+        map.insert(
+            "twilio_auth_token".to_owned(),
+            Value::from("twilio-secret"),
+        );
+        map.insert("resend_api_key".to_owned(), Value::from("resend-secret"));
+
+        assert_eq!(
+            resolve_one_from_map(&map, "twilio_auth_token"),
+            Some("(set)".to_owned())
+        );
+        assert_eq!(
+            resolve_one_from_map(&map, "resend_api_key"),
+            Some("(set)".to_owned())
+        );
     }
 }

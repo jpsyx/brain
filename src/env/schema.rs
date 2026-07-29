@@ -15,7 +15,7 @@ pub(super) const DEFAULT_CLAUDE_CMD: &str = "claude --dangerously-skip-permissio
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 4] = [
+pub(super) const VARS: [VarSpec; 11] = [
     VarSpec {
         name: "root",
         description: "Absolute or ~-relative path to the brain (PARA) directory on THIS machine. Defaults to ~/brain; a legacy ~/.config/brain-root pointer is migrated into this key.",
@@ -36,10 +36,54 @@ pub(super) const VARS: [VarSpec; 4] = [
         description: "Command used to launch Codex for the brain panel on THIS machine. Defaults to codex; brain appends Codex resume args when resuming.",
         default: Some(DEFAULT_CODEX_CMD),
     },
+    VarSpec {
+        name: "brain_receiver_public_url",
+        description: "Public base URL for the receiver; /sms and /email webhook paths are derived from it.",
+        default: None,
+    },
+    VarSpec {
+        name: "twilio_account_sid",
+        description: "Machine-local Twilio Account SID used for SMS delivery and attachments.",
+        default: None,
+    },
+    VarSpec {
+        name: "twilio_auth_token",
+        description: "Machine-local Twilio Auth Token used to authenticate SMS webhooks and delivery.",
+        default: None,
+    },
+    VarSpec {
+        name: "twilio_from_number",
+        description: "Machine-local Twilio number used as the sender for outbound SMS.",
+        default: None,
+    },
+    VarSpec {
+        name: "resend_api_key",
+        description: "Machine-local Resend API key used for inbound email retrieval and outbound delivery.",
+        default: None,
+    },
+    VarSpec {
+        name: "resend_from_email",
+        description: "Machine-local verified Resend sender address.",
+        default: None,
+    },
+    VarSpec {
+        name: "resend_webhook_signing_secret",
+        description: "Machine-local Resend webhook signing secret used to authenticate inbound email.",
+        default: None,
+    },
 ];
 
 pub(super) fn is_known(name: &str) -> bool {
     VARS.iter().any(|v| v.name == name)
+}
+
+pub(super) fn is_sensitive(name: &str) -> bool {
+    matches!(
+        name,
+        "twilio_auth_token"
+            | "resend_api_key"
+            | "resend_webhook_signing_secret"
+    )
 }
 
 pub(super) fn default_of(name: &str) -> Option<&'static str> {

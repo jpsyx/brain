@@ -147,6 +147,14 @@ repair path for users who change Claude settings manually. The Stop hook is
 required for receiver jobs: it records the completed assistant response so the
 TUI can deliver it over SMS or email without exposing the full thinking trace.
 
+Receiver setup stores provider credentials in the machine-local brain env
+store. Enter the public base URL only, for example `https://brain.example.com`;
+the Twilio portal receives `https://brain.example.com/sms` and the Resend portal
+receives `https://brain.example.com/email`. Twilio signs the exact SMS URL, so
+the receiver derives that path before verification. Process environment
+variables remain supported as compatibility overrides, and secret values are
+redacted by `brain env list` and `brain env get`.
+
 ## System `open` and the editor
 
 The search view opens files from inside the running TUI, via `open_target`'s

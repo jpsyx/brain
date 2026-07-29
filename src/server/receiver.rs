@@ -20,7 +20,7 @@ use super::router::Route;
 #[derive(Debug, Clone)]
 struct SecurityConfig {
     twilio_auth_token: String,
-    public_url: String,
+    public_base_url: String,
     resend_signing_secret: String,
     allowed_sms: Vec<String>,
     allowed_email: Vec<String>,
@@ -30,9 +30,17 @@ impl SecurityConfig {
     fn load() -> Self {
         let config = crate::config::Config::load();
         Self {
-            twilio_auth_token: std::env::var("TWILIO_AUTH_TOKEN").unwrap_or_default(),
-            public_url: std::env::var("BRAIN_RECEIVER_PUBLIC_URL").unwrap_or_default(),
-            resend_signing_secret: std::env::var("RESEND_WEBHOOK_SIGNING_SECRET")
+            twilio_auth_token: super::provider::get("TWILIO_AUTH_TOKEN", "twilio_auth_token")
+                .unwrap_or_default(),
+            public_base_url: super::provider::get(
+                "BRAIN_RECEIVER_PUBLIC_URL",
+                "brain_receiver_public_url",
+            )
+            .unwrap_or_default(),
+            resend_signing_secret: super::provider::get(
+                "RESEND_WEBHOOK_SIGNING_SECRET",
+                "resend_webhook_signing_secret",
+            )
                 .unwrap_or_default(),
             allowed_sms: config.allowed_sms(),
             allowed_email: config.allowed_email(),
@@ -205,15 +213,17 @@ pub fn stage_attachments(message: &InboundMessage) -> Vec<StagedAttachment> {
             command.args(["-fsSL", "--max-time", "60", "--max-filesize", "41943040"]);
             match message.channel {
                 Channel::Sms => {
-                    if let (Ok(account), Ok(token)) = (
-                        std::env::var("TWILIO_ACCOUNT_SID"),
-                        std::env::var("TWILIO_AUTH_TOKEN"),
+                    if let (Some(account), Some(token)) = (
+                        super::provider::get("TWILIO_ACCOUNT_SID", "twilio_account_sid"),
+                        super::provider::get("TWILIO_AUTH_TOKEN", "twilio_auth_token"),
                     ) {
                         command.args(["-u", &format!("{account}:{token}")]);
                     }
                 }
                 Channel::Email => {
-                    if let Ok(key) = std::env::var("RESEND_API_KEY") {
+                    if let Some(key) =
+                        super::provider::get("RESEND_API_KEY", "resend_api_key")
+                    {
                         command.args(["-H", &format!("Authorization: Bearer {key}")]);
                     }
                 }
@@ -357,7 +367,7 @@ fn parse_sms(
         return Err((503, "SMS receiving is not configured".to_owned()));
     }
     let fields = parse_form(body)?;
-    if security.twilio_auth_token.is_empty() || security.public_url.is_empty() {
+    if security.twilio_auth_token.is_empty() || security.public_base_url.is_empty() {
         return Err((503, "Twilio security is not configured".to_owned()));
     }
     let sorted = fields
@@ -377,7 +387,7 @@ fn parse_sms(
         .unwrap_or_default();
     if !crate::server::security::verify_twilio(
         &security.twilio_auth_token,
-        &security.public_url,
+        &format!("{}/sms", security.public_base_url.trim_end_matches('/')),
         &sorted,
         signature,
     ) {
@@ -530,8 +540,8 @@ fn email_participants(data: &serde_json::Value) -> Vec<String> {
 }
 
 fn fetch_resend_email(email_id: &str) -> Result<(String, Vec<ResendAttachment>), (u16, String)> {
-    let key = std::env::var("RESEND_API_KEY")
-        .map_err(|_| (503, "RESEND_API_KEY is not configured".to_owned()))?;
+    let key = super::provider::get("RESEND_API_KEY", "resend_api_key")
+        .ok_or_else(|| (503, "RESEND_API_KEY is not configured".to_owned()))?;
     let url = format!("https://api.resend.com/emails/{email_id}");
     let output = std::process::Command::new("curl")
         .args([

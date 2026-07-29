@@ -168,10 +168,16 @@ long-form SMS responses are delivered:
 | `allowed_sms_senders` | Comma-separated phone numbers permitted to send SMS/MMS messages. |
 | `allowed_email_senders` | Comma-separated email addresses permitted to issue brain messages and participate in automatic thread replies. |
 
-Provider secrets remain machine-local environment values. The receiver server
-also requires `TWILIO_AUTH_TOKEN`, `BRAIN_RECEIVER_PUBLIC_URL`, and
-`RESEND_WEBHOOK_SIGNING_SECRET` before accepting requests. A missing secret or
-empty allowlist fails closed.
+Provider credentials are machine-local values in `~/.config/brain/env.json`.
+`brain receiver setup` prompts for the credentials required by the selected
+SMS, email, or both-channel configuration and stores them there. Existing
+process environment variables such as `TWILIO_AUTH_TOKEN` remain supported as
+overrides. `brain env list` and `brain env get` redact secret values.
+
+The setup prompt asks for one public base URL, such as
+`https://brain.example.com`, and derives the exact webhook endpoints
+`/sms` and `/email`. A missing credential, public URL, or sender allowlist
+fails closed.
 
 ## The `brain config` command
 
