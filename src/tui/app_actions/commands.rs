@@ -198,7 +198,7 @@ impl App<'_> {
                 self.run_open_habits();
             }
             PaletteAction::SyncBrainNow => {
-                crate::sync::trigger::spawn_detached_sync();
+                crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
                 self.flash = Some(FlashKind::Info("✓ sync started".to_owned()));
             }
             PaletteAction::OpenAgenda => {

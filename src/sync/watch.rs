@@ -1,10 +1,11 @@
 //! The filesystem watcher.
 //!
 //! A **pure** debounce state machine + a path-relevance predicate, plus the thin
-//! `notify` shell that feeds them. The watcher runs in-process for the shell's
-//! lifetime; when it fires, one locked sync runs synchronously in the watcher
-//! thread, so the sync's own writes buffer in the event channel and coalesce
-//! into at most one no-op follow-up (no loop).
+//! `notify` shell that feeds them. The watcher thread runs in-process for the
+//! shell's lifetime, but when it fires it only *spawns a detached background
+//! sync* (`--if-idle`); it never runs the sync itself. The sync's own writes
+//! under the root re-arm the debouncer, but a spawn that lands while a sync
+//! still holds the lock coalesces (exits silently), so there is no loop.
 
 use std::path::{Component, Path};
 use std::sync::mpsc;
@@ -142,7 +143,7 @@ where
 /// changes under `root` settle for the configured debounce window.
 pub fn spawn_watcher(root: &Path, cfg: &SyncConfig) -> anyhow::Result<WatcherHandle> {
     spawn_watcher_with(root, cfg.debounce(), || {
-        crate::sync::trigger::run_locked_sync(crate::sync::args::Direction::Both);
+        crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
     })
 }
 

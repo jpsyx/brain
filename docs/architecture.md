@@ -370,31 +370,48 @@ the IO/threads/`Command`:
   `RecommendedWatcher`, the mpsc event channel, and the debounce loop) and
   `spawn_watcher` (the real auto-sync watcher). `WatcherHandle` stops the thread
   on drop (drop the `Watcher` → the channel disconnects → the loop exits; no
-  join, so teardown never blocks). The on-fire sync runs synchronously in the
-  watcher thread, so the sync's own writes buffer in the channel and coalesce
-  into at most one no-op follow-up.
-- `trigger.rs` — the shell-facing entry points over the lock, all reusing
-  `command::sync_once`: `run_locked_sync(dir)` (lock → `sync_once`, no-op when
-  unconfigured or the lock is held), `sync_in_background()` (spawn a thread for
-  the `on_start` hook), and `spawn_detached_sync()` (a fully detached
-  `brain sync` child, `process_group(0)` + null stdio, for the `on_exit` hook).
+  join, so teardown never blocks). On fire it only *spawns a detached background
+  sync*; the sync's own writes re-arm the debouncer, but a spawn that lands
+  while a sync holds the lock coalesces (exits silently), so there is no loop.
+- `trigger.rs` — the single shell-facing entry point: `spawn_detached_sync(dir)`
+  spawns the current exe as `brain sync [--pull|--push] --if-idle`, fully
+  detached (`process_group(0)` + null stdio). **Every** automatic trigger
+  (start, watcher, idle, exit) goes through it, for two reasons: a sync in a
+  separate process can never write over the TUI, and a detached child in its own
+  process group outlives the shell / terminal close. `--if-idle` makes a
+  redundant trigger coalesce (exit silently) rather than follow. There is no
+  in-process sync path anymore (the old `run_locked_sync`/`sync_in_background`
+  are gone).
+- `current.rs` — the in-flight sync's shared state, so a detached background
+  sync stays observable. `Reporter` is the single output sink of a run: each
+  line is appended to `~/.cache/brain/sync/current.log` and echoed to the
+  process's own stderr (the terminal for a foreground run, `/dev/null` for a
+  detached one). `begin` writes the `current.json` record (pid + direction +
+  start); `Drop` removes it. Pure `running(state, owner_alive)` +
+  `is_running()` gate on the record existing *and* its owner PID being alive, so
+  a hard-killed sync's stale record never reads as live.
+- `follow.rs` — when a user-run `brain sync` finds the lock held, it attaches
+  instead of erroring: `follow_until_done` tails `current.log` (pure
+  `appended(content, offset)` splits off each new tail, handling a truncated
+  log) to the terminal until `is_running()` goes false, then prints the final
+  journal outcome. Ctrl-C stops only the follower.
 - `idle.rs` — the shell-lifetime idle-pull timer. `spawn_idle_puller_with`
   owns the stop channel and injected callback for tests; `spawn_idle_puller`
-  runs `trigger::run_locked_sync(Direction::Pull)` every
-  `sync.idle_pull_secs` seconds when that opt-in interval is configured.
+  spawns a detached `brain sync --pull --if-idle` every `sync.idle_pull_secs`
+  seconds when that opt-in interval is configured.
 - `config.rs` carries `debounce_ms` (default 3000), `debounce() -> Duration`,
   and the opt-in `idle_pull_secs` / `idle_pull_interval()` pair;
   `command::format_triggers` renders both intervals in `brain sync status`.
 
 **The `run_tui` lifecycle seam** (`src/tui/event_loop/setup.rs`) is the one wire
-point: after the startup work and before the event loop it kicks
-`trigger::sync_in_background()` (when `on_start`) and holds a
+point: after the startup work and before the event loop it calls
+`trigger::spawn_detached_sync(Both)` (when `on_start`) and holds a
 `watch::spawn_watcher` handle (when `watch_effective()`) plus an
 `idle::spawn_idle_puller` handle (when `idle_pull_secs > 0`); after the loop
-returns it calls `trigger::spawn_detached_sync()` (when `on_exit`) and drops
+returns it calls `trigger::spawn_detached_sync(Both)` (when `on_exit`) and drops
 the watcher/timer handles. All gated, all best-effort: an unconfigured brain
-gets no watcher thread, no timer, and no syncs. C4 adds no keybinding, palette
-row, or menu row.
+gets no watcher thread, no timer, and no syncs. This layer adds no keybinding,
+palette row, or menu row.
 
 **The C5 conflict enumerator + resolver** builds on `conflicts.rs` to give
 agents (not just humans) a way to close out a keep-both conflict. Still pure
@@ -464,7 +481,7 @@ structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 (`build_search`), constructs the `App`, then `open_or_focus_brain(None)` spawns
 the initial `claude` PTY (resume-vs-fresh) and `focus_tasks()` returns focus to
 the tasks main view so `j`/`k` work at once. It runs the startup daily-triage
-check, then wires the C4 auto-sync triggers (a background `on_start` sync,
+check, then wires the auto-sync triggers (a detached `on_start` background sync,
 when `watch_effective()`, a held `watch::spawn_watcher` handle, and when
 configured, a held idle-pull timer), runs the event loop, and on return fires
 the detached `on_exit` sync, drops the watcher/timer handles, and releases the

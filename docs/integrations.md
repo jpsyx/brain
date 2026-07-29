@@ -426,9 +426,12 @@ bookkeeping.
 
 ## Auto-sync triggers (the sync lock, the exit child, the watcher, the idle puller)
 
-The C4 auto-sync layer (`src/sync/{lock,watch,trigger,idle}.rs`, wired into
-`src/tui/event_loop/setup.rs`'s `run_tui`) drives the same `rclone` handoff
-above automatically. Its own outside-world touchpoints:
+The auto-sync layer (`src/sync/{lock,watch,trigger,idle,current,follow}.rs`,
+wired into `src/tui/event_loop/setup.rs`'s `run_tui`) drives the same `rclone`
+handoff above automatically. Every automatic trigger runs the sync in a
+**detached background process**, never on a thread inside the shell, so a sync
+can neither write over the TUI nor be killed when the shell quits. Its own
+outside-world touchpoints:
 
 - **The machine-wide sync lock** (`src/sync/lock.rs`) is a PID file at
   `~/.cache/brain/sync/sync.lock` (beside the sync journal, machine-local
@@ -445,31 +448,51 @@ above automatically. Its own outside-world touchpoints:
   the new owner's lock. A missing or garbage lockfile reads as stale/reapable.
   The manual `run_sync` in `main.rs` takes this lock too, closing a pre-existing
   concurrent-`brain sync` race.
-- **The detached `on_exit` child** (`trigger::spawn_detached_sync`) spawns the
-  current exe as `brain sync` fully detached — `process_group(0)` (its own
-  process group, so it outlives the parent) plus stdin/stdout/stderr all set to
+- **The detached sync spawn** (`trigger::spawn_detached_sync(dir)`) is the one
+  entry point every automatic trigger (start, watcher, idle, exit) uses. It
+  spawns the current exe as `brain sync [--pull|--push] --if-idle` fully
+  detached — `process_group(0)` (its own process group, so it outlives the
+  parent and survives terminal close) plus stdin/stdout/stderr all set to
   `Stdio::null()` — mirroring how `src/server/lifecycle.rs` spawns the server
-  daemon, and needing no `unsafe`. The shell finishes teardown and exits at
-  once; the child acquires the sync lock itself and pushes the final state in
-  the background (if a sync is already running it skips, since that run covers
-  the exit).
+  daemon, and needing no `unsafe`. Each child acquires the sync lock itself;
+  `--if-idle` makes it exit silently when a sync is already running (coalesce),
+  as opposed to a user-run `brain sync`, which *follows* the in-flight one.
+- **The in-flight state files** (`src/sync/current.rs`) let a detached sync stay
+  observable without printing to any terminal. A running sync's `Reporter`
+  appends every progress line to `~/.cache/brain/sync/current.log` (and echoes
+  to its own stderr — the terminal for a foreground run, `/dev/null` for a
+  detached one) and writes a `current.json` record (pid + direction + start)
+  that it removes on drop. `brain sync status` reads that record (validated
+  against `server::lifecycle::pid_alive`) to show `syncing now …`; a user-run
+  `brain sync` that finds the lock held calls `follow::follow_until_done`, which
+  tails `current.log` to the terminal until the run ends (`src/sync/follow.rs`).
+- **The brain-owned bisync workdir** (`run::bisync_workdir` →
+  `~/.cache/brain/sync/bisync`, passed as `--workdir` by `args::bisync_args`)
+  fixes rclone's bisync state location so it is deterministic and its lock files
+  are reapable. Because brain's own lock already serializes all syncs,
+  `run::reap_stale_bisync_locks` removes any `*.lck` there before each run — it
+  is necessarily from a dead, interrupted run (`.lst` baselines are preserved).
+  An interrupted run that left the baseline unusable is detected by
+  `parse_outcome` (the `--resync`/"cannot find prior"/critical-error family →
+  `AbortKind::PriorListingMissing`) and self-healed by the existing one-time
+  auto-resync in `command::sync_once`.
 - **The watcher's exclude set** (`watch::is_watch_relevant`, a pure path
   predicate) mirrors the bisync filter (see `args::bisync_args`'s default
   excludes above): a changed path under `.git`, `.cache`, or a `.DS_Store`, or
   an existing friendly conflict copy (`*(conflict *)*`), never triggers a sync.
   So a VCS write, a cache churn, or a conflict copy fanning in from another
   machine can't kick the watcher. The watcher runs `notify` recursively over the
-  brain root; when relevant changes settle for the `debounce_ms` window it runs
-  one locked sync **synchronously in the watcher thread**, so the sync's own
-  pull writes buffer in the event channel and coalesce into at most one no-op
-  follow-up rather than looping.
+  brain root; when relevant changes settle for the `debounce_ms` window it
+  *spawns a detached background sync*. The sync's own pull writes re-arm the
+  debouncer, but a spawn that lands while a sync holds the lock coalesces, so it
+  settles rather than looping.
 - **The idle puller** (`sync.idle_pull_secs`) is an opt-in shell-lifetime timer.
   When set to a positive number, `src/sync/idle.rs` wakes on that interval and
-  calls `trigger::run_locked_sync(Direction::Pull)`, so remote edits from
-  another machine can arrive while the shell remains open. The same lock makes
-  each tick skip cleanly if a manual sync, watcher sync, start sync, or prior
-  timer tick is already running. Dropping the handle stops the sleeping thread;
-  it is not an always-on daemon and it does no work while `brain` is closed.
+  spawns a detached `brain sync --pull --if-idle`, so remote edits from another
+  machine can arrive while the shell remains open. The same lock makes each tick
+  skip cleanly if a manual sync, watcher sync, start sync, or prior timer tick
+  is already running. Dropping the handle stops the sleeping thread; it is not
+  an always-on daemon and it does no work while `brain` is closed.
 
 ## The auto-rebuild
 

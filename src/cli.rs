@@ -217,6 +217,12 @@ pub struct SyncArgs {
     /// Bias this run to the remote side (remote wins same-file conflicts).
     #[arg(long, global = true)]
     pub pull: bool,
+    /// Internal: run only if no sync is already in progress, otherwise exit
+    /// silently (coalesce). Used by the detached background triggers so they
+    /// never stack up; a user-run `brain sync` omits it and instead *follows* an
+    /// in-flight sync.
+    #[arg(long, global = true, hide = true)]
+    pub if_idle: bool,
 }
 
 #[derive(Subcommand, Debug)]

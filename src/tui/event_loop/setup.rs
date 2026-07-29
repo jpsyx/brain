@@ -146,7 +146,7 @@ pub fn run_tui(
     let sync_cfg = crate::sync::config::SyncConfig::load();
     let sync_configured = sync_cfg.is_configured();
     if sync_configured && sync_cfg.on_start {
-        crate::sync::trigger::sync_in_background();
+        crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
     }
     let watcher = if sync_cfg.watch_effective() {
         crate::sync::watch::spawn_watcher(&brain_root, &sync_cfg).ok()
@@ -157,10 +157,10 @@ pub fn run_tui(
 
     let result = event_loop(&mut terminal, &mut app);
 
-    // On exit, kick a detached final sync (it acquires the sync lock itself) and
-    // stop the watcher thread promptly.
+    // On exit, kick a detached final sync (it acquires the sync lock itself, and
+    // coalesces if one is already running) and stop the watcher thread promptly.
     if sync_configured && sync_cfg.on_exit {
-        crate::sync::trigger::spawn_detached_sync();
+        crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
     }
     drop(idle_puller);
     drop(watcher);

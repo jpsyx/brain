@@ -217,13 +217,29 @@ nested under `~/.config/brain/env.json`'s top level. As of C2, `brain sync`
 reads it to drive a real `rclone bisync` transport (see
 [integrations.md](integrations.md) and [architecture.md](architecture.md)); as
 of C4 the `on_start`/`on_exit`/`watch` flags are live automatic triggers
-(background sync on shell start, a detached sync on exit, and a debounced
-filesystem watcher while the shell is open — `debounce_ms` sets the watcher's
-quiescence window). `idle_pull_secs` optionally adds a periodic pull while the
-shell stays open. An absent `sync` block parses to all defaults, so sync reads
-as fully disabled and brain behaves exactly as if the key didn't exist
-(`brain sync` prints "sync is not configured — run `brain sync setup`" and does
-nothing, with no watcher thread, no idle timer, and no start/exit sync).
+(a detached background sync on shell start, a detached sync on exit, and a
+debounced filesystem watcher while the shell is open — `debounce_ms` sets the
+watcher's quiescence window). `idle_pull_secs` optionally adds a periodic pull
+while the shell stays open. An absent `sync` block parses to all defaults, so
+sync reads as fully disabled and brain behaves exactly as if the key didn't
+exist (`brain sync` prints "sync is not configured — run `brain sync setup`" and
+does nothing, with no watcher thread, no idle timer, and no start/exit sync).
+
+**Machine-local runtime state** (never synced) lives beside the journal under
+`~/.cache/brain/sync/`:
+
+- `current.json` — the [`current::CurrentState`] record of the sync in progress
+  right now: `{ pid: u32, direction: String, started_at: String }`. Written
+  when a run starts, removed when it ends (or when its `Reporter` drops). Its
+  presence, validated against `pid`'s liveness, is how `brain sync status` and a
+  following `brain sync` know a sync is underway; a hard-killed run's leftover
+  record reads as not-running.
+- `current.log` — the in-progress run's progress lines, appended live so a
+  following `brain sync` can tail them and `brain sync status` stays honest.
+  Truncated at the start of each run.
+- `bisync/` — the brain-owned rclone bisync workdir (`--workdir`): its `.lst`
+  baseline listings, and any `.lck` lock file (reaped before each run while
+  brain holds its own sync lock, since it can only be from a dead run).
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |

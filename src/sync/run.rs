@@ -2,10 +2,43 @@
 //! `RunOutcome`. Only the parser is unit-tested; the process spawn is a thin
 //! shell exercised via the integration path.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::progress;
+
+/// rclone's bisync working directory, owned by brain so its state location is
+/// deterministic (not rclone's HOME-dependent default) and its stale lock files
+/// are reapable. `~/.cache/brain/sync/bisync`.
+#[must_use]
+pub fn bisync_workdir() -> PathBuf {
+    let base = std::env::var_os("HOME").map_or_else(
+        || PathBuf::from("."),
+        |h| PathBuf::from(h).join(".cache").join("brain").join("sync"),
+    );
+    base.join("bisync")
+}
+
+/// Remove leftover rclone bisync lock files from an interrupted run.
+///
+/// Safe to call unconditionally *while brain's own sync lock is held*: brain
+/// serializes all syncs, so any `.lck` present is necessarily from a dead run
+/// that was killed before it could clean up (TUI quit, power off). Baseline
+/// `.lst` listings are left intact so a normal run can still resume. Missing
+/// workdir or unreadable entries degrade to a no-op.
+pub fn reap_stale_bisync_locks(workdir: &Path) {
+    let Ok(entries) = std::fs::read_dir(workdir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "lck") {
+            crate::logging::log(format!("reap stale rclone bisync lock {}", path.display()));
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
 
 /// Why a bisync aborted, when it did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,7 +172,11 @@ pub fn parse_outcome(exit_ok: bool, output: &str) -> RunOutcome {
 /// the single owned pipe is drained continuously, and stdout is never
 /// buffered by us).
 #[must_use]
-pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
+pub fn run_rclone(
+    reporter: &super::current::Reporter,
+    env: &[(String, String)],
+    args: &[String],
+) -> RunOutcome {
     crate::logging::log(format!("spawn rclone args={args:?} env_keys={}", env.len()));
     let mut cmd = Command::new("rclone");
     cmd.args(args);
@@ -165,7 +202,6 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
     let mut copied = 0_usize;
     let mut deleted = 0_usize;
     if let Some(stderr) = child.stderr.take() {
-        let mut err_out = std::io::stderr();
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
             crate::logging::log(format!("rclone stderr {line}"));
             captured.push_str(&line);
@@ -180,7 +216,7 @@ pub fn run_rclone(env: &[(String, String)], args: &[String]) -> RunOutcome {
                     _ => {}
                 }
                 if let Some(display) = progress::render_applied(ev, theme) {
-                    let _ = writeln!(err_out, "{display}");
+                    reporter.line(&display);
                 }
             }
         }
@@ -317,5 +353,73 @@ mod tests {
             parse_outcome(false, "something went wrong").abort,
             Some(AbortKind::Other)
         );
+    }
+
+    #[test]
+    fn bisync_workdir_is_under_cache_brain_sync() {
+        assert!(bisync_workdir().ends_with(".cache/brain/sync/bisync"));
+    }
+
+    #[test]
+    fn reaping_removes_leftover_lock_files_but_keeps_listings() {
+        // Under brain's own sync lock, any rclone bisync lock file is from a
+        // dead interrupted run, so reaping it is always safe. Listing state
+        // (the `.lst` baselines) must survive so a normal run can still resume.
+        let dir = std::env::temp_dir().join(format!("brain-reap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lck = dir.join("home_p_brain..lck");
+        let lst = dir.join("home_p_brain..path1.lst");
+        std::fs::write(&lck, "pid 123").unwrap();
+        std::fs::write(&lst, "listing").unwrap();
+
+        reap_stale_bisync_locks(&dir);
+
+        assert!(!lck.exists(), "stale .lck must be removed");
+        assert!(lst.exists(), "baseline .lst must be preserved");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn reaping_a_missing_workdir_is_a_noop() {
+        // First-ever run: the workdir doesn't exist yet. Must not error.
+        reap_stale_bisync_locks(&std::env::temp_dir().join("brain-reap-does-not-exist-xyz"));
+    }
+
+    #[test]
+    fn stale_lock_file_from_an_interrupted_run_routes_to_resync_recovery() {
+        // A run killed mid-flight (TUI quit / power off) leaves rclone's bisync
+        // lock file behind. The next run must self-heal via resync, not surface
+        // a dead-end error the user has to reason about.
+        let o = parse_outcome(
+            false,
+            "ERROR : Bisync critical error: prior lock file found: /Users/p/.cache/brain/sync/bisync/xxx.lck\n\
+             ERROR : Bisync aborted. Must run --resync to recover.\n\
+             NOTICE: Failed to bisync: bisync aborted\n",
+        );
+        assert_eq!(o.abort, Some(AbortKind::PriorListingMissing));
+    }
+
+    #[test]
+    fn a_generic_bisync_critical_error_routes_to_resync_recovery() {
+        // Two overlapping runs corrupt the listing files; rclone reports a
+        // generic bisync critical error. Treat the interrupted-baseline family
+        // as recoverable-by-resync rather than an opaque `Other`.
+        let o = parse_outcome(
+            false,
+            "ERROR : Bisync critical error: failed to read prior listing\n\
+             ERROR : Bisync aborted. Must run --resync to recover.\n",
+        );
+        assert_eq!(o.abort, Some(AbortKind::PriorListingMissing));
+    }
+
+    #[test]
+    fn a_plain_auth_failure_stays_other_and_does_not_trigger_a_resync() {
+        // A credential/network failure is not a baseline problem; resyncing
+        // would be pointless and expensive, so it must stay `Other`.
+        let o = parse_outcome(
+            false,
+            "ERROR : Failed to create file system for \"BRAIN:bucket\": 401 unauthorized\n",
+        );
+        assert_eq!(o.abort, Some(AbortKind::Other));
     }
 }

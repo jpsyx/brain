@@ -1226,3 +1226,58 @@ recreating the marker and running a resync. Keeping the commands separate avoids
 silently enabling cloud sync from a recovery command. The UX rule is that any
 sync command run before setup explains which prerequisite is missing and ends
 with the exact next command: `brain sync setup`.
+
+## Why syncs run in a detached process (never on a TUI thread), and how a running sync stays observable
+
+The original auto-sync layer ran the `on_start` and watcher syncs on **threads
+inside the TUI process**. Two failures fell out of that, both reported from the
+field:
+
+1. **Output bled over the TUI.** A sync writes rclone's progress to its
+   process's stderr, which still points at the real terminal while ratatui owns
+   the alternate screen on `/dev/tty`. The progress lines drew on top of the
+   frame and the rows "went out of sync." It looked broken.
+2. **Quitting corrupted the sync.** When the shell exited, the sync thread died
+   but its `rclone` child was orphaned and kept running, while the `on_exit`
+   trigger simultaneously spawned a *second* detached `rclone`. Two concurrent
+   `bisync` runs over the same paths left the working state inconsistent, and
+   the next `brain sync` aborted with a dead-end `rclone exited with an error`.
+   The machine lock didn't help: it keys staleness on the lock holder's PID
+   liveness, and the holder was the now-dead TUI process, so the lock was
+   immediately reap-able even though the orphaned `rclone` was still writing.
+
+The fix makes execution independent of the shell: **every** automatic trigger
+(start, watcher, idle, exit) spawns a fully detached `brain sync --if-idle`
+child (`process_group(0)` + null stdio). A separate process can't touch the
+TUI, and a child in its own process group outlives the shell and a terminal
+close. There is no in-process sync path anymore.
+
+Detaching hid the progress, so a running sync now records shared state under
+`~/.cache/brain/sync/`: a `Reporter` appends every line to `current.log` (and
+echoes to its own stderr, which is the terminal for a foreground run and
+`/dev/null` for a detached one) and writes a `current.json` marker while it
+runs. `brain sync status` surfaces `syncing now …` from that marker; a user-run
+`brain sync` that finds the lock held **attaches and follows** `current.log` to
+completion (`follow.rs`) instead of the old "another sync is already running;
+try again" error. Background triggers pass `--if-idle` so a redundant one
+coalesces (exits silently) rather than following.
+
+## Why brain owns the rclone bisync workdir, and reaps its lock
+
+An interrupted `bisync` (a quit shell, a powered-off machine) can leave rclone's
+workdir with a stale lock file or half-written listings that wedge the next run.
+brain now pins that workdir with `--workdir ~/.cache/brain/sync/bisync` instead
+of leaving it at rclone's HOME-dependent default. Two payoffs:
+
+- **Deterministic, reapable state.** Because brain's own machine-wide lock
+  already serializes all syncs, any `.lck` present in that workdir is
+  necessarily from a dead, interrupted run — so brain removes it before each run
+  (`run::reap_stale_bisync_locks`), preserving the `.lst` baselines.
+- **Self-healing after an interruption.** If the baseline is unusable, rclone's
+  "cannot find prior … / must run --resync" family classifies to
+  `AbortKind::PriorListingMissing`, and the existing one-time auto-resync in
+  `sync_once` rebuilds it — so the user never has to know a sync was interrupted
+  or run `brain sync repair` by hand. (Pinning the workdir also means the first
+  post-upgrade run on each machine starts from a fresh workdir and auto-resyncs
+  once, which is exactly what heals a machine already wedged by the old
+  concurrent-run bug.)

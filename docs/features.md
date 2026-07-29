@@ -264,10 +264,12 @@ two clearly labeled installation choices: the Homebrew command
   recreates the `RCLONE_TEST` marker on both sides before the resync. It does
   **not** collect Backblaze credentials or enable cloud sync; if it is run
   before setup, brain explains that `brain sync setup` must come first.
-- `brain sync status` — the last run (from the local sync journal), the
-  configured triggers (`on_start`/`on_exit`/`watch`, with the watcher's
-  debounce window shown as `(3000ms debounce)`), and the count of open
-  conflicts.
+- `brain sync status` — if a sync is running right now (in a detached
+  background process or another shell), a `syncing now: <dir> · started … ·
+  pid …` line first; then the last completed run (from the local sync
+  journal), the configured triggers (`on_start`/`on_exit`/`watch`, with the
+  watcher's debounce window shown as `(3000ms debounce)`), and the count of
+  open conflicts.
 - `brain sync conflicts` — list open conflict copies using the same strict
   friendly-name parser as the structured form. `--json` emits those same
   groups as JSON (one object per canonical original, its
@@ -298,23 +300,50 @@ file progress streams to the terminal live, with a one-line update roughly
 every 10 seconds (files/bytes transferred, percent complete, transfer rate,
 ETA) — useful on the first sync of a large brain, which can take a while.
 
+Every sync (foreground or background) mirrors that same progress to a machine-
+local log (`~/.cache/brain/sync/current.log`) and records a small `current.json`
+"a sync is in progress" marker while it runs. That is how a background sync
+stays observable without ever printing to a terminal: `brain sync status` reads
+the marker, and a `brain sync` run started while another sync is already going
+**attaches and follows** that live log to completion instead of starting a
+second sync or erroring (Ctrl-C stops watching; the sync keeps running).
+
+**Never renders into the TUI.** Automatic syncs run in a **separate detached
+process**, never on a thread inside the persistent shell, so their output can
+never bleed over the TUI. (This is also why quitting the shell can't interrupt a
+sync — see below.)
+
+**Crash-safe / resumable.** brain owns rclone's bisync working directory
+(`~/.cache/brain/sync/bisync`) rather than leaving it at rclone's default. Since
+brain's machine-wide lock already serializes all syncs, any leftover rclone lock
+file in that workdir is necessarily from a dead, interrupted run (a quit shell,
+a powered-off machine), so brain reaps it before each run. If an interrupted run
+left the baseline listings unusable, the next sync detects it and self-heals
+with a one-time resync automatically — you never have to know a sync was
+interrupted, and turning off the machine mid-sync never leaves a stuck state.
+
 **Automatic sync (start / exit / watcher / idle pull).** On a configured machine you
 rarely run `brain sync` by hand: the persistent shell syncs for you, gated by
 machine-local brain-env fields (see [config.md](config.md)).
 
+Every trigger below spawns a **detached background `brain sync` process** (with
+`--if-idle`, so it coalesces silently when a sync is already running); none runs
+a sync on a thread inside the shell. The shell never waits on, and can never be
+interrupted by, the network.
+
 - **On start (`sync.on_start`).** Opening the shell (bare `brain`) kicks a
-  background sync so you start on the latest brain. It runs on its own thread
-  and never blocks startup: the first frame renders immediately and the sync
-  lands whenever it finishes.
+  background sync so you start on the latest brain. It never blocks startup: the
+  first frame renders immediately and the sync lands whenever it finishes — even
+  if you quit the shell before it does.
 - **On exit (`sync.on_exit`).** Quitting the shell spawns a **detached,
   fire-and-forget** `brain sync` child that pushes your last edits without the
   shell ever waiting on the network: quitting is instant and the child finishes
   in the background.
 - **Live watcher (`sync.watch`).** While the shell is open, a filesystem
-  watcher auto-syncs a few seconds after you stop editing `~/brain` (the
-  `debounce_ms` quiescence window, default 3000ms). A burst of edits coalesces
-  into a single sync. VCS/cache/OS cruft and existing conflict copies never
-  trigger it (it mirrors the bisync exclude set).
+  watcher spawns a background sync a few seconds after you stop editing
+  `~/brain` (the `debounce_ms` quiescence window, default 3000ms). A burst of
+  edits coalesces into a single sync. VCS/cache/OS cruft and existing conflict
+  copies never trigger it (it mirrors the bisync exclude set).
 - **Idle pull (`sync.idle_pull_secs`).** Optional and off by default. Set a
   positive interval to pull remote changes periodically while the shell stays
   open, so another machine's edits arrive without closing and reopening
@@ -323,8 +352,9 @@ machine-local brain-env fields (see [config.md](config.md)).
 All four reuse the same `sync_once` machinery (so every auto-sync is
 journalled exactly like a manual one) and **coalesce** through a machine-wide
 lock: concurrent triggers (start + watcher + idle pull + a second shell + a
-manual `brain sync`) never run two rclone syncs at once, the extras skip
-cleanly. All are best-effort: a held lock, an unconfigured brain, or a spawn
+manual `brain sync`) never run two rclone syncs at once. A redundant background
+trigger exits silently; a user-run `brain sync` instead *follows* the in-flight
+one. All are best-effort: a held lock, an unconfigured brain, or a spawn
 failure is swallowed, so a trigger never crashes or hangs the shell. Set any
 boolean flag to `false` to disable that trigger, and leave `idle_pull_secs` at
 `0` to disable the timer; with no `sync` block configured at all, nothing

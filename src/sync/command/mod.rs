@@ -62,15 +62,23 @@ pub fn sync_once(
     let (started_at, finished_at, date) = now;
     let remote = build_remote(cfg);
     let local = root.to_string_lossy().into_owned();
-    let argv = args::bisync_args(cfg, &local, &remote.arg, dir);
+    let workdir = crate::sync::run::bisync_workdir();
+    let _ = std::fs::create_dir_all(&workdir);
+    let workdir_arg = workdir.to_string_lossy().into_owned();
+    let argv = args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, dir);
     let theme = Theme::active();
+    // The single output sink for this run: everything below is mirrored to
+    // `current.log` (so a following `brain sync` and `brain sync status` can
+    // observe a detached background sync) and echoed to this process's stderr.
+    let reporter =
+        crate::sync::current::Reporter::begin(direction_label(dir), started_at, std::process::id());
     crate::logging::log(format!(
         "sync_once direction={} root={} remote={}",
         direction_label(dir),
         root.display(),
         remote.arg
     ));
-    eprintln!("{}", format_sync_plan(cfg, root, dir, theme));
+    reporter.line(&format_sync_plan(cfg, root, dir, theme));
 
     if !crate::sync::run::rclone_present() {
         return Ok(Outcome::Aborted(crate::sync::run::missing_rclone_guidance(
@@ -79,34 +87,33 @@ pub fn sync_once(
         )));
     }
 
-    eprintln!("{}", theme.info(sync_progress(dir)));
+    reporter.line(&theme.info(sync_progress(dir)));
 
     if should_bootstrap_check_access(dir) {
         crate::logging::log("sync check-access markers");
-        eprintln!("{}", theme.info("Checking the sync safety marker…"));
+        reporter.line(&theme.info("Checking the sync safety marker…"));
         crate::sync::check_access::ensure_markers(root, &remote)?;
     }
 
+    // We hold brain's machine-wide sync lock here, so any rclone bisync lock
+    // file in the workdir is from a dead, interrupted run — reap it so an
+    // earlier crash (TUI quit, power off) never wedges this run.
+    crate::sync::run::reap_stale_bisync_locks(&workdir);
     crate::logging::log("sync rclone start");
-    eprintln!(
-        "{}",
-        theme.info("Starting rclone sync; live file progress follows…")
-    );
-    let mut run = run_rclone(&remote.env, &argv);
+    reporter.line(&theme.info("Starting rclone sync; live file progress follows…"));
+    let mut run = run_rclone(&reporter, &remote.env, &argv);
     crate::logging::log(format!(
         "sync rclone done exit_ok={} transferred={} deleted={} errors={} abort={:?}",
         run.exit_ok, run.transferred, run.deleted, run.errors, run.abort
     ));
     let resumed = if should_auto_resync(dir, run.abort.as_ref()) {
         crate::logging::log("sync auto-resync start");
-        eprintln!(
-            "{}",
-            theme.warning(
-                "rclone reported that its baseline listing is incomplete; establishing it with a one-time resync…"
-            )
-        );
-        let resync_argv = args::bisync_args(cfg, &local, &remote.arg, Direction::Resync);
-        run = run_rclone(&remote.env, &resync_argv);
+        reporter.line(&theme.warning(
+            "rclone reported that its baseline listing is incomplete; establishing it with a one-time resync…",
+        ));
+        let resync_argv =
+            args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, Direction::Resync);
+        run = run_rclone(&reporter, &remote.env, &resync_argv);
         crate::logging::log(format!(
             "sync auto-resync done exit_ok={} transferred={} deleted={} errors={} abort={:?}",
             run.exit_ok, run.transferred, run.deleted, run.errors, run.abort
@@ -117,23 +124,15 @@ pub fn sync_once(
     };
     let auto_repaired = if should_auto_repair_check_access(dir, run.abort.as_ref()) {
         crate::logging::log("sync auto-repair check-access marker");
-        eprintln!(
-            "{}",
-            theme.warning(
-                "The check-access marker is missing; running `brain sync repair` automatically to recreate it and re-establish the baseline…"
-            )
-        );
-        eprintln!(
-            "{}",
-            theme.info("Recreating the local and remote RCLONE_TEST markers…")
-        );
+        reporter.line(&theme.warning(
+            "The check-access marker is missing; running `brain sync repair` automatically to recreate it and re-establish the baseline…",
+        ));
+        reporter.line(&theme.info("Recreating the local and remote RCLONE_TEST markers…"));
         crate::sync::check_access::ensure_markers(root, &remote)?;
-        eprintln!(
-            "{}",
-            theme.info("Rebuilding the rclone baseline; live file progress follows…")
-        );
-        let repair_argv = args::bisync_args(cfg, &local, &remote.arg, Direction::Resync);
-        run = run_rclone(&remote.env, &repair_argv);
+        reporter.line(&theme.info("Rebuilding the rclone baseline; live file progress follows…"));
+        let repair_argv =
+            args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, Direction::Resync);
+        run = run_rclone(&reporter, &remote.env, &repair_argv);
         crate::logging::log(format!(
             "sync auto-repair done exit_ok={} transferred={} deleted={} errors={} abort={:?}",
             run.exit_ok, run.transferred, run.deleted, run.errors, run.abort
@@ -162,7 +161,7 @@ pub fn sync_once(
         String::new()
     } else {
         crate::logging::log("sync csv merge start");
-        eprintln!("{}", theme.info("Merging task and habit CSVs by row id…"));
+        reporter.line(&theme.info("Merging task and habit CSVs by row id…"));
         let note = format_csv_note(&crate::sync::csv_sync::sync_csvs(cfg, root));
         crate::logging::log(format!("sync csv merge note={note:?}"));
         note
@@ -351,6 +350,18 @@ pub fn format_unconfigured_sync_guidance(dir: Direction, theme: Theme) -> String
     )
 }
 
+/// Format the "a sync is running right now" status line (pure).
+#[must_use]
+pub fn format_in_progress(state: &crate::sync::current::CurrentState, theme: Theme) -> String {
+    format!(
+        "{} {} · started {} · {}",
+        theme.info("syncing now:"),
+        theme.accent(&state.direction),
+        theme.value(&state.started_at),
+        theme.muted(&format!("pid {}", state.pid)),
+    )
+}
+
 /// Format the status line for the most recent journal run (pure).
 #[must_use]
 pub fn format_last_run(run: Option<&SyncRun>, theme: Theme) -> String {
@@ -432,6 +443,15 @@ pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
         Journal::default_path().display(),
         root.display()
     ));
+    // Surface a sync happening right now (in a detached background process or
+    // another shell) above the last completed run, so status always answers
+    // "is anything syncing?" first.
+    if let Some(state) = crate::sync::current::read_state() {
+        if crate::server::lifecycle::pid_alive(state.pid) {
+            crate::logging::log("sync status in-progress");
+            println!("{}", format_in_progress(&state, theme));
+        }
+    }
     let journal = Journal::open(&Journal::default_path())?;
     let recent = journal.recent(1)?;
     println!("{}", format_last_run(recent.first(), theme));
@@ -683,6 +703,20 @@ mod tests {
     fn direction_labels_are_stable() {
         assert_eq!(direction_label(Direction::Both), "both");
         assert_eq!(direction_label(Direction::Resync), "resync");
+    }
+
+    #[test]
+    fn format_in_progress_names_the_running_direction_and_start() {
+        let state = crate::sync::current::CurrentState {
+            pid: 4242,
+            direction: "both".into(),
+            started_at: "2026-07-29T01:00:00Z".into(),
+        };
+        let line = format_in_progress(&state, Theme::dark(false));
+        assert!(line.contains("syncing now"), "{line}");
+        assert!(line.contains("both"), "{line}");
+        assert!(line.contains("2026-07-29T01:00:00Z"), "{line}");
+        assert!(line.contains("pid 4242"), "{line}");
     }
 
     #[test]

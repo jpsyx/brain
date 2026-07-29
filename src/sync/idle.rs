@@ -39,7 +39,7 @@ where
 pub fn spawn_idle_puller(cfg: &SyncConfig) -> Option<IdlePullHandle> {
     cfg.idle_pull_interval().map(|interval| {
         spawn_idle_puller_with(interval, || {
-            crate::sync::trigger::run_locked_sync(Direction::Pull);
+            crate::sync::trigger::spawn_detached_sync(Direction::Pull);
         })
     })
 }

@@ -7,6 +7,7 @@ use std::process::Command;
 
 use brain::sync::args::{bisync_args, Direction};
 use brain::sync::config::SyncConfig;
+use brain::sync::current::Reporter;
 use brain::sync::remote::Remote;
 use brain::sync::run::run_rclone;
 use brain::sync::verify::{self, Outcome};
@@ -24,8 +25,19 @@ fn run(a: &Path, b: &Path, dir: Direction) -> brain::sync::run::RunOutcome {
         let remote = Remote { env: Vec::new(), arg: b.to_string_lossy().into_owned() };
         brain::sync::check_access::ensure_markers(a, &remote).unwrap();
     }
-    let args = bisync_args(&cfg(), &a.to_string_lossy(), &b.to_string_lossy(), dir);
-    run_rclone(&[], &args)
+    // Give each pair its own brain-owned bisync workdir beside the test dirs.
+    let parent = a.parent().unwrap();
+    let workdir = parent.join("bisync-wd");
+    std::fs::create_dir_all(&workdir).ok();
+    let args = bisync_args(
+        &cfg(),
+        &a.to_string_lossy(),
+        &b.to_string_lossy(),
+        &workdir.to_string_lossy(),
+        dir,
+    );
+    let reporter = Reporter::begin_in(&parent.join("reporter"), "both", "t", std::process::id());
+    run_rclone(&reporter, &[], &args)
 }
 
 #[test]

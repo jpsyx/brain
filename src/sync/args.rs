@@ -45,8 +45,15 @@ const EXCLUDES: [&str; 7] = [
 
 /// Build the full argv for `rclone bisync <local> <remote>` for this direction.
 #[must_use]
-pub fn bisync_args(cfg: &SyncConfig, local: &str, remote_arg: &str, dir: Direction) -> Vec<String> {
+pub fn bisync_args(
+    cfg: &SyncConfig,
+    local: &str,
+    remote_arg: &str,
+    workdir: &str,
+    dir: Direction,
+) -> Vec<String> {
     let mut a: Vec<String> = vec!["bisync".into(), local.into(), remote_arg.into()];
+    a.extend(["--workdir".into(), workdir.into()]);
     let resolve = match dir {
         Direction::Both | Direction::Resync => "newer",
         Direction::Push => "path1",
@@ -87,7 +94,15 @@ mod tests {
     }
 
     fn args(dir: Direction) -> Vec<String> {
-        bisync_args(&cfg(), "/root", "BRAIN:b", dir)
+        bisync_args(&cfg(), "/root", "BRAIN:b", "/wd", dir)
+    }
+
+    #[test]
+    fn pins_a_brain_owned_workdir_so_bisync_state_is_deterministic() {
+        // brain owns rclone's bisync state dir: its location is fixed (not
+        // rclone's HOME-dependent default) and its lock files are reapable.
+        assert_eq!(pair_after(&args(Direction::Both), "--workdir"), Some("/wd"));
+        assert_eq!(pair_after(&args(Direction::Resync), "--workdir"), Some("/wd"));
     }
 
     fn pair_after<'a>(v: &'a [String], flag: &str) -> Option<&'a str> {
@@ -194,7 +209,7 @@ mod tests {
             r#"{"enabled":true,"b2_bucket":"b","exclude":["**/test-data/**","*.mp4"],"max_size":"100M"}"#,
         )
         .unwrap();
-        let a = bisync_args(&cfg, "/root", "BRAIN:b", Direction::Both);
+        let a = bisync_args(&cfg, "/root", "BRAIN:b", "/wd", Direction::Both);
         assert!(
             a.windows(2)
                 .any(|w| w[0] == "--exclude" && w[1] == "**/test-data/**"),

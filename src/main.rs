@@ -329,7 +329,7 @@ fn sync_command(args: &SyncArgs) -> Result<()> {
         }
         Some(SyncAction::Repair) => {
             logging::log("sync repair");
-            run_sync(&cfg, &root, Direction::Resync)
+            run_sync(&cfg, &root, Direction::Resync, args.if_idle)
         }
         Some(SyncAction::Init) => {
             let theme = crate::theme::Theme::active();
@@ -340,7 +340,7 @@ fn sync_command(args: &SyncArgs) -> Result<()> {
                 )
             );
             logging::log("sync init alias -> repair");
-            run_sync(&cfg, &root, Direction::Resync)
+            run_sync(&cfg, &root, Direction::Resync, args.if_idle)
         }
         Some(SyncAction::Status) => {
             logging::log("sync status");
@@ -357,19 +357,25 @@ fn sync_command(args: &SyncArgs) -> Result<()> {
         None => {
             let dir = crate::sync::command::direction_from_flags(args.push, args.pull)?;
             logging::log(format!(
-                "sync run direction={}",
-                crate::sync::command::direction_label(dir)
+                "sync run direction={} if_idle={}",
+                crate::sync::command::direction_label(dir),
+                args.if_idle
             ));
-            run_sync(&cfg, &root, dir)
+            run_sync(&cfg, &root, dir, args.if_idle)
         }
     }
 }
 
 /// Shared: run one sync and print the outcome.
+///
+/// `if_idle` selects the busy-lock behavior: a background trigger passes `true`
+/// and exits silently when a sync is already running (coalesce); a user-run
+/// `brain sync` passes `false` and instead *follows* the in-flight sync.
 fn run_sync(
     cfg: &crate::sync::config::SyncConfig,
     root: &std::path::Path,
     dir: crate::sync::args::Direction,
+    if_idle: bool,
 ) -> Result<()> {
     if !cfg.is_configured() {
         logging::log("sync not configured");
@@ -387,12 +393,16 @@ fn run_sync(
         crate::sync::lock::default_path().display()
     ));
     let Some(_guard) = crate::sync::lock::try_acquire(&crate::sync::lock::default_path()) else {
-        let theme = crate::theme::Theme::active();
-        logging::log("sync lock busy");
-        eprintln!(
-            "{}",
-            theme.warning("another sync is already running; try again in a moment.")
-        );
+        if if_idle {
+            // A detached background trigger: a sync is already covering this, so
+            // coalesce — exit silently rather than stacking a second run.
+            logging::log("sync lock busy; if-idle coalesce");
+            return Ok(());
+        }
+        // A user-run `brain sync`: don't start a second and don't error — attach
+        // and mirror the in-flight sync's live progress until it finishes.
+        logging::log("sync lock busy; following in-flight sync");
+        crate::sync::follow::follow_until_done();
         return Ok(());
     };
     let now = chrono::Utc::now();

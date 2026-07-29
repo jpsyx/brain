@@ -299,10 +299,12 @@ pub fn run(cfg: &SyncConfig, root: &std::path::Path) {
         remote.arg
     ));
     let local = root.to_string_lossy().into_owned();
+    let workdir = crate::sync::run::bisync_workdir();
     let mut args = crate::sync::args::bisync_args(
         cfg,
         &local,
         &remote.arg,
+        &workdir.to_string_lossy(),
         crate::sync::args::Direction::Both,
     );
     args.push("--dry-run".into());
