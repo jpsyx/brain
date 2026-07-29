@@ -60,7 +60,7 @@ helpers and shell-outs live in the tasks modules:
   sender allowlist. Resend requests must pass Svix signature verification and
   the email sender allowlist. The listener stops with the owning TUI, so a
   machine does not receive remote messages unless the user explicitly starts
-  it with `brain --with-server` or the command palette.
+  it with `brain --with-receiver` or the command palette.
 - **`cd <root> && <agent_cmd> …`** — the brain panel's PTY, shared by both
   main views (see below).
 
@@ -137,9 +137,11 @@ each other's sessions. The merged shell has a single app-level brain panel, so
 there is now exactly **one** hook (`scripts/claude_session_start_hook.py`, keyed
 on `BRAIN_*`), one DB (`~/.cache/brain/state.db`, table `brain_sessions`), and
 one namespace. `scripts/install_hook.sh` installs it and strips the legacy
-`tasks` SessionStart hook and the old `claude_stop_hook.py` Stop hook if
-present. brain deliberately does **not** add a Stop hook — its brain-panel
-sessions are continuous conversations, not discrete runs.
+`tasks` SessionStart hook and ensures both the SessionStart and brain
+`claude_stop_hook.py` Stop hook are present. Run it from the brain checkout:
+`./scripts/install_hook.sh`. The Stop hook is required for receiver jobs: it
+records the completed assistant response so the TUI can deliver it over SMS or
+email without exposing the full thinking trace. It is safe to run repeatedly.
 
 ## System `open` and the editor
 

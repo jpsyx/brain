@@ -7,7 +7,7 @@
 # brain merge there is exactly ONE hook: this one, keyed on the BRAIN_* env
 # vars. It also strips any stale entries left behind by the pre-merge world:
 #   - the standalone `tasks` SessionStart hook (…/rc/tasks/scripts/…), and
-#   - the legacy `claude_stop_hook.py` Stop hook from the old queueing system.
+#   - any stale Stop-hook entries before installing the current receiver hook.
 #
 # Safe to re-run. Bails (non-zero) if jq is missing — we lean on jq to do the
 # merge so we don't accidentally corrupt the user's settings.

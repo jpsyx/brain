@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::server::messaging::Channel;
+use crate::server::receiver::Channel;
 
 pub const INACTIVITY_LEASE: Duration = Duration::from_secs(180);
 

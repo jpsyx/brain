@@ -125,9 +125,9 @@ fn main() -> Result<()> {
         return server_command(args);
     }
 
-    if let Some(Cmd::MessagingServer(args)) = &cli.command {
-        logging::log("dispatch messaging-server");
-        return messaging_server_command(args);
+    if let Some(Cmd::Receiver(args)) = &cli.command {
+        logging::log("dispatch receiver");
+        return receiver_server_command(args);
     }
 
     // `brain habits` just opens the bundled habits page (starting the server if
@@ -156,7 +156,7 @@ fn main() -> Result<()> {
     match cli.command {
         // Bare `brain` opens the merged persistent shell in its default
         // (tasks) view with the brain panel already open.
-        None => tasks_launch(TasksCli::parse_from(["brain"]), agent_kind, cli.with_server),
+        None => tasks_launch(TasksCli::parse_from(["brain"]), agent_kind, cli.with_receiver),
         // `brain tasks …` — delegate everything after `tasks` to the tasks
         // CLI parser (positional view/date/search, filter flags, and the
         // complete / doctor / search subcommands), after the natural-language
@@ -173,7 +173,7 @@ fn main() -> Result<()> {
                     .chain(args.rest)
                     .collect(),
             );
-            tasks_launch(TasksCli::parse_from(rewritten), agent_kind, cli.with_server)
+            tasks_launch(TasksCli::parse_from(rewritten), agent_kind, cli.with_receiver)
         }
         Some(Cmd::Version) => unreachable!("version is dispatched before the gate"),
         // Handled before the prerequisite gate above.
@@ -183,39 +183,87 @@ fn main() -> Result<()> {
         Some(Cmd::Personalize(_)) => unreachable!("personalize is dispatched before the gate"),
         Some(Cmd::Skills(_)) => unreachable!("skills is dispatched before the gate"),
         Some(Cmd::Server(_)) => unreachable!("server is dispatched before the gate"),
-        Some(Cmd::MessagingServer(_)) => {
-            unreachable!("messaging-server is dispatched before the gate")
+        Some(Cmd::Receiver(_)) => {
+            unreachable!("receiver is dispatched before the gate")
         }
         Some(Cmd::Habits) => unreachable!("habits is dispatched before the gate"),
         Some(Cmd::Check) => unreachable!("check is dispatched before the gate"),
     }
 }
 
-fn messaging_server_command(args: &crate::cli::MessagingServerArgs) -> Result<()> {
-    use crate::cli::MessagingServerAction;
+fn receiver_server_command(args: &crate::cli::ReceiverArgs) -> Result<()> {
+    use crate::cli::ReceiverServerAction;
+    if matches!(&args.action, ReceiverServerAction::Setup) {
+        return receiver_setup();
+    }
     let command = match &args.action {
-        MessagingServerAction::Start => "start",
-        MessagingServerAction::Stop => "stop",
-        MessagingServerAction::Restart => "restart",
-        MessagingServerAction::Status => "status",
-        MessagingServerAction::Logs => "logs",
+        ReceiverServerAction::Start => "start",
+        ReceiverServerAction::Stop => "stop",
+        ReceiverServerAction::Restart => "restart",
+        ReceiverServerAction::Status => "status",
+        ReceiverServerAction::Logs => "logs",
+        ReceiverServerAction::Setup => unreachable!("setup handled above"),
     };
-    match crate::server::messaging::send_control(command) {
+    match crate::server::receiver::send_control(command) {
         Ok(response) => {
             print!("{response}");
             Ok(())
         }
         Err(_) => {
-            if matches!(&args.action, MessagingServerAction::Status) {
-                println!("messaging server is stopped (no brain TUI is running)");
+            if matches!(&args.action, ReceiverServerAction::Status) {
+                println!("receiver server is stopped (no brain TUI is running)");
                 Ok(())
             } else {
                 anyhow::bail!(
-                    "the messaging server belongs to the running brain TUI; use `brain --with-server` or the command palette"
+                    "the receiver server belongs to the running brain TUI; use `brain --with-receiver` or the command palette"
                 )
             }
         }
     }
+}
+
+fn receiver_setup() -> Result<()> {
+    let theme = theme::Theme::active();
+    println!("{}", theme.heading("Set up the brain receiver"));
+    println!(
+        "{}",
+        theme.muted("Press Enter to keep an existing value. Type /clear to erase it.")
+    );
+    let current = crate::config::Config::load();
+    for (name, label, old) in [
+        ("response_email", "Your response email", current.response_email),
+        (
+            "allowed_sms_senders",
+            "Allowed SMS numbers (comma-separated)",
+            current.allowed_sms_senders,
+        ),
+        (
+            "allowed_email_senders",
+            "Allowed email senders (comma-separated)",
+            current.allowed_email_senders,
+        ),
+    ] {
+        let hint = if old.trim().is_empty() {
+            theme.muted("(not set)")
+        } else {
+            theme.muted(&format!("(saved: {})", old.trim()))
+        };
+        let Some(input) = prompt_tty_line(&format!("{} {}: ", theme.prompt(label), hint))? else {
+            anyhow::bail!("receiver setup needs an interactive terminal; nothing was changed");
+        };
+        let value = match input.trim() {
+            "" => old,
+            "/clear" => String::new(),
+            value => value.to_owned(),
+        };
+        settings::set(name, &value)?;
+    }
+    println!("{}", theme.success("receiver configuration saved"));
+    println!(
+        "{}",
+        theme.muted("Provider secrets remain machine-local. Set TWILIO_*/RESEND_* and BRAIN_RECEIVER_PUBLIC_URL before starting the receiver.")
+    );
+    Ok(())
 }
 
 /// Handle `brain habits`: ensure the shared brain server is up, then open its
@@ -580,7 +628,7 @@ fn prompt_tty_line(prompt: &str) -> Result<Option<String>> {
 fn tasks_launch(
     mut cli: TasksCli,
     agent_kind: session::AgentKind,
-    with_server: bool,
+    with_receiver: bool,
 ) -> Result<()> {
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
@@ -605,7 +653,7 @@ fn tasks_launch(
         }
         None => resolve_query(&cli.query, today),
     };
-    tasks_browse(initial, &mut cli, today, agent_kind, with_server)
+    tasks_browse(initial, &mut cli, today, agent_kind, with_receiver)
 }
 
 /// What the tasks positional input resolves to (mirrors the old `tasks`
@@ -636,7 +684,7 @@ fn tasks_browse(
     cli: &mut TasksCli,
     today: NaiveDate,
     agent_kind: session::AgentKind,
-    with_server: bool,
+    with_receiver: bool,
 ) -> Result<()> {
     logging::log("tasks browse");
     let csv_path = cli.csv.clone().unwrap_or_else(default_csv_path);
@@ -695,7 +743,7 @@ fn tasks_browse(
             habits,
             start_view,
             initial_search,
-            with_server,
+            with_receiver,
         )?;
     }
     Ok(())

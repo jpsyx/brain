@@ -31,7 +31,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // every iteration (including idle 50ms polls) so the Enter lands a
         // couple of ticks after the text, letting claude submit it.
         app.tick_brain_submit();
-        app.tick_messaging();
+        app.tick_receiver();
 
         // If the startup daily-triage nudge was deferred pending a background
         // sync, resolve it here once that sync lands (or its deadline passes):
@@ -203,7 +203,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                 app.log_path.is_some(),
             ));
             if let Some(palette) = app.palette.as_mut() {
-                palette.messaging_server_running = app.messaging_server.is_some();
+                palette.receiver_server_running = app.receiver_server.is_some();
             }
             continue;
         }

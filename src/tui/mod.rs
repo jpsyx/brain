@@ -46,7 +46,7 @@ mod event_loop;
 mod handlers;
 mod keymap;
 mod links;
-mod messaging_state;
+mod receiver_state;
 mod modal_state;
 mod modals;
 mod palette;
@@ -288,23 +288,23 @@ pub(crate) struct App<'a> {
     /// lifetime of the tasks shell; tracks which brain session this shell is
     /// driving (lock + recency).
     pub(crate) db: Db,
-    /// The optional messaging listener is owned by this TUI and therefore
+    /// The optional receiver listener is owned by this TUI and therefore
     /// cannot outlive it. Inbound work waits here until the active agent turn
     /// is safe to switch.
-    pub(crate) messaging_server: Option<crate::server::messaging::MessagingServer>,
-    pub(crate) messaging_control: Option<crate::server::messaging::ControlSocket>,
-    pub(crate) messaging_rx: Option<Receiver<crate::server::messaging::InboundMessage>>,
-    pub(crate) messaging_queue: Vec<crate::server::messaging::InboundMessage>,
-    pub(crate) requested_messaging_channel: Option<crate::state::SessionChannel>,
-    pub(crate) messaging_lease: Option<messaging_state::Lease>,
-    pub(crate) messaging_generation: u64,
-    pub(crate) messaging_sender: Option<String>,
-    pub(crate) messaging_recipients: Vec<String>,
-    pub(crate) messaging_session_id: Option<String>,
+    pub(crate) receiver_server: Option<crate::server::receiver::ReceiverServer>,
+    pub(crate) receiver_control: Option<crate::server::receiver::ControlSocket>,
+    pub(crate) receiver_rx: Option<Receiver<crate::server::receiver::InboundMessage>>,
+    pub(crate) receiver_queue: Vec<crate::server::receiver::InboundMessage>,
+    pub(crate) requested_receiver_channel: Option<crate::state::SessionChannel>,
+    pub(crate) receiver_lease: Option<receiver_state::Lease>,
+    pub(crate) receiver_generation: u64,
+    pub(crate) receiver_sender: Option<String>,
+    pub(crate) receiver_recipients: Vec<String>,
+    pub(crate) receiver_session_id: Option<String>,
     pub(crate) interactive_session_id: Option<String>,
-    pub(crate) messaging_resume_session: Option<String>,
-    pub(crate) messaging_started: Option<std::time::Instant>,
-    pub(crate) messaging_delay_sent: bool,
+    pub(crate) receiver_resume_session: Option<String>,
+    pub(crate) receiver_started: Option<std::time::Instant>,
+    pub(crate) receiver_delay_sent: bool,
 }
 
 /// In-shell fuzzy filter: score `tasks` against `query`, keeping matches in

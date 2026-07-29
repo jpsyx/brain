@@ -1,7 +1,7 @@
-//! TUI-owned messaging server.
+//! TUI-owned receiver server.
 //!
 //! This listener is intentionally a child of the interactive brain process.
-//! Dropping [`MessagingServer`] closes the socket, so it cannot become a
+//! Dropping [`ReceiverServer`] closes the socket, so it cannot become a
 //! detached service on machines that are not meant to receive messages.
 
 use std::io::{Read, Write};
@@ -31,7 +31,7 @@ impl SecurityConfig {
         let config = crate::config::Config::load();
         Self {
             twilio_auth_token: std::env::var("TWILIO_AUTH_TOKEN").unwrap_or_default(),
-            public_url: std::env::var("BRAIN_MESSAGING_PUBLIC_URL").unwrap_or_default(),
+            public_url: std::env::var("BRAIN_RECEIVER_PUBLIC_URL").unwrap_or_default(),
             resend_signing_secret: std::env::var("RESEND_WEBHOOK_SIGNING_SECRET")
                 .unwrap_or_default(),
             allowed_sms: config.allowed_sms(),
@@ -45,8 +45,8 @@ pub const DEFAULT_PORT: u16 = 8788;
 #[must_use]
 pub fn control_path() -> PathBuf {
     std::env::var_os("HOME").map_or_else(
-        || PathBuf::from(".cache/brain/messaging.sock"),
-        |home| PathBuf::from(home).join(".cache/brain/messaging.sock"),
+        || PathBuf::from(".cache/brain/receiver.sock"),
+        |home| PathBuf::from(home).join(".cache/brain/receiver.sock"),
     )
 }
 
@@ -67,7 +67,7 @@ impl ControlSocket {
             UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
         listener
             .set_nonblocking(true)
-            .context("making messaging control socket nonblocking")?;
+            .context("making receiver control socket nonblocking")?;
         Ok(Self { listener, path })
     }
 
@@ -104,12 +104,12 @@ pub fn send_control(command: &str) -> Result<String> {
         UnixStream::connect(control_path()).context("connecting to the running brain TUI")?;
     stream
         .write_all(command.as_bytes())
-        .context("sending messaging command")?;
+        .context("sending receiver command")?;
     stream.shutdown(std::net::Shutdown::Write).ok();
     let mut response = String::new();
     stream
         .read_to_string(&mut response)
-        .context("reading messaging command response")?;
+        .context("reading receiver command response")?;
     Ok(response)
 }
 
@@ -260,27 +260,27 @@ fn safe_attachment_name(url: &str, index: usize) -> String {
     }
 }
 
-pub struct MessagingServer {
+pub struct ReceiverServer {
     server: Arc<Server>,
     join: Option<JoinHandle<()>>,
 }
 
-impl MessagingServer {
+impl ReceiverServer {
     /// Bind and start the TUI-owned listener.
     pub fn start(port: u16, tx: Sender<InboundMessage>) -> Result<Self> {
         let server = Arc::new(
             Server::http(("127.0.0.1", port))
-                .map_err(|e| anyhow::anyhow!("binding messaging server: {e}"))?,
+                .map_err(|e| anyhow::anyhow!("binding receiver server: {e}"))?,
         );
         let actual = server
             .server_addr()
             .to_ip()
-            .context("resolving messaging server address")?
+            .context("resolving receiver server address")?
             .port();
         let worker_server = Arc::clone(&server);
         let security = SecurityConfig::load();
         let join = thread::Builder::new()
-            .name("brain-messaging-server".to_owned())
+            .name("brain-receiver".to_owned())
             .spawn(move || {
                 while let Ok(Some(mut request)) =
                     worker_server.recv_timeout(Duration::from_millis(100))
@@ -289,7 +289,7 @@ impl MessagingServer {
                     let _ = request.respond(response);
                 }
             })
-            .context("starting messaging server thread")?;
+            .context("starting receiver server thread")?;
         let _ = actual;
         Ok(Self {
             server,
@@ -298,7 +298,7 @@ impl MessagingServer {
     }
 }
 
-impl Drop for MessagingServer {
+impl Drop for ReceiverServer {
     fn drop(&mut self) {
         self.server.unblock();
         if let Some(join) = self.join.take() {

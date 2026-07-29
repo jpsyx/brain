@@ -69,9 +69,9 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub codex: bool,
 
-    /// Start the TUI-owned messaging server alongside the brain shell.
+    /// Start the TUI-owned receiver server alongside the brain shell.
     #[arg(long, global = true)]
-    pub with_server: bool,
+    pub with_receiver: bool,
 
     #[command(subcommand)]
     pub command: Option<Cmd>,
@@ -120,20 +120,20 @@ mod tests {
     }
 
     #[test]
-    fn with_server_is_opt_in() {
-        assert!(!Cli::try_parse_from(["brain"]).expect("parse").with_server);
+    fn with_receiver_is_opt_in() {
+        assert!(!Cli::try_parse_from(["brain"]).expect("parse").with_receiver);
         assert!(
-            Cli::try_parse_from(["brain", "--with-server"])
+            Cli::try_parse_from(["brain", "--with-receiver"])
                 .expect("parse")
-                .with_server
+                .with_receiver
         );
     }
 
     #[test]
-    fn messaging_server_commands_parse() {
-        let cli = Cli::try_parse_from(["brain", "messaging-server", "restart"]).expect("parse");
-        assert!(matches!(cli.command, Some(Cmd::MessagingServer(args))
-            if matches!(args.action, MessagingServerAction::Restart)));
+    fn receiver_server_commands_parse() {
+        let cli = Cli::try_parse_from(["brain", "receiver", "restart"]).expect("parse");
+        assert!(matches!(cli.command, Some(Cmd::Receiver(args))
+            if matches!(args.action, ReceiverServerAction::Restart)));
     }
 }
 
@@ -175,8 +175,9 @@ pub enum Cmd {
     /// `status`, `kill`). One shared daemon per machine.
     Server(ServerArgs),
 
-    /// Control the TUI-owned external messaging server.
-    MessagingServer(MessagingServerArgs),
+    /// Control the TUI-owned external receiver server.
+    #[command(name = "receiver")]
+    Receiver(ReceiverArgs),
 
     /// Open today's habits page in your browser (starts the brain server if needed).
     Habits,
@@ -324,22 +325,24 @@ pub struct ServerArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct MessagingServerArgs {
+pub struct ReceiverArgs {
     #[command(subcommand)]
-    pub action: MessagingServerAction,
+    pub action: ReceiverServerAction,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum MessagingServerAction {
+pub enum ReceiverServerAction {
+    /// Interactively configure receiver addresses and allowlists.
+    Setup,
     /// Ask the running brain TUI to start receiving SMS and email.
     Start,
-    /// Show the messaging server state.
+    /// Show the receiver server state.
     Status,
     /// Ask the running brain TUI to stop receiving messages.
     Stop,
-    /// Restart the TUI-owned messaging server.
+    /// Restart the TUI-owned receiver server.
     Restart,
-    /// Show recent messaging-server logs.
+    /// Show recent receiver logs.
     Logs,
 }
 

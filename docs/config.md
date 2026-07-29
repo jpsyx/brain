@@ -168,8 +168,8 @@ long-form SMS responses are delivered:
 | `allowed_sms_senders` | Comma-separated phone numbers permitted to send SMS/MMS messages. |
 | `allowed_email_senders` | Comma-separated email addresses permitted to issue brain messages and participate in automatic thread replies. |
 
-Provider secrets remain machine-local environment values. The messaging server
-also requires `TWILIO_AUTH_TOKEN`, `BRAIN_MESSAGING_PUBLIC_URL`, and
+Provider secrets remain machine-local environment values. The receiver server
+also requires `TWILIO_AUTH_TOKEN`, `BRAIN_RECEIVER_PUBLIC_URL`, and
 `RESEND_WEBHOOK_SIGNING_SECRET` before accepting requests. A missing secret or
 empty allowlist fails closed.
 

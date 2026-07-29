@@ -48,7 +48,7 @@ pub fn run_tui(
     all_habits: Vec<Task>,
     active_view: Option<View>,
     initial_search: Option<String>,
-    with_server: bool,
+    with_receiver: bool,
 ) -> Result<()> {
     let _singleton = crate::tui::singleton::Guard::acquire()?;
     // First-run onboarding: seed personalization with a short skippable prompt
@@ -130,9 +130,9 @@ pub fn run_tui(
         search,
         panel_side,
     );
-    app.messaging_control = crate::server::messaging::ControlSocket::bind().ok();
-    if with_server {
-        app.start_messaging_server();
+    app.receiver_control = crate::server::receiver::ControlSocket::bind().ok();
+    if with_receiver {
+        app.start_receiver_server();
     }
     // The brain panel opens at startup (resuming the latest session), but focus
     // stays on the tasks main view so `j`/`k` work immediately. `open_or_focus_

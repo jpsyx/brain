@@ -1,4 +1,4 @@
-//! The local habits server and TUI-owned messaging server.
+//! The local habits server and TUI-owned receiver server.
 //!
 //! One shared daemon per machine, reused across every `brain` invocation and
 //! tab. [`lifecycle`] owns the on-disk daemon record and the `start` /
@@ -9,11 +9,11 @@
 //! `GET /habits` renders today's habits page (see [`routes::habits`]) and
 //! `POST /habits/done` marks a habit done by delegating to brain's own
 //! completion machinery. External `/sms` and `/email` routes are served only
-//! by [`messaging`] while an interactive TUI owns the listener.
+//! by [`receiver`] while an interactive TUI owns the listener.
 
 pub mod delivery;
 pub mod lifecycle;
-pub mod messaging;
+pub mod receiver;
 pub mod reply;
 pub mod router;
 pub mod routes;
@@ -81,7 +81,7 @@ fn respond(request: &mut Request) -> Response<std::io::Cursor<Vec<u8>>> {
                 .with_header(content_type("application/json"))
         }
         Route::Sms | Route::Email => {
-            Response::from_string("messaging server is not attached to this process")
+            Response::from_string("receiver server is not attached to this process")
                 .with_status_code(503)
         }
         Route::NotFound => Response::from_string(String::new()).with_status_code(404),

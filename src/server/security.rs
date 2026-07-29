@@ -1,4 +1,4 @@
-//! Signature and sender authorization helpers for messaging webhooks.
+//! Signature and sender authorization helpers for receiver webhooks.
 
 use std::collections::BTreeMap;
 

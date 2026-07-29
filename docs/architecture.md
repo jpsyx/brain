@@ -530,19 +530,19 @@ it's the persisted value. Mirrors `tasks/src/state`. See
 
 ### `server/`
 Brain has two separate HTTP services. The habits server remains local-only and
-serves the habits frontend. The messaging server is a TUI-owned, opt-in
+serves the habits frontend. The receiver server is a TUI-owned, opt-in
 listener on `/sms` and `/email`; it is never started by ordinary TUI startup
 and cannot outlive the interactive shell.
 - `server/router.rs` — pure route mapping for `/habits`, `/habits/done`, `/sms`,
   and `/email`. The former `/webhooks/capture` placeholder is removed.
-- `server/messaging.rs` — the blocking `tiny_http` listener, provider payload
+- `server/receiver.rs` — the blocking `tiny_http` listener, provider payload
   parsing, authenticated sender checks, and a channel feeding the owning TUI.
 - `server/security.rs` — pure Twilio HMAC, Resend/Svix HMAC, and exact
   allowlist decisions.
 - `server/lifecycle.rs` — the legacy local habits-server lifecycle.
 - `server/routes/habits/` — the habits MVC route and embedded frontend.
 
-`brain --with-server` starts the messaging listener after the TUI singleton is
+`brain --with-receiver` starts the receiver listener after the TUI singleton is
 acquired. The global palette can start, stop, restart, and inspect it while
 the TUI is alive. Inbound work is queued into the TUI and is never allowed to
 interrupt an active agent turn.

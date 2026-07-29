@@ -146,20 +146,20 @@ impl App<'_> {
             PaletteAction::CloseBrain => {
                 self.close_brain();
             }
-            PaletteAction::StartMessagingServer => self.start_messaging_server(),
-            PaletteAction::StopMessagingServer => {
-                self.messaging_server = None;
-                self.messaging_rx = None;
-                self.flash = Some(FlashKind::Info("messaging server stopped".to_owned()));
+            PaletteAction::StartReceiverServer => self.start_receiver_server(),
+            PaletteAction::StopReceiverServer => {
+                self.receiver_server = None;
+                self.receiver_rx = None;
+                self.flash = Some(FlashKind::Info("receiver server stopped".to_owned()));
             }
-            PaletteAction::RestartMessagingServer => {
-                self.messaging_server = None;
-                self.messaging_rx = None;
-                self.start_messaging_server();
+            PaletteAction::RestartReceiverServer => {
+                self.receiver_server = None;
+                self.receiver_rx = None;
+                self.start_receiver_server();
             }
-            PaletteAction::ShowMessagingServerLogs => {
+            PaletteAction::ShowReceiverServerLogs => {
                 self.flash = Some(FlashKind::Info(
-                    "messaging-server logs are written to the brain run log".to_owned(),
+                    "receiver logs are written to the brain run log".to_owned(),
                 ));
             }
             PaletteAction::MessageBrainAboutTask => {

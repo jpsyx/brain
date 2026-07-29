@@ -96,7 +96,10 @@ fn stdout_enabled() -> bool {
 
 #[must_use]
 pub(crate) fn log_path_for(timestamp: &str) -> PathBuf {
-    PathBuf::from("/tmp").join(format!("{timestamp}.log"))
+    PathBuf::from("/tmp").join(format!(
+        "{timestamp}-{}.log",
+        std::process::id()
+    ))
 }
 
 #[cfg(test)]
@@ -107,10 +110,10 @@ mod tests {
     #[test]
     fn log_path_uses_tmp_and_the_exact_timestamp_as_filename() {
         let path = log_path_for("2026-07-26T10:11:12.123456789-04:00");
-        assert_eq!(
-            path,
-            std::path::PathBuf::from("/tmp/2026-07-26T10:11:12.123456789-04:00.log")
-        );
+        assert!(path
+            .to_string_lossy()
+            .starts_with("/tmp/2026-07-26T10:11:12.123456789-04:00-"));
+        assert!(path.extension().is_some_and(|ext| ext == "log"));
     }
 
     #[test]

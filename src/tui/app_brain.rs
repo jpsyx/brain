@@ -17,26 +17,26 @@ use crate::pty_pane::PtyPane;
 use crate::session::{self, AgentKind, Plan};
 
 impl App<'_> {
-    /// Start the messaging listener only when explicitly requested at TUI
+    /// Start the receiver listener only when explicitly requested at TUI
     /// startup. The listener is stored on `App`, so dropping the shell stops
     /// it automatically.
-    pub(crate) fn start_messaging_server(&mut self) {
-        if self.messaging_server.is_some() {
+    pub(crate) fn start_receiver_server(&mut self) {
+        if self.receiver_server.is_some() {
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
-        match crate::server::messaging::MessagingServer::start(
-            crate::server::messaging::DEFAULT_PORT,
+        match crate::server::receiver::ReceiverServer::start(
+            crate::server::receiver::DEFAULT_PORT,
             tx,
         ) {
             Ok(server) => {
-                self.messaging_server = Some(server);
-                self.messaging_rx = Some(rx);
-                self.flash = Some(FlashKind::Info("messaging server is listening".to_owned()));
+                self.receiver_server = Some(server);
+                self.receiver_rx = Some(rx);
+                self.flash = Some(FlashKind::Info("receiver server is listening".to_owned()));
             }
             Err(error) => {
                 self.flash = Some(FlashKind::Error(format!(
-                    "messaging server could not start: {error}"
+                    "receiver server could not start: {error}"
                 )));
             }
         }
@@ -44,67 +44,67 @@ impl App<'_> {
 
     /// Drain messages received by the TUI-owned listener. Active agent work is
     /// never interrupted; the queue is consumed when the panel is available.
-    pub(crate) fn tick_messaging(&mut self) {
+    pub(crate) fn tick_receiver(&mut self) {
         self.poll_completed_remote_response();
         self.poll_completed_interactive_turn();
         self.maybe_send_processing_delay();
-        if let Some(lease) = self.messaging_lease
-            && crate::tui::messaging_state::expired(
+        if let Some(lease) = self.receiver_lease
+            && crate::tui::receiver_state::expired(
                 lease,
                 std::time::Instant::now(),
-                self.messaging_lease.map(|current| current.channel),
-                self.messaging_generation,
+                self.receiver_lease.map(|current| current.channel),
+                self.receiver_generation,
             )
             && !self.brain_panel_open()
         {
-            self.messaging_lease = None;
-            self.requested_messaging_channel = None;
+            self.receiver_lease = None;
+            self.requested_receiver_channel = None;
             self.open_or_focus_brain(None);
         }
         let control_requests = self
-            .messaging_control
+            .receiver_control
             .as_ref()
-            .map(crate::server::messaging::ControlSocket::poll)
+            .map(crate::server::receiver::ControlSocket::poll)
             .unwrap_or_default();
         for (mut stream, command) in control_requests {
             let response = match command.as_str() {
                 "start" => {
-                    self.start_messaging_server();
-                    "messaging server started\n".to_owned()
+                    self.start_receiver_server();
+                    "receiver server started\n".to_owned()
                 }
                 "stop" => {
-                    self.messaging_server = None;
-                    self.messaging_rx = None;
-                    "messaging server stopped\n".to_owned()
+                    self.receiver_server = None;
+                    self.receiver_rx = None;
+                    "receiver server stopped\n".to_owned()
                 }
                 "restart" => {
-                    self.messaging_server = None;
-                    self.messaging_rx = None;
-                    self.start_messaging_server();
-                    "messaging server restarted\n".to_owned()
+                    self.receiver_server = None;
+                    self.receiver_rx = None;
+                    self.start_receiver_server();
+                    "receiver server restarted\n".to_owned()
                 }
                 "status" => {
-                    if self.messaging_server.is_some() {
-                        "messaging server is running\n".to_owned()
+                    if self.receiver_server.is_some() {
+                        "receiver server is running\n".to_owned()
                     } else {
-                        "messaging server is stopped\n".to_owned()
+                        "receiver server is stopped\n".to_owned()
                     }
                 }
-                "logs" => "messaging-server logs are in the current brain run log\n".to_owned(),
-                _ => "unknown messaging-server command\n".to_owned(),
+                "logs" => "receiver logs are in the current brain run log\n".to_owned(),
+                _ => "unknown receiver command\n".to_owned(),
             };
             let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
         }
-        if let Some(rx) = &self.messaging_rx {
+        if let Some(rx) = &self.receiver_rx {
             for message in rx.try_iter() {
                 if self.brain_panel_open() {
                     match message.channel {
-                        crate::server::messaging::Channel::Sms => {
+                        crate::server::receiver::Channel::Sms => {
                             let notice = crate::server::reply::processing_notice("sms");
                             let _ =
                                 crate::server::delivery::send_sms(&message.sender, &notice.text);
                         }
-                        crate::server::messaging::Channel::Email => {
+                        crate::server::receiver::Channel::Email => {
                             let recipients = crate::server::delivery::allowed_thread_recipients(
                                 &message.participants,
                                 &self.config.allowed_email(),
@@ -122,20 +122,20 @@ impl App<'_> {
                         }
                     }
                 }
-                self.messaging_queue.push(message);
+                self.receiver_queue.push(message);
             }
         }
-        if self.brain_panel_open() || self.messaging_queue.is_empty() {
+        if self.brain_panel_open() || self.receiver_queue.is_empty() {
             return;
         }
-        let message = self.messaging_queue.remove(0);
+        let message = self.receiver_queue.remove(0);
         let label = match message.channel {
-            crate::server::messaging::Channel::Sms => "SMS",
-            crate::server::messaging::Channel::Email => "email",
+            crate::server::receiver::Channel::Sms => "SMS",
+            crate::server::receiver::Channel::Email => "email",
         };
         let _delivery_shape = match message.channel {
-            crate::server::messaging::Channel::Sms => crate::server::reply::sms(&message.body),
-            crate::server::messaging::Channel::Email => {
+            crate::server::receiver::Channel::Sms => crate::server::reply::sms(&message.body),
+            crate::server::receiver::Channel::Email => {
                 let _ = crate::server::reply::email_html(&message.body);
                 let _ = crate::server::delivery::allowed_thread_recipients(
                     &message.participants,
@@ -146,7 +146,7 @@ impl App<'_> {
             }
         };
         let _ = crate::server::reply::processing_notice(label);
-        let staged = crate::server::messaging::stage_attachments(&message);
+        let staged = crate::server::receiver::stage_attachments(&message);
         let mut attachments = String::new();
         for attachment in staged {
             use std::fmt::Write;
@@ -169,18 +169,18 @@ impl App<'_> {
             "This is an authenticated {label} message from {}. Respond as the user's brain.\n\n{}",
             message.sender, message.body
         );
-        self.requested_messaging_channel = Some(match message.channel {
-            crate::server::messaging::Channel::Sms => crate::state::SessionChannel::Sms,
-            crate::server::messaging::Channel::Email => crate::state::SessionChannel::Email,
+        self.requested_receiver_channel = Some(match message.channel {
+            crate::server::receiver::Channel::Sms => crate::state::SessionChannel::Sms,
+            crate::server::receiver::Channel::Email => crate::state::SessionChannel::Email,
         });
-        self.messaging_sender = Some(message.sender.clone());
-        self.messaging_recipients.clone_from(&message.participants);
-        self.messaging_generation = self.messaging_generation.saturating_add(1);
-        self.messaging_started = Some(std::time::Instant::now());
-        self.messaging_delay_sent = false;
-        self.messaging_lease = Some(crate::tui::messaging_state::renew(
+        self.receiver_sender = Some(message.sender.clone());
+        self.receiver_recipients.clone_from(&message.participants);
+        self.receiver_generation = self.receiver_generation.saturating_add(1);
+        self.receiver_started = Some(std::time::Instant::now());
+        self.receiver_delay_sent = false;
+        self.receiver_lease = Some(crate::tui::receiver_state::renew(
             message.channel,
-            self.messaging_generation,
+            self.receiver_generation,
             std::time::Instant::now(),
         ));
         self.open_or_focus_brain(Some(&(prompt + &attachments)));
@@ -190,7 +190,7 @@ impl App<'_> {
     /// persistent panel. If remote work is waiting, close only after that
     /// completion signal so the active turn is never interrupted.
     fn poll_completed_interactive_turn(&mut self) {
-        if self.messaging_lease.is_some() || self.messaging_queue.is_empty() {
+        if self.receiver_lease.is_some() || self.receiver_queue.is_empty() {
             return;
         }
         let Some(session_id) = self.interactive_session_id.clone() else {
@@ -205,30 +205,30 @@ impl App<'_> {
     }
 
     fn maybe_send_processing_delay(&mut self) {
-        if self.messaging_delay_sent
+        if self.receiver_delay_sent
             || self
-                .messaging_started
+                .receiver_started
                 .is_none_or(|started| started.elapsed() < std::time::Duration::from_secs(120))
         {
             return;
         }
         let (Some(channel), Some(sender)) = (
-            self.messaging_lease.map(|lease| lease.channel),
-            self.messaging_sender.clone(),
+            self.receiver_lease.map(|lease| lease.channel),
+            self.receiver_sender.clone(),
         ) else {
             return;
         };
         let notice = crate::server::reply::processing_notice(match channel {
-            crate::server::messaging::Channel::Sms => "sms",
-            crate::server::messaging::Channel::Email => "email",
+            crate::server::receiver::Channel::Sms => "sms",
+            crate::server::receiver::Channel::Email => "email",
         });
         match channel {
-            crate::server::messaging::Channel::Sms => {
+            crate::server::receiver::Channel::Sms => {
                 let _ = crate::server::delivery::send_sms(&sender, &notice.text);
             }
-            crate::server::messaging::Channel::Email => {
+            crate::server::receiver::Channel::Email => {
                 let recipients = crate::server::delivery::allowed_thread_recipients(
-                    &self.messaging_recipients,
+                    &self.receiver_recipients,
                     &self.config.allowed_email(),
                     &self.config.response_email,
                 );
@@ -242,14 +242,14 @@ impl App<'_> {
                 }
             }
         }
-        self.messaging_delay_sent = true;
+        self.receiver_delay_sent = true;
     }
 
     fn poll_completed_remote_response(&mut self) {
         let (Some(session_id), Some(channel), Some(sender)) = (
-            self.messaging_session_id.clone(),
-            self.messaging_lease.map(|lease| lease.channel),
-            self.messaging_sender.clone(),
+            self.receiver_session_id.clone(),
+            self.receiver_lease.map(|lease| lease.channel),
+            self.receiver_sender.clone(),
         ) else {
             return;
         };
@@ -265,13 +265,13 @@ impl App<'_> {
         };
         let _ = std::fs::remove_file(path);
         match channel {
-            crate::server::messaging::Channel::Sms => {
+            crate::server::receiver::Channel::Sms => {
                 let reply = crate::server::reply::sms(message);
                 let _ = crate::server::delivery::send_sms(&sender, &reply.text);
             }
-            crate::server::messaging::Channel::Email => {
+            crate::server::receiver::Channel::Email => {
                 let recipients = crate::server::delivery::allowed_thread_recipients(
-                    &self.messaging_recipients,
+                    &self.receiver_recipients,
                     &self.config.allowed_email(),
                     &self.config.response_email,
                 );
@@ -288,12 +288,12 @@ impl App<'_> {
         }
         self.brain = None;
         let _ = self.db.release(&self.instance);
-        self.messaging_resume_session = self.interactive_session_id.take();
-        self.messaging_sender = None;
-        self.messaging_recipients.clear();
-        self.messaging_session_id = None;
-        self.messaging_started = None;
-        self.messaging_delay_sent = false;
+        self.receiver_resume_session = self.interactive_session_id.take();
+        self.receiver_sender = None;
+        self.receiver_recipients.clear();
+        self.receiver_session_id = None;
+        self.receiver_started = None;
+        self.receiver_delay_sent = false;
         self.reload_after_brain();
     }
 
@@ -356,8 +356,8 @@ impl App<'_> {
         }
 
         let pid = i32::try_from(std::process::id()).unwrap_or(0);
-        let requested_channel = self.requested_messaging_channel.take();
-        let resume_override = self.messaging_resume_session.take();
+        let requested_channel = self.requested_receiver_channel.take();
+        let resume_override = self.receiver_resume_session.take();
         let mut resume = None;
         let mut skipped_missing = false;
         if self.agent_kind == AgentKind::Claude {
@@ -386,12 +386,12 @@ impl App<'_> {
             Plan::Resume(id) | Plan::Fresh(id) => id.clone(),
         };
         if requested_channel.is_some() {
-            self.messaging_session_id = Some(match &plan {
+            self.receiver_session_id = Some(match &plan {
                 Plan::Resume(id) | Plan::Fresh(id) => id.clone(),
             });
             let response_path = crate::session::response_dir().join(format!(
                 "{}.json",
-                self.messaging_session_id.as_deref().unwrap_or_default()
+                self.receiver_session_id.as_deref().unwrap_or_default()
             ));
             let _ = std::fs::remove_file(response_path);
         }
@@ -435,22 +435,22 @@ impl App<'_> {
     /// effect landed right before the close shows up immediately.
     pub(crate) fn close_brain(&mut self) {
         let completed_remote = self.brain.as_ref().is_some_and(|panel| !panel.is_alive())
-            && self.messaging_lease.is_some();
+            && self.receiver_lease.is_some();
         if completed_remote {
             if let (Some(panel), Some(channel), Some(sender)) = (
                 self.brain.as_ref(),
-                self.messaging_lease.map(|lease| lease.channel),
-                self.messaging_sender.clone(),
+                self.receiver_lease.map(|lease| lease.channel),
+                self.receiver_sender.clone(),
             ) {
                 let final_text = panel.contents();
                 match channel {
-                    crate::server::messaging::Channel::Sms => {
+                    crate::server::receiver::Channel::Sms => {
                         let reply = crate::server::reply::sms(&final_text);
                         let _ = crate::server::delivery::send_sms(&sender, &reply.text);
                     }
-                    crate::server::messaging::Channel::Email => {
+                    crate::server::receiver::Channel::Email => {
                         let recipients = crate::server::delivery::allowed_thread_recipients(
-                            &self.messaging_recipients,
+                            &self.receiver_recipients,
                             &self.config.allowed_email(),
                             &self.config.response_email,
                         );
@@ -472,9 +472,9 @@ impl App<'_> {
         self.focus = Panel::Tasks;
         let _ = self.db.release(&self.instance);
         if completed_remote {
-            self.messaging_resume_session = self.interactive_session_id.take();
-            self.messaging_sender = None;
-            self.messaging_recipients.clear();
+            self.receiver_resume_session = self.interactive_session_id.take();
+            self.receiver_sender = None;
+            self.receiver_recipients.clear();
         }
         self.reload_after_brain();
     }

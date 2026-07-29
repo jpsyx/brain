@@ -170,8 +170,8 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
-| `brain --with-server` | Open the TUI and explicitly start its TUI-owned messaging server. |
-| `brain messaging-server {start\|status\|stop\|restart\|logs}` | Control or inspect the TUI-owned SMS/email listener. It cannot run without an active brain TUI. |
+| `brain --with-receiver` | Open the TUI and explicitly start its TUI-owned receiver server. |
+| `brain receiver {setup\|start\|status\|stop\|restart\|logs}` | Configure or control the TUI-owned SMS/email listener. It cannot run without an active brain TUI. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
@@ -609,13 +609,13 @@ brain (synced, never committed to the repo):
   sync installs them alongside the bundled cores, into the same registry and
   frontends.
 
-### Habits and messaging servers
+### Habits and receiver servers
 
 The habits server remains a local-only service. `GET /habits` renders today's
 habits as a flat-design HTML page, and `POST /habits/done` delegates to native
 completion machinery. It is separate from external message intake.
 
-The messaging server is owned by the running TUI and is opt-in. It exposes only
+The receiver server is owned by the running TUI and is opt-in. It exposes only
 authenticated `POST /sms` and `POST /email` routes. Twilio signatures and phone
 allowlists protect SMS/MMS; Resend/Svix signatures and email allowlists protect
 email. The former generic `/webhooks/capture` route has been removed.
@@ -627,9 +627,11 @@ email. The former generic `/webhooks/capture` route has been removed.
 - `brain server run --port <p>` — the internal blocking accept loop the spawned
   daemon runs; hidden from `--help` (you never invoke it directly).
 
-The habits daemon prefers port `8787`. The messaging listener uses port `8788`
-and exists only while its owning TUI exists. Start it with `brain --with-server`
-or the global palette. `brain messaging-server status` works from another
+`brain receiver setup` walks through the response email and sender allowlists;
+blank keeps an existing value and `/clear` erases it. The habits daemon prefers
+port `8787`. The receiver listener uses port `8788`
+and exists only while its owning TUI exists. Start it with `brain --with-receiver`
+or the global palette. `brain receiver status` works from another
 terminal through the TUI control socket; start/stop/restart also route through
 that socket and never create a second brain shell.
 

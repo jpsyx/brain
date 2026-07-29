@@ -31,7 +31,7 @@ impl PaletteState {
             task_actions_modal: false,
             brain_open,
             logs_available,
-            messaging_server_running: false,
+            receiver_server_running: false,
         }
     }
 
@@ -60,7 +60,7 @@ impl PaletteState {
             // global "Close brain" never appears here regardless.
             brain_open: false,
             logs_available: false,
-            messaging_server_running: false,
+            receiver_server_running: false,
         }
     }
 
@@ -130,10 +130,10 @@ impl PaletteState {
             | PaletteAction::SyncBrainNow
             | PaletteAction::OpenAgenda
             | PaletteAction::ToggleNotes
-            | PaletteAction::StartMessagingServer
-            | PaletteAction::StopMessagingServer
-            | PaletteAction::RestartMessagingServer
-            | PaletteAction::ShowMessagingServerLogs => cmd.label.to_owned(),
+            | PaletteAction::StartReceiverServer
+            | PaletteAction::StopReceiverServer
+            | PaletteAction::RestartReceiverServer
+            | PaletteAction::ShowReceiverServerLogs => cmd.label.to_owned(),
         }
     }
 
@@ -165,10 +165,10 @@ impl PaletteState {
                         // "Show logs" only appears for verbose TUI runs.
                         && (!matches!(c.action, PaletteAction::ShowLogs) || self.logs_available)
                         && match c.action {
-                            PaletteAction::StartMessagingServer => !self.messaging_server_running,
-                            PaletteAction::StopMessagingServer
-                            | PaletteAction::RestartMessagingServer
-                            | PaletteAction::ShowMessagingServerLogs => self.messaging_server_running,
+                            PaletteAction::StartReceiverServer => !self.receiver_server_running,
+                            PaletteAction::StopReceiverServer
+                            | PaletteAction::RestartReceiverServer
+                            | PaletteAction::ShowReceiverServerLogs => self.receiver_server_running,
                             _ => true,
                         }
                 }
