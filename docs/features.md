@@ -257,13 +257,13 @@ two clearly labeled installation choices: the Homebrew command
   verifies or creates the bucket, creates the `RCLONE_TEST` check-access marker
   on both sides, and establishes the initial bisync baseline.
 - `brain sync repair` — (re-)establish the bisync baseline for a machine that
-  already has `sync` env configured, or recover once rclone refuses to sync
-  because one side's listing is empty or the check-access marker is missing (see
-  [integrations.md](integrations.md)). It recreates the `RCLONE_TEST` marker on
-  both sides before the resync. It does **not** collect Backblaze credentials or
-  enable cloud sync; if it is run before setup, brain explains that
-  `brain sync setup` must come first. You rarely need to run this by hand
-  anymore — see **auto-resume** below.
+  already has `sync` env configured. A normal sync automatically performs this
+  narrow repair when rclone reports a missing check-access marker, announcing
+  that it is running the repair and why. Use this command directly for an
+  explicit repair or when rclone reports another baseline problem. It
+  recreates the `RCLONE_TEST` marker on both sides before the resync. It does
+  **not** collect Backblaze credentials or enable cloud sync; if it is run
+  before setup, brain explains that `brain sync setup` must come first.
 - `brain sync status` — the last run (from the local sync journal), the
   configured triggers (`on_start`/`on_exit`/`watch`, with the watcher's
   debounce window shown as `(3000ms debounce)`), and the count of open
@@ -426,14 +426,13 @@ run against an unconfigured or baseline-less brain, it prints the same
 "not configured" / "no baseline yet" guidance as `brain sync` instead of
 erroring.
 
-**Auto-resume (never-miss guarantee).** If a sync is interrupted (Ctrl-C, a
-dropped connection, a crash) mid-baseline, brain never reports it as done —
-an interrupted or errored run always journals as `needs_attention`/`aborted`,
-never `clean`. The *next* plain `brain sync` automatically detects the
-incomplete baseline and transparently resumes it (one internal resync retry,
-journalled with the note "auto-resumed after interrupted baseline") before
-continuing — no need to manually run `brain sync repair` first. The guarantee:
-every in-scope file is eventually synced; nothing is silently left behind.
+**Auto-resume (never-miss guarantee).** If rclone reports a missing prior
+baseline listing, brain never reports the run as done. It announces the
+condition and makes one internal resync attempt before continuing. This is
+based on rclone's listing error, not on a missing-rclone run: when rclone is
+not installed, brain exits before invoking it and records no sync attempt. If
+the resync reports a missing check-access marker, the normal sync then
+automatically runs the narrow marker repair and announces that recovery.
 
 **Deletions propagate both ways.** `rclone bisync` mirrors deletes as well as
 edits: deleting a file locally removes it from the B2 bucket on the next

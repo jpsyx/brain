@@ -73,9 +73,10 @@ pub fn sync_once(
     eprintln!("{}", format_sync_plan(cfg, root, dir, theme));
 
     if !crate::sync::run::rclone_present() {
-        return Ok(Outcome::Aborted(
-            crate::sync::run::missing_rclone_guidance(theme, "brain sync"),
-        ));
+        return Ok(Outcome::Aborted(crate::sync::run::missing_rclone_guidance(
+            theme,
+            "brain sync",
+        )));
     }
 
     eprintln!("{}", theme.info(sync_progress(dir)));
@@ -101,13 +102,40 @@ pub fn sync_once(
         eprintln!(
             "{}",
             theme.warning(
-                "Baseline was incomplete (a prior sync was interrupted); resuming with a resync…"
+                "rclone reported that its baseline listing is incomplete; establishing it with a one-time resync…"
             )
         );
         let resync_argv = args::bisync_args(cfg, &local, &remote.arg, Direction::Resync);
         run = run_rclone(&remote.env, &resync_argv);
         crate::logging::log(format!(
             "sync auto-resync done exit_ok={} transferred={} deleted={} errors={} abort={:?}",
+            run.exit_ok, run.transferred, run.deleted, run.errors, run.abort
+        ));
+        true
+    } else {
+        false
+    };
+    let auto_repaired = if should_auto_repair_check_access(dir, run.abort.as_ref()) {
+        crate::logging::log("sync auto-repair check-access marker");
+        eprintln!(
+            "{}",
+            theme.warning(
+                "The check-access marker is missing; running `brain sync repair` automatically to recreate it and re-establish the baseline…"
+            )
+        );
+        eprintln!(
+            "{}",
+            theme.info("Recreating the local and remote RCLONE_TEST markers…")
+        );
+        crate::sync::check_access::ensure_markers(root, &remote)?;
+        eprintln!(
+            "{}",
+            theme.info("Rebuilding the rclone baseline; live file progress follows…")
+        );
+        let repair_argv = args::bisync_args(cfg, &local, &remote.arg, Direction::Resync);
+        run = run_rclone(&remote.env, &repair_argv);
+        crate::logging::log(format!(
+            "sync auto-repair done exit_ok={} transferred={} deleted={} errors={} abort={:?}",
             run.exit_ok, run.transferred, run.deleted, run.errors, run.abort
         ));
         true
@@ -168,6 +196,15 @@ pub fn sync_once(
             } else {
                 base
             };
+            let base = if auto_repaired {
+                if base.is_empty() {
+                    "auto-repaired missing check-access marker".to_owned()
+                } else {
+                    format!("auto-repaired missing check-access marker; {base}")
+                }
+            } else {
+                base
+            };
             join_notes(&base, &csv_note)
         },
     })?;
@@ -219,6 +256,16 @@ pub fn should_auto_resync(dir: Direction, abort: Option<&crate::sync::run::Abort
             abort,
             Some(crate::sync::run::AbortKind::PriorListingMissing)
         )
+}
+
+/// Whether a normal sync should automatically run the narrow, low-risk repair
+/// for a missing check-access marker. A resync never retries itself.
+#[must_use]
+pub fn should_auto_repair_check_access(
+    dir: Direction,
+    abort: Option<&crate::sync::run::AbortKind>,
+) -> bool {
+    dir != Direction::Resync && matches!(abort, Some(crate::sync::run::AbortKind::CheckAccess))
 }
 
 /// Whether this sync run should create/repair the check-access markers before
@@ -770,6 +817,27 @@ mod tests {
             Some(&AbortKind::MaxDelete)
         ));
         assert!(!should_auto_resync(Direction::Both, None));
+    }
+
+    #[test]
+    fn check_access_abort_is_auto_repaired_once_for_normal_syncs() {
+        use crate::sync::run::AbortKind;
+        assert!(should_auto_repair_check_access(
+            Direction::Both,
+            Some(&AbortKind::CheckAccess)
+        ));
+        assert!(should_auto_repair_check_access(
+            Direction::Push,
+            Some(&AbortKind::CheckAccess)
+        ));
+        assert!(!should_auto_repair_check_access(
+            Direction::Resync,
+            Some(&AbortKind::CheckAccess)
+        ));
+        assert!(!should_auto_repair_check_access(
+            Direction::Both,
+            Some(&AbortKind::PriorListingMissing)
+        ));
     }
 
     #[test]

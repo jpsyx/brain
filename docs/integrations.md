@@ -233,8 +233,10 @@ bookkeeping.
 - **Progress is narrated as work happens.** `command::format_sync_plan` prints
   only the mode, local root, and remote target. `sync_once` then prints a phase
   line describing the comparison and direction before marker repair and the
-  rclone process, followed by a task/habit CSV merge phase. These are default
-  user-facing progress lines, separate from `--verbose` debug logging.
+  rclone process, followed by a task/habit CSV merge phase. If a normal sync
+  receives a check-access marker failure, it announces and runs the equivalent
+  narrow `brain sync repair` flow automatically. These are default user-facing
+  progress lines, separate from `--verbose` debug logging.
 - **rclone is an external prerequisite.** Brain checks that the executable can
   start before touching the remote. When it is missing, sync stops with an
   install guide with two explicit choices: Homebrew users can run `brew install

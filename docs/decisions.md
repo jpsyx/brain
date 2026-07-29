@@ -591,9 +591,9 @@ make every run abort. The §19 hardening slice adds that lifecycle in
 `src/sync/check_access.rs`: setup/repair write a generic local `RCLONE_TEST`
 marker, copy it to the remote root with rclone `copyto`, and then run the
 baseline resync. Normal syncs now pass `--check-access --check-filename
-RCLONE_TEST` and intentionally do not repair missing markers. A missing marker
-means the roots are no longer a confirmed pair, so brain aborts and points the
-user at `brain sync repair`.
+RCLONE_TEST`. A missing marker triggers the narrow automatic repair path on a
+normal sync: brain recreates the local and remote marker and runs one resync.
+An explicit `brain sync repair` remains available for deliberate recovery.
 
 **Why `rclone bisync` and not a from-scratch merge.** The brain root isn't
 just markdown notes — it also holds `tasks.csv`/`habits.csv`, which don't
@@ -626,8 +626,10 @@ missing" guard), C2 deliberately does not retry with `--resync` on its own —
 blindly doing that after an abort could paper over exactly the kind of change
 (a wiped directory, a botched previous run) the guard exists to catch.
 Instead the abort is surfaced (`Outcome::Aborted`, with a message pointing at
-`brain sync repair`) and the human decides. This mirrors the project's broader
-pattern of surfacing rather than auto-healing anything that touches data loss
+`brain sync repair`) and the human decides, except for the narrow
+`PriorListingMissing` resync and missing check-access-marker repair paths
+described below. This mirrors the project's broader pattern of surfacing
+rather than auto-healing anything that touches data loss
 (contrast the auto-healed
 `markdown_to_pdf_path`, which only ever *rediscovers a tool path* — never
 anyone's data). **This still holds for `--max-delete`** — a tripped delete
