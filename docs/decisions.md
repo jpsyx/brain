@@ -1316,13 +1316,13 @@ then resolving it, but the simpler and better behavior is to **not show it at
 all until we know the truth**. On a machine with `on_start` sync, `run_tui`
 defers the check: the shell is fully usable at once (no modal to dismiss), and
 `tick_triage_gate` runs the real `check_daily_triage` only after the startup
-sync completes (detected by a newer sync-journal row) or a short ~10s fail-open
-deadline. The modal then appears only if triage is genuinely still due; if
+sync completes (detected by a newer sync-journal row). The modal then appears
+only if triage is genuinely still due; if
 another machine handled it, it never appears. The gate keys on the journal's
 row id rather than the `current.json` in-flight marker specifically to avoid the
 "sync hasn't written its marker yet" start-gap: a new journal row is an
-unambiguous "a sync cycle finished" signal, and the deadline covers the
-offline/stuck case so the nudge is never lost.
+unambiguous "a sync cycle finished" signal. If the sync is offline or fails,
+the gate remains closed for that shell rather than evaluating stale local data.
 ## TUI-owned receiver server
 
 The external receiver listener is deliberately owned by the singleton brain

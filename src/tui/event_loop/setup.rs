@@ -152,8 +152,8 @@ pub fn run_tui(
     // machine's `habits.csv` once the startup sync lands. So when a startup sync
     // is pending, DON'T show the modal now — the shell stays usable immediately.
     // Instead capture the journal baseline, kick the sync, and *arm the gate*;
-    // `tick_triage_gate` runs the real check once the sync completes (or a short
-    // fail-open deadline passes). With no startup sync, check right away.
+    // `tick_triage_gate` runs the real check only once the sync completes. With
+    // no startup sync, check right away.
     if startup_sync {
         let seen =
             crate::sync::journal::Journal::open(&crate::sync::journal::Journal::default_path())
@@ -164,7 +164,6 @@ pub fn run_tui(
         app.arm_triage_gate(
             seen,
             std::time::Instant::now(),
-            std::time::Duration::from_secs(10),
         );
     } else {
         // No sync coming — the local state is authoritative, so check now. The

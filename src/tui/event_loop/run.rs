@@ -34,7 +34,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         app.tick_receiver();
 
         // If the startup daily-triage nudge was deferred pending a background
-        // sync, resolve it here once that sync lands (or its deadline passes):
+        // sync, resolve it here once that sync lands:
         // reload the synced CSVs and show the modal only if triage is still due.
         app.tick_triage_gate();
 

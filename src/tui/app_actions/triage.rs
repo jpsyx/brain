@@ -55,17 +55,15 @@ impl App<'_> {
     /// Called by `run_tui` *instead of* the immediate `check_daily_triage` when
     /// a startup sync is in flight: the shell stays usable with no modal, and
     /// the nudge is only evaluated once the sync has updated `habits.csv`.
-    /// `seen_journal_id` is the newest journal row at arm time; `now + wait` is
-    /// the fail-open deadline.
+    /// `seen_journal_id` is the newest journal row at arm time. The gate stays
+    /// closed until a newer row proves that the startup sync completed.
     pub(crate) fn arm_triage_gate(
         &mut self,
         seen_journal_id: Option<i64>,
         now: std::time::Instant,
-        wait: std::time::Duration,
     ) {
         self.triage_gate = Some(TriageGate {
             seen_journal_id,
-            deadline: now + wait,
             // Allow an immediate first poll (a very fast sync may already be done).
             next_poll: now,
         });
@@ -74,8 +72,8 @@ impl App<'_> {
     /// One event-loop tick of the deferred triage gate.
     ///
     /// No-op unless a gate is armed. Once the background sync has landed (a
-    /// newer journal row) or the fail-open deadline passes, it reloads the CSVs
-    /// (so the nudge sees the synced completion state) and runs the normal
+    /// newer journal row), it reloads the CSVs (so the nudge sees the synced
+    /// completion state) and runs the normal
     /// `check_daily_triage` exactly once — which shows the modal only if triage
     /// is *still* incomplete for today. Journal polling is throttled off the
     /// 50ms loop via `next_poll`.
@@ -84,7 +82,7 @@ impl App<'_> {
             return;
         };
         let now = std::time::Instant::now();
-        if now < gate.next_poll && now < gate.deadline {
+        if now < gate.next_poll {
             return;
         }
         let latest = crate::sync::journal::Journal::open(
@@ -93,7 +91,7 @@ impl App<'_> {
         .ok()
         .and_then(|j| j.latest_id().ok())
         .flatten();
-        if triage_gate_resolved(gate.seen_journal_id, latest, now, gate.deadline) {
+        if triage_gate_resolved(gate.seen_journal_id, latest) {
             self.triage_gate = None;
             let _ = self.reload_tasks();
             self.check_daily_triage();
@@ -128,19 +126,11 @@ impl App<'_> {
 
 /// Whether the deferred triage gate should resolve now.
 ///
-/// Resolves when either a strictly-newer sync-journal row exists than the one
-/// seen at arm time (a background sync completed) or the fail-open `deadline`
-/// has been reached. `seen`/`latest` are journal row ids (`None` = empty
-/// journal). Pure so the decision is unit-tested without a clock or a DB.
-fn triage_gate_resolved(
-    seen: Option<i64>,
-    latest: Option<i64>,
-    now: std::time::Instant,
-    deadline: std::time::Instant,
-) -> bool {
-    if now >= deadline {
-        return true;
-    }
+/// Resolves only when a strictly-newer sync-journal row exists than the one
+/// seen at arm time. A timeout must not resolve this gate because that would
+/// evaluate stale local habits while the startup sync is still running or has
+/// failed. Pure so the decision is unit-tested without a clock or a DB.
+fn triage_gate_resolved(seen: Option<i64>, latest: Option<i64>) -> bool {
     match (latest, seen) {
         (Some(l), Some(s)) => l > s,
         (Some(_), None) => true,
@@ -223,33 +213,28 @@ fn triage_rollover(
 #[cfg(test)]
 mod triage_gate_tests {
     use super::triage_gate_resolved;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn resolves_when_a_newer_journal_row_appears() {
-        let now = Instant::now();
-        let deadline = now + Duration::from_secs(10);
         // Same id → sync hasn't finished yet.
-        assert!(!triage_gate_resolved(Some(5), Some(5), now, deadline));
+        assert!(!triage_gate_resolved(Some(5), Some(5)));
         // A newer row → a sync completed.
-        assert!(triage_gate_resolved(Some(5), Some(6), now, deadline));
+        assert!(triage_gate_resolved(Some(5), Some(6)));
     }
 
     #[test]
     fn first_ever_row_resolves_from_an_empty_journal() {
-        let now = Instant::now();
-        let deadline = now + Duration::from_secs(10);
-        assert!(triage_gate_resolved(None, Some(1), now, deadline));
-        assert!(!triage_gate_resolved(None, None, now, deadline));
+        assert!(triage_gate_resolved(None, Some(1)));
+        assert!(!triage_gate_resolved(None, None));
     }
 
     #[test]
-    fn resolves_at_the_deadline_even_with_no_new_row() {
-        let now = Instant::now();
-        // Deadline already passed → fail open regardless of the journal.
-        let past = now.checked_sub(Duration::from_millis(1)).unwrap();
-        assert!(triage_gate_resolved(Some(5), Some(5), now, past));
-        assert!(triage_gate_resolved(None, None, now, past));
+    fn does_not_resolve_at_the_deadline_without_a_completed_sync() {
+        // A slow or offline sync must not make the gate evaluate stale local
+        // habits. It remains closed until a newer journal row proves that a
+        // sync completed.
+        assert!(!triage_gate_resolved(Some(5), Some(5)));
+        assert!(!triage_gate_resolved(None, None));
     }
 }
 

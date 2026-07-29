@@ -489,7 +489,7 @@ is coupled to that startup sync: when an `on_start` sync is pending, `run_tui`
 does *not* run the check immediately — it captures the sync journal's latest row
 id, kicks the sync, and calls `App::arm_triage_gate` (deferral, no modal). Each
 event-loop tick then calls `App::tick_triage_gate`, which — once a newer journal
-row appears (the sync finished) or a ~10s fail-open deadline passes — reloads
+row appears (the sync finished) — reloads
 the synced CSVs and runs `check_daily_triage` exactly once, so the modal
 reflects post-sync completion state (pure `triage_gate_resolved` decides
 resolution). With no startup sync, the check runs immediately as before. The

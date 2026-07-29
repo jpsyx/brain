@@ -369,11 +369,10 @@ interval.
 been done or skipped on another machine, and that only reaches this machine's
 `habits.csv` once the startup sync lands. So on a machine with `on_start` sync
 enabled, brain does **not** show the triage modal at open — the shell is usable
-immediately, with no modal to dismiss. It waits for the startup sync to finish
-(or a short ~10s fail-open deadline if the sync is slow/offline), reloads the
-synced tasks/habits, and only *then* shows the "run today's triage?" modal — and
-only if triage is still not done for today. If another machine already handled
-it, no modal ever appears. With no startup sync configured, the check runs
+immediately, with no modal to dismiss. It waits for the startup sync to finish,
+reloads the synced tasks/habits, and only *then* shows the "run today's triage?"
+modal — and only if triage is still not done for today. If another machine
+already handled it, no modal ever appears. With no startup sync configured, the check runs
 immediately at open as before.
 
 #### Migrating a machine to sync
