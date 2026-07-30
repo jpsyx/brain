@@ -186,22 +186,26 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         if ctrl
             && ctrl_opens_palette(k.code)
             && app.focus == Panel::Tasks
-            && app.main_view == MainView::Tasks
+            && matches!(app.main_view, MainView::Tasks | MainView::Logs)
         {
-            let task_id = app.current_task_id();
-            let is_habit = app.current_is_habit();
-            let has_notes = app.current_has_notes();
-            let notes_expanded = app.current_notes_expanded();
-            let link_kind = app.current_link_kind();
-            app.palette = Some(PaletteState::new(
-                task_id,
-                is_habit,
-                has_notes,
-                notes_expanded,
-                link_kind,
-                app.brain_panel_open(),
-                app.log_path.is_some(),
-            ));
+            app.palette = if app.main_view == MainView::Logs {
+                Some(PaletteState::new_logs_view(app.receiver_server.is_some()))
+            } else {
+                let task_id = app.current_task_id();
+                let is_habit = app.current_is_habit();
+                let has_notes = app.current_has_notes();
+                let notes_expanded = app.current_notes_expanded();
+                let link_kind = app.current_link_kind();
+                Some(PaletteState::new(
+                    task_id,
+                    is_habit,
+                    has_notes,
+                    notes_expanded,
+                    link_kind,
+                    app.brain_panel_open(),
+                    app.log_path.is_some(),
+                ))
+            };
             if let Some(palette) = app.palette.as_mut() {
                 palette.receiver_server_running = app.receiver_server.is_some();
             }

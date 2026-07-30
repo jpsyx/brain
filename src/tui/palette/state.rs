@@ -31,6 +31,7 @@ impl PaletteState {
             task_actions_modal: false,
             brain_open,
             receiver_server_running: false,
+            logs_view: false,
         }
     }
 
@@ -59,6 +60,24 @@ impl PaletteState {
             // global "Close brain" never appears here regardless.
             brain_open: false,
             receiver_server_running: false,
+            logs_view: false,
+        }
+    }
+
+    pub(crate) const fn new_logs_view(receiver_server_running: bool) -> Self {
+        Self {
+            filter: String::new(),
+            selected: 0,
+            task_id: None,
+            task_label: None,
+            context_is_habit: false,
+            context_has_notes: false,
+            context_notes_expanded: false,
+            context_links: LinkKind::None,
+            task_actions_modal: false,
+            brain_open: false,
+            receiver_server_running,
+            logs_view: true,
         }
     }
 
@@ -132,7 +151,8 @@ impl PaletteState {
             | PaletteAction::RestartReceiverServer
             | PaletteAction::ShowReceiverServerStatus
             | PaletteAction::ShowReceiverServerLogs
-            | PaletteAction::ShowBrainLogs => cmd.label.to_owned(),
+            | PaletteAction::ShowBrainLogs
+            | PaletteAction::ReturnToMainView => cmd.label.to_owned(),
         }
     }
 
@@ -158,6 +178,16 @@ impl PaletteState {
                             || self.context_links != LinkKind::None)
                 }
                 PaletteScope::Global => {
+                    if self.logs_view {
+                        return matches!(
+                            c.action,
+                            PaletteAction::ShowReceiverServerStatus
+                                | PaletteAction::ShowReceiverServerLogs
+                                | PaletteAction::ShowBrainLogs
+                                | PaletteAction::ReturnToMainView
+                        ) && (!matches!(c.action, PaletteAction::ShowReceiverServerLogs)
+                            || self.receiver_server_running);
+                    }
                     !self.task_actions_modal
                         // "Close brain" only makes sense while a panel is open.
                         && (!matches!(c.action, PaletteAction::CloseBrain) || self.brain_open)

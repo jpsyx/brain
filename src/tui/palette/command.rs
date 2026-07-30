@@ -35,6 +35,7 @@ pub(crate) enum PaletteAction {
     ShowReceiverServerStatus,
     ShowReceiverServerLogs,
     ShowBrainLogs,
+    ReturnToMainView,
     /// Like `SendBrainMessage`, but the entered text is prefixed with
     /// "This message is about <ID>:" so the brain agent knows which
     /// task / habit the user is asking about. Requires a selection.
@@ -99,6 +100,7 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         | PaletteAction::ShowReceiverServerStatus
         | PaletteAction::ShowReceiverServerLogs
         | PaletteAction::ShowBrainLogs
+        | PaletteAction::ReturnToMainView
         | PaletteAction::StartTask
         | PaletteAction::DeferTask(_)
         | PaletteAction::SyncBrainNow => None,
@@ -228,6 +230,12 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         label: "Show brain logs",
         action: PaletteAction::ShowBrainLogs,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
+        label: "Return to main view",
+        action: PaletteAction::ReturnToMainView,
         scope: PaletteScope::Global,
         works_on_habits: false,
     },

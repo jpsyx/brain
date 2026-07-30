@@ -128,6 +128,19 @@ pub(crate) fn flash_line(flash: &FlashKind) -> Line<'static> {
                     .add_modifier(Modifier::BOLD),
             ),
         ]),
+        FlashKind::ReceiverStatus { running } => Line::from(vec![
+            Span::raw(" receiver is "),
+            Span::styled(
+                if *running { "running" } else { "stopped" },
+                Style::default()
+                    .fg(if *running {
+                        Color::Rgb(158, 206, 106)
+                    } else {
+                        Color::Rgb(247, 118, 142)
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
     }
 }
 

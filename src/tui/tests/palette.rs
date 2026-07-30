@@ -245,6 +245,15 @@ fn brain_logs_are_always_available() {
 }
 
 #[test]
+fn logs_view_palette_only_lists_log_actions_and_return() {
+    let state = PaletteState::new_logs_view(false);
+    assert_eq!(
+        action_order(&state),
+        vec![PaletteAction::ShowReceiverServerStatus, PaletteAction::ShowBrainLogs, PaletteAction::ReturnToMainView]
+    );
+}
+
+#[test]
 fn open_links_shown_for_habit_with_notes_url() {
     // A habit has no Linear issue but can carry a notes URL; the command
     // is offered (works_on_habits) and gated only on having ≥ 1 link.

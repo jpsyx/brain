@@ -46,6 +46,7 @@ pub(crate) struct PaletteState {
     /// command — there's nothing to close when no panel is up.
     pub(super) brain_open: bool,
     pub(super) receiver_server_running: bool,
+    pub(super) logs_view: bool,
 }
 
 /// Visual intent of a confirm modal — drives the accent (border, title,
@@ -145,6 +146,7 @@ pub(crate) struct BrainInputState {
 pub(crate) enum FlashKind {
     Info(String),
     Error(String),
+    ReceiverStatus { running: bool },
 }
 
 /// State for the keyboard-shortcuts help modal (opened with `?`). Just a

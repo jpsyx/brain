@@ -151,12 +151,9 @@ impl App<'_> {
             }
             PaletteAction::ShowReceiverServerStatus => {
                 crate::logging::log("palette request receiver server status");
-                let status = if self.receiver_server.is_some() {
-                    "receiver server is running"
-                } else {
-                    "receiver server is stopped"
-                };
-                self.flash = Some(FlashKind::Info(status.to_owned()));
+                self.flash = Some(FlashKind::ReceiverStatus {
+                    running: self.receiver_server.is_some(),
+                });
             }
             PaletteAction::ShowReceiverServerLogs => {
                 crate::logging::log("palette request receiver server logs");
@@ -223,6 +220,10 @@ impl App<'_> {
             PaletteAction::ShowBrainLogs => {
                 crate::logging::log("palette request brain TUI logs");
                 self.show_logs_view(LogKind::Brain);
+            }
+            PaletteAction::ReturnToMainView => {
+                crate::logging::log("palette request return to main view");
+                self.main_view = crate::main_view::MainView::Tasks;
             }
             PaletteAction::ToggleNotes => {
                 self.toggle_notes();

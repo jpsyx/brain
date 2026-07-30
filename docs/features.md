@@ -182,7 +182,9 @@ brain's run log to stdout and writes the same log to a timestamped file under
 `/tmp/`, then prints the log path at exit. In the persistent TUI, logs still go
 to the file but never to stdout; use the command palette's **Show receiver
 server logs** or **Show brain logs** rows to switch the main panel to a
-scrollable log view. The log includes command dispatch, normalized
+scrollable log view. While there, `q`, `Ctrl-C`, or the palette's **Return to
+main view** action returns to tasks, and the palette hides unrelated commands.
+The log includes command dispatch, normalized
 arguments, task CSV paths and mutation results, sync/rclone phases, server
 lifecycle decisions, doctor probes, and skill install counts.
 
