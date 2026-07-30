@@ -1336,3 +1336,18 @@ than interrupting an active LLM turn.
 The habits server remains a separate local-only service. The generic capture
 placeholder was removed because it did not provide authenticated, channel-aware
 assistant behavior.
+
+The receiver stays synchronous, but it is not a single unbounded request loop.
+Four fixed workers isolate slow provider operations, request bodies are limited
+to 1 MiB, and the TUI handoff queue is bounded at 64 messages. `tiny_http`'s
+blocking `recv()` is intentional: idle time remains blocked without polling,
+and `unblock()` cleanly releases each worker when the TUI stops. Webhook
+verification follows provider replay guidance: HMAC comparisons are
+constant-time, Resend timestamps have a five-minute tolerance, and recent
+provider delivery IDs are ignored within the receiver process.
+
+Provider requests still use the system `curl` binary to avoid adding a second
+HTTP client stack, but the complete curl configuration is written through the
+child's standard input. Secrets, message content, and signed attachment URLs
+therefore do not appear in the child process's argument list, and the child
+output is captured rather than inherited by the TUI.

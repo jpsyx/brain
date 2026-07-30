@@ -152,7 +152,7 @@ impl App<'_> {
             PaletteAction::ShowReceiverServerStatus => {
                 crate::logging::log("palette request receiver server status");
                 self.flash = Some(FlashKind::ReceiverStatus {
-                    running: self.receiver_server.is_some(),
+                    running: self.receiver_server_running(),
                 });
             }
             PaletteAction::ShowReceiverServerLogs => {

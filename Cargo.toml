@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.9.14"
+version = "0.9.15"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
@@ -52,10 +52,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.10"
 sha2 = "0.10"
-# The brain server: a small, sync, blocking-IO HTTP server for a local-only
-# service (habits view today; webhook POST endpoints later). No Tokio — the
-# brain server is a tiny localhost daemon, so an async runtime would be pure
-# overhead; chosen over axum/actix precisely to keep this a synchronous app.
+# The habits daemon and TUI-owned receiver are small synchronous HTTP services
+# bound to loopback. The receiver uses a fixed worker pool behind the user's
+# reverse proxy; an async runtime would add substantial machinery for two
+# low-volume webhook routes.
 tiny_http = "0.12"
 tui-term = "0.2"
 # Per-shell brain-instance ids and fresh Claude session ids.

@@ -621,7 +621,10 @@ completion machinery. It is separate from external message intake.
 The receiver server is owned by the running TUI and is opt-in. It exposes only
 authenticated `POST /sms` and `POST /email` routes. Twilio signatures and phone
 allowlists protect SMS/MMS; Resend/Svix signatures and email allowlists protect
-email. The former generic `/webhooks/capture` route has been removed.
+email. Resend timestamps must be within five minutes, recent provider delivery
+IDs are deduplicated for the life of the receiver, request bodies are capped at
+1 MiB, and a bounded queue returns `503` backpressure instead of growing
+without limit. The former generic `/webhooks/capture` route has been removed.
 
 - `brain server start` — start the daemon in the background if it isn't already
   running (idempotent: an existing live server is reused and its URL reprinted).
@@ -639,7 +642,9 @@ habits daemon prefers port `8787`. The receiver listener uses port `8788`
 and exists only while its owning TUI exists. Start it with `brain --with-receiver`
 or the global palette. `brain receiver status` works from another
 terminal through the TUI control socket; start/stop/restart also route through
-that socket and never create a second brain shell.
+that owner-only socket and never create a second brain shell. Email body and
+attachment content is retrieved through Resend's Receiving APIs; HTML-only
+messages and attachment download URLs are preserved for the agent.
 
 `brain server start` and `brain habits` both print the server-state path and
 plan before checking or spawning the daemon. `brain habits` then prints the

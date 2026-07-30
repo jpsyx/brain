@@ -157,7 +157,7 @@ editing it by hand (though hand-editing is fine). For personalization see the
 [Personalization](#personalization) section below and
 [data-model.md](data-model.md).
 
-### Messaging response configuration
+### Receiver response configuration
 
 These portable values configure who may issue remote brain messages and where
 long-form SMS responses are delivered:

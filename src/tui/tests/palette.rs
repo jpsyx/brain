@@ -249,7 +249,11 @@ fn logs_view_palette_only_lists_log_actions_and_return() {
     let state = PaletteState::new_logs_view(false);
     assert_eq!(
         action_order(&state),
-        vec![PaletteAction::ShowReceiverServerStatus, PaletteAction::ShowBrainLogs, PaletteAction::ReturnToMainView]
+        vec![
+            PaletteAction::ShowReceiverServerStatus,
+            PaletteAction::ShowBrainLogs,
+            PaletteAction::ReturnToMainView
+        ]
     );
 }
 
@@ -313,6 +317,7 @@ fn full_palette_lists_actions_in_canonical_order() {
             PaletteAction::SyncBrainNow,
             PaletteAction::OpenAgenda,
             PaletteAction::ShowBrainLogs,
+            PaletteAction::ReturnToMainView,
         ]
     );
 }

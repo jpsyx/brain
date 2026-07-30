@@ -189,7 +189,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             && matches!(app.main_view, MainView::Tasks | MainView::Logs)
         {
             app.palette = if app.main_view == MainView::Logs {
-                Some(PaletteState::new_logs_view(app.receiver_server.is_some()))
+                Some(PaletteState::new_logs_view(app.receiver_server_running()))
             } else {
                 let task_id = app.current_task_id();
                 let is_habit = app.current_is_habit();
@@ -206,8 +206,9 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                     app.log_path.is_some(),
                 ))
             };
+            let receiver_server_running = app.receiver_server_running();
             if let Some(palette) = app.palette.as_mut() {
-                palette.receiver_server_running = app.receiver_server.is_some();
+                palette.receiver_server_running = receiver_server_running;
             }
             continue;
         }

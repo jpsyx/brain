@@ -56,12 +56,15 @@ helpers and shell-outs live in the tasks modules:
   page via the system `open`; the CLI path prints the server-state plan before
   waiting on the daemon and then prints the URL it is opening. They no longer
   shell out to a zsh function.
-- **Messaging server** — the opt-in TUI-owned listener accepts only `POST /sms`
+- **Receiver server** — the opt-in TUI-owned listener accepts only `POST /sms`
   and `POST /email`. Twilio requests must pass the exact URL/form HMAC and SMS
-  sender allowlist. Resend requests must pass Svix signature verification and
-  the email sender allowlist. The listener stops with the owning TUI, so a
-  machine does not receive remote messages unless the user explicitly starts
-  it with `brain --with-receiver` or the command palette.
+  sender allowlist. Resend requests must pass the official `v1,<signature>`
+  Svix verification, a five-minute timestamp window, and the email sender
+  allowlist. Successful Resend deliveries receive HTTP 200, and the Receiving
+  Email plus Receiving Attachments APIs supply the full body and signed
+  download URLs. The listener stops with the owning TUI, so a machine does not
+  receive remote messages unless the user explicitly starts it with
+  `brain --with-receiver` or the command palette.
 - **`cd <root> && <agent_cmd> …`** — the brain panel's PTY, shared by both
   main views (see below).
 
@@ -155,6 +158,15 @@ receives `https://brain.example.com/email`. Twilio signs the exact SMS URL, so
 the receiver derives that path before verification. Process environment
 variables remain supported as compatibility overrides, and secret values are
 redacted by `brain env list` and `brain env get`.
+
+The receiver control socket is mode `0600`, refuses to replace a live TUI's
+socket, limits commands to 128 bytes, and applies read/write timeouts. The HTTP
+listener uses four blocking workers, a 1 MiB body limit, a 64-message handoff
+queue, constant-time HMAC verification, and an in-process recent-delivery cache
+to absorb normal Twilio/Resend retries without duplicating LLM work. Provider
+credentials, message bodies, and signed media URLs are passed to `curl` through
+standard input rather than process arguments. Provider output is captured so it
+cannot corrupt the TUI.
 
 ## System `open` and the editor
 

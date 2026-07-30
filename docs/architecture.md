@@ -536,8 +536,11 @@ listener on `/sms` and `/email`; it is never started by ordinary TUI startup
 and cannot outlive the interactive shell.
 - `server/router.rs` — pure route mapping for `/habits`, `/habits/done`, `/sms`,
   and `/email`. The former `/webhooks/capture` placeholder is removed.
-- `server/receiver.rs` — the blocking `tiny_http` listener, provider payload
-  parsing, authenticated sender checks, and a channel feeding the owning TUI.
+- `server/receiver.rs` + `server/receiver/` — the receiver facade and its
+  single-responsibility modules: `http/` owns the bounded four-worker
+  `tiny_http` listener and channel queue, `http/sms.rs` and `http/email.rs`
+  own provider parsing, `attachments.rs` stages media, and `control.rs` owns
+  the protected local command socket.
 - `server/security.rs` — pure Twilio HMAC, Resend/Svix HMAC, and exact
   allowlist decisions.
 - `server/lifecycle.rs` — the legacy local habits-server lifecycle.
@@ -545,8 +548,11 @@ and cannot outlive the interactive shell.
 
 `brain --with-receiver` starts the receiver listener after the TUI singleton is
 acquired. The global palette can start, stop, restart, and inspect it while
-the TUI is alive. Inbound work is queued into the TUI and is never allowed to
-interrupt an active agent turn.
+the TUI is alive. Inbound work is queued into a bounded in-memory channel and
+is never allowed to interrupt an active agent turn. The listener rejects
+bodies over 1 MiB, uses a fixed worker pool so one slow provider call cannot
+block every route, treats idle time as normal, and uses
+`tiny_http::unblock()` only for graceful shutdown.
 
 ### `lib.rs`
 Re-exports the modules so integration tests in `tests/` can link against
@@ -598,11 +604,11 @@ sibling so the two projects share a stack:
 - `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
   them out. Multi-file skill assets rule out `include_str!`.
-- `tiny_http` — the **brain server** (`src/server/`): a small, synchronous,
-  blocking-IO HTTP server for a local-only service (the habits view today,
-  webhook POST endpoints later). Chosen over axum/actix specifically to avoid
-  pulling a Tokio async runtime into an otherwise synchronous CLI; the brain
-  server is a tiny localhost daemon, so an async stack would be pure overhead.
+- `tiny_http` — the two small synchronous HTTP services under `src/server/`:
+  the local habits daemon and the TUI-owned receiver. The receiver uses a
+  fixed four-worker pool, bounded request bodies, and a bounded handoff queue;
+  this preserves concurrency and backpressure without pulling a Tokio runtime
+  into an otherwise synchronous CLI.
 - `notify` (8.x) — OS-native filesystem events (FSEvents on macOS, inotify on
   Linux) for the **C4 auto-sync watcher** (`src/sync/watch.rs`). It is the only
   correct, cross-platform, OS-native FS-event crate; the alternative is a

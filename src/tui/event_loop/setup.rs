@@ -130,7 +130,18 @@ pub fn run_tui(
         search,
         panel_side,
     );
-    app.receiver_control = crate::server::receiver::ControlSocket::bind().ok();
+    match crate::server::receiver::ControlSocket::bind() {
+        Ok(control) => {
+            crate::logging::log("receiver control socket ready");
+            app.receiver_control = Some(control);
+        }
+        Err(error) => {
+            crate::logging::log(format!("receiver control socket unavailable: {error:#}"));
+            app.flash = Some(FlashKind::Error(format!(
+                "receiver commands unavailable: {error}"
+            )));
+        }
+    }
     if with_receiver {
         app.start_receiver_server();
     }

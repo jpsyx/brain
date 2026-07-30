@@ -1,5 +1,14 @@
 //! Provider delivery decisions and narrow recipient authorization.
 
+pub fn log_outcome(action: &str, result: anyhow::Result<()>) {
+    match result {
+        Ok(()) => crate::logging::log(format!("receiver delivery succeeded action={action}")),
+        Err(error) => crate::logging::log(format!(
+            "receiver delivery failed action={action} error={error:#}"
+        )),
+    }
+}
+
 /// Keep only addresses that appear in the inbound thread and are explicitly
 /// allowlisted. The receiving address itself is never echoed back.
 #[must_use]
@@ -33,23 +42,20 @@ pub fn send_sms(to: &str, body: &str) -> anyhow::Result<()> {
     let from = super::provider::get("TWILIO_FROM_NUMBER", "twilio_from_number")
         .ok_or_else(|| anyhow::anyhow!("TWILIO_FROM_NUMBER is not configured"))?;
     let endpoint = format!("https://api.twilio.com/2010-04-01/Accounts/{account}/Messages.json");
-    let status = std::process::Command::new("curl")
-        .args([
-            "-fsS",
-            "-u",
-            &format!("{account}:{token}"),
-            "-X",
-            "POST",
-            &endpoint,
-            "--data-urlencode",
-            &format!("To={to}"),
-            "--data-urlencode",
-            &format!("From={from}"),
-            "--data-urlencode",
-            &format!("Body={body}"),
-        ])
-        .status()?;
-    anyhow::ensure!(status.success(), "Twilio rejected the outbound SMS");
+    let output = super::provider::CurlRequest::new()
+        .flag("silent")
+        .flag("show-error")
+        .flag("fail")
+        .option("connect-timeout", "10")
+        .option("max-time", "30")
+        .option("user", &format!("{account}:{token}"))
+        .option("request", "POST")
+        .option("url", &endpoint)
+        .option("data-urlencode", &format!("To={to}"))
+        .option("data-urlencode", &format!("From={from}"))
+        .option("data-urlencode", &format!("Body={body}"))
+        .output()?;
+    anyhow::ensure!(output.status.success(), "Twilio rejected the outbound SMS");
     Ok(())
 }
 
@@ -67,21 +73,22 @@ pub fn send_email(to: &[String], subject: &str, text: &str, html: &str) -> anyho
         "text": text,
         "html": html,
     });
-    let status = std::process::Command::new("curl")
-        .args([
-            "-fsS",
-            "-X",
-            "POST",
-            "https://api.resend.com/emails",
-            "-H",
-            &format!("Authorization: Bearer {key}"),
-            "-H",
-            "Content-Type: application/json",
-            "--data",
-            &payload.to_string(),
-        ])
-        .status()?;
-    anyhow::ensure!(status.success(), "Resend rejected the outbound email");
+    let output = super::provider::CurlRequest::new()
+        .flag("silent")
+        .flag("show-error")
+        .flag("fail")
+        .option("connect-timeout", "10")
+        .option("max-time", "30")
+        .option("request", "POST")
+        .option("url", "https://api.resend.com/emails")
+        .option("header", &format!("Authorization: Bearer {key}"))
+        .option("header", "Content-Type: application/json")
+        .option("data", &payload.to_string())
+        .output()?;
+    anyhow::ensure!(
+        output.status.success(),
+        "Resend rejected the outbound email"
+    );
     Ok(())
 }
 

@@ -22,14 +22,17 @@ impl App<'_> {
     /// it automatically.
     pub(crate) fn start_receiver_server(&mut self) {
         crate::logging::log("receiver server start requested");
-        if self.receiver_server.is_some() {
+        if self.receiver_server_running() {
             crate::logging::log("receiver server already running");
             return;
         }
-        let (tx, rx) = std::sync::mpsc::channel();
+        self.receiver_server = None;
+        self.receiver_rx = None;
+        let (tx, rx) =
+            std::sync::mpsc::sync_channel(crate::server::receiver::INBOUND_QUEUE_CAPACITY);
         match crate::server::receiver::ReceiverServer::start(
             crate::server::receiver::DEFAULT_PORT,
-            tx,
+            &tx,
         ) {
             Ok(server) => {
                 crate::logging::log("receiver server started");
@@ -49,6 +52,18 @@ impl App<'_> {
     /// Drain messages received by the TUI-owned listener. Active agent work is
     /// never interrupted; the queue is consumed when the panel is available.
     pub(crate) fn tick_receiver(&mut self) {
+        if self
+            .receiver_server
+            .as_ref()
+            .is_some_and(|server| !server.is_running())
+        {
+            crate::logging::log("receiver server lost all workers");
+            self.receiver_server = None;
+            self.receiver_rx = None;
+            self.flash = Some(FlashKind::Error(
+                "receiver server stopped unexpectedly; restart it to receive messages".to_owned(),
+            ));
+        }
         self.poll_completed_remote_response();
         self.poll_completed_interactive_turn();
         self.maybe_send_processing_delay();
@@ -92,7 +107,7 @@ impl App<'_> {
                 }
                 "status" => {
                     crate::logging::log("receiver control status");
-                    if self.receiver_server.is_some() {
+                    if self.receiver_server_running() {
                         "receiver server is running\n".to_owned()
                     } else {
                         "receiver server is stopped\n".to_owned()
@@ -104,7 +119,9 @@ impl App<'_> {
                 }
                 _ => "unknown receiver command\n".to_owned(),
             };
-            let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            if let Err(error) = std::io::Write::write_all(&mut stream, response.as_bytes()) {
+                crate::logging::log(format!("receiver control response write failed: {error}"));
+            }
         }
         if let Some(rx) = &self.receiver_rx {
             for message in rx.try_iter() {
@@ -112,8 +129,10 @@ impl App<'_> {
                     match message.channel {
                         crate::server::receiver::Channel::Sms => {
                             let notice = crate::server::reply::processing_notice("sms");
-                            let _ =
-                                crate::server::delivery::send_sms(&message.sender, &notice.text);
+                            crate::server::delivery::log_outcome(
+                                "queued SMS notice",
+                                crate::server::delivery::send_sms(&message.sender, &notice.text),
+                            );
                         }
                         crate::server::receiver::Channel::Email => {
                             let recipients = crate::server::delivery::allowed_thread_recipients(
@@ -123,11 +142,14 @@ impl App<'_> {
                             );
                             if !recipients.is_empty() {
                                 let notice = crate::server::reply::processing_notice("email");
-                                let _ = crate::server::delivery::send_email(
-                                    &recipients,
-                                    "Brain received your message",
-                                    &notice.text,
-                                    &crate::server::reply::email_html(&notice.text),
+                                crate::server::delivery::log_outcome(
+                                    "queued email notice",
+                                    crate::server::delivery::send_email(
+                                        &recipients,
+                                        "Brain received your message",
+                                        &notice.text,
+                                        &crate::server::reply::email_html(&notice.text),
+                                    ),
                                 );
                             }
                         }
@@ -235,7 +257,10 @@ impl App<'_> {
         });
         match channel {
             crate::server::receiver::Channel::Sms => {
-                let _ = crate::server::delivery::send_sms(&sender, &notice.text);
+                crate::server::delivery::log_outcome(
+                    "delayed SMS notice",
+                    crate::server::delivery::send_sms(&sender, &notice.text),
+                );
             }
             crate::server::receiver::Channel::Email => {
                 let recipients = crate::server::delivery::allowed_thread_recipients(
@@ -244,11 +269,14 @@ impl App<'_> {
                     &self.config.response_email,
                 );
                 if !recipients.is_empty() {
-                    let _ = crate::server::delivery::send_email(
-                        &recipients,
-                        "Brain is still working",
-                        &notice.text,
-                        &crate::server::reply::email_html(&notice.text),
+                    crate::server::delivery::log_outcome(
+                        "delayed email notice",
+                        crate::server::delivery::send_email(
+                            &recipients,
+                            "Brain is still working",
+                            &notice.text,
+                            &crate::server::reply::email_html(&notice.text),
+                        ),
                     );
                 }
             }
@@ -278,7 +306,10 @@ impl App<'_> {
         match channel {
             crate::server::receiver::Channel::Sms => {
                 let reply = crate::server::reply::sms(message);
-                let _ = crate::server::delivery::send_sms(&sender, &reply.text);
+                crate::server::delivery::log_outcome(
+                    "final SMS response",
+                    crate::server::delivery::send_sms(&sender, &reply.text),
+                );
             }
             crate::server::receiver::Channel::Email => {
                 let recipients = crate::server::delivery::allowed_thread_recipients(
@@ -288,11 +319,14 @@ impl App<'_> {
                 );
                 if !recipients.is_empty() {
                     let reply = crate::server::reply::email(message);
-                    let _ = crate::server::delivery::send_email(
-                        &recipients,
-                        "Brain response",
-                        &reply.text,
-                        &crate::server::reply::email_html(&reply.text),
+                    crate::server::delivery::log_outcome(
+                        "final email response",
+                        crate::server::delivery::send_email(
+                            &recipients,
+                            "Brain response",
+                            &reply.text,
+                            &crate::server::reply::email_html(&reply.text),
+                        ),
                     );
                 }
             }
@@ -311,6 +345,12 @@ impl App<'_> {
     /// Whether the brain panel is on screen (a live agent PTY).
     pub(crate) fn brain_panel_open(&self) -> bool {
         self.brain.is_some()
+    }
+
+    pub(crate) fn receiver_server_running(&self) -> bool {
+        self.receiver_server
+            .as_ref()
+            .is_some_and(crate::server::receiver::ReceiverServer::is_running)
     }
 
     pub(crate) fn focus_brain(&mut self) {
@@ -457,7 +497,10 @@ impl App<'_> {
                 match channel {
                     crate::server::receiver::Channel::Sms => {
                         let reply = crate::server::reply::sms(&final_text);
-                        let _ = crate::server::delivery::send_sms(&sender, &reply.text);
+                        crate::server::delivery::log_outcome(
+                            "fallback final SMS response",
+                            crate::server::delivery::send_sms(&sender, &reply.text),
+                        );
                     }
                     crate::server::receiver::Channel::Email => {
                         let recipients = crate::server::delivery::allowed_thread_recipients(
@@ -467,11 +510,14 @@ impl App<'_> {
                         );
                         if !recipients.is_empty() {
                             let reply = crate::server::reply::email(&final_text);
-                            let _ = crate::server::delivery::send_email(
-                                &recipients,
-                                "Brain response",
-                                &reply.text,
-                                &crate::server::reply::email_html(&reply.text),
+                            crate::server::delivery::log_outcome(
+                                "fallback final email response",
+                                crate::server::delivery::send_email(
+                                    &recipients,
+                                    "Brain response",
+                                    &reply.text,
+                                    &crate::server::reply::email_html(&reply.text),
+                                ),
                             );
                         }
                     }
