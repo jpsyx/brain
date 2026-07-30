@@ -46,7 +46,7 @@ impl LogsView {
             })
             .filter(|content| !content.is_empty())
             .unwrap_or_else(|| {
-                "No verbose log is available for this brain run. Start brain with `--verbose` to collect one.".to_owned()
+                "No log entries are available for this brain run yet.".to_owned()
             });
         Self {
             kind,

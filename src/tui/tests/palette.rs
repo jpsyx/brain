@@ -240,7 +240,7 @@ fn brain_logs_are_always_available() {
     let without_logs = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
     assert!(
         action_order(&without_logs).contains(&PaletteAction::ShowBrainLogs),
-        "Brain logs should explain when verbose logging is unavailable"
+        "Brain logs should always be available as a diagnostic view"
     );
 }
 

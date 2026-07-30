@@ -11,7 +11,7 @@
 //! Layout (mirrors `tasks/`):
 //!   - `cli`         — clap surface (Cli + Cmd)
 //!   - `entry`       — directory walker (walkdir + hidden-file filter)
-//!   - `logging`     — optional per-run verbose log file + stdout mirroring
+//!   - `logging`     — per-run log file + optional stdout mirroring
 //!   - `picker`      — ratatui fuzzy-picker over collected entries
 //!   - `menu`        — command-palette modal shared by the search view
 //!   - `render`      — palette + styled line helpers for the picker

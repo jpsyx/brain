@@ -25,7 +25,7 @@ Everything else is a TUI that renders to `/dev/tty`, so nothing an interactive
 session paints reaches stdout. Diagnostics and default progress narration go to
 stderr: long-running one-shot commands print concise phase plans before they
 probe the filesystem, start daemons, spawn external tools, touch the network, or
-write install trees. Verbose TUI runs still write a timestamped `/tmp` log file;
+write install trees. Every TUI run writes a timestamped `/tmp` log file;
 the command palette's receiver and brain log rows switch the main panel to a
 scrollable view of the relevant log
 directory and the log file via `open`. Verbose logs are intentionally more

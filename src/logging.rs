@@ -1,4 +1,4 @@
-//! Per-run verbose logging.
+//! Per-run logging, with optional stdout mirroring.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write as _};
@@ -14,22 +14,14 @@ static STDOUT_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Owns this run's verbose logger lifecycle.
 pub struct Guard {
-    path: Option<PathBuf>,
-}
-
-impl Guard {
-    fn disabled() -> Self {
-        Self { path: None }
-    }
+    path: PathBuf,
 }
 
 impl Drop for Guard {
     fn drop(&mut self) {
-        if let Some(path) = &self.path {
-            log("brain end");
-            if stdout_enabled() {
-                println!("verbose log: {}", path.display());
-            }
+        log("brain end");
+        if stdout_enabled() {
+            println!("verbose log: {}", self.path.display());
         }
     }
 }
@@ -55,17 +47,14 @@ impl Logger {
 }
 
 pub fn init(verbose: bool, stdout: bool) -> io::Result<Guard> {
-    if !verbose {
-        return Ok(Guard::disabled());
-    }
-    STDOUT_ENABLED.store(stdout, Ordering::Relaxed);
+    STDOUT_ENABLED.store(verbose && stdout, Ordering::Relaxed);
     let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Nanos, false);
     let path = log_path_for(&timestamp);
     let logger = Logger::open(&path)?;
     let _ = LOG_PATH.set(path.clone());
     let _ = LOGGER.set(Mutex::new(logger));
     log(format!("brain start {}", env!("CARGO_PKG_VERSION")));
-    Ok(Guard { path: Some(path) })
+    Ok(Guard { path })
 }
 
 pub fn log(message: impl AsRef<str>) {

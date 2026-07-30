@@ -61,7 +61,7 @@ pub struct Cli {
     #[arg(short = 'v', long = "version", action = clap::ArgAction::SetTrue)]
     pub print_version: bool,
 
-    /// Write verbose run logs to stdout and to a timestamped file in /tmp.
+    /// Mirror the run log to stdout (the log file is always collected).
     #[arg(long, global = true)]
     pub verbose: bool,
 

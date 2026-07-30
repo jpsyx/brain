@@ -39,7 +39,7 @@ user types `brain …`
        └─ exec target/release/brain "$@"   (forwards every argument)
 
 the binary:
-  ├─ `brain --verbose …` → writes a timestamped `/tmp` log; non-TUI mirrors logs to stdout
+  ├─ every run → writes a timestamped `/tmp` log; `--verbose` mirrors logs to stdout
   ├─ `brain config …`  → prints the config table / a value to stdout
   ├─ `brain tasks … --no-tui | complete | doctor` → plain output / mutate / check
   └─ everything else   → opens the persistent TUI on /dev/tty
@@ -47,7 +47,7 @@ the binary:
 
 The TUI renders to `/dev/tty`, so the binary's **stdout** is only what
 plain CLI surfaces print (`config`, `env`, `version`, clap help/errors) plus
-explicit `--verbose` log mirroring in non-TUI mode. Verbose TUI runs keep
+explicit `--verbose` log mirroring in non-TUI mode. TUI runs keep
 stdout quiet and expose the log through the tasks command palette. The binary
 opens files, cds its own PTY, launches `claude`, and reveals in Finder itself,
 from inside the running shell. See [decisions.md](decisions.md) for *why* it is
@@ -60,7 +60,7 @@ detail.
 argv
  └─→ Cli::parse                          (cli.rs)
       ├─→ -v / --version / Cmd::Version ─→ print crate version and exit before any gates
-      ├─→ --verbose ─→ logging::init      (timestamped `/tmp` log; stdout mirror unless TUI)
+      ├─→ logging::init                  (timestamped `/tmp` log; stdout mirror with `--verbose`)
       ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
       ├─→ Cmd::Env ─→ env_command         (list/get/set over env.json; also BEFORE the gate)
       ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/repair/status/conflicts; also BEFORE the gate)
@@ -110,8 +110,8 @@ The clap derive surface. `Cli` owns the global flags (`-v`/`--version` and
 `brain tasks` — the tasks view is the startup default.
 
 ### `logging.rs`
-Optional per-run verbose logging. `logging::init` creates a timestamped
-`/tmp/<rfc3339-nanos>.log` file only when `--verbose` is present, mirrors log
+Per-run logging. `logging::init` always creates a timestamped
+`/tmp/<rfc3339-nanos>.log` file, and `--verbose` mirrors log
 lines to stdout for non-TUI commands, and prints the final log path at process
 exit. Before the persistent shell takes over `/dev/tty`, `main.rs` disables the
 stdout mirror; the TUI keeps the log path in `App` and offers receiver and brain

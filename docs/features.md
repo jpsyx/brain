@@ -177,10 +177,10 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
 
-`--verbose` can be added to any non-version command. In non-TUI mode it mirrors
-brain's run log to stdout and writes the same log to a timestamped file under
-`/tmp/`, then prints the log path at exit. In the persistent TUI, logs still go
-to the file but never to stdout; use the command palette's **Show receiver
+Every run writes brain's diagnostic log to a timestamped file under `/tmp/`.
+`--verbose` additionally mirrors that log to stdout and prints the log path at
+exit. In the persistent TUI, logs still go to the file but never to stdout;
+use the command palette's **Show receiver
 server logs** or **Show brain logs** rows to switch the main panel to a
 scrollable log view. While there, `q`, `Ctrl-C`, or the palette's **Return to
 main view** action returns to tasks, and the palette hides unrelated commands.
