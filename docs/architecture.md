@@ -551,7 +551,12 @@ and cannot outlive the interactive shell.
 `brain --with-receiver` starts the receiver listener after the TUI singleton is
 acquired. The global palette can start, stop, restart, and inspect it while
 the TUI is alive. Inbound work is queued into a bounded in-memory channel and
-is never allowed to interrupt an active agent turn. The listener rejects
+is never allowed to interrupt an active agent turn. `tui/receiver_state.rs`
+distinguishes a submitted turn from an idle open PTY, so an idle startup panel
+can switch to the receiver session even when a modal is on screen. Failed PTY
+launches retain the message for a backoff retry. Provider replies are handed
+to the bounded background worker in `server/delivery.rs`, keeping network
+latency off the TUI event loop. The listener rejects
 bodies over 1 MiB, uses a fixed worker pool so one slow provider call cannot
 block every route, treats idle time as normal, and uses
 `tiny_http::unblock()` only for graceful shutdown.

@@ -189,7 +189,9 @@ fn dispatch_choice(app: &mut App<'_>, choice: Choice) {
             }
         }
         // Open (or focus) the app-level brain panel.
-        Choice::Msg => app.open_or_focus_brain(None),
+        Choice::Msg => {
+            app.open_or_focus_brain(None);
+        }
         // Switch main view instead of the old cross-shell handoff.
         Choice::OpenTasks => app.main_view = MainView::Tasks,
         Choice::ToggleLayout => {

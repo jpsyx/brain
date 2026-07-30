@@ -13,6 +13,38 @@ pub struct Lease {
     pub deadline: Instant,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchAction {
+    WaitForTurn,
+    CloseIdlePanel,
+    StartNext,
+}
+
+#[must_use]
+pub const fn dispatch_action(
+    has_queued_message: bool,
+    panel_open: bool,
+    interactive_turn_active: bool,
+    remote_job_active: bool,
+) -> DispatchAction {
+    if !has_queued_message || remote_job_active || interactive_turn_active {
+        DispatchAction::WaitForTurn
+    } else if panel_open {
+        DispatchAction::CloseIdlePanel
+    } else {
+        DispatchAction::StartNext
+    }
+}
+
+pub fn commit_dispatch<T>(queue: &mut Vec<T>, launch_succeeded: bool) -> Option<T> {
+    (launch_succeeded && !queue.is_empty()).then(|| queue.remove(0))
+}
+
+#[must_use]
+pub fn retry_ready(deadline: Option<Instant>, now: Instant) -> bool {
+    deadline.is_none_or(|deadline| now >= deadline)
+}
+
 #[must_use]
 pub fn renew(channel: Channel, generation: u64, now: Instant) -> Lease {
     Lease {
@@ -35,6 +67,58 @@ pub fn expired(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_message_closes_an_idle_interactive_panel_before_dispatch() {
+        assert_eq!(
+            dispatch_action(true, true, false, false),
+            DispatchAction::CloseIdlePanel
+        );
+    }
+
+    #[test]
+    fn queued_message_waits_for_an_active_interactive_turn() {
+        assert_eq!(
+            dispatch_action(true, true, true, false),
+            DispatchAction::WaitForTurn
+        );
+    }
+
+    #[test]
+    fn queued_message_starts_when_no_panel_or_remote_job_is_active() {
+        assert_eq!(
+            dispatch_action(true, false, false, false),
+            DispatchAction::StartNext
+        );
+        assert_eq!(
+            dispatch_action(true, false, false, true),
+            DispatchAction::WaitForTurn
+        );
+    }
+
+    #[test]
+    fn failed_agent_launch_keeps_the_message_queued_for_retry() {
+        let mut queue = vec!["first", "second"];
+        commit_dispatch(&mut queue, false);
+        assert_eq!(queue, vec!["first", "second"]);
+
+        commit_dispatch(&mut queue, true);
+        assert_eq!(queue, vec!["second"]);
+    }
+
+    #[test]
+    fn failed_launch_retry_waits_for_its_backoff_deadline() {
+        let now = Instant::now();
+        assert!(retry_ready(None, now));
+        assert!(!retry_ready(
+            Some(now + Duration::from_secs(5)),
+            now
+        ));
+        assert!(retry_ready(
+            Some(now + Duration::from_secs(5)),
+            now + Duration::from_secs(5)
+        ));
+    }
 
     #[test]
     fn receiving_a_message_renews_for_three_minutes() {

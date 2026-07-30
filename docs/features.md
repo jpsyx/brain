@@ -629,6 +629,15 @@ and country code. A malformed configured SMS number produces a persistent
 yellow warning in the TUI status line. The former generic
 `/webhooks/capture` route has been removed.
 
+Inbound messages wait only for a submitted agent turn, not merely for the
+brain panel to exist. An idle startup panel is closed and replaced by the
+SMS- or email-specific session immediately, including while the daily-triage
+modal is visible. A submitted local turn is allowed to finish first. If an
+agent process cannot be launched, the inbound message remains queued and the
+receiver retries after a short backoff instead of leaving a phantom
+"processing" job. Twilio and Resend reply delivery runs on a bounded
+background worker so provider latency never blocks TUI input or `Ctrl+Q`.
+
 - `brain server start` — start the daemon in the background if it isn't already
   running (idempotent: an existing live server is reused and its URL reprinted).
 - `brain server status` — report whether it is running and on which port.

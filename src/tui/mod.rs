@@ -218,6 +218,10 @@ pub(crate) struct App<'a> {
     /// most-recently-active free Claude session (lock + recency, see `state`);
     /// Codex panels launch fresh, but use the same receiver completion hooks.
     brain: Option<PtyPane>,
+    /// Whether the panel has a submitted prompt whose Stop hook has not
+    /// completed. Receiver dispatch waits for active work, but can replace an
+    /// idle startup panel even while another modal is visible.
+    brain_turn_active: bool,
     focus: Panel,
 
     /// Which main view is showing in the main panel: the tasks view (startup
@@ -311,6 +315,7 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_resume_session: Option<String>,
     pub(crate) receiver_started: Option<std::time::Instant>,
     pub(crate) receiver_delay_sent: bool,
+    pub(crate) receiver_retry_at: Option<std::time::Instant>,
 }
 
 /// In-shell fuzzy filter: score `tasks` against `query`, keeping matches in

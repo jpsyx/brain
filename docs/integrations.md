@@ -96,6 +96,14 @@ doesn't treat the submit key as part of a paste. Claude receives `Enter`.
 Codex receives `Tab`, because Codex uses `Tab` to queue a message behind active
 work and treats `Enter` as immediate steering.
 
+The TUI separately tracks whether a prompt has actually been submitted.
+Opening the panel is therefore not itself considered active work. This lets an
+inbound SMS or email replace an idle startup panel immediately, even if the
+daily-triage modal is still covering it, while a real local Claude or Codex
+turn still finishes before receiver work switches sessions. The Stop response
+file clears that active-turn state. A failed receiver-session launch leaves
+the message in the queue for a backoff retry.
+
 ## Claude Sessions: SessionStart/Stop Hooks + State DB
 
 Which session to run is decided by the **lock + recency** model in
@@ -124,8 +132,10 @@ Which session to run is decided by the **lock + recency** model in
    the env vars absent (ambient `~/brain` claude usage), the hook is a no-op.
 4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
    `last_assistant_message` under `~/.cache/brain/responses/<session-id>.json`.
-   The TUI consumes this only for an active SMS/email job, sends the
-   channel-specific final response, and then closes that remote PTY safely.
+   For an interactive turn, the TUI consumes it as the completion signal that
+   allows queued receiver work to switch sessions. For an active SMS/email
+   job, it sends the channel-specific final response and then closes that
+   remote PTY safely.
 5. When the panel closes (Claude exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -166,7 +176,9 @@ queue, constant-time HMAC verification, and an in-process recent-delivery cache
 to absorb normal Twilio/Resend retries without duplicating LLM work. Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through
 standard input rather than process arguments. Provider output is captured so it
-cannot corrupt the TUI.
+cannot corrupt the TUI. Outbound Twilio/Resend calls are serialized through a
+bounded background delivery worker, preserving reply order without blocking
+keyboard input or shell shutdown.
 
 ## System `open` and the editor
 

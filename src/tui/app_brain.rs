@@ -125,13 +125,32 @@ impl App<'_> {
         }
         if let Some(rx) = &self.receiver_rx {
             for message in rx.try_iter() {
-                if self.brain_panel_open() {
+                let must_wait = self.brain_turn_active
+                    || self.receiver_session_id.is_some()
+                    || !self.receiver_queue.is_empty();
+                let modal_open = self.palette.is_some()
+                    || self.brain_input.is_some()
+                    || self.confirm.is_some()
+                    || self.link_picker.is_some()
+                    || self.help.is_some();
+                crate::logging::log(format!(
+                    "receiver message queued channel={:?} waiting={} queue_depth={} panel_open={} turn_active={} remote_active={} modal_open={}",
+                    message.channel,
+                    must_wait,
+                    self.receiver_queue.len() + 1,
+                    self.brain_panel_open(),
+                    self.brain_turn_active,
+                    self.receiver_session_id.is_some(),
+                    modal_open
+                ));
+                if must_wait {
                     match message.channel {
                         crate::server::receiver::Channel::Sms => {
                             let notice = crate::server::reply::processing_notice("sms");
-                            crate::server::delivery::log_outcome(
+                            crate::server::delivery::send_sms_background(
                                 "queued SMS notice",
-                                crate::server::delivery::send_sms(&message.sender, &notice.text),
+                                message.sender.clone(),
+                                notice.text,
                             );
                         }
                         crate::server::receiver::Channel::Email => {
@@ -142,14 +161,13 @@ impl App<'_> {
                             );
                             if !recipients.is_empty() {
                                 let notice = crate::server::reply::processing_notice("email");
-                                crate::server::delivery::log_outcome(
+                                let html = crate::server::reply::email_html(&notice.text);
+                                crate::server::delivery::send_email_background(
                                     "queued email notice",
-                                    crate::server::delivery::send_email(
-                                        &recipients,
-                                        "Brain received your message",
-                                        &notice.text,
-                                        &crate::server::reply::email_html(&notice.text),
-                                    ),
+                                    recipients,
+                                    "Brain received your message".to_owned(),
+                                    notice.text,
+                                    html,
                                 );
                             }
                         }
@@ -158,10 +176,29 @@ impl App<'_> {
                 self.receiver_queue.push(message);
             }
         }
-        if self.brain_panel_open() || self.receiver_queue.is_empty() {
+        let now = std::time::Instant::now();
+        if !crate::tui::receiver_state::retry_ready(self.receiver_retry_at, now) {
             return;
         }
-        let message = self.receiver_queue.remove(0);
+        self.receiver_retry_at = None;
+        match crate::tui::receiver_state::dispatch_action(
+            !self.receiver_queue.is_empty(),
+            self.brain_panel_open(),
+            self.brain_turn_active,
+            self.receiver_session_id.is_some(),
+        ) {
+            crate::tui::receiver_state::DispatchAction::WaitForTurn => {
+                return;
+            }
+            crate::tui::receiver_state::DispatchAction::CloseIdlePanel => {
+                crate::logging::log(
+                    "receiver dispatch replacing idle interactive brain panel",
+                );
+                self.close_brain();
+            }
+            crate::tui::receiver_state::DispatchAction::StartNext => {}
+        }
+        let message = self.receiver_queue[0].clone();
         let label = match message.channel {
             crate::server::receiver::Channel::Sms => "SMS",
             crate::server::receiver::Channel::Email => "email",
@@ -206,24 +243,43 @@ impl App<'_> {
             crate::server::receiver::Channel::Sms => crate::state::SessionChannel::Sms,
             crate::server::receiver::Channel::Email => crate::state::SessionChannel::Email,
         });
-        self.receiver_sender = Some(message.sender.clone());
-        self.receiver_recipients.clone_from(&message.participants);
-        self.receiver_generation = self.receiver_generation.saturating_add(1);
-        self.receiver_started = Some(std::time::Instant::now());
-        self.receiver_delay_sent = false;
-        self.receiver_lease = Some(crate::tui::receiver_state::renew(
-            message.channel,
-            self.receiver_generation,
-            std::time::Instant::now(),
-        ));
-        self.open_or_focus_brain(Some(&(prompt + &attachments)));
+        let launched = self.open_or_focus_brain(Some(&(prompt + &attachments)));
+        let _ =
+            crate::tui::receiver_state::commit_dispatch(&mut self.receiver_queue, launched);
+        if launched {
+            self.receiver_retry_at = None;
+            self.receiver_sender = Some(message.sender.clone());
+            self.receiver_recipients.clone_from(&message.participants);
+            self.receiver_generation = self.receiver_generation.saturating_add(1);
+            self.receiver_started = Some(std::time::Instant::now());
+            self.receiver_delay_sent = false;
+            self.receiver_lease = Some(crate::tui::receiver_state::renew(
+                message.channel,
+                self.receiver_generation,
+                std::time::Instant::now(),
+            ));
+            crate::logging::log(format!(
+                "receiver dispatch started channel={:?} queue_depth={}",
+                message.channel,
+                self.receiver_queue.len()
+            ));
+        } else {
+            self.requested_receiver_channel = None;
+            self.receiver_retry_at =
+                Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
+            crate::logging::log(format!(
+                "receiver dispatch launch failed; message retained channel={:?} queue_depth={}",
+                message.channel,
+                self.receiver_queue.len()
+            ));
+        }
     }
 
     /// A Stop hook marks the end of an interactive turn without killing the
     /// persistent panel. If remote work is waiting, close only after that
     /// completion signal so the active turn is never interrupted.
     fn poll_completed_interactive_turn(&mut self) {
-        if self.receiver_lease.is_some() || self.receiver_queue.is_empty() {
+        if self.receiver_lease.is_some() || !self.brain_turn_active {
             return;
         }
         let Some(session_id) = self.interactive_session_id.clone() else {
@@ -234,7 +290,12 @@ impl App<'_> {
             return;
         }
         let _ = std::fs::remove_file(path);
-        self.close_brain();
+        self.brain_turn_active = false;
+        crate::logging::log("interactive brain turn completed");
+        if !self.receiver_queue.is_empty() {
+            crate::logging::log("interactive turn complete; switching to queued receiver work");
+            self.close_brain();
+        }
     }
 
     fn maybe_send_processing_delay(&mut self) {
@@ -257,9 +318,10 @@ impl App<'_> {
         });
         match channel {
             crate::server::receiver::Channel::Sms => {
-                crate::server::delivery::log_outcome(
+                crate::server::delivery::send_sms_background(
                     "delayed SMS notice",
-                    crate::server::delivery::send_sms(&sender, &notice.text),
+                    sender,
+                    notice.text,
                 );
             }
             crate::server::receiver::Channel::Email => {
@@ -269,14 +331,13 @@ impl App<'_> {
                     &self.config.response_email,
                 );
                 if !recipients.is_empty() {
-                    crate::server::delivery::log_outcome(
+                    let html = crate::server::reply::email_html(&notice.text);
+                    crate::server::delivery::send_email_background(
                         "delayed email notice",
-                        crate::server::delivery::send_email(
-                            &recipients,
-                            "Brain is still working",
-                            &notice.text,
-                            &crate::server::reply::email_html(&notice.text),
-                        ),
+                        recipients,
+                        "Brain is still working".to_owned(),
+                        notice.text,
+                        html,
                     );
                 }
             }
@@ -303,12 +364,16 @@ impl App<'_> {
             return;
         };
         let _ = std::fs::remove_file(path);
+        crate::logging::log(format!(
+            "receiver agent response completed channel={channel:?}"
+        ));
         match channel {
             crate::server::receiver::Channel::Sms => {
                 let reply = crate::server::reply::sms(message);
-                crate::server::delivery::log_outcome(
+                crate::server::delivery::send_sms_background(
                     "final SMS response",
-                    crate::server::delivery::send_sms(&sender, &reply.text),
+                    sender,
+                    reply.text,
                 );
             }
             crate::server::receiver::Channel::Email => {
@@ -319,19 +384,20 @@ impl App<'_> {
                 );
                 if !recipients.is_empty() {
                     let reply = crate::server::reply::email(message);
-                    crate::server::delivery::log_outcome(
+                    let html = crate::server::reply::email_html(&reply.text);
+                    crate::server::delivery::send_email_background(
                         "final email response",
-                        crate::server::delivery::send_email(
-                            &recipients,
-                            "Brain response",
-                            &reply.text,
-                            &crate::server::reply::email_html(&reply.text),
-                        ),
+                        recipients,
+                        "Brain response".to_owned(),
+                        reply.text,
+                        html,
                     );
                 }
             }
         }
         self.brain = None;
+        self.brain_turn_active = false;
+        self.pending_brain_submit = 0;
         let _ = self.db.release(&self.instance);
         self.receiver_resume_session = self.interactive_session_id.take();
         self.receiver_sender = None;
@@ -381,7 +447,7 @@ impl App<'_> {
     /// resumed launch passes it as claude's initial argument, and an
     /// already-open panel has it typed into the running conversation. Opening
     /// the panel never quits the shell.
-    pub(crate) fn open_or_focus_brain(&mut self, prompt: Option<&str>) {
+    pub(crate) fn open_or_focus_brain(&mut self, prompt: Option<&str>) -> bool {
         // Already open with a live agent: reuse the existing session — focus
         // it and, if a prompt was supplied, type it into the running
         // conversation. We never spawn a second session while one is up.
@@ -392,12 +458,13 @@ impl App<'_> {
                 if let Some(pty) = self.brain.as_ref() {
                     send_prompt_to_pty(pty, p);
                 }
+                self.mark_brain_turn_started();
                 // The frontend-specific submit key is deferred a couple of
                 // event-loop ticks (see `advance_submit_countdown`) so the
                 // agent doesn't coalesce it into the pasted text.
                 self.pending_brain_submit = BRAIN_SUBMIT_DELAY_TICKS;
             }
-            return;
+            return true;
         }
         // A panel whose agent died (between the loop's auto-close tick and
         // this call) is torn down first so we don't type into a dead PTY;
@@ -472,11 +539,56 @@ impl App<'_> {
             session::build_llm_command(&self.brain_root, self.agent_kind, &llm_cmd, &plan, prompt);
         let env = session::env_for(&self.instance, pid, &self.db_path);
         // Placeholder size; the first draw resizes the PTY to the real panel.
-        self.brain =
-            PtyPane::spawn_shell_command_with_env(&command, &env, &self.brain_root, 24, 80).ok();
-        if self.brain.is_some() {
-            self.focus = Panel::Brain;
+        match PtyPane::spawn_shell_command_with_env(
+            &command,
+            &env,
+            &self.brain_root,
+            24,
+            80,
+        ) {
+            Ok(panel) => {
+                self.brain = Some(panel);
+                self.brain_turn_active = false;
+                if prompt.is_some_and(|value| !value.trim().is_empty()) {
+                    self.mark_brain_turn_started();
+                }
+                self.focus = Panel::Brain;
+                crate::logging::log(format!(
+                    "brain panel started agent={} turn_active={}",
+                    self.agent_kind.label(),
+                    self.brain_turn_active
+                ));
+                true
+            }
+            Err(error) => {
+                crate::logging::log(format!(
+                    "brain panel start failed agent={} error={error:#}",
+                    self.agent_kind.label()
+                ));
+                self.brain = None;
+                self.brain_turn_active = false;
+                self.receiver_session_id = None;
+                let _ = self.db.release(&self.instance);
+                self.flash = Some(FlashKind::Error(format!(
+                    "{} could not start: {error}",
+                    self.agent_kind.label()
+                )));
+                false
+            }
         }
+    }
+
+    pub(crate) fn mark_brain_turn_started(&mut self) {
+        if self.receiver_lease.is_none()
+            && let Some(session_id) = self.interactive_session_id.as_deref()
+        {
+            let path = crate::session::response_dir().join(format!("{session_id}.json"));
+            let _ = std::fs::remove_file(path);
+        }
+        if !self.brain_turn_active {
+            crate::logging::log("brain turn started");
+        }
+        self.brain_turn_active = true;
     }
 
     /// Close the brain panel: drop the PTY (its Drop impl kills the agent
@@ -497,9 +609,10 @@ impl App<'_> {
                 match channel {
                     crate::server::receiver::Channel::Sms => {
                         let reply = crate::server::reply::sms(&final_text);
-                        crate::server::delivery::log_outcome(
+                        crate::server::delivery::send_sms_background(
                             "fallback final SMS response",
-                            crate::server::delivery::send_sms(&sender, &reply.text),
+                            sender,
+                            reply.text,
                         );
                     }
                     crate::server::receiver::Channel::Email => {
@@ -510,14 +623,13 @@ impl App<'_> {
                         );
                         if !recipients.is_empty() {
                             let reply = crate::server::reply::email(&final_text);
-                            crate::server::delivery::log_outcome(
+                            let html = crate::server::reply::email_html(&reply.text);
+                            crate::server::delivery::send_email_background(
                                 "fallback final email response",
-                                crate::server::delivery::send_email(
-                                    &recipients,
-                                    "Brain response",
-                                    &reply.text,
-                                    &crate::server::reply::email_html(&reply.text),
-                                ),
+                                recipients,
+                                "Brain response".to_owned(),
+                                reply.text,
+                                html,
                             );
                         }
                     }
@@ -525,6 +637,8 @@ impl App<'_> {
             }
         }
         self.brain = None;
+        self.brain_turn_active = false;
+        self.pending_brain_submit = 0;
         self.alert = None;
         self.focus = Panel::Tasks;
         let _ = self.db.release(&self.instance);
@@ -532,6 +646,9 @@ impl App<'_> {
             self.receiver_resume_session = self.interactive_session_id.take();
             self.receiver_sender = None;
             self.receiver_recipients.clear();
+            self.receiver_session_id = None;
+            self.receiver_started = None;
+            self.receiver_delay_sent = false;
         }
         self.reload_after_brain();
     }

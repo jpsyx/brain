@@ -83,6 +83,11 @@ first move is a failing test that reproduces it, *then* the fix.
   divider), `key_to_bytes` (key → PTY byte encoding), `new_session_bytes`
   (`Ctrl-N` types `/new`, no trailing return), and `advance_submit_countdown`
   (the deferred-Return countdown fires exactly once at zero).
+- **Receiver dispatch state.** `tui/receiver_state.rs` proves that an idle
+  open panel switches to queued receiver work, an active submitted turn waits,
+  failed launches retain their message, and retry backoff deadlines are
+  honored. `server/delivery.rs` verifies that provider delivery is dispatched
+  off the TUI thread.
 - **PTY scrollback** (`pty_pane.rs`). `scroll_up`/`scroll_down` enter and
   clamp scrollback. These spawn a tiny real PTY running `seq` — the one
   place we let a child process in — because it's deterministic and

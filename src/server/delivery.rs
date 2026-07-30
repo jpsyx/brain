@@ -1,11 +1,66 @@
 //! Provider delivery decisions and narrow recipient authorization.
 
+type DeliveryJob = Box<dyn FnOnce() + Send>;
+
+static DELIVERY_DISPATCHER: std::sync::LazyLock<
+    Result<std::sync::mpsc::SyncSender<DeliveryJob>, String>,
+> = std::sync::LazyLock::new(|| {
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<DeliveryJob>(64);
+    std::thread::Builder::new()
+        .name("brain-delivery".to_owned())
+        .spawn(move || {
+            while let Ok(job) = receiver.recv() {
+                job();
+            }
+        })
+        .map(|_| sender)
+        .map_err(|error| error.to_string())
+});
+
 pub fn log_outcome(action: &str, result: anyhow::Result<()>) {
     match result {
         Ok(()) => crate::logging::log(format!("receiver delivery succeeded action={action}")),
         Err(error) => crate::logging::log(format!(
             "receiver delivery failed action={action} error={error:#}"
         )),
+    }
+}
+
+fn dispatch_background(
+    action: &'static str,
+    operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+) -> anyhow::Result<()> {
+    let sender = DELIVERY_DISPATCHER
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!("starting receiver delivery worker: {error}"))?;
+    sender
+        .try_send(Box::new(move || log_outcome(action, operation())))
+        .map_err(|error| anyhow::anyhow!("queuing provider delivery: {error}"))?;
+    crate::logging::log(format!("receiver delivery queued action={action}"));
+    Ok(())
+}
+
+pub fn send_sms_background(action: &'static str, to: String, body: String) {
+    if let Err(error) = dispatch_background(action, move || send_sms(&to, &body)) {
+        crate::logging::log(format!(
+            "receiver delivery could not start action={action} error={error:#}"
+        ));
+    }
+}
+
+pub fn send_email_background(
+    action: &'static str,
+    to: Vec<String>,
+    subject: String,
+    text: String,
+    html: String,
+) {
+    if let Err(error) =
+        dispatch_background(action, move || send_email(&to, &subject, &text, &html))
+    {
+        crate::logging::log(format!(
+            "receiver delivery could not start action={action} error={error:#}"
+        ));
     }
 }
 
@@ -95,6 +150,21 @@ pub fn send_email(to: &[String], subject: &str, text: &str, html: &str) -> anyho
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_delivery_runs_off_the_tui_thread() {
+        let started = std::time::Instant::now();
+        dispatch_background("test delivery", || {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(250),
+            "dispatch waited for the provider request"
+        );
+    }
 
     #[test]
     fn thread_delivery_intersects_participants_and_allowlist() {

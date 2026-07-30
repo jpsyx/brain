@@ -1350,7 +1350,17 @@ Provider requests still use the system `curl` binary to avoid adding a second
 HTTP client stack, but the complete curl configuration is written through the
 child's standard input. Secrets, message content, and signed attachment URLs
 therefore do not appear in the child process's argument list, and the child
-output is captured rather than inherited by the TUI.
+output is captured rather than inherited by the TUI. Outbound replies run on
+one bounded background worker. This preserves provider ordering and prevents a
+slow Twilio or Resend request from freezing keyboard input or delaying
+`Ctrl+Q`.
+
+An open agent PTY is not proof that work is active: brain opens an idle panel
+before the startup daily-triage modal. The receiver therefore tracks submitted
+turns separately and lets the Stop hook clear that state. Queued receiver work
+can replace an idle panel immediately, but never interrupts a submitted local
+turn. A receiver launch is committed only after PTY creation succeeds; failure
+keeps the message queued and applies a retry backoff.
 
 SMS allowlist comparison uses the provider's exact E.164 sender form. Brain
 preserves the leading `+` as string data instead of interpreting it as a JSON

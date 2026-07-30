@@ -13,6 +13,11 @@ use crate::pty_pane::PtyPane;
 const WHEEL_TASKS: usize = 1;
 const WHEEL_ROWS: usize = 3;
 
+#[must_use]
+pub(crate) const fn brain_key_starts_turn(code: KeyCode) -> bool {
+    matches!(code, KeyCode::Enter)
+}
+
 /// How many rows a single Alt+U / Alt+D press moves: half the focused pane's
 /// visible rows, never less than one so a tiny (or zero-height) pane still
 /// advances instead of freezing.
@@ -87,6 +92,9 @@ pub(crate) fn handle_brain_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent
     let Some(bytes) = key_to_bytes(k) else {
         return false;
     };
+    if brain_key_starts_turn(k.code) {
+        app.mark_brain_turn_started();
+    }
     if let Some(pty) = app.brain.as_ref() {
         // Typing snaps back to the live tail so the prompt is always in
         // view, even if the user had scrolled up through history.
