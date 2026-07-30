@@ -243,6 +243,24 @@ impl App<'_> {
                 crate::logging::log("palette request return to main view");
                 self.main_view = crate::main_view::MainView::Tasks;
             }
+            PaletteAction::ToggleDailyTriageAlert => {
+                self.skip_daily_triage_check = !self.skip_daily_triage_check;
+                if self.skip_daily_triage_check {
+                    crate::logging::log("palette disabled daily triage alert for session");
+                    self.flash = Some(FlashKind::Info(
+                        "daily triage alert disabled for this session".to_owned(),
+                    ));
+                } else {
+                    crate::logging::log("palette enabled daily triage alert for session");
+                    self.flash = Some(FlashKind::Info(
+                        "daily triage alert enabled for this session".to_owned(),
+                    ));
+                    // Re-enabling re-arms the nudge: surface it now if today's
+                    // triage is still outstanding, rather than waiting for the
+                    // next refresh or day rollover.
+                    self.check_daily_triage();
+                }
+            }
             PaletteAction::ToggleNotes => {
                 self.toggle_notes();
             }

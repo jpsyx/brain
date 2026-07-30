@@ -80,6 +80,12 @@ pub(crate) enum PaletteAction {
     /// has ≥ 1 link (Linear or notes); a single link opens directly, several
     /// raise the picker. The label reflects which (see `label_for`).
     OpenLinks,
+    /// Toggle the daily-triage startup nudge for the current session — the
+    /// runtime counterpart to the `--no-daily-triage-check` CLI flag. Flips
+    /// `App::skip_daily_triage_check` (process-scoped, not persisted config) so
+    /// a long-running TUI can suppress or restore the alert across day
+    /// rollovers. Global; label swaps Disable/Enable (see `label_for`).
+    ToggleDailyTriageAlert,
 }
 
 /// Direct keystroke that bypasses the palette for a given action,
@@ -106,7 +112,8 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         | PaletteAction::StartTask
         | PaletteAction::DeferTask(_)
         | PaletteAction::SyncBrainNow
-        | PaletteAction::ShowSyncStatus => None,
+        | PaletteAction::ShowSyncStatus
+        | PaletteAction::ToggleDailyTriageAlert => None,
     }
 }
 
@@ -239,6 +246,15 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         label: "Show brain logs",
         action: PaletteAction::ShowBrainLogs,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
+        // Label is overridden at render time (Disable vs Enable) by
+        // `label_for` from the seeded `daily_triage_alert_disabled`; this
+        // static is the fallback.
+        label: "Disable daily triage alert",
+        action: PaletteAction::ToggleDailyTriageAlert,
         scope: PaletteScope::Global,
         works_on_habits: false,
     },

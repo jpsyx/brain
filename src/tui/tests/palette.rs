@@ -287,6 +287,46 @@ fn action_order(state: &PaletteState) -> Vec<PaletteAction> {
     state.visible().iter().map(|c| c.action).collect()
 }
 
+// --- PaletteState: daily-triage alert toggle ---
+
+fn daily_triage_label(state: &PaletteState) -> Option<String> {
+    state
+        .visible()
+        .iter()
+        .find(|c| matches!(c.action, PaletteAction::ToggleDailyTriageAlert))
+        .map(|c| state.label_for(c))
+}
+
+#[test]
+fn daily_triage_toggle_is_globally_available() {
+    // A long-running TUI needs to flip the alert mid-session, so the toggle is
+    // a global command shown regardless of selection.
+    let state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    assert!(action_order(&state).contains(&PaletteAction::ToggleDailyTriageAlert));
+}
+
+#[test]
+fn daily_triage_toggle_reads_disable_when_alert_enabled() {
+    // Default state: the alert is enabled, so the command offers to disable it.
+    let state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    assert_eq!(
+        daily_triage_label(&state).as_deref(),
+        Some("Disable daily triage alert")
+    );
+}
+
+#[test]
+fn daily_triage_toggle_reads_enable_when_alert_disabled() {
+    // Seeded from `App::skip_daily_triage_check` at open time (like
+    // `receiver_server_running`); when disabled the command offers to re-enable.
+    let mut state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    state.daily_triage_alert_disabled = true;
+    assert_eq!(
+        daily_triage_label(&state).as_deref(),
+        Some("Enable daily triage alert")
+    );
+}
+
 #[test]
 fn full_palette_lists_actions_in_canonical_order() {
     // Task with notes selected: start → complete → message-about →
@@ -319,6 +359,7 @@ fn full_palette_lists_actions_in_canonical_order() {
             PaletteAction::ShowSyncStatus,
             PaletteAction::OpenAgenda,
             PaletteAction::ShowBrainLogs,
+            PaletteAction::ToggleDailyTriageAlert,
             PaletteAction::ReturnToMainView,
         ]
     );

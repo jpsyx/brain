@@ -47,6 +47,11 @@ pub(crate) struct PaletteState {
     pub(super) brain_open: bool,
     pub(super) receiver_server_running: bool,
     pub(super) logs_view: bool,
+    /// Whether the daily-triage startup nudge is currently suppressed for this
+    /// session (mirrors `App::skip_daily_triage_check`). Seeded at open time
+    /// like `receiver_server_running`; drives the toggle command's
+    /// Disable/Enable label.
+    pub(super) daily_triage_alert_disabled: bool,
 }
 
 /// Visual intent of a confirm modal — drives the accent (border, title,

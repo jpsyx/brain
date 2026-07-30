@@ -379,8 +379,11 @@ runs immediately at open as before.
 flag, valid for that invocation only, *not* a persistent config change)
 suppresses the nudge entirely: brain neither arms the deferred gate nor runs the
 check, so the modal can never open, no matter the habit state. The startup sync
-still runs. To disable the nudge permanently instead, clear the
-`daily_triage_name_pattern` config variable.
+still runs. Mid-session, the command palette's **Disable/Enable daily triage
+alert** toggle flips the same process-scoped state, so a long-running TUI that
+spans several days can suppress or restore the nudge without a restart. To
+disable the nudge permanently instead, clear the `daily_triage_name_pattern`
+config variable.
 
 #### Migrating a machine to sync
 
@@ -714,7 +717,14 @@ list.
   menu) as a modal overlay for any action `brain` can run; `Esc` closes it
   back to the picker. The tasks-view palette includes **Sync brain now**, which
   kicks off a nonblocking background `brain sync`, plus **Show sync status**,
-  which reports whether a sync is active. Neither has a direct shortcut.
+  which reports whether a sync is active. It also includes a
+  **Disable daily triage alert** / **Enable daily triage alert** toggle (the
+  label swaps to name the action it will take) — the runtime counterpart to the
+  `--no-daily-triage-check` flag. Because a TUI can stay open across day
+  rollovers, this flips the daily-triage nudge on or off for the current session
+  without a persistent config change; enabling it re-checks immediately, so an
+  outstanding triage surfaces the modal at once. None of these has a direct
+  shortcut.
 - **Cancel**: `Esc` / `Ctrl-c` exits with no action.
 
 See [keybindings.md](keybindings.md) for the complete key table including

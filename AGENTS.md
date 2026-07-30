@@ -244,3 +244,34 @@ users in `skills/`.)
   exposes a different integration surface (for example, Claude settings versus
   Codex `~/.codex/hooks.json`), bridge the difference inside brain rather than
   silently leaving one frontend unsupported.
+
+## CLI ↔ command-palette state parity
+
+**Any toggleable TUI state must be reachable from both the CLI (at startup) and
+the command palette (at runtime), and the two must stay in lock-step.** The TUI
+can stay open for days, so a setting a user picked at launch may need flipping
+mid-session, and a setting they flip mid-session is one they may want to launch
+straight into next time. Neither surface is complete on its own.
+
+Concretely, whenever you add either half, add the other in the same change:
+
+- **New CLI option that affects live TUI state** (a boolean or small mode that
+  the running app reads from an `App` field, e.g. `--no-daily-triage-check` →
+  `App::skip_daily_triage_check`) → add a **global command-palette command**
+  that toggles that same `App` field for the current session. If the state is
+  binary, the palette row's label is dynamic: it names the action that will
+  happen next (`Disable daily triage alert` when currently enabled,
+  `Enable daily triage alert` when currently disabled), mirroring the existing
+  Start/Stop-style toggle rows.
+- **New command-palette command that mutates the TUI's internal configuration
+  state** → add an equivalent **CLI option** so the brain can *start* in that
+  state on launch, threaded through `main.rs` → `run_tui` → `App::new` the same
+  way the existing flags are.
+
+The startup flag and the palette toggle must write the *same* `App` field
+through the *same* pure decision, so the two paths can never diverge. Keep the
+palette label registered in both palette surfaces (`src/tui/palette/` and, for
+global rows, `src/menu/model.rs`) and the docs (`docs/features.md`,
+`docs/keybindings.md`) in sync, per the docs contract. Process-scoped runtime
+state (not persisted config) is the default for these toggles unless the value
+clearly belongs in `brain config`.

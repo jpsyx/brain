@@ -114,8 +114,9 @@ Shared across the app; a captive modal consumes all input.
 - **Command palette** (`Ctrl+P`, tasks view) — filterable; numbered rows;
   `Enter` runs, `Esc` closes. In `--verbose` TUI runs it includes **Show
   logs**, which asks whether to reveal the timestamped `/tmp` log file. It
-  also includes **Sync brain now** and **Show sync status**, both with no
-  direct shortcut.
+  also includes **Sync brain now**, **Show sync status**, and a
+  **Disable/Enable daily triage alert** toggle (the session-scoped counterpart
+  to `--no-daily-triage-check`), all with no direct shortcut.
 - **Task actions** (`Enter` on a task) — per-task command list.
 - **Confirm** — Yes/No (triage adds Skip). `y`/`n`/`Esc`, `←`/`→`/`Tab` move, `Enter` resolves.
 - **Brain-input** (`Ctrl+Shift+M`) — compose a seeded message. `Alt+Enter` newline, `Enter` send.

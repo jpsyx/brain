@@ -32,6 +32,7 @@ impl PaletteState {
             brain_open,
             receiver_server_running: false,
             logs_view: false,
+            daily_triage_alert_disabled: false,
         }
     }
 
@@ -61,6 +62,7 @@ impl PaletteState {
             brain_open: false,
             receiver_server_running: false,
             logs_view: false,
+            daily_triage_alert_disabled: false,
         }
     }
 
@@ -78,6 +80,7 @@ impl PaletteState {
             brain_open: false,
             receiver_server_running,
             logs_view: true,
+            daily_triage_alert_disabled: false,
         }
     }
 
@@ -104,6 +107,15 @@ impl PaletteState {
             return match (self.task_actions_modal, &self.task_id) {
                 (false, Some(id)) => format!("{verb} {id} notes"),
                 _ => format!("{verb} notes"),
+            };
+        }
+        // The daily-triage toggle names the action that will happen next:
+        // "Disable" while the alert is active, "Enable" while it's suppressed.
+        if matches!(cmd.action, PaletteAction::ToggleDailyTriageAlert) {
+            return if self.daily_triage_alert_disabled {
+                "Enable daily triage alert".to_owned()
+            } else {
+                "Disable daily triage alert".to_owned()
             };
         }
         // The "open link" command's wording depends on what it'll open:
@@ -153,7 +165,8 @@ impl PaletteState {
             | PaletteAction::ShowReceiverServerStatus
             | PaletteAction::ShowReceiverServerLogs
             | PaletteAction::ShowBrainLogs
-            | PaletteAction::ReturnToMainView => cmd.label.to_owned(),
+            | PaletteAction::ReturnToMainView
+            | PaletteAction::ToggleDailyTriageAlert => cmd.label.to_owned(),
         }
     }
 

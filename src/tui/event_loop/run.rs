@@ -208,8 +208,10 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                 ))
             };
             let receiver_server_running = app.receiver_server_running();
+            let daily_triage_alert_disabled = app.skip_daily_triage_check;
             if let Some(palette) = app.palette.as_mut() {
                 palette.receiver_server_running = receiver_server_running;
+                palette.daily_triage_alert_disabled = daily_triage_alert_disabled;
             }
             continue;
         }
