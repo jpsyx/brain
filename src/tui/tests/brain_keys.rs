@@ -57,4 +57,3 @@ fn shift_m_without_ctrl_does_not_message_about_task() {
     // Plain Shift+M (a capital M keystroke) is not a chord.
     assert!(!ctrl_messages_brain_about_task(KeyCode::Char('M'), false, true));
 }
-

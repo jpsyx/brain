@@ -112,4 +112,3 @@ fn link_picker_routes_when_no_higher_modal_is_open() {
         ModalInput::Confirm
     );
 }
-

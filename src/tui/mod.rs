@@ -54,6 +54,7 @@ mod receiver_state;
 mod search_view;
 mod shell;
 mod singleton;
+mod status_warning;
 
 #[cfg(test)]
 mod tests;
@@ -85,6 +86,7 @@ pub(crate) use modal_state::*;
 pub(crate) use palette::*;
 pub(crate) use search_view::*;
 pub(crate) use shell::*;
+pub(crate) use status_warning::*;
 
 use std::collections::HashSet;
 use std::ops::Range;
@@ -276,6 +278,9 @@ pub(crate) struct App<'a> {
     /// press. Set by palette actions; cleared at the top of the event
     /// loop on the next keystroke.
     flash: Option<FlashKind>,
+    /// Receiver configuration warning that remains after transient flashes
+    /// clear, so a malformed SMS number cannot silently disable receiving.
+    persistent_warning: Option<String>,
 
     /// Injected runner for the `agenda` zsh function. Boxed so the
     /// production impl can shell out while tests pass a fake that

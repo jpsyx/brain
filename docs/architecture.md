@@ -475,7 +475,9 @@ The larger submodules are directories split by concern: `handlers/`
 structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `LinkPickerState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; `mod.rs` keeps only the `App` shell type, `Panel`,
-`filter_tasks`, and the module wiring.
+`filter_tasks`, and the module wiring. `status_warning.rs` validates receiver
+phone configuration and renders persistent warning content independently from
+the transient palette flash.
 
 ### Startup (`run_tui`)
 `run_tui()` opens the state DB, builds the brain-search picker
@@ -542,7 +544,7 @@ and cannot outlive the interactive shell.
   own provider parsing, `attachments.rs` stages media, and `control.rs` owns
   the protected local command socket.
 - `server/security.rs` — pure Twilio HMAC, Resend/Svix HMAC, and exact
-  allowlist decisions.
+  allowlist decisions, including E.164 phone-number validation.
 - `server/lifecycle.rs` — the legacy local habits-server lifecycle.
 - `server/routes/habits/` — the habits MVC route and embedded frontend.
 

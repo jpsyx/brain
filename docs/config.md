@@ -165,7 +165,7 @@ long-form SMS responses are delivered:
 | Variable | Meaning |
 | --- | --- |
 | `response_email` | The user's email address for long responses requested over SMS. |
-| `allowed_sms_senders` | Comma-separated phone numbers permitted to send SMS/MMS messages. |
+| `allowed_sms_senders` | Comma-separated E.164 phone numbers permitted to send SMS/MMS messages, including the leading `+` and country code (for example, `+16072809118`). |
 | `allowed_email_senders` | Comma-separated email addresses permitted to issue brain messages and participate in automatic thread replies. |
 
 Provider credentials are machine-local values in `~/.config/brain/env.json`.
@@ -177,7 +177,11 @@ overrides. `brain env list` and `brain env get` redact secret values.
 The setup prompt asks for one public base URL, such as
 `https://brain.example.com`, and derives the exact webhook endpoints
 `/sms` and `/email`. A missing credential, public URL, or sender allowlist
-fails closed.
+fails closed. SMS sender matching is exact, so every configured phone number
+must use the same E.164 form Twilio sends. Brain preserves the leading `+` when
+writing and listing these values. Config files written by an older release
+that stored one phone number as a JSON number are read and displayed with the
+leading `+` restored.
 
 ## The `brain config` command
 

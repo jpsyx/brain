@@ -57,4 +57,3 @@ fn wrap_input_preserves_every_character() {
     let joined: String = wrap_input(text, 11).concat();
     assert_eq!(joined, text);
 }
-

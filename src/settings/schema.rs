@@ -24,7 +24,7 @@ pub(super) const VARS: [VarSpec; 9] = [
     },
     VarSpec {
         name: "allowed_sms_senders",
-        description: "Comma-separated phone numbers permitted to send messages to the brain.",
+        description: "Comma-separated E.164 phone numbers permitted to message Brain, including + and country code (for example, +16072809118).",
         default: None,
     },
     VarSpec {

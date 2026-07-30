@@ -624,7 +624,10 @@ allowlists protect SMS/MMS; Resend/Svix signatures and email allowlists protect
 email. Resend timestamps must be within five minutes, recent provider delivery
 IDs are deduplicated for the life of the receiver, request bodies are capped at
 1 MiB, and a bounded queue returns `503` backpressure instead of growing
-without limit. The former generic `/webhooks/capture` route has been removed.
+without limit. SMS numbers use exact E.164 matching, including the leading `+`
+and country code. A malformed configured SMS number produces a persistent
+yellow warning in the TUI status line. The former generic
+`/webhooks/capture` route has been removed.
 
 - `brain server start` — start the daemon in the background if it isn't already
   running (idempotent: an existing live server is reused and its URL reprinted).

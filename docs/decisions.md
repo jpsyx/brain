@@ -1351,3 +1351,9 @@ HTTP client stack, but the complete curl configuration is written through the
 child's standard input. Secrets, message content, and signed attachment URLs
 therefore do not appear in the child process's argument list, and the child
 output is captured rather than inherited by the TUI.
+
+SMS allowlist comparison uses the provider's exact E.164 sender form. Brain
+preserves the leading `+` as string data instead of interpreting it as a JSON
+number, recovers the one-number numeric shape written by older releases, and
+keeps a yellow TUI status warning visible for malformed configured numbers.
+This avoids silently disabling SMS while retaining strict sender matching.

@@ -105,6 +105,21 @@ pub fn sender_allowed(sender: &str, allowed: &[String]) -> bool {
             .any(|item| item.trim().eq_ignore_ascii_case(&normalized))
 }
 
+/// Whether a phone number uses the international E.164 shape expected by
+/// Twilio: `+`, a nonzero country-code digit, and at most 15 total digits.
+#[must_use]
+pub fn is_e164_phone_number(number: &str) -> bool {
+    let Some(digits) = number.trim().strip_prefix('+') else {
+        return false;
+    };
+    (2..=15).contains(&digits.len())
+        && digits
+            .as_bytes()
+            .first()
+            .is_some_and(|digit| *digit != b'0')
+        && digits.bytes().all(|digit| digit.is_ascii_digit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +163,16 @@ mod tests {
         assert!(verify_twilio("token", url, &fields, &signature));
         fields.insert("Body".to_owned(), "modified".to_owned());
         assert!(!verify_twilio("token", url, &fields, &signature));
+    }
+
+    #[test]
+    fn sms_phone_numbers_require_e164_country_codes() {
+        assert!(is_e164_phone_number("+16072809118"));
+        assert!(is_e164_phone_number("+442079460018"));
+        assert!(!is_e164_phone_number("6072809118"));
+        assert!(!is_e164_phone_number("+0123456789"));
+        assert!(!is_e164_phone_number("+1 (607) 280-9118"));
+        assert!(!is_e164_phone_number("+1234567890123456"));
     }
 
     #[test]

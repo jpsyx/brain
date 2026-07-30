@@ -11,7 +11,7 @@
 //! it in `settings::VARS` so `brain config` can manage it, (4) bump
 //! `docs/config.md`.
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -20,6 +20,7 @@ pub struct Config {
     /// Email address used for long-form responses requested over SMS.
     pub response_email: String,
     /// Comma-separated phone numbers allowed to issue SMS brain messages.
+    #[serde(deserialize_with = "deserialize_sms_allowlist")]
     pub allowed_sms_senders: String,
     /// Comma-separated email addresses allowed to issue email brain messages.
     pub allowed_email_senders: String,
@@ -43,6 +44,24 @@ pub struct Config {
     /// late-night session isn't nagged for a "new day" the moment the clock
     /// passes 00:00. Defaults to 6 (6 AM); an out-of-range value falls back.
     pub day_rollover_hour: u32,
+}
+
+fn deserialize_sms_allowlist<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StoredAllowlist {
+        Text(String),
+        LegacyNumber(i64),
+    }
+
+    Ok(match StoredAllowlist::deserialize(deserializer)? {
+        StoredAllowlist::Text(value) => value,
+        StoredAllowlist::LegacyNumber(value) if value > 0 => format!("+{value}"),
+        StoredAllowlist::LegacyNumber(value) => value.to_string(),
+    })
 }
 
 impl Default for Config {
@@ -151,6 +170,13 @@ mod tests {
         .unwrap();
         assert_eq!(cfg.allowed_sms(), vec!["+1555", "+1666"]);
         assert_eq!(cfg.allowed_email(), vec!["me@example.com"]);
+    }
+
+    #[test]
+    fn legacy_numeric_sms_allowlist_recovers_its_leading_plus() {
+        let cfg: Config = serde_json::from_str(r#"{"allowed_sms_senders":16072809118}"#).unwrap();
+
+        assert_eq!(cfg.allowed_sms(), vec!["+16072809118"]);
     }
 
     #[test]

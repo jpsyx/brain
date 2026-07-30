@@ -30,6 +30,8 @@ impl<'a> App<'a> {
     ) -> Self {
         let query = initial_search.unwrap_or_default();
         let in_search = !query.is_empty();
+        let twilio_from = crate::env::get("twilio_from_number");
+        let persistent_warning = receiver_phone_warning(&config, twilio_from.as_deref());
         let mut app = Self {
             today,
             // Seeded to the startup date; `run_tui` overwrites it with the
@@ -77,6 +79,7 @@ impl<'a> App<'a> {
             link_picker: None,
             help: None,
             flash: None,
+            persistent_warning,
             agenda_runner,
             open_runner,
             db,

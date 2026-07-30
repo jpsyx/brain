@@ -253,4 +253,3 @@ fn link_picker_select_number_jumps_one_based_and_rejects_out_of_range() {
     assert!(!p.select_number(4)); // past the end
     assert_eq!(p.selected(), 1); // unchanged by the rejects
 }
-

@@ -15,8 +15,15 @@ pub fn normalize_name(name: &str) -> String {
 }
 
 /// Render a JSON value as the flat string the CLI and typed readers see.
-fn value_to_string(v: &Value) -> Option<String> {
-    match v {
+fn value_to_string(name: &str, value: &Value) -> Option<String> {
+    if name == "allowed_sms_senders"
+        && let Value::Number(number) = value
+        && number.as_u64().is_some_and(|number| number > 0)
+    {
+        return Some(format!("+{number}"));
+    }
+
+    match value {
         Value::Null => None,
         Value::String(s) => Some(s.clone()),
         Value::Bool(b) => Some(b.to_string()),
@@ -28,7 +35,9 @@ fn value_to_string(v: &Value) -> Option<String> {
 /// The raw explicit value for `name` (no default fallback).
 #[must_use]
 pub fn get(name: &str) -> Option<String> {
-    load_map().get(name).and_then(value_to_string)
+    load_map()
+        .get(name)
+        .and_then(|value| value_to_string(name, value))
 }
 
 /// The effective value for a known variable: explicit override else default.
@@ -43,7 +52,9 @@ pub fn resolve_one(name: &str) -> Option<String> {
 /// Coerce a raw CLI string into the tightest JSON type so typed readers keep
 /// working (`day_rollover_hour=4` must round-trip as a number, not `"4"`).
 fn parse_value(raw: &str) -> Value {
-    if let Ok(i) = raw.parse::<i64>() {
+    if let Ok(i) = raw.parse::<i64>()
+        && raw == i.to_string()
+    {
         return Value::from(i);
     }
     match raw {
@@ -81,7 +92,7 @@ pub(super) fn resolve_all_from(map: &Map<String, Value>) -> Vec<Resolved> {
             name: v.name.to_owned(),
             value: map
                 .get(v.name)
-                .and_then(value_to_string)
+                .and_then(|value| value_to_string(v.name, value))
                 .or_else(|| v.default.map(str::to_owned)),
             description: v.description.to_owned(),
         })
@@ -105,6 +116,42 @@ mod tests {
         assert_eq!(parse_value("~/brain"), Value::from("~/brain"));
         // A slug that merely starts with a digit stays a string.
         assert_eq!(parse_value("2acme"), Value::from("2acme"));
+    }
+
+    #[test]
+    fn parse_value_preserves_an_e164_leading_plus() {
+        assert_eq!(parse_value("+16072809118"), Value::from("+16072809118"));
+    }
+
+    #[test]
+    fn legacy_numeric_sms_allowlist_renders_with_its_leading_plus() {
+        let mut map = Map::new();
+        map.insert(
+            "allowed_sms_senders".to_owned(),
+            Value::from(16_072_809_118_i64),
+        );
+
+        let rows = resolve_all_from(&map);
+        let allowed = rows
+            .iter()
+            .find(|row| row.name == "allowed_sms_senders")
+            .unwrap();
+
+        assert_eq!(allowed.value.as_deref(), Some("+16072809118"));
+    }
+
+    #[test]
+    fn malformed_nonpositive_numeric_sms_allowlist_is_not_given_a_plus() {
+        let mut map = Map::new();
+        map.insert("allowed_sms_senders".to_owned(), Value::from(-1));
+
+        let rows = resolve_all_from(&map);
+        let allowed = rows
+            .iter()
+            .find(|row| row.name == "allowed_sms_senders")
+            .unwrap();
+
+        assert_eq!(allowed.value.as_deref(), Some("-1"));
     }
 
     #[test]

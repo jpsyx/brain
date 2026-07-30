@@ -259,8 +259,8 @@ fn receiver_setup() -> Result<()> {
         ),
         (
             "allowed_sms_senders",
-            "Phone numbers allowed to text Brain (comma-separated)",
-            "Messages from any other phone number are rejected before they reach the LLM.",
+            "Phone numbers allowed to text Brain (E.164, comma-separated)",
+            "Include + and the country code, for example +16072809118. Messages from any other number are rejected before they reach the LLM.",
             current.allowed_sms_senders,
         ),
         (
@@ -401,7 +401,7 @@ fn receiver_provider_prompt(name: &str) -> (&'static str, &'static str, bool) {
         ),
         "twilio_from_number" => (
             "Twilio From number",
-            "The Twilio phone number Brain uses for outbound SMS.",
+            "The Twilio phone number Brain uses for outbound SMS. Include + and the country code, for example +16072809118.",
             false,
         ),
         "resend_api_key" => (

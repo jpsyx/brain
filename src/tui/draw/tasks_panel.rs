@@ -155,11 +155,13 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
         }
     }
 
-    // Footer slot: flash messages from the last palette action take
-    // priority (cleared on next keystroke); otherwise show the compact
-    // shortcut bar (subset + `?`).
-    let footer = if let Some(flash) = &app.flash {
-        flash_line(flash)
+    // Footer slot: a transient palette flash takes priority until the next
+    // keystroke. A persistent receiver warning then returns; otherwise show
+    // the usual search hint or compact shortcut bar.
+    let footer = if let Some(status) =
+        status_override_line(app.flash.as_ref(), app.persistent_warning.as_deref())
+    {
+        status
     } else if app.in_search {
         search_footer_line()
     } else {
