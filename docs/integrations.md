@@ -26,7 +26,8 @@ session paints reaches stdout. Diagnostics and default progress narration go to
 stderr: long-running one-shot commands print concise phase plans before they
 probe the filesystem, start daemons, spawn external tools, touch the network, or
 write install trees. Verbose TUI runs still write a timestamped `/tmp` log file;
-the tasks command palette's **Show logs** row asks whether to open both the log
+the command palette's receiver and brain log rows switch the main panel to a
+scrollable view of the relevant log
 directory and the log file via `open`. Verbose logs are intentionally more
 detailed than the default progress trace: they include the selected command
 action, non-secret argv/path details, task CSV load/write paths, rclone raw
@@ -168,7 +169,7 @@ or a blob is decided by `open_target::is_textlike`. On a non-iTerm2 terminal
 the editor path falls back to `open <file>`. Nothing is emitted to stdout; the
 shell stays up throughout.
 
-Verbose TUI log reveal reuses the same system handoff: **Show logs** first calls
+Verbose TUI log viewing reuses the same system handoff: the brain log action calls
 `open <parent-dir>` so Finder shows the log directory, then calls `open <log>`
 for the timestamped file itself.
 

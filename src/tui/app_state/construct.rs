@@ -95,6 +95,7 @@ impl<'a> App<'a> {
             receiver_started: None,
             receiver_delay_sent: false,
             main_view: MainView::Tasks,
+            logs_view: None,
             search,
             panel_side,
         };

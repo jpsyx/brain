@@ -81,18 +81,6 @@ fn run_triage_ctor_carries_task_id_and_label() {
     assert_eq!(s.task_label, "Morning Triage");
 }
 
-#[test]
-fn show_logs_confirm_carries_the_full_log_path() {
-    let s = ConfirmState::show_logs(std::path::PathBuf::from("/tmp/2026.log"));
-    assert_eq!(s.kind, ConfirmKind::ShowLogs);
-    assert_eq!(
-        s.path.as_deref(),
-        Some(std::path::Path::new("/tmp/2026.log"))
-    );
-    assert!(s.prompt.contains("/tmp/2026.log"), "{}", s.prompt);
-    assert_eq!(s.choices(), &[ConfirmChoice::Yes, ConfirmChoice::No]);
-}
-
 // --- ConfirmChoice: the triage modal alone offers a third "Skip" button ---
 
 #[test]
@@ -111,7 +99,6 @@ fn non_triage_confirms_are_yes_no_only() {
         ConfirmState::mark_complete("T1".to_owned(), "x".to_owned()),
         ConfirmState::remove("T1".to_owned(), "x".to_owned()),
         ConfirmState::generate_agenda(),
-        ConfirmState::show_logs(std::path::PathBuf::from("/tmp/x.log")),
     ] {
         assert_eq!(s.choices(), &[ConfirmChoice::Yes, ConfirmChoice::No]);
         assert!(!s.has_skip());

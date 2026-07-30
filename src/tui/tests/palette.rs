@@ -236,17 +236,11 @@ fn open_links_advertises_its_ctrl_o_shortcut() {
 }
 
 #[test]
-fn show_logs_is_available_only_when_a_verbose_log_exists() {
+fn brain_logs_are_always_available() {
     let without_logs = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
     assert!(
-        !action_order(&without_logs).contains(&PaletteAction::ShowLogs),
-        "Show logs should be hidden when this run has no verbose log file"
-    );
-
-    let with_logs = PaletteState::new(None, false, false, false, LinkKind::None, false, true);
-    assert!(
-        action_order(&with_logs).contains(&PaletteAction::ShowLogs),
-        "Show logs should be present when verbose logging is active"
+        action_order(&without_logs).contains(&PaletteAction::ShowBrainLogs),
+        "Brain logs should explain when verbose logging is unavailable"
     );
 }
 
@@ -300,6 +294,7 @@ fn full_palette_lists_actions_in_canonical_order() {
             PaletteAction::MessageBrainAboutTask,
             PaletteAction::SendBrainMessage,
             PaletteAction::StartReceiverServer,
+            PaletteAction::ShowReceiverServerStatus,
             PaletteAction::ToggleNotes,
             PaletteAction::RemoveTask,
             PaletteAction::DeferTask(1),
@@ -308,6 +303,7 @@ fn full_palette_lists_actions_in_canonical_order() {
             PaletteAction::OpenHabitsInBrowser,
             PaletteAction::SyncBrainNow,
             PaletteAction::OpenAgenda,
+            PaletteAction::ShowBrainLogs,
         ]
     );
 }

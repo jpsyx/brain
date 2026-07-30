@@ -161,10 +161,7 @@ pub fn run_tui(
                 .and_then(|j| j.latest_id().ok())
                 .flatten();
         crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
-        app.arm_triage_gate(
-            seen,
-            std::time::Instant::now(),
-        );
+        app.arm_triage_gate(seen, std::time::Instant::now());
     } else {
         // No sync coming — the local state is authoritative, so check now. The
         // confirm modal it may set renders on the very first frame.

@@ -268,6 +268,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             // view is an always-filtering picker.
             Panel::Tasks => match app.main_view {
                 MainView::BrainSearch => handle_search_view_key(app, &k, ctrl, alt),
+                MainView::Logs => handle_logs_key(app, k.code, ctrl),
                 MainView::Tasks if app.in_search => handle_search_key(app, k.code, ctrl),
                 MainView::Tasks => handle_normal_key(app, k.code, ctrl),
             },

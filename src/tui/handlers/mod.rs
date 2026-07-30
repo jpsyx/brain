@@ -5,9 +5,11 @@
 //!   - `input`      — mouse-wheel routing + brain-PTY keystroke forwarding
 
 mod input;
+mod logs;
 mod overlay;
 mod tasks_view;
 
 pub(crate) use input::*;
+pub(crate) use logs::*;
 pub(crate) use overlay::*;
 pub(crate) use tasks_view::*;

@@ -21,7 +21,9 @@ impl App<'_> {
     /// startup. The listener is stored on `App`, so dropping the shell stops
     /// it automatically.
     pub(crate) fn start_receiver_server(&mut self) {
+        crate::logging::log("receiver server start requested");
         if self.receiver_server.is_some() {
+            crate::logging::log("receiver server already running");
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
@@ -30,11 +32,13 @@ impl App<'_> {
             tx,
         ) {
             Ok(server) => {
+                crate::logging::log("receiver server started");
                 self.receiver_server = Some(server);
                 self.receiver_rx = Some(rx);
                 self.flash = Some(FlashKind::Info("receiver server is listening".to_owned()));
             }
             Err(error) => {
+                crate::logging::log(format!("receiver server start failed: {error}"));
                 self.flash = Some(FlashKind::Error(format!(
                     "receiver server could not start: {error}"
                 )));
@@ -69,28 +73,35 @@ impl App<'_> {
         for (mut stream, command) in control_requests {
             let response = match command.as_str() {
                 "start" => {
+                    crate::logging::log("receiver control start");
                     self.start_receiver_server();
                     "receiver server started\n".to_owned()
                 }
                 "stop" => {
+                    crate::logging::log("receiver control stop");
                     self.receiver_server = None;
                     self.receiver_rx = None;
                     "receiver server stopped\n".to_owned()
                 }
                 "restart" => {
+                    crate::logging::log("receiver control restart");
                     self.receiver_server = None;
                     self.receiver_rx = None;
                     self.start_receiver_server();
                     "receiver server restarted\n".to_owned()
                 }
                 "status" => {
+                    crate::logging::log("receiver control status");
                     if self.receiver_server.is_some() {
                         "receiver server is running\n".to_owned()
                     } else {
                         "receiver server is stopped\n".to_owned()
                     }
                 }
-                "logs" => "receiver logs are in the current brain run log\n".to_owned(),
+                "logs" => {
+                    crate::logging::log("receiver control logs");
+                    "receiver logs are in the current brain run log\n".to_owned()
+                }
                 _ => "unknown receiver command\n".to_owned(),
             };
             let _ = std::io::Write::write_all(&mut stream, response.as_bytes());

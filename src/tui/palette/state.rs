@@ -17,7 +17,7 @@ impl PaletteState {
         context_notes_expanded: bool,
         context_links: LinkKind,
         brain_open: bool,
-        logs_available: bool,
+        _logs_available: bool,
     ) -> Self {
         Self {
             filter: String::new(),
@@ -30,7 +30,6 @@ impl PaletteState {
             context_links,
             task_actions_modal: false,
             brain_open,
-            logs_available,
             receiver_server_running: false,
         }
     }
@@ -59,7 +58,6 @@ impl PaletteState {
             // The task actions modal only shows task-scoped commands, so the
             // global "Close brain" never appears here regardless.
             brain_open: false,
-            logs_available: false,
             receiver_server_running: false,
         }
     }
@@ -125,7 +123,6 @@ impl PaletteState {
             PaletteAction::OpenLinks
             | PaletteAction::SendBrainMessage
             | PaletteAction::CloseBrain
-            | PaletteAction::ShowLogs
             | PaletteAction::OpenHabitsInBrowser
             | PaletteAction::SyncBrainNow
             | PaletteAction::OpenAgenda
@@ -133,7 +130,9 @@ impl PaletteState {
             | PaletteAction::StartReceiverServer
             | PaletteAction::StopReceiverServer
             | PaletteAction::RestartReceiverServer
-            | PaletteAction::ShowReceiverServerLogs => cmd.label.to_owned(),
+            | PaletteAction::ShowReceiverServerStatus
+            | PaletteAction::ShowReceiverServerLogs
+            | PaletteAction::ShowBrainLogs => cmd.label.to_owned(),
         }
     }
 
@@ -162,8 +161,6 @@ impl PaletteState {
                     !self.task_actions_modal
                         // "Close brain" only makes sense while a panel is open.
                         && (!matches!(c.action, PaletteAction::CloseBrain) || self.brain_open)
-                        // "Show logs" only appears for verbose TUI runs.
-                        && (!matches!(c.action, PaletteAction::ShowLogs) || self.logs_available)
                         && match c.action {
                             PaletteAction::StartReceiverServer => !self.receiver_server_running,
                             PaletteAction::StopReceiverServer

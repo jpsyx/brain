@@ -1,6 +1,6 @@
 # Keybindings
 
-The merged `brain` shell has **two main views** (the tasks view and the
+The merged `brain` shell has **three main views** (the tasks view, the
 brain-directory search view) and one app-level **brain panel** (the selected
 agent PTY: Claude by default, Codex with `--codex` / `-cx`). See [glossary.md](glossary.md) for the vocabulary. Startup: the **tasks
 view** is showing, the **brain panel is open** (on the right) but unfocused, so

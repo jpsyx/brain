@@ -8,7 +8,6 @@
 //! can reach them, without widening the surface to the whole crate.
 
 use ratatui::style::Color;
-use std::path::PathBuf;
 
 use crate::tui::{Link, LinkKind};
 
@@ -46,8 +45,6 @@ pub(crate) struct PaletteState {
     /// Whether the brain panel is currently open. Gates the "Close brain"
     /// command — there's nothing to close when no panel is up.
     pub(super) brain_open: bool,
-    /// Whether this verbose run has a log file the TUI can reveal.
-    pub(super) logs_available: bool,
     pub(super) receiver_server_running: bool,
 }
 
@@ -86,9 +83,6 @@ pub(crate) enum ConfirmKind {
     /// with a `/triage` prompt; the Skip path tells the brain to skip
     /// triage for the day (see [`ConfirmChoice::Skip`]).
     RunTriage,
-    /// Triggered by the "Show logs" command palette row in verbose TUI runs.
-    /// Yes path reveals the log directory and opens the log file.
-    ShowLogs,
 }
 
 /// A button in the confirm modal. Every modal has `Yes` / `No`; only the
@@ -130,8 +124,6 @@ pub(crate) struct ConfirmState {
     /// check what they're about to mutate without context-switching to
     /// the list behind the modal.
     pub(super) task_label: String,
-    /// Optional filesystem path carried by non-task confirmations.
-    pub(super) path: Option<PathBuf>,
     /// Which button is currently focused. Defaults to `Yes` since the user
     /// explicitly invoked the action — they want to confirm, not back out,
     /// in the common case. Movement is constrained to `self.choices()`.

@@ -9,7 +9,7 @@ brain and the task system; the standalone `tasks` binary is gone. It has two
 surfaces:
 
 - **Bare `brain`** (and `brain tasks …`) opens a **persistent shell**
-  (`tui/`) with **two main views** — the **tasks view** (task management,
+  (`tui/`) with **three main views** — the **tasks view** (task management,
   agenda, triage; the startup default) and the **brain-directory search view**
   (fuzzy-pick over `~/brain`) — plus one app-level **brain panel** (an
   interactive `claude` session in a PTY). You switch main views with
@@ -83,12 +83,12 @@ tui::run_tui(view, cli, …)                  (the persistent shell)
        ├─ session::build_llm_command(root, agent_kind, command, …) + env_for
        │    → PtyPane spawns configured Claude (default) or Codex (`--codex` / `-cx`)
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
-       ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; verbose TUI adds "Show logs")
+       ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; status and log actions open the logs view)
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
        └─ quit → the loop just returns (no plan, no wrapper handoff)
 ```
 
-Both main views share the pure picker logic (`picker::App` matching /
+The task and brain-search views share the pure picker logic (`picker::App` matching /
 navigation, rendered via `picker::draw_into`) and the `menu` palette in the
 search view. The search panel lives in a bordered half of the shell alongside
 the live brain panel; opening a file or rescoping a bucket happens in place
@@ -114,7 +114,8 @@ Optional per-run verbose logging. `logging::init` creates a timestamped
 `/tmp/<rfc3339-nanos>.log` file only when `--verbose` is present, mirrors log
 lines to stdout for non-TUI commands, and prints the final log path at process
 exit. Before the persistent shell takes over `/dev/tty`, `main.rs` disables the
-stdout mirror; the TUI keeps the log path in `App` and offers **Show logs** in
+stdout mirror; the TUI keeps the log path in `App` and offers receiver and brain
+log actions in the command palette that switch the main panel to a log view.
 the tasks command palette. Command handlers and thin IO shells call
 `logging::log` at phase boundaries: dispatch, config/env/personalize actions,
 task CSV loads and writes, sync/rclone work, server lifecycle probes, doctor

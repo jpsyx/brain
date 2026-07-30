@@ -1213,7 +1213,8 @@ under `/tmp/` and mirrors those log lines to stdout for short-lived, non-TUI
 commands so a caller can capture one stream. The persistent shell is different:
 stdout is reserved away from full-screen terminal drawing, so verbose TUI runs
 write only to the log file. The tasks command palette carries the discoverable
-escape hatch: **Show logs** asks for confirmation, then opens both the log
+escape hatch: the command palette's log actions switch the main panel to a
+scrollable diagnostic view
 directory and the log file with the system `open`.
 
 ## Why sync setup/repair are explicit separate states

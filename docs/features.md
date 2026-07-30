@@ -4,7 +4,7 @@
 system. Everything below is reachable from the persistent shell (bare
 `brain`), as a subcommand, or from a command palette.
 
-## The merged shell: two main views + one brain panel
+## The merged shell: three main views + one brain panel
 
 Bare `brain` (and `brain tasks …`) opens a persistent shell with **two main
 views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
@@ -180,8 +180,9 @@ before clap parses it.
 `--verbose` can be added to any non-version command. In non-TUI mode it mirrors
 brain's run log to stdout and writes the same log to a timestamped file under
 `/tmp/`, then prints the log path at exit. In the persistent TUI, logs still go
-to the file but never to stdout; use the tasks-view command palette's **Show
-logs** row to reveal the file. The log includes command dispatch, normalized
+to the file but never to stdout; use the command palette's **Show receiver
+server logs** or **Show brain logs** rows to switch the main panel to a
+scrollable log view. The log includes command dispatch, normalized
 arguments, task CSV paths and mutation results, sync/rclone phases, server
 lifecycle decisions, doctor probes, and skill install counts.
 

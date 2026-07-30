@@ -42,11 +42,6 @@ pub(crate) fn run_confirm_yes(app: &mut App<'_>) {
         ConfirmKind::Remove => app.run_remove(&c.task_id),
         ConfirmKind::GenerateAgenda => app.run_generate_agenda(),
         ConfirmKind::RunTriage => app.run_triage(),
-        ConfirmKind::ShowLogs => {
-            if let Some(path) = c.path.as_deref() {
-                app.run_show_logs(path);
-            }
-        }
     }
 }
 

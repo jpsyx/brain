@@ -323,8 +323,18 @@ fn respond(
     security: &SecurityConfig,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let route = super::router::route(request.method().as_str(), request.url());
-    let mut body = Vec::new();
-    let _ = request.as_reader().read_to_end(&mut body);
+    crate::logging::log(format!(
+        "receiver http request method={} url={} route={route:?}",
+        request.method(),
+        request.url()
+    ));
+    let body = if matches!(route, Route::Sms | Route::Email) {
+        read_request_body(request)
+    } else {
+        // Unknown routes and wrong methods must be rejected without waiting
+        // for a request body that may not exist (for example, a bodyless GET).
+        Vec::new()
+    };
     let result = match route {
         Route::Sms => parse_sms(request, &body, security).and_then(|message| enqueue(tx, message)),
         Route::Email => {
@@ -348,6 +358,26 @@ fn respond(
         .with_status_code(status)
         .with_header(json_header()),
     }
+}
+
+fn read_request_body(request: &mut tiny_http::Request) -> Vec<u8> {
+    let length = request.body_length();
+    read_body_from_reader(request.as_reader(), length)
+}
+
+fn read_body_from_reader(reader: &mut dyn Read, length: Option<usize>) -> Vec<u8> {
+    let mut body = Vec::new();
+    match length {
+        Some(length) => {
+            let _ = reader
+                .take(u64::try_from(length).unwrap_or(u64::MAX))
+                .read_to_end(&mut body);
+        }
+        None => {
+            let _ = reader.read_to_end(&mut body);
+        }
+    }
+    body
 }
 
 fn enqueue(tx: &Sender<InboundMessage>, message: InboundMessage) -> Result<(), (u16, String)> {
@@ -632,4 +662,16 @@ fn json_header() -> Header {
 fn xml_header() -> Header {
     Header::from_bytes(&b"Content-Type"[..], b"application/xml")
         .unwrap_or_else(|()| unreachable!("static header is valid"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    #[test]
+    fn request_body_reader_stops_at_content_length() {
+        let mut reader = Cursor::new(b"body followed by keep-alive bytes".to_vec());
+        let body = super::read_body_from_reader(&mut reader, Some(4));
+        assert_eq!(body, b"body");
+    }
 }

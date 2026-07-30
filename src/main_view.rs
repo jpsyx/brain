@@ -1,7 +1,7 @@
 //! The app-level "main view" axis and its view-switching key decisions.
 //!
-//! The merged `brain` shell has two **main views** — the tasks view and the
-//! brain-directory (fuzzy search) view — plus one app-level **brain panel**
+//! The merged `brain` shell has three **main views** — the tasks view, the
+//! brain-directory (fuzzy search) view, and the log view — plus one app-level **brain panel**
 //! (the `claude` PTY) that is independent of which main view is showing. This
 //! module owns the pure logic for that axis: the [`MainView`] enum, cycling
 //! ([`MainView::step`]), and the pure key-classifiers that map a keystroke to
@@ -11,7 +11,7 @@ use crossterm::event::KeyCode;
 
 /// Which full-screen surface is currently showing.
 ///
-/// The two main views sit next to (or instead of) the brain panel. The brain
+/// The main views sit next to (or instead of) the brain panel. The brain
 /// panel itself is *not* a main view — it is app-level and persists across a
 /// `MainView` switch.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -20,6 +20,8 @@ pub enum MainView {
     Tasks,
     /// The brain-directory fuzzy-search view (formerly bare `brain`).
     BrainSearch,
+    /// The scrollable diagnostic log view.
+    Logs,
 }
 
 /// A horizontal cycle direction.
@@ -35,7 +37,7 @@ pub enum Dir {
 impl MainView {
     /// The main views in cycle order (left-to-right). `Ctrl+L` advances
     /// forward through this, `Ctrl+H` backward; both wrap.
-    pub const CYCLE: [Self; 2] = [Self::Tasks, Self::BrainSearch];
+    pub const CYCLE: [Self; 3] = [Self::Tasks, Self::BrainSearch, Self::Logs];
 
     /// The next main view one step in `dir`, wrapping around [`Self::CYCLE`].
     #[must_use]
@@ -104,8 +106,9 @@ mod tests {
     #[test]
     fn step_cycles_and_wraps_both_directions() {
         assert_eq!(MainView::Tasks.step(Dir::Right), MainView::BrainSearch);
-        assert_eq!(MainView::BrainSearch.step(Dir::Right), MainView::Tasks);
-        assert_eq!(MainView::Tasks.step(Dir::Left), MainView::BrainSearch);
+        assert_eq!(MainView::BrainSearch.step(Dir::Right), MainView::Logs);
+        assert_eq!(MainView::Logs.step(Dir::Right), MainView::Tasks);
+        assert_eq!(MainView::Tasks.step(Dir::Left), MainView::Logs);
         assert_eq!(MainView::BrainSearch.step(Dir::Left), MainView::Tasks);
     }
 
@@ -126,10 +129,22 @@ mod tests {
 
     #[test]
     fn ctrl_t_jumps_to_tasks_and_ctrl_b_jumps_to_brain() {
-        assert_eq!(ctrl_jumps_view(KeyCode::Char('t'), true), Some(MainView::Tasks));
-        assert_eq!(ctrl_jumps_view(KeyCode::Char('T'), true), Some(MainView::Tasks));
-        assert_eq!(ctrl_jumps_view(KeyCode::Char('b'), true), Some(MainView::BrainSearch));
-        assert_eq!(ctrl_jumps_view(KeyCode::Char('B'), true), Some(MainView::BrainSearch));
+        assert_eq!(
+            ctrl_jumps_view(KeyCode::Char('t'), true),
+            Some(MainView::Tasks)
+        );
+        assert_eq!(
+            ctrl_jumps_view(KeyCode::Char('T'), true),
+            Some(MainView::Tasks)
+        );
+        assert_eq!(
+            ctrl_jumps_view(KeyCode::Char('b'), true),
+            Some(MainView::BrainSearch)
+        );
+        assert_eq!(
+            ctrl_jumps_view(KeyCode::Char('B'), true),
+            Some(MainView::BrainSearch)
+        );
     }
 
     #[test]

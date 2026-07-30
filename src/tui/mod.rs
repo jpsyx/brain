@@ -46,10 +46,11 @@ mod event_loop;
 mod handlers;
 mod keymap;
 mod links;
-mod receiver_state;
+mod logs_view;
 mod modal_state;
 mod modals;
 mod palette;
+mod receiver_state;
 mod search_view;
 mod shell;
 mod singleton;
@@ -79,6 +80,7 @@ pub(crate) use event_loop::{ActiveModals, ModalInput, modal_input_target};
 pub(crate) use handlers::*;
 pub(crate) use keymap::*;
 pub(crate) use links::*;
+pub(crate) use logs_view::*;
 pub(crate) use modal_state::*;
 pub(crate) use palette::*;
 pub(crate) use search_view::*;
@@ -220,6 +222,9 @@ pub(crate) struct App<'a> {
     /// default) or the brain-directory fuzzy-search view. The brain panel is
     /// app-level and persists across a switch. See `crate::main_view`.
     main_view: MainView,
+    /// The currently selected diagnostic log source, when the log main view
+    /// is active.
+    pub(crate) logs_view: Option<LogsView>,
     /// The brain-directory (fuzzy-search) main view's picker state — entries,
     /// query, matches, and its own palette / confirm overlays. Only receives
     /// keys while `main_view == MainView::BrainSearch` and the main panel is

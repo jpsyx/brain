@@ -6,7 +6,7 @@ here to find the code. Keep this in sync when you rename a concept.
 
 ## The two-axis layout model
 
-The merged `brain` shell has **two main views** and **one app-level panel**.
+The merged `brain` shell has **three main views** and **one app-level panel**.
 At most one main view shows at a time; the brain panel can be open alongside
 it (split) or closed (main view full-width).
 
@@ -26,7 +26,7 @@ These are deliberately distinct and use different modifiers:
 
 | Plain English | Effect | Keys | Code |
 | --- | --- | --- | --- |
-| **cycle main views** | Change *which main view* is shown (tasks ↔ brain directory). | `Ctrl+H` (left) / `Ctrl+L` (right) | `main_view::ctrl_cycles_view` → `MainView::step` |
+| **cycle main views** | Change *which main view* is shown (tasks ↔ brain directory ↔ logs). | `Ctrl+H` (left) / `Ctrl+L` (right) | `main_view::ctrl_cycles_view` → `MainView::step` |
 | **jump to a main view** | Go straight to one named main view. | `Ctrl+T` (tasks) / `Ctrl+B` (brain directory) | `main_view::ctrl_jumps_view` |
 | **focus a panel** | Move keyboard focus between the main view and the brain panel (spatial left/right). | `Alt+H` / `Alt+L` | `App::focus_left` / `focus_right` |
 

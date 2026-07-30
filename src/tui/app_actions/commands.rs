@@ -10,6 +10,12 @@ use crate::tasks::complete;
 use crate::tui::*;
 
 impl App<'_> {
+    pub(crate) fn show_logs_view(&mut self, kind: LogKind) {
+        crate::logging::log(format!("open logs view kind={kind:?}"));
+        self.logs_view = Some(LogsView::load(kind, self.log_path.as_deref()));
+        self.main_view = crate::main_view::MainView::Logs;
+    }
+
     /// Wrap `mark_task_complete` with flash-message setting so both the
     /// palette action and the confirm modal route through one place.
     pub(crate) fn run_mark_complete(&mut self, raw_id: &str) {
@@ -62,21 +68,6 @@ impl App<'_> {
                 open_url(self.open_runner.as_ref(), &url)
             }
             Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
-        });
-    }
-
-    /// Reveal this run's verbose log directory, then open the log file itself.
-    pub(crate) fn run_show_logs(&mut self, path: &Path) {
-        let result = path.parent().map_or_else(
-            || crate::open_target::open_with_system(path),
-            |dir| {
-                crate::open_target::open_with_system(dir)?;
-                crate::open_target::open_with_system(path)
-            },
-        );
-        self.flash = Some(match result {
-            Ok(()) => FlashKind::Info(format!("✓ opened {}", path.display())),
-            Err(e) => FlashKind::Error(format!("⚠ logs failed: {e}")),
         });
     }
 
@@ -153,14 +144,23 @@ impl App<'_> {
                 self.flash = Some(FlashKind::Info("receiver server stopped".to_owned()));
             }
             PaletteAction::RestartReceiverServer => {
+                crate::logging::log("palette request receiver server restart");
                 self.receiver_server = None;
                 self.receiver_rx = None;
                 self.start_receiver_server();
             }
+            PaletteAction::ShowReceiverServerStatus => {
+                crate::logging::log("palette request receiver server status");
+                let status = if self.receiver_server.is_some() {
+                    "receiver server is running"
+                } else {
+                    "receiver server is stopped"
+                };
+                self.flash = Some(FlashKind::Info(status.to_owned()));
+            }
             PaletteAction::ShowReceiverServerLogs => {
-                self.flash = Some(FlashKind::Info(
-                    "receiver logs are written to the brain run log".to_owned(),
-                ));
+                crate::logging::log("palette request receiver server logs");
+                self.show_logs_view(LogKind::Receiver);
             }
             PaletteAction::MessageBrainAboutTask => {
                 // Clone (id, name) before mutating self.brain_input so
@@ -220,10 +220,9 @@ impl App<'_> {
             PaletteAction::OpenAgenda => {
                 self.run_open_agenda();
             }
-            PaletteAction::ShowLogs => {
-                if let Some(path) = self.log_path.clone() {
-                    self.confirm = Some(ConfirmState::show_logs(path));
-                }
+            PaletteAction::ShowBrainLogs => {
+                crate::logging::log("palette request brain TUI logs");
+                self.show_logs_view(LogKind::Brain);
             }
             PaletteAction::ToggleNotes => {
                 self.toggle_notes();

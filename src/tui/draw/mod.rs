@@ -47,6 +47,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App<'_>) {
     match app.main_view {
         MainView::Tasks => draw_tasks(f, app, main_area),
         MainView::BrainSearch => crate::picker::draw_into(f, &mut app.search, main_area),
+        MainView::Logs => draw_logs(f, app, main_area),
     }
     if let Some(brain_rect) = brain_area {
         draw_brain(f, app, brain_rect);

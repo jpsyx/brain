@@ -85,12 +85,11 @@ impl App<'_> {
         if now < gate.next_poll {
             return;
         }
-        let latest = crate::sync::journal::Journal::open(
-            &crate::sync::journal::Journal::default_path(),
-        )
-        .ok()
-        .and_then(|j| j.latest_id().ok())
-        .flatten();
+        let latest =
+            crate::sync::journal::Journal::open(&crate::sync::journal::Journal::default_path())
+                .ok()
+                .and_then(|j| j.latest_id().ok())
+                .flatten();
         if triage_gate_resolved(gate.seen_journal_id, latest) {
             self.triage_gate = None;
             let _ = self.reload_tasks();
@@ -192,7 +191,11 @@ fn triage_nudge_target<'h>(
 /// so a session running past midnight isn't treated as a new day until the
 /// rollover hour. An out-of-range hour (>23) falls back to the 6 AM default.
 fn logical_day(now: chrono::NaiveDateTime, rollover_hour: u32) -> chrono::NaiveDate {
-    let hour = if rollover_hour <= 23 { rollover_hour } else { 6 };
+    let hour = if rollover_hour <= 23 {
+        rollover_hour
+    } else {
+        6
+    };
     (now - chrono::Duration::hours(i64::from(hour))).date()
 }
 
@@ -350,7 +353,12 @@ mod triage_nudge_tests {
             id: id.to_owned(),
             name: "Morning Triage (5mins)".to_owned(),
             types: Vec::new(),
-            status: if completed.is_some() { "done" } else { "not_started" }.to_owned(),
+            status: if completed.is_some() {
+                "done"
+            } else {
+                "not_started"
+            }
+            .to_owned(),
             priority: "p1".to_owned(),
             due_date: Some(due),
             hard_deadline: false,

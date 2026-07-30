@@ -3,8 +3,6 @@
 
 use super::*;
 
-use std::path::PathBuf;
-
 impl ConfirmState {
     pub(crate) fn mark_complete(task_id: String, task_label: String) -> Self {
         Self {
@@ -15,7 +13,6 @@ impl ConfirmState {
             prompt: format!("Mark {task_id} as complete?"),
             task_id,
             task_label,
-            path: None,
             focus: ConfirmChoice::Yes,
         }
     }
@@ -28,7 +25,6 @@ impl ConfirmState {
             prompt: format!("Are you sure you want to remove {task_id}?"),
             task_id,
             task_label,
-            path: None,
             focus: ConfirmChoice::Yes,
         }
     }
@@ -44,7 +40,6 @@ impl ConfirmState {
             prompt: "Generate today's agenda?".to_owned(),
             task_id: String::new(),
             task_label: String::new(),
-            path: None,
             focus: ConfirmChoice::Yes,
         }
     }
@@ -61,20 +56,6 @@ impl ConfirmState {
             prompt: "Today's triage isn't done. Run it now?".to_owned(),
             task_id,
             task_label,
-            path: None,
-            focus: ConfirmChoice::Yes,
-        }
-    }
-
-    pub(crate) fn show_logs(path: PathBuf) -> Self {
-        Self {
-            kind: ConfirmKind::ShowLogs,
-            intent: ConfirmIntent::Success,
-            title: "Show logs".to_owned(),
-            prompt: format!("Would you like to open {}?", path.display()),
-            task_id: String::new(),
-            task_label: "Yes opens the log directory and the log file.".to_owned(),
-            path: Some(path),
             focus: ConfirmChoice::Yes,
         }
     }

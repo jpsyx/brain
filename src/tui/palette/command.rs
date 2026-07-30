@@ -32,7 +32,9 @@ pub(crate) enum PaletteAction {
     StartReceiverServer,
     StopReceiverServer,
     RestartReceiverServer,
+    ShowReceiverServerStatus,
     ShowReceiverServerLogs,
+    ShowBrainLogs,
     /// Like `SendBrainMessage`, but the entered text is prefixed with
     /// "This message is about <ID>:" so the brain agent knows which
     /// task / habit the user is asking about. Requires a selection.
@@ -66,9 +68,6 @@ pub(crate) enum PaletteAction {
     /// PDF if needed and opens it. On failure (no markdown for today)
     /// surfaces the GenerateAgenda confirm modal. Global.
     OpenAgenda,
-    /// Ask whether to reveal this run's verbose log file in Finder and open
-    /// the file. Global; only present when this TUI has a verbose log file.
-    ShowLogs,
     /// Toggle the selected entry's notes between a single-line preview and
     /// the full markdown-rendered body. Task-specific; only offered when
     /// the entry actually has notes. Works on habits too.
@@ -94,11 +93,12 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         PaletteAction::OpenAgenda => Some("^A"),
         PaletteAction::ToggleNotes => Some("l"),
         PaletteAction::OpenLinks => Some("^O"),
-        PaletteAction::ShowLogs
-        | PaletteAction::StartReceiverServer
+        PaletteAction::StartReceiverServer
         | PaletteAction::StopReceiverServer
         | PaletteAction::RestartReceiverServer
+        | PaletteAction::ShowReceiverServerStatus
         | PaletteAction::ShowReceiverServerLogs
+        | PaletteAction::ShowBrainLogs
         | PaletteAction::StartTask
         | PaletteAction::DeferTask(_)
         | PaletteAction::SyncBrainNow => None,
@@ -162,6 +162,12 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         works_on_habits: false,
     },
     PaletteCommand {
+        label: "Show receiver server status",
+        action: PaletteAction::ShowReceiverServerStatus,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
         label: "Show receiver logs",
         action: PaletteAction::ShowReceiverServerLogs,
         scope: PaletteScope::Global,
@@ -220,8 +226,8 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         works_on_habits: false,
     },
     PaletteCommand {
-        label: "Show logs",
-        action: PaletteAction::ShowLogs,
+        label: "Show brain logs",
+        action: PaletteAction::ShowBrainLogs,
         scope: PaletteScope::Global,
         works_on_habits: false,
     },
