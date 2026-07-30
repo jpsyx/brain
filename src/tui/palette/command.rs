@@ -64,6 +64,8 @@ pub(crate) enum PaletteAction {
     OpenHabitsInBrowser,
     /// Kick a best-effort background `brain sync` now. Global; no shortcut.
     SyncBrainNow,
+    /// Report whether a sync is currently running. Global; no shortcut.
+    ShowSyncStatus,
     /// Open today's agenda — same code path as the `Ctrl+A` shortcut.
     /// Routes through the `agenda` zsh function, which generates the
     /// PDF if needed and opens it. On failure (no markdown for today)
@@ -103,7 +105,8 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         | PaletteAction::ReturnToMainView
         | PaletteAction::StartTask
         | PaletteAction::DeferTask(_)
-        | PaletteAction::SyncBrainNow => None,
+        | PaletteAction::SyncBrainNow
+        | PaletteAction::ShowSyncStatus => None,
     }
 }
 
@@ -218,6 +221,12 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         label: "Sync brain now",
         action: PaletteAction::SyncBrainNow,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+    },
+    PaletteCommand {
+        label: "Show sync status",
+        action: PaletteAction::ShowSyncStatus,
         scope: PaletteScope::Global,
         works_on_habits: false,
     },

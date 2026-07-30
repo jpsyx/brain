@@ -3,15 +3,19 @@
 //! A **pure** debounce state machine + a path-relevance predicate, plus the thin
 //! `notify` shell that feeds them. The watcher thread runs in-process for the
 //! shell's lifetime, but when it fires it only *spawns a detached background
-//! sync* (`--if-idle`); it never runs the sync itself. The sync's own writes
-//! under the root re-arm the debouncer, but a spawn that lands while a sync
-//! still holds the lock coalesces (exits silently), so there is no loop.
+//! push* (`--if-idle`); it never runs the sync itself. Push mode never writes
+//! beneath the watched root, so a completed upload cannot retrigger itself.
 
 use std::path::{Component, Path};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
+
+#[cfg(target_os = "macos")]
+type BrainWatcher = notify::PollWatcher;
+#[cfg(not(target_os = "macos"))]
+type BrainWatcher = notify::RecommendedWatcher;
 
 use crate::sync::config::SyncConfig;
 
@@ -80,7 +84,7 @@ pub fn is_watch_relevant(path: &Path) -> bool {
 /// never block on an in-flight sync (spec §10); a detached final pass is harmless
 /// (the lock coalesces it).
 pub struct WatcherHandle {
-    _watcher: RecommendedWatcher,
+    _watcher: BrainWatcher,
 }
 
 /// Start watching `root` recursively; call `on_fire` once each time changes
@@ -98,9 +102,19 @@ where
     F: Fn() + Send + 'static,
 {
     let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
-    let mut watcher = notify::recommended_watcher(move |res| {
+    let handler = move |res| {
         let _ = tx.send(res);
-    })?;
+    };
+    // FSEvents can silently omit changes in otherwise valid user-owned trees
+    // on some macOS versions. PollWatcher gives the receiver machine a
+    // deterministic fallback without adding a Watchman service dependency.
+    #[cfg(target_os = "macos")]
+    let mut watcher = notify::PollWatcher::new(
+        handler,
+        notify::Config::default().with_poll_interval(Duration::from_secs(1)),
+    )?;
+    #[cfg(not(target_os = "macos"))]
+    let mut watcher = notify::RecommendedWatcher::new(handler, notify::Config::default())?;
     watcher.watch(root, RecursiveMode::Recursive)?;
 
     std::thread::spawn(move || {
@@ -139,11 +153,12 @@ where
     Ok(WatcherHandle { _watcher: watcher })
 }
 
-/// Start the real auto-sync watcher: fires a locked bidirectional sync when
-/// changes under `root` settle for the configured debounce window.
+/// Start the real auto-sync watcher: fires a one-way push when changes under
+/// `root` settle for the configured debounce window.
 pub fn spawn_watcher(root: &Path, cfg: &SyncConfig) -> anyhow::Result<WatcherHandle> {
     spawn_watcher_with(root, cfg.debounce(), || {
-        crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
+        let _ =
+            crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Push);
     })
 }
 

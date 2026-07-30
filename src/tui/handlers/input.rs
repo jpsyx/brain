@@ -72,7 +72,7 @@ pub(crate) fn handle_mouse(app: &mut App<'_>, me: crossterm::event::MouseEvent) 
 /// exited, a Ctrl-C / q / Esc closes the panel instead of being forwarded
 /// (there's no process to receive it).
 pub(crate) fn handle_brain_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent, ctrl: bool) -> bool {
-    let alive = app.brain.as_ref().is_some_and(PtyPane::is_alive);
+    let mut alive = app.brain.as_ref().is_some_and(PtyPane::is_alive);
     if !alive {
         // Child gone: close the panel on Ctrl-C / Esc / q so the user can
         // get back to a full-width tasks view without re-spawning.
@@ -92,6 +92,11 @@ pub(crate) fn handle_brain_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent
     let Some(bytes) = key_to_bytes(k) else {
         return false;
     };
+    app.leave_warm_receiver_for_interactive_input();
+    alive = app.brain.as_ref().is_some_and(PtyPane::is_alive);
+    if !alive {
+        return false;
+    }
     if brain_key_starts_turn(k.code) {
         app.mark_brain_turn_started();
     }

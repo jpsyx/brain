@@ -65,7 +65,11 @@ pub fn sync_once(
     let workdir = crate::sync::run::bisync_workdir();
     let _ = std::fs::create_dir_all(&workdir);
     let workdir_arg = workdir.to_string_lossy().into_owned();
-    let argv = args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, dir);
+    let argv = if dir == Direction::Push {
+        args::push_args(cfg, &local, &remote.arg)
+    } else {
+        args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, dir)
+    };
     let theme = Theme::active();
     // The single output sink for this run: everything below is mirrored to
     // `current.log` (so a following `brain sync` and `brain sync status` can
@@ -162,12 +166,12 @@ pub fn sync_once(
     } else {
         crate::logging::log("sync csv merge start");
         reporter.line(&theme.info("Merging task and habit CSVs by row id…"));
-        let note = format_csv_note(&crate::sync::csv_sync::sync_csvs(cfg, root));
+        let note = format_csv_note(&crate::sync::csv_sync::sync_csvs(cfg, root, dir));
         crate::logging::log(format!("sync csv merge note={note:?}"));
         // Reconcile the monotonic id counters by max, so neither machine ever
         // reuses an id the other already handed out. Best-effort, like the CSVs.
         reporter.line(&theme.info("Reconciling task and habit id counters…"));
-        let counters = crate::sync::counters::sync_counters(cfg, root);
+        let counters = crate::sync::counters::sync_counters(cfg, root, dir);
         crate::logging::log(format!("sync id counters {counters:?}"));
         note
     };
@@ -312,7 +316,9 @@ pub fn format_sync_plan_for_remote(
 pub fn sync_progress(dir: Direction) -> &'static str {
     match dir {
         Direction::Both => "Comparing local and remote changes, then syncing both directions…",
-        Direction::Push => "Comparing local and remote changes, then pushing local changes…",
+        Direction::Push => {
+            "Uploading local additions and edits without downloading remote changes…"
+        }
         Direction::Pull => "Comparing local and remote changes, then pulling remote changes…",
         Direction::Resync => "Checking the sync marker and rebuilding the rclone baseline…",
     }
@@ -417,18 +423,13 @@ pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
     } else {
         String::new()
     };
-    let idle = cfg.idle_pull_interval().map_or_else(
-        || theme.muted("off"),
-        |interval| theme.success(&format!("{}s", interval.as_secs())),
-    );
     format!(
-        "{} on-start {} · on-exit {} · watch {}{} · idle-pull {}",
+        "{} startup-pull {} · change-push {}{} · message-pull {}",
         theme.muted("triggers:"),
-        yn(cfg.on_start),
-        yn(cfg.on_exit),
+        yn(cfg.is_configured()),
         yn(watch_on),
         debounce,
-        idle,
+        theme.success("after 2h"),
     )
 }
 
@@ -774,21 +775,20 @@ mod tests {
     }
 
     #[test]
-    fn format_triggers_reads_the_configured_flags() {
+    fn format_triggers_keeps_startup_pull_on_when_legacy_config_disables_it() {
         let cfg: SyncConfig =
             serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","on_start":false}"#).unwrap();
         let s = format_triggers(&cfg, Theme::dark(false));
-        assert!(s.contains("on-start off"), "{s}");
-        assert!(s.contains("on-exit on"), "{s}"); // default true
-        assert!(s.contains("watch on"), "{s}"); // configured + default watch
-        assert!(s.contains("idle-pull off"), "{s}"); // default opt-out
+        assert!(s.contains("startup-pull on"), "{s}");
+        assert!(s.contains("change-push on"), "{s}");
+        assert!(s.contains("message-pull after 2h"), "{s}");
     }
 
     #[test]
     fn format_triggers_shows_debounce_window_when_watch_on() {
         let cfg: SyncConfig = serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b"}"#).unwrap();
         let line = format_triggers(&cfg, Theme::dark(false));
-        assert!(line.contains("watch on"), "{line}");
+        assert!(line.contains("change-push on"), "{line}");
         assert!(line.contains("3000ms"), "{line}");
     }
 
@@ -798,23 +798,23 @@ mod tests {
         let cfg: SyncConfig =
             serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","watch":false}"#).unwrap();
         let line = format_triggers(&cfg, Theme::dark(false));
-        assert!(line.contains("watch off"), "{line}");
+        assert!(line.contains("change-push off"), "{line}");
         assert!(!line.contains("debounce"), "{line}");
     }
 
     #[test]
-    fn format_triggers_shows_idle_pull_interval_when_enabled() {
+    fn format_triggers_never_advertises_an_idle_pull_loop() {
         let cfg: SyncConfig =
             serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","idle_pull_secs":120}"#)
                 .unwrap();
         let line = format_triggers(&cfg, Theme::dark(false));
-        assert!(line.contains("idle-pull 120s"), "{line}");
+        assert!(!line.contains("idle-pull"), "{line}");
     }
 
     #[test]
     fn format_triggers_colors_on_and_off_flags() {
         let cfg: SyncConfig =
-            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","on_start":false}"#).unwrap();
+            serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","watch":false}"#).unwrap();
         let s = format_triggers(&cfg, Theme::dark(true));
         assert!(
             s.contains("\x1b[92m"),
@@ -914,7 +914,7 @@ mod tests {
         );
         assert_eq!(
             sync_progress(Direction::Push),
-            "Comparing local and remote changes, then pushing local changes…"
+            "Uploading local additions and edits without downloading remote changes…"
         );
     }
 

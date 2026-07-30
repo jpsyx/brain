@@ -101,8 +101,9 @@ Opening the panel is therefore not itself considered active work. This lets an
 inbound SMS or email replace an idle startup panel immediately, even if the
 daily-triage modal is still covering it, while a real local Claude or Codex
 turn still finishes before receiver work switches sessions. The Stop response
-file clears that active-turn state. A failed receiver-session launch leaves
-the message in the queue for a backoff retry.
+file clears that active-turn state even while a receiver lease is warm. A
+failed receiver-session launch leaves the message in the queue for a backoff
+retry.
 
 ## Claude Sessions: SessionStart/Stop Hooks + State DB
 
@@ -134,8 +135,10 @@ Which session to run is decided by the **lock + recency** model in
    `last_assistant_message` under `~/.cache/brain/responses/<session-id>.json`.
    For an interactive turn, the TUI consumes it as the completion signal that
    allows queued receiver work to switch sessions. For an active SMS/email
-   job, it sends the channel-specific final response and then closes that
-   remote PTY safely.
+   job, it sends the channel-specific final response, marks remote work idle,
+   and renews the three-minute channel lease. The PTY stays visible and can be
+   reused by another message on the same channel. A different channel or local
+   input switches only after active work has finished.
 5. When the panel closes (Claude exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -478,11 +481,11 @@ bookkeeping.
   not installed · sync off`), which never affects the doctor's overall
   pass/fail.
 
-## Auto-sync triggers (the sync lock, the exit child, the watcher, the idle puller)
+## Auto-sync triggers (startup pull, change push, receiver freshness)
 
-The auto-sync layer (`src/sync/{lock,watch,trigger,idle,current,follow}.rs`,
-wired into `src/tui/event_loop/setup.rs`'s `run_tui`) drives the same `rclone`
-handoff above automatically. Every automatic trigger runs the sync in a
+The auto-sync layer (`src/sync/{lock,watch,trigger,freshness,current,follow}.rs`,
+wired into `src/tui/event_loop/setup.rs` and `src/tui/app_sync.rs`) drives the
+rclone handoff automatically. Every automatic trigger runs the sync in a
 **detached background process**, never on a thread inside the shell, so a sync
 can neither write over the TUI nor be killed when the shell quits. Its own
 outside-world touchpoints:
@@ -503,7 +506,7 @@ outside-world touchpoints:
   The manual `run_sync` in `main.rs` takes this lock too, closing a pre-existing
   concurrent-`brain sync` race.
 - **The detached sync spawn** (`trigger::spawn_detached_sync(dir)`) is the one
-  entry point every automatic trigger (start, watcher, idle, exit) uses. It
+  entry point the startup, watcher, and receiver-freshness triggers use. It
   spawns the current exe as `brain sync [--pull|--push] --if-idle` fully
   detached — `process_group(0)` (its own process group, so it outlives the
   parent and survives terminal close) plus stdin/stdout/stderr all set to
@@ -511,6 +514,9 @@ outside-world touchpoints:
   daemon, and needing no `unsafe`. Each child acquires the sync lock itself;
   `--if-idle` makes it exit silently when a sync is already running (coalesce),
   as opposed to a user-run `brain sync`, which *follows* the in-flight one.
+  The owning TUI moves the `Child` into a waiter thread; `wait()` reaps it when
+  complete, preventing the defunct-process accumulation seen with dropped
+  child handles.
 - **The in-flight state files** (`src/sync/current.rs`) let a detached sync stay
   observable without printing to any terminal. A running sync's `Reporter`
   appends every progress line to `~/.cache/brain/sync/current.log` (and echoes
@@ -537,16 +543,16 @@ outside-world touchpoints:
   So a VCS write, a cache churn, or a conflict copy fanning in from another
   machine can't kick the watcher. The watcher runs `notify` recursively over the
   brain root; when relevant changes settle for the `debounce_ms` window it
-  *spawns a detached background sync*. The sync's own pull writes re-arm the
-  debouncer, but a spawn that lands while a sync holds the lock coalesces, so it
-  settles rather than looping.
-- **The idle puller** (`sync.idle_pull_secs`) is an opt-in shell-lifetime timer.
-  When set to a positive number, `src/sync/idle.rs` wakes on that interval and
-  spawns a detached `brain sync --pull --if-idle`, so remote edits from another
-  machine can arrive while the shell remains open. The same lock makes each tick
-  skip cleanly if a manual sync, watcher sync, start sync, or prior timer tick
-  is already running. Dropping the handle stops the sleeping thread; it is not
-  an always-on daemon and it does no work while `brain` is closed.
+  spawns a detached `brain sync --push`. Push uses `rclone copy --update`, so
+  it cannot download files or delete remote-only paths. Task CSV and counter
+  merges preserve remote rows/maximum values in the upload without writing
+  those values locally. This removes the prior sync-write feedback loop.
+- **The receiver freshness gate** (`sync/freshness.rs` +
+  `tui/app_sync.rs`) reads the newest successful downstream journal row.
+  Before SMS/email dispatch, a missing row or age over two hours starts
+  `brain sync --pull` and holds the message queue until a newer journal row
+  appears. The footer polls `current.json` every 250ms and displays the active
+  direction. There is no periodic pull timer and no exit sync.
 
 ## The auto-rebuild
 

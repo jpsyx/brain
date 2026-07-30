@@ -98,6 +98,22 @@ impl Journal {
         Ok(id)
     }
 
+    /// Completion time of the newest successful run that could have brought
+    /// remote changes downstream. Push-only and aborted runs do not refresh
+    /// the receiver's remote-freshness clock.
+    pub fn latest_downstream_completion(&self) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT finished_at
+             FROM sync_runs
+             WHERE direction IN ('both', 'pull', 'resync')
+               AND outcome != 'aborted'
+             ORDER BY id DESC
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query([])?;
+        Ok(rows.next()?.map(|row| row.get(0)).transpose()?)
+    }
+
     /// Most-recent runs, newest first.
     pub fn recent(&self, limit: usize) -> Result<Vec<SyncRun>> {
         let mut stmt = self.conn.prepare(
@@ -168,5 +184,27 @@ mod tests {
         j.record(&run("pull")).unwrap();
         let second = j.latest_id().unwrap().expect("two runs recorded");
         assert!(second > first, "a completed run advances the cursor");
+    }
+
+    #[test]
+    fn latest_downstream_completion_ignores_push_only_and_aborted_runs() {
+        let j = mem();
+        let mut pulled = run("pull");
+        pulled.finished_at = "2026-07-30T10:00:00Z".into();
+        j.record(&pulled).unwrap();
+
+        let mut pushed = run("push");
+        pushed.finished_at = "2026-07-30T11:00:00Z".into();
+        j.record(&pushed).unwrap();
+
+        let mut aborted = run("both");
+        aborted.finished_at = "2026-07-30T12:00:00Z".into();
+        aborted.outcome = "aborted".into();
+        j.record(&aborted).unwrap();
+
+        assert_eq!(
+            j.latest_downstream_completion().unwrap().as_deref(),
+            Some("2026-07-30T10:00:00Z")
+        );
     }
 }

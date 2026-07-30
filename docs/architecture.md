@@ -349,9 +349,8 @@ rclone dry-run and before the CSV baseline pass. No journal entry, no conflict p
 baseline mutation: it never calls `rclone bisync` without `--dry-run`, and
 its CSV pass never writes local files, remotes, or baselines.
 
-**The C4 auto-sync trigger layer** (`lock.rs`/`watch.rs`/`trigger.rs` plus the
-idle-pull timer, wired
-into the shell lifecycle) makes sync automatic while keeping the pure/impure
+**The auto-sync trigger layer** (`lock.rs`/`watch.rs`/`trigger.rs`, wired
+into the shell lifecycle and receiver dispatch) makes sync automatic while keeping the pure/impure
 split. The **pure** cores carry the decisions and the tests; the thin shells do
 the IO/threads/`Command`:
 
@@ -368,21 +367,23 @@ the IO/threads/`Command`:
 - `watch.rs` — the pure `Debouncer` (a clock-injected quiescence state machine:
   `on_event`/`time_until_fire`/`poll`) and the pure `is_watch_relevant(path)`
   exclude predicate, plus the thin `notify` shell `spawn_watcher_with` (owns the
-  `RecommendedWatcher`, the mpsc event channel, and the debounce loop) and
+  platform watcher, the mpsc event channel, and the debounce loop) and
   `spawn_watcher` (the real auto-sync watcher). `WatcherHandle` stops the thread
   on drop (drop the `Watcher` → the channel disconnects → the loop exits; no
-  join, so teardown never blocks). On fire it only *spawns a detached background
-  sync*; the sync's own writes re-arm the debouncer, but a spawn that lands
-  while a sync holds the lock coalesces (exits silently), so there is no loop.
+  join, so teardown never blocks). On fire it spawns a detached
+  `Direction::Push` run. That direction uses a one-way, non-deleting rclone
+  copy; its CSV/counter pass reads remote state only to build a safe upload and
+  never writes local state, so the push cannot re-arm its own watcher.
 - `trigger.rs` — the single shell-facing entry point: `spawn_detached_sync(dir)`
   spawns the current exe as `brain sync [--pull|--push] --if-idle`, fully
-  detached (`process_group(0)` + null stdio). **Every** automatic trigger
-  (start, watcher, idle, exit) goes through it, for two reasons: a sync in a
+  detached (`process_group(0)` + null stdio). Automatic startup, watcher, and
+  receiver-freshness triggers go through it, for two reasons: a sync in a
   separate process can never write over the TUI, and a detached child in its own
   process group outlives the shell / terminal close. `--if-idle` makes a
   redundant trigger coalesce (exit silently) rather than follow. There is no
   in-process sync path anymore (the old `run_locked_sync`/`sync_in_background`
-  are gone).
+  are gone). The parent moves each `Child` into a small waiter thread so a
+  completed background sync is reaped and cannot accumulate as a zombie.
 - `current.rs` — the in-flight sync's shared state, so a detached background
   sync stays observable. `Reporter` is the single output sink of a run: each
   line is appended to `~/.cache/brain/sync/current.log` and echoed to the
@@ -396,23 +397,21 @@ the IO/threads/`Command`:
   `appended(content, offset)` splits off each new tail, handling a truncated
   log) to the terminal until `is_running()` goes false, then prints the final
   journal outcome. Ctrl-C stops only the follower.
-- `idle.rs` — the shell-lifetime idle-pull timer. `spawn_idle_puller_with`
-  owns the stop channel and injected callback for tests; `spawn_idle_puller`
-  spawns a detached `brain sync --pull --if-idle` every `sync.idle_pull_secs`
-  seconds when that opt-in interval is configured.
-- `config.rs` carries `debounce_ms` (default 3000), `debounce() -> Duration`,
-  and the opt-in `idle_pull_secs` / `idle_pull_interval()` pair;
-  `command::format_triggers` renders both intervals in `brain sync status`.
+- `freshness.rs` — the pure two-hour threshold for deciding whether a receiver
+  message needs a downstream pull. `journal::latest_downstream_completion`
+  deliberately ignores push-only and aborted rows.
+- `config.rs` carries `debounce_ms` (default 3000) and
+  `debounce() -> Duration`; `command::format_triggers` renders the startup,
+  change-push, and message-pull policies in `brain sync status`.
 
 **The `run_tui` lifecycle seam** (`src/tui/event_loop/setup.rs`) is the one wire
 point: after the startup work and before the event loop it calls
-`trigger::spawn_detached_sync(Both)` (when `on_start`) and holds a
-`watch::spawn_watcher` handle (when `watch_effective()`) plus an
-`idle::spawn_idle_puller` handle (when `idle_pull_secs > 0`); after the loop
-returns it calls `trigger::spawn_detached_sync(Both)` (when `on_exit`) and drops
-the watcher/timer handles. All gated, all best-effort: an unconfigured brain
-gets no watcher thread, no timer, and no syncs. This layer adds no keybinding,
-palette row, or menu row.
+`trigger::spawn_detached_sync(Pull)` whenever sync is configured and holds a
+`watch::spawn_watcher` handle (when `watch_effective()`). It drops the watcher
+after the event loop and performs no exit sync. `tui/app_sync.rs` owns the
+receiver freshness gate and the 250ms TUI status poll. It queues stale inbound
+work behind a pull and reloads tasks before dispatch. All paths are gated and
+best-effort; an unconfigured brain gets no watcher or automatic sync.
 
 **The C5 conflict enumerator + resolver** builds on `conflicts.rs` to give
 agents (not just humans) a way to close out a keep-both conflict. Still pure
@@ -484,11 +483,11 @@ the transient palette flash.
 (`build_search`), constructs the `App`, then `open_or_focus_brain(None)` spawns
 the initial `claude` PTY (resume-vs-fresh) and `focus_tasks()` returns focus to
 the tasks main view so `j`/`k` work at once. It then wires the auto-sync
-triggers (a detached `on_start` background sync, when `watch_effective()` a held
-`watch::spawn_watcher` handle, and when configured a held idle-pull timer), runs
-the event loop, and on return fires the detached `on_exit` sync, drops the
-watcher/timer handles, and releases the session lock. The **daily-triage nudge**
-is coupled to that startup sync: when an `on_start` sync is pending, `run_tui`
+triggers (a mandatory detached pull-biased startup sync and, when
+`watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
+loop, then drops the watcher and releases the session lock. No exit sync or
+idle timer exists. The **daily-triage nudge**
+is coupled to that startup sync: when a configured startup sync is pending, `run_tui`
 does *not* run the check immediately — it captures the sync journal's latest row
 id, kicks the sync, and calls `App::arm_triage_gate` (deferral, no modal). Each
 event-loop tick then calls `App::tick_triage_gate`, which — once a newer journal
@@ -553,8 +552,13 @@ acquired. The global palette can start, stop, restart, and inspect it while
 the TUI is alive. Inbound work is queued into a bounded in-memory channel and
 is never allowed to interrupt an active agent turn. `tui/receiver_state.rs`
 distinguishes a submitted turn from an idle open PTY, so an idle startup panel
-can switch to the receiver session even when a modal is on screen. Failed PTY
-launches retain the message for a backoff retry. Provider replies are handed
+can switch to the receiver session even when a modal is on screen. It also
+distinguishes active receiver work from a three-minute warm channel lease:
+interactive Stop-hook completions are still polled, a same-channel message
+reuses the warm PTY, and another channel replaces it only after work finishes.
+`tui/app_sync.rs` holds inbound dispatch behind a pull when downstream state is
+more than two hours old and exposes current sync state to the footer and
+palette. Failed PTY launches retain the message for a backoff retry. Provider replies are handed
 to the bounded background worker in `server/delivery.rs`, keeping network
 latency off the TUI event loop. The listener rejects
 bodies over 1 MiB, uses a fixed worker pool so one slow provider call cannot
@@ -616,14 +620,13 @@ sibling so the two projects share a stack:
   fixed four-worker pool, bounded request bodies, and a bounded handoff queue;
   this preserves concurrency and backpressure without pulling a Tokio runtime
   into an otherwise synchronous CLI.
-- `notify` (8.x) — OS-native filesystem events (FSEvents on macOS, inotify on
-  Linux) for the **C4 auto-sync watcher** (`src/sync/watch.rs`). It is the only
-  correct, cross-platform, OS-native FS-event crate; the alternative is a
-  polling loop we explicitly rejected as wasteful (it would burn CPU walking the
-  tree on a timer, where `notify` blocks on a channel and costs nothing when
-  idle). We use the raw `RecommendedWatcher` and do the debouncing in our own
-  tested `watch::Debouncer`, so we depend on neither `notify-debouncer-full` nor
-  `notify-debouncer-mini` and the decision logic stays pure and ours.
+- `notify` (8.x) — cross-platform filesystem observation for the **C4
+  auto-sync watcher** (`src/sync/watch.rs`). Linux uses the recommended native
+  backend. macOS uses notify's one-second `PollWatcher`, because FSEvents can
+  silently omit valid changes; this was reproduced by the real-filesystem
+  watcher integration test. All decision logic remains in the pure,
+  clock-injected `watch::Debouncer`, so we depend on neither
+  `notify-debouncer-full` nor `notify-debouncer-mini`.
 
 `brain sync` also depends on **`rclone`**, but as an external command it
 shells out to (`src/sync/run.rs`), not a Cargo crate: brain builds the argv

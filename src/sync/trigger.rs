@@ -1,7 +1,7 @@
 //! Shell-facing sync triggers.
 //!
-//! Every automatic trigger (startup, the filesystem watcher, the idle-pull
-//! timer, and shell exit) runs the sync as a **fully detached child process**,
+//! Every automatic trigger (startup, the filesystem watcher, and the
+//! receiver freshness gate) runs the sync as a **fully detached child process**,
 //! never on a thread inside the TUI. Two reasons, both required:
 //!
 //! 1. **The TUI must never see sync output.** A sync run on a thread inside the
@@ -21,16 +21,30 @@ use std::process::{Command, Stdio};
 
 use crate::sync::args::Direction;
 
+fn spawn_reaped_command(mut command: Command) -> std::io::Result<u32> {
+    let mut child = command.spawn()?;
+    let pid = child.id();
+    std::thread::spawn(move || {
+        if let Err(error) = child.wait() {
+            crate::logging::log(format!("background sync child wait failed pid={pid}: {error}"));
+        } else {
+            crate::logging::log(format!("background sync child reaped pid={pid}"));
+        }
+    });
+    Ok(pid)
+}
+
 /// Spawn a detached, silent `brain sync` for `dir` and return immediately.
 ///
 /// The child gets its own process group and null stdio, so it survives shell
 /// teardown / terminal close and prints nothing to the terminal (its progress
 /// still lands in `current.log` for `brain sync status` / a following
 /// `brain sync`). Best-effort: a spawn failure is swallowed.
-pub fn spawn_detached_sync(dir: Direction) {
+#[must_use]
+pub fn spawn_detached_sync(dir: Direction) -> Option<u32> {
     use std::os::unix::process::CommandExt as _;
     let Ok(exe) = std::env::current_exe() else {
-        return;
+        return None;
     };
     let mut cmd = Command::new(exe);
     cmd.arg("sync");
@@ -50,5 +64,35 @@ pub fn spawn_detached_sync(dir: Direction) {
         .stderr(Stdio::null())
         .process_group(0);
     crate::logging::log(format!("spawn detached sync dir={dir:?}"));
-    let _ = cmd.spawn();
+    match spawn_reaped_command(cmd) {
+        Ok(pid) => Some(pid),
+        Err(error) => {
+            crate::logging::log(format!("spawn detached sync failed dir={dir:?}: {error}"));
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_background_children_are_reaped() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 0"]);
+        let pid = spawn_reaped_command(command).expect("spawn test child");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while crate::state::system_pid_alive(i32::try_from(pid).unwrap_or(0))
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        assert!(
+            !crate::state::system_pid_alive(i32::try_from(pid).unwrap_or(0)),
+            "a finished detached child must not remain as a zombie"
+        );
+    }
 }

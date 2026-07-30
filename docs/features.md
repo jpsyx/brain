@@ -250,7 +250,9 @@ two clearly labeled installation choices: the Homebrew command
 
 - `brain sync` (bare) — bidirectional sync; a same-file conflict is resolved
   by newest edit.
-- `brain sync --push` — biases this run local-wins on a same-file conflict.
+- `brain sync --push` — upload local additions and edits with a one-way,
+  non-deleting `rclone copy --update`. It never downloads remote-only files;
+  deletions reconcile during a later bidirectional or pull-biased sync.
 - `brain sync --pull` — biases this run remote-wins on a same-file conflict.
 - `brain sync setup` — the first command for a machine that has not enabled
   cloud sync yet. It says that it is enabling cloud sync on this machine, then
@@ -273,7 +275,7 @@ two clearly labeled installation choices: the Homebrew command
 - `brain sync status` — if a sync is running right now (in a detached
   background process or another shell), a `syncing now: <dir> · started … ·
   pid …` line first; then the last completed run (from the local sync
-  journal), the configured triggers (`on_start`/`on_exit`/`watch`, with the
+  journal), the startup-pull/change-push/message-pull policy (with the
   watcher's debounce window shown as `(3000ms debounce)`), and the count of
   open conflicts.
 - `brain sync conflicts` — list open conflict copies using the same strict
@@ -328,55 +330,49 @@ left the baseline listings unusable, the next sync detects it and self-heals
 with a one-time resync automatically — you never have to know a sync was
 interrupted, and turning off the machine mid-sync never leaves a stuck state.
 
-**Automatic sync (start / exit / watcher / idle pull).** On a configured machine you
-rarely run `brain sync` by hand: the persistent shell syncs for you, gated by
-machine-local brain-env fields (see [config.md](config.md)).
+**Automatic sync (startup pull / change push / receiver freshness pull).** On
+a configured machine, sync is event-driven rather than periodic. There is no
+idle sync loop and no exit sync.
 
 Every trigger below spawns a **detached background `brain sync` process** (with
 `--if-idle`, so it coalesces silently when a sync is already running); none runs
 a sync on a thread inside the shell. The shell never waits on, and can never be
 interrupted by, the network.
 
-- **On start (`sync.on_start`).** Opening the shell (bare `brain`) kicks a
-  background sync so you start on the latest brain. It never blocks startup: the
-  first frame renders immediately and the sync lands whenever it finishes — even
-  if you quit the shell before it does.
-- **On exit (`sync.on_exit`).** Quitting the shell spawns a **detached,
-  fire-and-forget** `brain sync` child that pushes your last edits without the
-  shell ever waiting on the network: quitting is instant and the child finishes
-  in the background.
+- **On start.** Opening any sync-configured shell always kicks a pull-biased
+  background sync so local state catches up with the remote. The first frame
+  renders immediately, while the footer shows that sync is active.
 - **Live watcher (`sync.watch`).** While the shell is open, a filesystem
-  watcher spawns a background sync a few seconds after you stop editing
-  `~/brain` (the `debounce_ms` quiescence window, default 3000ms). A burst of
-  edits coalesces into a single sync. VCS/cache/OS cruft and existing conflict
-  copies never trigger it (it mirrors the bisync exclude set).
-- **Idle pull (`sync.idle_pull_secs`).** Optional and off by default. Set a
-  positive interval to pull remote changes periodically while the shell stays
-  open, so another machine's edits arrive without closing and reopening
-  `brain`.
+  watcher starts a one-way, non-deleting upload after edits under the brain
+  root settle (`debounce_ms`, default 3000ms). A burst coalesces into one push.
+  It does not download remote files, write task CSV merges back locally, or
+  advance the downstream freshness timestamp, so it cannot create a
+  self-triggering sync loop.
+- **Before receiver work.** Before an inbound SMS/email starts LLM work, brain
+  checks the latest successful downstream journal row. If it is more than two
+  hours old (or missing), brain queues the message, starts a pull, shows
+  `syncing brain before receiver message` in the footer, and dispatches only
+  after that sync completes. This is a threshold check at message time, not a
+  two-hour timer.
 
-All four reuse the same `sync_once` machinery (so every auto-sync is
-journalled exactly like a manual one) and **coalesce** through a machine-wide
-lock: concurrent triggers (start + watcher + idle pull + a second shell + a
+All three are journalled like manual syncs and **coalesce** through a
+machine-wide lock: concurrent triggers (startup + watcher + receiver gate + a second shell + a
 manual `brain sync`) never run two rclone syncs at once. A redundant background
 trigger exits silently; a user-run `brain sync` instead *follows* the in-flight
 one. All are best-effort: a held lock, an unconfigured brain, or a spawn
-failure is swallowed, so a trigger never crashes or hangs the shell. Set any
-boolean flag to `false` to disable that trigger, and leave `idle_pull_secs` at
-`0` to disable the timer; with no `sync` block configured at all, nothing
-changes (no watcher thread, no timer, no start/exit sync). `brain sync status`
-shows the effective trigger state, the debounce window, and the idle-pull
-interval.
+failure never crashes the shell. With no configured `sync` block, no automatic
+sync runs. `brain sync status` and the command palette's **Show sync status**
+action report whether a sync is active.
 
 **The daily-triage nudge waits for the startup sync.** Today's triage may have
 been done or skipped on another machine, and that only reaches this machine's
-`habits.csv` once the startup sync lands. So on a machine with `on_start` sync
-enabled, brain does **not** show the triage modal at open — the shell is usable
+`habits.csv` once the startup sync lands. So on a sync-configured machine,
+brain does **not** show the triage modal at open: the shell is usable
 immediately, with no modal to dismiss. It waits for the startup sync to finish,
 reloads the synced tasks/habits, and only *then* shows the "run today's triage?"
 modal — and only if triage is still not done for today. If another machine
-already handled it, no modal ever appears. With no startup sync configured, the check runs
-immediately at open as before.
+already handled it, no modal ever appears. With sync unconfigured, the check
+runs immediately at open as before.
 
 #### Migrating a machine to sync
 
@@ -401,7 +397,8 @@ per machine you want to join it.
    initial baseline is effectively a full pull of everything already in the
    bucket.
 3. **Verify the triggers.** Run `brain sync status` and confirm it reports
-   the effective `on_start`/`on_exit`/`watch`/`idle-pull` triggers and the last run.
+   startup pull, change push, the two-hour receiver freshness policy, and the
+   last run.
    Auto-sync is on by default the moment `brain sync setup` finishes — you
    don't need to flip anything else on.
 4. **Env auto-migration.** The legacy `~/.config/brain-root` pointer and
@@ -632,11 +629,22 @@ yellow warning in the TUI status line. The former generic
 Inbound messages wait only for a submitted agent turn, not merely for the
 brain panel to exist. An idle startup panel is closed and replaced by the
 SMS- or email-specific session immediately, including while the daily-triage
-modal is visible. A submitted local turn is allowed to finish first. If an
-agent process cannot be launched, the inbound message remains queued and the
-receiver retries after a short backoff instead of leaving a phantom
-"processing" job. Twilio and Resend reply delivery runs on a bounded
-background worker so provider latency never blocks TUI input or `Ctrl+Q`.
+modal is visible. The modal itself never closes the agent panel. A submitted
+local turn is allowed to finish first; its Stop-hook completion is consumed
+even while an SMS/email lease is warm, so queued messages cannot become
+stranded. After a remote response, its channel panel remains open and reusable
+for three minutes. Another message on the same channel reuses it; the other
+channel switches immediately once active work finishes. A local prompt or
+keyboard input leaves a warm remote panel and resumes the interactive session.
+If an agent process cannot be launched, the inbound message remains queued and
+the receiver retries after a short backoff instead of leaving a phantom
+"processing" job. Twilio and Resend reply delivery runs on a bounded background
+worker so provider latency never blocks TUI input or `Ctrl+Q`.
+
+When cloud sync is configured, receiver dispatch also applies the two-hour
+freshness gate described above. The HTTP acknowledgement remains immediate,
+but stale local state is pulled before the queued message reaches Claude or
+Codex.
 
 - `brain server start` — start the daemon in the background if it isn't already
   running (idempotent: an existing live server is reused and its URL reprinted).
@@ -697,7 +705,8 @@ list.
 - **Command palette**: `Ctrl-p` opens the top-level command palette (the
   menu) as a modal overlay for any action `brain` can run; `Esc` closes it
   back to the picker. The tasks-view palette includes **Sync brain now**, which
-  kicks off a nonblocking background `brain sync` and has no direct shortcut.
+  kicks off a nonblocking background `brain sync`, plus **Show sync status**,
+  which reports whether a sync is active. Neither has a direct shortcut.
 - **Cancel**: `Esc` / `Ctrl-c` exits with no action.
 
 See [keybindings.md](keybindings.md) for the complete key table including

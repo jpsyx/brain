@@ -74,11 +74,14 @@ impl App<'_> {
                 self.receiver_lease.map(|current| current.channel),
                 self.receiver_generation,
             )
-            && !self.brain_panel_open()
+            && self.receiver_session_id.is_some()
+            && self.receiver_started.is_none()
         {
-            self.receiver_lease = None;
-            self.requested_receiver_channel = None;
-            self.open_or_focus_brain(None);
+            crate::logging::log(format!(
+                "receiver session lease expired channel={:?}; restoring interactive session",
+                lease.channel
+            ));
+            self.close_receiver_panel(true);
         }
         let control_requests = self
             .receiver_control
@@ -126,7 +129,7 @@ impl App<'_> {
         if let Some(rx) = &self.receiver_rx {
             for message in rx.try_iter() {
                 let must_wait = self.brain_turn_active
-                    || self.receiver_session_id.is_some()
+                    || self.receiver_started.is_some()
                     || !self.receiver_queue.is_empty();
                 let modal_open = self.palette.is_some()
                     || self.brain_input.is_some()
@@ -140,7 +143,7 @@ impl App<'_> {
                     self.receiver_queue.len() + 1,
                     self.brain_panel_open(),
                     self.brain_turn_active,
-                    self.receiver_session_id.is_some(),
+                    self.receiver_started.is_some(),
                     modal_open
                 ));
                 if must_wait {
@@ -181,22 +184,39 @@ impl App<'_> {
             return;
         }
         self.receiver_retry_at = None;
-        match crate::tui::receiver_state::dispatch_action(
-            !self.receiver_queue.is_empty(),
+        if !self.receiver_queue.is_empty()
+            && !self.brain_turn_active
+            && self.receiver_started.is_none()
+            && !self.receiver_sync_ready()
+        {
+            return;
+        }
+        let queued_channel = self.receiver_queue.first().map(|message| message.channel);
+        match crate::tui::receiver_state::dispatch_action_for_channel(
+            queued_channel,
             self.brain_panel_open(),
+            self.receiver_lease.map(|lease| lease.channel),
             self.brain_turn_active,
-            self.receiver_session_id.is_some(),
+            self.receiver_started.is_some(),
         ) {
             crate::tui::receiver_state::DispatchAction::WaitForTurn => {
                 return;
             }
             crate::tui::receiver_state::DispatchAction::CloseIdlePanel => {
-                crate::logging::log(
-                    "receiver dispatch replacing idle interactive brain panel",
-                );
-                self.close_brain();
+                if self.receiver_session_id.is_some() {
+                    crate::logging::log(
+                        "receiver dispatch switching from a warm receiver channel",
+                    );
+                    self.close_receiver_panel(false);
+                } else {
+                    crate::logging::log(
+                        "receiver dispatch replacing idle interactive brain panel",
+                    );
+                    self.close_brain();
+                }
             }
-            crate::tui::receiver_state::DispatchAction::StartNext => {}
+            crate::tui::receiver_state::DispatchAction::ReuseReceiverPanel
+            | crate::tui::receiver_state::DispatchAction::StartNext => {}
         }
         let message = self.receiver_queue[0].clone();
         let label = match message.channel {
@@ -239,10 +259,19 @@ impl App<'_> {
             "This is an authenticated {label} message from {}. Respond as the user's brain.\n\n{}",
             message.sender, message.body
         );
-        self.requested_receiver_channel = Some(match message.channel {
-            crate::server::receiver::Channel::Sms => crate::state::SessionChannel::Sms,
-            crate::server::receiver::Channel::Email => crate::state::SessionChannel::Email,
-        });
+        let reusing_receiver_panel = self.receiver_session_id.is_some() && self.brain_panel_open();
+        if reusing_receiver_panel {
+            if let Some(session_id) = self.receiver_session_id.as_deref() {
+                let response_path =
+                    crate::session::response_dir().join(format!("{session_id}.json"));
+                let _ = std::fs::remove_file(response_path);
+            }
+        } else {
+            self.requested_receiver_channel = Some(match message.channel {
+                crate::server::receiver::Channel::Sms => crate::state::SessionChannel::Sms,
+                crate::server::receiver::Channel::Email => crate::state::SessionChannel::Email,
+            });
+        }
         let launched = self.open_or_focus_brain(Some(&(prompt + &attachments)));
         let _ =
             crate::tui::receiver_state::commit_dispatch(&mut self.receiver_queue, launched);
@@ -279,7 +308,10 @@ impl App<'_> {
     /// persistent panel. If remote work is waiting, close only after that
     /// completion signal so the active turn is never interrupted.
     fn poll_completed_interactive_turn(&mut self) {
-        if self.receiver_lease.is_some() || !self.brain_turn_active {
+        if !crate::tui::receiver_state::should_poll_interactive_completion(
+            self.brain_turn_active,
+            self.receiver_started.is_some(),
+        ) {
             return;
         }
         let Some(session_id) = self.interactive_session_id.clone() else {
@@ -395,16 +427,18 @@ impl App<'_> {
                 }
             }
         }
-        self.brain = None;
         self.brain_turn_active = false;
         self.pending_brain_submit = 0;
-        let _ = self.db.release(&self.instance);
-        self.receiver_resume_session = self.interactive_session_id.take();
         self.receiver_sender = None;
         self.receiver_recipients.clear();
-        self.receiver_session_id = None;
         self.receiver_started = None;
         self.receiver_delay_sent = false;
+        self.receiver_generation = self.receiver_generation.saturating_add(1);
+        self.receiver_lease = Some(crate::tui::receiver_state::renew(
+            channel,
+            self.receiver_generation,
+            std::time::Instant::now(),
+        ));
         self.reload_after_brain();
     }
 
@@ -597,8 +631,10 @@ impl App<'_> {
     /// screen back to full-width tasks, and reload so a brain action whose
     /// effect landed right before the close shows up immediately.
     pub(crate) fn close_brain(&mut self) {
+        let receiver_panel = self.receiver_session_id.is_some();
         let completed_remote = self.brain.as_ref().is_some_and(|panel| !panel.is_alive())
-            && self.receiver_lease.is_some();
+            && receiver_panel
+            && self.receiver_started.is_some();
         if completed_remote {
             if let (Some(panel), Some(channel), Some(sender)) = (
                 self.brain.as_ref(),
@@ -642,13 +678,8 @@ impl App<'_> {
         self.alert = None;
         self.focus = Panel::Tasks;
         let _ = self.db.release(&self.instance);
-        if completed_remote {
-            self.receiver_resume_session = self.interactive_session_id.take();
-            self.receiver_sender = None;
-            self.receiver_recipients.clear();
-            self.receiver_session_id = None;
-            self.receiver_started = None;
-            self.receiver_delay_sent = false;
+        if receiver_panel {
+            self.clear_receiver_panel_state();
         }
         self.reload_after_brain();
     }
@@ -707,7 +738,51 @@ impl App<'_> {
         if trimmed.is_empty() {
             return;
         }
+        if self.receiver_panel_is_warm() {
+            crate::logging::log(
+                "local brain prompt leaving warm receiver session for interactive session",
+            );
+            self.close_receiver_panel(true);
+        }
         self.open_or_focus_brain(Some(trimmed));
+    }
+
+    fn close_receiver_panel(&mut self, restore_interactive: bool) {
+        self.brain = None;
+        self.brain_turn_active = false;
+        self.pending_brain_submit = 0;
+        self.alert = None;
+        self.focus = Panel::Tasks;
+        let _ = self.db.release(&self.instance);
+        self.clear_receiver_panel_state();
+        self.reload_after_brain();
+        if restore_interactive {
+            self.receiver_resume_session = self.interactive_session_id.take();
+            self.open_or_focus_brain(None);
+        }
+    }
+
+    pub(crate) fn leave_warm_receiver_for_interactive_input(&mut self) {
+        if self.receiver_panel_is_warm() {
+            crate::logging::log(
+                "keyboard input leaving warm receiver session for interactive session",
+            );
+            self.close_receiver_panel(true);
+        }
+    }
+
+    fn receiver_panel_is_warm(&self) -> bool {
+        self.receiver_session_id.is_some() && self.receiver_started.is_none()
+    }
+
+    fn clear_receiver_panel_state(&mut self) {
+        self.receiver_sender = None;
+        self.receiver_recipients.clear();
+        self.receiver_session_id = None;
+        self.receiver_lease = None;
+        self.receiver_started = None;
+        self.receiver_delay_sent = false;
+        self.requested_receiver_channel = None;
     }
 }
 

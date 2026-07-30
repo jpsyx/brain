@@ -188,6 +188,14 @@ mod tests {
             text.contains("different operation from"),
             "documents the cloud-sync vs lookup-sync distinction"
         );
+        assert!(
+            text.contains("\"sync my brain\"") && text.contains("\"pull latest brain changes\""),
+            "user-directed sync phrases route to the cloud sync workflow"
+        );
+        assert!(
+            !text.contains("a bare \"sync my brain\" with no signal"),
+            "the direct user phrase must not trigger an unnecessary clarification"
+        );
     }
 
     #[test]

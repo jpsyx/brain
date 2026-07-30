@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.9.17"
+version = "0.9.18"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
@@ -26,13 +26,10 @@ csv = "1.3"
 # different libraries and unifying them is a follow-up, not a merge blocker.
 fuzzy-matcher = "0.3"
 hmac = "0.12"
-# OS-native filesystem events (FSEvents / inotify) for the C4 auto-sync watcher.
-# The only correct cross-platform FS-event crate; the alternative is a polling
-# loop we reject as wasteful. We use the raw RecommendedWatcher and do the
-# debouncing in our own tested `watch::Debouncer` (no notify-debouncer-* dep).
-# 8.x is the current stable; the core API we use (`recommended_watcher`,
-# `Watcher::watch(&Path, RecursiveMode)`, `notify::Result<notify::Event>` with
-# `event.paths`) has been stable since 5.x.
+# Cross-platform filesystem observation for the C4 auto-sync watcher. Linux
+# uses the recommended native backend; macOS uses notify's one-second
+# PollWatcher because FSEvents can silently omit valid changes. Debouncing stays
+# in our tested `watch::Debouncer` (no notify-debouncer-* dependency).
 notify = "8"
 nucleo-matcher = "0.3"
 regex = "1"

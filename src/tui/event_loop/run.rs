@@ -32,6 +32,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // couple of ticks after the text, letting claude submit it.
         app.tick_brain_submit();
         app.tick_receiver();
+        app.tick_sync_status();
 
         // If the startup daily-triage nudge was deferred pending a background
         // sync, resolve it here once that sync lands:
@@ -124,7 +125,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // while the panel is open (nothing to send to otherwise). 0x0E, so no
         // kitty-protocol dependency.
         if ctrl && matches!(k.code, KeyCode::Char('n' | 'N')) && app.brain_panel_open() {
-            app.open_or_focus_brain(Some("/new"));
+            app.send_brain_prompt("/new");
             continue;
         }
 

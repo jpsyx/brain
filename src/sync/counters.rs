@@ -14,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
 use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone_capture;
@@ -53,6 +54,23 @@ pub fn sync_one_counter(
     fetch: impl Fn() -> Option<String>,
     push: impl Fn(&str) -> bool,
 ) -> Option<u32> {
+    sync_one_counter_with_mode(local, fetch, push, true)
+}
+
+fn sync_one_counter_push_only(
+    local: &Path,
+    fetch: impl Fn() -> Option<String>,
+    push: impl Fn(&str) -> bool,
+) -> Option<u32> {
+    sync_one_counter_with_mode(local, fetch, push, false)
+}
+
+fn sync_one_counter_with_mode(
+    local: &Path,
+    fetch: impl Fn() -> Option<String>,
+    push: impl Fn(&str) -> bool,
+    update_local: bool,
+) -> Option<u32> {
     let ours = std::fs::read_to_string(local).ok().and_then(|t| parse_counter(&t));
     let theirs = fetch().and_then(|t| parse_counter(&t));
     let merged = merge_counter(ours, theirs);
@@ -60,7 +78,7 @@ pub fn sync_one_counter(
         // Only write when the merged value differs from what each side already
         // holds, so an unchanged counter doesn't churn the file or the remote.
         let text = format!("{value}\n");
-        if ours != Some(value) {
+        if update_local && ours != Some(value) {
             if let Some(dir) = local.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
@@ -77,7 +95,11 @@ pub fn sync_one_counter(
 /// rclone `copyto` through a temp file. Best-effort: a per-counter failure
 /// yields `None` rather than aborting the caller's sync.
 #[must_use]
-pub fn sync_counters(cfg: &SyncConfig, root: &Path) -> Vec<(String, Option<u32>)> {
+pub fn sync_counters(
+    cfg: &SyncConfig,
+    root: &Path,
+    direction: Direction,
+) -> Vec<(String, Option<u32>)> {
     let remote = build_remote(cfg);
     let mut out = Vec::with_capacity(COUNTERS.len());
     for rel in COUNTERS {
@@ -108,7 +130,12 @@ pub fn sync_counters(cfg: &SyncConfig, root: &Path) -> Vec<(String, Option<u32>)
             ok
         };
 
-        out.push((rel.to_owned(), sync_one_counter(&local, fetch, push)));
+        let value = if direction == Direction::Push {
+            sync_one_counter_push_only(&local, fetch, push)
+        } else {
+            sync_one_counter(&local, fetch, push)
+        };
+        out.push((rel.to_owned(), value));
     }
     out
 }
@@ -190,5 +217,20 @@ mod tests {
         assert_eq!(pushed.borrow().as_deref(), Some("99\n"));
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn push_only_counter_does_not_download_a_higher_remote_value() {
+        let dir =
+            std::env::temp_dir().join(format!("brain-counter-push-only-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let local = dir.join(".tasks_next_id");
+        std::fs::write(&local, "40\n").unwrap();
+
+        let merged = sync_one_counter_push_only(&local, || Some("99\n".to_owned()), |_| true);
+
+        assert_eq!(merged, Some(99));
+        assert_eq!(std::fs::read_to_string(&local).unwrap(), "40\n");
+        std::fs::remove_dir_all(dir).ok();
     }
 }

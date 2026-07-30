@@ -17,23 +17,35 @@ pub struct Lease {
 pub enum DispatchAction {
     WaitForTurn,
     CloseIdlePanel,
+    ReuseReceiverPanel,
     StartNext,
 }
 
 #[must_use]
-pub const fn dispatch_action(
-    has_queued_message: bool,
+pub fn dispatch_action_for_channel(
+    queued_channel: Option<Channel>,
     panel_open: bool,
-    interactive_turn_active: bool,
+    panel_channel: Option<Channel>,
+    turn_active: bool,
     remote_job_active: bool,
 ) -> DispatchAction {
-    if !has_queued_message || remote_job_active || interactive_turn_active {
+    if queued_channel.is_none() || remote_job_active || turn_active {
         DispatchAction::WaitForTurn
+    } else if panel_open && queued_channel == panel_channel {
+        DispatchAction::ReuseReceiverPanel
     } else if panel_open {
         DispatchAction::CloseIdlePanel
     } else {
         DispatchAction::StartNext
     }
+}
+
+#[must_use]
+pub const fn should_poll_interactive_completion(
+    turn_active: bool,
+    remote_job_active: bool,
+) -> bool {
+    turn_active && !remote_job_active
 }
 
 pub fn commit_dispatch<T>(queue: &mut Vec<T>, launch_succeeded: bool) -> Option<T> {
@@ -71,7 +83,7 @@ mod tests {
     #[test]
     fn queued_message_closes_an_idle_interactive_panel_before_dispatch() {
         assert_eq!(
-            dispatch_action(true, true, false, false),
+            dispatch_action_for_channel(Some(Channel::Sms), true, None, false, false),
             DispatchAction::CloseIdlePanel
         );
     }
@@ -79,7 +91,7 @@ mod tests {
     #[test]
     fn queued_message_waits_for_an_active_interactive_turn() {
         assert_eq!(
-            dispatch_action(true, true, true, false),
+            dispatch_action_for_channel(Some(Channel::Sms), true, None, true, false),
             DispatchAction::WaitForTurn
         );
     }
@@ -87,12 +99,47 @@ mod tests {
     #[test]
     fn queued_message_starts_when_no_panel_or_remote_job_is_active() {
         assert_eq!(
-            dispatch_action(true, false, false, false),
+            dispatch_action_for_channel(Some(Channel::Sms), false, None, false, false),
             DispatchAction::StartNext
         );
         assert_eq!(
-            dispatch_action(true, false, false, true),
+            dispatch_action_for_channel(Some(Channel::Sms), false, None, false, true),
             DispatchAction::WaitForTurn
+        );
+    }
+
+    #[test]
+    fn warm_receiver_lease_does_not_hide_interactive_turn_completion() {
+        assert!(should_poll_interactive_completion(true, false));
+        assert!(!should_poll_interactive_completion(true, true));
+        assert!(!should_poll_interactive_completion(false, false));
+    }
+
+    #[test]
+    fn queued_message_reuses_a_warm_panel_for_the_same_channel() {
+        assert_eq!(
+            dispatch_action_for_channel(
+                Some(Channel::Sms),
+                true,
+                Some(Channel::Sms),
+                false,
+                false,
+            ),
+            DispatchAction::ReuseReceiverPanel
+        );
+    }
+
+    #[test]
+    fn queued_message_replaces_a_warm_panel_for_a_different_channel() {
+        assert_eq!(
+            dispatch_action_for_channel(
+                Some(Channel::Email),
+                true,
+                Some(Channel::Sms),
+                false,
+                false,
+            ),
+            DispatchAction::CloseIdlePanel
         );
     }
 

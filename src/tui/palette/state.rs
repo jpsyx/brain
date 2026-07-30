@@ -144,6 +144,7 @@ impl PaletteState {
             | PaletteAction::CloseBrain
             | PaletteAction::OpenHabitsInBrowser
             | PaletteAction::SyncBrainNow
+            | PaletteAction::ShowSyncStatus
             | PaletteAction::OpenAgenda
             | PaletteAction::ToggleNotes
             | PaletteAction::StartReceiverServer
@@ -182,6 +183,7 @@ impl PaletteState {
                         return matches!(
                             c.action,
                             PaletteAction::ShowReceiverServerStatus
+                                | PaletteAction::ShowSyncStatus
                                 | PaletteAction::ShowReceiverServerLogs
                                 | PaletteAction::ShowBrainLogs
                                 | PaletteAction::ReturnToMainView

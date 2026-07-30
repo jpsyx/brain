@@ -152,11 +152,11 @@ pub fn run_tui(
     app.focus_tasks();
 
     // Auto-sync triggers (C4). All best-effort; none blocks the event loop.
-    // Gated on `is_configured` so an unconfigured brain spawns no thread on start
-    // and forks no detached child on exit (the triggers would no-op anyway).
+    // Gated on `is_configured` so an unconfigured brain spawns neither a
+    // startup child nor a watcher thread.
     let sync_cfg = crate::sync::config::SyncConfig::load();
     let sync_configured = sync_cfg.is_configured();
-    let startup_sync = sync_configured && sync_cfg.on_start;
+    let startup_sync = sync_configured;
 
     // The daily-triage nudge must reflect *post-sync* state: another machine may
     // already have done or skipped today's triage, and that only reaches this
@@ -171,7 +171,8 @@ pub fn run_tui(
                 .ok()
                 .and_then(|j| j.latest_id().ok())
                 .flatten();
-        crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
+        let _ =
+            crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Pull);
         app.arm_triage_gate(seen, std::time::Instant::now());
     } else {
         // No sync coming — the local state is authoritative, so check now. The
@@ -189,16 +190,11 @@ pub fn run_tui(
     } else {
         None
     };
-    let idle_puller = crate::sync::idle::spawn_idle_puller(&sync_cfg);
-
     let result = event_loop(&mut terminal, &mut app);
 
-    // On exit, kick a detached final sync (it acquires the sync lock itself, and
-    // coalesces if one is already running) and stop the watcher thread promptly.
-    if sync_configured && sync_cfg.on_exit {
-        crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
-    }
-    drop(idle_puller);
+    // Local changes are already pushed by the watcher. Exit performs no pull
+    // or timer-driven reconciliation; downstream sync happens only at startup
+    // or at the receiver's two-hour freshness gate.
     drop(watcher);
 
     // Release our session lock so the next open (this shell or another)

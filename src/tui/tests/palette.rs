@@ -251,6 +251,7 @@ fn logs_view_palette_only_lists_log_actions_and_return() {
         action_order(&state),
         vec![
             PaletteAction::ShowReceiverServerStatus,
+            PaletteAction::ShowSyncStatus,
             PaletteAction::ShowBrainLogs,
             PaletteAction::ReturnToMainView
         ]
@@ -315,6 +316,7 @@ fn full_palette_lists_actions_in_canonical_order() {
             PaletteAction::DeferTask(14),
             PaletteAction::OpenHabitsInBrowser,
             PaletteAction::SyncBrainNow,
+            PaletteAction::ShowSyncStatus,
             PaletteAction::OpenAgenda,
             PaletteAction::ShowBrainLogs,
             PaletteAction::ReturnToMainView,

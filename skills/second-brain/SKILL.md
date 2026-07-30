@@ -858,14 +858,14 @@ rebuilds the derived lookup CSVs (`projects-lookup.csv` /
 `/second-brain cloud-sync`, instead syncs the brain's actual files
 across the user's machines via the `brain sync` CLI (bisync + CSV
 merge + verify). Don't confuse the two, and don't let one satisfy a
-request meant for the other. If the phrasing is genuinely ambiguous
-(a bare "sync my brain" with no signal toward local CSVs vs.
-across-machines), ask one quick clarifying question — "rebuild the
-lookup CSVs, or push/pull your files to the cloud?" — rather than
-guessing.
+request meant for the other. Treat a user-directed request to "sync my
+brain" as a cloud sync request. Rebuild the lookup CSVs only when the
+user explicitly asks for `/second-brain sync`, mentions lookups or
+derived CSVs, or otherwise clearly names that maintenance operation.
 
 Trigger phrases: "cloud-sync", "cloud-sync my brain", "push my brain
-to the cloud", "pull the latest brain", "sync across machines".
+to the cloud", "pull the latest brain", "pull latest brain changes",
+"sync across machines", "sync my brain".
 
 1. Run the sync:
    ```

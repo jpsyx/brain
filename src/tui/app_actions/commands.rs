@@ -211,8 +211,26 @@ impl App<'_> {
                 self.run_open_habits();
             }
             PaletteAction::SyncBrainNow => {
-                crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Both);
-                self.flash = Some(FlashKind::Info("✓ sync started".to_owned()));
+                if crate::sync::trigger::spawn_detached_sync(
+                    crate::sync::args::Direction::Both,
+                )
+                .is_some()
+                {
+                    self.flash = Some(FlashKind::Info("✓ sync started".to_owned()));
+                } else {
+                    self.flash = Some(FlashKind::Error("sync could not start".to_owned()));
+                }
+            }
+            PaletteAction::ShowSyncStatus => {
+                crate::logging::log("palette request sync status");
+                self.flash = Some(FlashKind::Info(
+                    crate::sync::current::read_state()
+                        .filter(|state| crate::server::lifecycle::pid_alive(state.pid))
+                        .map_or_else(
+                            || "no sync is currently running".to_owned(),
+                            |state| format!("syncing now ({})", state.direction),
+                        ),
+                ));
             }
             PaletteAction::OpenAgenda => {
                 self.run_open_agenda();

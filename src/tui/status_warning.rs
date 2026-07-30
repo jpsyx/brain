@@ -43,12 +43,27 @@ pub(crate) fn persistent_warning_line(message: &str) -> Line<'static> {
 }
 
 #[must_use]
+pub(crate) fn sync_status_line(message: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::raw(" "),
+        Span::styled(
+            message.to_owned(),
+            Style::default()
+                .fg(Color::Rgb(130, 218, 255))
+                .add_modifier(Modifier::BOLD),
+        ),
+    ])
+}
+
+#[must_use]
 pub(crate) fn status_override_line(
     flash: Option<&super::FlashKind>,
+    sync_status: Option<&str>,
     persistent_warning: Option<&str>,
 ) -> Option<Line<'static>> {
     flash
         .map(super::flash_line)
+        .or_else(|| sync_status.map(sync_status_line))
         .or_else(|| persistent_warning.map(persistent_warning_line))
 }
 
@@ -94,16 +109,26 @@ mod tests {
         let flash = FlashKind::Info("saved".to_owned());
 
         assert_eq!(
-            status_override_line(Some(&flash), Some("phone warning"))
+            status_override_line(Some(&flash), None, Some("phone warning"))
                 .unwrap()
                 .to_string(),
             " saved"
         );
         assert_eq!(
-            status_override_line(None, Some("phone warning"))
+            status_override_line(None, None, Some("phone warning"))
                 .unwrap()
                 .to_string(),
             " phone warning"
+        );
+    }
+
+    #[test]
+    fn active_sync_status_takes_priority_over_persistent_warnings() {
+        assert_eq!(
+            status_override_line(None, Some("syncing brain (pull)…"), Some("phone warning"))
+                .unwrap()
+                .to_string(),
+            " syncing brain (pull)…"
         );
     }
 }

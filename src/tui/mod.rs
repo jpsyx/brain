@@ -37,6 +37,7 @@
 
 mod app_actions;
 mod app_brain;
+mod app_sync;
 mod app_state;
 mod draw;
 mod draw_help;
@@ -129,6 +130,13 @@ pub(crate) struct TriageGate {
     /// Next instant we're allowed to poll the journal, to throttle the DB reads
     /// down from the 50ms event-loop tick.
     pub(crate) next_poll: Instant,
+}
+
+pub(crate) struct ReceiverSyncGate {
+    pub(crate) seen_journal_id: Option<i64>,
+    pub(crate) launched_at: Instant,
+    pub(crate) next_poll: Instant,
+    pub(crate) attempts: u8,
 }
 
 pub(crate) struct App<'a> {
@@ -256,8 +264,8 @@ pub(crate) struct App<'a> {
     /// Path to the state DB, passed down to Claude (via `BRAIN_STATE_DB`) so
     /// the hook writes to the same DB this shell reads.
     db_path: PathBuf,
-    /// Verbose run log path, present only when the shell was launched with
-    /// `--verbose`.
+    /// Always-on run log path. `--verbose` only mirrors detailed diagnostics
+    /// to the terminal for non-TUI commands.
     log_path: Option<PathBuf>,
     /// A one-line note shown in the brain footer (e.g. "couldn't find a
     /// session to resume — starting a new chat"). Cleared on the first focus
@@ -316,6 +324,9 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_started: Option<std::time::Instant>,
     pub(crate) receiver_delay_sent: bool,
     pub(crate) receiver_retry_at: Option<std::time::Instant>,
+    pub(crate) receiver_sync_gate: Option<ReceiverSyncGate>,
+    pub(crate) sync_status: Option<String>,
+    pub(crate) sync_status_next_poll: Instant,
 }
 
 /// In-shell fuzzy filter: score `tasks` against `query`, keeping matches in

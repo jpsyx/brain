@@ -159,7 +159,11 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     // keystroke. A persistent receiver warning then returns; otherwise show
     // the usual search hint or compact shortcut bar.
     let footer = if let Some(status) =
-        status_override_line(app.flash.as_ref(), app.persistent_warning.as_deref())
+        status_override_line(
+            app.flash.as_ref(),
+            app.sync_status.as_deref(),
+            app.persistent_warning.as_deref(),
+        )
     {
         status
     } else if app.in_search {

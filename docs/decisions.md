@@ -769,7 +769,7 @@ remote CSV as a provisional snapshot for local deltas. The real sync still does
 the full id-keyed 3-way merge and refreshes the baseline; this heuristic only
 makes the preview less misleading.
 
-## C4 — auto-sync triggers (start / exit hooks, the `notify` watcher, the sync lock)
+## C4 — event-driven auto-sync (`notify`, freshness gates, and the sync lock)
 
 C4 makes sync automatic. The durable choices below are the ones a later phase
 (such as a standalone daemon) should keep rather than "simplify."
@@ -783,47 +783,43 @@ which isn't worth it when the persistent shell is the default `brain` invocation
 and is almost always open. Folding the watcher into the brain HTTP server instead was
 also rejected: it would couple sync to the `/habits` server being up (it can be
 killed independently) and mix two unrelated concerns in one daemon. The accepted
-tradeoff is no live sync while *no* shell is open; `on_start` (next open),
-`on_exit` (last close), and manual `brain sync` cover that gap. If always-on sync
-is ever wanted, the deferred daemon is a clean add — the `sync_once`-under-lock
-core built here is exactly what it would reuse.
+tradeoff is no live sync while *no* shell is open. The next startup pull and
+manual `brain sync` cover that gap.
 
-**Why idle pull is a shell-lifetime timer, not an always-on daemon.** The idle
-puller solves only the long-open-shell gap: another machine may push while this
-shell has no local filesystem events, so the watcher would stay quiet until the
-next local edit or reopen. A timer inside the shell reuses the existing C4 lock
-and trigger core with no new lifecycle surface. It is opt-in (`idle_pull_secs =
-0` by default) because periodic network work is surprising on machines that only
-wanted start/exit/watch sync. Always-on sync while no shell is open remains a
-separate daemon feature with its own lifecycle and status semantics.
+**Why there is no idle or exit sync.** A periodic pull performs network and
+filesystem work without a user event and made a long-running receiver machine
+harder to reason about. Exit sync is redundant once local writes are watched,
+and it complicates shutdown. Downstream work now has two deliberate triggers:
+startup, and the moment an inbound receiver message is about to run when the
+last successful downstream sync is over two hours old. The two-hour value is a
+freshness threshold, not a timer.
 
-**Why the exit sync is a detached fire-and-forget child, not an in-process
-thread.** Quitting must never wait on the network. An in-process thread joined at
-exit would block teardown; an unjoined in-process thread would be killed the
-instant the process exits, cutting the push short. So `on_exit` spawns
-`brain sync` as a fully detached child (`process_group(0)` + null stdio, no
-`unsafe`, mirroring how the brain server daemon is spawned): the shell exits
-instantly and the child finishes the push in the background under the sync lock.
+**Why `notify`, with a macOS polling fallback.** `notify` provides one watcher
+boundary across platforms. Linux uses its recommended native backend. In the
+real-filesystem integration test, macOS FSEvents silently delivered no event
+for valid changes, so macOS uses notify's one-second `PollWatcher` instead of
+pretending an unreliable native watcher is active. We still keep the
+three-second burst debounce in our own tested pure `Debouncer`, and depend on
+neither `notify-debouncer-full` nor `notify-debouncer-mini`. A standalone
+Watchman service would add installation and lifecycle management without
+improving the behavior Brain needs while its persistent shell is open.
 
-**Why event-driven `notify`, not polling.** `notify` watches the brain root via
-the OS-native backend (FSEvents / inotify): it is push-based, so the watcher
-thread blocks on a channel and consumes zero CPU when nothing changes. A polling
-loop (re-walking the tree on a timer) would burn CPU proportional to the brain's
-size for the common case of "nothing changed," which is wasteful on a large
-brain. We use the raw `RecommendedWatcher` and keep the debounce logic in our own
-tested pure `Debouncer`, so we depend on neither `notify-debouncer-full` nor
-`notify-debouncer-mini` and the decision logic stays pure and unit-testable
-(clock injected, no sleeps).
+**Why watcher pushes are one-way and non-deleting.** A watcher-triggered
+`bisync` can download unrelated remote changes and write merged CSVs locally,
+which violates the downstream trigger policy and re-arms the watcher. Automatic
+push therefore uses `rclone copy --update`: it uploads additions and edits,
+never downloads, and never deletes remote-only paths. Task CSV and counter
+passes may read remote state to preserve remote rows/maximum counters in the
+upload, but do not write it locally or advance the downstream baseline.
+Deletions reconcile at the next explicit bidirectional or pull-biased sync.
 
 **Why triggers skip rather than queue (coalescing).** Triggers are frequent and
 idempotent, so when a sync is already running the in-flight run (or the next
 debounce fire) will pick up whatever changed; queuing would just stack redundant
 rclone runs. So `try_acquire` is non-blocking and a caller that can't take the
 lock simply skips. The watcher's `Debouncer` re-arms after a skip, so pending
-changes aren't stranded. This also gives self-trigger suppression for free: the
-watcher runs its sync **synchronously in its own thread** while holding the lock,
-so the pull's own file writes land while the lock is held and coalesce into at
-most one cheap no-op follow-up rather than an infinite re-sync loop.
+changes aren't stranded. One-way watcher pushes write no local files, so they
+cannot create a feedback loop.
 
 **Why a machine-wide advisory sync lock (and that it closes a pre-existing
 race).** Concurrent triggers are the norm under C4: shell start + the watcher + a
@@ -1247,11 +1243,13 @@ field:
    liveness, and the holder was the now-dead TUI process, so the lock was
    immediately reap-able even though the orphaned `rclone` was still writing.
 
-The fix makes execution independent of the shell: **every** automatic trigger
-(start, watcher, idle, exit) spawns a fully detached `brain sync --if-idle`
+The fix makes execution independent of the shell: every automatic trigger
+(startup, watcher, receiver freshness) spawns a detached `brain sync --if-idle`
 child (`process_group(0)` + null stdio). A separate process can't touch the
 TUI, and a child in its own process group outlives the shell and a terminal
-close. There is no in-process sync path anymore.
+close. There is no in-process sync path anymore. While the TUI remains alive,
+it keeps each child handle in a waiter thread and calls `wait()` so completed
+children are reaped instead of accumulating as `<defunct>` processes.
 
 Detaching hid the progress, so a running sync now records shared state under
 `~/.cache/brain/sync/`: a `Reporter` appends every line to `current.log` (and
@@ -1314,7 +1312,7 @@ sync is about to render moot.
 
 We considered showing the modal immediately in a disabled "syncing…" state and
 then resolving it, but the simpler and better behavior is to **not show it at
-all until we know the truth**. On a machine with `on_start` sync, `run_tui`
+all until we know the truth**. On a sync-configured machine, `run_tui`
 defers the check: the shell is fully usable at once (no modal to dismiss), and
 `tick_triage_gate` runs the real `check_daily_triage` only after the startup
 sync completes (detected by a newer sync-journal row). The modal then appears

@@ -85,9 +85,21 @@ first move is a failing test that reproduces it, *then* the fix.
   (the deferred-Return countdown fires exactly once at zero).
 - **Receiver dispatch state.** `tui/receiver_state.rs` proves that an idle
   open panel switches to queued receiver work, an active submitted turn waits,
-  failed launches retain their message, and retry backoff deadlines are
-  honored. `server/delivery.rs` verifies that provider delivery is dispatched
-  off the TUI thread.
+  a same-channel warm panel is reused, a different channel replaces it, and a
+  warm receiver lease never hides interactive Stop-hook completion. Failed
+  launches retain their message and retry backoff deadlines are honored.
+  `sync/freshness.rs` tests the strict two-hour message threshold;
+  `sync/journal.rs` proves push-only/aborted rows do not refresh it.
+  `server/delivery.rs` verifies that provider delivery is dispatched off the
+  TUI thread.
+- **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
+  non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
+  does not write remote-only state locally. The CSV integration regression
+  verifies an unchanged second pass performs no remote write, and
+  `sync/trigger.rs` verifies completed detached children are reaped.
+  `tests/watch_local.rs` exercises the real watcher callback in the default
+  suite: macOS validates the one-second polling fallback, while other platforms
+  use notify's recommended native backend.
 - **PTY scrollback** (`pty_pane.rs`). `scroll_up`/`scroll_down` enter and
   clamp scrollback. These spawn a tiny real PTY running `seq` — the one
   place we let a child process in — because it's deterministic and

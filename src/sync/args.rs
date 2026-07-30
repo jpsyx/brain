@@ -1,4 +1,4 @@
-//! Pure builder of the `rclone bisync` argument vector.
+//! Pure builders for `rclone bisync` and the automatic one-way `rclone copy`.
 //!
 //! Covers direction → conflict resolution bias, the keep-both conflict
 //! flags, the default exclude filters, the `--max-delete` guard, and (for a
@@ -11,12 +11,12 @@
 
 use crate::sync::config::SyncConfig;
 
-/// Which side wins a same-file conflict on this run.
+/// Requested synchronization direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     /// Newer edit wins (default `brain sync`).
     Both,
-    /// Local wins (`--push`).
+    /// Upload local additions and edits without downloading (`--push`).
     Push,
     /// Remote wins (`--pull`).
     Pull,
@@ -90,6 +90,34 @@ pub fn bisync_args(
     a
 }
 
+/// Build a one-way, non-deleting automatic upload.
+///
+/// `copy --update` never downloads remote-only files and never removes them;
+/// the next startup/message pull performs the full reconciliation.
+#[must_use]
+pub fn push_args(cfg: &SyncConfig, local: &str, remote_arg: &str) -> Vec<String> {
+    let mut args = vec![
+        "copy".to_owned(),
+        local.to_owned(),
+        remote_arg.to_owned(),
+        "--update".to_owned(),
+        "-v".to_owned(),
+        "--stats".to_owned(),
+        "10s".to_owned(),
+        "--stats-one-line".to_owned(),
+    ];
+    for exclude in EXCLUDES {
+        args.extend(["--exclude".to_owned(), exclude.to_owned()]);
+    }
+    for exclude in &cfg.exclude {
+        args.extend(["--exclude".to_owned(), exclude.clone()]);
+    }
+    if !cfg.max_size.trim().is_empty() {
+        args.extend(["--max-size".to_owned(), cfg.max_size.clone()]);
+    }
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +158,18 @@ mod tests {
         assert_eq!(
             pair_after(&args(Direction::Pull), "--conflict-resolve"),
             Some("path2")
+        );
+    }
+
+    #[test]
+    fn automatic_push_uses_one_way_copy_instead_of_bisync() {
+        let args = push_args(&cfg(), "/root", "BRAIN:b");
+        assert_eq!(&args[..3], ["copy", "/root", "BRAIN:b"]);
+        assert!(args.iter().any(|arg| arg == "--update"));
+        assert!(!args.iter().any(|arg| arg == "bisync"));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "--exclude" && pair[1] == "tasks/tasks.csv")
         );
     }
 

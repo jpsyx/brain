@@ -136,6 +136,11 @@ meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- key 'panel_side' = 'left' | 
   reusable email session. Remote messages select their channel row, while
   interactive work uses the `interactive` role. A `/new` inbound command
   creates a fresh row for that same channel.
+- Receiver runtime state distinguishes an active remote job
+  (`receiver_started` is set) from a warm channel panel (`receiver_session_id`
+  plus a three-minute `receiver_lease`). A warm lease never counts as active
+  LLM work. This lets Stop-hook completion release queued work while keeping
+  the completed SMS/email conversation visible and reusable.
 - `release` → when the panel closes (claude exits) or the shell quits, clear
   this instance's locks and stamp `last_active` (floats it to the top of the
   next resume — so re-opening with "Message brain" picks it back up, and a
@@ -220,16 +225,16 @@ setup flow remains the preferred way to create or validate the complete block.
 
 `sync::SyncConfig` (`src/sync/config.rs`) is a typed view of the `sync` object
 nested under `~/.config/brain/env.json`'s top level. As of C2, `brain sync`
-reads it to drive a real `rclone bisync` transport (see
+reads it to drive `rclone bisync` reconciliation and one-way `rclone copy`
+uploads (see
 [integrations.md](integrations.md) and [architecture.md](architecture.md)); as
-of C4 the `on_start`/`on_exit`/`watch` flags are live automatic triggers
-(a detached background sync on shell start, a detached sync on exit, and a
-debounced filesystem watcher while the shell is open — `debounce_ms` sets the
-watcher's quiescence window). `idle_pull_secs` optionally adds a periodic pull
-while the shell stays open. An absent `sync` block parses to all defaults, so
+of C4 a configured sync always starts with a pull-biased background sync, and
+the `watch` flag controls a debounced filesystem watcher while the shell is
+open. `debounce_ms` sets the watcher's quiescence window. An absent
+`sync` block parses to all defaults, so
 sync reads as fully disabled and brain behaves exactly as if the key didn't
 exist (`brain sync` prints "sync is not configured — run `brain sync setup`" and
-does nothing, with no watcher thread, no idle timer, and no start/exit sync).
+does nothing, with no watcher thread or startup sync).
 
 **Machine-local runtime state** (never synced) lives beside the journal under
 `~/.cache/brain/sync/`:
@@ -258,11 +263,8 @@ does nothing, with no watcher thread, no idle timer, and no start/exit sync).
 | `crypt_password2` | `String` | `""` | Optional rclone-obscured crypt salt. Used only when `crypt_password` is non-empty. |
 | `crypt_filename_encryption` | `String` | `""` | Optional rclone crypt filename mode override (empty uses rclone's default, `standard`). |
 | `crypt_directory_name_encryption` | `bool` | `true` | Whether rclone crypt encrypts directory names. |
-| `on_start` | `bool` | `true` | Fire a background sync when the shell starts (C4). |
-| `on_exit` | `bool` | `true` | Fire a detached, fire-and-forget sync when the shell exits (C4). |
-| `watch` | `bool` | `true` | Run the debounced filesystem watcher while the shell is open (C4). See `watch_effective` below. |
+| `watch` | `bool` | `true` | Run the debounced filesystem watcher while the shell is open. Its automatic push is a one-way, non-deleting upload. See `watch_effective` below. |
 | `debounce_ms` | `u64` | `3000` | The watcher's quiescence window in milliseconds: a sync fires once changes under the brain root settle for this long. `debounce()` maps it to a `Duration`. |
-| `idle_pull_secs` | `u64` | `0` | Optional periodic pull interval while the shell is open. `0` disables the timer; a positive value maps to `idle_pull_interval()`. |
 | `max_delete_percent` | `u8` | `50` | Bisync safety guard: the max percent of files a sync run may delete before aborting. |
 | `exclude` | `Vec<String>` | `[]` | Extra rclone exclude patterns, appended to the built-in excludes (e.g. `"**/test-data/**"`). |
 | `max_size` | `String` | `""` | Skip files larger than this rclone size string (e.g. `"100M"`); empty means no cap. |
@@ -275,8 +277,6 @@ Two derived predicates:
 - `SyncConfig::watch_effective()` — `is_configured() && watch`. The watcher is
   on by default whenever sync is configured; `watch: false` is the explicit
   opt-out.
-- `SyncConfig::idle_pull_interval()` — `Some(Duration)` only when sync is
-  configured and `idle_pull_secs > 0`; missing or `0` means no idle-pull timer.
 - `SyncConfig::crypt_enabled()` — `!crypt_password.trim().is_empty()`. When
   true, `sync::remote::build_remote` returns the env-defined `BRAINCRYPT:`
   remote layered over the B2 remote instead of the raw `BRAIN:<bucket>/<path>`
@@ -316,6 +316,11 @@ sync_runs(
 `n`, newest (`id DESC`) first — `brain sync status` reads just the most recent
 one (`command::format_last_run`) alongside the configured trigger flags
 (`command::format_triggers`) and the open-conflict count.
+
+`Journal::latest_downstream_completion()` returns the newest non-aborted
+`both`, `pull`, or `resync` completion. Push-only rows do not refresh this
+timestamp. The receiver compares it with the current UTC time and starts a
+pull before dispatch only when it is missing or more than two hours old.
 
 **Outcome classification** (`src/sync/verify.rs`,
 `classify(run, conflicts, leftover_markers)`): `Clean` only when rclone exited

@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::sync::config::SyncConfig;
+use crate::sync::args::Direction;
 use crate::sync::csv_merge::{merge, parse, serialize};
 use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone_capture;
@@ -63,19 +64,47 @@ pub fn sync_one(
     fetch: impl Fn() -> Option<String>,
     push: impl Fn(&str) -> bool,
 ) -> CsvMergeOutcome {
+    sync_one_with_mode(local, rel, fetch, push, true)
+}
+
+fn sync_one_push_only(
+    local: &Path,
+    rel: &str,
+    fetch: impl Fn() -> Option<String>,
+    push: impl Fn(&str) -> bool,
+) -> CsvMergeOutcome {
+    sync_one_with_mode(local, rel, fetch, push, false)
+}
+
+fn sync_one_with_mode(
+    local: &Path,
+    rel: &str,
+    fetch: impl Fn() -> Option<String>,
+    push: impl Fn(&str) -> bool,
+    update_local_and_baseline: bool,
+) -> CsvMergeOutcome {
     let name = Path::new(rel).file_name().and_then(|s| s.to_str()).unwrap_or(rel).to_owned();
     let baseline = baseline_path(&name);
 
-    let base = parse(&std::fs::read_to_string(&baseline).unwrap_or_default());
-    let ours = parse(&std::fs::read_to_string(local).unwrap_or_default());
-    let theirs = parse(&fetch().unwrap_or_default());
+    let baseline_text = std::fs::read_to_string(&baseline).unwrap_or_default();
+    let local_text = std::fs::read_to_string(local).unwrap_or_default();
+    let remote_text = fetch().unwrap_or_default();
+    let base = parse(&baseline_text);
+    let ours = parse(&local_text);
+    let theirs = parse(&remote_text);
 
     let (merged, report) = merge(&base, &ours, &theirs);
     let text = serialize(&merged);
 
-    write_all(local, &text);
-    push(&text);
-    write_all(&baseline, &text);
+    if update_local_and_baseline && local_text != text {
+        write_all(local, &text);
+    }
+    if remote_text != text {
+        push(&text);
+    }
+    if update_local_and_baseline && baseline_text != text {
+        write_all(&baseline, &text);
+    }
 
     CsvMergeOutcome {
         name,
@@ -100,7 +129,11 @@ fn write_all(path: &Path, text: &str) {
 /// `copyto` through a temp file. Best-effort: a per-CSV failure yields empty
 /// counts rather than aborting the caller's sync.
 #[must_use]
-pub fn sync_csvs(cfg: &SyncConfig, root: &Path) -> Vec<CsvMergeOutcome> {
+pub fn sync_csvs(
+    cfg: &SyncConfig,
+    root: &Path,
+    direction: Direction,
+) -> Vec<CsvMergeOutcome> {
     let remote = build_remote(cfg);
     let mut outcomes = Vec::with_capacity(CSVS.len());
     for rel in CSVS {
@@ -127,7 +160,11 @@ pub fn sync_csvs(cfg: &SyncConfig, root: &Path) -> Vec<CsvMergeOutcome> {
             ok
         };
 
-        outcomes.push(sync_one(&local, rel, fetch, push));
+        outcomes.push(if direction == Direction::Push {
+            sync_one_push_only(&local, rel, fetch, push)
+        } else {
+            sync_one(&local, rel, fetch, push)
+        });
     }
     outcomes
 }
@@ -152,5 +189,42 @@ mod tests {
             remote_csv_arg("BRAIN:bucket/pre/", "tasks/habits.csv"),
             "BRAIN:bucket/pre/tasks/habits.csv"
         );
+    }
+
+    #[test]
+    fn push_only_merge_preserves_remote_rows_without_downloading_them() {
+        use std::cell::RefCell;
+
+        let base =
+            std::env::temp_dir().join(format!("brain-csv-push-only-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let local = base.join("local.csv");
+        let rel = format!("tasks/push-only-{}.csv", std::process::id());
+        let name = Path::new(&rel).file_name().unwrap().to_str().unwrap();
+        let baseline = baseline_path(name);
+        std::fs::remove_file(&baseline).ok();
+        let header = "task_id,status,notes,last_touched\n";
+        std::fs::write(&local, format!("{header}A,open,local,t1\n")).unwrap();
+        let uploaded = RefCell::new(String::new());
+
+        sync_one_push_only(
+            &local,
+            &rel,
+            || Some(format!("{header}B,open,remote,t1\n")),
+            |text| {
+                uploaded.replace(text.to_owned());
+                true
+            },
+        );
+
+        let local_after = std::fs::read_to_string(&local).unwrap();
+        assert!(local_after.contains("A,open,local"));
+        assert!(!local_after.contains("B,open,remote"));
+        let remote_after = uploaded.borrow();
+        assert!(remote_after.contains("A,open,local"));
+        assert!(remote_after.contains("B,open,remote"));
+        assert!(!baseline.exists(), "push-only must not advance the downstream baseline");
+
+        std::fs::remove_dir_all(base).ok();
     }
 }
