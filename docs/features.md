@@ -172,6 +172,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
 | `brain --with-receiver` | Open the TUI and explicitly start its TUI-owned receiver server. |
+| `brain --no-daily-triage-check` | Open the TUI without ever showing the daily-triage startup nudge. Process-scoped (this run only); not a persistent config change. Combines with any other flag/subcommand. |
 | `brain receiver {setup\|set\|start\|status\|stop\|restart\|logs}` | Configure, edit, or control the TUI-owned SMS/email listener. `receiver set` edits one receiver environment variable or opens a described selector. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
@@ -373,6 +374,13 @@ reloads the synced tasks/habits, and only *then* shows the "run today's triage?"
 modal — and only if triage is still not done for today. If another machine
 already handled it, no modal ever appears. With sync unconfigured, the check
 runs immediately at open as before.
+
+**Opting out for a run.** Passing `--no-daily-triage-check` (a process-scoped
+flag, valid for that invocation only, *not* a persistent config change)
+suppresses the nudge entirely: brain neither arms the deferred gate nor runs the
+check, so the modal can never open, no matter the habit state. The startup sync
+still runs. To disable the nudge permanently instead, clear the
+`daily_triage_name_pattern` config variable.
 
 #### Migrating a machine to sync
 

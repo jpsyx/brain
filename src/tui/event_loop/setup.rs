@@ -49,6 +49,7 @@ pub fn run_tui(
     active_view: Option<View>,
     initial_search: Option<String>,
     with_receiver: bool,
+    skip_daily_triage_check: bool,
 ) -> Result<()> {
     let _singleton = crate::tui::singleton::Guard::acquire()?;
     // First-run onboarding: seed personalization with a short skippable prompt
@@ -129,6 +130,7 @@ pub fn run_tui(
         db,
         search,
         panel_side,
+        skip_daily_triage_check,
     );
     match crate::server::receiver::ControlSocket::bind() {
         Ok(control) => {
@@ -165,7 +167,15 @@ pub fn run_tui(
     // Instead capture the journal baseline, kick the sync, and *arm the gate*;
     // `tick_triage_gate` runs the real check only once the sync completes. With
     // no startup sync, check right away.
-    if startup_sync {
+    // `--no-daily-triage-check` opts out of the nudge for this run entirely: we
+    // still run the startup pull (cross-machine freshness is unrelated), but we
+    // neither arm the gate nor check, so the modal can never appear.
+    if skip_daily_triage_check {
+        if startup_sync {
+            let _ =
+                crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Pull);
+        }
+    } else if startup_sync {
         let seen =
             crate::sync::journal::Journal::open(&crate::sync::journal::Journal::default_path())
                 .ok()

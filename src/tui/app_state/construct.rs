@@ -27,6 +27,7 @@ impl<'a> App<'a> {
         db: Db,
         search: crate::picker::App,
         panel_side: PanelSide,
+        skip_daily_triage_check: bool,
     ) -> Self {
         let query = initial_search.unwrap_or_default();
         let in_search = !query.is_empty();
@@ -41,6 +42,7 @@ impl<'a> App<'a> {
             // Armed by `run_tui` only when a startup sync is pending; otherwise
             // the triage check runs immediately and this stays None.
             triage_gate: None,
+            skip_daily_triage_check,
             config,
             agent_kind,
             full_notes: cli.display.full_notes,

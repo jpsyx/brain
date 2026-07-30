@@ -73,6 +73,11 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub with_receiver: bool,
 
+    /// Never open the daily-triage startup nudge for this run. Process-scoped
+    /// (not a persistent config change): brain won't tell you triage hasn't run.
+    #[arg(long, global = true)]
+    pub no_daily_triage_check: bool,
+
     #[command(subcommand)]
     pub command: Option<Cmd>,
 }
@@ -126,6 +131,20 @@ mod tests {
             Cli::try_parse_from(["brain", "--with-receiver"])
                 .expect("parse")
                 .with_receiver
+        );
+    }
+
+    #[test]
+    fn no_daily_triage_check_is_opt_in() {
+        assert!(
+            !Cli::try_parse_from(["brain"])
+                .expect("parse")
+                .no_daily_triage_check
+        );
+        assert!(
+            Cli::try_parse_from(["brain", "--no-daily-triage-check"])
+                .expect("parse")
+                .no_daily_triage_check
         );
     }
 

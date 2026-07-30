@@ -159,6 +159,10 @@ pub(crate) struct App<'a> {
     /// the check once the sync completes (a newer journal row). `None` once
     /// resolved, or when no startup sync ran.
     triage_gate: Option<TriageGate>,
+    /// Process-scoped opt-out (via `--no-daily-triage-check`): when true the
+    /// daily-triage startup nudge is never evaluated for this run, so the modal
+    /// can't appear. Not a persistent config change.
+    skip_daily_triage_check: bool,
     /// When set (via the `--full-notes` flag), every task starts with its
     /// notes expanded. The per-task `l` toggle still layers on top.
     full_notes: bool,

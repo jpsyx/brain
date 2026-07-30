@@ -156,7 +156,12 @@ fn main() -> Result<()> {
     match cli.command {
         // Bare `brain` opens the merged persistent shell in its default
         // (tasks) view with the brain panel already open.
-        None => tasks_launch(TasksCli::parse_from(["brain"]), agent_kind, cli.with_receiver),
+        None => tasks_launch(
+            TasksCli::parse_from(["brain"]),
+            agent_kind,
+            cli.with_receiver,
+            cli.no_daily_triage_check,
+        ),
         // `brain tasks …` — delegate everything after `tasks` to the tasks
         // CLI parser (positional view/date/search, filter flags, and the
         // complete / doctor / search subcommands), after the natural-language
@@ -173,7 +178,12 @@ fn main() -> Result<()> {
                     .chain(args.rest)
                     .collect(),
             );
-            tasks_launch(TasksCli::parse_from(rewritten), agent_kind, cli.with_receiver)
+            tasks_launch(
+                TasksCli::parse_from(rewritten),
+                agent_kind,
+                cli.with_receiver,
+                cli.no_daily_triage_check,
+            )
         }
         Some(Cmd::Version) => unreachable!("version is dispatched before the gate"),
         // Handled before the prerequisite gate above.
@@ -1074,6 +1084,7 @@ fn tasks_launch(
     mut cli: TasksCli,
     agent_kind: session::AgentKind,
     with_receiver: bool,
+    skip_daily_triage_check: bool,
 ) -> Result<()> {
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
@@ -1098,7 +1109,14 @@ fn tasks_launch(
         }
         None => resolve_query(&cli.query, today),
     };
-    tasks_browse(initial, &mut cli, today, agent_kind, with_receiver)
+    tasks_browse(
+        initial,
+        &mut cli,
+        today,
+        agent_kind,
+        with_receiver,
+        skip_daily_triage_check,
+    )
 }
 
 /// What the tasks positional input resolves to (mirrors the old `tasks`
@@ -1130,6 +1148,7 @@ fn tasks_browse(
     today: NaiveDate,
     agent_kind: session::AgentKind,
     with_receiver: bool,
+    skip_daily_triage_check: bool,
 ) -> Result<()> {
     logging::log("tasks browse");
     let csv_path = cli.csv.clone().unwrap_or_else(default_csv_path);
@@ -1189,6 +1208,7 @@ fn tasks_browse(
             start_view,
             initial_search,
             with_receiver,
+            skip_daily_triage_check,
         )?;
     }
     Ok(())

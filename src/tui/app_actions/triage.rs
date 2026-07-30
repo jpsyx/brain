@@ -30,7 +30,8 @@ impl App<'_> {
     /// is the right failure mode here because the modal is a nudge, not a
     /// blocker. See [`triage_nudge_target`] for the matching logic.
     pub(crate) fn check_daily_triage(&mut self) {
-        if let Some(habit) = triage_nudge_target(
+        if let Some(habit) = triage_modal_target(
+            self.skip_daily_triage_check,
             &self.all_habits,
             &self.config.daily_triage_name_pattern,
             self.today,
@@ -135,6 +136,23 @@ fn triage_gate_resolved(seen: Option<i64>, latest: Option<i64>) -> bool {
         (Some(_), None) => true,
         (None, _) => false,
     }
+}
+
+/// Gate the daily-triage nudge on the process-scoped `--no-daily-triage-check`
+/// opt-out before consulting [`triage_nudge_target`]. When `disabled` is set the
+/// modal never fires this run regardless of habit state; this is a per-process
+/// flag, not a persistent config change. Pure so the opt-out is unit-tested
+/// without constructing an `App`.
+fn triage_modal_target<'h>(
+    disabled: bool,
+    habits: &'h [Task],
+    pattern: &str,
+    today: chrono::NaiveDate,
+) -> Option<&'h Task> {
+    if disabled {
+        return None;
+    }
+    triage_nudge_target(habits, pattern, today)
 }
 
 /// Decide whether the startup triage nudge should fire, and for which habit.
@@ -431,6 +449,17 @@ mod triage_nudge_tests {
         let today = d(2026, 6, 24);
         let habits = vec![triage("H41", d(2026, 6, 24), None)];
         assert!(triage_nudge_target(&habits, "Weekly Review", today).is_none());
+    }
+
+    #[test]
+    fn disabled_flag_suppresses_the_nudge() {
+        use super::triage_modal_target;
+        let today = d(2026, 6, 24);
+        // An open occurrence due today would normally fire the modal.
+        let habits = vec![triage("H41", d(2026, 6, 24), None)];
+        assert!(triage_modal_target(false, &habits, "Morning Triage", today).is_some());
+        // The process-scoped `--no-daily-triage-check` opt-out suppresses it.
+        assert!(triage_modal_target(true, &habits, "Morning Triage", today).is_none());
     }
 
     #[test]
