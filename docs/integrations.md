@@ -56,6 +56,12 @@ helpers and shell-outs live in the tasks modules:
   page via the system `open`; the CLI path prints the server-state plan before
   waiting on the daemon and then prints the URL it is opening. They no longer
   shell out to a zsh function.
+- **`brain habits revive|fix <name>`** — repair a lapsed recurring habit (all
+  occurrences `done`, none pending) by fuzzy name, without touching the server.
+  Dispatched before the gate in `main.rs` alongside bare `brain habits`; the
+  logic lives in `tasks::revive`, which reuses `tasks::complete`'s
+  `spawn_next_occurrence` so revived and completion-spawned occurrences share
+  one anchor-to-due code path. See [features.md](features.md).
 - **Receiver server** — the opt-in TUI-owned listener accepts only `POST /sms`
   and `POST /email`. Twilio requests must pass the exact URL/form HMAC and SMS
   sender allowlist. Resend requests must pass the official `v1,<signature>`

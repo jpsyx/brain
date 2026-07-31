@@ -131,12 +131,21 @@ fn main() -> Result<()> {
         return receiver_server_command(args);
     }
 
-    // `brain habits` just opens the bundled habits page (starting the server if
-    // needed); no markdown-to-pdf prerequisite and no TUI, so it runs before the
-    // gate.
-    if matches!(&cli.command, Some(Cmd::Habits)) {
-        logging::log("dispatch habits");
-        return habits_command();
+    // `brain habits` opens the bundled habits page (starting the server if
+    // needed); `brain habits revive|fix <name>` repairs a lapsed habit chain.
+    // Neither needs the markdown-to-pdf prerequisite or the TUI, so they run
+    // before the gate.
+    if let Some(Cmd::Habits(args)) = &cli.command {
+        match &args.action {
+            None => {
+                logging::log("dispatch habits");
+                return habits_command();
+            }
+            Some(crate::cli::HabitsAction::Revive(revive)) => {
+                logging::log("dispatch habits revive");
+                return crate::tasks::revive::run(&revive.query.join(" "));
+            }
+        }
     }
 
     // `brain check` is a read-only report; no TUI, no prerequisite needed.
@@ -202,7 +211,7 @@ fn main() -> Result<()> {
         Some(Cmd::Receiver(_)) => {
             unreachable!("receiver is dispatched before the gate")
         }
-        Some(Cmd::Habits) => unreachable!("habits is dispatched before the gate"),
+        Some(Cmd::Habits(_)) => unreachable!("habits is dispatched before the gate"),
         Some(Cmd::Check) => unreachable!("check is dispatched before the gate"),
         Some(Cmd::Reindex(_)) => unreachable!("reindex is dispatched before the gate"),
     }

@@ -174,6 +174,43 @@ mod tests {
         assert!(matches!(env.command, Some(Cmd::Env(args))
             if matches!(args.action, Some(EnvAction::Set { assignment: None }))));
     }
+
+    #[test]
+    fn bare_habits_has_no_action() {
+        let cli = Cli::try_parse_from(["brain", "habits"]).expect("parse");
+        assert!(matches!(cli.command, Some(Cmd::Habits(args)) if args.action.is_none()));
+    }
+
+    #[test]
+    fn habits_revive_joins_trailing_words() {
+        let cli =
+            Cli::try_parse_from(["brain", "habits", "revive", "send", "team", "status", "update"])
+                .expect("parse");
+        let Some(Cmd::Habits(args)) = cli.command else {
+            panic!("expected habits");
+        };
+        let Some(HabitsAction::Revive(revive)) = args.action else {
+            panic!("expected revive");
+        };
+        assert_eq!(revive.query, vec!["send", "team", "status", "update"]);
+    }
+
+    #[test]
+    fn habits_fix_is_an_alias_for_revive() {
+        let cli = Cli::try_parse_from(["brain", "habits", "fix", "meds"]).expect("parse");
+        let Some(Cmd::Habits(args)) = cli.command else {
+            panic!("expected habits");
+        };
+        let Some(HabitsAction::Revive(revive)) = args.action else {
+            panic!("expected revive");
+        };
+        assert_eq!(revive.query, vec!["meds"]);
+    }
+
+    #[test]
+    fn habits_revive_requires_a_query() {
+        assert!(Cli::try_parse_from(["brain", "habits", "revive"]).is_err());
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -218,8 +255,13 @@ pub enum Cmd {
     #[command(name = "receiver")]
     Receiver(ReceiverArgs),
 
-    /// Open today's habits page in your browser (starts the brain server if needed).
-    Habits,
+    /// Open today's habits page, or repair a lapsed habit (`brain habits revive <name>`).
+    ///
+    /// Bare `brain habits` opens the browser page (starting the brain server if
+    /// needed). `brain habits revive <fuzzy name>` (alias `fix`) respawns a
+    /// recurring habit whose chain lapsed — every occurrence marked done with
+    /// none pending.
+    Habits(HabitsArgs),
 
     /// Show what would sync (pending local pushes and remote pulls) without
     /// syncing. Read-only: runs `rclone bisync --dry-run` under the hood.
@@ -230,6 +272,29 @@ pub enum Cmd {
     /// and re-apply the task/habit automation rules. Bare `brain reindex` does
     /// all three; narrow with `--projects` / `--resources` / `--tasks`.
     Reindex(ReindexArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct HabitsArgs {
+    #[command(subcommand)]
+    pub action: Option<HabitsAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HabitsAction {
+    /// Respawn a lapsed habit by fuzzy name (alias: `fix`). A lapsed habit is
+    /// one whose every occurrence is `done` with none pending, so it silently
+    /// dropped off the agenda. Multiple words are joined, so quotes are
+    /// optional: `brain habits revive send team status update`.
+    #[command(alias = "fix")]
+    Revive(ReviveArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ReviveArgs {
+    /// The fuzzy habit name to match (all trailing words are joined with spaces).
+    #[arg(required = true, num_args = 1..)]
+    pub query: Vec<String>,
 }
 
 #[derive(Args, Debug)]

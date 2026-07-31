@@ -703,6 +703,20 @@ messages and attachment download URLs are preserved for the agent.
 plan before checking or spawning the daemon. `brain habits` then prints the
 local `/habits` URL before handing it to the system browser.
 
+`brain habits revive <fuzzy name>` (alias `brain habits fix`) repairs a **lapsed
+habit** — a recurring habit whose every occurrence is `done` with none pending,
+so it silently dropped off the agenda (the usual cause is an instance marked
+done outside `brain tasks complete`, which skips the spawn-next step). The
+query is matched case-insensitively against habit names, tolerating word
+reordering: each whitespace token must appear in the name, so
+`brain habits fix send team status update` resolves "Send status update to
+team". A single match is revived immediately; multiple matches are listed for
+interactive selection over `/dev/tty`; no match is reported plainly. Reviving
+appends one fresh `not_started` occurrence anchored to the latest scheduled
+instance, using the same anchor-to-due recurrence math as completion (the first
+occurrence strictly after today). A habit that still has a pending occurrence
+is reported healthy and left untouched — the command never creates duplicates.
+
 ### Prerequisite: `markdown-to-pdf`
 
 Every command except `brain config`, `brain env`, and `brain sync` fails fast with a red `❌`

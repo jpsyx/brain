@@ -13,6 +13,7 @@ pub mod complete;
 pub mod doctor;
 pub mod plain;
 pub mod render;
+pub mod revive;
 pub mod selector;
 pub mod shortcuts;
 pub mod task;

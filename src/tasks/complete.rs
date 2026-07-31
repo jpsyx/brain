@@ -11,12 +11,12 @@ use chrono::{Datelike, Local, NaiveDate};
 
 use crate::theme::Theme;
 
-type Row = BTreeMap<String, String>;
+pub(crate) type Row = BTreeMap<String, String>;
 
 #[derive(Debug, Clone)]
-struct CsvFile {
-    header: Vec<String>,
-    rows: Vec<Row>,
+pub(crate) struct CsvFile {
+    pub(crate) header: Vec<String>,
+    pub(crate) rows: Vec<Row>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,7 +199,7 @@ fn complete_habit(
     today: NaiveDate,
 ) -> Result<CompletionResult> {
     let today_s = today.to_string();
-    let (task_id, task_name, next_due, completed_row) = {
+    let (task_id, task_name) = {
         let row = csv
             .rows
             .get_mut(idx)
@@ -207,27 +207,9 @@ fn complete_habit(
         row.insert("status".to_owned(), "done".to_owned());
         row.insert("completed_date".to_owned(), today_s.clone());
         touch_row(row, &today_s);
-        (
-            field(row, "task_id"),
-            name(row),
-            next_due(
-                &field(row, "due_date"),
-                field(row, "recur_interval").parse::<u32>().unwrap_or(1),
-                &field(row, "recur_unit"),
-                today,
-            )?,
-            row.clone(),
-        )
+        (field(row, "task_id"), name(row))
     };
-    let next_id = new_habit_id(tasks_dir, csv)?;
-    let mut next = completed_row;
-    next.insert("task_id".to_owned(), next_id.clone());
-    next.insert("status".to_owned(), "not_started".to_owned());
-    next.insert("due_date".to_owned(), next_due.clone());
-    next.insert("completed_date".to_owned(), String::new());
-    next.insert("created_date".to_owned(), today_s.clone());
-    next.insert("last_touched".to_owned(), today_s);
-    csv.rows.push(next);
+    let (next_id, next_due) = spawn_next_occurrence(tasks_dir, csv, idx, today)?;
     ensure_column(csv, "last_touched");
     Ok(CompletionResult {
         kind: CompletionKind::Habit,
@@ -241,7 +223,50 @@ fn complete_habit(
     })
 }
 
-fn read_csv(path: &Path) -> Result<CsvFile> {
+/// Append the next occurrence of the habit at `source_idx`, anchoring its
+/// recurrence to that row's `due_date`/`recur_*` and dating it to the first
+/// occurrence strictly after `today`. Returns `(next_id, next_due)`.
+///
+/// The new row is a clone of the source with a fresh id, `status=not_started`,
+/// the recurred `due_date`, an empty `completed_date`, and today's
+/// `created_date`/`last_touched`; every other column (name, priority, notes,
+/// `ideal_time`, recurrence, …) carries over verbatim. Shared by completion
+/// (spawn after marking today's instance done) and revive (respawn a lapsed
+/// chain whose source is already `done`).
+pub(crate) fn spawn_next_occurrence(
+    tasks_dir: &Path,
+    csv: &mut CsvFile,
+    source_idx: usize,
+    today: NaiveDate,
+) -> Result<(String, String)> {
+    let today_s = today.to_string();
+    let (next_due, mut next) = {
+        let row = csv
+            .rows
+            .get(source_idx)
+            .ok_or_else(|| anyhow!("habit row disappeared"))?;
+        (
+            next_due(
+                &field(row, "due_date"),
+                field(row, "recur_interval").parse::<u32>().unwrap_or(1),
+                &field(row, "recur_unit"),
+                today,
+            )?,
+            row.clone(),
+        )
+    };
+    let next_id = new_habit_id(tasks_dir, csv)?;
+    next.insert("task_id".to_owned(), next_id.clone());
+    next.insert("status".to_owned(), "not_started".to_owned());
+    next.insert("due_date".to_owned(), next_due.clone());
+    next.insert("completed_date".to_owned(), String::new());
+    next.insert("created_date".to_owned(), today_s.clone());
+    next.insert("last_touched".to_owned(), today_s);
+    csv.rows.push(next);
+    Ok((next_id, next_due))
+}
+
+pub(crate) fn read_csv(path: &Path) -> Result<CsvFile> {
     if !path.exists() {
         return Ok(CsvFile {
             header: Vec::new(),
@@ -265,7 +290,7 @@ fn read_csv(path: &Path) -> Result<CsvFile> {
     Ok(CsvFile { header, rows })
 }
 
-fn write_csv(path: &Path, csv: &CsvFile) -> Result<()> {
+pub(crate) fn write_csv(path: &Path, csv: &CsvFile) -> Result<()> {
     let mut writer = csv::WriterBuilder::new().from_path(path)?;
     writer.write_record(&csv.header)?;
     for row in &csv.rows {
@@ -491,7 +516,7 @@ fn touch_row(row: &mut Row, today: &str) {
     row.insert("last_touched".to_owned(), today.to_owned());
 }
 
-fn field(row: &Row, column: &str) -> String {
+pub(crate) fn field(row: &Row, column: &str) -> String {
     row.get(column).cloned().unwrap_or_default()
 }
 
