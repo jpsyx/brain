@@ -846,14 +846,15 @@ resolving a keep-both conflict — for an agent rather than only a human at the
 terminal.
 
 **Why a distinct `/second-brain cloud-sync`, not overloading `/second-brain
-sync`.** `/second-brain sync` already means something: rebuild the derived
-lookup CSVs (`projects-lookup.csv`/`zotero-lookup.csv`) from
-`.METADATA.json`. Routing "sync my brain across machines" through that same
-name would silently repurpose an existing, muscle-memory trigger phrase and
-make either request ambiguous. A new, more specific name
-(`/second-brain cloud-sync`) keeps both intact and lets the skill ask a
-clarifying question on genuinely ambiguous phrasing instead of guessing which
-one the user meant.
+sync`.** *(Superseded by the "sync" ↔ "reindex" rename below — kept for the
+historical reasoning.)* At the time, `/second-brain sync` already meant
+something: rebuild the derived lookup CSVs
+(`projects-lookup.csv`/`zotero-lookup.csv`) from `.METADATA.json`. Routing
+"sync my brain across machines" through that same name would silently
+repurpose an existing, muscle-memory trigger phrase and make either request
+ambiguous. A new, more specific name (`/second-brain cloud-sync`) kept both
+intact and let the skill ask a clarifying question on genuinely ambiguous
+phrasing instead of guessing which one the user meant.
 
 **Why a structured list (`conflicts --json`) plus a brain-side deleter
 (`resolve`), not pure prose.** An agent resolving conflicts needs to know,
@@ -1365,3 +1366,23 @@ preserves the leading `+` as string data instead of interpreting it as a JSON
 number, recovers the one-number numeric shape written by older releases, and
 keeps a yellow TUI status warning visible for malformed configured numbers.
 This avoids silently disabling SMS while retaining strict sender matching.
+
+## "sync" means cloud sync; the local lookup rebuild is "reindex"
+
+The C5 decision above kept two verbs alive — `/second-brain sync` (rebuild the
+derived lookup CSVs) and `/second-brain cloud-sync` (push/pull files across
+machines) — and leaned on a clarifying question when a request was ambiguous.
+In practice a plain "do a sync please" hit that clarifier every time, which is
+exactly the friction the skill is supposed to remove: to a user, "sync" means
+one thing — move my files between machines.
+
+So the bundled `second-brain` skill now reserves **"sync" for cloud sync** and
+renames the local lookup/metadata rebuild to **`/second-brain reindex`** (script
+`reindex.py`, formerly `sync.py`). The lookup CSVs are derived indexes over the
+canonical `.METADATA.json` sources, so "reindex" names the operation exactly and
+carries no overlap with the file-moving sense of "sync". A bare "sync" / "do a
+sync" now routes straight to `brain sync` with no clarifying question; reindex is
+reached only by explicitly naming it ("reindex", "rebuild the lookups", "refresh
+the derived CSVs"). The `bundles_the_generic_second_brain_skill` guard test in
+`src/skills/embed.rs` pins the new nomenclature (reindex present, `sync.py` and
+`/second-brain sync` gone, "do a sync" routes to cloud).

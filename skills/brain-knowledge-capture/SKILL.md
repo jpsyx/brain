@@ -13,7 +13,7 @@ learned" skill.
 Throughout, `<brain>` is the user's brain root — the directory `brain config
 get root` returns (default `~/brain`) — and `~/.agents/skills/second-brain/`
 is where `brain skills sync` installs the `/second-brain` skill (with its
-`sync.py` and `cleanup.sh`). Both resolve without hardcoding a personal path.
+`reindex.py` and `cleanup.sh`). Both resolve without hardcoding a personal path.
 
 It is a **capture specialist**, not a filing-system authority. It owns
 *what is worth keeping* and *how to write it down well*, and it
@@ -122,13 +122,13 @@ written down?"** If no, don't capture it.
    genuinely related neighbours (see
    [the rule below](#add-a-see-also-section-when-theres-something-worth-linking)).
 
-7. **Sync, then clean up.** If you wrote a `.METADATA.json` under
+7. **Reindex, then clean up.** If you wrote a `.METADATA.json` under
    `resources/` or `projects/`, run the matching
-   [sync](../second-brain/SKILL.md):
+   [reindex](../second-brain/SKILL.md):
    ```
-   python3 ~/.agents/skills/second-brain/sync.py --resources
+   python3 ~/.agents/skills/second-brain/reindex.py --resources
    ```
-   A plain prose note in an existing topic folder needs no sync (the
+   A plain prose note in an existing topic folder needs no reindex (the
    lookup CSVs track reference-manager items, not every note). Always
    finish with the byproduct cleanup:
    ```

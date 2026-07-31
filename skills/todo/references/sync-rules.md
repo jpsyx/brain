@@ -8,7 +8,7 @@ Tasks Tracker used, plus the local-only rules this system adds.
 Run via:
 
 - `/todo sync` — applies all rules to tasks.csv + habits.csv.
-- `/second-brain sync` — same, plus projects + zotero. See
+- `/second-brain reindex` — same, plus projects + zotero. See
   `../second-brain/SKILL.md`.
 - `python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py [--fix]`
   — dry-run by default; pass `--fix` to write corrections.
@@ -90,7 +90,7 @@ the user. See [task-project-link.md](task-project-link.md).
     `notes` triggers a "consider /todo turn-into-project" hint.
     Golden rule: **no sub-tasks in tasks.csv**.
 
-## Order of operations in `/second-brain sync`
+## Order of operations in `/second-brain reindex`
 
 ```
 1. projects   (existing — projects-lookup.csv)
@@ -104,5 +104,5 @@ up to date for link validation.
 ## Sync is not a write-by-default tool
 
 Without `--fix`, sync is read-only and reports issues. Production
-runs (`/second-brain sync`) call `--fix` automatically; ad-hoc CLI
+runs (`/second-brain reindex`) call `--fix` automatically; ad-hoc CLI
 invocations are dry-run by default so you can preview before mutating.

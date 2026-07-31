@@ -12,7 +12,7 @@ they're named**.
 
 Throughout, `<brain>` is the user's brain root (`brain config get root`,
 default `~/brain`), and `~/.agents/skills/second-brain/` is where
-`brain skills sync` installs this skill (with its `sync.py` and
+`brain skills sync` installs this skill (with its `reindex.py` and
 `cleanup.sh`). Both resolve without hardcoding a personal path. The
 `/contacts` sibling skill owns the local contacts book (see [Contacts](#contacts)).
 
@@ -237,7 +237,7 @@ Field rules:
   linked to this project. Empty array if none. Maintained
   bidirectionally with the `project` column in the task CSVs; see
   [task-project-link.md](../todo/references/task-project-link.md).
-  Sync validates and (with `--fix`) patches the reverse direction.
+  Reindex validates and (with `--fix`) patches the reverse direction.
 
 `README.md` template (after the metadata move):
 
@@ -252,7 +252,7 @@ useful.>
 Keep `.METADATA.json` current — update `status`, `priority`, and
 `due` whenever the project's state changes (e.g. promote a `p2`
 project to `p1` when it becomes the current focus, demote to `p3`
-when it stalls), **then run the [sync](#sync-the-second-brain--second-brain-sync)
+when it stalls), **then run the [reindex](#reindex-the-second-brain--second-brain-reindex)
 command** so `projects-lookup.csv` mirrors the change. Detailed
 working notes live in `notes.md` (or other files in the folder);
 `.METADATA.json` is the dashboard and `README.md` is the brief.
@@ -464,7 +464,7 @@ macOS Finder metadata (`.DS_Store`) and Python caches
 backups, and clutter `ls`.
 
 **After any task that read from or wrote to `~/brain` — including
-this skill's commands, sync runs, and ad-hoc edits — run the cleanup
+this skill's commands, reindex runs, and ad-hoc edits — run the cleanup
 script before handing control back to the user:**
 
 ```
@@ -535,9 +535,9 @@ validation is structured (Python diff), never LLM judgment.
    If the user supplied initial working material, put it in
    `notes.md` alongside the README; otherwise the two files are
    enough to start.
-5. **Run sync** so `projects-lookup.csv` picks up the new row:
+5. **Run reindex** so `projects-lookup.csv` picks up the new row:
    ```
-   python3 ~/.agents/skills/second-brain/sync.py --projects
+   python3 ~/.agents/skills/second-brain/reindex.py --projects
    ```
 6. Reply with a markdown link to the new folder/README so the user
    can jump straight in.
@@ -593,7 +593,7 @@ status; don't skip them silently.
    or explicitly waived by the user, set `.METADATA.json:status` to
    `done` and run:
    ```
-   python3 ~/.agents/skills/second-brain/sync.py --projects
+   python3 ~/.agents/skills/second-brain/reindex.py --projects
    ```
 
 5. **Reply** with a markdown link to the project and note that it
@@ -650,10 +650,10 @@ status; don't skip them silently.
 5. Move the **entire folder** with
    `mv projects/<name> archive/projects/<name>` — preserve the path
    under `archive/`.
-6. **Run sync** so `projects-lookup.csv` drops the row and any
+6. **Run reindex** so `projects-lookup.csv` drops the row and any
    remaining task↔project links are revalidated:
    ```
-   python3 ~/.agents/skills/second-brain/sync.py
+   python3 ~/.agents/skills/second-brain/reindex.py
    ```
 7. Reply with a markdown link to the new archived location.
 
@@ -761,7 +761,7 @@ user can correct your choices before anything leaves the project.
    ask. Never extract from multiple projects in one pass.
 2. **Mark the project as `extracting-ips`.** Update the project's
    `.METADATA.json` `status` to `extracting-ips`, then run
-   `python3 ~/.agents/skills/second-brain/sync.py --projects` so the
+   `python3 ~/.agents/skills/second-brain/reindex.py --projects` so the
    lookup CSV reflects the new state.
 3. **Stage candidates in `projects/<name>/ips/`.**
    - Create the subdirectory if it doesn't exist.
@@ -791,16 +791,18 @@ user can correct your choices before anything leaves the project.
    directory. If the user wants to keep the staging area open for
    later, leave it.
 7. **Mark the project `done`.** Update `.METADATA.json` `status` to
-   `done` and run sync again. The project is now ready to be
+   `done` and run reindex again. The project is now ready to be
    archived via
    [Archive this project](#archive-this-project--im-done-with-x).
 8. Reply with markdown links to each promoted IP's new location.
 
-### "Sync the second brain" / "/second-brain sync"
+### "Reindex the second brain" / "/second-brain reindex"
 
-Use when the user asks to sync, rebuild, or refresh the lookup
-CSVs (e.g. "/second-brain sync", "rebuild the lookups", "the CSVs
-are out of date").
+Use when the user asks to reindex, rebuild, or refresh the derived
+lookup CSVs (e.g. "/second-brain reindex", "rebuild the lookups",
+"refresh the lookup CSVs", "the CSVs are out of date"). A bare
+"sync" is **not** a reindex trigger — that means cloud sync (see
+[Cloud-sync the brain](#cloud-sync-the-brain--second-brain-cloud-sync)).
 
 Walks every `.METADATA.json` under `projects/` and `resources/`,
 rewrites `projects-lookup.csv` and `zotero-lookup.csv` from scratch,
@@ -810,18 +812,18 @@ and applies the `/todo` skill's task sync rules to
 Invocation:
 
 ```
-python3 ~/.agents/skills/second-brain/sync.py              # all three
-python3 ~/.agents/skills/second-brain/sync.py --projects   # just projects
-python3 ~/.agents/skills/second-brain/sync.py --resources  # just resources
-python3 ~/.agents/skills/second-brain/sync.py --tasks      # just tasks
+python3 ~/.agents/skills/second-brain/reindex.py              # all three
+python3 ~/.agents/skills/second-brain/reindex.py --projects   # just projects
+python3 ~/.agents/skills/second-brain/reindex.py --resources  # just resources
+python3 ~/.agents/skills/second-brain/reindex.py --tasks      # just tasks
 ```
 
 The script is the **only** correct way to rebuild a lookup CSV
 in bulk. Most individual edits (status change, adding/removing a
-project, syncing a resource item, completing a task) end with a sync
-call so the derived state mirrors the canonical sources.
+project, syncing a resource item, completing a task) end with a
+reindex call so the derived state mirrors the canonical sources.
 
-What the sync derives:
+What the reindex derives:
 
 - **`projects-lookup.csv`** columns come directly from each
   `projects/<name>/.METADATA.json`.
@@ -851,21 +853,21 @@ CSV editing needed.
 
 ### "Cloud-sync the brain" / "/second-brain cloud-sync"
 
-**This is a different operation from [Sync the second
-brain](#sync-the-second-brain--second-brain-sync) above.** That command
-rebuilds the derived lookup CSVs (`projects-lookup.csv` /
-`zotero-lookup.csv`) from `.METADATA.json` files. This command,
-`/second-brain cloud-sync`, instead syncs the brain's actual files
-across the user's machines via the `brain sync` CLI (bisync + CSV
-merge + verify). Don't confuse the two, and don't let one satisfy a
-request meant for the other. Treat a user-directed request to "sync my
-brain" as a cloud sync request. Rebuild the lookup CSVs only when the
-user explicitly asks for `/second-brain sync`, mentions lookups or
-derived CSVs, or otherwise clearly names that maintenance operation.
+**"Sync" always means this — cloud sync.** A bare "sync", "do a
+sync", or "sync my brain" is a cloud-sync request: run it, don't ask
+which kind. This is a different operation from [Reindex the second
+brain](#reindex-the-second-brain--second-brain-reindex), which rebuilds
+the derived lookup CSVs (`projects-lookup.csv` / `zotero-lookup.csv`)
+from `.METADATA.json` files. `/second-brain cloud-sync` instead syncs
+the brain's actual files across the user's machines via the `brain
+sync` CLI (bisync + CSV merge + verify). Route to reindex **only** when
+the user explicitly says "reindex", "rebuild the lookups", "refresh the
+derived/lookup CSVs", or otherwise clearly names that maintenance
+operation — never for a bare "sync".
 
-Trigger phrases: "cloud-sync", "cloud-sync my brain", "push my brain
-to the cloud", "pull the latest brain", "pull latest brain changes",
-"sync across machines", "sync my brain".
+Trigger phrases: "sync", "do a sync", "sync my brain", "cloud-sync",
+"cloud-sync my brain", "push my brain to the cloud", "pull the latest
+brain", "pull latest brain changes", "sync across machines".
 
 1. Run the sync:
    ```
@@ -953,7 +955,7 @@ are out of scope for this flow.
 ### CSV tooling — keep it simple
 
 The two lookup CSVs are **derived indexes**: edit `.METADATA.json`
-and run sync, don't edit the CSV by hand. For read-only queries:
+and run reindex, don't edit the CSV by hand. For read-only queries:
 
 - The lookup CSVs are small (projects: ~20 rows, resources: ~300 rows).
   For most questions, **just read the file** and reason over it
@@ -968,7 +970,7 @@ and run sync, don't edit the CSV by hand. For read-only queries:
   correctly and is easy to compose.
 
 **Never write a multi-line awk/sed program to mutate a CSV** — edit
-`.METADATA.json` and run sync instead.
+`.METADATA.json` and run reindex instead.
 
 ## Contacts
 
@@ -1005,13 +1007,13 @@ top-level directories alongside `projects/`, `areas/`, `resources/`,
 | Ending a brain change without an additions table, or putting prose/links/questions after it | Every add/move/rename/archive ends with an [additions table](#always-end-with-an-additions-table) as the LAST element, paths as copyable inline-code (not links), and **home-relative** (`~/...`, or full absolute only outside home; cwd-relative paths open as URLs on iTerm2 cmd+click). |
 | Skipping the neighbour search when adding a note, so real cross-links get missed | Always `fd`/`rg` for related material; add a `See also` when you find genuinely relevant notes/files/dirs. See [Cross-link new notes](#cross-link-new-notes-see-also). Padding it with tenuous links, or forcing one when nothing relevant exists, is the opposite mistake — omit it then. |
 | Creating a project folder without a `.METADATA.json` (or putting `Status:`/`Due:` bullets back into `README.md`) | Status and due live in `.METADATA.json`. `README.md` keeps the H1 title + brief description only — see [Every project has a `.METADATA.json` + `README.md`](#every-project-has-a-metadatajson--readmemd). |
-| Editing `projects-lookup.csv` or `zotero-lookup.csv` by hand | The CSVs are derived. Edit the relevant `.METADATA.json` and run [sync](#sync-the-second-brain--second-brain-sync). |
-| Archiving / renaming / deleting a project but leaving the row in `projects-lookup.csv` | Run `python3 ~/.agents/skills/second-brain/sync.py --projects` so the lookup mirrors the filesystem. |
+| Editing `projects-lookup.csv` or `zotero-lookup.csv` by hand | The CSVs are derived. Edit the relevant `.METADATA.json` and run [reindex](#reindex-the-second-brain--second-brain-reindex). |
+| Archiving / renaming / deleting a project but leaving the row in `projects-lookup.csv` | Run `python3 ~/.agents/skills/second-brain/reindex.py --projects` so the lookup mirrors the filesystem. |
 | Forgetting `extracting-ips` as a valid status | Valid statuses: `not-started`, `in-progress`, `blocked`, `extracting-ips`, `done`. |
 | Marking a project `done` straight from `in-progress` / `blocked` without warning that the IP extraction phase was skipped | The whole point of `extracting-ips` is harvesting reusable work. Always offer [Extract IP](#extract-ip--extract-intermediate-packets-from-x) first — see [Mark this project as complete](#mark-this-project-as-complete--mark-project-as-done--this-project-is-done) step 2. |
 | Marking a project `done` while `projects/<name>/ips/` still exists | Staged IPs were never promoted. Resolve `ips/` (promote, review, or discard) before flipping status — see [Mark this project as complete](#mark-this-project-as-complete--mark-project-as-done--this-project-is-done) step 3. |
 | Archiving a project whose `.METADATA.json:status` isn't `done` | Run [Mark this project as complete](#mark-this-project-as-complete--mark-project-as-done--this-project-is-done) first so the IP-extraction safety checks fire before the folder is moved. |
-| Updating `.METADATA.json` but forgetting to run sync | After any `.METADATA.json` edit, run [sync](#sync-the-second-brain--second-brain-sync) so the lookup CSV mirrors the change. |
-| Using non-canonical summary/notes headings (`## AI summary`, `## Executive summary`, `## My take`) | Sync only recognizes `## Summary` and `## Notes`. Use those exact headings; put any sub-flavoring in H3 sub-sections. |
-| Reaching for `awk`/`sed` to mutate a lookup CSV | Edit `.METADATA.json` and run sync. For read-only multi-column queries, see [CSV tooling](#csv-tooling--keep-it-simple). |
+| Updating `.METADATA.json` but forgetting to run reindex | After any `.METADATA.json` edit, run [reindex](#reindex-the-second-brain--second-brain-reindex) so the lookup CSV mirrors the change. |
+| Using non-canonical summary/notes headings (`## AI summary`, `## Executive summary`, `## My take`) | Reindex only recognizes `## Summary` and `## Notes`. Use those exact headings; put any sub-flavoring in H3 sub-sections. |
+| Reaching for `awk`/`sed` to mutate a lookup CSV | Edit `.METADATA.json` and run reindex. For read-only multi-column queries, see [CSV tooling](#csv-tooling--keep-it-simple). |
 | Leaving tool byproducts (`pipeline.json`/`pipeline.sh`, `*.stats.csv*` caches, `.DS_Store`, `__pycache__/`) in the brain after a session | Run `bash ~/.agents/skills/second-brain/cleanup.sh` at the end of any task that touched `~/brain`. See [End of session: clean up tool byproducts](#end-of-session-clean-up-tool-byproducts). |

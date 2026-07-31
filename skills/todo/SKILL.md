@@ -1247,7 +1247,7 @@ load-bearing ones:
   (`backlog_task.py <task> --restore`); set a fresh `due_date`/`priority`
   after.
 - **`/todo sync`** — apply automation rules + cleanup. Mirrors what
-  `/second-brain sync` runs for tasks.
+  `/second-brain reindex` runs for tasks.
 
 ## Start work on a task
 

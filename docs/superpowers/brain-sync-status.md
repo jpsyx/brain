@@ -39,7 +39,7 @@ unless noted. Update this file (check the box, note the commit) as you land each
   this is correctness-sharpening, not a crash).
 - Writers checked: the `todo` skill scripts (`skills/todo/scripts/*.py`,
   incl. `touch_task.py` and `add_task.py`), native `brain tasks complete`, the
-  second-brain `sync.py`, any brain-side Rust that writes the CSVs, and the
+  second-brain `reindex.py` (formerly `sync.py`), any brain-side Rust that writes the CSVs, and the
   `/habits` server POST path.
 - Deliverable: each writer sets `last_touched` to "now" on mutate; a test (pure
   where possible) proving it. Cross-ref `src/sync/csv_merge.rs` for how the

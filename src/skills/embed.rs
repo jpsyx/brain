@@ -172,7 +172,7 @@ mod tests {
             );
         }
         // Cloud-sync (brain sync) commands, distinct from the lookup-CSV
-        // `/second-brain sync` above. (The docs/ writeup for the broader
+        // `/second-brain reindex` above. (The docs/ writeup for the broader
         // cloud-sync feature lands in a separate docs task.)
         assert!(text.contains("/second-brain cloud-sync"), "documents /second-brain cloud-sync");
         assert!(
@@ -195,6 +195,24 @@ mod tests {
         assert!(
             !text.contains("a bare \"sync my brain\" with no signal"),
             "the direct user phrase must not trigger an unnecessary clarification"
+        );
+        // The local lookup/metadata rebuild is named "reindex", so "sync"
+        // unambiguously means cloud sync everywhere. The old `/second-brain
+        // sync` command name and its `sync.py` script are gone.
+        assert!(
+            text.contains("/second-brain reindex"),
+            "documents the renamed /second-brain reindex operation"
+        );
+        assert!(text.contains("reindex.py"), "references the renamed reindex.py script");
+        assert!(!text.contains("sync.py"), "no stale sync.py references remain");
+        assert!(
+            !text.contains("/second-brain sync"),
+            "the old /second-brain sync (lookup-rebuild) name is gone"
+        );
+        // A bare "do a sync" now routes straight to cloud sync.
+        assert!(
+            text.contains("\"do a sync\""),
+            "a bare 'do a sync' request routes to the cloud sync workflow"
         );
     }
 

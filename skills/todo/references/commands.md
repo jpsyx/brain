@@ -193,8 +193,8 @@ remove` should cancel it (never delete).
 
 - **`/todo sync`** — runs `apply_sync_rules.py --fix` +
   `cleanup_done_habits.py`. Same code paths invoked by
-  `/second-brain sync`.
-- **`/second-brain sync`** — runs the full brain sync, including
+  `/second-brain reindex`.
+- **`/second-brain reindex`** — runs the full brain reindex, including
   tasks. See `../second-brain/SKILL.md`.
 
 ## Natural-language matching cheat sheet
