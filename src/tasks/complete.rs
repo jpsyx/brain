@@ -132,7 +132,7 @@ fn print_result(result: &CompletionResult) {
                     "  {} {}; {}",
                     theme.warning("still linked to project"),
                     theme.value(project),
-                    theme.muted("run /todo sync to refresh")
+                    theme.muted("run /todo reindex to refresh")
                 );
             }
             if let Some(issue) = &result.linear_issue {

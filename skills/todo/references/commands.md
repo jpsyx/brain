@@ -189,9 +189,9 @@ creation (rare — the issue usually doesn't exist yet). `/todo done` on a
 linked task prints a reminder to close the Linear issue too; `/todo
 remove` should cancel it (never delete).
 
-## Sync
+## Reindex
 
-- **`/todo sync`** — runs `apply_sync_rules.py --fix` +
+- **`/todo reindex`** — runs `apply_sync_rules.py --fix` +
   `cleanup_done_habits.py`. Same code paths invoked by
   `/second-brain reindex`.
 - **`/second-brain reindex`** — runs the full brain reindex, including

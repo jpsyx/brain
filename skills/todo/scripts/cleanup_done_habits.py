@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Delete habits.csv rows where status=done AND completed_date <= today - 7d.
 
-Run as part of `/second-brain reindex` and `/todo sync` so habits.csv stays
+Run as part of `/second-brain reindex` and `/todo reindex` so habits.csv stays
 short. The completed-but-recent rows stay for a week so the user can
 inspect / undo.
 """

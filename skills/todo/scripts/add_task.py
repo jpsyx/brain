@@ -180,7 +180,7 @@ def main() -> int:
         r = new_rows[0]
         print(f"added: {r['task_id']}  {r['task_name']}  → {path.name}")
         if r.get("project"):
-            print(f"  ⓘ project link '{r['project']}' — run /todo sync --fix to mirror into .METADATA.json")
+            print(f"  ⓘ project link '{r['project']}' — run /todo reindex --fix to mirror into .METADATA.json")
         if path == TASKS_CSV:
             _linear_hint(r)
     else:
@@ -189,7 +189,7 @@ def main() -> int:
             blocker = r.get("blocked_by") or "(none)"
             print(f"  {r['task_id']}  {r['task_name']}  [blocked_by: {blocker}]")
         if new_rows[0].get("project"):
-            print(f"  ⓘ project link '{new_rows[0]['project']}' — run /todo sync --fix to mirror into .METADATA.json")
+            print(f"  ⓘ project link '{new_rows[0]['project']}' — run /todo reindex --fix to mirror into .METADATA.json")
         if path == TASKS_CSV:
             _linear_hint(new_rows[0])
     return 0

@@ -7,7 +7,7 @@ Tasks Tracker used, plus the local-only rules this system adds.
 
 Run via:
 
-- `/todo sync` — applies all rules to tasks.csv + habits.csv.
+- `/todo reindex` — applies all rules to tasks.csv + habits.csv.
 - `/second-brain reindex` — same, plus projects + zotero. See
   `../second-brain/SKILL.md`.
 - `python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py [--fix]`
@@ -101,8 +101,8 @@ the user. See [task-project-link.md](task-project-link.md).
 Step 3 deliberately runs after projects so the project-folder list is
 up to date for link validation.
 
-## Sync is not a write-by-default tool
+## Reindex is not a write-by-default tool
 
-Without `--fix`, sync is read-only and reports issues. Production
+Without `--fix`, reindex is read-only and reports issues. Production
 runs (`/second-brain reindex`) call `--fix` automatically; ad-hoc CLI
 invocations are dry-run by default so you can preview before mutating.

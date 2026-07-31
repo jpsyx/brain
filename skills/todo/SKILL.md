@@ -1246,7 +1246,7 @@ load-bearing ones:
 - **`/todo restore <task>`** — pull a task out of the backlog
   (`backlog_task.py <task> --restore`); set a fresh `due_date`/`priority`
   after.
-- **`/todo sync`** — apply automation rules + cleanup. Mirrors what
+- **`/todo reindex`** — apply automation rules + cleanup. Mirrors what
   `/second-brain reindex` runs for tasks.
 
 ## Start work on a task
@@ -1272,22 +1272,22 @@ load-bearing ones:
   anything the user must do themselves (e.g. Vercel/Supabase-prod
   actions) rather than doing it for them.
 
-## Sync / automation rules
+## Reindex / automation rules
 
 See [references/sync-rules.md](references/sync-rules.md). Both this
 skill and `/second-brain` execute the same rules via
 [scripts/apply_sync_rules.py](scripts/apply_sync_rules.py) +
 [scripts/cleanup_done_habits.py](scripts/cleanup_done_habits.py).
 
-**Never ask the user whether to run `/todo sync` — just run it when
-you believe it's necessary.** Sync is a safe, idempotent
+**Never ask the user whether to run `/todo reindex` — just run it when
+you believe it's necessary.** Reindex is a safe, idempotent
 reconciliation (apply rules + cleanup), not a destructive op, so it
 needs no confirmation. Run it without asking whenever the system
 signals it's needed — most commonly when a mutator path prints a
-`run /todo sync to refresh` reminder (e.g. after `brain tasks complete`
+`run /todo reindex to refresh` reminder (e.g. after `brain tasks complete`
 or `defer_task.py` on a project-linked task), or any time you've made
 changes that could leave the task↔project link, habit table, or
-automation-rule state stale. Report what sync did in passing; don't
+automation-rule state stale. Report what reindex did in passing; don't
 gate it behind a question. (This is an explicit standing instruction
 from the user.)
 
