@@ -59,7 +59,7 @@ triage", "no triage today", "we can skip triage"), do **not** just drop
 it — **skip today's Morning Triage habit** and run nothing else. Morning
 Triage is a **daily** habit, so this is just the general
 [Skipping a habit](../todo/SKILL.md#skipping-a-habit) rule: run
-`python3 ~/.agents/skills/todo/scripts/skip_habit.py "Morning Triage"`,
+`brain habits skip "Morning Triage"`,
 which for a daily habit marks today's occurrence `done`. There is no
 daily-triage-specific skip path anymore — it's the same deterministic
 script every habit skip uses. Skipping is an explicit decision that the day
@@ -345,7 +345,7 @@ the user gets nagged even though triage ran.
 daily triage for the day — e.g. "skip daily triage", "we can skip triage
 today", "no daily triage today" — that is *not* "leave the habit
 pending." It is an instruction to **skip today's Morning Triage habit**
-via `python3 ~/.agents/skills/todo/scripts/skip_habit.py "Morning Triage"`,
+via `brain habits skip "Morning Triage"`,
 with **no triage pass run**. Because Morning Triage is a **daily** habit,
 that script marks today's occurrence `done` (the general
 [Skipping a habit](../todo/SKILL.md#skipping-a-habit) rule) — same end state

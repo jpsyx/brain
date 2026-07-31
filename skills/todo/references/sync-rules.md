@@ -55,7 +55,7 @@ Run via:
     are backfilled from `created_date` (fallback: today). Migration
     rule that runs on every `--fix` invocation; idempotent after the
     initial add. Mutators (`add_task.py`, `defer_task.py`,
-    `defer_habit.py`, `skip_habit.py`, `brain tasks complete`,
+    `defer_habit.py`, `brain habits skip`, `brain tasks complete`,
     `touch_task.py`, `backlog_task.py`, `set_linear_issue.py`) keep
     the column fresh by calling `_csvlib.touch_row()` on every row
     mutation; `apply_sync_rules.py --fix` does the same for rows it

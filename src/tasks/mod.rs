@@ -16,5 +16,6 @@ pub mod render;
 pub mod revive;
 pub mod selector;
 pub mod shortcuts;
+pub mod skip;
 pub mod task;
 pub mod view;

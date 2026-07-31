@@ -145,6 +145,10 @@ fn main() -> Result<()> {
                 logging::log("dispatch habits revive");
                 return crate::tasks::revive::run(&revive.query.join(" "));
             }
+            Some(crate::cli::HabitsAction::Skip(skip)) => {
+                logging::log("dispatch habits skip");
+                return crate::tasks::skip::run(&skip.id, skip.until.as_deref());
+            }
         }
     }
 

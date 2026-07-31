@@ -312,12 +312,12 @@ fn ensure_column(csv: &mut CsvFile, column: &str) {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Located {
+pub(crate) enum Located {
     Task(usize),
     Habit(usize),
 }
 
-fn locate(tasks: &CsvFile, habits: &CsvFile, raw: &str) -> Result<Located> {
+pub(crate) fn locate(tasks: &CsvFile, habits: &CsvFile, raw: &str) -> Result<Located> {
     let needle = raw.trim();
     if needle.is_empty() {
         bail!("ID is required (try t123, T123, 123, or h43)");

@@ -114,7 +114,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    `defer_count`, `completed_date`, `last_touched`, habit-spawn, and
    link consistency correct. `last_touched` is auto-bumped by every
    mutator (`add_task.py`, `defer_task.py`, `defer_habit.py`,
-   `skip_habit.py`, `brain tasks complete`, `touch_task.py`,
+   `brain habits skip`, `brain tasks complete`, `touch_task.py`,
    `backlog_task.py`, `set_linear_issue.py`) so chronic-ignore
    detection and CSV sync have real recency signals to work with; if
    you ever read-modify-write a row outside those
@@ -711,7 +711,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    (explicit user rule).** When the user says we can skip daily
    triage ("skip daily triage", "no triage today", "we can skip
    triage") — including in passing while you're building the agenda
-   — run `skip_habit.py "Morning Triage"` and run no triage pass.
+   — run `brain habits skip "Morning Triage"` and run no triage pass.
    Morning Triage is a **daily** habit, so per the general
    [Skipping a habit](#skipping-a-habit) rule that marks today's
    occurrence `done` — there is no daily-triage-specific skip path
@@ -1309,16 +1309,15 @@ Completed habits stay in habits.csv for 7 days then get pruned by
 
 "Skip habit X" / "skip X today" / "we can skip X" means the user is
 opting out of a habit **for today**. What that does to the row depends
-on the habit's cadence — always run
-[scripts/skip_habit.py](scripts/skip_habit.py), which decides
-deterministically (don't reason about it in-context):
+on the habit's cadence — always run `brain habits skip`, which decides
+deterministically in the binary (don't reason about it in-context):
 
 ```
-skip_habit.py <habit_id_or_fuzzy>                # cadence-aware skip
-skip_habit.py <habit_id_or_fuzzy> --until 2026-07-20
+brain habits skip <habit_id_or_fuzzy>                # cadence-aware skip
+brain habits skip <habit_id_or_fuzzy> --until 2026-07-20
 ```
 
-The rules the script encodes:
+The rules the command encodes:
 
 - **Daily habit** (`recur_interval == 1` AND `recur_unit == days`) →
   **mark today's occurrence done** (records `completed_date=today`,
@@ -1335,11 +1334,16 @@ The rules the script encodes:
 
 This is distinct from [`defer_habit.py`](scripts/defer_habit.py), which
 skips a **whole recurrence interval** (a weekly habit jumps to next
-week). `skip_habit.py` is the "not today" lever; `defer_habit.py` is
+week). `brain habits skip` is the "not today" lever; `defer_habit.py` is
 the "not this cycle" lever.
 
+Like `brain tasks complete`, `brain habits skip` mutates `habits.csv`
+natively and does **not** touch the agenda file — the next agenda build
+re-derives habit state from the CSV, so a skip is reflected there
+automatically (a PDF already on disk refreshes on the next agenda touch).
+
 **Skipping daily triage is just this rule applied to a daily habit.**
-The "Morning Triage" habit recurs daily, so `skip_habit.py "Morning
+The "Morning Triage" habit recurs daily, so `brain habits skip "Morning
 Triage"` marks today's occurrence done — which is exactly what stops
 the `tasks` TUI from nagging (it gates on that habit being `done`).
 There is no longer a special-case skip path for daily triage; it's the

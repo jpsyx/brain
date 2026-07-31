@@ -211,6 +211,37 @@ mod tests {
     fn habits_revive_requires_a_query() {
         assert!(Cli::try_parse_from(["brain", "habits", "revive"]).is_err());
     }
+
+    #[test]
+    fn habits_skip_parses_id() {
+        let cli = Cli::try_parse_from(["brain", "habits", "skip", "H35"]).expect("parse");
+        let Some(Cmd::Habits(args)) = cli.command else {
+            panic!("expected habits");
+        };
+        let Some(HabitsAction::Skip(skip)) = args.action else {
+            panic!("expected skip");
+        };
+        assert_eq!(skip.id, "H35");
+        assert!(skip.until.is_none());
+    }
+
+    #[test]
+    fn habits_skip_parses_until() {
+        let cli = Cli::try_parse_from(["brain", "habits", "skip", "H35", "--until", "2026-08-10"])
+            .expect("parse");
+        let Some(Cmd::Habits(args)) = cli.command else {
+            panic!("expected habits");
+        };
+        let Some(HabitsAction::Skip(skip)) = args.action else {
+            panic!("expected skip");
+        };
+        assert_eq!(skip.until.as_deref(), Some("2026-08-10"));
+    }
+
+    #[test]
+    fn habits_skip_requires_an_id() {
+        assert!(Cli::try_parse_from(["brain", "habits", "skip"]).is_err());
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -255,12 +286,15 @@ pub enum Cmd {
     #[command(name = "receiver")]
     Receiver(ReceiverArgs),
 
-    /// Open today's habits page, or repair a lapsed habit (`brain habits revive <name>`).
+    /// Open today's habits page, or manage a habit
+    /// (`brain habits revive <name>`, `brain habits skip <id>`).
     ///
     /// Bare `brain habits` opens the browser page (starting the brain server if
     /// needed). `brain habits revive <fuzzy name>` (alias `fix`) respawns a
     /// recurring habit whose chain lapsed — every occurrence marked done with
-    /// none pending.
+    /// none pending. `brain habits skip <id|fuzzy>` opts out of a habit for
+    /// today (cadence-aware: a daily habit is marked done + respawned; a
+    /// non-daily habit is deferred one day; `--until` defers to a given date).
     Habits(HabitsArgs),
 
     /// Show what would sync (pending local pushes and remote pulls) without
@@ -288,6 +322,12 @@ pub enum HabitsAction {
     /// optional: `brain habits revive send team status update`.
     #[command(alias = "fix")]
     Revive(ReviveArgs),
+
+    /// Skip a habit for today (cadence-aware). Accepts an id (`H43`, `43`) or a
+    /// fuzzy name. A daily habit is marked done + respawned; a non-daily habit
+    /// is deferred one day. `--until YYYY-MM-DD` defers to that date instead,
+    /// for either cadence (never marking done).
+    Skip(SkipArgs),
 }
 
 #[derive(Args, Debug)]
@@ -295,6 +335,17 @@ pub struct ReviveArgs {
     /// The fuzzy habit name to match (all trailing words are joined with spaces).
     #[arg(required = true, num_args = 1..)]
     pub query: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct SkipArgs {
+    /// Habit id (`H43`, `43`) or a fuzzy name fragment.
+    pub id: String,
+
+    /// Defer the habit until this day (`YYYY-MM-DD`) instead of applying the
+    /// cadence default; never marks it done. Must be strictly after today.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub until: Option<String>,
 }
 
 #[derive(Args, Debug)]

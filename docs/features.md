@@ -717,6 +717,24 @@ instance, using the same anchor-to-due recurrence math as completion (the first
 occurrence strictly after today). A habit that still has a pending occurrence
 is reported healthy and left untouched — the command never creates duplicates.
 
+`brain habits skip <id|fuzzy>` opts out of a habit **for today**, with
+cadence-aware semantics (the native port of the old `skip_habit.py`, so nothing
+in `/todo` needs to reason it out in-context). It accepts an id (`H43`, `43`) or
+a fuzzy name; a task id is rejected with a pointer to `brain tasks complete`.
+The rule:
+
+- **Daily habit** (`recur_interval == 1` and `recur_unit == days`) → today's
+  occurrence is "handled": it's marked `done` (recording `completed_date=today`)
+  and tomorrow's occurrence is spawned, exactly like completion. A daily habit
+  is back tomorrow regardless, so "skip today" *is* "today is handled".
+- **Non-daily habit** (weekly, monthly, every-N-days, …) → not marked done; its
+  `due_date` is deferred to tomorrow (today + 1). It simply reappears tomorrow.
+- **`--until YYYY-MM-DD`** (either cadence) → `due_date` is deferred to that day,
+  never marked done. Must be strictly after today.
+
+Like `brain tasks complete`, skip mutates the CSV natively and does not touch the
+agenda file; the next agenda build re-derives habit state from the CSV.
+
 ### Prerequisite: `markdown-to-pdf`
 
 Every command except `brain config`, `brain env`, and `brain sync` fails fast with a red `❌`

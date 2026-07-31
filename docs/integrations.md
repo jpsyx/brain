@@ -62,6 +62,13 @@ helpers and shell-outs live in the tasks modules:
   logic lives in `tasks::revive`, which reuses `tasks::complete`'s
   `spawn_next_occurrence` so revived and completion-spawned occurrences share
   one anchor-to-due code path. See [features.md](features.md).
+- **`brain habits skip <id|fuzzy> [--until YYYY-MM-DD]`** — cadence-aware
+  "not today" for a habit (daily → mark done + respawn; non-daily → defer one
+  day; `--until` → defer to a date). Dispatched before the gate in `main.rs`
+  alongside bare `brain habits` / `revive`; the logic lives in `tasks::skip`,
+  which reuses `tasks::complete`'s `locate` (id/fuzzy resolution, rejecting task
+  ids) and `spawn_next_occurrence`. Native port of the retired `skip_habit.py`.
+  See [features.md](features.md).
 - **Receiver server** — the opt-in TUI-owned listener accepts only `POST /sms`
   and `POST /email`. Twilio requests must pass the exact URL/form HMAC and SMS
   sender allowlist. Resend requests must pass the official `v1,<signature>`
