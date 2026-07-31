@@ -1386,3 +1386,32 @@ reached only by explicitly naming it ("reindex", "rebuild the lookups", "refresh
 the derived CSVs"). The `bundles_the_generic_second_brain_skill` guard test in
 `src/skills/embed.rs` pins the new nomenclature (reindex present, `sync.py` and
 `/second-brain sync` gone, "do a sync" routes to cloud).
+
+## `brain reindex` is a native Rust command, not a bundled script
+
+The skill had long documented `python3 ~/.agents/skills/second-brain/sync.py`
+(then `reindex.py`) for the projects/resources lookup rebuild — but that script
+**never existed**. The lookup CSVs were hand-maintained by whatever agent touched
+them, which drifted: e.g. `has_other_notes` read `yes` for items whose `notes.md`
+said "No standalone user notes attached." Only the task/habit half (the `/todo`
+Python scripts) was ever real.
+
+We closed the gap with a native `brain reindex` subcommand (`src/reindex/`)
+rather than finally writing the Python script. Rationale: it fits brain's
+CLI-for-every-action + Rust-TDD ethos; the pure cores (notes.md scanning,
+metadata→row mapping, CSV rendering, selection) are unit-tested and the IO walk
+is a thin shell; and it gives themed, narrated output. The `--tasks` half still
+shells out to the shared `/todo` rule scripts (the canonical, shared
+implementation) rather than re-deriving those rules in Rust.
+
+Field notes that shaped the implementation, all found by running it against the
+real brain: resource metadata is **heterogeneous** (`year` may be a JSON number
+*or* string; the type is keyed `item_type` *or* `type`; fields may be `null`),
+so parsing coerces through `serde_json::Value` instead of a strict struct — a
+strict struct silently dropped ~15% of records. `notes.md` placeholders come in
+several forms (`*No … attached.*` and `(none)`); the italic wrapper is what
+distinguishes a sentinel from a real note that merely starts with "No ".
+Directory columns are derived from the filesystem path (authoritative over stale
+JSON), rows are sorted deterministically (projects by name, resources by
+directory), and output is LF-terminated to match `tasks.csv`/`habits.csv` and the
+`csv_merge` writer (the pre-existing lookup files were stray CRLF).

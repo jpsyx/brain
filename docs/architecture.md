@@ -65,6 +65,7 @@ argv
       ├─→ Cmd::Env ─→ env_command         (list/get/set over env.json; also BEFORE the gate)
       ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/repair/status/conflicts; also BEFORE the gate)
       ├─→ Cmd::Check ─→ sync::check::run  (read-only dry-run push/pull report; also BEFORE the gate)
+      ├─→ Cmd::Reindex ─→ reindex::run    (rebuild derived lookup CSVs + task/habit rules; also BEFORE the gate)
       ├─→ Cmd::Personalize ─→ personalize_command (show/get/set/edit / onboarding; also BEFORE the gate)
       ├─→ Cmd::Server ─→ server_command   (start/status/kill/run — the background HTTP daemon; also BEFORE the gate)
       └─→ settings::ensure_markdown_to_pdf (prereq gate: config path, else discover; red ❌ + exit if unresolved)

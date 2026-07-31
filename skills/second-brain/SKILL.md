@@ -12,8 +12,9 @@ they're named**.
 
 Throughout, `<brain>` is the user's brain root (`brain config get root`,
 default `~/brain`), and `~/.agents/skills/second-brain/` is where
-`brain skills sync` installs this skill (with its `reindex.py` and
-`cleanup.sh`). Both resolve without hardcoding a personal path. The
+`brain skills sync` installs this skill (with its `cleanup.sh`); the
+lookup/metadata rebuild is the native `brain reindex` command. These
+resolve without hardcoding a personal path. The
 `/contacts` sibling skill owns the local contacts book (see [Contacts](#contacts)).
 
 ## Personal-assistant mode
@@ -537,7 +538,7 @@ validation is structured (Python diff), never LLM judgment.
    enough to start.
 5. **Run reindex** so `projects-lookup.csv` picks up the new row:
    ```
-   python3 ~/.agents/skills/second-brain/reindex.py --projects
+   brain reindex --projects
    ```
 6. Reply with a markdown link to the new folder/README so the user
    can jump straight in.
@@ -593,7 +594,7 @@ status; don't skip them silently.
    or explicitly waived by the user, set `.METADATA.json:status` to
    `done` and run:
    ```
-   python3 ~/.agents/skills/second-brain/reindex.py --projects
+   brain reindex --projects
    ```
 
 5. **Reply** with a markdown link to the project and note that it
@@ -653,7 +654,7 @@ status; don't skip them silently.
 6. **Run reindex** so `projects-lookup.csv` drops the row and any
    remaining task↔project links are revalidated:
    ```
-   python3 ~/.agents/skills/second-brain/reindex.py
+   brain reindex
    ```
 7. Reply with a markdown link to the new archived location.
 
@@ -761,8 +762,7 @@ user can correct your choices before anything leaves the project.
    ask. Never extract from multiple projects in one pass.
 2. **Mark the project as `extracting-ips`.** Update the project's
    `.METADATA.json` `status` to `extracting-ips`, then run
-   `python3 ~/.agents/skills/second-brain/reindex.py --projects` so the
-   lookup CSV reflects the new state.
+   `brain reindex --projects` so the lookup CSV reflects the new state.
 3. **Stage candidates in `projects/<name>/ips/`.**
    - Create the subdirectory if it doesn't exist.
    - **Copy** (don't move) each candidate IP into `ips/`,
@@ -804,21 +804,22 @@ lookup CSVs (e.g. "/second-brain reindex", "rebuild the lookups",
 "sync" is **not** a reindex trigger — that means cloud sync (see
 [Cloud-sync the brain](#cloud-sync-the-brain--second-brain-cloud-sync)).
 
-Walks every `.METADATA.json` under `projects/` and `resources/`,
-rewrites `projects-lookup.csv` and `zotero-lookup.csv` from scratch,
-and applies the `/todo` skill's task sync rules to
-`tasks.csv` + `habits.csv`. Reports added / removed / modified rows.
+`brain reindex` is a **native brain command**. It walks every
+`.METADATA.json` under `projects/` and `resources/`, rewrites
+`projects-lookup.csv` and `zotero-lookup.csv` from scratch, and applies
+the `/todo` skill's task rules to `tasks.csv` + `habits.csv`. It reports
+the row count of each rebuilt lookup.
 
 Invocation:
 
 ```
-python3 ~/.agents/skills/second-brain/reindex.py              # all three
-python3 ~/.agents/skills/second-brain/reindex.py --projects   # just projects
-python3 ~/.agents/skills/second-brain/reindex.py --resources  # just resources
-python3 ~/.agents/skills/second-brain/reindex.py --tasks      # just tasks
+brain reindex              # all three
+brain reindex --projects   # just projects-lookup.csv
+brain reindex --resources  # just zotero-lookup.csv
+brain reindex --tasks      # just the task/habit rules
 ```
 
-The script is the **only** correct way to rebuild a lookup CSV
+`brain reindex` is the **only** correct way to rebuild a lookup CSV
 in bulk. Most individual edits (status change, adding/removing a
 project, syncing a resource item, completing a task) end with a
 reindex call so the derived state mirrors the canonical sources.
@@ -1008,7 +1009,7 @@ top-level directories alongside `projects/`, `areas/`, `resources/`,
 | Skipping the neighbour search when adding a note, so real cross-links get missed | Always `fd`/`rg` for related material; add a `See also` when you find genuinely relevant notes/files/dirs. See [Cross-link new notes](#cross-link-new-notes-see-also). Padding it with tenuous links, or forcing one when nothing relevant exists, is the opposite mistake — omit it then. |
 | Creating a project folder without a `.METADATA.json` (or putting `Status:`/`Due:` bullets back into `README.md`) | Status and due live in `.METADATA.json`. `README.md` keeps the H1 title + brief description only — see [Every project has a `.METADATA.json` + `README.md`](#every-project-has-a-metadatajson--readmemd). |
 | Editing `projects-lookup.csv` or `zotero-lookup.csv` by hand | The CSVs are derived. Edit the relevant `.METADATA.json` and run [reindex](#reindex-the-second-brain--second-brain-reindex). |
-| Archiving / renaming / deleting a project but leaving the row in `projects-lookup.csv` | Run `python3 ~/.agents/skills/second-brain/reindex.py --projects` so the lookup mirrors the filesystem. |
+| Archiving / renaming / deleting a project but leaving the row in `projects-lookup.csv` | Run `brain reindex --projects` so the lookup mirrors the filesystem. |
 | Forgetting `extracting-ips` as a valid status | Valid statuses: `not-started`, `in-progress`, `blocked`, `extracting-ips`, `done`. |
 | Marking a project `done` straight from `in-progress` / `blocked` without warning that the IP extraction phase was skipped | The whole point of `extracting-ips` is harvesting reusable work. Always offer [Extract IP](#extract-ip--extract-intermediate-packets-from-x) first — see [Mark this project as complete](#mark-this-project-as-complete--mark-project-as-done--this-project-is-done) step 2. |
 | Marking a project `done` while `projects/<name>/ips/` still exists | Staged IPs were never promoted. Resolve `ips/` (promote, review, or discard) before flipping status — see [Mark this project as complete](#mark-this-project-as-complete--mark-project-as-done--this-project-is-done) step 3. |

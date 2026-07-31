@@ -35,6 +35,7 @@ mod paths;
 mod personalization;
 mod picker;
 mod pty_pane;
+mod reindex;
 mod render;
 mod server;
 mod session;
@@ -147,6 +148,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(Cmd::Reindex(args)) = &cli.command {
+        logging::log("dispatch reindex");
+        return crate::reindex::run(args.projects, args.resources, args.tasks);
+    }
+
     // `markdown-to-pdf` is a hard prerequisite (brain runs it for the
     // Create-PDF flow). Its path is a config variable, auto-discovered and
     // persisted on first run; fail fast with a helpful message if it can't be
@@ -198,6 +204,7 @@ fn main() -> Result<()> {
         }
         Some(Cmd::Habits) => unreachable!("habits is dispatched before the gate"),
         Some(Cmd::Check) => unreachable!("check is dispatched before the gate"),
+        Some(Cmd::Reindex(_)) => unreachable!("reindex is dispatched before the gate"),
     }
 }
 

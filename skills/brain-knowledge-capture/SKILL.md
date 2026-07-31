@@ -13,7 +13,8 @@ learned" skill.
 Throughout, `<brain>` is the user's brain root — the directory `brain config
 get root` returns (default `~/brain`) — and `~/.agents/skills/second-brain/`
 is where `brain skills sync` installs the `/second-brain` skill (with its
-`reindex.py` and `cleanup.sh`). Both resolve without hardcoding a personal path.
+`cleanup.sh`); the lookup rebuild is the native `brain reindex` command.
+These resolve without hardcoding a personal path.
 
 It is a **capture specialist**, not a filing-system authority. It owns
 *what is worth keeping* and *how to write it down well*, and it
@@ -126,7 +127,7 @@ written down?"** If no, don't capture it.
    `resources/` or `projects/`, run the matching
    [reindex](../second-brain/SKILL.md):
    ```
-   python3 ~/.agents/skills/second-brain/reindex.py --resources
+   brain reindex --resources
    ```
    A plain prose note in an existing topic folder needs no reindex (the
    lookup CSVs track reference-manager items, not every note). Always

@@ -21,6 +21,7 @@ pub mod paths;
 pub mod personalization;
 pub mod picker;
 pub mod pty_pane;
+pub mod reindex;
 pub mod render;
 pub mod server;
 pub mod session;

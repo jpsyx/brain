@@ -168,6 +168,7 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env. Use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
 | `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
+| `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
@@ -231,6 +232,27 @@ brain root on purpose); a legacy `~/.config/brain-root` pointer file is read
 for back-compat and auto-migrated into the `root` key on first run. See
 [config.md](config.md) for the full store/schema description and
 [data-model.md](data-model.md) for the `sync` block's fields.
+
+### `brain reindex`
+
+Rebuilds brain's **derived lookup indexes** from their canonical sources.
+The two lookup CSVs are derived, not authored:
+
+- `projects/projects-lookup.csv` — one row per `projects/<name>/.METADATA.json`
+  (archived projects excluded); `directory` comes from the filesystem path, so
+  a renamed folder is reflected without editing JSON.
+- `resources/zotero-lookup.csv` — one row per `resources/**/.METADATA.json` plus
+  a scan of the colocated `notes.md` for `has_summary` / `has_other_notes` /
+  `annotation_count`. Resource metadata is heterogeneous (a numeric or string
+  `year`, an `item_type` or `type` key, optional/`null` fields), so parsing
+  coerces defensively rather than dropping records.
+
+`brain reindex` (bare) rebuilds both CSVs and re-applies the task/habit rules;
+`--projects` / `--resources` / `--tasks` narrow the run. The `--tasks` half
+shells out to the shared `/todo` rule scripts and targets the default `~/brain`
+root (a non-default root is reported skipped, with a pointer to `/todo reindex`).
+Output is LF-terminated, matching brain's other CSVs. This is the operation the
+`/second-brain reindex` and `/todo reindex` skill rows invoke.
 
 ### `brain sync`
 

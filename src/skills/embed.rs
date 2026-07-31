@@ -197,13 +197,18 @@ mod tests {
             "the direct user phrase must not trigger an unnecessary clarification"
         );
         // The local lookup/metadata rebuild is named "reindex", so "sync"
-        // unambiguously means cloud sync everywhere. The old `/second-brain
-        // sync` command name and its `sync.py` script are gone.
+        // unambiguously means cloud sync everywhere. It is the native
+        // `brain reindex` command — the old `/second-brain sync` name and the
+        // never-shipped `sync.py` / `reindex.py` scripts are gone.
         assert!(
             text.contains("/second-brain reindex"),
             "documents the renamed /second-brain reindex operation"
         );
-        assert!(text.contains("reindex.py"), "references the renamed reindex.py script");
+        assert!(
+            text.contains("brain reindex"),
+            "invokes the native brain reindex command"
+        );
+        assert!(!text.contains("reindex.py"), "no stale reindex.py script references");
         assert!(!text.contains("sync.py"), "no stale sync.py references remain");
         assert!(
             !text.contains("/second-brain sync"),

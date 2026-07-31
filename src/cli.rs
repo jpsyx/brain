@@ -156,6 +156,16 @@ mod tests {
     }
 
     #[test]
+    fn reindex_flags_parse_and_default_to_all() {
+        let bare = Cli::try_parse_from(["brain", "reindex"]).expect("parse");
+        assert!(matches!(bare.command, Some(Cmd::Reindex(args))
+            if !args.projects && !args.resources && !args.tasks));
+        let scoped = Cli::try_parse_from(["brain", "reindex", "--resources"]).expect("parse");
+        assert!(matches!(scoped.command, Some(Cmd::Reindex(args))
+            if args.resources && !args.projects && !args.tasks));
+    }
+
+    #[test]
     fn receiver_and_env_set_allow_interactive_mode() {
         let receiver = Cli::try_parse_from(["brain", "receiver", "set"]).expect("parse");
         assert!(matches!(receiver.command, Some(Cmd::Receiver(args))
@@ -214,6 +224,25 @@ pub enum Cmd {
     /// Show what would sync (pending local pushes and remote pulls) without
     /// syncing. Read-only: runs `rclone bisync --dry-run` under the hood.
     Check,
+
+    /// Rebuild the derived lookup CSVs (`projects-lookup.csv`,
+    /// `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`,
+    /// and re-apply the task/habit automation rules. Bare `brain reindex` does
+    /// all three; narrow with `--projects` / `--resources` / `--tasks`.
+    Reindex(ReindexArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ReindexArgs {
+    /// Rebuild only `projects-lookup.csv`.
+    #[arg(long)]
+    pub projects: bool,
+    /// Rebuild only `zotero-lookup.csv`.
+    #[arg(long)]
+    pub resources: bool,
+    /// Re-apply only the task/habit automation rules.
+    #[arg(long)]
+    pub tasks: bool,
 }
 
 #[derive(Args, Debug)]

@@ -176,5 +176,5 @@ response with the
 bash ~/.agents/skills/second-brain/cleanup.sh
 ```
 
-No `reindex.py` run is needed — the contacts CSV is a standalone book, not
+No `brain reindex` run is needed — the contacts CSV is a standalone book, not
 a derived lookup index.
