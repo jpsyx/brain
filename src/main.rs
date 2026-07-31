@@ -584,6 +584,23 @@ fn ensure_hook_entry(settings: &mut serde_json::Value, event: &str, command: &st
     }
 }
 
+/// Build a portable hook command for `hook_path`.
+///
+/// When the script lives under `home`, the command uses a `~`-relative path
+/// (`python3 ~/rel`) instead of an absolute one. This is load-bearing: the hook
+/// is registered in `~/brain/.claude/settings.json`, which is **synced across
+/// machines with different home dirs** (`/Users/pablo` vs `/Users/juanpablo…`).
+/// An absolute path bakes one machine's home into the synced config and breaks
+/// on every other machine; a `~`-relative command resolves on all of them
+/// (Claude Code runs hook commands through `/bin/sh`, which tilde-expands).
+/// Falls back to absolute for a hook outside the home dir.
+fn hook_command(hook_path: &std::path::Path, home: &std::path::Path) -> String {
+    hook_path.strip_prefix(home).map_or_else(
+        |_| format!("python3 {}", hook_path.to_string_lossy()),
+        |rel| format!("python3 ~/{}", rel.to_string_lossy()),
+    )
+}
+
 fn install_receiver_hooks(root: &std::path::Path) -> Result<()> {
     let hook_dir = root.join(".claude").join("brain-hooks");
     std::fs::create_dir_all(&hook_dir)?;
@@ -600,19 +617,23 @@ fn install_receiver_hooks(root: &std::path::Path) -> Result<()> {
         std::fs::set_permissions(&session_path, std::fs::Permissions::from_mode(0o755))?;
         std::fs::set_permissions(&stop_path, std::fs::Permissions::from_mode(0o755))?;
     }
+    // Register the hooks with a home-relative command so the synced
+    // settings.json works on every machine (see `hook_command`).
+    let home = std::path::PathBuf::from(
+        std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?,
+    );
+    let session = hook_command(&session_path, &home);
+    let stop = hook_command(&stop_path, &home);
     let settings_path = root.join(".claude").join("settings.json");
     let mut settings = if settings_path.is_file() {
         serde_json::from_str(&std::fs::read_to_string(&settings_path)?)?
     } else {
         serde_json::json!({})
     };
-    let session = session_path.to_string_lossy().into_owned();
-    let stop = stop_path.to_string_lossy().into_owned();
     ensure_hook_entry(&mut settings, "SessionStart", &session);
     ensure_hook_entry(&mut settings, "Stop", &stop);
     std::fs::write(settings_path, serde_json::to_vec_pretty(&settings)?)?;
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-    let codex_dir = std::path::PathBuf::from(home).join(".codex");
+    let codex_dir = home.join(".codex");
     std::fs::create_dir_all(&codex_dir)?;
     let codex_hooks_path = codex_dir.join("hooks.json");
     let mut codex_hooks = if codex_hooks_path.is_file() {
@@ -629,11 +650,43 @@ fn install_receiver_hooks(root: &std::path::Path) -> Result<()> {
 #[cfg(test)]
 mod receiver_setup_tests {
     use super::{
-        ensure_hook_entry, masked_echo, parse_receiver_channels, receiver_provider_fields,
-        receiver_webhook_url,
+        ensure_hook_entry, hook_command, masked_echo, parse_receiver_channels,
+        receiver_provider_fields, receiver_webhook_url,
         ReceiverSetupChannels,
     };
     use serde_json::json;
+    use std::path::Path;
+
+    #[test]
+    fn hook_command_is_home_relative_for_paths_under_home() {
+        let cmd = hook_command(
+            Path::new("/Users/pablo/brain/.claude/brain-hooks/claude_stop_hook.py"),
+            Path::new("/Users/pablo"),
+        );
+        assert_eq!(cmd, "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py");
+    }
+
+    #[test]
+    fn hook_command_falls_back_to_absolute_outside_home() {
+        let cmd = hook_command(Path::new("/opt/hooks/x.py"), Path::new("/Users/pablo"));
+        assert_eq!(cmd, "python3 /opt/hooks/x.py");
+    }
+
+    #[test]
+    fn hook_command_is_identical_across_machines_with_different_homes() {
+        // The sync-safety property: same brain-relative layout, different home
+        // dirs, must yield the SAME command string so the synced settings.json
+        // works on every machine.
+        let mini = hook_command(
+            Path::new("/Users/pablo/brain/.claude/brain-hooks/claude_stop_hook.py"),
+            Path::new("/Users/pablo"),
+        );
+        let mbp = hook_command(
+            Path::new("/Users/juanpablosarmiento/brain/.claude/brain-hooks/claude_stop_hook.py"),
+            Path::new("/Users/juanpablosarmiento"),
+        );
+        assert_eq!(mini, mbp);
+    }
 
     #[test]
     fn hook_merge_is_idempotent_and_preserves_other_settings() {

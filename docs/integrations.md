@@ -156,10 +156,25 @@ each ran their own SessionStart hook keyed on separate env-var namespaces
 each other's sessions. The merged shell has a single app-level brain panel, so
 there is now exactly **one** hook (`scripts/claude_session_start_hook.py`, keyed
 on `BRAIN_*`), one DB (`~/.cache/brain/state.db`, table `brain_sessions`), and
-one namespace. `scripts/install_hook.sh` installs it and strips the legacy
-`tasks` SessionStart hook and ensures both the SessionStart and brain
-`claude_stop_hook.py` Stop hook are present. `brain receiver setup` now does
-this automatically. The standalone `./scripts/install_hook.sh` remains a
+one namespace. Both installers deploy the two scripts into
+`~/brain/.claude/brain-hooks/` and register them in `~/brain/.claude/settings.json`.
+
+**Hook commands are HOME-relative, not absolute.** Because `~/brain/` (and thus
+`settings.json`) is synced across machines whose home dirs differ
+(`/Users/pablo` vs `/Users/juanpablosarmiento`), an absolute hook path would bake
+one machine's home into the synced config and fail everywhere else with
+`No such file or directory`. So the registered command is
+`python3 ~/brain/.claude/brain-hooks/<script>.py` — Claude Code runs hook
+commands through `/bin/sh`, which tilde-expands `~` to the local home. The Rust
+installer builds this via `hook_command` (`src/main.rs`); `install_hook.sh`
+writes the byte-identical string, so the two installers are idempotent with each
+other and neither clobbers the other.
+
+`scripts/install_hook.sh` deploys + installs both the SessionStart and the brain
+`claude_stop_hook.py` Stop hook (stripping any stale entries — old absolute /
+wrong-home / legacy `rc/` paths — matched by script basename). `brain receiver
+setup` does the same automatically (and also writes the equivalent entries to
+`~/.codex/hooks.json`). The standalone `./scripts/install_hook.sh` remains a
 repair path for users who change Claude settings manually. The Stop hook is
 required for receiver jobs: it records the completed assistant response so the
 TUI can deliver it over SMS or email without exposing the full thinking trace.
