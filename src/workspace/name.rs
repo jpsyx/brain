@@ -4,8 +4,10 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 /// A validated, canonical workspace name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WorkspaceName(String);
 
 impl WorkspaceName {
@@ -76,6 +78,37 @@ impl Display for WorkspaceNameError {
 }
 
 impl Error for WorkspaceNameError {}
+
+impl AsRef<str> for WorkspaceName {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Display for WorkspaceName {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl Serialize for WorkspaceName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for WorkspaceName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(&value).map_err(serde::de::Error::custom)
+    }
+}
 
 #[cfg(test)]
 mod tests {

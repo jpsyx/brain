@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
 /// The immutable identifier for one workspace.
@@ -37,6 +38,25 @@ impl Default for WorkspaceId {
 impl Display for WorkspaceId {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(formatter)
+    }
+}
+
+impl Serialize for WorkspaceId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for WorkspaceId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(&value).map_err(serde::de::Error::custom)
     }
 }
 

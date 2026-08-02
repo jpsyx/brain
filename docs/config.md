@@ -1,10 +1,13 @@
 # Configuration
 
-`brain` splits its persisted state across **two config stores**, by lifecycle:
+`brain` splits its persisted state across **two config stores**, by lifecycle.
+The machine-global path has one owner: the versioned workspace registry. Each
+workspace record silos the machine-local values that belong to that workspace;
+they are never inherited or merged from the default or another record.
 
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
-| **brain env** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** the brain root) | `brain env {list\|get\|set}` | **No** — machine-local, never rides whatever syncs the brain directory | `root`, `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, the `sync` block |
+| **brain env / workspace registry** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** every brain root) | Registry CLI wiring follows this foundation | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace env/access map) |
 | **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes** — travels with the brain | `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
@@ -19,7 +22,39 @@ Both CLIs run **before** the `markdown-to-pdf` prerequisite gate, so you can
 always repair a broken environment or config even when that tool is missing.
 Both normalize names the same way (lowercased, `-`→`_`).
 
-## brain env (`~/.config/brain/env.json`)
+## Machine workspace registry (`~/.config/brain/env.json`)
+
+`~/.config/brain/env.json` is the sole machine-global workspace registry
+(`$XDG_CONFIG_HOME/brain/env.json` when XDG config is set). Schema version `2`
+stores a canonical default and a sorted map of canonical workspace names to
+complete `WorkspaceRecord` values. Each record owns its own machine root,
+immutable UUID, aliases, `local_user_id`, `receiver_enabled` switch, and `env`
+object. The `env` object is siloed: selecting a canonical name, an alias, or the
+default returns only that record, with no copying or merging from any other
+workspace.
+
+Registry loads accept only exact schema version `2`, a non-empty record map, a
+default that names a canonical record, unique canonical/alias selectors under
+ASCII case folding, unique UUIDs, and non-overlapping absolute roots compared
+after lexical normalization. A registry mutation is persisted transactionally by
+writing and syncing a same-directory temporary file and atomically renaming it;
+failed validation or IO leaves both the live registry and prior bytes intact.
+Detaching a record changes only the registry and never removes or edits its
+root directory.
+
+Registry JSON crosses a private raw-schema boundary before becoming a
+`MachineRegistry`; conversion always runs every whole-registry invariant.
+Direct deserialization therefore cannot create a structurally valid but
+domain-invalid registry. The store keeps domain validation errors typed and
+reports structural JSON and IO failures with the failed operation and path
+(plus the IO error kind and temporary path when applicable).
+
+This foundation defines storage, selection, and mutation semantics only.
+Existing `brain env` commands and runtime root resolution are not routed through
+workspace selection yet; that integration, legacy migration, and first-run
+onboarding are later work.
+
+### Legacy single-workspace brain env behavior
 
 Machine-local config. It lives at a fixed path — `$XDG_CONFIG_HOME/brain` or
 `~/.config/brain` (`paths::machine_config_dir`) — that does **not** depend on

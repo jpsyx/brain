@@ -142,6 +142,65 @@ all children of that base. `cache_dir()` borrows the stored base; each child
 accessor derives an owned path. Distinct IDs therefore cannot share runtime
 paths.
 
+### Machine registry schema v2 (`workspace/registry/`)
+
+The sole machine-global workspace registry is
+`$XDG_CONFIG_HOME/brain/env.json`, or `~/.config/brain/env.json` when XDG config
+is unset. Deterministic ordered names and aliases make its JSON stable:
+
+```json
+{
+  "schema_version": 2,
+  "default_workspace": "brain",
+  "workspaces": {
+    "brain": {
+      "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+      "root": "/Users/example/brain",
+      "aliases": ["personal"],
+      "local_user_id": "local-user",
+      "receiver_enabled": false,
+      "env": {}
+    }
+  }
+}
+```
+
+`WorkspaceId` is encoded as a UUID string. Canonical keys, aliases, and the
+default deserialize through `WorkspaceName` validation rather than bypassing
+the newtype. Missing `aliases`, `receiver_enabled`, and `env` fields default to
+an empty set, `false`, and an empty object respectively. Canonical-equivalent
+duplicate workspace keys or aliases are rejected during deserialization rather
+than silently collapsed by the ordered map or set.
+
+The trusted deserialization boundary is a private raw schema DTO followed by a
+fallible conversion that runs all whole-registry validation. Both public
+`Deserialize<MachineRegistry>` and `RegistryStore::load_from` cross that same
+boundary. The store parses the raw DTO directly only to preserve the distinction
+between structural JSON errors (operation, path, and parser message) and typed
+domain validation errors.
+
+Every record is a silo. Canonical, alias, and omitted-selector/default lookup
+returns a borrowed `(canonical_name, record)` view of exactly one record; no
+environment or access fields are copied or merged across workspaces. Validation
+is whole-registry and requires schema `2`, at least one record, a canonical
+default, selector uniqueness under ASCII case folding (including alias versus
+canonical collisions), unique UUIDs, and absolute roots that, after lexical
+normalization, are neither equal nor ancestors/descendants of one another.
+
+Rename rekeys only the `BTreeMap` canonical name and updates the default when
+needed, preserving the UUID and every `WorkspaceRecord` field. Changing the
+default changes no record. Removal detaches a record only and never touches its
+root or contents. At the storage boundary all mutations use clone, mutate,
+whole-registry validate, same-directory atomic save, then live-value replace;
+validation or write failure preserves the original in-memory value and file
+bytes.
+
+Methods on `MachineRegistry` are in-memory transactions: they clone, validate,
+and replace the live value but do not persist. `RegistryStore::update` is the
+persisted transaction: it advances the file first and replaces the caller's
+live value only after the atomic save succeeds. IO failures retain the failed
+operation, relevant destination or temporary paths, error kind, and message.
+
 ## Persistent state (`state.rs`, `~/.cache/brain/state.db`)
 
 The persistent shell tracks Claude sessions and the layout preference in

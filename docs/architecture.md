@@ -135,16 +135,43 @@ real `$HOME` or pointer file. See [config.md](config.md).
 The typed, selection-independent workspace foundation. `id` owns the immutable
 UUID newtype, `name` validates canonical lower-case slugs, `context` owns an
 already-resolved root and the machine's local user ID, and `paths` derives every
-machine-local runtime path from the immutable UUID. Root normalization is pure:
+machine-local runtime path from the immutable UUID. `registry/` owns the
+versioned machine registry, split by responsibility into `model` (schema and
+validated mutations), `validate` (pure whole-registry invariants), `select`
+(borrowed canonical/default/alias resolution), and `store` (the fixed registry
+path, loading, transactional updates, and same-directory atomic replacement).
+Root normalization is pure:
 it resolves a relative input against an explicit current-directory base and
 removes lexical `.` / `..` components without requiring the path to exist or
 canonicalizing symlinks. A relative root requires an absolute injected base;
 otherwise context construction returns a typed error rather than storing a
-relative root. The module does not select a workspace or consult
-aliases, defaults, or a registry; later layers construct one `WorkspaceContext`
-before passing it to workspace-aware commands. Context fields are private and
-accessors expose only immutable views, so callers cannot desynchronize the
-workspace UUID from its UUID-derived runtime paths.
+relative root.
+
+The sole machine-global registry is `$XDG_CONFIG_HOME/brain/env.json`, falling
+back to `~/.config/brain/env.json`. Its schema version is exactly `2`; every
+canonical workspace key owns one complete, siloed `WorkspaceRecord` (UUID,
+root, aliases, local user identity, receiver switch, and environment/access
+map). Selection borrows exactly that record and never copies or merges another
+workspace's environment. Whole-registry validation rejects ambiguous selectors,
+duplicate UUIDs, a missing default, and exact or ancestor/descendant root
+overlap after absolute lexical normalization. Store transactions clone and
+mutate a candidate, validate the whole candidate, atomically persist it, and
+only then replace the live value. This foundation does not yet route existing
+commands through selection or provide registry CLI/onboarding/migration.
+
+Deserialization has a single trusted boundary: JSON first enters a private raw
+schema DTO, then conversion runs the same pure whole-registry validator used by
+mutations. Public `Deserialize<MachineRegistry>` uses that conversion, so a
+successfully deserialized value is fully valid. `RegistryStore` parses the raw
+DTO itself so structural JSON failures retain operation and path context while
+domain failures retain their typed `RegistryError` variants. Storage failures
+likewise retain their operation, primary and related paths, IO error kind, and
+message.
+
+After selection, later layers construct one `WorkspaceContext` before passing
+it to workspace-aware commands. Context fields are private and accessors expose
+only immutable views, so callers cannot desynchronize the workspace UUID from
+its UUID-derived runtime paths.
 
 ### `settings/`
 The persistent config store (`<brain-root>/.config/config.json`) and the
