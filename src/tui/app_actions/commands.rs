@@ -261,6 +261,12 @@ impl App<'_> {
                     self.check_daily_triage();
                 }
             }
+            PaletteAction::ShowMainBrainSession => {
+                self.select_brain_tab(BrainTab::Main);
+            }
+            PaletteAction::ShowDailyTriageSession => {
+                self.select_brain_tab(BrainTab::Triage);
+            }
             PaletteAction::ToggleNotes => {
                 self.toggle_notes();
             }

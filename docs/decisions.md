@@ -1449,3 +1449,28 @@ is a *separate process* from the TUI, the signal crosses on disk
 (`~/.cache/brain/triage-done.json`) and the TUI polls it in its existing per-tick
 loop — the same poll-of-disk pattern the triage nudge and receiver responses
 already use. The token guard prevents a stale signal from closing a fresh tab.
+
+## Palette commands carry a per-command `is_visible` predicate
+
+Command-palette visibility used to be a single growing `match` in
+`PaletteState::scoped` that special-cased each conditional command inline
+(`CloseBrain` needs a panel, the receiver rows need a running/stopped server,
+the notes/links rows need notes/links). Adding the daily-triage tab-switch rows
+would have meant extending that match yet again.
+
+Instead each `PaletteCommand` now carries an `is_visible: fn(&PaletteState) ->
+bool` predicate (default `always`). `scoped` applies the *structural* gate
+(`command_in_scope`: task-vs-global, the habit filter, the logs-view whitelist,
+the task-actions-modal restriction) and then the command's own predicate. The
+conditional logic lives next to the command it governs, new conditional commands
+are a one-line predicate, and `PaletteState` is the single snapshot of TUI state
+the predicates read (seeded at open time like `receiver_server_running`).
+
+**Why the tab-switch commands exist at all.** `Alt+1` / `Alt+2` are the intended
+tab switches, but terminal `Alt+digit` handling is unreliable — many terminals
+can't distinguish `Alt+1` from a bare `1`, and the encoding varies by terminal
+and keyboard layout. In a TUI where a focused brain panel forwards every key to
+the child agent, the *reliable* app-level surface is the command palette
+(`Ctrl+P` → filter → Enter), so **Show main brain session** / **Show daily
+triage session** are the works-anywhere path; the Alt chords remain as a bonus
+where the terminal supports them.

@@ -57,6 +57,30 @@ impl App<'_> {
         self.alert = None;
     }
 
+    /// Cycle the brain-panel tab (`Alt+[` previous / `Alt+]` next) and focus
+    /// the panel. With only the main session open this just focuses the panel;
+    /// with a triage tab open it flips between the two. Ordered `[Main, Triage]`
+    /// so `next` from Main lands on triage.
+    pub(crate) fn cycle_brain_tab(&mut self, forward: bool) {
+        if !self.any_brain_panel_visible() {
+            return;
+        }
+        let tabs: &[BrainTab] = if self.triage_brain.is_some() {
+            &[BrainTab::Main, BrainTab::Triage]
+        } else {
+            &[BrainTab::Main]
+        };
+        let n = tabs.len();
+        let current = self.effective_brain_tab();
+        let idx = tabs.iter().position(|&t| t == current).unwrap_or(0);
+        let next = if forward {
+            (idx + 1) % n
+        } else {
+            (idx + n - 1) % n
+        };
+        self.select_brain_tab(tabs[next]);
+    }
+
     /// Open the ephemeral daily-triage tab: ensure the internal brain server is
     /// up (so the skill's completion POST lands), spawn a fresh *untracked*
     /// session seeded with `/triage`, and focus it. Falls back to the old

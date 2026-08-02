@@ -243,6 +243,27 @@ pub(crate) fn alt_selects_brain_tab(code: KeyCode, modifiers: KeyModifiers) -> O
     }
 }
 
+/// Whether a keystroke cycles the brain-panel tab, and in which direction:
+/// `Some(true)` = next (`Alt+]`), `Some(false)` = previous (`Alt+[`). This is
+/// the *reliable* tab switch: unlike `Alt+digit` (which many terminals can't
+/// distinguish from a bare digit), the bracket keys resolve either as an
+/// Alt-modified `[` / `]` or, on macOS US layouts with Option-as-glyph, as the
+/// Option-produced smart-quote glyphs — both of which we accept. With only two
+/// tabs the direction is cosmetic (either flips between them), but prev/next
+/// keeps the binding sensible if more tabs ever appear.
+#[must_use]
+pub(crate) fn alt_cycles_brain_tab(code: KeyCode, modifiers: KeyModifiers) -> Option<bool> {
+    let modified = modifiers.intersects(KeyModifiers::ALT | KeyModifiers::META);
+    match code {
+        KeyCode::Char(']') if modified => Some(true),
+        KeyCode::Char('[') if modified => Some(false),
+        // macOS US-layout Option+] (‘ U+2018) / Option+[ (“ U+201C).
+        KeyCode::Char('\u{2018}') => Some(true),
+        KeyCode::Char('\u{201C}') => Some(false),
+        _ => None,
+    }
+}
+
 /// Whether a keystroke fires the "open links" action (Linear issue +
 /// notes URLs). Bound to `Ctrl+O`; a single link opens directly, multiple
 /// links raise the picker modal.

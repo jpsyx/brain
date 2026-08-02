@@ -31,6 +31,7 @@ impl PaletteState {
             task_actions_modal: false,
             brain_open,
             receiver_server_running: false,
+            triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
         }
@@ -61,6 +62,7 @@ impl PaletteState {
             // global "Close brain" never appears here regardless.
             brain_open: false,
             receiver_server_running: false,
+            triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
         }
@@ -79,6 +81,7 @@ impl PaletteState {
             task_actions_modal: false,
             brain_open: false,
             receiver_server_running,
+            triage_open: false,
             logs_view: true,
             daily_triage_alert_disabled: false,
         }
@@ -166,7 +169,9 @@ impl PaletteState {
             | PaletteAction::ShowReceiverServerLogs
             | PaletteAction::ShowBrainLogs
             | PaletteAction::ReturnToMainView
-            | PaletteAction::ToggleDailyTriageAlert => cmd.label.to_owned(),
+            | PaletteAction::ToggleDailyTriageAlert
+            | PaletteAction::ShowMainBrainSession
+            | PaletteAction::ShowDailyTriageSession => cmd.label.to_owned(),
         }
     }
 
@@ -177,45 +182,35 @@ impl PaletteState {
     pub(crate) fn scoped(&self) -> Vec<&'static PaletteCommand> {
         PALETTE_COMMANDS
             .iter()
-            .filter(|c| match c.scope {
-                PaletteScope::TaskSpecific => {
-                    self.task_in_context()
-                        && (!self.context_is_habit || c.works_on_habits)
-                        // The notes toggle only makes sense when there are
-                        // notes to expand.
-                        && (!matches!(c.action, PaletteAction::ToggleNotes)
-                            || self.context_has_notes)
-                        // The "open link" command only makes sense when the
-                        // entry has at least one openable link (Linear or
-                        // a notes URL).
-                        && (!matches!(c.action, PaletteAction::OpenLinks)
-                            || self.context_links != LinkKind::None)
-                }
-                PaletteScope::Global => {
-                    if self.logs_view {
-                        return matches!(
-                            c.action,
-                            PaletteAction::ShowReceiverServerStatus
-                                | PaletteAction::ShowSyncStatus
-                                | PaletteAction::ShowReceiverServerLogs
-                                | PaletteAction::ShowBrainLogs
-                                | PaletteAction::ReturnToMainView
-                        ) && (!matches!(c.action, PaletteAction::ShowReceiverServerLogs)
-                            || self.receiver_server_running);
-                    }
-                    !self.task_actions_modal
-                        // "Close brain" only makes sense while a panel is open.
-                        && (!matches!(c.action, PaletteAction::CloseBrain) || self.brain_open)
-                        && match c.action {
-                            PaletteAction::StartReceiverServer => !self.receiver_server_running,
-                            PaletteAction::StopReceiverServer
-                            | PaletteAction::RestartReceiverServer
-                            | PaletteAction::ShowReceiverServerLogs => self.receiver_server_running,
-                            _ => true,
-                        }
-                }
-            })
+            .filter(|c| self.command_in_scope(c) && (c.is_visible)(self))
             .collect()
+    }
+
+    /// The structural scope gate: task-vs-global, the habit filter, the
+    /// logs-view command whitelist, and the task-actions-modal restriction. The
+    /// finer *conditional* gates (panel open, server running, triage tab open,
+    /// notes/links present) live in each command's `is_visible` predicate and
+    /// are applied on top of this by [`Self::scoped`].
+    fn command_in_scope(&self, c: &PaletteCommand) -> bool {
+        if self.logs_view {
+            // The logs palette shows only this fixed set of read-only /
+            // navigation commands; each command's own `is_visible` still
+            // applies (e.g. "Show receiver logs" needs a running server).
+            return matches!(
+                c.action,
+                PaletteAction::ShowReceiverServerStatus
+                    | PaletteAction::ShowSyncStatus
+                    | PaletteAction::ShowReceiverServerLogs
+                    | PaletteAction::ShowBrainLogs
+                    | PaletteAction::ReturnToMainView
+            );
+        }
+        match c.scope {
+            PaletteScope::TaskSpecific => {
+                self.task_in_context() && (!self.context_is_habit || c.works_on_habits)
+            }
+            PaletteScope::Global => !self.task_actions_modal,
+        }
     }
 
     /// The stable 1-based number shown next to `cmd`: its position in the

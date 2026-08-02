@@ -165,12 +165,12 @@ fn footer_hint(active: BrainTab, has_triage: bool, key: Style, dim: Style) -> Li
         Span::styled(" tasks", dim),
     ];
     if has_triage {
-        let (switch_key, switch_label) = match active {
-            BrainTab::Main => ("Alt+2", " triage"),
-            BrainTab::Triage => ("Alt+1", " brain"),
+        let switch_label = match active {
+            BrainTab::Main => " triage",
+            BrainTab::Triage => " brain",
         };
         spans.push(Span::styled("   ", dim));
-        spans.push(Span::styled(switch_key, key));
+        spans.push(Span::styled("Alt+[ ]", key));
         spans.push(Span::styled(switch_label, dim));
     }
     spans.push(Span::styled("   ", dim));

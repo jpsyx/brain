@@ -65,9 +65,13 @@ done. Run it now?" nudge no longer types `/triage` into your main session and
 tie it up for the whole pass. Instead the brain panel grows a **second tab**,
 **Daily triage**, holding a *separate* agent session seeded with `/triage` and
 auto-submitted. Daily triage runs there as a background task while your main
-session (tab 1) stays free. Switch tabs with **`Alt+1`** (main) / **`Alt+2`**
-(daily triage) from either panel; the panel shows a `1 Brain` · `2 Daily
-triage` strip while both are live.
+session (tab 1) stays free. Cycle tabs with **`Alt+[`** / **`Alt+]`** (previous
+/ next) from either panel; the panel shows a `1 Brain` · `2 Daily triage` strip
+while both are live. The **command palette** (`Ctrl+P`) also carries **Show main
+brain session** / **Show daily triage session** rows whenever the triage tab is
+open — the works-anywhere alternative. (`Alt+1` / `Alt+2` select a tab directly
+too, but terminal `Alt+digit` handling is unreliable, so the bracket cycle and
+palette rows are the dependable paths.)
 
 This triage session is **ephemeral**: it is never recorded in the session DB
 and is never resumed. Because a triage pass can involve back-and-forth with you,

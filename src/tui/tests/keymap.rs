@@ -340,6 +340,46 @@ fn a_bare_digit_never_selects_a_tab() {
     );
 }
 
+// --- alt_cycles_brain_tab ---
+
+#[test]
+fn alt_bracket_keys_cycle_the_brain_tab() {
+    assert_eq!(
+        alt_cycles_brain_tab(KeyCode::Char(']'), KeyModifiers::ALT),
+        Some(true)
+    );
+    assert_eq!(
+        alt_cycles_brain_tab(KeyCode::Char('['), KeyModifiers::ALT),
+        Some(false)
+    );
+}
+
+#[test]
+fn option_generated_macos_quote_glyphs_cycle_the_brain_tab() {
+    // On US layouts Option+] / Option+[ surface as smart-quote glyphs with no
+    // modifier; those are the reliable path on such terminals.
+    assert_eq!(
+        alt_cycles_brain_tab(KeyCode::Char('\u{2018}'), KeyModifiers::NONE),
+        Some(true)
+    );
+    assert_eq!(
+        alt_cycles_brain_tab(KeyCode::Char('\u{201C}'), KeyModifiers::NONE),
+        Some(false)
+    );
+}
+
+#[test]
+fn a_bare_bracket_never_cycles_the_brain_tab() {
+    assert_eq!(
+        alt_cycles_brain_tab(KeyCode::Char('['), KeyModifiers::NONE),
+        None
+    );
+    assert_eq!(
+        alt_cycles_brain_tab(KeyCode::Char('a'), KeyModifiers::ALT),
+        None
+    );
+}
+
 // --- ctrl_opens_links ---
 
 #[test]

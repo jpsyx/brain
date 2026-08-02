@@ -175,6 +175,14 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             app.select_brain_tab(tab);
             continue;
         }
+        // Alt+[ / Alt+] cycle the brain-panel tab (previous / next). The
+        // reliable switch — terminal Alt+digit handling above is flaky, while
+        // the bracket keys resolve either as Alt-modified brackets or the macOS
+        // Option smart-quote glyphs. From either panel.
+        if let Some(forward) = alt_cycles_brain_tab(k.code, k.modifiers) {
+            app.cycle_brain_tab(forward);
+            continue;
+        }
         // Alt+U / Alt+D scroll the focused panel a half-page up / down.
         // Handled here (before the panel-key dispatch below forwards to the
         // child agent) so they work even while the brain panel is focused or
@@ -227,9 +235,11 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             };
             let receiver_server_running = app.receiver_server_running();
             let daily_triage_alert_disabled = app.skip_daily_triage_check;
+            let triage_open = app.triage_brain.is_some();
             if let Some(palette) = app.palette.as_mut() {
                 palette.receiver_server_running = receiver_server_running;
                 palette.daily_triage_alert_disabled = daily_triage_alert_disabled;
+                palette.triage_open = triage_open;
             }
             continue;
         }

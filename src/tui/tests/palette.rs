@@ -327,6 +327,30 @@ fn daily_triage_toggle_reads_enable_when_alert_disabled() {
     );
 }
 
+// --- PaletteState: brain-tab switch commands (triage tab) ---
+
+#[test]
+fn triage_switch_commands_are_hidden_without_a_triage_tab() {
+    // No triage tab open → the palette must not offer to switch to it. This is
+    // the `is_visible: if_triage_open` gate.
+    let state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    let actions = action_order(&state);
+    assert!(!actions.contains(&PaletteAction::ShowMainBrainSession));
+    assert!(!actions.contains(&PaletteAction::ShowDailyTriageSession));
+}
+
+#[test]
+fn triage_switch_commands_appear_while_a_triage_tab_is_open() {
+    // `triage_open` is seeded from `App::triage_brain.is_some()` at open time,
+    // like `receiver_server_running`. With it set, both tab-switch rows show —
+    // the reliable palette alternative to the terminal-flaky Alt+1 / Alt+2.
+    let mut state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    state.triage_open = true;
+    let actions = action_order(&state);
+    assert!(actions.contains(&PaletteAction::ShowMainBrainSession));
+    assert!(actions.contains(&PaletteAction::ShowDailyTriageSession));
+}
+
 #[test]
 fn full_palette_lists_actions_in_canonical_order() {
     // Task with notes selected: start → complete → message-about →

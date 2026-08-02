@@ -1,6 +1,16 @@
 //! The command-palette model: the action enum, the per-command scope/flags,
 //! the direct-key shortcut map, and the ordered command table.
 
+use crate::tui::{LinkKind, PaletteState};
+
+/// A per-command visibility predicate: given the current palette state (a
+/// snapshot of the TUI state relevant to the palette), decide whether the
+/// command should appear. This is where each command's *conditional* visibility
+/// lives (e.g. "Close brain" only with a panel open, the triage-tab switches
+/// only while a triage session runs), on top of the structural `scope` /
+/// `works_on_habits` gates. Plain `fn` pointers so the table stays `const`.
+pub(super) type VisibleWhen = fn(&PaletteState) -> bool;
+
 pub(crate) struct PaletteCommand {
     pub(super) label: &'static str,
     pub(crate) action: PaletteAction,
@@ -9,6 +19,46 @@ pub(crate) struct PaletteCommand {
     /// command is hidden when the selected entry is a habit. (E.g. defer
     /// applies to tasks only; mark-complete works on either.)
     pub(super) works_on_habits: bool,
+    /// Extra conditional-visibility gate, applied on top of `scope` /
+    /// `works_on_habits`. Defaults to [`always`]. See [`VisibleWhen`].
+    pub(super) is_visible: VisibleWhen,
+}
+
+// --- Visibility predicates (referenced from the const command table) ---
+
+/// Always visible (subject only to the structural scope gate).
+fn always(_: &PaletteState) -> bool {
+    true
+}
+
+/// Visible only while the main brain panel is open.
+fn if_brain_open(s: &PaletteState) -> bool {
+    s.brain_open
+}
+
+/// Visible only while the ephemeral daily-triage tab is open.
+fn if_triage_open(s: &PaletteState) -> bool {
+    s.triage_open
+}
+
+/// Visible only while the receiver server is running.
+fn if_receiver_running(s: &PaletteState) -> bool {
+    s.receiver_server_running
+}
+
+/// Visible only while the receiver server is stopped.
+fn if_receiver_stopped(s: &PaletteState) -> bool {
+    !s.receiver_server_running
+}
+
+/// Visible only when the in-context entry has notes to expand/collapse.
+fn if_has_notes(s: &PaletteState) -> bool {
+    s.context_has_notes
+}
+
+/// Visible only when the in-context entry has at least one openable link.
+fn if_has_links(s: &PaletteState) -> bool {
+    s.context_links != LinkKind::None
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -86,6 +136,15 @@ pub(crate) enum PaletteAction {
     /// a long-running TUI can suppress or restore the alert across day
     /// rollovers. Global; label swaps Disable/Enable (see `label_for`).
     ToggleDailyTriageAlert,
+    /// Focus the main brain session tab (`BrainTab::Main`) — the palette-driven
+    /// counterpart to `Alt+1`, reliable on terminals where Alt+digit is not.
+    /// Only offered while a daily-triage tab is open (nothing to switch away
+    /// from otherwise).
+    ShowMainBrainSession,
+    /// Focus the ephemeral daily-triage session tab (`BrainTab::Triage`) — the
+    /// palette-driven counterpart to `Alt+2`. Only offered while that tab is
+    /// open.
+    ShowDailyTriageSession,
 }
 
 /// Direct keystroke that bypasses the palette for a given action,
@@ -102,7 +161,12 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         PaletteAction::OpenAgenda => Some("^A"),
         PaletteAction::ToggleNotes => Some("l"),
         PaletteAction::OpenLinks => Some("^O"),
-        PaletteAction::StartReceiverServer
+        // No per-command hint: the tab switch is a cycle (`Alt+[` / `Alt+]`),
+        // not a per-tab key, and these palette rows are themselves the reliable
+        // switch (the direct `Alt+1` / `Alt+2` are terminal-unreliable).
+        PaletteAction::ShowMainBrainSession
+        | PaletteAction::ShowDailyTriageSession
+        | PaletteAction::StartReceiverServer
         | PaletteAction::StopReceiverServer
         | PaletteAction::RestartReceiverServer
         | PaletteAction::ShowReceiverServerStatus
@@ -128,12 +192,14 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         action: PaletteAction::StartTask,
         scope: PaletteScope::TaskSpecific,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Mark as complete",
         action: PaletteAction::MarkTaskComplete,
         scope: PaletteScope::TaskSpecific,
         works_on_habits: true,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Message brain about this task",
@@ -142,48 +208,70 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         // Asking the brain agent about a habit reads fine — the
         // context prefix just names the H-ID instead of a T-ID.
         works_on_habits: true,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Message brain",
         action: PaletteAction::SendBrainMessage,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Close brain",
         action: PaletteAction::CloseBrain,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: if_brain_open,
+    },
+    PaletteCommand {
+        label: "Show main brain session",
+        action: PaletteAction::ShowMainBrainSession,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+        is_visible: if_triage_open,
+    },
+    PaletteCommand {
+        label: "Show daily triage session",
+        action: PaletteAction::ShowDailyTriageSession,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+        is_visible: if_triage_open,
     },
     PaletteCommand {
         label: "Start receiver server",
         action: PaletteAction::StartReceiverServer,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: if_receiver_stopped,
     },
     PaletteCommand {
         label: "Stop receiver server",
         action: PaletteAction::StopReceiverServer,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: if_receiver_running,
     },
     PaletteCommand {
         label: "Restart receiver server",
         action: PaletteAction::RestartReceiverServer,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: if_receiver_running,
     },
     PaletteCommand {
         label: "Show receiver server status",
         action: PaletteAction::ShowReceiverServerStatus,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Show receiver logs",
         action: PaletteAction::ShowReceiverServerLogs,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: if_receiver_running,
     },
     PaletteCommand {
         // Label is overridden at render time (Expand vs Collapse) by
@@ -192,6 +280,7 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         action: PaletteAction::ToggleNotes,
         scope: PaletteScope::TaskSpecific,
         works_on_habits: true,
+        is_visible: if_has_notes,
     },
     PaletteCommand {
         label: "Remove this task",
@@ -200,54 +289,63 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         // Habit removal goes through a different /todo path; keep this
         // tasks only to avoid sending the wrong instruction.
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Defer +1d",
         action: PaletteAction::DeferTask(1),
         scope: PaletteScope::TaskSpecific,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Defer +7d",
         action: PaletteAction::DeferTask(7),
         scope: PaletteScope::TaskSpecific,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Defer +14d",
         action: PaletteAction::DeferTask(14),
         scope: PaletteScope::TaskSpecific,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Open habits in browser",
         action: PaletteAction::OpenHabitsInBrowser,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Sync brain now",
         action: PaletteAction::SyncBrainNow,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Show sync status",
         action: PaletteAction::ShowSyncStatus,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Open today's agenda",
         action: PaletteAction::OpenAgenda,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Show brain logs",
         action: PaletteAction::ShowBrainLogs,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         // Label is overridden at render time (Disable vs Enable) by
@@ -257,12 +355,14 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         action: PaletteAction::ToggleDailyTriageAlert,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Return to main view",
         action: PaletteAction::ReturnToMainView,
         scope: PaletteScope::Global,
         works_on_habits: false,
+        is_visible: always,
     },
     PaletteCommand {
         // Static fallback label; `label_for` overrides it per link kind.
@@ -272,5 +372,6 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         // Habits never link to Linear, but they can carry notes URLs — the
         // link-kind gate below hides the command unless there's ≥ 1 link.
         works_on_habits: true,
+        is_visible: if_has_links,
     },
 ];
