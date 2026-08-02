@@ -1,8 +1,7 @@
 //! Brain-root resolution: where the brain (PARA) directory lives.
 //!
-//! Resolution order: the `root` key in the brain-env store
-//! (`~/.config/brain/env.json`), else the legacy `~/.config/brain-root`
-//! pointer file (kept for back-compat, tilde-expanded), else the default
+//! Resolution order: the default schema-v2 workspace root (or a pre-migration
+//! flat `root`), else the legacy `~/.config/brain-root` pointer file, else
 //! `$HOME/brain`.
 //!
 //! `root` is the **one** machine-local pointer brain needs, and the *only*
@@ -64,15 +63,18 @@ fn read_env_root() -> Option<String> {
         .and_then(parse_root_key)
 }
 
-/// Pull the `root` string field out of a raw `env.json` body. Pure: no IO.
-/// A missing field, non-string value, empty string, or invalid JSON is `None`.
+/// Pull the default workspace root, or a pre-migration flat `root`, out of an
+/// `env.json` body. Pure: no IO. Missing, blank, or invalid input is `None`.
 #[must_use]
 pub fn parse_root_key(env_json: &str) -> Option<String> {
-    serde_json::from_str::<serde_json::Value>(env_json)
-        .ok()
-        .as_ref()
-        .and_then(|v| v.get("root"))
+    let value = serde_json::from_str::<serde_json::Value>(env_json).ok()?;
+    value
+        .get("root")
         .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            let default = value.get("default_workspace")?.as_str()?;
+            value.get("workspaces")?.get(default)?.get("root")?.as_str()
+        })
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
@@ -238,5 +240,32 @@ mod tests {
         assert_eq!(parse_root_key(r#"{"root": ""}"#), None);
         assert_eq!(parse_root_key(r#"{"markdown_to_pdf_path": "x"}"#), None);
         assert_eq!(parse_root_key("not json"), None);
+    }
+
+    #[test]
+    fn parse_root_key_reads_the_default_schema_v2_workspace() {
+        let registry = r#"{
+            "schema_version": 2,
+            "default_workspace": "family",
+            "workspaces": {
+                "brain": {
+                    "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+                    "root": "/workspaces/brain",
+                    "aliases": [],
+                    "local_user_id": ""
+                },
+                "family": {
+                    "workspace_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
+                    "root": "/workspaces/family",
+                    "aliases": [],
+                    "local_user_id": ""
+                }
+            }
+        }"#;
+
+        assert_eq!(
+            parse_root_key(registry),
+            Some("/workspaces/family".to_owned())
+        );
     }
 }

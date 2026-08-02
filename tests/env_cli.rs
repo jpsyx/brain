@@ -66,10 +66,11 @@ fn env_list_get_and_set_support_recursive_dotted_paths() {
         String::from_utf8_lossy(&set.stderr)
     );
 
-    let saved: serde_json::Value =
+    let saved: brain::workspace::MachineRegistry =
         serde_json::from_str(&std::fs::read_to_string(env_path).expect("read env"))
-            .expect("parse env");
-    assert_eq!(saved["sync"]["enabled"], true);
-    assert_eq!(saved["sync"]["remote"]["bucket"], "pablo-brain");
-    assert_eq!(saved["sync"]["remote"]["credentials"]["key_id"], "updated");
+            .expect("parse registry");
+    let env = &saved.select(None).expect("default workspace").record().env;
+    assert_eq!(env["sync"]["enabled"], true);
+    assert_eq!(env["sync"]["remote"]["bucket"], "pablo-brain");
+    assert_eq!(env["sync"]["remote"]["credentials"]["key_id"], "updated");
 }

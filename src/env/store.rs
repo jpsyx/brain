@@ -1,7 +1,6 @@
-//! The raw JSON brain-env store at `~/.config/brain/env.json`: locating it and
-//! reading/writing the whole object. A broken or missing file never blocks
-//! startup — it reads as an empty map. Brain env is machine-local (`root`,
-//! `markdown_to_pdf_path`, the `sync` block) and is NOT Backblaze-synced.
+//! Default-workspace compatibility for callers that still consume the former
+//! flat brain-env map. Schema-v2 reads project one record into that view and
+//! writes update only the default record through the atomic registry store.
 
 use std::path::{Path, PathBuf};
 
@@ -14,20 +13,37 @@ pub fn env_path() -> PathBuf {
     crate::paths::machine_config_dir().join("env.json")
 }
 
-/// Read a JSON object at an explicit `path`. A missing/unreadable/non-object
-/// file yields an empty map — a broken env never blocks startup. Split out of
-/// [`load_map`] so the migration (`env::migrate`) can read a store at an
-/// explicit dir hermetically, without going through the real `env_path()`.
+/// Read the default record as a legacy-compatible flat map. Flat input remains
+/// accepted only for pre-migration compatibility. Missing or broken input is
+/// an empty map so existing runtime callers stay nonfatal.
 #[must_use]
 pub(super) fn load_map_at(path: &Path) -> Map<String, Value> {
-    std::fs::read_to_string(path)
+    std::fs::read(path)
         .ok()
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .and_then(|v| match v {
-            Value::Object(m) => Some(m),
-            _ => None,
+        .and_then(|bytes| {
+            serde_json::from_slice::<crate::workspace::MachineRegistry>(&bytes)
+                .ok()
+                .and_then(|registry| compatibility_map(&registry))
+                .or_else(|| {
+                    serde_json::from_slice::<Value>(&bytes)
+                        .ok()
+                        .and_then(|v| match v {
+                            Value::Object(map) => Some(map),
+                            _ => None,
+                        })
+                })
         })
         .unwrap_or_default()
+}
+
+fn compatibility_map(registry: &crate::workspace::MachineRegistry) -> Option<Map<String, Value>> {
+    let selected = registry.select(None).ok()?;
+    let mut map = selected.record().env.clone();
+    map.insert(
+        "root".to_owned(),
+        Value::String(selected.record().root.display().to_string()),
+    );
+    Some(map)
 }
 
 /// Read the store as a JSON object. A missing/unreadable/non-object file yields
@@ -37,10 +53,35 @@ pub(crate) fn load_map() -> Map<String, Value> {
     load_map_at(&env_path())
 }
 
-/// Write `map` as the JSON object at an explicit `path`, creating parent dirs
-/// as needed. Split out of [`save_map`] for the same reason as
-/// [`load_map_at`].
+/// Update the schema-v2 default record through the atomic registry store.
+/// Flat output remains only for a missing pre-migration registry.
 pub(super) fn save_map_at(path: &Path, map: &Map<String, Value>) -> Result<()> {
+    if let Ok(mut registry) = crate::workspace::RegistryStore::load_from(path) {
+        let canonical_name = registry.default_workspace.clone();
+        let record = registry
+            .workspaces
+            .get_mut(&canonical_name)
+            .ok_or_else(|| anyhow::anyhow!("default workspace record disappeared"))?;
+        if let Some(root) = map
+            .get("root")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let home = std::env::var_os("HOME").map_or_else(PathBuf::new, PathBuf::from);
+            let expanded = crate::paths::expand_tilde_with_home(root, &home);
+            record.root = crate::workspace::normalize_root(&expanded, &home)
+                .map_err(|error| anyhow::anyhow!(error))?;
+        }
+        let mut env = map.clone();
+        for reserved in ["root", "receiver_enabled", "access_mode", "access_policy"] {
+            env.remove(reserved);
+        }
+        record.env = env;
+        crate::workspace::RegistryStore::save_atomic_to(path, &registry)
+            .map_err(|error| anyhow::anyhow!(error))?;
+        return Ok(());
+    }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -66,7 +107,10 @@ mod tests {
     fn env_path_is_env_json_in_the_machine_config_dir() {
         let p = env_path();
         assert!(p.ends_with("brain/env.json"));
-        assert_eq!(p.parent(), Some(crate::paths::machine_config_dir().as_path()));
+        assert_eq!(
+            p.parent(),
+            Some(crate::paths::machine_config_dir().as_path())
+        );
     }
 
     #[cfg(unix)]

@@ -39,7 +39,7 @@ pub(super) struct RawMachineRegistry {
     workspaces: BTreeMap<WorkspaceName, WorkspaceRecord>,
 }
 
-/// Machine-local configuration and access data for one workspace.
+/// Machine-local configuration for one workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceRecord {
@@ -55,7 +55,8 @@ pub struct WorkspaceRecord {
     /// Whether this workspace accepts receiver traffic.
     #[serde(default)]
     pub receiver_enabled: bool,
-    /// Workspace-siloed machine environment and access data.
+    /// Workspace-siloed machine environment. Portable access policy is not
+    /// stored in this machine registry.
     #[serde(default)]
     pub env: Map<String, Value>,
 }

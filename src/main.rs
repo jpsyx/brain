@@ -47,6 +47,8 @@ mod tasks;
 mod theme;
 mod triage_signal;
 mod tui;
+#[allow(dead_code, unused_imports)]
+mod workspace;
 
 use std::path::PathBuf;
 

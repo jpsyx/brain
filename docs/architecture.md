@@ -138,8 +138,9 @@ already-resolved root and the machine's local user ID, and `paths` derives every
 machine-local runtime path from the immutable UUID. `registry/` owns the
 versioned machine registry, split by responsibility into `model` (schema and
 validated mutations), `validate` (pure whole-registry invariants), `select`
-(borrowed canonical/default/alias resolution), and `store` (the fixed registry
-path, loading, transactional updates, and same-directory atomic replacement).
+(borrowed canonical/default/alias resolution), `store` (the fixed registry
+path, loading, transactional updates, and same-directory atomic replacement),
+and `migrate` (the one-time flat-env conversion and exact-byte backup).
 Root normalization is pure:
 it resolves a relative input against an explicit current-directory base and
 removes lexical `.` / `..` components without requiring the path to exist or
@@ -150,14 +151,31 @@ relative root.
 The sole machine-global registry is `$XDG_CONFIG_HOME/brain/env.json`, falling
 back to `~/.config/brain/env.json`. Its schema version is exactly `2`; every
 canonical workspace key owns one complete, siloed `WorkspaceRecord` (UUID,
-root, aliases, local user identity, receiver switch, and environment/access
+root, aliases, local user identity, receiver switch, and machine environment
 map). Selection borrows exactly that record and never copies or merges another
 workspace's environment. Whole-registry validation rejects ambiguous selectors,
 duplicate UUIDs, a missing default, and exact or ancestor/descendant root
 overlap after absolute lexical normalization. Store transactions clone and
 mutate a candidate, validate the whole candidate, atomically persist it, and
-only then replace the live value. This foundation does not yet route existing
-commands through selection or provide registry CLI/onboarding/migration.
+only then replace the live value.
+
+At startup, `registry::migrate` checks this fixed file before ordinary command
+dispatch. A valid schema-v2 registry is returned without any write. Otherwise
+it converts the legacy flat object into exactly one default record, resolving
+the root from flat `root`, then the read-only legacy pointer, then
+`<home>/brain`; the result is tilde-expanded and lexically normalized without
+requiring the directory to exist. The new record receives one UUID, no aliases,
+an empty local-user placeholder, a de-duplicated receiver switch, and all other
+machine-local flat values inside its `env`. Access policy is deliberately not
+machine-local; migration reports that portable setup remains required for a
+later readiness layer.
+
+Before replacing an existing flat file, migration creates an adjacent
+exact-byte `env.json.legacy-backup` (or the first free numeric suffix), then
+uses the atomic registry store. Re-running sees schema v2 and preserves both the
+UUID and registry bytes without another backup. The existing env/root callers
+currently use a default-record compatibility view so commands continue working;
+explicit workspace CLI selection and readiness are not wired yet.
 
 Deserialization has a single trusted boundary: JSON first enters a private raw
 schema DTO, then conversion runs the same pure whole-registry validator used by

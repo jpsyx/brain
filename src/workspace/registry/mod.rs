@@ -1,10 +1,13 @@
 //! The versioned, machine-global workspace registry.
 
+mod migrate;
 mod model;
 mod select;
 mod store;
 mod validate;
 
+pub(crate) use migrate::migrate_legacy_with;
+pub use migrate::{MigrationOutcome, migrate_legacy};
 pub use model::{MachineRegistry, REGISTRY_SCHEMA_VERSION, WorkspaceRecord};
 pub use select::SelectedWorkspace;
 pub use store::RegistryStore;

@@ -13,6 +13,9 @@ use crate::workspace::{WorkspaceId, WorkspaceName, context::normalize_root};
 pub enum RegistryOperation {
     ReadRegistry,
     ParseRegistry,
+    CreateLegacyBackup,
+    WriteLegacyBackup,
+    SyncLegacyBackup,
     SerializeRegistry,
     CreateDirectory,
     CreateTemporary,
@@ -26,6 +29,9 @@ impl Display for RegistryOperation {
         formatter.write_str(match self {
             Self::ReadRegistry => "read workspace registry",
             Self::ParseRegistry => "parse workspace registry JSON",
+            Self::CreateLegacyBackup => "create legacy environment backup",
+            Self::WriteLegacyBackup => "write legacy environment backup",
+            Self::SyncLegacyBackup => "sync legacy environment backup",
             Self::SerializeRegistry => "serialize workspace registry",
             Self::CreateDirectory => "create workspace registry directory",
             Self::CreateTemporary => "create temporary workspace registry",

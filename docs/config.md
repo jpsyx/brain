@@ -7,7 +7,7 @@ they are never inherited or merged from the default or another record.
 
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
-| **brain env / workspace registry** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** every brain root) | Registry CLI wiring follows this foundation | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace env/access map) |
+| **brain env / workspace registry** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** every brain root) | Registry CLI wiring follows this foundation | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
 | **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes** — travels with the brain | `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
@@ -31,7 +31,7 @@ complete `WorkspaceRecord` values. Each record owns its own machine root,
 immutable UUID, aliases, `local_user_id`, `receiver_enabled` switch, and `env`
 object. The `env` object is siloed: selecting a canonical name, an alias, or the
 default returns only that record, with no copying or merging from any other
-workspace.
+workspace. Portable access policy never lives in this machine-local file.
 
 Registry loads accept only exact schema version `2`, a non-empty record map, a
 default that names a canonical record, unique canonical/alias selectors under
@@ -49,12 +49,12 @@ domain-invalid registry. The store keeps domain validation errors typed and
 reports structural JSON and IO failures with the failed operation and path
 (plus the IO error kind and temporary path when applicable).
 
-This foundation defines storage, selection, and mutation semantics only.
-Existing `brain env` commands and runtime root resolution are not routed through
-workspace selection yet; that integration, legacy migration, and first-run
-onboarding are later work.
+Existing `brain env` commands and runtime root resolution use a temporary
+default-record compatibility view, preserving their single-workspace behavior
+without flattening the registry. Explicit workspace selection, registry CLI,
+portable readiness, and onboarding remain later work.
 
-### Legacy single-workspace brain env behavior
+### Legacy single-workspace brain env compatibility
 
 Machine-local config. It lives at a fixed path — `$XDG_CONFIG_HOME/brain` or
 `~/.config/brain` (`paths::machine_config_dir`) — that does **not** depend on
@@ -142,7 +142,8 @@ root, so `root` is a normal (if machine-local) env variable.
 
 Resolution order (`paths::brain_root_path`):
 
-1. the `root` field in `~/.config/brain/env.json`, if present and non-empty;
+1. the default schema-v2 workspace's `root` (or the pre-migration flat `root`),
+   if present and non-empty;
 2. otherwise the legacy `~/.config/brain-root` one-line pointer file (kept for
    back-compat, tilde-expanded against `$HOME`), if present and non-empty;
 3. otherwise the default `~/brain`.
@@ -152,15 +153,36 @@ resolved path and any missing parent directories on demand.
 `brain_root_path()` (used to derive the config dir) remains side-effect-free, so
 env and config lookups don't create or require a brain directory.
 
-**Migration.** On every startup brain runs a one-time, idempotent migration
-(`env::migrate`): if `env.json` has no `root` key yet and the legacy
-`~/.config/brain-root` pointer file exists, its contents are folded into
-`env.json`'s `root` key. The same pass relocates any `markdown_to_pdf_path`
-still sitting in `config.json` (from before this split) into `env.json`, then
-removes it from `config.json`. Both steps are idempotent (a value already
-present in `env.json` is never overwritten) and never fatal — a failed
-migration just leaves you on the pre-migration resolution path, it doesn't
-block startup.
+**Migration.** On every startup brain checks `env.json` through
+`env::migrate`. A valid schema-v2 registry is a byte-for-byte no-op. Any other
+body is interpreted as the legacy flat JSON object; invalid or non-object JSON
+is treated as an empty object. Migration creates exactly one default record:
+
+1. Root precedence remains flat nonblank `root`, then the nonblank legacy
+   `~/.config/brain-root` pointer, then `<home>/brain`.
+2. Leading `~` is expanded against the explicit home and the result is made
+   absolute and lexically normalized without touching the target directory.
+3. A valid root basename becomes the canonical workspace name; otherwise it
+   falls back to `brain`.
+4. The record gets one stable UUID, no aliases, an empty `local_user_id` for
+   later readiness, and the old receiver-enabled value in the dedicated field.
+   Every other flat machine-local value except `root` moves unchanged into that
+   record's `env`, including nested objects. Receiver and access-policy keys are
+   not duplicated into `env`; portable access setup remains required.
+
+Before an existing flat file is replaced, its exact original bytes are written
+beside it as `env.json.legacy-backup`; a collision uses the first free suffix
+(`.1`, `.2`, and so on). Only then does the atomic registry save replace
+`env.json`. A successful rerun keeps the same UUID and exact registry bytes,
+creates no new backup, and reports no new migration. The pointer file is
+compatibility input only: brain never creates, rewrites, or removes it.
+
+The same pass preserves the older `markdown_to_pdf_path` relocation. If the
+portable `config.json` still contains that key and the legacy env lacks it, the
+value is folded into the new record before the registry write. Portable config
+is cleaned up only after that write succeeds; a failed registry write leaves
+the portable value intact. The explicit migration API returns typed errors,
+while the existing startup wrapper remains nonfatal.
 
 You can still hand-edit `~/.config/brain-root` (or have a dotfiles tool track
 it there — safe, since brain only ever *reads* it), but the supported path

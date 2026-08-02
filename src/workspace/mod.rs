@@ -6,13 +6,14 @@ mod name;
 mod paths;
 pub mod registry;
 
+pub(crate) use context::normalize_root;
 pub use context::{WorkspaceContext, WorkspaceContextError};
 pub use id::{WorkspaceId, WorkspaceIdError};
 pub use name::{WorkspaceName, WorkspaceNameError};
 pub use paths::WorkspacePaths;
 pub use registry::{
-    MachineRegistry, REGISTRY_SCHEMA_VERSION, RegistryError, RegistryOperation, RegistryStore,
-    SelectedWorkspace, WorkspaceRecord, validate_registry,
+    MachineRegistry, MigrationOutcome, REGISTRY_SCHEMA_VERSION, RegistryError, RegistryOperation,
+    RegistryStore, SelectedWorkspace, WorkspaceRecord, migrate_legacy, validate_registry,
 };
 
 #[cfg(test)]

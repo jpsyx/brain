@@ -181,11 +181,13 @@ domain validation errors.
 
 Every record is a silo. Canonical, alias, and omitted-selector/default lookup
 returns a borrowed `(canonical_name, record)` view of exactly one record; no
-environment or access fields are copied or merged across workspaces. Validation
-is whole-registry and requires schema `2`, at least one record, a canonical
-default, selector uniqueness under ASCII case folding (including alias versus
-canonical collisions), unique UUIDs, and absolute roots that, after lexical
-normalization, are neither equal nor ancestors/descendants of one another.
+environment fields are copied or merged across workspaces. Access policy is
+portable workspace data and is never stored in this machine registry.
+Validation is whole-registry and requires schema `2`, at least one record, a
+canonical default, selector uniqueness under ASCII case folding (including
+alias versus canonical collisions), unique UUIDs, and absolute roots that,
+after lexical normalization, are neither equal nor ancestors/descendants of
+one another.
 
 Rename rekeys only the `BTreeMap` canonical name and updates the default when
 needed, preserving the UUID and every `WorkspaceRecord` field. Changing the
@@ -200,6 +202,25 @@ and replace the live value but do not persist. `RegistryStore::update` is the
 persisted transaction: it advances the file first and replaces the caller's
 live value only after the atomic save succeeds. IO failures retain the failed
 operation, relevant destination or temporary paths, error kind, and message.
+
+### Legacy flat-env migration
+
+`workspace::registry::migrate` turns pre-v2 `env.json` into one default record.
+It preserves every machine-local flat value except the structural `root`, the
+receiver switch moved into `receiver_enabled`, and access-policy keys that do
+not belong in machine data. Nested JSON values remain unchanged. The root uses
+the legacy precedence (flat value, read-only pointer, `<home>/brain`), expands
+leading `~`, and is made absolute and lexically normalized without filesystem
+canonicalization. A valid normalized basename supplies the canonical name;
+invalid basenames use `brain`.
+
+Freshly migrated records have a generated immutable UUID, empty aliases, and an
+empty `local_user_id`. The outcome marks portable setup required so a later
+readiness layer can establish identity and the portable unrestricted default;
+this migration does not invent either. Existing flat bytes are copied exactly
+to the first free adjacent `env.json.legacy-backup[.N]` before atomic registry
+replacement. A valid v2 input is never rewritten or backed up, making reruns
+UUID-stable and byte-stable.
 
 ## Persistent state (`state.rs`, `~/.cache/brain/state.db`)
 
@@ -320,17 +341,19 @@ All rows start checked; space toggles, `a` opens a tolerant "create new" line
 cancels. Onboarding runs it for namespaces then tags; `brain config set
 namespaces|tags` re-runs it seeded with the current set.
 
-## Brain env (`env/`, `~/.config/brain/env.json`)
+## Brain env (`env/`, the selected record in `~/.config/brain/env.json`)
 
-Machine-local config, deliberately **outside** the brain root so it never rides
-whatever syncs the brain directory. See [config.md](config.md) for the store
-location, resolution, and the `brain env` command; this section is the schema.
+Machine-local config is siloed under each workspace record, deliberately
+**outside** every brain root so it never rides whatever syncs the brain
+directory. Until explicit workspace selection is wired, existing env callers
+read and atomically update the default record through a compatibility view.
+See [config.md](config.md) for migration and storage details.
 
 `env::schema::VARS` (`src/env/schema.rs`):
 
 | Variable | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `root` | `String` | `~/brain` | Path to the brain (PARA) directory on this machine. Resolved by `paths::resolve_root` (env key → legacy `~/.config/brain-root` pointer → default); commands that need the directory use `paths::brain_root()`, which creates it on demand, while `env::vars::resolve_one("root")` and `paths::brain_root_path()` remain side-effect-free. |
+| `root` | `String` | `~/brain` | The selected record's absolute lexical brain root. During legacy migration its source precedence is flat root → read-only pointer → `<home>/brain`; commands that need the directory use `paths::brain_root()`, which creates it on demand, while `env::vars::resolve_one("root")` and `paths::brain_root_path()` remain side-effect-free. |
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
 | `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Read by `env::claude_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
 | `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Read by `env::codex_command`; blank falls back to `codex`. |
@@ -349,7 +372,7 @@ setup flow remains the preferred way to create or validate the complete block.
 ## Sync config (`sync/`, the `sync` block in `env.json`)
 
 `sync::SyncConfig` (`src/sync/config.rs`) is a typed view of the `sync` object
-nested under `~/.config/brain/env.json`'s top level. As of C2, `brain sync`
+nested under the selected workspace record's `env`. As of C2, `brain sync`
 reads it to drive `rclone bisync` reconciliation and one-way `rclone copy`
 uploads (see
 [integrations.md](integrations.md) and [architecture.md](architecture.md)); as
