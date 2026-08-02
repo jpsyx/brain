@@ -131,6 +131,21 @@ the brain root it resolves. The IO-free pieces (`parse_brain_root_file`,
 `expand_tilde_with_home`) are split out so they're unit-testable without a
 real `$HOME` or pointer file. See [config.md](config.md).
 
+### `workspace/`
+The typed, selection-independent workspace foundation. `id` owns the immutable
+UUID newtype, `name` validates canonical lower-case slugs, `context` owns an
+already-resolved root and the machine's local user ID, and `paths` derives every
+machine-local runtime path from the immutable UUID. Root normalization is pure:
+it resolves a relative input against an explicit current-directory base and
+removes lexical `.` / `..` components without requiring the path to exist or
+canonicalizing symlinks. A relative root requires an absolute injected base;
+otherwise context construction returns a typed error rather than storing a
+relative root. The module does not select a workspace or consult
+aliases, defaults, or a registry; later layers construct one `WorkspaceContext`
+before passing it to workspace-aware commands. Context fields are private and
+accessors expose only immutable views, so callers cannot desynchronize the
+workspace UUID from its UUID-derived runtime paths.
+
 ### `settings/`
 The persistent config store (`<brain-root>/.config/config.json`) and the
 `brain config` command. Owns the raw JSON read/modify/write, the declared-
@@ -628,7 +643,8 @@ sibling so the two projects share a stack:
   embedded `claude` PTY.
 - `rusqlite` (`bundled`) — the WAL state DB shared with the SessionStart
   hook; `bundled` avoids a system libsqlite dependency.
-- `uuid` (`v4`) — per-shell brain-instance ids and fresh session ids.
+- `uuid` (`v4`) — per-shell brain-instance ids, fresh session ids, and
+  immutable workspace ids.
 - `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
   them out. Multi-file skill assets rule out `include_str!`.

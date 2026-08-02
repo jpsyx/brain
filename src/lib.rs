@@ -33,3 +33,4 @@ pub mod tasks;
 pub mod theme;
 pub mod triage_signal;
 pub mod tui;
+pub mod workspace;

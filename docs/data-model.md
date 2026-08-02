@@ -100,6 +100,48 @@ picker itself:
   in place and Delete trashes the path, then the entry is dropped/refreshed and
   the shell stays open.
 
+## Workspace identity (`workspace/`)
+
+`WorkspaceContext` is the immutable in-memory identity for one workspace:
+
+```rust
+struct WorkspaceContext {
+    id: WorkspaceId,       // immutable UUID identity
+    name: WorkspaceName,   // canonical [a-z0-9][a-z0-9_-]* slug
+    root: PathBuf,         // absolute lexical path, resolved once
+    local_user_id: String, // this machine's user identity in the workspace
+    paths: WorkspacePaths, // machine-local paths keyed by id
+}
+```
+
+Its fields are private and read only through `id()`, `name()`, `root()`,
+`local_user_id()`, and `paths()`. This prevents callers from constructing or
+mutating a context whose UUID, root, and UUID-derived runtime paths disagree.
+
+`WorkspaceName::parse` trims and lower-cases input, then accepts only canonical
+slugs. `WorkspaceName::from_root` derives a name from a root's final component.
+`WorkspaceId` wraps a UUID and is the stable identity even if the display name,
+root, aliases, or a machine-local default change later.
+
+`WorkspaceContext` stores an already-normalized root. Relative input is resolved
+against an explicit supplied current directory; lexical `.` and `..` components
+are collapsed without filesystem access, so a missing root and a symlinked root
+stay valid inputs. A relative root requires an absolute injected base;
+`WorkspaceContext::new` otherwise returns a typed error rather than storing a
+relative path. It intentionally carries no alias, default, or registry
+reference.
+
+`WorkspacePaths` derives its full base from the ID:
+
+```text
+<home>/.cache/brain/workspaces/<workspace-uuid>/
+```
+
+Its state database, TUI lock, inbox, responses, logs, and sync working data are
+all children of that base. `cache_dir()` borrows the stored base; each child
+accessor derives an owned path. Distinct IDs therefore cannot share runtime
+paths.
+
 ## Persistent state (`state.rs`, `~/.cache/brain/state.db`)
 
 The persistent shell tracks Claude sessions and the layout preference in
