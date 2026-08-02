@@ -430,8 +430,11 @@ of a calendar month**, and its only extra job is reviewing the backlog.
    matter now. **Do NOT walk every backlog item** — that defeats the
    purpose and wastes the user's time. Pick the handful that genuinely
    merit a second look and ask, via `AskUserQuestion`, whether to
-   **restore** each (`backlog_task.py <T###> --restore`, then set a fresh
-   `due_date`/`priority`) or **leave it parked**. Items that aren't
+   **leave it parked** or **restore** each (`backlog_task.py <T###>
+   --restore`, then set a fresh `due_date`/`priority`). **`Leave parked`
+   is ALWAYS the first option** — the backlog default is to stay parked,
+   and surfacing an item here is a preview, not a nudge to restore it
+   (same reasoning as Step 6's `Leave as is`). Items that aren't
    obviously relevant-and-doable stay in the backlog silently; the
    6-month purge (Step 0) eventually clears the truly dead ones with no
    prompt.
