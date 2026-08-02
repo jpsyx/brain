@@ -154,6 +154,40 @@ the highlight indices back to the original bytes. Net effect: `afloat`,
 `annafloat`, and `ann afloat` all find `ann-afloat`, and the highlight
 still lands on the right characters. See [data-model.md](data-model.md).
 
+## Why registry transactions use an adjacent SQLite lock database
+
+Atomic rename prevents a torn `env.json`, but it cannot prevent two processes
+from loading the same snapshot and replacing each other's successful changes.
+Every registry writer therefore enters one `RegistryStore` transaction before
+loading. The transaction holds `BEGIN IMMEDIATE` on a stable adjacent SQLite
+database through mutation, validation, persistence, and create failure
+reporting. The database has no schema or data and remains zero-length. With
+`journal_mode=OFF`, `BEGIN IMMEDIATE` is an OS-backed lock that needs neither a
+persistent initialization write nor an auxiliary journal file.
+
+The stable database is deliberately never deleted. SQLite releases its OS lock
+when the guard connection closes or its process exits, so a crashed writer
+cannot leave a stale lock and a guard cannot unlink a replacement owner's
+path. A stable PID sidecar supports typed timeout diagnostics and is likewise
+never removed. This reuses Brain's existing direct `rusqlite` dependency,
+preserves the Rust 1.85 MSRV, and avoids a `create_new` PID-file protocol whose
+stale-file reaping has unavoidable path replacement races.
+
+## Why failed workspace creation preserves every created directory
+
+A create invocation can record each path for which its `create_dir` call
+succeeded, but a later path-based identity check cannot prove that the same
+object will still be present when `remove_dir` performs its own lookup. Another
+actor can replace an empty directory between those two operations. Safe Rust
+1.85 standard-library APIs do not couple that verification and deletion
+atomically, so automatic cleanup could delete the other actor's replacement.
+
+Brain therefore never deletes created directories after a later provisioning
+or persistence failure. It retains the original failure as a structured source
+and lists only paths created by that invocation, deepest first, so the user can
+inspect and remove them manually. This leaves harmless empty directories in a
+failure case in exchange for never deleting an ambiguously owned path.
+
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
 Task management is a big domain with its own CSVs, recurrence rules, and TUI.

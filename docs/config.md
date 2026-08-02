@@ -7,7 +7,7 @@ they are never inherited or merged from the default or another record.
 
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
-| **brain env / workspace registry** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** every brain root) | Registry CLI wiring follows this foundation | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
+| **brain env / workspace registry** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** every brain root) | `brain workspace …` manages records; `brain env …` keeps the temporary default-record compatibility view | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
 | **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes** — travels with the brain | `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
@@ -36,11 +36,25 @@ workspace. Portable access policy never lives in this machine-local file.
 Registry loads accept only exact schema version `2`, a non-empty record map, a
 default that names a canonical record, unique canonical/alias selectors under
 ASCII case folding, unique UUIDs, and non-overlapping absolute roots compared
-after lexical normalization. A registry mutation is persisted transactionally by
-writing and syncing a same-directory temporary file and atomically renaming it;
-failed validation or IO leaves both the live registry and prior bytes intact.
+after lexical normalization. Every writer first acquires the adjacent
+`.env.json.transaction.lock` SQLite transaction lock, then loads the current
+bytes, mutates and validates a candidate, and persists it before releasing the
+lock.
+Lock acquisition has a bounded wait and reports the PID from the stable
+`.env.json.transaction.lock.owner` sidecar when available. SQLite releases
+ownership automatically if a process exits. Persistence is separately
+crash-safe: brain writes and syncs a same-directory temporary file, then
+atomically renames it. Failed validation or IO leaves both the live registry
+and prior bytes intact.
 Detaching a record changes only the registry and never removes or edits its
-root directory.
+root directory. Creating a workspace also treats its new root chain as part of
+the transaction. The complete candidate validates first, and `create_dir` is
+the authoritative ownership decision; an `AlreadyExists` race fails and points
+to `attach`. If later provisioning or persistence fails, Brain does not delete
+any directory: a path-based ownership check cannot be coupled atomically with
+deletion through the safe Rust 1.85 standard library. The structured error
+retains the original failure as its source and lists only the directory paths
+created by that invocation, deepest first, for manual inspection and cleanup.
 
 Registry JSON crosses a private raw-schema boundary before becoming a
 `MachineRegistry`; conversion always runs every whole-registry invariant.
@@ -49,10 +63,35 @@ domain-invalid registry. The store keeps domain validation errors typed and
 reports structural JSON and IO failures with the failed operation and path
 (plus the IO error kind and temporary path when applicable).
 
-Existing `brain env` commands and runtime root resolution use a temporary
-default-record compatibility view, preserving their single-workspace behavior
-without flattening the registry. Explicit workspace selection, registry CLI,
-portable readiness, and onboarding remain later work.
+`brain workspace` explicitly loads this schema-v2 registry and applies every
+mutation through `RegistryStore`'s interprocess transaction and atomic-save
+boundaries. Startup migration and the legacy/default `brain env` compatibility
+writer use the same lock, so they cannot overwrite a workspace command.
+Its global `--brain/-b` selector resolves canonical names and aliases for this
+registry-aware surface. Existing `brain env` commands and runtime root
+resolution still use a temporary default-record compatibility view, preserving
+their single-workspace behavior without flattening the registry. Threading the
+selected context into ordinary stores/TUI plus portable readiness and
+onboarding remain later work.
+
+### The `brain workspace` command
+
+| Command | Effect |
+| --- | --- |
+| `brain workspace list` | Deterministically list canonical records with the default marker, root, aliases, local user, receiver state, and the root's portable `access_mode` when available. Empty/unavailable setup is explicit. |
+| `brain workspace create [--name <name>] [--root <path>]` | Validate the complete candidate, create only the requested normalized root chain, and register a fresh record; root basename supplies an omitted name. A later provisioning or persistence failure preserves every directory path the invocation created and lists those paths for manual cleanup. |
+| `brain workspace attach [<root>]` | Register an existing root without creating, deleting, or editing its contents. Manifest/UUID adoption is deferred. |
+| `brain workspace rename [<workspace>] [<name>]` | Rekey the canonical name while preserving the complete record and updating the default if needed. |
+| `brain workspace alias {add\|remove} [<workspace>] [<alias>]` | Add or remove an alternative case-folded selector. A duplicate alias on the same record is an actionable error and leaves bytes unchanged. |
+| `brain workspace default [<workspace>]` | Set the canonical default through a canonical-name or alias selector. |
+| `brain workspace remove [<workspace>]` | Detach only the registry record; root and every local/remote runtime artifact remain untouched. |
+
+Every optional grammar value has a `/dev/tty` prompt when omitted and a flag
+or positional noninteractive form. All missing values are collected before the
+transaction, so cancellation cannot partially mutate the registry. Workspace
+commands run before the `markdown-to-pdf` gate; first `create`/`attach` can
+therefore establish the initial schema-v2 registry without legacy migration
+inventing a competing default.
 
 ### Legacy single-workspace brain env compatibility
 

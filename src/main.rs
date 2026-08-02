@@ -72,7 +72,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let _log_guard = logging::init(cli.verbose, true)?;
+    let log_guard = logging::init(cli.verbose, true)?;
     logging::log(format!(
         "argv {:?}",
         std::env::args().collect::<Vec<String>>()
@@ -83,6 +83,16 @@ fn main() -> Result<()> {
     // never fails (missing/broken store → generic defaults), so it is safe on
     // every entry path including `config` / `personalize` and `--no-tui`.
     personalization::init_tag_styles();
+
+    if let Some(Cmd::Workspace(args)) = &cli.command {
+        logging::log("dispatch workspace");
+        if let Err(error) = crate::workspace::command::run(args, cli.brain.as_deref()) {
+            eprintln!("{error}");
+            drop(log_guard);
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
 
     // One-time, idempotent migration into brain env (fold the brain-root pointer
     // into env.root; relocate markdown_to_pdf_path from brain config). Never fatal.
@@ -221,6 +231,7 @@ fn main() -> Result<()> {
         Some(Cmd::Habits(_)) => unreachable!("habits is dispatched before the gate"),
         Some(Cmd::Check) => unreachable!("check is dispatched before the gate"),
         Some(Cmd::Reindex(_)) => unreachable!("reindex is dispatched before the gate"),
+        Some(Cmd::Workspace(_)) => unreachable!("workspace is dispatched before the gate"),
     }
 }
 

@@ -11,6 +11,8 @@ use crate::workspace::{WorkspaceId, WorkspaceName, context::normalize_root};
 /// The storage operation that failed at a registry boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegistryOperation {
+    AcquireTransactionLock,
+    WriteTransactionLock,
     ReadRegistry,
     ParseRegistry,
     CreateLegacyBackup,
@@ -27,6 +29,8 @@ pub enum RegistryOperation {
 impl Display for RegistryOperation {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
+            Self::AcquireTransactionLock => "acquire workspace registry transaction lock",
+            Self::WriteTransactionLock => "write workspace registry transaction lock",
             Self::ReadRegistry => "read workspace registry",
             Self::ParseRegistry => "parse workspace registry JSON",
             Self::CreateLegacyBackup => "create legacy environment backup",
@@ -45,6 +49,12 @@ impl Display for RegistryOperation {
 /// A registry violates its schema, uniqueness, or storage contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegistryError {
+    /// Another process held the transaction lock past the bounded wait.
+    LockTimeout {
+        path: PathBuf,
+        owner_pid: Option<u32>,
+        waited_millis: u64,
+    },
     /// The persisted schema is not the exact supported version.
     UnsupportedSchemaVersion { found: u32 },
     /// A registry must contain at least one workspace.
@@ -72,6 +82,11 @@ pub enum RegistryError {
     UnknownWorkspace { canonical_name: String },
     /// A canonical workspace already exists.
     WorkspaceAlreadyExists { canonical_name: WorkspaceName },
+    /// The requested alias already belongs to the same canonical workspace.
+    AliasAlreadyExists {
+        canonical_name: WorkspaceName,
+        alias: WorkspaceName,
+    },
     /// An alias does not exist on the requested record.
     UnknownAlias { alias: String },
     /// Registry JSON could not be read or written.
@@ -93,6 +108,24 @@ pub enum RegistryError {
 impl Display for RegistryError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::LockTimeout {
+                path,
+                owner_pid,
+                waited_millis,
+            } => {
+                write!(
+                    formatter,
+                    "workspace registry transaction lock at {} remained held",
+                    path.display()
+                )?;
+                if let Some(owner_pid) = owner_pid {
+                    write!(formatter, " by PID {owner_pid}")?;
+                }
+                write!(
+                    formatter,
+                    " after {waited_millis}ms; retry after that process finishes. The operating system releases this lock if its owner exits; a persistent timeout indicates a live writer or a filesystem locking problem"
+                )
+            }
             Self::UnsupportedSchemaVersion { found } => write!(
                 formatter,
                 "unsupported workspace registry schema {found}; expected {REGISTRY_SCHEMA_VERSION}"
@@ -133,6 +166,13 @@ impl Display for RegistryError {
             Self::WorkspaceAlreadyExists { canonical_name } => {
                 write!(formatter, "workspace {canonical_name} already exists")
             }
+            Self::AliasAlreadyExists {
+                canonical_name,
+                alias,
+            } => write!(
+                formatter,
+                "workspace {canonical_name} already has alias {alias}"
+            ),
             Self::UnknownAlias { alias } => write!(formatter, "unknown workspace alias {alias}"),
             Self::Json {
                 operation,

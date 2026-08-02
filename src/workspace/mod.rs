@@ -1,5 +1,6 @@
 //! Immutable workspace identity, normalized roots, and workspace-scoped paths.
 
+pub mod command;
 mod context;
 mod id;
 mod name;

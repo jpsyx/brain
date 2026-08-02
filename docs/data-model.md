@@ -187,21 +187,62 @@ Validation is whole-registry and requires schema `2`, at least one record, a
 canonical default, selector uniqueness under ASCII case folding (including
 alias versus canonical collisions), unique UUIDs, and absolute roots that,
 after lexical normalization, are neither equal nor ancestors/descendants of
-one another.
+one another. `add_alias` also treats reinserting a case-folded alias already on
+the same record as a typed error; it never reports a no-op as success.
 
 Rename rekeys only the `BTreeMap` canonical name and updates the default when
 needed, preserving the UUID and every `WorkspaceRecord` field. Changing the
 default changes no record. Removal detaches a record only and never touches its
-root or contents. At the storage boundary all mutations use clone, mutate,
-whole-registry validate, same-directory atomic save, then live-value replace;
-validation or write failure preserves the original in-memory value and file
-bytes.
+root or contents. At the storage boundary all writers acquire the stable
+adjacent `.env.json.transaction.lock` database with `BEGIN IMMEDIATE` before
+loading. Under that lock they clone, mutate, whole-registry validate, perform a
+same-directory atomic save, then replace the live value. Validation or write
+failure preserves the original in-memory value and file bytes. The bounded
+acquisition error is typed with the lock path, wait duration, and owner PID
+when readable from the stable `.owner` sidecar. SQLite releases a crashed
+process's lock, and guards never unlink the stable lock database or sidecar.
 
 Methods on `MachineRegistry` are in-memory transactions: they clone, validate,
-and replace the live value but do not persist. `RegistryStore::update` is the
-persisted transaction: it advances the file first and replaces the caller's
-live value only after the atomic save succeeds. IO failures retain the failed
-operation, relevant destination or temporary paths, error kind, and message.
+and replace the live value but do not persist. `RegistryStore::update` reloads
+inside the interprocess transaction, advances the file first, and replaces the
+caller's live value only after the atomic save succeeds. IO failures retain the
+failed operation, relevant destination or temporary paths, error kind, and
+message. Startup migration and the default-record env compatibility writer use
+this same transaction owner.
+
+### Workspace CLI decisions (`workspace/command/`)
+
+Clap retains `--brain/-b` as an unresolved `Option<String>`. At the registry
+boundary, `MachineRegistry::select` case-folds it and resolves a canonical name
+or alias. Before Clap delegates a trailing task argument list, one shared
+real/test normalization extracts `--brain value`, `-b value`, or
+`--brain=value` from any pre-`--` position and keeps the exact raw value.
+Selector-looking tokens after `--` remain delegated values. This selection is
+active for registry-aware workspace commands only in this foundation; ordinary
+runtime/store context threading is a later layer.
+
+Collected management values first become a pure `Mutation` enum. `Create` and
+`Attach` carry a validated canonical name plus an absolute, tilde-expanded,
+lexically normalized root. Rename and alias decisions carry validated new
+names; default/removal carry only selectors. In particular, `Remove` has no
+filesystem path or deletion operation. The shell then loads schema v2 directly
+and persists via `RegistryStore`; it never flattens through legacy env helpers.
+
+Fresh create/attach records receive a new UUID, empty local-user placeholder,
+disabled receiver, no aliases, and an empty machine env. `create` may create
+only its requested root after candidate validation. It records the exact
+missing directory chain. If later provisioning or persistence fails, every
+path created by that invocation is preserved. Brain performs no automatic
+directory deletion because safe Rust 1.85 path APIs cannot atomically verify
+ownership and delete the same object. The structured error retains the
+original failure as its source and lists only those invocation-created paths,
+deepest first, for manual inspection and cleanup. `AlreadyExists` during
+creation is treated as a race, left untouched, and omitted from the cleanup
+list. `attach` requires an existing directory. Rename, alias, and default
+changes preserve the record's UUID and all unrelated data. Removal detaches a
+non-default record only. Manifest validation, UUID adoption,
+portable local-user readiness, and selected `WorkspaceContext` bootstrap are
+not part of this layer.
 
 ### Legacy flat-env migration
 
@@ -345,8 +386,10 @@ namespaces|tags` re-runs it seeded with the current set.
 
 Machine-local config is siloed under each workspace record, deliberately
 **outside** every brain root so it never rides whatever syncs the brain
-directory. Until explicit workspace selection is wired, existing env callers
-read and atomically update the default record through a compatibility view.
+directory. Workspace management resolves explicit selection directly against
+the registry. Existing env/runtime callers still read and atomically update the
+default record through a compatibility view until runtime context threading
+lands.
 See [config.md](config.md) for migration and storage details.
 
 `env::schema::VARS` (`src/env/schema.rs`):

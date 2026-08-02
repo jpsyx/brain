@@ -46,7 +46,8 @@ The code is the source-of-truth for *how*. They must agree on *what*.
 src/
   main.rs        — entry point, command dispatch (bare brain → tasks view)
   lib.rs         — public re-exports for integration tests
-  cli.rs         — clap surface (Cli + Cmd: tasks / config / env / sync)
+  cli/           : focused clap surface (global + command-family modules)
+  workspace/     : typed identity, schema-v2 registry, and workspace CLI
   config.rs      — typed knobs (triage pattern, linear, rollover)
   paths.rs       — brain-root resolution (config store / $HOME, tilde expand)
   settings/      — config store + `brain config` + markdown-to-pdf prereq

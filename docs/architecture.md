@@ -42,6 +42,7 @@ the binary:
   ├─ every run → writes a timestamped `/tmp` log; `--verbose` mirrors logs to stdout
   ├─ `brain config …`  → prints the config table / a value to stdout
   ├─ `brain tasks … --no-tui | complete | doctor` → plain output / mutate / check
+  ├─ `brain workspace …` → manages the schema-v2 registry and exits
   └─ everything else   → opens the persistent TUI on /dev/tty
 ```
 
@@ -58,9 +59,10 @@ detail.
 
 ```
 argv
- └─→ Cli::parse                          (cli.rs)
+ └─→ Cli::parse                          (cli/)
       ├─→ -v / --version / Cmd::Version ─→ print crate version and exit before any gates
       ├─→ logging::init                  (timestamped `/tmp` log; stdout mirror with `--verbose`)
+      ├─→ Cmd::Workspace ─→ workspace::command::run (registry management; before migration/gate)
       ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
       ├─→ Cmd::Env ─→ env_command         (list/get/set over env.json; also BEFORE the gate)
       ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/repair/status/conflicts; also BEFORE the gate)
@@ -98,17 +100,26 @@ and the shell stays up.
 ## Modules
 
 ### `main.rs`
-Owns argv → `Cli` and the top-level `match` over `Cmd`. `brain config …` is
-dispatched first (before the `markdown-to-pdf` gate). Bare `brain` and
-`brain tasks …` both flow into `tasks_launch`, which either runs a tasks
+Owns argv → `Cli` and the top-level `match` over `Cmd`. `brain workspace …` is
+dispatched before legacy migration and the `markdown-to-pdf` gate so a fresh
+machine can create or attach its first registry record directly. `brain config …`
+and the other short-lived management commands also run before the gate. Bare
+`brain` and `brain tasks …` both flow into `tasks_launch`, which either runs a tasks
 utility (`complete` → native CSV completion; `doctor` → `run_doctor`; `--no-tui`
 → `plain::print_plain`) or opens the merged shell via `tui::run_tui`. There is
 no plan and no `Exit` mapping: the shell just returns when the user quits.
 
-### `cli.rs`
-The clap derive surface. `Cli` owns the global flags (`-v`/`--version` and
-`--verbose`) plus one optional `Cmd`. Bare `brain` (no `Cmd`) is equivalent to
-`brain tasks` — the tasks view is the startup default.
+### `cli/`
+The clap derive surface, split by command family. `mod.rs` keeps the parser
+entry, public re-exports, and the small top-level `Cmd`; `global`,
+`configuration`, `tasks`, `sync`, `server`, and `workspace` own their focused
+arguments. All former `crate::cli::*` type paths remain stable. `Cli` owns the
+global flags, including raw `--brain/-b <workspace>` selection, plus one
+optional `Cmd`. The shared real/test parser normalization extracts that selector
+before Clap's delegated `tasks` tail can capture it, including after a task
+positional; `--` stops extraction. Clap retains the exact raw selector, and
+registry-aware dispatch resolves it case-insensitively as a canonical name or
+alias. Bare `brain` remains equivalent to `brain tasks`.
 
 ### `logging.rs`
 Per-run logging. `logging::init` always creates a timestamped
@@ -139,8 +150,14 @@ machine-local runtime path from the immutable UUID. `registry/` owns the
 versioned machine registry, split by responsibility into `model` (schema and
 validated mutations), `validate` (pure whole-registry invariants), `select`
 (borrowed canonical/default/alias resolution), `store` (the fixed registry
-path, loading, transactional updates, and same-directory atomic replacement),
+path, lock-owning transactions, and same-directory atomic replacement), `lock`
+(the bounded SQLite transaction lock on the stable adjacent database),
 and `migrate` (the one-time flat-env conversion and exact-byte backup).
+`command/` owns the workspace CLI: `mutate` turns collected values into pure,
+validated registry-only decisions and owns registry-only mutations; `provision`
+owns create/attach filesystem and persistence transactions; `list` renders
+deterministic themed output; `prompt` collects omitted human values from
+`/dev/tty`; and `mod.rs` stays focused on dispatch and re-exports.
 Root normalization is pure:
 it resolves a relative input against an explicit current-directory base and
 removes lexical `.` / `..` components without requiring the path to exist or
@@ -155,9 +172,18 @@ root, aliases, local user identity, receiver switch, and machine environment
 map). Selection borrows exactly that record and never copies or merges another
 workspace's environment. Whole-registry validation rejects ambiguous selectors,
 duplicate UUIDs, a missing default, and exact or ancestor/descendant root
-overlap after absolute lexical normalization. Store transactions clone and
-mutate a candidate, validate the whole candidate, atomically persist it, and
-only then replace the live value.
+overlap after absolute lexical normalization. `RegistryStore::transaction`
+acquires the interprocess lock before any load and holds it through mutation,
+whole-candidate validation, atomic persistence, live-value replacement, and
+create failure reporting. Lock timeout errors retain the lock path, owner PID when
+available, and wait duration. The stable adjacent lock database is never
+unlinked; the existing `rusqlite` dependency holds `BEGIN IMMEDIATE` for the
+transaction lifetime. The lock database remains zero-length: it has no schema
+or data writes and uses `journal_mode=OFF`, so locking needs neither
+initialization nor journal files. This also lets registry persistence report
+its own permissions failure in a read-only parent. SQLite releases its OS lock
+on normal close or process exit. A stable owner sidecar supplies the diagnostic
+PID. Atomic replacement remains a separate persistence guarantee.
 
 At startup, `registry::migrate` checks this fixed file before ordinary command
 dispatch. A valid schema-v2 registry is returned without any write. Otherwise
@@ -173,9 +199,26 @@ later readiness layer.
 Before replacing an existing flat file, migration creates an adjacent
 exact-byte `env.json.legacy-backup` (or the first free numeric suffix), then
 uses the atomic registry store. Re-running sees schema v2 and preserves both the
-UUID and registry bytes without another backup. The existing env/root callers
-currently use a default-record compatibility view so commands continue working;
-explicit workspace CLI selection and readiness are not wired yet.
+UUID and registry bytes without another backup. Workspace management is the
+exception to this startup ordering: it runs first, loads schema v2 explicitly,
+and never projects through the compatibility view. `workspace create` creates
+only its requested root after validating the complete registry candidate. It
+tracks every missing root-directory component it creates. If later directory
+creation or registry persistence fails, Brain never deletes those paths:
+safe Rust 1.85 path APIs cannot atomically couple ownership verification with
+deletion. A composed error keeps the original provisioning or persistence
+error as its source and lists only the paths this invocation created, deepest
+first, for manual inspection and cleanup. An `AlreadyExists` result is an
+ownership race, not successful provisioning and is never added to that list.
+`attach` requires an existing root; rename,
+aliases, default changes, and removal use `RegistryStore` transactions. Adding
+an alias already present on the same record is a typed error rather than a
+successful no-op. Removal detaches only the record. Existing env/root callers
+still use a default-record
+compatibility view. Its writes and startup migration enter the same registry
+transaction, so every in-process writer is serialized. `--brain` is not yet
+threaded through ordinary runtime stores or the TUI; readiness is also later
+work.
 
 Deserialization has a single trusted boundary: JSON first enters a private raw
 schema DTO, then conversion runs the same pure whole-registry validator used by
@@ -664,7 +707,8 @@ rebuild:
 - **`Bucket` declaration order is the display order** (Projects → Areas →
   Resources → Archive). The picker's `sort_by` and `build_display_rows`
   rely on the derived `Ord`.
-- **The binary's stdout is *only* `brain config` output** (plus clap
+- **The binary's stdout is *only* intentional short-lived CLI output**
+  (`brain config`/`env`/`workspace`, version, and explicit plain task output; plus clap
   help/errors). No other path prints to stdout. Diagnostics go to stderr; the
   TUI goes to `/dev/tty`.
 - **Every `Choice` has exactly one palette row** (guarded by a test on

@@ -56,43 +56,47 @@ pub(crate) fn load_map() -> Map<String, Value> {
 /// Update the schema-v2 default record through the atomic registry store.
 /// Flat output remains only for a missing pre-migration registry.
 pub(super) fn save_map_at(path: &Path, map: &Map<String, Value>) -> Result<()> {
-    if let Ok(mut registry) = crate::workspace::RegistryStore::load_from(path) {
-        let canonical_name = registry.default_workspace.clone();
-        let record = registry
-            .workspaces
-            .get_mut(&canonical_name)
-            .ok_or_else(|| anyhow::anyhow!("default workspace record disappeared"))?;
-        if let Some(root) = map
-            .get("root")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            let home = std::env::var_os("HOME").map_or_else(PathBuf::new, PathBuf::from);
-            let expanded = crate::paths::expand_tilde_with_home(root, &home);
-            record.root = crate::workspace::normalize_root(&expanded, &home)
+    let store = crate::workspace::RegistryStore::from_path(path.to_path_buf());
+    store.transaction(|transaction| -> Result<()> {
+        if let Ok(mut registry) = transaction.load() {
+            let canonical_name = registry.default_workspace.clone();
+            let record = registry
+                .workspaces
+                .get_mut(&canonical_name)
+                .ok_or_else(|| anyhow::anyhow!("default workspace record disappeared"))?;
+            if let Some(root) = map
+                .get("root")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                let home = std::env::var_os("HOME").map_or_else(PathBuf::new, PathBuf::from);
+                let expanded = crate::paths::expand_tilde_with_home(root, &home);
+                record.root = crate::workspace::normalize_root(&expanded, &home)
+                    .map_err(|error| anyhow::anyhow!(error))?;
+            }
+            let mut env = map.clone();
+            for reserved in ["root", "receiver_enabled", "access_mode", "access_policy"] {
+                env.remove(reserved);
+            }
+            record.env = env;
+            transaction
+                .save(&registry)
                 .map_err(|error| anyhow::anyhow!(error))?;
+            return Ok(());
         }
-        let mut env = map.clone();
-        for reserved in ["root", "receiver_enabled", "access_mode", "access_policy"] {
-            env.remove(reserved);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
         }
-        record.env = env;
-        crate::workspace::RegistryStore::save_atomic_to(path, &registry)
-            .map_err(|error| anyhow::anyhow!(error))?;
-        return Ok(());
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let body = serde_json::to_string_pretty(&Value::Object(map.clone()))?;
-    std::fs::write(path, format!("{body}\n"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
+        let body = serde_json::to_string_pretty(&Value::Object(map.clone()))?;
+        std::fs::write(path, format!("{body}\n"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        Ok(())
+    })
 }
 
 pub(super) fn save_map(map: &Map<String, Value>) -> Result<()> {

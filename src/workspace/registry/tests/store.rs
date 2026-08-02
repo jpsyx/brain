@@ -1,6 +1,84 @@
 use super::*;
 
 #[test]
+fn transaction_timeout_is_typed_and_names_the_lock_owner_and_remedy() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("env.json");
+    let lock_path = directory.path().join(".env.json.transaction.lock");
+    let holder = RegistryStore::from_path(path.clone());
+    let error = holder
+        .transaction(|_| -> Result<RegistryError, RegistryError> {
+            let blocked = RegistryStore::from_path_with_lock_timeout(
+                path,
+                std::time::Duration::from_millis(20),
+            );
+            Ok(blocked
+                .transaction::<(), RegistryError>(|_| {
+                    panic!("held locks must block registry loading")
+                })
+                .unwrap_err())
+        })
+        .unwrap();
+
+    assert!(matches!(
+        error,
+        RegistryError::LockTimeout {
+            path: ref error_path,
+            owner_pid: Some(owner_pid),
+            waited_millis: 20,
+        } if error_path == &lock_path && owner_pid == std::process::id()
+    ));
+    let message = error.to_string();
+    assert!(message.contains("transaction lock"));
+    assert!(message.contains("retry"));
+    assert!(message.contains("operating system releases this lock"));
+}
+
+#[test]
+fn zero_length_lock_artifact_recovers_after_owner_exits_without_dropping_guard() {
+    const CHILD_ENV: &str = "BRAIN_REGISTRY_CRASHED_LOCK_CHILD";
+    let Some(test_root) = std::env::var_os(CHILD_ENV).map(PathBuf::from) else {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "workspace::registry::tests::store::zero_length_lock_artifact_recovers_after_owner_exits_without_dropping_guard",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, directory.path())
+            .output()
+            .expect("crashing lock-holder child");
+        assert_eq!(output.status.code(), Some(86));
+        let lock_path = directory.path().join(".env.json.transaction.lock");
+        assert!(lock_path.is_file(), "the stable lock database remains");
+        assert_eq!(
+            fs::metadata(&lock_path).expect("lock metadata").len(),
+            0,
+            "locking must not depend on crash-sensitive schema initialization"
+        );
+
+        let store = RegistryStore::from_path_with_lock_timeout(
+            directory.path().join("env.json"),
+            std::time::Duration::from_millis(50),
+        );
+        store
+            .transaction::<(), RegistryError>(|_| Ok(()))
+            .expect("the operating system should release a crashed owner's lock");
+        assert!(
+            lock_path.is_file(),
+            "guards never unlink the shared lock database"
+        );
+        return;
+    };
+
+    let store = RegistryStore::from_path(test_root.join("env.json"));
+    let _ = store.transaction::<(), RegistryError>(|_| {
+        std::process::exit(86);
+    });
+    unreachable!("process::exit never returns");
+}
+
+#[test]
 fn store_load_preserves_unsupported_schema_error() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("env.json");
@@ -146,15 +224,19 @@ fn persistence_failure_keeps_memory_and_original_file_bytes_unchanged() {
 fn post_create_rename_failure_cleans_up_the_temporary_file() {
     let directory = tempfile::tempdir().expect("tempdir");
     let destination = directory.path().join("env.json");
-    fs::create_dir(&destination).unwrap();
-    fs::write(destination.join("keep"), b"keep").unwrap();
     let temporary = directory.path().join("injected.tmp");
-    let mut registry = registry_with_brain_and_family();
-    let original = registry.clone();
+    let registry = registry_with_brain_and_family();
+    RegistryStore::save_atomic_to(&destination, &registry).unwrap();
     let store = RegistryStore::from_path_with_temporary(destination.clone(), temporary.clone());
 
     let error = store
-        .update(&mut registry, |candidate| candidate.set_default("family"))
+        .transaction(|transaction| {
+            let mut latest = transaction.load()?;
+            fs::remove_file(&destination).unwrap();
+            fs::create_dir(&destination).unwrap();
+            fs::write(destination.join("keep"), b"keep").unwrap();
+            transaction.update(&mut latest, |candidate| candidate.set_default("family"))
+        })
         .unwrap_err();
     let display = error.to_string();
 
@@ -172,7 +254,6 @@ fn post_create_rename_failure_cleans_up_the_temporary_file() {
     assert!(display.contains(temporary.to_str().unwrap()));
     assert!(!temporary.exists());
     assert_eq!(fs::read(destination.join("keep")).unwrap(), b"keep");
-    assert_eq!(registry, original);
 }
 
 #[test]

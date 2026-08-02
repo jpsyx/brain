@@ -219,7 +219,23 @@ impl MachineRegistry {
         alias: WorkspaceName,
     ) -> Result<(), RegistryError> {
         self.mutate(|candidate| {
-            candidate.record_mut(canonical_name)?.aliases.insert(alias);
+            let canonical_name = WorkspaceName::parse(canonical_name).map_err(|_| {
+                RegistryError::UnknownWorkspace {
+                    canonical_name: canonical_name.to_owned(),
+                }
+            })?;
+            let record = candidate
+                .workspaces
+                .get_mut(&canonical_name)
+                .ok_or_else(|| RegistryError::UnknownWorkspace {
+                    canonical_name: canonical_name.to_string(),
+                })?;
+            if !record.aliases.insert(alias.clone()) {
+                return Err(RegistryError::AliasAlreadyExists {
+                    canonical_name,
+                    alias,
+                });
+            }
             Ok(())
         })
     }

@@ -49,6 +49,34 @@ pub(crate) fn migrate_legacy_with(
     legacy_body: &[u8],
     fallback_env: &Map<String, Value>,
 ) -> Result<MigrationOutcome, RegistryError> {
+    let env_path = config_dir.join("env.json");
+    RegistryStore::from_path(env_path).transaction(|transaction| {
+        let authoritative_body = match transaction.read_bytes() {
+            Ok(body) => body,
+            Err(RegistryError::Io {
+                operation: RegistryOperation::ReadRegistry,
+                kind: std::io::ErrorKind::NotFound,
+                ..
+            }) => legacy_body.to_vec(),
+            Err(error) => return Err(error),
+        };
+        migrate_locked(
+            transaction,
+            home,
+            config_dir,
+            &authoritative_body,
+            fallback_env,
+        )
+    })
+}
+
+fn migrate_locked(
+    transaction: &super::store::RegistryTransaction<'_>,
+    home: &Path,
+    config_dir: &Path,
+    legacy_body: &[u8],
+    fallback_env: &Map<String, Value>,
+) -> Result<MigrationOutcome, RegistryError> {
     if let Ok(registry) = serde_json::from_slice::<MachineRegistry>(legacy_body) {
         return Ok(MigrationOutcome {
             registry,
@@ -93,7 +121,7 @@ pub(crate) fn migrate_legacy_with(
         .is_file()
         .then(|| backup_legacy(&env_path, legacy_body))
         .transpose()?;
-    RegistryStore::save_atomic_to(&env_path, &registry)?;
+    transaction.save(&registry)?;
     Ok(MigrationOutcome {
         registry,
         created_registry: true,

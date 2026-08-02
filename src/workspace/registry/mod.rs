@@ -1,5 +1,6 @@
 //! The versioned, machine-global workspace registry.
 
+mod lock;
 mod migrate;
 mod model;
 mod select;

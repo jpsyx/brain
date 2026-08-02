@@ -25,6 +25,27 @@ first move is a failing test that reproduces it, *then* the fix.
   (text vs blob, case-insensitivity, extensionless), `finder_target`,
   `open_target::is_markdown` (strictly `.md`) and `pdf_output_path`
   (colocated same-stem `.pdf`).
+- **Workspace CLI decisions.** Clap and binary tests cover every placement of
+  the raw `--brain/-b` selector, including after delegated task positionals,
+  the long equals form, the `--` terminator, and duplicate/missing-value errors,
+  plus the complete optional-value management grammar.
+  `workspace::command::mutate` tests tilde/relative root normalization and each
+  registry-only decision, including a removal variant with no filesystem path
+  or delete operation. Hermetic CLI tests force first/later create persistence
+  failures and assert exact registry preservation plus preservation of every
+  invocation-created root-chain path with actionable manual cleanup. A
+  filesystem release barrier starts multiple compiled-binary writers together
+  and asserts every successful registration survives. Store tests cover typed
+  lock timeouts plus abrupt-exit recovery of a zero-length schema-free lock
+  artifact. Provision seams inject partial creation and a replacement path,
+  then assert no created directory is removed, only invocation-created paths
+  are listed, and the original error remains recoverable through its source
+  chain.
+  Duplicate same-record aliases are checked case-folded with byte preservation.
+  `workspace::command::prompt` tests which missing values require `/dev/tty`,
+  plus EOF cancellation, required-value retry, optional blank names,
+  multi-answer collection, and contextual read/write failures through injected
+  `BufRead`/`Write` seams. The real `/dev/tty` opener stays thin.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
   map (defaults vs overrides — never the real store), the `config list` table
   layout and coloring, value coercion (`4`→number), name normalization, the
@@ -133,6 +154,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
+| `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: create/default, attach, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. |
 | `tests/verbose_cli.rs` | End-to-end `--verbose` contract for the compiled binary: stdout mirroring, `/tmp` log-file creation, command/action breadcrumbs, and task CSV load/write logging. |
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because

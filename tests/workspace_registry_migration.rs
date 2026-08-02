@@ -263,7 +263,9 @@ fn valid_schema_v2_registry_is_a_byte_for_byte_no_op() {
             },
         )]),
     };
-    RegistryStore::save_atomic_to(&env_path, &registry).expect("write valid registry");
+    RegistryStore::from_path(env_path.clone())
+        .replace(&registry)
+        .expect("write valid registry");
     let original = fs::read(&env_path).expect("original bytes");
 
     let outcome = migrate_legacy(home.path(), &config_dir, &original).expect("check registry");

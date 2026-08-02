@@ -176,13 +176,14 @@ overlay and returns to the underlying search (no cd, no claude, no error).
 
 ## Subcommands
 
-There are only two subcommands; everything else lives inside the persistent
-shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
+Bare `brain` (no subcommand) opens the shell on the tasks view. Short-lived
+management and reporting commands stay outside the persistent shell.
 
 | Command | Behavior |
 | --- | --- |
 | `brain` | Open the persistent shell on the tasks view (the startup default) with the default Claude brain panel. |
 | `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. Claude remains the default. |
+| `brain --brain <workspace>` / `brain -b <workspace>` | Retain a global canonical-name or alias selector. Workspace registry commands resolve it now; ordinary config/env/sync/TUI context threading follows in the later runtime-context layer. The option may appear before or after a subcommand or delegated task positional. `--brain=<workspace>` is equivalent; `--` ends option extraction. |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` may be passed before or after `tasks` to use Codex in the brain panel. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
 | `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
@@ -190,6 +191,8 @@ shell. Bare `brain` (no subcommand) opens the shell on the tasks view.
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env. Use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
+| `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present. |
+| `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove}` | Manage the schema-v2 machine registry atomically. Omitted values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. |
 | `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
@@ -256,6 +259,48 @@ brain root on purpose); a legacy `~/.config/brain-root` pointer file is read
 for back-compat and auto-migrated into the `root` key on first run. See
 [config.md](config.md) for the full store/schema description and
 [data-model.md](data-model.md) for the `sync` block's fields.
+
+### `brain workspace`
+
+Manages the schema-v2 registry at the fixed machine path without going through
+the legacy/default env compatibility view. Canonical names and aliases are
+case-folded selectors; `--brain/-b` is global and may be placed around nested
+subcommands or after a delegated task positional. The long equals form is also
+accepted. A `--` option terminator leaves later selector-looking tokens in the
+delegated task values.
+
+- `workspace create [--name <name>] [--root <path>]` normalizes the root
+  against explicit home/current-directory inputs, creates that requested root,
+  and registers a fresh UUID. A missing name derives from the root basename;
+  the first record becomes default and later creates preserve the current
+  default. The complete registry candidate is validated before root creation.
+  `RegistryStore` serializes every writer before its load. If persistence
+  or later directory creation fails, brain never automatically deletes a
+  created path because verification and deletion cannot be coupled atomically
+  with the supported safe standard-library API. The structured error preserves
+  the original failure as its source and lists only paths this invocation
+  created, deepest first, for manual inspection and cleanup. An
+  `AlreadyExists` path belongs to the competing actor and is preserved without
+  being listed as invocation-created.
+- `workspace attach [<root>]` registers an existing directory without changing
+  its contents. Manifest validation and UUID adoption are intentionally deferred
+  to the readiness layer.
+- `workspace rename [<workspace>] [<name>]`, `workspace alias add/remove`, and
+  `workspace default [<workspace>]` preserve the complete selected record and
+  persist through the interprocess registry transaction and atomic-save
+  boundaries. Adding an alias
+  already present on the same record, including a case-folded equivalent, fails
+  without changing registry bytes.
+- `workspace remove [<workspace>]` detaches only a non-default registry record.
+  It never deletes root, config, cache, sync, or remote data. Choose another
+  default first when removing the current default.
+- `workspace list` uses themed semantic tokens and becomes deterministic plain
+  text under `NO_COLOR`. Empty local user and unavailable portable
+  `access_mode` are shown as `setup pending`, not guessed.
+
+When a human omits a value, brain collects all missing values from `/dev/tty`
+before mutating anything; EOF cancels without a partial registry change. The
+same operations remain fully scriptable through flags and positional values.
 
 ### `brain reindex`
 
