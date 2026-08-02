@@ -16,7 +16,9 @@ use crate::tui::*;
 
 pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     let focused = app.focus == Panel::Brain;
-    let alive = app.brain.as_ref().is_some_and(PtyPane::is_alive);
+    let has_triage = app.triage_brain.is_some();
+    let active_tab = app.effective_brain_tab();
+    let alive = app.active_brain_pty().is_some_and(PtyPane::is_alive);
 
     let border_color = if focused {
         Color::Rgb(125, 207, 255) // cyan accent — matches the rest of the palette
@@ -24,10 +26,14 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
         Color::Rgb(78, 92, 122) // very dim
     };
     let agent = app.agent_kind.label();
+    let base_title = match active_tab {
+        BrainTab::Main => format!("Brain · {agent}"),
+        BrainTab::Triage => format!("Daily triage · {agent}"),
+    };
     let title_status = if alive {
-        format!("Brain · {agent}")
+        base_title
     } else {
-        format!("Brain · {agent} exited")
+        format!("{base_title} exited")
     };
     let title = Line::from(vec![
         Span::raw(" "),
@@ -46,30 +52,45 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // Reserve the bottom row for the help / status footer.
-    let term_h = inner.height.saturating_sub(1);
+    // With a triage tab open, the top inner row is a tab strip; the bottom row
+    // is always the help / status footer. The PTY fills what's left.
+    let mut term_y = inner.y;
+    let mut body_h = inner.height;
+    if has_triage && body_h > 0 {
+        let tab_area = Rect {
+            x: inner.x,
+            y: term_y,
+            width: inner.width,
+            height: 1,
+        };
+        f.render_widget(Paragraph::new(vec![tab_bar_line(active_tab)]), tab_area);
+        term_y = term_y.saturating_add(1);
+        body_h = body_h.saturating_sub(1);
+    }
+    let footer_h = body_h.min(1);
+    let term_h = body_h.saturating_sub(footer_h);
     let term_area = Rect {
         x: inner.x,
-        y: inner.y,
+        y: term_y,
         width: inner.width,
         height: term_h,
     };
     let footer_area = Rect {
         x: inner.x,
-        y: inner.y + term_h,
+        y: term_y + term_h,
         width: inner.width,
-        height: 1,
+        height: footer_h,
     };
 
-    // Resize the PTY + parser to match the inner terminal area. No-op when
-    // dimensions match, so this is safe to call every frame.
-    if let Some(pty) = app.brain.as_mut() {
+    // Resize the active PTY + parser to match the inner terminal area. No-op
+    // when dimensions match, so this is safe to call every frame.
+    if let Some(pty) = app.active_brain_pty_mut() {
         if term_area.height > 0 && term_area.width > 0 {
             pty.resize(term_area.height, term_area.width);
         }
     }
 
-    if let Some(pty) = app.brain.as_ref() {
+    if let Some(pty) = app.active_brain_pty() {
         if let Ok(parser) = pty.parser.read() {
             let screen = parser.screen();
             let widget = PseudoTerminal::new(screen);
@@ -99,14 +120,7 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
                 .fg(Color::Rgb(255, 199, 119))
                 .add_modifier(Modifier::BOLD),
         )),
-        None if alive => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("Alt+H", key),
-            Span::styled(" tasks", dim),
-            Span::styled("   ", dim),
-            Span::styled("^X", key),
-            Span::styled(" close brain", dim),
-        ]),
+        None if alive => footer_hint(active_tab, has_triage, key, dim),
         // The event loop closes the panel as soon as the agent exits, so this
         // shows for at most one frame before tasks goes full-width.
         None => Line::from(Span::styled(
@@ -117,4 +131,57 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
         )),
     };
     f.render_widget(Paragraph::new(vec![footer]), footer_area);
+}
+
+/// The two-tab strip shown at the top of the brain panel while a daily-triage
+/// session is running. The active tab is bright; the other is dimmed.
+fn tab_bar_line(active: BrainTab) -> Line<'static> {
+    let active_style = Style::default()
+        .fg(Color::Rgb(125, 207, 255))
+        .add_modifier(Modifier::BOLD);
+    let idle_style = Style::default().fg(Color::Rgb(122, 134, 173));
+    let style_for = |tab: BrainTab| {
+        if tab == active {
+            active_style
+        } else {
+            idle_style
+        }
+    };
+    Line::from(vec![
+        Span::raw(" "),
+        Span::styled(" 1 Brain ", style_for(BrainTab::Main)),
+        Span::raw(" "),
+        Span::styled(" 2 Daily triage ", style_for(BrainTab::Triage)),
+    ])
+}
+
+/// The normal (agent-alive) footer hint. Names the reliable way back to tasks
+/// and, when a triage tab is open, the tab-switch key and the tab-specific
+/// close action (`^X` closes only the triage tab from the triage tab).
+fn footer_hint(active: BrainTab, has_triage: bool, key: Style, dim: Style) -> Line<'static> {
+    let mut spans = vec![
+        Span::raw(" "),
+        Span::styled("Alt+H", key),
+        Span::styled(" tasks", dim),
+    ];
+    if has_triage {
+        let (switch_key, switch_label) = match active {
+            BrainTab::Main => ("Alt+2", " triage"),
+            BrainTab::Triage => ("Alt+1", " brain"),
+        };
+        spans.push(Span::styled("   ", dim));
+        spans.push(Span::styled(switch_key, key));
+        spans.push(Span::styled(switch_label, dim));
+    }
+    spans.push(Span::styled("   ", dim));
+    spans.push(Span::styled("^X", key));
+    spans.push(Span::styled(
+        if has_triage && active == BrainTab::Triage {
+            " close tab"
+        } else {
+            " close brain"
+        },
+        dim,
+    ));
+    Line::from(spans)
 }

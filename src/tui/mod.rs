@@ -38,6 +38,7 @@
 mod app_actions;
 mod app_brain;
 mod app_sync;
+mod app_triage_tab;
 mod app_state;
 mod draw;
 mod draw_help;
@@ -114,6 +115,17 @@ use shell::ShellRunner;
 pub(crate) enum Panel {
     Tasks,
     Brain,
+}
+
+/// Which session is showing inside the brain panel. The panel normally hosts a
+/// single persistent session ([`BrainTab::Main`]); [`BrainTab::Triage`] is the
+/// ephemeral daily-triage session that appears as a second tab only while a
+/// triage pass is running (see `App::triage_brain`). Selected with `Alt+1` /
+/// `Alt+2`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BrainTab {
+    Main,
+    Triage,
 }
 
 /// Subtle "elevation" background for the row(s) belonging to the currently
@@ -235,6 +247,23 @@ pub(crate) struct App<'a> {
     /// idle startup panel even while another modal is visible.
     brain_turn_active: bool,
     focus: Panel,
+
+    /// The ephemeral daily-triage session, shown as a second brain-panel tab
+    /// (`Alt+2`) while a triage pass runs. Unlike `brain` it is never recorded
+    /// in the session DB (see `session::env_for_triage`), so it is never
+    /// resumed: if the shell closes before triage finishes the session is
+    /// simply lost, and the daily-triage nudge fires again next launch. It is
+    /// auto-closed when the `/triage` skill signals completion (see
+    /// `crate::triage_signal` + `tick_triage_done`).
+    triage_brain: Option<PtyPane>,
+    /// Which brain-panel tab is showing. Only ever `BrainTab::Triage` while
+    /// `triage_brain` is `Some`.
+    active_brain_tab: BrainTab,
+    /// The one-time token brain handed the running triage session in
+    /// `BRAIN_TRIAGE_TOKEN`. The completion signal must carry a matching token
+    /// to auto-close the tab, so a stale signal from an earlier run can't close
+    /// a freshly-opened session.
+    triage_token: Option<String>,
 
     /// Which main view is showing in the main panel: the tasks view (startup
     /// default) or the brain-directory fuzzy-search view. The brain panel is

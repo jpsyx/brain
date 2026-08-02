@@ -15,6 +15,9 @@ pub enum Route {
     Sms,
     /// `POST /email`: receive an authenticated Resend email webhook.
     Email,
+    /// `POST /triage/done`: the ephemeral daily-triage session reports it has
+    /// finished, so the tasks view can auto-close the triage tab.
+    TriageDone,
     /// Anything else.
     NotFound,
 }
@@ -31,6 +34,7 @@ pub fn route(method: &str, path: &str) -> Route {
         ("POST", "/habits/done") => Route::HabitsDone,
         ("POST", "/sms") => Route::Sms,
         ("POST", "/email") => Route::Email,
+        ("POST", "/triage/done") => Route::TriageDone,
         _ => Route::NotFound,
     }
 }
@@ -62,6 +66,16 @@ mod tests {
     #[test]
     fn post_email_is_the_email_endpoint() {
         assert_eq!(route("POST", "/email"), Route::Email);
+    }
+
+    #[test]
+    fn post_triage_done_is_triage_done() {
+        assert_eq!(route("POST", "/triage/done"), Route::TriageDone);
+    }
+
+    #[test]
+    fn wrong_method_on_triage_done_is_not_found() {
+        assert_eq!(route("GET", "/triage/done"), Route::NotFound);
     }
 
     #[test]

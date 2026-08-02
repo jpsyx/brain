@@ -45,6 +45,7 @@ mod state;
 mod sync;
 mod tasks;
 mod theme;
+mod triage_signal;
 mod tui;
 
 use std::path::PathBuf;

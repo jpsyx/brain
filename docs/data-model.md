@@ -154,6 +154,30 @@ hook frees the instance's others on every start, handling `/new`). The
 `PanelSide` enum (`Left` / `Right`, default `Right`) lives in `state.rs`
 because it's the persisted layout value.
 
+**The daily-triage tab is deliberately *absent* from this table.** The
+ephemeral triage session (`App.triage_brain`) is launched with
+`session::env_for_triage`, which omits `BRAIN_INSTANCE_ID` / `BRAIN_STATE_DB`;
+the SessionStart hook no-ops without them, so no `brain_sessions` row is ever
+written and it is never a resume candidate. It lives only in process memory
+(`App.triage_brain` / `App.active_brain_tab: BrainTab` / `App.triage_token`) and
+is torn down when triage completes or the shell exits.
+
+## Daily-triage completion signal (`triage_signal.rs`, `~/.cache/brain/triage-done.json`)
+
+The cross-process signal that closes the daily-triage tab. When the `/triage`
+skill finishes a background pass it POSTs `{"token": "<one-time-token>"}` to the
+brain server's `POST /triage/done`; the handler writes:
+
+```json
+{ "token": "<one-time-token>", "at": 1730000000 }
+```
+
+`token` is the value brain handed the session in `BRAIN_TRIAGE_TOKEN`; `at` is
+an epoch-seconds diagnostic. The TUI polls this file each tick and closes the
+triage tab only when `token` equals the token of the tab it opened, so a stale
+signal from an earlier run cannot close a fresh tab. `parse_token` is pure; the
+file IO (`record_done` / `read_token` / `clear`) is a thin shell around it.
+
 ## Personalization (`personalization/`, `<brain-root>/.config/personalization.json`)
 
 Content *about you*, stored beside `config.json` in the brain config dir

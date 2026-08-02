@@ -133,6 +133,24 @@ pub fn env_for(instance: &str, pid: i32, db_path: &Path) -> Vec<(String, String)
     ]
 }
 
+/// Env vars injected into the *ephemeral* daily-triage session.
+///
+/// Unlike [`env_for`], this deliberately **omits** `BRAIN_INSTANCE_ID` and
+/// `BRAIN_STATE_DB`. The SessionStart hook no-ops without them, so the triage
+/// session is never recorded in the session DB and can never be resumed — it is
+/// ephemeral by construction (if the shell closes mid-triage the session is
+/// simply lost, and the daily-triage nudge fires again next launch). In their
+/// place it carries the completion channel the `/triage` skill reports through:
+/// the brain-server done URL and the one-time token brain matches when the
+/// signal comes back (see [`crate::triage_signal`]).
+#[must_use]
+pub fn env_for_triage(done_url: &str, token: &str) -> Vec<(String, String)> {
+    vec![
+        ("BRAIN_TRIAGE_DONE_URL".to_owned(), done_url.to_owned()),
+        ("BRAIN_TRIAGE_TOKEN".to_owned(), token.to_owned()),
+    ]
+}
+
 #[must_use]
 pub fn response_dir() -> std::path::PathBuf {
     std::env::var_os("HOME").map_or_else(
@@ -288,5 +306,25 @@ mod tests {
         assert!(env.contains(&("BRAIN_INSTANCE_ID".to_owned(), "inst-1".to_owned())));
         assert!(env.contains(&("BRAIN_PID".to_owned(), "4321".to_owned())));
         assert!(env.contains(&("BRAIN_STATE_DB".to_owned(), "/tmp/state.db".to_owned())));
+    }
+
+    #[test]
+    fn triage_env_carries_done_url_and_token() {
+        let env = env_for_triage("http://127.0.0.1:8787/triage/done", "tok-9");
+        assert!(env.contains(&(
+            "BRAIN_TRIAGE_DONE_URL".to_owned(),
+            "http://127.0.0.1:8787/triage/done".to_owned()
+        )));
+        assert!(env.contains(&("BRAIN_TRIAGE_TOKEN".to_owned(), "tok-9".to_owned())));
+    }
+
+    #[test]
+    fn triage_env_omits_the_tracking_vars_so_the_session_stays_ephemeral() {
+        // The SessionStart hook keys off BRAIN_INSTANCE_ID / BRAIN_STATE_DB;
+        // their absence is exactly what keeps the triage session out of the DB.
+        let env = env_for_triage("http://127.0.0.1:8787/triage/done", "tok-9");
+        let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(!keys.contains(&"BRAIN_INSTANCE_ID"));
+        assert!(!keys.contains(&"BRAIN_STATE_DB"));
     }
 }

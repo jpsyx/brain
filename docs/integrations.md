@@ -118,6 +118,37 @@ file clears that active-turn state even while a receiver lease is warm. A
 failed receiver-session launch leaves the message in the queue for a backoff
 retry.
 
+### The daily-triage tab and its completion signal
+
+Answering **Yes** to the startup daily-triage nudge spawns a *second*,
+ephemeral agent session as a brain-panel tab (`App::triage_brain`,
+`app_triage_tab.rs`) rather than typing `/triage` into the main session. It is
+launched through the same `session::build_llm_command` seeded with `/triage`,
+but with two deliberate differences from the main panel:
+
+- **It is never tracked.** `session::env_for_triage` injects only
+  `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`, and **omits**
+  `BRAIN_INSTANCE_ID` / `BRAIN_STATE_DB`. The `SessionStart` hook keys off those
+  two, so without them the session is never written to `brain_sessions` and is
+  never a resume candidate — it is ephemeral by construction.
+- **Completion is signalled, not inferred.** A triage pass can involve
+  back-and-forth with the user, so "the agent went idle" is not a reliable done
+  signal. brain first calls `server::lifecycle::ensure_running()` to bring up the
+  internal habits daemon and passes its `POST /triage/done` URL plus a one-time
+  token into the session. When the `/triage` skill finishes (PDF written, habit
+  marked) it POSTs `{"token": "<token>"}` to that URL. The daemon and the TUI are
+  separate processes, so the signal crosses on disk: the `routes::triage`
+  handler records it to `~/.cache/brain/triage-done.json` via
+  `crate::triage_signal::record_done`, and the TUI's per-tick
+  `App::tick_triage_done` reads it (`triage_signal::read_token`) and auto-closes
+  the tab only when the token matches the tab it opened. The token guard means a
+  stale signal from an earlier run can't close a freshly-opened tab. If the
+  triage child exits on its own, the same tick closes the tab.
+
+`brain server`'s route table therefore gains `POST /triage/done` (see
+`server/router.rs` + `server/routes/triage/`), an unauthenticated
+localhost-only endpoint consistent with `/habits/done`.
+
 ## Claude Sessions: SessionStart/Stop Hooks + State DB
 
 Which session to run is decided by the **lock + recency** model in

@@ -4,7 +4,7 @@ use crate::tasks::view::View;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Position, Rect};
 
-use super::Panel;
+use super::{BrainTab, Panel};
 
 /// Which panel a mouse coordinate falls in. When a brain panel is open it
 /// owns the right half (`brain_rect`); a click/scroll inside it routes to
@@ -219,6 +219,26 @@ pub(crate) fn alt_scroll_direction(code: KeyCode, modifiers: KeyModifiers) -> Op
         KeyCode::Char('d' | 'D') if modified => Some(false),
         KeyCode::Char('\u{00a8}' | '\u{0308}') => Some(true),
         KeyCode::Char('\u{2202}') => Some(false),
+        _ => None,
+    }
+}
+
+/// Which brain-panel tab a keystroke selects, if any. Bound to `Alt+1`
+/// (the main session) and `Alt+2` (the ephemeral daily-triage session). We use
+/// `Alt+digit` rather than `Ctrl+digit` because most terminals don't
+/// distinguish `Ctrl+1` from a bare `1` (only the kitty keyboard protocol
+/// does), whereas `Alt+digit` arrives as a distinct Meta sequence everywhere.
+/// On macOS layouts where Option surfaces the produced glyph instead of an
+/// Alt-modified ASCII digit, accept the `Option+1` / `Option+2` glyphs too.
+#[must_use]
+pub(crate) fn alt_selects_brain_tab(code: KeyCode, modifiers: KeyModifiers) -> Option<BrainTab> {
+    let modified = modifiers.intersects(KeyModifiers::ALT | KeyModifiers::META);
+    match code {
+        KeyCode::Char('1') if modified => Some(BrainTab::Main),
+        KeyCode::Char('2') if modified => Some(BrainTab::Triage),
+        // macOS US-layout Option+1 (¡) / Option+2 (™).
+        KeyCode::Char('\u{00a1}') => Some(BrainTab::Main),
+        KeyCode::Char('\u{2122}') => Some(BrainTab::Triage),
         _ => None,
     }
 }

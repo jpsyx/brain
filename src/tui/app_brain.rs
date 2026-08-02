@@ -454,7 +454,7 @@ impl App<'_> {
     }
 
     pub(crate) fn focus_brain(&mut self) {
-        if self.brain_panel_open() {
+        if self.any_brain_panel_visible() {
             self.alert = None;
             self.focus = Panel::Brain;
         }

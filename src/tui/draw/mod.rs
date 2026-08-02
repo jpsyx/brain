@@ -27,7 +27,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App<'_>) {
     // Top-level split: if the brain panel is open, it takes half the width on
     // its configured side; the active main view fills the rest. Closed → the
     // main view owns the full width.
-    let (main_area, brain_area) = if app.brain.is_some() {
+    let (main_area, brain_area) = if app.any_brain_panel_visible() {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])

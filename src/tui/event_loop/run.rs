@@ -31,6 +31,9 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // every iteration (including idle 50ms polls) so the Enter lands a
         // couple of ticks after the text, letting claude submit it.
         app.tick_brain_submit();
+        // Auto-close the ephemeral daily-triage tab when its session exits or
+        // the `/triage` skill signals completion (matching one-time token).
+        app.tick_triage_done();
         app.tick_receiver();
         app.tick_sync_status();
 
@@ -112,9 +115,14 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // Ctrl+X closes the brain panel (and ends its agent session) from
         // either panel. Intercepted before forwarding so it works even while
         // the brain panel is focused. No-op when no panel is open. 0x18, so
-        // no kitty-protocol dependency.
-        if ctrl && matches!(k.code, KeyCode::Char('x' | 'X')) && app.brain_panel_open() {
-            app.close_brain();
+        // no kitty-protocol dependency. On the daily-triage tab it closes only
+        // that ephemeral session, leaving the main session untouched.
+        if ctrl && matches!(k.code, KeyCode::Char('x' | 'X')) && app.any_brain_panel_visible() {
+            if app.effective_brain_tab() == BrainTab::Triage {
+                app.close_triage_tab();
+            } else {
+                app.close_brain();
+            }
             continue;
         }
 
@@ -156,6 +164,16 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                 }
                 _ => {}
             }
+        }
+        // Alt+1 / Alt+2 select the brain-panel tab (main session / ephemeral
+        // daily-triage session) and focus the panel, from either side. Handled
+        // before the panel-key dispatch so they work while the brain panel is
+        // focused (where a bare digit types into the agent). Alt+2 is a no-op
+        // when no triage tab is open. Some macOS layouts surface the Option
+        // glyph instead of an Alt-modified digit, which the classifier accepts.
+        if let Some(tab) = alt_selects_brain_tab(k.code, k.modifiers) {
+            app.select_brain_tab(tab);
+            continue;
         }
         // Alt+U / Alt+D scroll the focused panel a half-page up / down.
         // Handled here (before the panel-key dispatch below forwards to the
@@ -270,7 +288,13 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         }
 
         let quit = match app.focus {
-            Panel::Brain => handle_brain_key(app, &k, ctrl),
+            // The brain panel routes to whichever tab is active: the ephemeral
+            // daily-triage session gets a plain forwarder; the main session
+            // keeps the receiver/turn-aware handler.
+            Panel::Brain => match app.effective_brain_tab() {
+                BrainTab::Triage => handle_triage_key(app, &k, ctrl),
+                BrainTab::Main => handle_brain_key(app, &k, ctrl),
+            },
             // The main panel routes to whichever main view is showing. The
             // tasks view has its own normal/search modes; the brain-directory
             // view is an always-filtering picker.

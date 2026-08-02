@@ -28,7 +28,8 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 | `Alt+U` / `Alt+D` | Scroll the focused panel a half-page up / down | Brain panel scrolls its scrollback; the main view pages. Fires while the selected agent has focus or a filter is active. Also accepts macOS Option-produced equivalents when richer keyboard reporting surfaces those instead of Alt-modified ASCII |
 | `Ctrl+M` | Open (or focus) the brain panel | Resumes the latest Claude session; Codex panels currently launch fresh. Needs the kitty protocol to stay distinct from Enter |
 | `Ctrl+N` | Start a new agent session in the brain panel | Types `/new` and submits or queues it. Only while the panel is open |
-| `Ctrl+X` | Close the brain panel (ends its agent session) | The main view goes full-width. From either panel |
+| `Alt+1` / `Alt+2` | Switch the brain-panel tab: **main** session / **daily-triage** session | `Alt+2` is a no-op unless a daily-triage tab is open (see [features.md](features.md)). Alt-modified digit, not `Ctrl+digit`, because most terminals can't distinguish `Ctrl+1` from a bare `1`. macOS Option-glyph equivalents accepted. From either panel |
+| `Ctrl+X` | Close the brain panel (ends its agent session) | The main view goes full-width. From either panel. **On the daily-triage tab it closes only that ephemeral session**, leaving the main session up |
 | `Alt+S` | Open the keyboard-shortcuts help modal | Replaces the old bare `?`; bound to `Alt+S` so a literal `?` still types into the brain-search filter. Distinct Meta sequence on every terminal |
 | `Ctrl+Q` | Unconditional quit | Intercepted before modals/panels; quits even from the brain panel or a modal. `0x11`, no kitty protocol needed |
 

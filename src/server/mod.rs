@@ -81,6 +81,14 @@ fn respond(request: &mut Request) -> Response<std::io::Cursor<Vec<u8>>> {
                 .with_status_code(status)
                 .with_header(content_type("application/json"))
         }
+        Route::TriageDone => {
+            let mut body = String::new();
+            let _ = request.as_reader().read_to_string(&mut body);
+            let (status, json) = routes::triage::done(&body);
+            Response::from_string(json)
+                .with_status_code(status)
+                .with_header(content_type("application/json"))
+        }
         Route::Sms | Route::Email => {
             Response::from_string("receiver server is not attached to this process")
                 .with_status_code(503)

@@ -340,6 +340,22 @@ habit done is what tells the tasks view (and the agenda) that daily triage
 is handled for the day, so the modal stops nagging. If you don't mark it,
 the user gets nagged even though triage ran.
 
+3. **If this pass is running as a background triage tab, signal completion.**
+   When the tasks view launches daily triage in its own ephemeral tab it sets
+   two environment variables in this session: `BRAIN_TRIAGE_DONE_URL` (a local
+   brain-server URL) and `BRAIN_TRIAGE_TOKEN` (a one-time token). **Only when
+   both are set**, after the habit is marked done, POST the token so the tasks
+   view auto-closes this triage tab:
+   ```
+   [ -n "$BRAIN_TRIAGE_DONE_URL" ] && curl -fsS -X POST "$BRAIN_TRIAGE_DONE_URL" \
+     -H 'Content-Type: application/json' \
+     -d "{\"token\": \"$BRAIN_TRIAGE_TOKEN\"}" >/dev/null || true
+   ```
+   Do this as the very last action of the pass — the tab closes as soon as the
+   signal lands, so anything you still need to show the user must come first.
+   When the variables are unset (a normal in-session `/triage`, not a
+   background tab), skip this step entirely; there is nothing to close.
+
 **"Skip daily triage today" ⇒ skip the Morning Triage habit anyway
 (explicit user rule).** When the user explicitly says we can **skip**
 daily triage for the day — e.g. "skip daily triage", "we can skip triage

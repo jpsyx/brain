@@ -1415,3 +1415,37 @@ Directory columns are derived from the filesystem path (authoritative over stale
 JSON), rows are sorted deterministically (projects by name, resources by
 directory), and output is LF-terminated to match `tasks.csv`/`habits.csv` and the
 `csv_merge` writer (the pre-existing lookup files were stray CRLF).
+
+## The daily-triage tab: a dedicated ephemeral slot + a flag-file bridge
+
+Daily triage can be long and interactive, so running it inline in the main brain
+session blocked everything else until it finished. We moved it into its own
+brain-panel **tab** (`Alt+1` main / `Alt+2` daily triage) so the pass runs as a
+background task.
+
+**Why a dedicated `triage_brain` slot, not a general `Vec<PtyPane>` of sessions.**
+The requirement was explicitly narrow: users must *not* be able to spawn
+arbitrary sessions; a second session may exist *only* for daily triage. A
+dedicated `Option<PtyPane>` plus a two-variant `BrainTab` models exactly that,
+keeps the existing single-panel receiver/session machinery (which is woven
+through `App.brain`) untouched, and can't grow into an unbounded tab manager by
+accident. Generalizing to N sessions would have been a much larger, riskier
+refactor for capability we deliberately don't want.
+
+**Why the session is untracked.** The triage tab is ephemeral by construction:
+`session::env_for_triage` omits `BRAIN_INSTANCE_ID` / `BRAIN_STATE_DB`, so the
+SessionStart hook never records it and it is never a resume candidate. If the
+shell closes mid-triage the session is lost and the startup nudge simply fires
+again next launch — which is the desired behavior, not a bug to engineer around.
+
+**Why a completion signal instead of idle-detection, and why via the brain
+server.** "The agent went idle" is unreliable — a triage pass asks the user
+questions. So the `/triage` skill POSTs an explicit completion signal (with a
+one-time token) once the pass truly ends. It targets the **brain server** (the
+habits daemon), not the receiver server: the habits daemon is the always-on,
+auto-started internal service, and an unauthenticated localhost `POST
+/triage/done` matches the existing `/habits/done` precedent. Because that daemon
+is a *separate process* from the TUI, the signal crosses on disk
+(`~/.cache/brain/triage-done.json`) and the TUI polls it in its existing per-tick
+loop — the same poll-of-disk pattern the triage nudge and receiver responses
+already use. The token guard prevents a stale signal from closing a fresh tab.

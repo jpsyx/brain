@@ -82,9 +82,10 @@ pub const ALL: &[Shortcut] = &[
     // --- Brain ---
     Shortcut { keys: "^M", label: "brain", desc: "Open / focus the brain panel (resumes your latest session)", group: Group::Brain, in_footer: true },
     Shortcut { keys: "^⇧M", label: "brain·task", desc: "Message brain about the selected task (hold Shift; needs kitty protocol)", group: Group::Brain, in_footer: false },
-    Shortcut { keys: "^X", label: "close brain", desc: "Close the brain panel and end its agent session", group: Group::Brain, in_footer: false },
+    Shortcut { keys: "^X", label: "close brain", desc: "Close the brain panel and end its agent session (on the daily-triage tab, closes only that tab)", group: Group::Brain, in_footer: false },
     Shortcut { keys: "^N", label: "new session", desc: "Start a new agent session in the brain panel (types /new and submits it)", group: Group::Brain, in_footer: false },
     Shortcut { keys: "Alt+H / Alt+L", label: "switch", desc: "Focus the tasks / brain panel (Alt+H always returns to tasks)", group: Group::Brain, in_footer: false },
+    Shortcut { keys: "Alt+1 / Alt+2", label: "brain tab", desc: "Switch brain-panel tab: main session / ephemeral daily-triage session (Alt+2 only while a triage pass is running)", group: Group::Brain, in_footer: false },
     Shortcut { keys: "Alt+U / Alt+D", label: "scroll", desc: "Scroll the focused panel a half-page up / down (fires while typing or in the brain panel)", group: Group::Brain, in_footer: false },
     Shortcut { keys: "^A", label: "agenda", desc: "Open today's agenda (offers to generate it when missing)", group: Group::Brain, in_footer: false },
     // (Open habits page moved to the command palette — "Open habits page".)
@@ -142,6 +143,12 @@ mod tests {
     fn help_lists_the_new_session_shortcut() {
         let brain = in_group(Group::Brain);
         assert!(brain.iter().any(|s| s.keys == "^N" && s.desc.contains("/new")));
+    }
+
+    #[test]
+    fn help_lists_the_brain_tab_switch_shortcut() {
+        let brain = in_group(Group::Brain);
+        assert!(brain.iter().any(|s| s.keys == "Alt+1 / Alt+2" && s.desc.contains("triage")));
     }
 
     #[test]

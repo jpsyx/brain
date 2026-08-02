@@ -49,7 +49,7 @@ pub(crate) fn handle_mouse(app: &mut App<'_>, me: crossterm::event::MouseEvent) 
 
     match panel_at(app.brain_rect, me.column, me.row) {
         Panel::Brain => {
-            if let Some(pty) = app.brain.as_ref() {
+            if let Some(pty) = app.active_brain_pty() {
                 if up {
                     pty.scroll_up(WHEEL_ROWS);
                 } else {
@@ -105,6 +105,34 @@ pub(crate) fn handle_brain_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent
         // view, even if the user had scrolled up through history.
         pty.scroll_to_bottom();
         pty.send(bytes);
+    }
+    false
+}
+
+/// Forward a keystroke into the ephemeral daily-triage PTY. The triage tab is
+/// deliberately outside the receiver/turn machinery (it is untracked and
+/// self-closing), so this is a plain forwarder: encode the key and write it.
+/// When the triage session has exited, a Ctrl-C / Esc / q closes the tab so the
+/// user can get back to the main session.
+pub(crate) fn handle_triage_key(
+    app: &mut App<'_>,
+    k: &crossterm::event::KeyEvent,
+    ctrl: bool,
+) -> bool {
+    let alive = app.triage_brain.as_ref().is_some_and(PtyPane::is_alive);
+    if !alive {
+        match k.code {
+            KeyCode::Char('c') if ctrl => app.close_triage_tab(),
+            KeyCode::Esc | KeyCode::Char('q' | 'Q') => app.close_triage_tab(),
+            _ => {}
+        }
+        return false;
+    }
+    if let Some(bytes) = key_to_bytes(k) {
+        if let Some(pty) = app.triage_brain.as_ref() {
+            pty.scroll_to_bottom();
+            pty.send(bytes);
+        }
     }
     false
 }

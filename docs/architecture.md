@@ -471,7 +471,10 @@ The larger submodules are directories split by concern: `handlers/`
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
 `draw/mod.rs`), `palette/` (`command`/`state`), `app_state/`
 (`construct`/`nav`/`view`/`selection_query`), `app_actions/`
-(`commands`/`triage`), and `tests/` (split by area). The overlay-modal state
+(`commands`/`triage`), and `tests/` (split by area). `app_brain.rs` owns the
+main persistent session; `app_triage_tab.rs` owns the ephemeral daily-triage
+tab (open/close/select, the `BrainTab` resolution, and the `tick_triage_done`
+auto-close). The overlay-modal state
 structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `LinkPickerState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; `mod.rs` keeps only the `App` shell type, `Panel`,
@@ -520,7 +523,17 @@ for a known Codex resume id; no Claude flags for fresh Codex), and `env_for`
 (the `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` env handed to Claude
 for the SessionStart hook). `claude_cmd` and `codex_cmd` are machine-local brain
 env values. Both configured commands are spliced in verbatim so they may carry
-their own flags, and brain never depends on a shell alias.
+their own flags, and brain never depends on a shell alias. `env_for_triage` is
+the ephemeral-session counterpart: it injects only `BRAIN_TRIAGE_DONE_URL` /
+`BRAIN_TRIAGE_TOKEN` and deliberately omits the tracking vars, so the
+daily-triage tab stays out of the session DB.
+
+### `triage_signal.rs`
+The on-disk bridge for the daily-triage tab's completion signal. Pure
+`parse_token` plus a thin file shell (`record_done` / `read_token` / `clear`,
+`~/.cache/brain/triage-done.json`): the brain server writes it from
+`POST /triage/done`, the TUI polls it each tick. See
+[integrations.md](integrations.md).
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `~/.cache/brain/state.db`.
@@ -536,8 +549,9 @@ Brain has two separate HTTP services. The habits server remains local-only and
 serves the habits frontend. The receiver server is a TUI-owned, opt-in
 listener on `/sms` and `/email`; it is never started by ordinary TUI startup
 and cannot outlive the interactive shell.
-- `server/router.rs` — pure route mapping for `/habits`, `/habits/done`, `/sms`,
-  and `/email`. The former `/webhooks/capture` placeholder is removed.
+- `server/router.rs` — pure route mapping for `/habits`, `/habits/done`,
+  `/triage/done`, `/sms`, and `/email`. The former `/webhooks/capture`
+  placeholder is removed.
 - `server/receiver.rs` + `server/receiver/` — the receiver facade and its
   single-responsibility modules: `http/` owns the bounded four-worker
   `tiny_http` listener and channel queue, `http/sms.rs` and `http/email.rs`
@@ -547,6 +561,8 @@ and cannot outlive the interactive shell.
   allowlist decisions, including E.164 phone-number validation.
 - `server/lifecycle.rs` — the legacy local habits-server lifecycle.
 - `server/routes/habits/` — the habits MVC route and embedded frontend.
+- `server/routes/triage/` — the `POST /triage/done` controller: the ephemeral
+  daily-triage session's completion signal (see `triage_signal.rs`).
 
 `brain --with-receiver` starts the receiver listener after the TUI singleton is
 acquired. The global palette can start, stop, restart, and inspect it while

@@ -60,6 +60,26 @@ from either panel while the panel is open (no need to focus the brain panel
 first). When the panel is closed, `Ctrl+N` keeps its search meaning (move the
 selection down).
 
+**The daily-triage tab.** Saying **Yes** to the startup "Today's triage isn't
+done. Run it now?" nudge no longer types `/triage` into your main session and
+tie it up for the whole pass. Instead the brain panel grows a **second tab**,
+**Daily triage**, holding a *separate* agent session seeded with `/triage` and
+auto-submitted. Daily triage runs there as a background task while your main
+session (tab 1) stays free. Switch tabs with **`Alt+1`** (main) / **`Alt+2`**
+(daily triage) from either panel; the panel shows a `1 Brain` · `2 Daily
+triage` strip while both are live.
+
+This triage session is **ephemeral**: it is never recorded in the session DB
+and is never resumed. Because a triage pass can involve back-and-forth with you,
+"the agent stopped talking" is not a reliable done signal — instead the
+`/triage` skill POSTs a completion signal (with a one-time token) to the local
+brain server once the pass truly finishes (PDF written, Morning Triage habit
+marked), and brain **auto-closes the tab**, dropping you back to tab 1. Closing
+the tab yourself is `Ctrl+X` while on it (it ends only that session). If you
+quit `brain` mid-triage the ephemeral session is simply lost and the nudge fires
+again next launch — nothing to resume. See [integrations.md](integrations.md)
+for the completion-signal wiring.
+
 **Session resume.** On startup the brain panel resumes your **most recent
 Claude session** — the continuous conversation picks up where it left off.
 If you type `/new` (or `/clear`) inside claude — or press `Ctrl+N` — that

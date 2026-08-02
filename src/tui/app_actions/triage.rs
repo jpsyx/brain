@@ -8,11 +8,12 @@ use crate::tasks::task::Task;
 use crate::tui::*;
 
 impl App<'_> {
-    /// Yes-path for the startup daily-triage modal. Always sends
-    /// `/triage` so the user gets the documented triage flow regardless
-    /// of which habit ID was configured to gate the prompt.
+    /// Yes-path for the startup daily-triage modal. Opens the daily-triage pass
+    /// in its own ephemeral brain-panel tab (`Alt+2`) seeded with `/triage`, so
+    /// the (often long, often interactive) pass runs in the background and the
+    /// main session (`Alt+1`) stays free. See `open_triage_tab`.
     pub(crate) fn run_triage(&mut self) {
-        self.send_brain_prompt("/triage");
+        self.open_triage_tab();
     }
 
     /// Skip-path for the startup daily-triage modal. Hands off to the brain
