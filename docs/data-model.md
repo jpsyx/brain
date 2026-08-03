@@ -135,13 +135,27 @@ reference.
 `WorkspacePaths` derives its full base from the ID:
 
 ```text
-<home>/.cache/brain/workspaces/<workspace-uuid>/
+~/.cache/brain/workspaces/<workspace-uuid>/
+├── state.db
+├── tui.lock
+├── inbox/
+├── responses/
+├── logs/                  (reserved, currently unused)
+└── sync/
+    ├── sync.lock
+    ├── journal.db
+    ├── current.json
+    ├── current.log
+    ├── bisync/
+    └── baselines/
 ```
 
-Its state database, TUI lock, inbox, responses, logs, and sync working data are
-all children of that base. `cache_dir()` borrows the stored base; each child
-accessor derives an owned path. Distinct IDs therefore cannot share runtime
-paths.
+Its state database, TUI lock, inbox, responses, reserved log path, and sync
+working data are all children of that base. `cache_dir()` borrows the stored
+base; each child accessor derives an owned path. Distinct IDs therefore cannot
+share runtime paths. Active run logs remain under `/tmp` through `logging.rs`.
+`WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
+current diagnostic-log destination.
 
 ### Machine registry schema v2 (`workspace/registry/`)
 
@@ -193,7 +207,8 @@ the same record as a typed error; it never reports a no-op as success.
 
 Rename rekeys only the `BTreeMap` canonical name and updates the default when
 needed, preserving the UUID and every `WorkspaceRecord` field. Changing the
-default changes no record. Removal detaches a record only and never touches its
+default workspace never changes access mode and changes no record field.
+Removal detaches a record only and never touches its
 root or contents. At the storage boundary all writers acquire the stable
 adjacent `.env.json.transaction.lock` database with `BEGIN IMMEDIATE` before
 loading. Under that lock they clone, mutate, whole-registry validate, perform a
@@ -222,6 +237,11 @@ Selector-looking tokens after `--` remain delegated values. Bootstrap applies
 this selection once for every ordinary command and returns one immutable
 `CommandContext`. Every ordinary store and runtime path receives that context
 or an explicit path derived from it; no handler reselects the default.
+
+Detached Brain children carry the canonical `--brain` selector, never the
+alias the caller happened to use. Brain-owned integrations receive exactly the
+common identity boundary `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
+and `BRAIN_ACTOR_ID`; agent-session variables are layered on separately.
 
 Collected management values first become a pure `Mutation` enum. `Create` and
 `Attach` carry a validated canonical name plus an absolute, tilde-expanded,
@@ -254,7 +274,7 @@ non-default record only.
   "schema_version": 1,
   "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
   "receiver_ingress_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
-  "minimum_brain_version": "0.16.0"
+  "minimum_brain_version": "0.17.1"
 }
 ```
 
@@ -299,6 +319,28 @@ Existing flat bytes are copied exactly
 to the first free adjacent `env.json.legacy-backup[.N]` before atomic registry
 replacement. A valid v2 input is never rewritten or backed up, making reruns
 UUID-stable and byte-stable.
+
+The valid-v2 path does not inspect the default workspace's portable config.
+On a machine with no registry, a first explicit create/attach establishes the
+requested workspace directly. A fresh ordinary or repair invocation instead
+synthesizes the compatible default `brain` workspace and then crosses the
+normal readiness boundary.
+
+### Foundation versus planned portable policy
+
+The current foundation stores one machine-local `local_user_id`, but it does
+not yet provide the portable user registry, inbound sender-to-user mapping, or
+task `assigned_to` field. It also does not implement triage-habit policy,
+access-mode enforcement, the agent-controller/OpenCode facade, or the final
+shared receiver lifecycle.
+
+The planned `workspace_only` mode is prompt-based guidance plus light
+guardrails. It is not a filesystem sandbox, authentication boundary,
+container, OS-account boundary, or defense against a malicious trusted user.
+Its purpose is limited to reducing accidental and naive cross-workspace
+leakage in a high-trust self-hosted installation. The migrated/default
+workspace remains unrestricted unless that later access-policy phase
+explicitly configures it otherwise.
 
 ## Persistent state (`state.rs`, `<workspace-cache>/state.db`)
 
@@ -785,8 +827,9 @@ spurious pull.
 
 ## Binary stdout (the output "schema")
 
-The binary's stdout carries only `brain config`/`brain env` output (the config
-table, or a single value) plus clap's help / version / errors. There is no plan
-protocol: the TUI renders to `/dev/tty` and performs its file-open, Finder, PDF,
-trash, and `claude`-launch effects by spawning processes itself. See
-[integrations.md](integrations.md).
+The intentional stdout families are `config/env/version`, `workspace list`,
+explicit plain-task output, and help. `--verbose` mirrors logs to stdout for
+non-TUI commands. Clap errors and diagnostics go to stderr. The TUI renders to
+`/dev/tty`. There is no plan protocol; the TUI performs its
+file-open, Finder, PDF, trash, and `claude`-launch effects by spawning
+processes itself. See [integrations.md](integrations.md).

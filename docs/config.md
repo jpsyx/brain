@@ -7,7 +7,7 @@ they are never inherited or merged from the default or another record.
 
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
-| **brain env / workspace registry** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** every brain root) | `brain workspace …` manages records; `brain env …` reads and writes the already-selected record | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
+| **brain env / workspace registry** | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`, outside every brain root) | `brain workspace …` manages records; `brain env …` reads and writes the already-selected record | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
 | **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes** — travels with the brain | `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
@@ -63,6 +63,15 @@ domain-invalid registry. The store keeps domain validation errors typed and
 reports structural JSON and IO failures with the failed operation and path
 (plus the IO error kind and temporary path when applicable).
 
+Canonical names and aliases are trimmed and ASCII lower-cased, then must match
+`[a-z0-9][a-z0-9_-]*`. `--brain <selector>` and `-b <selector>` resolve either
+kind before or after a subcommand. An omitted selector uses only the canonical
+`default_workspace`. The first record becomes default; later create and attach
+operations preserve it. Rename preserves the UUID and updates the default name
+when needed. Changing the default workspace never changes access mode, root,
+local user, receiver enablement, aliases, identity, or env. Remove detaches
+only the machine record and never deletes the root.
+
 `brain workspace` explicitly loads this schema-v2 registry and applies every
 mutation through `RegistryStore`'s interprocess transaction and atomic-save
 boundaries. Startup migration and selected-record `brain env` writes use the
@@ -105,6 +114,9 @@ contains the workspace UUID, a stable receiver ingress UUID, and the minimum
 compatible Brain version. Parsing rejects unknown fields, unsupported schema
 versions, invalid UUIDs, and a minimum version newer than the running binary.
 The manifest UUID must equal the selected machine-registry UUID.
+The manifest is create-only and strict: create publishes it only when the path
+is absent, attach reads it without editing, and unknown fields or identity
+mismatches fail rather than silently replacing portable identity.
 
 Create and attach are registry-only setup commands, so they can establish an
 incomplete record. Before every ordinary command, Brain then requires that
@@ -115,6 +127,20 @@ the immutable context, and continues. A headless invocation never opens
 commands. The first `workspace create` therefore leaves `local_user_id` empty,
 and the next ordinary command is the explicit setup point. Version/help and
 hidden internal server execution perform no workspace IO or prompt.
+
+### Access policy status
+
+Access-mode enforcement is not part of the current foundation. The migrated
+or default workspace remains unrestricted unless a later access-policy phase
+explicitly configures it otherwise. Planned `workspace_only` behavior uses
+prompt-based guidance and light guardrails. It is not a filesystem sandbox,
+authentication boundary, container, OS-account boundary, or protection from a
+malicious trusted user. Its purpose is only to reduce accidental and naive
+cross-workspace leakage in a high-trust self-hosted environment.
+
+Portable users, inbound identity mapping, task `assigned_to`, triage-habit
+policy, the agent-controller/OpenCode facade, and final shared receiver
+lifecycle are also later phases, not schema exposed by this release.
 
 ### Selected workspace env
 
@@ -206,7 +232,9 @@ the read-only `~/.config/brain-root` pointer, then `~/brain`. It is not an
 ordinary TUI, config, task, receiver-payload, or sync workspace selector.
 
 **Migration.** When an invocation's bootstrap policy permits registry access,
-brain checks `env.json` through `env::migrate`. A valid schema-v2 registry is a byte-for-byte no-op. Any other
+brain checks `env.json` through `env::migrate`. A valid schema-v2 registry is a
+byte-for-byte no-op and does not inspect the default workspace's portable
+config. Any other
 body is interpreted as the legacy flat JSON object; invalid or non-object JSON
 is treated as an empty object. Migration creates exactly one default record:
 

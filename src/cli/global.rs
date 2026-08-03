@@ -77,8 +77,9 @@ fn extract_workspace_selectors(args: Vec<String>) -> Vec<String> {
     about = "Brain CLI: central terminal dispatch for registered workspaces and tasks.",
     long_about = "Brain CLI: the central terminal dispatch for the user's second\n\
                   brain and task system. Bare `brain` opens a persistent shell\n\
-                  with two main views (tasks: management, agenda, triage, the\n\
-                  startup default; and a fuzzy search over the selected workspace), plus an\n\
+                  with three main views (tasks: management, agenda, triage, the\n\
+                  startup default; search: fuzzy search over the selected workspace;\n\
+                  and logs: scrollable diagnostics), plus an\n\
                   app-level brain panel running an interactive agent session.\n\
                   \n\
                   Subcommands:\n\

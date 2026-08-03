@@ -1,11 +1,11 @@
 # Integrations
 
-`brain` is a single binary that owns its own outside-world effects. It has no
-shell-mutating one-shot commands, so there is no plan protocol and no zsh
-wrapper: everything the user does happens inside the persistent TUI, which
-opens files, reveals in Finder, converts PDFs, trashes entries, and launches
-`claude` by spawning processes itself. This doc covers how the binary is run
-and each of those handoffs, plus the SessionStart hook and state DB.
+`brain` is a single binary with a persistent TUI and short-lived command
+families. It has no shell-mutating one-shot commands, so there is no plan
+protocol and no zsh wrapper. The TUI owns interactive file opening, Finder
+reveals, PDF conversion, trash, and agent launches by spawning processes
+itself. This doc covers how the binary is run and each of those handoffs, plus
+the SessionStart hook and state DB.
 
 ## How brain is run (`run.sh`)
 
@@ -15,17 +15,14 @@ stderr), then `exec`s the binary, forwarding every argument. It does **not**
 capture stdout, parse a plan, or apply any parent-shell effect — the binary
 handles its own effects.
 
-The binary's **stdout** carries only:
-
-- `brain config …` output (the config table, or a single value),
-- clap's help / version / error text, and
-- explicit verbose log mirroring for non-TUI commands when `--verbose` is set.
-
-Everything else is a TUI that renders to `/dev/tty`, so nothing an interactive
-session paints reaches stdout. Diagnostics and default progress narration go to
-stderr: long-running one-shot commands print concise phase plans before they
-probe the filesystem, start daemons, spawn external tools, touch the network, or
-write install trees. Every TUI run writes a timestamped `/tmp` log file;
+The intentional stdout families are `config/env/version`, `workspace list`,
+explicit plain-task output, and help. `--verbose` mirrors logs to stdout for
+non-TUI commands. Clap errors and diagnostics go to stderr. The TUI renders to
+`/dev/tty`, so nothing an interactive session paints reaches stdout. Default
+progress narration also goes to stderr. Long-running one-shot commands print
+concise phase plans before they probe the filesystem, start daemons, spawn
+external tools, touch the network, or write install trees. Every TUI run writes
+a timestamped `/tmp` log file;
 the command palette's receiver and brain log rows switch the main panel to a
 scrollable view of the relevant log
 directory and the log file via `open`. Verbose logs are intentionally more
@@ -61,7 +58,8 @@ helpers and shell-outs live in the tasks modules:
   deferred to the approved shared-server phase. The process itself carries no
   selected `--brain`; meanwhile each habits request carries a workspace UUID
   and reloads the exact registry record plus matching portable manifest before
-  touching payload.
+  touching payload. Missing, malformed, unknown, unavailable, or
+  manifest-mismatched identities are rejected and never route to the default.
 - **`brain habits revive|fix <name>`** — repair a lapsed recurring habit (all
   occurrences `done`, none pending) by fuzzy name, without touching the server.
   Dispatched after workspace bootstrap by `command/server/habits.rs`; the
@@ -207,7 +205,7 @@ Claude and Codex remain separate session stores, but both frontends now report
 session starts and completed receiver turns through the same brain response
 protocol.
 
-**One hook, one DB, one namespace.** Before the merge, `brain` and `tasks`
+**One hook namespace, one DB per workspace.** Before the merge, `brain` and `tasks`
 each ran their own SessionStart hook keyed on separate env-var namespaces
 (`BRAIN_*` vs `TASKS_*`) writing separate DBs, so the two shells never adopted
 each other's sessions. The merged shell has a single app-level brain panel, so

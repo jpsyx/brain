@@ -5,29 +5,33 @@
 the user's knowledge and task workflows.
 
 As of the tasks↔brain merge, `brain` is the single CLI for both the second
-brain and the task system; the standalone `tasks` binary is gone. It has two
-surfaces:
+brain and the task system; the standalone `tasks` binary is gone. Its two
+execution surfaces are a persistent TUI and short-lived command families:
 
-- **Bare `brain`** (and `brain tasks …`) opens a **persistent shell**
-  (`tui/`) with **three main views** — the **tasks view** (task management,
+- **Bare `brain`** (and interactive `brain tasks …` routes) opens a
+  **persistent shell**
+  (`tui/`) with **three main views**: the **tasks view** (task management,
   agenda, triage; the startup default) and the **brain-directory search view**
-  (fuzzy-pick over the selected root) — plus one app-level **brain panel** (an
-  interactive `claude` session in a PTY). You switch main views with
+  (fuzzy-pick over the selected root), and the **logs view** (scrollable
+  diagnostics), plus one app-level **brain panel** (an
+  interactive agent session in a PTY). You switch main views with
   `Ctrl+L`/`Ctrl+H` (cycle) or `Ctrl+T`/`Ctrl+B` (jump); the brain panel
   persists across a switch and closing it makes the main view full-width. The
   process owns the terminal until you quit and keeps a little SQLite state so
   it resumes the right Claude session and remembers the panel layout. See
   [glossary.md](glossary.md) for the main-view / sub-view / panel vocabulary.
-- **The tasks utilities** (`brain tasks {complete|doctor|search|--no-tui …}`)
-  and **`brain config {list|get|set}`** are short-lived: they mutate the CSVs,
-  run a health-check, print plain output, or read/write config, then exit.
+- **Short-lived command families** cover non-TUI task utilities, config, env,
+  workspace, sync, personalization, skills, server/receiver, habits, checks,
+  and reindexing. They mutate or report through their focused handlers, then
+  exit without opening the persistent shell. `brain tasks complete`,
+  `brain tasks doctor`, and `brain tasks --no-tui` are short-lived;
+  `brain tasks search` opens the persistent TUI.
 
 There are **no** shell-mutating one-shot commands: no `cd`, `msg`, or
-per-bucket search subcommand, and no freeform note search. Everything the
-user does happens *inside* the persistent shell, which performs its own
-file-open, Finder-reveal, PDF, trash, and `claude`-launch actions by
-spawning processes. So the binary needs no parent-shell cooperation, no
-wrapper, and no plan protocol.
+per-bucket search subcommand, and no freeform note search. Interactive
+file-open, Finder-reveal, PDF, trash, and agent-launch actions happen inside
+the persistent shell by spawning processes. The binary therefore needs no
+parent-shell cooperation, wrapper, or plan protocol.
 
 ## One binary, run directly
 
@@ -40,27 +44,35 @@ user types `brain …`
 
 the binary:
   ├─ every run → writes a timestamped `/tmp` log; `--verbose` mirrors logs to stdout
-  ├─ `brain config …`  → prints the config table / a value to stdout
-  ├─ `brain tasks … --no-tui | complete | doctor` → plain output / mutate / check
-  ├─ `brain workspace …` → manages the schema-v2 registry and exits
-  └─ everything else   → opens the persistent TUI on /dev/tty
+  ├─ help / version → print and exit without opening the TUI
+  ├─ tasks complete / doctor / --no-tui → mutation, health check, or plain output
+  ├─ tasks search → opens the persistent TUI with a custom task search
+  ├─ config / env / workspace → selected configuration or registry management
+  ├─ sync / personalization / skills → focused setup, reporting, or mutation
+  ├─ server / receiver / habits / checks / reindexing → focused handlers
+  └─ bare brain and other interactive task routes → persistent TUI on /dev/tty
 ```
 
-The TUI renders to `/dev/tty`, so the binary's **stdout** is only what
-plain CLI surfaces print (`config`, `env`, `version`, clap help/errors) plus
-explicit `--verbose` log mirroring in non-TUI mode. TUI runs keep
-stdout quiet and expose the log through the tasks command palette. The binary
+Help and version exit without opening the TUI. After these explicit exits,
+bare `brain` and interactive task routes open the persistent TUI.
+
+The intentional stdout families are `config/env/version`, `workspace list`,
+explicit plain-task output, and help. `--verbose` mirrors logs to stdout for
+non-TUI commands. Clap errors and diagnostics go to stderr. The TUI renders to
+`/dev/tty`; TUI runs keep stdout quiet and expose the log through the tasks
+command palette. The binary
 opens files, cds its own PTY, launches `claude`, and reveals in Finder itself,
-from inside the running shell. See [decisions.md](decisions.md) for *why* it is
-a pure TUI binary, and [integrations.md](integrations.md) for the launch/handoff
-detail.
+from inside the running shell. See [decisions.md](decisions.md) for why Brain
+needs no wrapper or plan protocol, and [integrations.md](integrations.md) for
+the launch/handoff detail.
 
 ## High-level data flow (inside the binary)
 
 ```
 argv
  └─→ Cli::parse                          (cli/)
-      ├─→ -v / --version / Cmd::Version ─→ print crate version and exit before any gates
+      ├─→ help / -v / --version / Cmd::Version
+      │    └─→ print and exit before workspace bootstrap or command gates
       ├─→ logging::init                  (timestamped `/tmp` log; stdout mirror with `--verbose`)
       ├─→ workspace::bootstrap            (explicit per-invocation policy)
       │    ├─ context-free/internal → no registry, root, or prompt
@@ -76,6 +88,7 @@ argv
                                           complete → complete::run (native CSV completion)
                                           doctor   → doctor::run_doctor
                                           --no-tui → plain::print_plain
+                                          search   → CustomSearch → tui::run_tui
                                           else     → tui::run_tui (MERGED SHELL)
 
 tui::run_tui(command_context, view, cli, …) (the persistent shell)
@@ -96,6 +109,39 @@ navigation, rendered via `picker::draw_into`) and the `menu` palette in the
 search view. The search panel lives in a bordered half of the shell alongside
 the live brain panel; opening a file or rescoping a bucket happens in place
 and the shell stays up.
+
+## Multi-workspace foundation boundary
+
+The foundation separates workspace payload and runtime state along these
+boundaries:
+
+| Owner | Location | Examples |
+| --- | --- | --- |
+| Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, config, personalization, extensions, and plugins |
+| Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
+| Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, inbox, responses, and sync lock/journal/current state/baselines |
+| Shared infrastructure | Machine server/control and transitional triage-signal paths only | Process coordination, never a default workspace payload path |
+
+One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
+Env, config, personalization, state, TUI, tasks, reindex, sync, and child
+integrations consume that selection or a path derived from it. Ordinary
+runtime code does not reopen the registry or resolve a global root. Detached
+Brain children carry `--brain <canonical-name>`; integrations receive the
+four common variables `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
+and `BRAIN_ACTOR_ID`, with agent-session values added separately.
+
+Active run logs remain under `/tmp` through `logging.rs`.
+`WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
+not use that UUID-scoped path.
+
+This is the current isolation foundation, not the complete approved roadmap.
+Portable users, inbound actor resolution, task assignment, triage-habit
+policy, advisory access modes, the agent-controller/OpenCode facade, and the
+shared receiver lease lifecycle remain later phases. In particular,
+`workspace_only` is planned prompt-based guidance and light guardrails. It is
+not a filesystem sandbox or an authentication boundary, and no access-mode
+enforcement ships in this foundation. Changing the default workspace never
+changes access mode.
 
 ## Modules
 
@@ -321,8 +367,8 @@ sources). See the B spec under `docs/superpowers/specs/`.
 
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =
-display order, Archive last) and `Entry` (absolute `path`, `~/brain/...`
-`display`, `bucket`).
+display order, Archive last) and `Entry` (absolute selected-workspace `path`,
+home-abbreviated `display`, `bucket`).
 `collect()` walks each root with `walkdir`, skips hidden files
 (`.`-prefixed) and the root itself, and tags every entry with its bucket.
 Missing roots are silently skipped.
@@ -709,7 +755,9 @@ and cannot outlive the interactive shell.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST requests carry `workspace_id`; the shared process
   reloads the registry by exact UUID and verifies the root's portable manifest
-  before accessing that workspace's CSV.
+  before accessing that workspace's CSV. A missing, malformed, unknown,
+  unavailable, or manifest-mismatched identity is rejected; it never falls
+  back to the machine default.
 - `server/routes/triage/` — the `POST /triage/done` controller: the ephemeral
   daily-triage session's completion signal (see `triage_signal.rs`).
 
@@ -752,10 +800,10 @@ rebuild:
 - **`Bucket` declaration order is the display order** (Projects → Areas →
   Resources → Archive). The picker's `sort_by` and `build_display_rows`
   rely on the derived `Ord`.
-- **The binary's stdout is *only* intentional short-lived CLI output**
-  (`brain config`/`env`/`workspace`, version, and explicit plain task output; plus clap
-  help/errors). No other path prints to stdout. Diagnostics go to stderr; the
-  TUI goes to `/dev/tty`.
+- **The binary's stdout is only intentional short-lived CLI output:**
+  `config/env/version`, `workspace list`, explicit plain-task output, help, and
+  non-TUI logs mirrored by `--verbose`. Clap errors and diagnostics go to
+  stderr. The TUI renders to `/dev/tty`.
 - **Every `Choice` has exactly one palette row** (guarded by a test on
   `items(side, …)`) so the menu can't silently drop an action.
 - **The brain panel is open at startup but closeable.** `tui` spawns the

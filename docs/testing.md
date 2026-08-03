@@ -72,6 +72,14 @@ first move is a failing test that reproduces it, *then* the fix.
   alias-to-canonical detached sync arguments after alias removal/default change,
   the four-variable integration env, selected reindex `BRAIN_ROOT`, and
   request-UUID habits GET/POST isolation.
+- **Workspace documentation contract.** `tests/workspace_docs.rs` runs the
+  compiled binary's root, workspace, and nested alias help, then checks only
+  stable command names and selector spellings against the current README/docs.
+  It also pins the registry, portable manifest, and UUID-cache locations;
+  rejects command-like instructions that write structural `root` through
+  `brain env`; and requires the prompt-based/non-sandbox disclaimer plus the
+  invariant that changing the default workspace never changes access mode. It
+  deliberately avoids snapshots and punctuation-heavy prose.
 - **Hook integration.** `tests/hook_integration.rs` runs the real Python
   SessionStart hook against a temporary SQLite DB and the real shell installer
   against temporary homes/roots. It covers the complete four-variable
@@ -171,9 +179,9 @@ first move is a failing test that reproduces it, *then* the fix.
   Finder, the editor tab, or the agent CLI is not a unit. We test the pure builders
   (`finder_target`, `edit_shell_command`, `iterm_new_tab_applescript`,
   `build_llm_command`), not the spawn.
-- **The SessionStart hook script.** It's a separate Python process; its
-  behavior is covered by a manual smoke test against a temp DB, not the Rust
-  suite.
+- **Real agent-provider behavior.** The Rust suite executes the SessionStart
+  hook and installer against temporary roots and SQLite databases, but it does
+  not launch a real Claude or Codex provider session.
 - **Tautological defaults / getters.** `Bucket::Projects.label()` returns
   `"Projects"` — we keep one stability check, not a battery of getter
   tests.
@@ -190,6 +198,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
 | `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, and persistence-failure preservation. |
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
+| `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/todo_script_mutators.rs` | Brain-owned task scripts, including selected-root `BRAIN_ROOT` propagation for reindex. |
 | `tests/verbose_cli.rs` | End-to-end `--verbose` contract for the compiled binary: stdout mirroring, `/tmp` log-file creation, command/action breadcrumbs, and task CSV load/write logging. |
 
@@ -227,6 +236,9 @@ cargo test --release picker::
 
 # one integration file
 cargo test --release --test entry_collect
+
+# workspace documentation contract
+cargo test --release --test workspace_docs
 
 # lint clean (pedantic + nursery are on)
 cargo clippy --release --all-targets

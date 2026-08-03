@@ -55,8 +55,8 @@ installing the bundled skills. Then read the [User manual](#user-manual) below.
 ## Why a dispatch?
 
 The user lives in the terminal and would rather type one command than
-remember a dozen. So `brain` is the front door: a persistent shell with two
-main views (tasks and brain-directory search) and an always-on agent
+remember a dozen. So `brain` is the front door: a persistent shell with three
+main views (tasks, brain-directory search, and logs) and an always-on agent
 brain panel, plus Finder / `$EDITOR` handoffs for files. Adding a capability
 means adding a palette row or a keybinding, not another command to memorize.
 
@@ -84,13 +84,15 @@ reveal in Finder. Full key tables: [docs/keybindings.md](docs/keybindings.md).
 
 ## How it works (one paragraph)
 
-`brain` is a single Rust binary. It has no shell-mutating one-shot
-commands, so it needs no wrapper: `run.sh` builds it when the sources change
-and `exec`s it directly, forwarding args. Everything the user does happens
-inside the persistent TUI, which renders to `/dev/tty` and performs its own
-file-open, Finder-reveal, and agent-launch actions by spawning
-processes. The binary's stdout carries only `brain config` output plus
-clap's help/errors. Details: [docs/architecture.md](docs/architecture.md)
+`brain` is a single Rust binary with a persistent TUI and short-lived command
+families. It has no shell-mutating one-shot commands, so it needs no wrapper:
+`run.sh` builds it when the sources change and `exec`s it directly, forwarding
+args. The TUI renders to `/dev/tty` and performs its own file-open,
+Finder-reveal, and agent-launch actions by spawning processes. The intentional
+stdout families are `config/env/version`,
+`workspace list`, explicit plain-task output, and help. `--verbose` mirrors logs
+to stdout for non-TUI commands. Clap errors and diagnostics go to stderr. The
+TUI renders to `/dev/tty`. Details: [docs/architecture.md](docs/architecture.md)
 and [docs/integrations.md](docs/integrations.md).
 
 ---
@@ -124,49 +126,94 @@ brain workspace attach ~/family
 ```
 
 Run any workspace-scoped command with `--brain <name-or-alias>` or `-b`; omit
-the selector to use the default. `brain workspace default <name>` changes only
-which workspace an omitted selector chooses. It does not change access mode.
+the selector to use the default. The global selector works before or after a
+subcommand, so `brain -b family sync` and `brain sync -b family` select the same
+workspace. Names and aliases are trimmed and lower-cased, then must match
+`[a-z0-9][a-z0-9_-]*`.
+
+The first workspace becomes the default. Later creates and attaches preserve
+that choice. `brain workspace default <name>` changes only where future
+commands with no selector route. Changing the default workspace never changes
+access mode, workspace identity, root, local user, receiver enablement, or env.
+
+The complete implemented management surface is:
+
+```sh
+brain workspace list
+brain workspace create --name family --root ~/family
+brain workspace attach ~/shared-brain
+brain workspace rename family household
+brain workspace alias add household fam
+brain workspace alias remove household fam
+brain workspace default household
+brain workspace remove household
+brain workspace repair -b brain --manifest --local-user-id primary-user
+brain sync -b fam                  # aliases work for ordinary commands
+```
+
+Omit a management value to use the guided `/dev/tty` prompt. `attach` adopts
+the stable identity in the existing root. `rename` preserves that identity and
+updates the default name when necessary. `remove` detaches only the
+machine-registry record; it never deletes the root or its contents.
 
 **First run**
 
-Run `brain`. If you've never personalized it, a short, skippable prompt asks for
-your name, role, and who you work for, then installs the bundled skills. That's it
-— brain works fully even if you skip every prompt.
+Run `brain`. If the selected workspace has no required machine-local user ID,
+the readiness prompt asks for it and then continues the original command. The
+separate personalization prompt for name, role, and organization remains
+skippable. Brain then installs the bundled skills.
 
 ## 2. Where brain keeps things
 
-brain splits what it persists into **two stores**, by lifecycle:
+Brain silos each workspace's persisted state, configuration, and runtime
+artifacts. One machine registry says which workspaces this binary can select;
+portable files stay inside their root, and runtime files use the stable
+workspace UUID rather than a name or default. This persisted-artifact boundary
+is not a filesystem sandbox; `workspace_only` access remains prompt-based.
 
-- **brain config** — a dir inside each workspace root, `<brain-root>/.config/`
-  (e.g. `~/brain/.config/`). Holds everything that's *right* on every machine.
-  Because it lives **inside that workspace**, it travels with it: whatever
-  syncs the workspace root across machines syncs these too. Nothing external (no
-  dotfiles tool) is involved.
+| Boundary | Location | What belongs there | Portable? |
+| --- | --- | --- | --- |
+| Workspace-owned data | `<workspace-root>/` | Notes, tasks, skills customizations, and `.config/{workspace.json,config.json,personalization.json,extensions/,plugins/}` | Yes, it travels with that workspace |
+| Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema, canonical default, and each workspace's UUID, machine-local root, aliases, `local_user_id`, `receiver_enabled`, and siloed free-form `env` | No |
+| Workspace runtime/cache | `~/.cache/brain/workspaces/<workspace-uuid>/` | `state.db`, `tui.lock`, `inbox/`, `responses/`, and `sync/` locks, journal, current state, workdir, and CSV baselines | No |
+| Shared infrastructure | Machine server PID/control files and the current shared triage signal | Narrow process coordination only; habits payloads are selected by request UUID | No |
 
-  | Path | What it is |
-  | --- | --- |
-  | `config.json` | portable runtime settings ([`brain config`](#3-configuration)) |
-  | `personalization.json` | who you are ([`brain personalize`](#4-personalize-brain)) |
-  | `extensions/<skill>.md` | your tweaks to a bundled skill ([hooks](#6-extend-a-skill-with-hooks)) |
-  | `plugins/<name>/` | your own whole skills ([plugins](#7-add-a-whole-skill-plugins)) |
+Active run logs remain under `/tmp` through `logging.rs`.
+`WorkspacePaths::logs_dir` is reserved and unused; it is not the destination
+for current diagnostic logs.
 
-- **brain env and workspace registry** — one fixed, machine-local file,
-  `~/.config/brain/env.json`. Schema v2 stores the default workspace and a
-  record keyed by each canonical workspace name. Each record contains its root,
-  aliases, stable workspace ID, local user ID, receiver state, and fully siloed
-  machine-local env values. The file lives **outside** every workspace root, so
-  it never syncs with workspace content.
+The portable manifest is
+`<workspace-root>/.config/workspace.json`. It contains the stable workspace UUID,
+receiver ingress UUID, manifest schema, and minimum compatible Brain version.
+It is strict and create-only: Brain refuses unknown fields, incompatible
+versions, or an identity mismatch, and never silently replaces an existing
+identity. A second machine can therefore attach the synced root without
+inventing a different UUID.
 
-  | Field | What it is |
-  | --- | --- |
-  | `root` | registry-owned path for this workspace; visible through `brain env get root`, but read-only there |
-  | `markdown_to_pdf_path` | path to the `markdown-to-pdf` binary on this machine |
-  | `claude_cmd` | command used to launch Claude on this machine |
-  | `codex_cmd` | command used to launch Codex on this machine |
-  | `sync` | Backblaze B2 sync config (bucket, credentials, trigger flags) |
+The sole registry has this strict schema-v2 shape:
 
-  The rule of thumb: **wrong if synced → brain env; right everywhere → brain
-  config.**
+```json
+{
+  "schema_version": 2,
+  "default_workspace": "brain",
+  "workspaces": {
+    "brain": {
+      "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+      "root": "/Users/example/brain",
+      "aliases": ["personal"],
+      "local_user_id": "primary-user",
+      "receiver_enabled": false,
+      "env": {}
+    }
+  }
+}
+```
+
+Records never inherit or merge env values. The rule of thumb is: **wrong if
+synced means brain env; right everywhere means brain config.** `root` is
+registry-owned and read-only through `brain env`; local executable paths,
+frontend commands, provider credentials, and sync transport settings live in
+the selected record's `env` object.
 
 **Workspace roots and selectors.** Roots are structural registry fields, not
 writable env variables. Use workspace commands to register roots and manage
@@ -183,6 +230,41 @@ A legacy `~/.config/brain-root` one-line pointer file is still read for
 back-compat and is automatically, idempotently folded into the first schema-v2
 workspace during migration. After migration, `brain workspace create` and
 `brain workspace attach` are the supported ways to register roots.
+
+Migration uses a legacy flat `root`, then that read-only pointer, then
+`~/brain` only as compatibility inputs. Existing installs become one default
+canonical workspace without losing machine env; an existing portable manifest
+supplies its identity. A valid schema-v2 registry is a byte-for-byte no-op and
+does not inspect the default workspace's portable config. Fresh ordinary or
+repair startup synthesizes the compatible `brain` workspace before readiness
+repair, while a first explicit create or attach establishes exactly the
+requested workspace. Interactive ordinary commands ask for missing required
+setup and continue; headless commands print exact `brain workspace repair`
+instructions.
+
+### Current isolation and planned access guidance
+
+The foundation currently isolates workspace selection, portable stores, and
+UUID-scoped runtime paths. Env, config, personalization, state, TUI, tasks,
+reindex, sync, and Brain-owned children all receive one immutable selected
+`CommandContext` / `WorkspaceContext`. Selection happens once. Ordinary runtime
+code does not reopen the registry or consult a global root. Detached Brain
+children carry the canonical `--brain` name, and child integrations receive
+`BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and `BRAIN_ACTOR_ID`.
+
+This release does not implement access-mode enforcement. A later
+`workspace_only` mode will use prompt-based guidance and light guardrails. It
+is not a filesystem sandbox, authentication boundary, container, OS-account
+boundary, or protection from a malicious trusted user. Its limited purpose is
+to reduce accidental and naive cross-workspace leakage in a high-trust,
+self-hosted environment. The migrated/default workspace remains unrestricted
+unless a later access-policy feature explicitly configures it otherwise.
+Changing the default workspace never changes access mode.
+
+Portable users, inbound sender identity, task `assigned_to`, triage-habit
+policy, access controls, the agent-controller/OpenCode facade, and the final
+shared receiver lease lifecycle are later phases. They are not part of this
+foundation.
 
 ## 3. Configuration
 

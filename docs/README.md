@@ -8,11 +8,13 @@
 
 `brain` is the user's **central terminal dispatch** for everything around
 their second brain and task system: manage tasks (agenda, triage, habits),
-fuzzy-pick a note across the PARA buckets, or think with an always-on
-agent brain panel. Bare `brain` opens a **persistent shell** with two main
-views (tasks and brain-directory search) alongside a session-resuming
-agent brain panel. The main subcommands are `brain tasks …`, `brain config …`,
-and `brain env …`.
+fuzzy-pick a note across the PARA buckets, or think with an always-on agent
+brain panel. Bare `brain` opens a **persistent shell** with three main views
+(tasks, brain-directory search, and logs) alongside a session-resuming agent
+brain panel. `brain workspace …` manages the machine's workspace registry;
+the other command families operate on one selected workspace.
+Brain's execution surfaces are a persistent TUI and short-lived command
+families.
 
 This directory is the source-of-truth for *what* `brain` does and *why*.
 The code is the source-of-truth for *how*. They must agree on *what*.
@@ -23,7 +25,7 @@ The code is the source-of-truth for *how*. They must agree on *what*.
    (main view, sub-view, brain panel, the two switching axes). Read first.
 1. **[architecture.md](architecture.md)** — module map, the merged-shell
    routing, data flow, build/run loop.
-2. **[features.md](features.md)** — every user-visible capability: the two
+2. **[features.md](features.md):** every user-visible capability: the three
    main views, subcommands, the fuzzy picker, the tasks view.
 3. **[data-model.md](data-model.md)** — `Bucket`, `Entry`, the
    `HaystackBuf` normalization, the picker's match/row model.
@@ -44,15 +46,15 @@ The code is the source-of-truth for *how*. They must agree on *what*.
 
 ```
 src/
-  main.rs        — entry point, command dispatch (bare brain → tasks view)
+  main.rs        : entry point, workspace bootstrap, and command dispatch
   lib.rs         — public re-exports for integration tests
   cli/           : focused clap surface (global + command-family modules)
-  workspace/     : typed identity, schema-v2 registry, and workspace CLI
+  workspace/     : typed identity, schema-v2 registry, and current workspace command family
   config.rs      — typed knobs (triage pattern, linear, rollover)
-  paths.rs       — brain-root resolution (config store / $HOME, tilde expand)
+  paths.rs       : legacy migration-only root compatibility
   settings/      — config store + `brain config` + markdown-to-pdf prereq
   entry.rs       — Bucket + Entry; walkdir collection with hidden filter
-  tui/           — persistent shell (tasks view + search view + agent panel)
+  tui/           : persistent shell (tasks, search, and logs views + agent panel)
   pty_pane.rs    — PTY-backed brain panel (portable-pty + vt100)
   session.rs     — pure agent command/env + resume-vs-fresh plan
   state.rs       — SQLite session store + layout pref (lock + recency)
@@ -81,6 +83,6 @@ CLAUDE.md        — symlink → AGENTS.md
 | What is "Open tasks"? | features.md → "Open tasks" |
 | How does `ann-afloat` match the query `afloat`? | data-model.md → "HaystackBuf" |
 | How does the brain panel launch `claude`? | integrations.md → "The brain panel" |
-| Why is `brain` a pure TUI binary with no wrapper? | decisions.md |
-| How do I point `brain` at a different root? | config.md |
+| Why does `brain` need no plan protocol or wrapper? | decisions.md |
+| How do I create, attach, or select a workspace? | config.md and features.md |
 | How do I add a test the right way? | testing.md |

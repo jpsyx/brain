@@ -15,23 +15,26 @@ binary was merged in; it no longer exists.) It's a small Rust CLI
 that root's `tasks/{tasks,habits}.csv`.
 
 Bare `brain` (and `brain tasks …`) opens a **persistent shell** (`tui/`) with
-**two main views** — the **tasks view** (task management, agenda, triage; the
+**three main views**: the **tasks view** (task management, agenda, triage; the
 startup default) and the **brain-directory search view** (fuzzy-pick over the
-selected root) — plus one app-level **brain panel** (an interactive agent session
+selected root), plus the **logs view**, and one app-level **brain panel** (an
+interactive agent session
 in a PTY, Claude by default or Codex with `--codex` / `-cx`, open at startup and
-shared by both views). Switch views with `Ctrl+L`/`Ctrl+H` (cycle) or
+shared by all views). Switch views with `Ctrl+L`/`Ctrl+H` (cycle) or
 `Ctrl+T`/`Ctrl+B` (jump). Read [docs/glossary.md](docs/glossary.md) first for
 the main-view / sub-view / brain-panel vocabulary.
 
-The only subcommands are `brain tasks …` (open the tasks view, or run the
-tasks utilities `complete|doctor|search|--no-tui`) and `brain config
-{list|get|set}`; bare `brain` opens the shell on the tasks view (the startup
-default). There are **no** shell-mutating one-shot commands and **no** plan
-protocol, so `brain` needs no wrapper: `run.sh` builds the binary when the
-sources change and `exec`s it directly. Everything the user does happens
-inside the TUI, which renders to `/dev/tty` and performs its own file-open,
-Finder-reveal, and agent-launch actions by spawning processes; the
-binary's stdout carries only `brain config` output plus clap help/errors. The
+The short-lived command families include `brain tasks …` utilities,
+`brain config …`, `brain env …`, `brain workspace …`, sync, personalization,
+skills, server/receiver management, habits, checks, and reindexing; bare
+`brain` opens the shell on the tasks view (the startup default). There are
+**no** shell-mutating one-shot commands and **no** plan protocol, so `brain`
+needs no wrapper: `run.sh` builds the binary when the sources change and
+`exec`s it directly. The intentional stdout families are
+`config/env/version`, `workspace list`, explicit plain-task output, and help.
+`--verbose` mirrors logs to stdout for non-TUI commands. Clap errors and
+diagnostics go to stderr. The TUI renders to `/dev/tty` and performs its own
+file-open, Finder-reveal, and agent-launch actions by spawning processes. The
 persistent shell keeps UUID-scoped state
 (`~/.cache/brain/workspaces/<workspace-uuid>/state.db`, table
 `brain_sessions`) to resume the right Claude session (lock + recency) and
@@ -160,10 +163,11 @@ users in `skills/`.)
 - **No `unsafe`.** `[lints.rust] unsafe_code = "forbid"` enforces it.
 - **Keep clippy clean.** `pedantic` + `nursery` are on at `warn`; don't
   add new warnings.
-- **The binary's stdout is only intentional machine-readable/plain CLI output
-  (`brain config`/`env`/`version`, explicit non-TUI `--verbose` logs, plus clap
-  help/errors).** Never `println!` diagnostics from other paths. Diagnostics go
-  to stderr; the TUI goes to `/dev/tty`.
+- **The binary's stdout is only intentional machine-readable/plain CLI output:**
+  `config/env/version`, `workspace list`, explicit plain-task output, help, and
+  non-TUI logs mirrored by `--verbose`. Clap errors and diagnostics go to
+  stderr. The TUI renders to `/dev/tty`. Never `println!` diagnostics from
+  other paths.
 - **Don't add dependencies casually.** The set is small on purpose. If you
   need one, justify it in `docs/architecture.md`.
 - **Follow the pure/impure split.** New decision logic goes in a pure

@@ -1,7 +1,7 @@
 # Keybindings
 
-The merged `brain` shell has **three main views** (the tasks view, the
-brain-directory search view) and one app-level **brain panel** (the selected
+The merged `brain` shell has **three main views** (tasks, brain-directory
+search, and logs) and one app-level **brain panel** (the selected
 agent PTY: Claude by default, Codex with `--codex` / `-cx`). See [glossary.md](glossary.md) for the vocabulary. Startup: the **tasks
 view** is showing, the **brain panel is open** (on the right) but unfocused, so
 `j`/`k` work immediately.
@@ -21,7 +21,7 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 
 | Key | Action | Notes |
 | --- | --- | --- |
-| `Ctrl+L` / `Ctrl+H` | Cycle the main view right / left | Two views today, so both wrap to the other; the direction is kept for a future third view. Main-panel focus only, so the brain panel keeps Claude's `Ctrl+H` (backspace) etc. when it has focus |
+| `Ctrl+L` / `Ctrl+H` | Cycle the main view right / left | Cycles tasks, brain search, and logs. Main-panel focus only, so the brain panel keeps Claude's `Ctrl+H` (backspace) etc. when it has focus |
 | `Ctrl+T` | Jump to the **tasks** view | Main-panel focus only |
 | `Ctrl+B` | Jump to the **brain-directory** view | Main-panel focus only |
 | `Alt+H` / `Alt+L` | Focus the **left** / **right** panel | Spatial: follows the layout when the brain panel is swapped sides. `Alt+H` from the brain panel is the reliable way back to the main view |
@@ -86,8 +86,9 @@ accelerator).
 
 ## Brain-directory (search) view
 
-An always-filtering fuzzy picker over `~/brain` (projects / areas / resources
-/ archive). Every printable key edits the query.
+An always-filtering fuzzy picker over the selected workspace's projects,
+areas, resources, and archive directories. Every printable key edits the
+query.
 
 | Key | Action |
 | --- | --- |

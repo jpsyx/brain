@@ -47,9 +47,9 @@ The user lives in the terminal and wants **one command** to reach
 everything around `~/brain`: manage tasks, jump to a note, search across PARA
 buckets, or think with an agent session rooted in the brain. Rather than
 memorize several separate entry points, `brain` is the front door: a single
-persistent shell with two main views (tasks and brain-directory search) and an
-always-on brain panel. New top-level capabilities should be added as a main
-view, a palette row, or a keybinding inside that shell, not as a separate
+persistent shell with three main views (tasks, brain-directory search, and logs)
+and an always-on brain panel. New top-level capabilities should be added as a
+main view, a palette row, or a keybinding inside that shell, not as a separate
 command (or a shell-mutating one-shot subcommand) the user has to discover.
 
 ## Why the command palette lives behind `Ctrl-p`
@@ -107,28 +107,29 @@ the rarer case and takes the `Ctrl-Enter` chord. A directory match has no
 file to open, so `Enter` on one falls back to revealing the directory
 (identical to `Ctrl-Enter`), which keeps `Enter` from ever being a no-op.
 
-## Why `brain` is a pure TUI binary (no plan, no wrapper)
+## Why `brain` needs no plan or wrapper
 
 `brain` used to have shell-mutating one-shot subcommands (`cd`, `msg`, the
 per-bucket search verbs). Those effects had to happen in the **parent shell**
 (a child process can't `cd` the caller or exec a zsh alias/function), so the
 binary printed a small `key=value` **plan** to stdout and a `brain` zsh wrapper
-executed it. That whole mechanism is **gone**. Every capability now lives
-*inside* the persistent shell, which performs its own file-open, Finder-reveal,
-PDF, trash, and agent-launch actions by spawning processes; nothing needs to
-mutate the parent shell. So there is no plan protocol and no wrapper: `run.sh`
-just builds the binary when the sources change and `exec`s it directly. The
+executed it. That whole mechanism is **gone**. Brain now has a persistent TUI
+and short-lived command families. Interactive file-open, Finder-reveal, PDF,
+trash, and agent-launch actions live inside the persistent shell; focused
+commands execute directly and exit. Nothing needs to mutate the parent shell,
+so there is no plan protocol and no wrapper: `run.sh` just builds the binary
+when the sources change and `exec`s it directly. The
 agent launch that once relied on shell aliases is now driven by the
 configurable `claude_cmd` / `codex_cmd` env values. See
 [integrations.md](integrations.md).
 
 ## Why the TUI renders to `/dev/tty`, not stdout
 
-The binary's **stdout** is reserved for `brain config` output (a table or a
-single value) plus clap's help/errors, so a caller can pipe or capture it
-cleanly. If the TUI also drew to stdout, that output would be full of escape
-codes and frame data. Rendering to `/dev/tty` (opened directly) keeps stdout
-clean while the interactive UI still reaches the real terminal. crossterm's
+The intentional stdout families are `config/env/version`, `workspace list`,
+explicit plain-task output, and help. `--verbose` mirrors logs to stdout for
+non-TUI commands. Clap errors and diagnostics go to stderr. The TUI renders to
+`/dev/tty`, keeping full-screen escape codes and frame data out of stdout while
+the interactive UI still reaches the real terminal. crossterm's
 raw-mode toggles and event reader operate on the controlling terminal
 regardless, so input is unaffected.
 
@@ -223,6 +224,28 @@ background threads clone the same `Arc<WorkspaceContext>`. Detached Brain
 children repeat the canonical `--brain` selector, and Brain-owned integrations
 receive exactly workspace ID, canonical name, root, and actor ID. Therefore a
 later default change cannot redirect an already-started operation.
+
+## Why changing the default never changes workspace policy
+
+The machine default is routing metadata, not workspace data. It names the
+canonical record selected when `--brain/-b` is absent. Keeping that field at
+the registry top level means `set_default` can change one name without
+rewriting either workspace record or portable files. Consequently, changing
+the default workspace never changes access mode, UUID, root, local user,
+receiver switch, aliases, or env.
+
+The current foundation stops at selection and siloed paths. It intentionally
+does not pretend that path separation is access control. A later
+`workspace_only` mode will use prompt-based guidance and light guardrails to
+reduce accidental and naive leakage in a high-trust installation. It is not a
+filesystem sandbox, authentication boundary, container, OS-account boundary,
+or defense against a malicious trusted user. Real adversarial isolation must
+remain outside Brain.
+
+The portable user registry, inbound actor precedence, task `assigned_to`,
+triage-habit policy, agent-controller/OpenCode facade, and shared receiver
+leases remain later phases. Documenting those as current would make the
+foundation look safer and more complete than it is.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
@@ -496,10 +519,11 @@ varies per user; brain owns the URL shape, so a user configures the minimum and
 can't get the surrounding format wrong. `Config::linear_base_url` interpolates
 it, and an empty slug simply omits Linear links.
 
-## Why config lives inside the brain root (`<brain-root>/.config/`), not `~/.config/brain`
+## Why portable config lives inside the brain root (`<brain-root>/.config/`)
 
-Everything brain persists — `config.json`, `personalization.json`, skill
-`extensions/`, `plugins/` — lives in `<brain-root>/.config/`. The design went
+Everything Brain persists as portable config, including `config.json`,
+`personalization.json`, skill `extensions/`, and `plugins/`, lives in
+`<brain-root>/.config/`. The design went
 through three positions and this is the resting one:
 
 1. **A/original:** machine-local `config.json` at `~/.config/brain`, but
@@ -524,18 +548,19 @@ the brain — sub-project C, Backblaze, etc. — syncs the config), and **jpsyx 
 nothing to do with brain config at all**. The repo stays generic (no tracked
 `config.json`), and brain still writes only under `$HOME`.
 
-### The one exception: `root`
+### Historical exception: the legacy root pointer (superseded)
 
-The brain-root *location* can't be stored inside the brain root — you'd need the
-root to find the setting that tells you the root (circular). So `root` is
-resolved outside the config system: the path in `~/.config/brain-root` (a
-one-line file, tilde-expanded) if present, else the default `~/brain`. It is the
-**only** machine-local piece of brain state, is **not** a `brain config` variable
-(there is no `brain config set root`), and is edited by hand or tracked in
-dotfiles. Because brain only ever *reads* it, a dotfiles tool can safely
-mirror-symlink it — the runtime-write footgun above doesn't apply to a read-only
-pointer. Pablo tracks it in jpsyx at `home/.config/brain-root` containing
-`~/brain`.
+Before schema v2, the brain-root location could not live inside that root, so
+Brain read one path from `~/.config/brain-root` and otherwise used `~/brain`.
+That pointer was the only machine-local state and was safe for a dotfiles tool
+to mirror because Brain never wrote it.
+
+Schema v2 supersedes that historical decision. The sole machine registry
+at `$XDG_CONFIG_HOME/brain/env.json` (fallback
+`~/.config/brain/env.json`) now owns one structural root per workspace. The old
+pointer and `~/brain` remain read-only one-time migration inputs only. New
+roots use `brain workspace create` or `brain workspace attach`; free-form
+`brain env set` cannot write `root`.
 
 ### `markdown_to_pdf_path` and syncing a machine-specific value (historical; superseded)
 

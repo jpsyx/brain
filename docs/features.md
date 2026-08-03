@@ -6,11 +6,11 @@ system. Everything below is reachable from the persistent shell (bare
 
 ## The merged shell: three main views + one brain panel
 
-Bare `brain` (and `brain tasks …`) opens a persistent shell with **two main
+Bare `brain` (and `brain tasks …`) opens a persistent shell with **three main
 views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
 
-- **Tasks view** — the startup default. The task-management surface over
-  `~/brain/tasks/{tasks,habits}.csv`: tabbed sub-views (`today`, `mit`,
+- **Tasks view:** the startup default. The task-management surface over the
+  selected workspace's `tasks/{tasks,habits}.csv`: tabbed sub-views (`today`, `mit`,
   `past_due`, `week`, `habits`, `backlog`, `all`; `Tab`/`Shift+Tab` cycle
   them), vim navigation, notes expand/render, mark-complete / remove / defer /
   open-links, agenda (`Ctrl+A`), and the daily-triage startup nudge. The full
@@ -18,9 +18,11 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
 - **Brain-directory (search) view** — the fuzzy search across projects,
   areas, resources, and archive (the picker described later in this doc);
   formerly what bare `brain` opened.
+- **Logs view:** a scrollable view of the current run log, opened from the
+  palette or the main-view cycle.
 - **Brain panel** — a live, interactive agent session in an embedded PTY,
-  Claude by default or Codex with `--codex` / `-cx`, open at startup and shared by both
-  main views. It does not belong to either view: switching views leaves it open;
+  Claude by default or Codex with `--codex` / `-cx`, open at startup and shared by all
+  main views. It does not belong to a view: switching views leaves it open;
   closing it (`Ctrl+X`, or the agent
   exiting) makes the active main view full-width.
 
@@ -87,9 +89,10 @@ for the completion-signal wiring.
 **Session resume.** On startup the brain panel resumes your **most recent
 Claude session** — the continuous conversation picks up where it left off.
 If you type `/new` (or `/clear`) inside claude — or press `Ctrl+N` — that
-fresh session becomes the one brain resumes next time. Only one interactive
-`brain` shell may run at a time; a second terminal receives a clear
-already-running message. If the
+fresh session becomes the one brain resumes next time. Brain permits one live TUI per workspace UUID:
+a second TUI for the same UUID receives a clear
+already-running message, while TUIs for different workspace UUIDs may run at
+the same time. If the
 session it would resume has no transcript yet (you opened brain last time but
 never sent a message), it can't be resumed — brain starts a fresh chat and
 says so in the status line. See [integrations.md](integrations.md) and
@@ -143,10 +146,10 @@ a direct keystroke show it dimmed in `[…]`):
    closed**.
 2. **Open tasks** `[^T]` — switch to the tasks main view (task management,
    agenda, triage), in-process.
-3. **Search projects** — rescope search to `~/brain/projects`.
-4. **Search areas** — rescope search to `~/brain/areas`.
-5. **Search resources** — rescope search to `~/brain/resources`.
-6. **Search archive** — rescope search to `~/brain/archive` (retired material).
+3. **Search projects:** rescope search to the selected workspace's `projects/`.
+4. **Search areas:** rescope search to the selected workspace's `areas/`.
+5. **Search resources:** rescope search to the selected workspace's `resources/`.
+6. **Search archive:** rescope search to the selected workspace's `archive/` (retired material).
 7. **Global search** — search across projects, areas, resources, and archive.
 8. **Move brain panel to the left / right** — swap the layout (label names
    the direction the panel would move).
@@ -236,10 +239,10 @@ and the prerequisite/auto-discovery rules.
 
 ### `brain env`
 
-Reads and writes your **machine-local** brain env
-(`~/.config/brain/env.json`) — values that would be *wrong* if copied to
-another machine: `root` (where your brain lives on this machine),
-`markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
+Reads and writes your **machine-local** brain env inside the selected workspace
+record in the schema-v2 registry (`$XDG_CONFIG_HOME/brain/env.json`, falling
+back to `~/.config/brain/env.json`). These are values that would be *wrong* if
+copied to another machine: `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
 self-healing), `claude_cmd`/`codex_cmd` (this machine's agent launch commands), and the
 Backblaze `sync` block (written by `brain sync setup`, below — see
 [config.md](config.md) for its fields). Mirrors `brain
@@ -251,20 +254,23 @@ config` exactly, over the env store instead:
   such as `sync.b2_bucket`.
 - `brain env set <name>=<value>` — set and persist a variable or nested path,
   preserving sibling values. Nested values can be addressed as
-  `objName.key1.key2`.
+  `objName.key1.key2`. Structural fields such as `root`, UUID, aliases,
+  local-user selection, receiver enablement, and access policy are rejected.
 
 `env`, like `config`, runs before the `markdown-to-pdf` prerequisite gate.
-`~/.config/brain/env.json` is never Backblaze-synced (it lives outside the
-brain root on purpose); a legacy `~/.config/brain-root` pointer file is read
-for back-compat and auto-migrated into the `root` key on first run. See
+The registry is never Backblaze-synced (it lives outside every workspace root
+on purpose). A legacy flat `root`, the read-only `~/.config/brain-root`
+pointer, and `~/brain` are one-time migration inputs; migration creates one
+structural `WorkspaceRecord.root`. See
 [config.md](config.md) for the full store/schema description and
 [data-model.md](data-model.md) for the `sync` block's fields.
 
 ### `brain workspace`
 
 Manages the schema-v2 registry at the fixed machine path without going through
-the selected record. Canonical names and aliases are
-case-folded selectors; `--brain/-b` is global and may be placed around nested
+the selected record. Canonical names and aliases are trimmed, ASCII
+lower-cased selectors that must match `[a-z0-9][a-z0-9_-]*`;
+`--brain/-b` is global and may be placed around nested
 subcommands or after a delegated task positional. The long equals form is also
 accepted. A `--` option terminator leaves later selector-looking tokens in the
 delegated task values.
@@ -292,6 +298,9 @@ delegated task values.
   boundaries. Adding an alias
   already present on the same record, including a case-folded equivalent, fails
   without changing registry bytes.
+- `workspace alias add [<workspace>] [<alias>]` and
+  `workspace alias remove [<workspace>] [<alias>]` are the exact nested alias
+  forms shown by clap.
 - `workspace remove [<workspace>]` detaches only a non-default registry record.
   It never deletes root, config, cache, sync, or remote data. Choose another
   default first when removing the current default.
@@ -327,6 +336,19 @@ is still rejected or coalesced. Changing the machine default affects only a
 future invocation. Brain-owned child scripts receive the selected workspace
 and local actor identity through `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`,
 `BRAIN_ROOT`, and `BRAIN_ACTOR_ID`.
+
+The first record becomes the default; later create/attach operations preserve
+it. Rename updates the default's canonical name when needed. Changing the
+default workspace never changes access mode, UUID, root, local user, receiver
+switch, or env. Removing a workspace detaches the machine record only.
+
+The current foundation does not enforce access modes. The planned
+`workspace_only` mode is prompt-based guidance with light guardrails, not a
+filesystem sandbox, authentication boundary, container, or OS-user boundary.
+It aims only to reduce accidental and naive leakage between highly trusted,
+self-hosted workspaces. Portable users, inbound actor resolution,
+`assigned_to`, triage-habit policy, the agent-controller/OpenCode facade, and
+the shared receiver lease lifecycle are also later phases.
 
 ### `brain reindex`
 
@@ -743,9 +765,14 @@ brain (synced, never committed to the repo):
 
 ### Habits and receiver servers
 
-The habits server remains a local-only service. `GET /habits` renders today's
-habits as a flat-design HTML page, and `POST /habits/done` delegates to native
-completion machinery. It is separate from external message intake.
+The habits server remains one machine-shared, local-only service. The selected
+workspace is explicit in `GET /habits?workspace_id=<UUID>` and
+`POST /habits/done?workspace_id=<UUID>`. On every request the server reloads
+schema v2, resolves that exact UUID, verifies that its root is available, and
+checks that the portable manifest has the same identity before reading or
+writing the workspace's habits CSV. Missing, malformed, unknown, unavailable,
+or mismatched identities are rejected and never fall back to the machine
+default. This service is separate from external message intake.
 
 The receiver server is owned by the running TUI and is opt-in. It exposes only
 authenticated `POST /sms` and `POST /email` routes. Twilio signatures and phone
@@ -757,6 +784,10 @@ without limit. SMS numbers use exact E.164 matching, including the leading `+`
 and country code. A malformed configured SMS number produces a persistent
 yellow warning in the TUI status line. The former generic
 `/webhooks/capture` route has been removed.
+
+This is the existing per-TUI receiver behavior. The planned one-process,
+multi-workspace receiver with workspace leases and final-TUI shutdown has not
+shipped in the foundation release.
 
 Inbound messages wait only for a submitted agent turn, not merely for the
 brain panel to exist. An idle startup panel is closed and replaced by the
@@ -836,11 +867,14 @@ agenda file; the next agenda build re-derives habit state from the CSV.
 
 ### Prerequisite: `markdown-to-pdf`
 
-Every command except `brain config`, `brain env`, and `brain sync` fails fast with a red `❌`
-error if the `markdown-to-pdf` command can't be resolved (it's needed for
-"Create PDF"). Its path is auto-discovered on first run and stored as
-`markdown_to_pdf_path` **in brain env** (`~/.config/brain/env.json`, not
-`config.json`); see [config.md](config.md).
+Only TUI and task routes cross this prerequisite gate. Workspace, config, env,
+sync, personalize, skills, server, receiver, habits, check, reindex, version,
+help, and the internal server-run route dispatch before it. A gated route fails
+fast with a red `❌` error if the `markdown-to-pdf` command cannot be resolved
+(it is needed for "Create PDF"). Its path is auto-discovered on first run and
+stored as `markdown_to_pdf_path` **in brain env**
+(`~/.config/brain/env.json`, not `config.json`); see
+[config.md](config.md).
 
 ## The fuzzy picker
 
