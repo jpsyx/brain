@@ -19,11 +19,14 @@ This is implemented in [`scripts/_csvlib.py`](../scripts/_csvlib.py)
 `find_by_id_or_fuzzy()` + `locate()`. **Short IDs are shorthand;
 name fragments still work.**
 
+These locators intentionally use mutable `task_id`, then update the matched
+row without changing its immutable `task_uuid`.
+
 ## Capture
 
 - **`/todo add <freetext>`** — parse the freetext into a row. Required
   fields (ask only if missing): `task_name`, `task_type`, `priority`.
-  Defaults: `due_date` empty unless mentioned, `hard_deadline=false`,
+  New rows receive a UUIDv4 `task_uuid`. Defaults: `due_date` empty unless mentioned, `hard_deadline=false`,
   `status=not_started`, `defer_count=0`, `assigned_to=BRAIN_ACTOR_ID`,
   everything else empty. `--assigned-to <user-id>` is an explicit override
   and must name a member in the selected workspace's `.config/users.json`.

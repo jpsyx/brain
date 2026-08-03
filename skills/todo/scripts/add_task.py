@@ -16,23 +16,23 @@ Usage:
 import argparse
 import sys
 from _csvlib import (
-    assignment_for_create, habits_csv, new_habit_id, new_task_id, read_csv,
+    assignment_for_create, habits_csv, new_habit_id, new_task_id, new_uuid, read_csv,
     tasks_csv, today_iso, write_csv,
 )
 
 TASK_COLS = [
-    "task_id", "task_name", "task_type", "status", "waiting_since", "priority",
+    "task_uuid", "task_id", "task_name", "task_type", "status", "waiting_since", "priority",
     "due_date", "hard_deadline", "start_date", "assigned_to", "see_also",
     "notes", "project", "energy_level", "context",
     "estimated_duration", "blocked_by", "defer_count",
-    "created_date", "completed_date", "last_touched", "linear_issue",
+    "created_date", "completed_date", "last_touched", "linear_issue", "system_key",
 ]
 HABIT_COLS = [
-    "task_id", "task_name", "status", "priority", "due_date",
+    "task_uuid", "task_id", "task_name", "status", "priority", "due_date",
     "hard_deadline", "assigned_to", "see_also", "notes", "project",
     "energy_level", "context", "estimated_duration",
     "recur_interval", "recur_unit",
-    "created_date", "completed_date", "last_touched",
+    "created_date", "completed_date", "last_touched", "system_key",
 ]
 
 
@@ -72,6 +72,7 @@ def main() -> int:
     args = p.parse_args()
 
     common = {
+        "task_uuid": new_uuid(),
         # task_id is assigned below per-kind (T### for tasks, H### for habits)
         "task_name": args.name,
         "status": "not_started",
@@ -88,6 +89,7 @@ def main() -> int:
         "created_date": today_iso(),
         "completed_date": "",
         "last_touched": today_iso(),
+        "system_key": "",
     }
 
     if args.habit:
@@ -137,6 +139,7 @@ def main() -> int:
                     blocked = prev_id
                     linear = ""
                 new_rows.append({**common,
+                                 "task_uuid": new_uuid(),
                                  "task_id": tid,
                                  "task_name": f"{args.name} ({i}/{args.chunks})",
                                  "task_type": task_type,

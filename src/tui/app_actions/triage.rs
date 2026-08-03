@@ -370,6 +370,7 @@ mod triage_nudge_tests {
     /// `#[cfg(test)]`-gated to that module) so this test owns its fixtures.
     fn triage(id: &str, due: chrono::NaiveDate, completed: Option<chrono::NaiveDate>) -> Task {
         Task {
+            task_uuid: None,
             id: id.to_owned(),
             name: "Morning Triage (5mins)".to_owned(),
             types: Vec::new(),
@@ -395,6 +396,7 @@ mod triage_nudge_tests {
             blocked_by: Vec::new(),
             completed_date: completed,
             linear_issue: String::new(),
+            system_key: String::new(),
         }
     }
 

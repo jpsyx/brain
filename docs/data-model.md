@@ -396,8 +396,18 @@ now provides canonical `assigned_to` task and habit fields. The value is a
 portable `UserId`; creation defaults to the immutable effective actor,
 unrelated edits preserve it, and explicit changes validate membership. Readers
 accept legacy `assignee`, prefer `assigned_to` when both exist, and writers
-migrate to `assigned_to` by column name. This does not activate the separate
-`task_uuid` migration. The release also does not implement triage-habit policy,
+migrate to `assigned_to` by column name. Task rows accept an optional
+`task_uuid` during the compatibility window; all new rows receive UUIDv4, and
+mutations preserve any existing UUID. The inactive schema helper derives
+legacy UUIDv5 values from
+`<workspace-uuid>:<csv-kind>:<legacy-task-id>`, backs up both CSVs, both
+counters, and `SCHEMA.json`, then writes task schema version 2 with
+`task_uuid` as immutable merge identity and `task_id` as mutable display
+identity. It is not called by startup, readiness, sync, or commands. The
+rollout coordinator still owns the last legacy semantic sync, activation, and
+backup location. Existing legacy files retain `task_id` as their first sync
+key until migration; UUID merge and collision reconciliation remain Task 5.
+The release also does not implement triage-habit policy,
 access-mode enforcement, the agent-controller/OpenCode facade, or the final
 shared receiver lifecycle.
 
@@ -817,12 +827,13 @@ leaves the file absent, and id allocation falls back to `max_existing_id + 1`.
 
 ```rust
 struct Table {
-    header: Vec<String>,                  // column order, task_id first
-    rows: BTreeMap<String, Vec<String>>,  // task_id -> row cells
+    header: Vec<String>,                  // legacy order has task_id first
+    rows: BTreeMap<String, Vec<String>>,  // current first-column key -> cells
 }
 ```
 
-`merge(base, ours, theirs) -> (Table, Report)` unions the `task_id`s across
+Until coordinated UUID rollout, `merge(base, ours, theirs) -> (Table, Report)`
+unions the legacy `task_id`s across
 all three tables and resolves each id independently:
 
 - **Present on one side only, absent from `base`** — added; kept as-is.
@@ -862,7 +873,7 @@ most columns (preferring `ours`, then `theirs`, then `base`), so a schema
 superset survives a merge; every row is padded/truncated to that width
 (`norm`) before any comparison runs.
 
-`serialize` writes rows in `task_id` order (the `BTreeMap`'s natural
+`serialize` writes rows in current merge-key order (the `BTreeMap`'s natural
 ordering), so two machines merging the same three inputs — even with
 `ours`/`theirs` swapped — produce **byte-identical** output (convergence),
 and merging an already-merged table with itself is a no-op (idempotency);

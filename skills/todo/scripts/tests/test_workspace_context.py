@@ -12,6 +12,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1]
 ADD_TASK = SCRIPTS / "add_task.py"
 REASSIGN_TASK = SCRIPTS / "reassign_task.py"
+NEXT_OCCURRENCE = SCRIPTS / "next_habit_occurrence.py"
 WORKSPACE_ID = "e806258e-491a-436d-9db4-a5ca9903e0d4"
 
 
@@ -90,6 +91,7 @@ class WorkspaceContextTests(unittest.TestCase):
         with (self.root / "tasks" / "tasks.csv").open(newline="") as handle:
             rows = list(csv.DictReader(handle))
         self.assertEqual(rows[0]["assigned_to"], "wife")
+        self.assertEqual(uuid.UUID(rows[0]["task_uuid"]).version, 4)
         self.assertEqual(
             (self.home / "brain" / "tasks" / "tasks.csv").read_bytes(), before
         )
@@ -150,6 +152,25 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertEqual(rows[0]["assigned_to"], "")
         self.assertEqual(rows[1]["assigned_to"], "wife")
 
+    def test_add_to_legacy_csv_keeps_display_id_as_the_sync_key_until_rollout(self):
+        tasks = self.root / "tasks" / "tasks.csv"
+        tasks.write_text(
+            "task_id,task_name,task_type,status,priority,assigned_to\n"
+            "T1,Existing,personal,not_started,p2,pablo\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_add()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tasks.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            rows = list(reader)
+        self.assertEqual(reader.fieldnames[0], "task_id")
+        self.assertIn("task_uuid", reader.fieldnames)
+        self.assertEqual(rows[0]["task_uuid"], "")
+        self.assertEqual(uuid.UUID(rows[1]["task_uuid"]).version, 4)
+
     def test_add_task_uses_the_full_schema_for_an_empty_csv(self):
         tasks = self.root / "tasks" / "tasks.csv"
         tasks.write_text("", encoding="utf-8")
@@ -167,8 +188,8 @@ class WorkspaceContextTests(unittest.TestCase):
     def test_reassignment_validates_membership_and_preserves_other_fields(self):
         tasks = self.root / "tasks" / "tasks.csv"
         tasks.write_text(
-            "task_id,task_name,status,assigned_to,notes\n"
-            "T1,Existing,not_started,pablo,keep this\n",
+            "task_uuid,task_id,task_name,status,assigned_to,notes\n"
+            "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,T1,Existing,not_started,pablo,keep this\n",
             encoding="utf-8",
         )
 
@@ -194,6 +215,39 @@ class WorkspaceContextTests(unittest.TestCase):
             row = next(csv.DictReader(handle))
         self.assertEqual(row["assigned_to"], "wife")
         self.assertEqual(row["notes"], "keep this")
+        self.assertEqual(
+            row["task_uuid"], "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4"
+        )
+
+    def test_habit_occurrence_gets_a_new_uuid_and_retains_system_key_and_assignment(self):
+        source_uuid = "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4"
+        row = {
+            "task_uuid": source_uuid,
+            "task_id": "H1",
+            "task_name": "Morning triage",
+            "status": "done",
+            "assigned_to": "wife",
+            "system_key": "brain.triage.daily",
+            "due_date": "2026-08-03",
+            "recur_interval": "1",
+            "recur_unit": "days",
+        }
+        result = subprocess.run(
+            [sys.executable, str(NEXT_OCCURRENCE)],
+            cwd=SCRIPTS,
+            env=self.env(),
+            input=json.dumps(row),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        occurrence = json.loads(result.stdout)
+        self.assertEqual(uuid.UUID(occurrence["task_uuid"]).version, 4)
+        self.assertNotEqual(occurrence["task_uuid"], source_uuid)
+        self.assertEqual(occurrence["system_key"], "brain.triage.daily")
+        self.assertEqual(occurrence["assigned_to"], "wife")
 
     def test_csvlib_exposes_uuid_creation_without_adding_uuid_columns(self):
         result = subprocess.run(

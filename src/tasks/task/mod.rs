@@ -16,11 +16,15 @@ pub use load::{load_habits, load_tasks};
 
 use chrono::NaiveDate;
 
+use super::identity::TaskUuid;
+
 /// Normalized, in-memory view of a task (or habit — same struct) with dates
 /// parsed and pipe-lists split. Habit-only fields default to empty / zero
 /// when loaded from tasks.csv.
 #[derive(Debug, Clone)]
 pub struct Task {
+    /// Immutable merge identity. `None` is accepted only for legacy rows until rollout.
+    pub task_uuid: Option<TaskUuid>,
     pub id: String,
     pub name: String,
     pub types: Vec<String>,
@@ -45,6 +49,8 @@ pub struct Task {
     /// Linear; empty for unlinked / non-code tasks (and always empty for
     /// habits, which never link to Linear).
     pub linear_issue: String,
+    /// Stable key for a Brain-managed definition, empty for ordinary rows.
+    pub system_key: String,
 }
 
 impl Task {
@@ -160,6 +166,7 @@ impl Task {
 #[must_use]
 pub fn test_task(id: &str, status: &str) -> Task {
     Task {
+        task_uuid: None,
         id: id.to_owned(),
         name: format!("test task {id}"),
         types: Vec::new(),
@@ -180,6 +187,7 @@ pub fn test_task(id: &str, status: &str) -> Task {
         blocked_by: Vec::new(),
         completed_date: None,
         linear_issue: String::new(),
+        system_key: String::new(),
     }
 }
 

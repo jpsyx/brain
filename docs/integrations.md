@@ -533,8 +533,10 @@ bookkeeping.
   never synced), the local file, and the remote copy (fetched with `rclone
   copyto <remote> <tmp>`, over the same env-var `BRAIN:` remote bisync uses);
   merges the three with the pure id-keyed 3-way merge in
-  `crate::sync::csv_merge` (`merge(base, ours, theirs)`, keyed by `task_id` —
-  see [data-model.md](data-model.md) for the rules); writes the merged CSV
+  `crate::sync::csv_merge` (`merge(base, ours, theirs)`, keyed by legacy
+  `task_id` until coordinated UUID rollout; the inactive task-schema helper is
+  never called by sync; see [data-model.md](data-model.md) for the rules);
+  writes the merged CSV
   back to the local file, pushes it to the remote with another `rclone
   copyto`, then overwrites the baseline with the same merged text. A missing
   baseline (first run on a machine) means every row reads as newly added, so

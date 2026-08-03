@@ -9,6 +9,7 @@ use std::path::Path;
 use anyhow::{Result, anyhow, bail};
 use chrono::{Datelike, Local, NaiveDate};
 
+use crate::tasks::identity::TaskUuid;
 use crate::theme::Theme;
 
 pub(crate) type Row = BTreeMap<String, String>;
@@ -270,6 +271,7 @@ pub(crate) fn spawn_next_occurrence(
         )
     };
     let next_id = new_habit_id(tasks_dir, csv)?;
+    next.insert("task_uuid".to_owned(), TaskUuid::new().to_string());
     next.insert("task_id".to_owned(), next_id.clone());
     next.insert("status".to_owned(), "not_started".to_owned());
     next.insert("due_date".to_owned(), next_due.clone());
@@ -277,6 +279,7 @@ pub(crate) fn spawn_next_occurrence(
     next.insert("created_date".to_owned(), today_s.clone());
     next.insert("last_touched".to_owned(), today_s);
     csv.rows.push(next);
+    ensure_column(csv, "task_uuid");
     Ok((next_id, next_due))
 }
 
@@ -680,6 +683,36 @@ mod tests {
     }
 
     #[test]
+    fn completing_by_display_id_preserves_the_immutable_task_uuid() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        let task_uuid = "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4";
+        std::fs::write(
+            tasks_dir.join("tasks.csv"),
+            format!(
+                "task_uuid,task_id,task_name,status,completed_date,last_touched\n{task_uuid},T91,Preserve identity,not_started,,\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            tasks_dir.join("habits.csv"),
+            "task_uuid,task_id,task_name,status,completed_date,last_touched\n",
+        )
+        .unwrap();
+
+        complete_in_root_with_today(
+            dir.path(),
+            "T91",
+            NaiveDate::from_ymd_opt(2026, 8, 3).unwrap(),
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
+        assert!(written.contains(&format!("{task_uuid},T91,Preserve identity,done")));
+    }
+
+    #[test]
     fn unrelated_mutation_migrates_assignee_header_and_preserves_assignment() {
         let dir = tempfile::tempdir().unwrap();
         let tasks_dir = dir.path().join("tasks");
@@ -771,6 +804,11 @@ T1,Keep canonical,done,wife,2026-08-03,2026-08-03\n"
         assert_eq!(result.kind, CompletionKind::Habit);
         assert_eq!(result.next_due.as_deref(), Some("2026-07-27"));
         let written = std::fs::read_to_string(tasks_dir.join("habits.csv")).unwrap();
+        assert_eq!(
+            written.lines().next().unwrap_or_default().split(',').next(),
+            Some("task_id"),
+            "legacy sync stays keyed by task_id until coordinated migration"
+        );
         assert!(
             written.contains(
                 "H1,Morning pages,done,2026-07-24,1,days,2026-07-24,2026-07-26,2026-07-26"
@@ -781,5 +819,49 @@ T1,Keep canonical,done,wife,2026-08-03,2026-08-03\n"
             std::fs::read_to_string(tasks_dir.join(".habits_next_id")).unwrap(),
             "3\n"
         );
+    }
+
+    #[test]
+    fn spawned_habit_gets_new_uuid_and_retains_system_key_and_assignment() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::write(
+            tasks_dir.join("tasks.csv"),
+            "task_uuid,task_id,task_name,status,completed_date,last_touched\n",
+        )
+        .unwrap();
+        std::fs::write(tasks_dir.join(".habits_next_id"), "2\n").unwrap();
+        let source_uuid = "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4";
+        std::fs::write(
+            tasks_dir.join("habits.csv"),
+            format!(
+                "task_uuid,task_id,task_name,status,assigned_to,system_key,due_date,recur_interval,recur_unit,created_date,completed_date,last_touched\n{source_uuid},H1,Morning triage,not_started,wife,brain.triage.daily,2026-08-03,1,days,2026-08-03,,\n"
+            ),
+        )
+        .unwrap();
+
+        complete_in_root_with_today(
+            dir.path(),
+            "H1",
+            NaiveDate::from_ymd_opt(2026, 8, 3).unwrap(),
+        )
+        .unwrap();
+
+        let mut reader = csv::Reader::from_path(tasks_dir.join("habits.csv")).unwrap();
+        let rows = reader
+            .deserialize::<std::collections::BTreeMap<String, String>>()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            uuid::Uuid::parse_str(&rows[1]["task_uuid"])
+                .unwrap()
+                .get_version_num(),
+            4
+        );
+        assert_ne!(rows[1]["task_uuid"], source_uuid);
+        assert_eq!(rows[1]["system_key"], "brain.triage.daily");
+        assert_eq!(rows[1]["assigned_to"], "wife");
     }
 }

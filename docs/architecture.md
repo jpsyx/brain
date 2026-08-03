@@ -660,7 +660,9 @@ copies via `resolve`, then runs one ordinary `brain sync`. See
 
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`
-crate under one namespace: `task` (CSV model, legacy-compatible load, and pure
+crate under one namespace: `identity` (immutable UUIDs and deterministic
+legacy identity), `schema` (an explicitly inactive, backup-owning task-schema
+migration helper), `task` (CSV model, legacy-compatible load, and pure
 assignment defaults/membership/UI visibility), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
 markdown), `shortcuts` (the help/footer catalogue), `complete` (native
@@ -670,6 +672,14 @@ crate-level `session` / `state` / `pty_pane` shared with the brain-search view.
 Native task command runners accept explicit `WorkspaceContext` and
 `ActorContext`; they never re-resolve a global root. Shared CSV mutation code
 normalizes legacy `assignee` headers to `assigned_to` before any write.
+New task and habit rows carry UUIDv4 identity; completion and edits preserve
+it, while a spawned habit occurrence gets a new UUID and retains assignment
+and `system_key`. The schema helper requires the rollout coordinator to state
+that the last legacy semantic sync is complete or not configured, and it takes
+an explicit machine-local backup directory. Nothing in startup, readiness,
+sync, or command dispatch invokes it. Legacy CSVs keep `task_id` as their first
+sync key until that coordinated migration runs. Task 5 owns UUID merge and
+display-ID collision reconciliation.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the
@@ -878,8 +888,8 @@ sibling so the two projects share a stack:
   embedded `claude` PTY.
 - `rusqlite` (`bundled`) — the WAL state DB shared with the SessionStart
   hook; `bundled` avoids a system libsqlite dependency.
-- `uuid` (`v4`) — per-shell brain-instance ids, fresh session ids, and
-  immutable workspace ids.
+- `uuid` (`v4`, `v5`): fresh runtime/workspace/task identities plus
+  deterministic task identities for fixture-tested legacy migration.
 - `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
   them out. Multi-file skill assets rule out `include_str!`.

@@ -11,9 +11,11 @@
 pub mod cli;
 pub mod complete;
 pub mod doctor;
+pub mod identity;
 pub mod plain;
 pub mod render;
 pub mod revive;
+pub mod schema;
 pub mod selector;
 pub mod shortcuts;
 pub mod skip;

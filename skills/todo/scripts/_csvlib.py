@@ -205,6 +205,13 @@ def read_csv(path: Path):
 
 def write_csv(path: Path, columns, rows):
     columns, rows = _canonical_assignment(columns, rows)
+    if (
+        "task_uuid" not in columns
+        and any((r.get("task_uuid") or "").strip() for r in rows)
+    ):
+        # Keep task_id first until the coordinated migration switches merge
+        # identity. Fresh/current schemas already declare task_uuid first.
+        columns = [*columns, "task_uuid"]
     if any((r.get("last_touched") or "").strip() for r in rows) and "last_touched" not in columns:
         columns = list(columns) + ["last_touched"]
     with open(path, "w", newline="") as f:

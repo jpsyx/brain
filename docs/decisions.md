@@ -270,7 +270,23 @@ changes presentation, not semantics: one-person workspaces hide redundant
 assignment controls but still persist the ID; shared workspaces reveal detail,
 creation/reassignment controls, and filtering. Compatibility is intentionally
 asymmetric: readers accept the legacy `assignee` heading, while any writer
-normalizes to `assigned_to`. The later `task_uuid` migration stays separate.
+normalizes to `assigned_to`.
+
+## Why task UUID migration is inactive until coordinated rollout
+
+Human-facing `T###` and `H###` values are useful locators but cannot safely be
+the permanent merge identity once two machines can allocate the same display
+ID. New rows therefore receive immutable UUIDv4 identity, and migrated rows use
+a deterministic UUIDv5 input scoped by workspace, CSV kind, and legacy display
+ID. Completion and ordinary edits preserve the UUID; habit recurrence creates
+a new UUID while retaining assignment and `system_key`.
+
+Activation is deliberately separate. The fixture-tested schema helper requires
+an explicit last-legacy-sync state and machine-local backup directory, and no
+runtime path calls it. Existing legacy CSVs keep `task_id` first so the current
+semantic merge remains unchanged. The coordinated rollout owns the final
+legacy sync, backup activation, and migration journal; the following task owns
+UUID merge and deterministic display-ID collision reconciliation.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 

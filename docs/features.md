@@ -417,6 +417,16 @@ legacy workspace keeps assignment-specific TUI surfaces hidden, but an explicit
 valid startup filter remains recoverable because task-view `Esc` clears it
 before quitting.
 
+New task and habit rows also receive immutable UUIDv4 `task_uuid` values.
+Commands still locate rows by mutable display `task_id`, then preserve the
+matched UUID during completion and edits. A spawned habit occurrence receives
+a new UUID while retaining assignment and `system_key`. Deterministic UUIDv5
+conversion for legacy rows exists only behind an inactive helper: it requires
+the rollout-owned last-legacy-sync state and an explicit machine-local backup
+directory. No startup, readiness, sync, or command path invokes it. Existing
+legacy CSV sync remains keyed by `task_id` until coordinated migration; UUID
+merge and display-ID collision reconciliation are later rollout work.
+
 ### `brain reindex`
 
 Rebuilds brain's **derived lookup indexes** from their canonical sources.

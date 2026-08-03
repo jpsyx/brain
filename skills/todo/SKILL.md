@@ -109,12 +109,15 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
   hide assignment detail, creation/reassignment controls, and filters while
   still filling the ID. Shared workspaces show those surfaces and accept
   `assigned_to=<user-id>` as a list filter.
-- **Short task IDs are the canonical handle.** Tasks use `T###`
+- **Short task IDs are the user-facing handle.** Tasks use `T###`
   (e.g. `T17`), habits use `H###` (e.g. `H42`). Issued by
   [`scripts/next_id.py`](scripts/next_id.py); counters live beside the selected
   workspace's CSVs. Scripts require Brain's workspace environment and never
   fall back to a home-directory brain.
-  Never edit IDs by hand. **Name-fragment matching still works for
+  `task_uuid` is the immutable merge identity: new rows and spawned habit
+  occurrences receive UUIDv4, while edits and completion preserve it.
+  `task_id` remains the mutable display identity used by commands. Do not edit
+  display IDs by hand. **Name-fragment matching still works for
   input** — IDs are shorthand, not a replacement. See
   [commands.md](references/commands.md) for the `<task>` resolution rules.
 

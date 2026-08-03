@@ -8,8 +8,8 @@ Monday. A daily habit completed today schedules tomorrow.
 
 Reads a habit row (current occurrence) from stdin as JSON and writes the
 next occurrence row to stdout as JSON. The next row keeps every column
-except: new H### task_id, status=not_started, completed_date='',
-created_date=today, due_date = computed as above.
+except: new UUIDv4 task_uuid, new H### task_id, status=not_started,
+completed_date='', created_date=today, due_date = computed as above.
 
 LLMs are bad at calendar math; use this script.
 
@@ -24,7 +24,7 @@ import json
 import sys
 from datetime import date, datetime, timedelta
 
-from _csvlib import new_habit_id
+from _csvlib import new_habit_id, new_uuid
 
 # month math without dateutil
 def add_months(d: date, months: int) -> date:
@@ -99,6 +99,7 @@ def main() -> int:
 
     nd = next_due(row["due_date"], int(row["recur_interval"]), row["recur_unit"])
     new = dict(row)
+    new["task_uuid"] = new_uuid()
     new["task_id"] = new_habit_id()
     new["status"] = "not_started"
     new["due_date"] = nd

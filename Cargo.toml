@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.20.4"
+version = "0.21.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
@@ -55,8 +55,8 @@ sha2 = "0.10"
 # low-volume webhook routes.
 tiny_http = "0.12"
 tui-term = "0.2"
-# Per-shell brain-instance ids and fresh Claude session ids.
-uuid = { version = "1", features = ["v4"] }
+# Per-shell/session/task ids plus deterministic legacy task migration ids.
+uuid = { version = "1", features = ["v4", "v5"] }
 vt100 = "0.15"
 walkdir = "2"
 

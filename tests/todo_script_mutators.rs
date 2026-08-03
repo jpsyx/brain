@@ -116,17 +116,18 @@ fn add_habit_writes_last_touched_for_new_habit_files() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let updated = std::fs::read_to_string(home.path().join("brain/tasks/habits.csv")).unwrap();
-    let mut lines = updated.lines();
+    let habits = home.path().join("brain/tasks/habits.csv");
+    let updated = std::fs::read_to_string(&habits).unwrap();
+    let mut reader = csv::Reader::from_path(habits).unwrap();
+    let headers = reader.headers().unwrap().clone();
+    let last_touched = headers.iter().position(|header| header == "last_touched");
     assert!(
-        lines.next().unwrap_or_default().ends_with(",last_touched"),
+        last_touched.is_some(),
         "new habit files should include last_touched:\n{updated}"
     );
+    let record = reader.records().next().unwrap().unwrap();
     assert!(
-        lines
-            .next()
-            .unwrap_or_default()
-            .ends_with(&Local::now().date_naive().to_string()),
+        record.get(last_touched.unwrap()) == Some(&Local::now().date_naive().to_string()),
         "new habit rows should be stamped:\n{updated}"
     );
 }
