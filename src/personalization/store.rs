@@ -20,22 +20,22 @@ pub fn path_in_config_dir(config_dir: &Path) -> PathBuf {
 }
 
 /// Resolve the store path against the brain config dir (`~/.config/brain`).
-fn store_path() -> PathBuf {
-    path_in_config_dir(&crate::settings::config_dir())
+fn store_path(workspace: &crate::workspace::WorkspaceContext) -> PathBuf {
+    path_in_config_dir(&crate::settings::config_dir(workspace))
 }
 
 /// Read the personalization store. Any failure (missing file, unreadable,
 /// invalid JSON) yields the default value.
 #[must_use]
-pub fn load() -> Personalization {
-    std::fs::read_to_string(store_path())
+pub fn load(workspace: &crate::workspace::WorkspaceContext) -> Personalization {
+    std::fs::read_to_string(store_path(workspace))
         .map(|t| Personalization::parse(&t))
         .unwrap_or_default()
 }
 
 /// Persist the personalization store, creating the config dir if needed.
-pub fn save(p: &Personalization) -> Result<()> {
-    let path = store_path();
+pub fn save(workspace: &crate::workspace::WorkspaceContext, p: &Personalization) -> Result<()> {
+    let path = store_path(workspace);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -58,9 +58,20 @@ mod tests {
 
     #[test]
     fn resolved_store_path_is_under_the_brain_config_dir() {
-        // Whatever the environment, it resolves beside config.json.
-        let p = store_path();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            Path::new("/home/tester"),
+            crate::workspace::WorkspaceId::new(),
+            crate::workspace::WorkspaceName::parse("brain").unwrap(),
+            Path::new("/home/tester/brain"),
+            "tester",
+            Path::new("/home/tester"),
+        )
+        .unwrap();
+        let p = store_path(&workspace);
         assert!(p.ends_with(".config/personalization.json"));
-        assert_eq!(p.parent(), Some(crate::settings::config_dir().as_path()));
+        assert_eq!(
+            p.parent(),
+            Some(crate::settings::config_dir(&workspace).as_path())
+        );
     }
 }

@@ -22,10 +22,6 @@ fn main() -> Result<()> {
         Err(error) => exit_with_error(&brain::workspace::command::render_error(error), log_guard),
     };
 
-    if matches!(&bootstrap, brain::workspace::BootstrapContext::Ready(_)) {
-        brain::personalization::init_tag_styles();
-    }
-
     if let Err(error) = brain::command::dispatch::run(cli, agent_kind, &bootstrap) {
         exit_with_error(&error, log_guard);
     }

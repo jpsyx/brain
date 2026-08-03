@@ -28,8 +28,8 @@ use std::path::PathBuf;
 ///
 /// Gated by the `skills_auto_sync` config flag (default false); a disabled or
 /// failed sync must never fail the mutation that triggered it.
-pub fn resync_skills() {
-    if !auto_sync_enabled() {
+pub fn resync_skills(workspace: &crate::workspace::WorkspaceContext) {
+    if !auto_sync_enabled(workspace) {
         crate::logging::log("skills auto-sync skipped");
         return;
     }
@@ -40,7 +40,7 @@ pub fn resync_skills() {
     let theme = crate::theme::Theme::active();
     eprintln!("{}", format_resync_plan(theme));
     crate::logging::log("skills auto-sync start");
-    if let Err(err) = install::sync(&layout::Layout::real(&home), &real_sources()) {
+    if let Err(err) = install::sync(&layout::Layout::real(&home), &real_sources(workspace)) {
         crate::logging::log(format!("skills auto-sync failed: {err:#}"));
     } else {
         crate::logging::log("skills auto-sync complete");
@@ -64,16 +64,16 @@ pub fn format_resync_plan(theme: crate::theme::Theme) -> String {
 /// They live at `<brain-root>/.config/{extensions,plugins}` — inside the brain
 /// root, alongside personalization and config, so they travel with the brain.
 #[must_use]
-pub fn real_sources() -> install::Sources {
-    let config_dir = crate::settings::config_dir();
+pub fn real_sources(workspace: &crate::workspace::WorkspaceContext) -> install::Sources {
+    let config_dir = crate::settings::config_dir(workspace);
     install::Sources {
         extensions_dir: Some(config_dir.join("extensions")),
         plugins_dir: Some(plugin::dir_in_config(&config_dir)),
     }
 }
 
-fn auto_sync_enabled() -> bool {
-    crate::settings::resolve_one("skills_auto_sync").as_deref() == Some("true")
+fn auto_sync_enabled(workspace: &crate::workspace::WorkspaceContext) -> bool {
+    crate::settings::resolve_one(workspace, "skills_auto_sync").as_deref() == Some("true")
 }
 
 #[cfg(test)]

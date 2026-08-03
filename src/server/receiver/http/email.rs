@@ -67,7 +67,7 @@ pub(super) fn parse_email(
     let Some(email_id) = webhook.data.email_id.as_deref() else {
         return Err((400, "received email has no email id".to_owned()));
     };
-    let fetched = fetch_resend_email(email_id)?;
+    let fetched = fetch_resend_email(email_id, &security.resend_api_key)?;
     if !crate::server::security::sender_allowed(&fetched.sender, &security.allowed_email) {
         return Err((403, "email sender is not allowed".to_owned()));
     }
@@ -107,10 +107,11 @@ fn email_participants(data: &serde_json::Value) -> Vec<String> {
     participants
 }
 
-fn fetch_resend_email(email_id: &str) -> Result<FetchedEmail, (u16, String)> {
-    let key = crate::server::provider::get("RESEND_API_KEY", "resend_api_key")
-        .ok_or_else(|| (503, "RESEND_API_KEY is not configured".to_owned()))?;
-    let email = fetch_resend_json(&key, &received_email_url(email_id))?;
+fn fetch_resend_email(email_id: &str, key: &str) -> Result<FetchedEmail, (u16, String)> {
+    if key.trim().is_empty() {
+        return Err((503, "RESEND_API_KEY is not configured".to_owned()));
+    }
+    let email = fetch_resend_json(key, &received_email_url(email_id))?;
     let email_value: serde_json::Value = serde_json::from_slice(&email).map_err(|_| {
         (
             502,
@@ -122,7 +123,7 @@ fn fetch_resend_email(email_id: &str) -> Result<FetchedEmail, (u16, String)> {
         .and_then(serde_json::Value::as_array)
         .is_some_and(|attachments| !attachments.is_empty());
     let attachments = if has_attachments {
-        fetch_resend_json(&key, &received_attachments_url(email_id))?
+        fetch_resend_json(key, &received_attachments_url(email_id))?
     } else {
         br#"{"data":[]}"#.to_vec()
     };

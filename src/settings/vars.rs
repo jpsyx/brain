@@ -7,6 +7,7 @@ use serde_json::{Map, Value};
 
 use super::schema::{Resolved, VARS, default_of, is_known, known_names};
 use super::store::{load_map, save_map};
+use crate::workspace::WorkspaceContext;
 
 /// Canonicalize a variable name: lowercase, trimmed, dashes to underscores.
 #[must_use]
@@ -34,19 +35,19 @@ fn value_to_string(name: &str, value: &Value) -> Option<String> {
 
 /// The raw explicit value for `name` (no default fallback).
 #[must_use]
-pub fn get(name: &str) -> Option<String> {
-    load_map()
+pub fn get(workspace: &WorkspaceContext, name: &str) -> Option<String> {
+    load_map(workspace)
         .get(name)
         .and_then(|value| value_to_string(name, value))
 }
 
 /// The effective value for a known variable: explicit override else default.
 #[must_use]
-pub fn resolve_one(name: &str) -> Option<String> {
+pub fn resolve_one(workspace: &WorkspaceContext, name: &str) -> Option<String> {
     if !is_known(name) {
         return None;
     }
-    get(name).or_else(|| default_of(name).map(str::to_owned))
+    get(workspace, name).or_else(|| default_of(name).map(str::to_owned))
 }
 
 /// Coerce a raw CLI string into the tightest JSON type so typed readers keep
@@ -66,22 +67,22 @@ fn parse_value(raw: &str) -> Value {
 
 /// Persist `name=value` for a declared variable. Unknown names are rejected so
 /// a typo can't silently rot in the store.
-pub fn set(name: &str, value: &str) -> Result<()> {
+pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> {
     if !is_known(name) {
         bail!(
             "unknown config variable `{name}` (known: {})",
             known_names()
         );
     }
-    let mut map = load_map();
+    let mut map = load_map(workspace);
     map.insert(name.to_owned(), parse_value(value));
-    save_map(&map)
+    save_map(workspace, &map)
 }
 
 /// Every declared variable with its resolved value, in schema order.
 #[must_use]
-pub fn resolve_all() -> Vec<Resolved> {
-    resolve_all_from(&load_map())
+pub fn resolve_all(workspace: &WorkspaceContext) -> Vec<Resolved> {
+    resolve_all_from(&load_map(workspace))
 }
 
 /// Pure core of [`resolve_all`]: resolve against an explicit map so the schema
@@ -102,6 +103,18 @@ pub(super) fn resolve_all_from(map: &Map<String, Value>) -> Vec<Resolved> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn workspace() -> WorkspaceContext {
+        WorkspaceContext::new(
+            std::path::Path::new("/home/tester"),
+            crate::workspace::WorkspaceId::new(),
+            crate::workspace::WorkspaceName::parse("brain").expect("valid name"),
+            std::path::Path::new("/home/tester/brain"),
+            "tester",
+            std::path::Path::new("/home/tester"),
+        )
+        .expect("context")
+    }
 
     #[test]
     fn normalize_lowercases_and_underscores() {
@@ -176,7 +189,7 @@ mod tests {
                 .iter()
                 .all(|r| r.name != "root")
         );
-        assert!(set("root", "/srv/brain").is_err());
+        assert!(set(&workspace(), "root", "/srv/brain").is_err());
     }
 
     #[test]
@@ -187,7 +200,7 @@ mod tests {
                 .iter()
                 .all(|r| r.name != "markdown_to_pdf_path")
         );
-        assert!(set("markdown_to_pdf_path", "/x").is_err());
+        assert!(set(&workspace(), "markdown_to_pdf_path", "/x").is_err());
     }
 
     #[test]
@@ -199,7 +212,7 @@ mod tests {
                 .iter()
                 .all(|r| r.name != "claude_cmd")
         );
-        assert!(set("claude_cmd", "claude").is_err());
+        assert!(set(&workspace(), "claude_cmd", "claude").is_err());
     }
 
     #[test]

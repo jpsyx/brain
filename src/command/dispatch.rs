@@ -78,7 +78,7 @@ pub fn run(
     }
     if let Some(Cmd::Sync(args)) = &cli.command {
         crate::logging::log("dispatch sync");
-        return super::sync::run(args, context.workspace.root());
+        return super::sync::run(args, context);
     }
     if let Some(Cmd::Personalize(args)) = &cli.command {
         crate::logging::log("dispatch personalize");
@@ -110,8 +110,8 @@ pub fn run(
     }
     if matches!(&cli.command, Some(Cmd::Check)) {
         crate::logging::log("dispatch check");
-        let config = crate::sync::config::SyncConfig::load();
-        crate::sync::check::run(&config, context.workspace.root());
+        let config = crate::sync::config::SyncConfig::load(context);
+        crate::sync::check::run(context.workspace.paths(), &config, context.workspace.root());
         return Ok(());
     }
     if let Some(Cmd::Reindex(args)) = &cli.command {
@@ -119,11 +119,11 @@ pub fn run(
         return super::reindex::run(args, context);
     }
 
-    crate::settings::ensure_markdown_to_pdf();
+    crate::settings::ensure_markdown_to_pdf(context);
     match cli.command {
         None => super::tasks::launch(
             TasksCli::parse_from(["brain"]),
-            context.workspace.root(),
+            context,
             agent_kind,
             cli.with_receiver,
             cli.no_daily_triage_check,
@@ -142,7 +142,7 @@ pub fn run(
             );
             super::tasks::launch(
                 TasksCli::parse_from(rewritten),
-                context.workspace.root(),
+                context,
                 agent_kind,
                 cli.with_receiver,
                 cli.no_daily_triage_check,

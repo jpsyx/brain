@@ -87,11 +87,12 @@ impl App<'_> {
         if now < gate.next_poll {
             return;
         }
-        let latest =
-            crate::sync::journal::Journal::open(&crate::sync::journal::Journal::default_path())
-                .ok()
-                .and_then(|j| j.latest_id().ok())
-                .flatten();
+        let latest = crate::sync::journal::Journal::open(
+            &self.command_context.workspace.paths().sync_journal(),
+        )
+        .ok()
+        .and_then(|j| j.latest_id().ok())
+        .flatten();
         if triage_gate_resolved(gate.seen_journal_id, latest) {
             self.triage_gate = None;
             let _ = self.reload_tasks();

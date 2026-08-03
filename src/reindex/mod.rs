@@ -28,8 +28,13 @@ use crate::theme::Theme;
 
 /// Run `brain reindex`. Resolves the brain root, then rebuilds the selected
 /// lookup families, narrating each phase.
-pub fn run(projects: bool, resources: bool, tasks_flag: bool) -> Result<()> {
-    let root = crate::paths::brain_root()?;
+pub fn run(
+    workspace: &crate::workspace::WorkspaceContext,
+    projects: bool,
+    resources: bool,
+    tasks_flag: bool,
+) -> Result<()> {
+    let root = workspace.root();
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| anyhow!("$HOME is not set"))?;
@@ -44,7 +49,7 @@ pub fn run(projects: bool, resources: bool, tasks_flag: bool) -> Result<()> {
             "{}",
             theme.muted("Rebuilding projects-lookup.csv from projects/…")
         );
-        let report = walk::rebuild_projects(&root)?;
+        let report = walk::rebuild_projects(root)?;
         println!(
             "{}",
             theme.success(&format!("✓ {}", summarize("projects-lookup.csv", &report)))
@@ -55,18 +60,15 @@ pub fn run(projects: bool, resources: bool, tasks_flag: bool) -> Result<()> {
             "{}",
             theme.muted("Rebuilding zotero-lookup.csv from resources/…")
         );
-        let report = walk::rebuild_resources(&root)?;
+        let report = walk::rebuild_resources(root)?;
         println!(
             "{}",
             theme.success(&format!("✓ {}", summarize("zotero-lookup.csv", &report)))
         );
     }
     if sel.tasks {
-        println!(
-            "{}",
-            theme.muted("Applying task + habit automation rules…")
-        );
-        let outcome = tasks::reindex_tasks(&root, &home);
+        println!("{}", theme.muted("Applying task + habit automation rules…"));
+        let outcome = tasks::reindex_tasks(workspace, &home);
         println!("{}", tasks::format_task_outcome(&outcome, theme));
     }
     Ok(())
@@ -98,7 +100,10 @@ mod tests {
             skipped: 0,
             wrote: true,
         };
-        assert_eq!(summarize("projects-lookup.csv", &report), "projects-lookup.csv: 34 rows");
+        assert_eq!(
+            summarize("projects-lookup.csv", &report),
+            "projects-lookup.csv: 34 rows"
+        );
     }
 
     #[test]

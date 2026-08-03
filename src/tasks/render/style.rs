@@ -93,8 +93,8 @@ pub const fn energy_icon(e: &str) -> &'static str {
 /// overrides; unknown tags render as their raw name. The public binary carries
 /// no personal taxonomy — see `personalization::tags`.
 #[must_use]
-pub fn type_label(t: &str) -> String {
-    crate::personalization::tag_label(t)
+pub fn type_label(styles: &crate::personalization::tags::TagStyles, t: &str) -> String {
+    styles.label(t)
 }
 
 #[must_use]
@@ -250,14 +250,20 @@ mod tests {
     #[test]
     fn type_label_generic_default_emits_emoji_label() {
         // `mit` ships as a universal default.
-        assert_eq!(type_label("mit"), "❗ MIT");
+        let styles = crate::personalization::tags::TagStyles::with_overrides(
+            &std::collections::BTreeMap::new(),
+        );
+        assert_eq!(type_label(&styles, "mit"), "❗ MIT");
     }
 
     #[test]
     fn type_label_non_default_tag_falls_back_to_raw_name() {
         // `code` is no longer a built-in — it lives in a user's personalization
         // now, so with none loaded it renders as its raw name.
-        assert_eq!(type_label("code"), "code");
-        assert_eq!(type_label("custom"), "custom");
+        let styles = crate::personalization::tags::TagStyles::with_overrides(
+            &std::collections::BTreeMap::new(),
+        );
+        assert_eq!(type_label(&styles, "code"), "code");
+        assert_eq!(type_label(&styles, "custom"), "custom");
     }
 }

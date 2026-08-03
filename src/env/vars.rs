@@ -11,6 +11,7 @@ use super::schema::{
 };
 use super::store::{load_map, save_map};
 use crate::settings::Resolved;
+use crate::workspace::CommandContext;
 
 fn value_to_string(v: &Value) -> Option<String> {
     match v {
@@ -22,8 +23,8 @@ fn value_to_string(v: &Value) -> Option<String> {
 
 /// The raw explicit value for `name` (no default fallback).
 #[must_use]
-pub fn get(name: &str) -> Option<String> {
-    let map = load_map();
+pub fn get(command: &CommandContext, name: &str) -> Option<String> {
+    let map = load_map(command);
     if !name.contains('.') {
         return map.get(name).and_then(value_to_string);
     }
@@ -35,30 +36,30 @@ pub fn get(name: &str) -> Option<String> {
 /// `root` resolves through [`crate::paths::brain_root_path`] so the shown value
 /// matches what brain actually uses (including the legacy-pointer fallback).
 #[must_use]
-pub fn resolve_one(name: &str) -> Option<String> {
+pub fn resolve_one(command: &CommandContext, name: &str) -> Option<String> {
+    if name == "root" {
+        return Some(command.workspace.root().display().to_string());
+    }
     if name.contains('.') {
-        return get(name);
+        return get(command, name);
     }
     if !is_known(name) {
         return None;
     }
-    if name == "root" {
-        return Some(crate::paths::brain_root_path().display().to_string());
-    }
     if name == "claude_cmd" {
-        return Some(claude_command());
+        return Some(claude_command(command));
     }
     if name == "codex_cmd" {
-        return Some(codex_command());
+        return Some(codex_command(command));
     }
-    get(name).or_else(|| default_of(name).map(str::to_owned))
+    get(command, name).or_else(|| default_of(name).map(str::to_owned))
 }
 
 /// The configured Codex launch command, or the built-in default when unset or
 /// blank. brain appends any frontend-specific resume arguments after this.
 #[must_use]
-pub fn codex_command() -> String {
-    agent_command("codex_cmd", DEFAULT_CODEX_CMD)
+pub fn codex_command(command: &CommandContext) -> String {
+    agent_command(command, "codex_cmd", DEFAULT_CODEX_CMD)
 }
 
 /// The configured Claude launch command, or the built-in default when unset or
@@ -67,15 +68,15 @@ pub fn codex_command() -> String {
 /// A legacy `brain config claude_cmd` value is honored only when the env value
 /// has not been set yet, so existing users keep their launch command.
 #[must_use]
-pub fn claude_command() -> String {
-    let cmd = get("claude_cmd")
-        .or_else(legacy_claude_command)
+pub fn claude_command(command: &CommandContext) -> String {
+    let cmd = get(command, "claude_cmd")
+        .or_else(|| legacy_claude_command(command.workspace.as_ref()))
         .unwrap_or_else(|| DEFAULT_CLAUDE_CMD.to_owned());
     trim_or_default(&cmd, DEFAULT_CLAUDE_CMD)
 }
 
-fn agent_command(name: &str, default: &str) -> String {
-    let cmd = get(name).unwrap_or_else(|| default.to_owned());
+fn agent_command(command: &CommandContext, name: &str, default: &str) -> String {
+    let cmd = get(command, name).unwrap_or_else(|| default.to_owned());
     trim_or_default(&cmd, default)
 }
 
@@ -88,8 +89,8 @@ fn trim_or_default(cmd: &str, default: &str) -> String {
     }
 }
 
-fn legacy_claude_command() -> Option<String> {
-    crate::settings::load_map()
+fn legacy_claude_command(workspace: &crate::workspace::WorkspaceContext) -> Option<String> {
+    crate::settings::load_map(workspace)
         .get("claude_cmd")
         .and_then(value_to_string)
         .and_then(|cmd| {
@@ -100,9 +101,12 @@ fn legacy_claude_command() -> Option<String> {
 
 /// Persist `name=value` into the env store. Dotted names address nested JSON
 /// objects, preserving all sibling values along the path.
-pub fn set(name: &str, value: &str) -> Result<()> {
+pub fn set(command: &CommandContext, name: &str, value: &str) -> Result<()> {
     let segments = path_segments(name)?;
-    let mut map = load_map();
+    if super::schema::is_structural(name) {
+        bail!("env variable `{name}` is structural and read-only");
+    }
+    let mut map = load_map(command);
     if segments.len() == 1 && !is_known(name) {
         bail!("unknown env variable `{name}` (known: {})", known_names());
     }
@@ -115,32 +119,36 @@ pub fn set(name: &str, value: &str) -> Result<()> {
         }
     }
     set_path(&mut map, name, parse_value(value))?;
-    save_map(&map)
+    save_map(command, &map)
 }
 
 /// Write a raw JSON value under `name`, bypassing the declared-variable check.
 ///
 /// For structured env data (the `sync` block) that `set`'s scalar coercion +
 /// unknown-name rejection can't handle. Not user-facing.
-pub fn set_raw(name: &str, value: Value) -> Result<()> {
-    let mut map = load_map();
+pub fn set_raw(command: &CommandContext, name: &str, value: Value) -> Result<()> {
+    path_segments(name)?;
+    if super::schema::is_structural(name) {
+        bail!("env variable `{name}` is structural and read-only");
+    }
+    let mut map = load_map(command);
     map.insert(name.to_owned(), value);
-    save_map(&map)
+    save_map(command, &map)
 }
 
 /// Every declared env variable plus every nested raw env value, in schema
 /// order followed by recursively flattened JSON paths.
 #[must_use]
-pub fn resolve_all() -> Vec<Resolved> {
-    resolve_all_from(&load_map())
+pub fn resolve_all(command: &CommandContext) -> Vec<Resolved> {
+    resolve_all_from(command, &load_map(command))
 }
 
-fn resolve_all_from(map: &Map<String, Value>) -> Vec<Resolved> {
+fn resolve_all_from(command: &CommandContext, map: &Map<String, Value>) -> Vec<Resolved> {
     let mut rows: Vec<Resolved> = VARS
         .iter()
         .map(|v| Resolved {
             name: v.name.to_owned(),
-            value: resolve_one_from_map(map, v.name),
+            value: resolve_one_from_map(command, map, v.name),
             description: v.description.to_owned(),
         })
         .collect();
@@ -157,15 +165,19 @@ fn resolve_all_from(map: &Map<String, Value>) -> Vec<Resolved> {
     rows
 }
 
-fn resolve_one_from_map(map: &Map<String, Value>, name: &str) -> Option<String> {
+fn resolve_one_from_map(
+    command: &CommandContext,
+    map: &Map<String, Value>,
+    name: &str,
+) -> Option<String> {
     if name == "root" {
-        return Some(crate::paths::brain_root_path().display().to_string());
+        return Some(command.workspace.root().display().to_string());
     }
     if name == "claude_cmd" {
-        return Some(claude_command());
+        return Some(claude_command(command));
     }
     if name == "codex_cmd" {
-        return Some(codex_command());
+        return Some(codex_command(command));
     }
     map.get(name)
         .and_then(value_to_string)
@@ -248,9 +260,28 @@ fn flatten_value(path: &str, value: &Value, rows: &mut Vec<(String, Value)>) {
 mod tests {
     use super::*;
 
+    fn command() -> CommandContext {
+        CommandContext {
+            workspace: std::sync::Arc::new(
+                crate::workspace::WorkspaceContext::new(
+                    std::path::Path::new("/home/tester"),
+                    crate::workspace::WorkspaceId::new(),
+                    crate::workspace::WorkspaceName::parse("brain").expect("valid name"),
+                    std::path::Path::new("/home/tester/brain"),
+                    "tester",
+                    std::path::Path::new("/home/tester"),
+                )
+                .expect("context"),
+            ),
+            registry_store: crate::workspace::RegistryStore::from_path(std::path::PathBuf::from(
+                "/missing/env.json",
+            )),
+        }
+    }
+
     #[test]
     fn resolve_all_lists_root_markdown_to_pdf_path_and_agent_cmds() {
-        let rows = resolve_all();
+        let rows = resolve_all(&command());
         assert!(rows.len() >= 4);
         assert!(rows.iter().any(|r| r.name == "root"));
         assert!(rows.iter().any(|r| r.name == "markdown_to_pdf_path"));
@@ -267,7 +298,7 @@ mod tests {
 
     #[test]
     fn set_rejects_unknown_env_variables() {
-        assert!(set("linear_workspace", "acme").is_err());
+        assert!(set(&command(), "linear_workspace", "acme").is_err());
     }
 
     #[test]
@@ -282,17 +313,9 @@ mod tests {
 
     #[test]
     fn root_row_reflects_the_resolved_brain_root() {
-        let rows = resolve_all();
+        let rows = resolve_all(&command());
         let root = rows.iter().find(|r| r.name == "root").unwrap();
-        assert_eq!(
-            root.value.as_deref(),
-            Some(
-                crate::paths::brain_root_path()
-                    .display()
-                    .to_string()
-                    .as_str()
-            )
-        );
+        assert_eq!(root.value.as_deref(), Some("/home/tester/brain"));
     }
 
     #[test]
@@ -360,18 +383,15 @@ mod tests {
     #[test]
     fn receiver_secrets_are_known_but_redacted_from_env_output() {
         let mut map = Map::new();
-        map.insert(
-            "twilio_auth_token".to_owned(),
-            Value::from("twilio-secret"),
-        );
+        map.insert("twilio_auth_token".to_owned(), Value::from("twilio-secret"));
         map.insert("resend_api_key".to_owned(), Value::from("resend-secret"));
 
         assert_eq!(
-            resolve_one_from_map(&map, "twilio_auth_token"),
+            resolve_one_from_map(&command(), &map, "twilio_auth_token"),
             Some("(set)".to_owned())
         );
         assert_eq!(
-            resolve_one_from_map(&map, "resend_api_key"),
+            resolve_one_from_map(&command(), &map, "resend_api_key"),
             Some("(set)".to_owned())
         );
     }

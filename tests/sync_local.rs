@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use brain::sync::args::{bisync_args, Direction};
+use brain::sync::args::{Direction, bisync_args};
 use brain::sync::config::SyncConfig;
 use brain::sync::current::Reporter;
 use brain::sync::remote::Remote;
@@ -13,16 +13,23 @@ use brain::sync::run::run_rclone;
 use brain::sync::verify::{self, Outcome};
 
 fn rclone_available() -> bool {
-    Command::new("rclone").arg("version").output().is_ok_and(|o| o.status.success())
+    Command::new("rclone")
+        .arg("version")
+        .output()
+        .is_ok_and(|o| o.status.success())
 }
 
 fn cfg() -> SyncConfig {
-    serde_json::from_str(r#"{"enabled":true,"b2_bucket":"unused","max_delete_percent":90}"#).unwrap()
+    serde_json::from_str(r#"{"enabled":true,"b2_bucket":"unused","max_delete_percent":90}"#)
+        .unwrap()
 }
 
 fn run(a: &Path, b: &Path, dir: Direction) -> brain::sync::run::RunOutcome {
     if dir == Direction::Resync {
-        let remote = Remote { env: Vec::new(), arg: b.to_string_lossy().into_owned() };
+        let remote = Remote {
+            env: Vec::new(),
+            arg: b.to_string_lossy().into_owned(),
+        };
         brain::sync::check_access::ensure_markers(a, &remote).unwrap();
     }
     // Give each pair its own brain-owned bisync workdir beside the test dirs.
@@ -106,8 +113,14 @@ fn a_moved_file_propagates_to_its_new_location() {
     std::fs::rename(a.join("one.md"), a.join("notes").join("one.md")).unwrap();
     let mv = run(&a, &b, Direction::Both);
     assert!(mv.exit_ok, "move sync failed: {mv:?}");
-    assert!(!b.join("one.md").exists(), "move did not remove the old path on B");
-    assert!(b.join("notes").join("one.md").exists(), "move did not create the new path on B");
+    assert!(
+        !b.join("one.md").exists(),
+        "move did not remove the old path on B"
+    );
+    assert!(
+        b.join("notes").join("one.md").exists(),
+        "move did not create the new path on B"
+    );
     assert!(
         b.join("two.md").exists() && b.join("three.md").exists(),
         "unrelated files must survive the move"
@@ -129,13 +142,19 @@ fn csv_sync_one_converges_local_and_remote_and_is_idempotent() {
     std::fs::create_dir_all(&base).unwrap();
     let local = base.join("local.csv");
     let remote = base.join("remote.csv");
+    let paths = brain::workspace::WorkspacePaths::new(&base, brain::workspace::WorkspaceId::new());
 
     // A unique CSV name so the machine-local baseline path never collides with a
     // real one; deleted at the end. (HOME can't be redirected here: env::set_var
     // is unsafe in edition 2024 and this crate forbids unsafe.)
     let rel = format!("tasks/brain-it-{}.csv", std::process::id());
-    let name = Path::new(&rel).file_name().unwrap().to_str().unwrap().to_owned();
-    let baseline = baseline_path(&name);
+    let name = Path::new(&rel)
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let baseline = baseline_path(&paths, &name);
     std::fs::remove_file(&baseline).ok(); // start from no baseline
 
     let header = "task_id,status,notes,last_touched\n";
@@ -144,6 +163,7 @@ fn csv_sync_one_converges_local_and_remote_and_is_idempotent() {
     let pushes = Cell::new(0);
 
     let out = sync_one(
+        &paths,
         &local,
         &rel,
         || std::fs::read_to_string(&remote).ok(),
@@ -156,7 +176,11 @@ fn csv_sync_one_converges_local_and_remote_and_is_idempotent() {
     assert_eq!(out.soft_conflicts, 0, "disjoint adds don't conflict");
 
     let merged = std::fs::read_to_string(&local).unwrap();
-    assert_eq!(merged, std::fs::read_to_string(&remote).unwrap(), "local and remote converge");
+    assert_eq!(
+        merged,
+        std::fs::read_to_string(&remote).unwrap(),
+        "local and remote converge"
+    );
     assert!(
         merged.contains("A,open,alpha") && merged.contains("B,open,beta"),
         "merged holds the union of both sides: {merged}"
@@ -165,6 +189,7 @@ fn csv_sync_one_converges_local_and_remote_and_is_idempotent() {
 
     // Second run: local == remote == baseline already, so nothing changes.
     let out2 = sync_one(
+        &paths,
         &local,
         &rel,
         || std::fs::read_to_string(&remote).ok(),
@@ -174,8 +199,16 @@ fn csv_sync_one_converges_local_and_remote_and_is_idempotent() {
         },
     );
     assert_eq!(out2.added, 0, "idempotent: nothing new on the second run");
-    assert_eq!(merged, std::fs::read_to_string(&local).unwrap(), "local unchanged");
-    assert_eq!(merged, std::fs::read_to_string(&remote).unwrap(), "remote unchanged");
+    assert_eq!(
+        merged,
+        std::fs::read_to_string(&local).unwrap(),
+        "local unchanged"
+    );
+    assert_eq!(
+        merged,
+        std::fs::read_to_string(&remote).unwrap(),
+        "remote unchanged"
+    );
     assert_eq!(
         pushes.get(),
         1,
@@ -221,9 +254,17 @@ fn same_file_conflict_is_renamed_and_surfaced() {
     assert!(
         a.join("one (conflict testhost 2026-07-25).md").exists(),
         "friendly conflict file not found; dir: {:?}",
-        std::fs::read_dir(&a).unwrap().filter_map(Result::ok).map(|e| e.file_name()).collect::<Vec<_>>()
+        std::fs::read_dir(&a)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name())
+            .collect::<Vec<_>>()
     );
-    assert_eq!(brain::sync::conflicts::leftover_markers(&a), 0, "no raw markers should remain");
+    assert_eq!(
+        brain::sync::conflicts::leftover_markers(&a),
+        0,
+        "no raw markers should remain"
+    );
 
     // Verification must surface the conflict, not report clean.
     match verify::classify(&outcome, renamed, 0) {
@@ -281,17 +322,29 @@ fn conflict_copy_is_enumerated_and_resolved_leaving_only_the_canonical() {
     assert!(
         a.join("one (conflict testhost 2026-07-25).md").exists(),
         "friendly conflict file not found; dir: {:?}",
-        std::fs::read_dir(&a).unwrap().filter_map(Result::ok).map(|e| e.file_name()).collect::<Vec<_>>()
+        std::fs::read_dir(&a)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name())
+            .collect::<Vec<_>>()
     );
 
     // Enumerate via the C5 grouping surface: this is what the resolve skill
     // actually consumes, so prove it sees the real rclone conflict.
     let files = brain::sync::conflicts::list_conflicts(&a);
     let groups = brain::sync::conflicts::group_conflicts(&files);
-    assert_eq!(groups.len(), 1, "expected exactly one conflict group, got {groups:?}");
+    assert_eq!(
+        groups.len(),
+        1,
+        "expected exactly one conflict group, got {groups:?}"
+    );
     let group = &groups[0];
     assert_eq!(group.original, Path::new("one.md"));
-    assert_eq!(group.copies.len(), 1, "expected exactly one copy for one.md");
+    assert_eq!(
+        group.copies.len(),
+        1,
+        "expected exactly one copy for one.md"
+    );
     assert_eq!(group.copies[0].host, host);
     assert_eq!(group.copies[0].date, date);
 
@@ -314,8 +367,15 @@ fn conflict_copy_is_enumerated_and_resolved_leaving_only_the_canonical() {
         !a.join("one (conflict testhost 2026-07-25).md").exists(),
         "the conflict copy must be deleted by resolve"
     );
-    assert!(brain::sync::conflicts::list_conflicts(&a).is_empty(), "no open conflicts should remain");
-    assert_eq!(brain::sync::conflicts::leftover_markers(&a), 0, "no raw markers should remain");
+    assert!(
+        brain::sync::conflicts::list_conflicts(&a).is_empty(),
+        "no open conflicts should remain"
+    );
+    assert_eq!(
+        brain::sync::conflicts::leftover_markers(&a),
+        0,
+        "no raw markers should remain"
+    );
 
     // Unrelated seed files survive untouched.
     assert!(a.join("two.md").exists());

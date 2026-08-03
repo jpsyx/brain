@@ -39,6 +39,7 @@ fn disable_mouse_motion_reporting<W: std::io::Write>(w: &mut W) {
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_tui(
+    command_context: &crate::workspace::CommandContext,
     view: &ViewSpec,
     cli: &Cli,
     agent_kind: AgentKind,
@@ -51,11 +52,11 @@ pub fn run_tui(
     with_receiver: bool,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
-    let _singleton = crate::tui::singleton::Guard::acquire()?;
+    let _singleton = crate::tui::singleton::Guard::acquire(&command_context.workspace)?;
     // First-run onboarding: seed personalization with a short skippable prompt
     // on the normal terminal, *before* we take over the screen. No-op when
     // already personalized or when there is no tty. Never blocks startup.
-    crate::personalization::onboarding::maybe_run_first_time();
+    crate::personalization::onboarding::maybe_run_first_time(&command_context.workspace);
 
     enable_raw_mode()?;
     // Render to /dev/tty, NOT stdout: the `brain` zsh wrapper captures this
@@ -90,26 +91,21 @@ pub fn run_tui(
     // Persistent state: open the session DB. Each tasks-shell invocation gets
     // a fresh instance id; the Claude SessionStart hook reads BRAIN_* env vars
     // to attribute brain-panel Claude sessions to this shell.
-    let db_path = Db::default_path();
-    let db = Db::open(&db_path)?;
-    let config = Config::load();
+    let db = Db::open(&command_context.workspace)?;
+    let config = Config::load(&command_context.workspace);
     // Best-effort maintenance before this shell touches anything: free
     // session locks held by tasks shells that have since died, so their
     // sessions become resumable. A failure here must never block startup.
     let _ = db.reap_dead_locks();
     let instance = uuid::Uuid::new_v4().to_string();
-    // Honor the configured `root` (brain env), falling back to `$HOME/brain`
-    // when it is unset or the resolved directory does not exist.
-    let brain_root = crate::paths::brain_root().unwrap_or_else(|_| {
-        std::env::var_os("HOME").map_or_else(
-            || PathBuf::from("brain"),
-            |h| PathBuf::from(h).join("brain"),
-        )
-    });
+    // Retain the root chosen once at workspace bootstrap; a later default
+    // change cannot redirect this TUI.
+    let brain_root = command_context.workspace.root().to_path_buf();
 
     let panel_side = db.get_panel_side();
     let search = build_search(&brain_root);
     let mut app = App::new(
+        command_context.clone(),
         view,
         cli,
         today,
@@ -125,8 +121,6 @@ pub fn run_tui(
         config,
         agent_kind,
         instance.clone(),
-        brain_root.clone(),
-        db_path,
         db,
         search,
         panel_side,
@@ -156,7 +150,7 @@ pub fn run_tui(
     // Auto-sync triggers (C4). All best-effort; none blocks the event loop.
     // Gated on `is_configured` so an unconfigured brain spawns neither a
     // startup child nor a watcher thread.
-    let sync_cfg = crate::sync::config::SyncConfig::load();
+    let sync_cfg = crate::sync::config::SyncConfig::load(command_context);
     let sync_configured = sync_cfg.is_configured();
     let startup_sync = sync_configured;
 
@@ -172,17 +166,21 @@ pub fn run_tui(
     // neither arm the gate nor check, so the modal can never appear.
     if skip_daily_triage_check {
         if startup_sync {
-            let _ =
-                crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Pull);
+            let _ = crate::sync::trigger::spawn_detached_sync(
+                &command_context.workspace,
+                crate::sync::args::Direction::Pull,
+            );
         }
     } else if startup_sync {
         let seen =
-            crate::sync::journal::Journal::open(&crate::sync::journal::Journal::default_path())
+            crate::sync::journal::Journal::open(&command_context.workspace.paths().sync_journal())
                 .ok()
                 .and_then(|j| j.latest_id().ok())
                 .flatten();
-        let _ =
-            crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Pull);
+        let _ = crate::sync::trigger::spawn_detached_sync(
+            &command_context.workspace,
+            crate::sync::args::Direction::Pull,
+        );
         app.arm_triage_gate(seen, std::time::Instant::now());
     } else {
         // No sync coming — the local state is authoritative, so check now. The
@@ -196,7 +194,7 @@ pub fn run_tui(
     app.seed_triage_day(chrono::Local::now().naive_local());
 
     let watcher = if sync_cfg.watch_effective() {
-        crate::sync::watch::spawn_watcher(&brain_root, &sync_cfg).ok()
+        crate::sync::watch::spawn_watcher(command_context.workspace.clone(), &sync_cfg).ok()
     } else {
         None
     };

@@ -8,16 +8,13 @@ use std::process::{Command, Stdio};
 
 use super::progress;
 
-/// rclone's bisync working directory, owned by brain so its state location is
-/// deterministic (not rclone's HOME-dependent default) and its stale lock files
-/// are reapable. `~/.cache/brain/sync/bisync`.
+/// rclone's bisync working directory, owned by brain.
+///
+/// Its location is deterministic rather than HOME-dependent, and stale lock
+/// files are reapable. Stored below the selected workspace's sync cache.
 #[must_use]
-pub fn bisync_workdir() -> PathBuf {
-    let base = std::env::var_os("HOME").map_or_else(
-        || PathBuf::from("."),
-        |h| PathBuf::from(h).join(".cache").join("brain").join("sync"),
-    );
-    base.join("bisync")
+pub fn bisync_workdir(paths: &crate::workspace::WorkspacePaths) -> PathBuf {
+    paths.sync_dir().join("bisync")
 }
 
 /// Remove leftover rclone bisync lock files from an interrupted run.
@@ -357,7 +354,11 @@ mod tests {
 
     #[test]
     fn bisync_workdir_is_under_cache_brain_sync() {
-        assert!(bisync_workdir().ends_with(".cache/brain/sync/bisync"));
+        let paths = crate::workspace::WorkspacePaths::new(
+            Path::new("/home/tester"),
+            crate::workspace::WorkspaceId::new(),
+        );
+        assert!(bisync_workdir(&paths).ends_with("sync/bisync"));
     }
 
     #[test]

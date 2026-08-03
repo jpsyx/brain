@@ -7,11 +7,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 
 #[must_use]
-pub fn lock_path() -> PathBuf {
-    std::env::var_os("HOME").map_or_else(
-        || PathBuf::from(".cache/brain/tui.lock"),
-        |home| PathBuf::from(home).join(".cache/brain/tui.lock"),
-    )
+pub fn lock_path(workspace: &crate::workspace::WorkspaceContext) -> PathBuf {
+    workspace.paths().tui_lock()
 }
 
 #[must_use]
@@ -25,8 +22,12 @@ pub struct Guard {
 }
 
 impl Guard {
-    pub fn acquire() -> Result<Self> {
-        let path = lock_path();
+    pub fn acquire(workspace: &crate::workspace::WorkspaceContext) -> Result<Self> {
+        Self::acquire_path(&workspace.paths().tui_lock())
+    }
+
+    fn acquire_path(path: &std::path::Path) -> Result<Self> {
+        let path = path.to_path_buf();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
@@ -42,7 +43,7 @@ impl Guard {
                     .and_then(|raw| raw.trim().parse().ok());
                 if lock_is_reclaimable(pid, pid.is_some_and(crate::state::system_pid_alive)) {
                     let _ = std::fs::remove_file(&path);
-                    return Self::acquire();
+                    return Self::acquire_path(&path);
                 }
                 bail!("brain is already running (lock: {})", path.display());
             }

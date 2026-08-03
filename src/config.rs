@@ -82,8 +82,9 @@ impl Config {
     /// file is missing, unreadable, or shaped wrong — a misconfigured file
     /// should never block the tasks shell from opening.
     #[must_use]
-    pub fn load() -> Self {
-        serde_json::from_value(Value::Object(crate::settings::load_map())).unwrap_or_default()
+    pub fn load(workspace: &crate::workspace::WorkspaceContext) -> Self {
+        serde_json::from_value(Value::Object(crate::settings::load_map(workspace)))
+            .unwrap_or_default()
     }
 
     /// Full Linear issue-URL prefix built from the configured workspace, or an

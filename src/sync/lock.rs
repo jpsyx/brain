@@ -1,8 +1,8 @@
-//! A machine-wide advisory lock so only one sync runs at a time.
+//! A workspace-scoped advisory lock so only one sync per workspace runs at a time.
 //!
 //! All sync entry points (manual `brain sync`, the start/exit hooks, the
 //! watcher) acquire it; whoever can't skips (best-effort, never blocks). The
-//! lockfile at `~/.cache/brain/sync/sync.lock` holds the owning PID; a crash
+//! UUID-scoped lockfile holds the owning PID; a crash
 //! leaves a stale file the next acquire reaps via PID-liveness.
 
 use std::fs::{self, OpenOptions};
@@ -18,16 +18,6 @@ const STALE_AGE: Duration = Duration::from_secs(600);
 
 /// How often a live holder refreshes the lockfile mtime.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
-
-/// `~/.cache/brain/sync/sync.lock` — beside the journal (machine-local cache).
-#[must_use]
-pub fn default_path() -> PathBuf {
-    let base = std::env::var_os("HOME").map_or_else(
-        || PathBuf::from("."),
-        |h| PathBuf::from(h).join(".cache").join("brain").join("sync"),
-    );
-    base.join("sync.lock")
-}
 
 /// Pure staleness decision: a lock is stale when its owner process is gone or
 /// when its heartbeat has not refreshed within the age cap.
@@ -76,7 +66,11 @@ impl Drop for Heartbeat {
 fn guard_for(path: &Path, heartbeat_interval: Duration) -> Guard {
     let path = path.to_path_buf();
     let pid = std::process::id();
-    Guard { heartbeat: Some(start_heartbeat(path.clone(), pid, heartbeat_interval)), path, pid }
+    Guard {
+        heartbeat: Some(start_heartbeat(path.clone(), pid, heartbeat_interval)),
+        path,
+        pid,
+    }
 }
 
 fn start_heartbeat(path: PathBuf, pid: u32, interval: Duration) -> Heartbeat {
@@ -88,13 +82,17 @@ fn start_heartbeat(path: PathBuf, pid: u32, interval: Duration) -> Heartbeat {
             }
         }
     });
-    Heartbeat { stop, handle: Some(handle) }
+    Heartbeat {
+        stop,
+        handle: Some(handle),
+    }
 }
 
 fn refresh_lock_if_owned(path: &Path, pid: u32) -> bool {
-    let owns_lock =
-        fs::read_to_string(path).ok().and_then(|text| text.trim().parse::<u32>().ok())
-            == Some(pid);
+    let owns_lock = fs::read_to_string(path)
+        .ok()
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        == Some(pid);
     if !owns_lock {
         return false;
     }
@@ -121,7 +119,9 @@ fn try_acquire_with_heartbeat(path: &Path, heartbeat_interval: Duration) -> Opti
         Err(()) => {
             if lock_is_stale(path) {
                 let _ = fs::remove_file(path);
-                create_exclusive(path).ok().map(|()| guard_for(path, heartbeat_interval))
+                create_exclusive(path)
+                    .ok()
+                    .map(|()| guard_for(path, heartbeat_interval))
             } else {
                 None
             }
@@ -141,8 +141,12 @@ fn create_exclusive(path: &Path) -> Result<(), ()> {
 /// Read the lockfile's PID + mtime age and classify staleness (thin IO around
 /// `is_stale`). A missing/garbage lockfile is treated as stale (reapable).
 fn lock_is_stale(path: &Path) -> bool {
-    let Ok(text) = fs::read_to_string(path) else { return true };
-    let Ok(pid) = text.trim().parse::<u32>() else { return true };
+    let Ok(text) = fs::read_to_string(path) else {
+        return true;
+    };
+    let Ok(pid) = text.trim().parse::<u32>() else {
+        return true;
+    };
     let age = fs::metadata(path)
         .and_then(|m| m.modified())
         .ok()
@@ -165,11 +169,6 @@ mod tests {
     }
 
     #[test]
-    fn default_path_is_under_cache_brain_sync() {
-        assert!(default_path().ends_with(".cache/brain/sync/sync.lock"));
-    }
-
-    #[test]
     fn drop_only_removes_the_lock_if_it_still_holds_our_pid() {
         // A Guard whose lock was reaped out from under it (crash-recovery race)
         // must not delete the new owner's lock on drop.
@@ -182,7 +181,10 @@ mod tests {
         // init, always alive on unix, and never our pid).
         std::fs::write(&path, b"1").unwrap();
         drop(g);
-        assert!(path.exists(), "drop must not delete a lock now owned by another pid");
+        assert!(
+            path.exists(),
+            "drop must not delete a lock now owned by another pid"
+        );
 
         std::fs::remove_file(&path).ok();
         std::fs::remove_dir_all(&dir).ok();
@@ -196,7 +198,10 @@ mod tests {
         let path = dir.join("sync.lock");
 
         let g1 = try_acquire(&path).expect("first acquire takes the lock");
-        assert!(try_acquire(&path).is_none(), "second acquire is blocked by the live lock");
+        assert!(
+            try_acquire(&path).is_none(),
+            "second acquire is blocked by the live lock"
+        );
         drop(g1);
         let g3 = try_acquire(&path).expect("acquire succeeds after the first drops");
         drop(g3);
@@ -211,11 +216,18 @@ mod tests {
         let path = dir.join("sync.lock");
 
         let g = try_acquire_with_heartbeat(&path, Duration::from_millis(10)).expect("acquire");
-        let before = std::fs::metadata(&path).and_then(|m| m.modified()).expect("mtime");
+        let before = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .expect("mtime");
         std::thread::sleep(Duration::from_millis(35));
-        let after = std::fs::metadata(&path).and_then(|m| m.modified()).expect("mtime");
+        let after = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .expect("mtime");
 
-        assert!(after > before, "heartbeat should refresh the lockfile mtime");
+        assert!(
+            after > before,
+            "heartbeat should refresh the lockfile mtime"
+        );
         drop(g);
         std::fs::remove_dir_all(&dir).ok();
     }

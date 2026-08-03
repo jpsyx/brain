@@ -74,6 +74,17 @@ impl WorkspaceContext {
     pub fn paths(&self) -> &WorkspacePaths {
         &self.paths
     }
+
+    /// Identity passed to Brain-owned child integrations.
+    #[must_use]
+    pub fn integration_env(&self, actor_id: &str) -> [(&'static str, String); 4] {
+        [
+            ("BRAIN_WORKSPACE_ID", self.id.to_string()),
+            ("BRAIN_WORKSPACE", self.name.as_str().to_owned()),
+            ("BRAIN_ROOT", self.root.display().to_string()),
+            ("BRAIN_ACTOR_ID", actor_id.to_owned()),
+        ]
+    }
 }
 
 /// A workspace root cannot be made absolute from the supplied inputs.
@@ -131,7 +142,7 @@ fn normalize_lexically(path: &Path) -> PathBuf {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{normalize_root, WorkspaceContext, WorkspaceContextError};
+    use super::{WorkspaceContext, WorkspaceContextError, normalize_root};
     use crate::workspace::{WorkspaceId, WorkspaceName};
 
     #[test]
@@ -178,6 +189,32 @@ mod tests {
                 Path::new("workspaces"),
             ),
             Err(WorkspaceContextError::RelativeRootNeedsAbsoluteBase)
+        );
+    }
+
+    #[test]
+    fn integration_env_contains_only_selected_workspace_and_actor_identity() {
+        let workspace = WorkspaceContext::new(
+            Path::new("/home/tester"),
+            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").expect("valid id"),
+            WorkspaceName::parse("family").expect("valid name"),
+            Path::new("/home/tester/family"),
+            "local-user",
+            Path::new("/home/tester"),
+        )
+        .expect("context");
+
+        assert_eq!(
+            workspace.integration_env("inbound-user"),
+            [
+                (
+                    "BRAIN_WORKSPACE_ID",
+                    "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b".to_owned(),
+                ),
+                ("BRAIN_WORKSPACE", "family".to_owned()),
+                ("BRAIN_ROOT", "/home/tester/family".to_owned()),
+                ("BRAIN_ACTOR_ID", "inbound-user".to_owned()),
+            ]
         );
     }
 }

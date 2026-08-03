@@ -11,8 +11,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use rusqlite::Connection;
 use brain::state::Db;
+use rusqlite::Connection;
 
 /// Locate the hook script relative to the Cargo manifest.
 fn hook_script() -> PathBuf {
@@ -26,26 +26,39 @@ fn hook_script() -> PathBuf {
 fn fresh_db() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::TempDir::new().expect("tempdir");
     let db_path = tmp.path().join("state.db");
-    drop(Db::open(&db_path).expect("open"));
+    drop(Db::open_path(&db_path).expect("open"));
     (tmp, db_path)
 }
 
 /// Run the hook with the given attribution env (None → ambient, no env set)
 /// and stdin payload.
-fn run_hook(
-    db_path: &Path,
-    attribution: Option<(&str, i32)>,
-    input: &str,
-) -> std::process::Output {
+fn run_hook(db_path: &Path, attribution: Option<(&str, i32)>, input: &str) -> std::process::Output {
     let mut cmd = Command::new("python3");
     cmd.arg(hook_script());
-    cmd.env_remove("BRAIN_INSTANCE_ID");
-    cmd.env_remove("BRAIN_PID");
+    for name in [
+        "BRAIN_WORKSPACE_ID",
+        "BRAIN_WORKSPACE",
+        "BRAIN_ROOT",
+        "BRAIN_ACTOR_ID",
+        "BRAIN_INSTANCE_ID",
+        "BRAIN_PID",
+        "BRAIN_STATE_DB",
+    ] {
+        cmd.env_remove(name);
+    }
     cmd.env("BRAIN_STATE_DB", db_path);
     if let Some((instance, pid)) = attribution {
+        cmd.env("BRAIN_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111");
+        cmd.env("BRAIN_WORKSPACE", "family");
+        cmd.env("BRAIN_ROOT", "/tmp/family");
+        cmd.env("BRAIN_ACTOR_ID", "pablo");
         cmd.env("BRAIN_INSTANCE_ID", instance);
         cmd.env("BRAIN_PID", pid.to_string());
     }
+    run_hook_command(cmd, input)
+}
+
+fn run_hook_command(mut cmd: Command, input: &str) -> std::process::Output {
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -58,6 +71,29 @@ fn run_hook(
         .unwrap();
     drop(child.stdin.take());
     child.wait_with_output().expect("wait hook")
+}
+
+fn settings_hook_commands(settings_path: &Path, event: &str) -> Vec<String> {
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(settings_path).expect("read installed settings"))
+            .expect("parse installed settings");
+    settings["hooks"][event]
+        .as_array()
+        .expect("hook event array")
+        .iter()
+        .flat_map(|entry| {
+            entry["hooks"]
+                .as_array()
+                .expect("hook command array")
+                .iter()
+        })
+        .map(|hook| {
+            hook["command"]
+                .as_str()
+                .expect("hook command string")
+                .to_owned()
+        })
+        .collect()
 }
 
 /// Read (instance, locked_pid) for a session row, or None if absent.
@@ -107,6 +143,28 @@ fn hook_records_session_locked_to_instance_and_pid() {
 }
 
 #[test]
+fn hook_without_complete_workspace_identity_is_noop() {
+    let (_tmp, db) = fresh_db();
+    let mut cmd = Command::new("python3");
+    cmd.arg(hook_script());
+    cmd.env("BRAIN_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111");
+    cmd.env("BRAIN_WORKSPACE", "family");
+    cmd.env("BRAIN_ROOT", "/tmp/family");
+    cmd.env_remove("BRAIN_ACTOR_ID");
+    cmd.env("BRAIN_INSTANCE_ID", "inst-1");
+    cmd.env("BRAIN_PID", "4242");
+    cmd.env("BRAIN_STATE_DB", &db);
+
+    let out = run_hook_command(cmd, &start_input("claude-incomplete"));
+
+    assert!(out.status.success(), "hook exited non-zero: {out:?}");
+    assert!(
+        read_session(&db, "claude-incomplete").is_none(),
+        "a hook without the complete selected-workspace identity must not write"
+    );
+}
+
+#[test]
 fn new_rotation_frees_the_prior_session_for_the_same_instance() {
     let (_tmp, db) = fresh_db();
     // First session for the instance.
@@ -146,4 +204,66 @@ fn distinct_instances_get_distinct_locked_sessions() {
     run_hook(&db, Some(("inst-2", 20)), &start_input("sess-2"));
     assert_eq!(read_session(&db, "sess-1").unwrap().1, Some(10));
     assert_eq!(read_session(&db, "sess-2").unwrap().1, Some(20));
+}
+
+#[test]
+fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let home = temp.path().join("home");
+    let selected_root = temp.path().join("family");
+    let ignored_env_root = temp.path().join("ignored-env-root");
+    std::fs::create_dir_all(&home).expect("create home");
+
+    let output = Command::new("bash")
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/install_hook.sh"))
+        .arg(&selected_root)
+        .env("HOME", &home)
+        .env("BRAIN_ROOT", &ignored_env_root)
+        .output()
+        .expect("run hook installer");
+
+    assert!(
+        output.status.success(),
+        "installer failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let settings = selected_root.join(".claude/settings.json");
+    assert_eq!(
+        settings_hook_commands(&settings, "SessionStart"),
+        vec!["python3 .claude/brain-hooks/claude_session_start_hook.py"]
+    );
+    assert_eq!(
+        settings_hook_commands(&settings, "Stop"),
+        vec!["python3 .claude/brain-hooks/claude_stop_hook.py"]
+    );
+    assert!(
+        selected_root
+            .join(".claude/brain-hooks/claude_session_start_hook.py")
+            .is_file()
+    );
+    assert!(!ignored_env_root.exists());
+    assert!(!home.join("brain").exists());
+}
+
+#[test]
+fn installer_uses_brain_root_when_no_explicit_root_is_passed() {
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let home = temp.path().join("home");
+    let selected_root = temp.path().join("family-from-env");
+    std::fs::create_dir_all(&home).expect("create home");
+
+    let output = Command::new("bash")
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/install_hook.sh"))
+        .env("HOME", &home)
+        .env("BRAIN_ROOT", &selected_root)
+        .output()
+        .expect("run hook installer");
+
+    assert!(
+        output.status.success(),
+        "installer failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(selected_root.join(".claude/settings.json").is_file());
+    assert!(!home.join("brain").exists());
 }

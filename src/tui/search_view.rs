@@ -154,7 +154,7 @@ fn route_search_confirm(app: &mut App<'_>, k: &KeyEvent) {
         confirm::Step::Accept => {
             if let Some(c) = app.search.confirm.take() {
                 match c.kind {
-                    confirm::ConfirmKind::Pdf => create_pdf_inline(&c.path),
+                    confirm::ConfirmKind::Pdf => create_pdf_inline(app, &c.path),
                     confirm::ConfirmKind::Delete => {
                         let _ = open_target::move_to_trash(&c.path);
                     }
@@ -169,7 +169,7 @@ fn dispatch_choice(app: &mut App<'_>, choice: Choice) {
     match choice {
         Choice::CreatePdf => {
             if let Some(path) = app.search.selected_markdown_path() {
-                create_pdf_inline(&path);
+                create_pdf_inline(app, &path);
                 app.search_refresh();
             }
         }
@@ -221,8 +221,8 @@ fn dispatch_choice(app: &mut App<'_>, choice: Choice) {
     }
 }
 
-fn create_pdf_inline(md: &Path) {
-    if let Ok(pdf) = open_target::create_pdf(md) {
+fn create_pdf_inline(app: &App<'_>, md: &Path) {
+    if let Ok(pdf) = open_target::create_pdf(&app.command_context, md) {
         let _ = open_target::open_with_system(&pdf);
     }
 }

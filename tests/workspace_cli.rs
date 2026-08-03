@@ -262,6 +262,54 @@ fn workspace_attach_migrates_a_pointer_only_legacy_install_before_adding_shared(
 }
 
 #[test]
+fn ready_non_default_command_does_not_touch_default_workspace_migration_inputs() {
+    let fixture = Fixture::new();
+    let personal = fixture.home.path().join("personal");
+    let family = fixture.home.path().join("family");
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&personal)]));
+    fixture.make_ready("personal");
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&family)]));
+    fixture.make_ready("family");
+
+    let mut registry = fixture.registry();
+    registry
+        .workspaces
+        .get_mut(&name("personal"))
+        .expect("personal record")
+        .env
+        .insert(
+            "markdown_to_pdf_path".to_owned(),
+            serde_json::Value::String("/legacy/default/tool".to_owned()),
+        );
+    RegistryStore::from_path(fixture.registry_path())
+        .replace(&registry)
+        .expect("persist migratable default env");
+
+    let default_config = personal.join(".config/config.json");
+    std::fs::write(
+        &default_config,
+        b"{\n  \"markdown_to_pdf_path\": \"/legacy/default/tool\",\n  \"sentinel\": \"unchanged\"\n}\n",
+    )
+    .expect("default config fixture");
+    let registry_before = std::fs::read(fixture.registry_path()).expect("registry bytes");
+    let config_before = std::fs::read(&default_config).expect("default config bytes");
+
+    let output = fixture.run(&["config", "get", "day_rollover_hour", "-b", "family"]);
+
+    assert_success(&output);
+    assert_eq!(
+        std::fs::read(fixture.registry_path()).expect("registry after command"),
+        registry_before,
+        "ordinary selected-workspace bootstrap must not rerun legacy migration"
+    );
+    assert_eq!(
+        std::fs::read(default_config).expect("default config after command"),
+        config_before,
+        "ordinary selected-workspace bootstrap must not read/migrate the default config"
+    );
+}
+
+#[test]
 fn workspace_create_treats_an_existing_default_root_as_legacy_install_evidence() {
     let fixture = Fixture::new();
     let legacy = fixture.home.path().join("brain");

@@ -128,7 +128,7 @@
         const name = card.querySelector('.card-title').textContent;
         btn.disabled = true;
         try {
-          const res = await fetch('/habits/done', {
+          const res = await fetch('{{HABITS_DONE_URL}}', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({task_id: taskId}),

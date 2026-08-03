@@ -14,7 +14,7 @@ use super::install::{self, Sources};
 use super::layout::Layout;
 
 /// Run `brain skills sync`. `root` (from `--root`) selects a sandbox.
-pub fn run_sync(root: Option<&Path>) -> Result<()> {
+pub fn run_sync(workspace: &crate::workspace::WorkspaceContext, root: Option<&Path>) -> Result<()> {
     let (layout, sources) = if let Some(r) = root {
         (
             Layout::under_root(r),
@@ -27,7 +27,7 @@ pub fn run_sync(root: Option<&Path>) -> Result<()> {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .ok_or_else(|| anyhow!("$HOME is not set"))?;
-        (Layout::real(&home), super::real_sources())
+        (Layout::real(&home), super::real_sources(workspace))
     };
     let theme = crate::theme::Theme::active();
     eprintln!("{}", format_sync_plan(&layout, &sources, theme));

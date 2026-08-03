@@ -36,7 +36,7 @@ install counts.
 
 ## The tasks view (in-process, no handoff)
 
-The tasks CSVs (`~/brain/tasks/{tasks,habits}.csv`) are read directly by
+The selected workspace's task CSVs (`<brain-root>/tasks/{tasks,habits}.csv`) are read directly by
 `brain`'s tasks main view (`crate::tasks`), and `brain tasks …` launches the
 merged shell (or runs a tasks utility) in-process. The tasks-view command
 helpers and shell-outs live in the tasks modules:
@@ -55,7 +55,13 @@ helpers and shell-outs live in the tasks modules:
   brain server (`server::lifecycle::ensure_running`) and open its `/habits`
   page via the system `open`; the CLI path prints the server-state plan before
   waiting on the daemon and then prints the URL it is opening. They no longer
-  shell out to a zsh function.
+  shell out to a zsh function. This daemon, its state record, receiver control
+  socket, and triage completion bridge remain a transitional machine-shared
+  control plane. Full live-workspace membership and receiver routing remain
+  deferred to the approved shared-server phase. The process itself carries no
+  selected `--brain`; meanwhile each habits request carries a workspace UUID
+  and reloads the exact registry record plus matching portable manifest before
+  touching payload.
 - **`brain habits revive|fix <name>`** — repair a lapsed recurring habit (all
   occurrences `done`, none pending) by fuzzy name, without touching the server.
   Dispatched after workspace bootstrap by `command/server/habits.rs`; the
@@ -99,9 +105,9 @@ inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex`,
 
 Both commands are built by `session::build_llm_command`, which splices the
 configured base command in verbatim so it may carry its own flags. brain never
-depends on a shell alias. The PTY's working directory is **also** set to
-`<brain_root>` (resolved via `paths::brain_root()`, honoring the `root` env
-key), so the agent starts scoped to the brain root from the first instant.
+depends on a shell alias. The PTY's working directory is **also** set to the
+already-selected `WorkspaceContext::root()`, so the agent starts in that
+workspace from the first instant without consulting the default workspace.
 
 When brain injects a prompt into an already-open panel, it sends the text first
 and the final submit key a couple of event-loop ticks later so the frontend
@@ -126,11 +132,12 @@ ephemeral agent session as a brain-panel tab (`App::triage_brain`,
 launched through the same `session::build_llm_command` seeded with `/triage`,
 but with two deliberate differences from the main panel:
 
-- **It is never tracked.** `session::env_for_triage` injects only
-  `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`, and **omits**
-  `BRAIN_INSTANCE_ID` / `BRAIN_STATE_DB`. The `SessionStart` hook keys off those
-  two, so without them the session is never written to `brain_sessions` and is
-  never a resume candidate — it is ephemeral by construction.
+- **It is never tracked.** `session::env_for_triage` injects the four common
+  workspace/actor variables plus `BRAIN_TRIAGE_DONE_URL` and
+  `BRAIN_TRIAGE_TOKEN`, but **omits** `BRAIN_INSTANCE_ID` /
+  `BRAIN_STATE_DB`. The SessionStart hook requires those tracking variables in
+  addition to workspace identity, so the triage session is never written to
+  `brain_sessions` and is never a resume candidate.
 - **Completion is signalled, not inferred.** A triage pass can involve
   back-and-forth with the user, so "the agent went idle" is not a reliable done
   signal. brain first calls `server::lifecycle::ensure_running()` to bring up the
@@ -152,12 +159,12 @@ localhost-only endpoint consistent with `/habits/done`.
 ## Claude Sessions: SessionStart/Stop Hooks + State DB
 
 Which session to run is decided by the **lock + recency** model in
-`state.rs` (DB at `~/.cache/brain/state.db`, WAL):
+`state.rs` (DB at `<workspace-cache>/state.db`, WAL):
 
 1. On startup brain reaps locks held by dead PIDs, then walks
    `free_sessions_by_recency()` (sessions no live brain holds, newest first)
    and resumes the first whose **transcript actually exists** on disk —
-   `~/.claude/projects/<mangled ~/brain>/<id>.jsonl`
+   `~/.claude/projects/<mangled selected-root>/<id>.jsonl`
    (`session::project_dir_name` + a fallback scan). A session opened but
    never chatted in leaves a DB row with **no** transcript, which `claude
    --resume` can't find (the "couldn't find session with ID …" error); brain
@@ -165,18 +172,24 @@ Which session to run is decided by the **lock + recency** model in
    it starts a fresh `--session-id` (registered, locked to this PID) and, if
    it skipped a missing-transcript candidate, shows a status-line alert:
    *"couldn't find a session to resume — starting a new brain chat"*.
-2. brain passes `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` into
-   the Claude child's environment (`session::env_for`).
+2. brain passes the selected workspace's `BRAIN_WORKSPACE_ID`,
+   `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and `BRAIN_ACTOR_ID` plus
+   `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` /
+   `BRAIN_RESPONSE_DIR` into the Claude child's environment
+   (`session::env_for`). Foundation actor identity is the selected record's
+   `local_user_id`.
 3. A **SessionStart hook** —
    `scripts/claude_session_start_hook.py`, wired into
-   `~/brain/.claude/settings.json` under `hooks.SessionStart` — fires on
+   `<brain-root>/.claude/settings.json` under `hooks.SessionStart` — fires on
    every session start / resume / `/clear` / compact. Reading those env
    vars, it upserts the current session id (locked to `BRAIN_PID`) and frees
    the instance's other sessions, so a `/new` mid-run becomes the session
    brain resumes next time and the prior conversation stays resumable. With
-   the env vars absent (ambient `~/brain` claude usage), the hook is a no-op.
+   any common workspace identity or required session attribution variable
+   absent, the hook is a no-op.
 4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
-   `last_assistant_message` under `~/.cache/brain/responses/<session-id>.json`.
+   `last_assistant_message` under
+   `<workspace-cache>/responses/<session-id>.json`.
    For an interactive turn, the TUI consumes it as the completion signal that
    allows queued receiver work to switch sessions. For an active SMS/email
    job, it sends the channel-specific final response, marks remote work idle,
@@ -199,37 +212,39 @@ each ran their own SessionStart hook keyed on separate env-var namespaces
 (`BRAIN_*` vs `TASKS_*`) writing separate DBs, so the two shells never adopted
 each other's sessions. The merged shell has a single app-level brain panel, so
 there is now exactly **one** hook (`scripts/claude_session_start_hook.py`, keyed
-on `BRAIN_*`), one DB (`~/.cache/brain/state.db`, table `brain_sessions`), and
+on `BRAIN_*`), one DB per workspace UUID (`<workspace-cache>/state.db`, table
+`brain_sessions`), and
 one namespace. Both installers deploy the two scripts into
-`~/brain/.claude/brain-hooks/` and register them in `~/brain/.claude/settings.json`.
+`<brain-root>/.claude/brain-hooks/` and register them in that workspace's
+`.claude/settings.json`.
 
-**Hook commands are HOME-relative, not absolute.** Because `~/brain/` (and thus
-`settings.json`) is synced across machines whose home dirs differ
-(`/Users/pablo` vs `/Users/juanpablosarmiento`), an absolute hook path would bake
-one machine's home into the synced config and fail everywhere else with
-`No such file or directory`. So the registered command is
-`python3 ~/brain/.claude/brain-hooks/<script>.py` — Claude Code runs hook
-commands through `/bin/sh`, which tilde-expands `~` to the local home. The Rust
-installer builds this via `hook_command` (`src/command/server/receiver.rs`); `install_hook.sh`
-writes the byte-identical string, so the two installers are idempotent with each
-other and neither clobbers the other.
+**Hook commands are project-relative, not root-specific.** The registered
+command is `python3 .claude/brain-hooks/<script>.py`. Claude runs project hooks
+from the selected workspace, so the command remains valid when a synced
+workspace lives at a different home path or uses a different root name. The
+Rust installer and `install_hook.sh` emit the same command.
 
 `scripts/install_hook.sh` deploys + installs both the SessionStart and the brain
 `claude_stop_hook.py` Stop hook (stripping any stale entries — old absolute /
 wrong-home / legacy `rc/` paths — matched by script basename). `brain receiver
 setup` does the same automatically (and also writes the equivalent entries to
-`~/.codex/hooks.json`). The standalone `./scripts/install_hook.sh` remains a
-repair path for users who change Claude settings manually. The Stop hook is
+`~/.codex/hooks.json`). The standalone
+`./scripts/install_hook.sh [brain-root]` remains a repair path for users who
+change Claude settings manually. Its root precedence is the explicit argument,
+then `BRAIN_ROOT`, with `$HOME/brain` retained only as a documented legacy
+single-workspace fallback. The Stop hook is
 required for receiver jobs: it records the completed assistant response so the
 TUI can deliver it over SMS or email without exposing the full thinking trace.
 
-Receiver setup stores provider credentials in the machine-local brain env
-store. Enter the public base URL only, for example `https://brain.example.com`;
-the Twilio portal receives `https://brain.example.com/sms` and the Resend portal
-receives `https://brain.example.com/email`. Twilio signs the exact SMS URL, so
-the receiver derives that path before verification. Process environment
-variables remain supported as compatibility overrides, and secret values are
-redacted by `brain env list` and `brain env get`.
+Receiver setup stores provider credentials in the selected workspace's record
+in the machine-local brain env store. Enter the public base URL only, for
+example `https://brain.example.com`; the Twilio portal receives
+`https://brain.example.com/sms` and the Resend portal receives
+`https://brain.example.com/email`. Twilio signs the exact SMS URL, so the
+receiver derives that path before verification. Ordinary provider resolution
+uses only that selected record; Brain does not treat process-level `TWILIO_*`,
+`RESEND_*`, or `BRAIN_RECEIVER_PUBLIC_URL` values as runtime overrides. Secret
+values are redacted by `brain env list` and `brain env get`.
 
 The receiver control socket is mode `0600`, refuses to replace a live TUI's
 socket, limits commands to 128 bytes, and applies read/write timeouts. The HTTP
@@ -449,7 +464,7 @@ bookkeeping.
 - **The journal.** Every run (whichever direction, including `setup`'s
   initial baseline) is classified — `Clean` / `NeedsAttention` / `Aborted` —
   by `src/sync/verify.rs` and recorded by `src/sync/journal.rs` into a SQLite
-  journal at **`~/.cache/brain/sync/journal.db`** (table `sync_runs`, WAL like
+  journal at **`<workspace-cache>/sync/journal.db`** (table `sync_runs`, WAL like
   the state DB). It's machine-local and **never synced** (it lives outside
   the brain root, like the rest of brain env), so each machine's sync history
   stays its own. `brain sync status` reads the most recent row plus the
@@ -491,7 +506,7 @@ bookkeeping.
   structured, id-keyed data. Instead `command::sync_once` runs a dedicated
   step (`crate::sync::csv_sync::sync_csvs`) once bisync itself hasn't aborted:
   for each CSV it reads the cached baseline (`csv_sync::baseline_path`,
-  `~/.cache/brain/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
+  `<workspace-cache>/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
   never synced), the local file, and the remote copy (fetched with `rclone
   copyto <remote> <tmp>`, over the same env-var `BRAIN:` remote bisync uses);
   merges the three with the pure id-keyed 3-way merge in
@@ -549,12 +564,12 @@ rclone handoff automatically. Every automatic trigger runs the sync in a
 can neither write over the TUI nor be killed when the shell quits. Its own
 outside-world touchpoints:
 
-- **The machine-wide sync lock** (`src/sync/lock.rs`) is a PID file at
-  `~/.cache/brain/sync/sync.lock` (beside the sync journal, machine-local
+- **The workspace sync lock** (`src/sync/lock.rs`) is a PID file at
+  `<workspace-cache>/sync/sync.lock` (beside the sync journal, machine-local
   cache). It holds the owning process's PID and is taken atomically via
   `create_new` (O_EXCL), so only one sync runs at a time across every trigger
-  and every `brain` invocation on the machine (the extras skip rather than
-  queue). `Guard` owns a heartbeat thread that refreshes the lockfile mtime
+  for that UUID (the extras skip rather than queue), while different
+  workspaces may sync concurrently. `Guard` owns a heartbeat thread that refreshes the lockfile mtime
   while the sync is still running. A later acquire reaps the lock when either
   the owner PID is dead (the same `server::lifecycle::pid_alive` `kill -0`
   probe the server uses) or the heartbeat mtime is older than the stale cap;
@@ -564,9 +579,10 @@ outside-world touchpoints:
   the new owner's lock. A missing or garbage lockfile reads as stale/reapable.
   The manual `run_sync` in `command/sync.rs` takes this lock too, closing a pre-existing
   concurrent-`brain sync` race.
-- **The detached sync spawn** (`trigger::spawn_detached_sync(dir)`) is the one
+- **The detached sync spawn** (`trigger::spawn_detached_sync(workspace, dir)`) is the one
   entry point the startup, watcher, and receiver-freshness triggers use. It
-  spawns the current exe as `brain sync [--pull|--push] --if-idle` fully
+  spawns the current exe as
+  `brain --brain <canonical-name> sync [--pull|--push] --if-idle` fully
   detached — `process_group(0)` (its own process group, so it outlives the
   parent and survives terminal close) plus stdin/stdout/stderr all set to
   `Stdio::null()` — mirroring how `src/server/lifecycle.rs` spawns the server
@@ -578,7 +594,7 @@ outside-world touchpoints:
   child handles.
 - **The in-flight state files** (`src/sync/current.rs`) let a detached sync stay
   observable without printing to any terminal. A running sync's `Reporter`
-  appends every progress line to `~/.cache/brain/sync/current.log` (and echoes
+  appends every progress line to `<workspace-cache>/sync/current.log` (and echoes
   to its own stderr — the terminal for a foreground run, `/dev/null` for a
   detached one) and writes a `current.json` record (pid + direction + start)
   that it removes on drop. `brain sync status` reads that record (validated
@@ -586,7 +602,7 @@ outside-world touchpoints:
   `brain sync` that finds the lock held calls `follow::follow_until_done`, which
   tails `current.log` to the terminal until the run ends (`src/sync/follow.rs`).
 - **The brain-owned bisync workdir** (`run::bisync_workdir` →
-  `~/.cache/brain/sync/bisync`, passed as `--workdir` by `args::bisync_args`)
+  `<workspace-cache>/sync/bisync`, passed as `--workdir` by `args::bisync_args`)
   fixes rclone's bisync state location so it is deterministic and its lock files
   are reapable. Because brain's own lock already serializes all syncs,
   `run::reap_stale_bisync_locks` removes any `*.lck` there before each run — it

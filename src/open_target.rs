@@ -78,12 +78,12 @@ pub fn pdf_output_path(md: &Path) -> PathBuf {
 /// rather than overwriting, so to guarantee the exact same-name output we drop
 /// any existing PDF at the target path first. Blocking (a deliberate action);
 /// the caller opens the result and keeps its shell up.
-pub fn create_pdf(md: &Path) -> Result<PathBuf> {
+pub fn create_pdf(command: &crate::workspace::CommandContext, md: &Path) -> Result<PathBuf> {
     let out = pdf_output_path(md);
     if out.exists() {
         std::fs::remove_file(&out)?;
     }
-    let status = Command::new(settings::markdown_to_pdf_command()?)
+    let status = Command::new(settings::markdown_to_pdf_command(command)?)
         .arg(md)
         .arg("--out")
         .arg(&out)

@@ -216,6 +216,14 @@ and continues the originally requested command. On a later persistence failure,
 Brain preserves the newly written manifest rather than performing a racy
 path-based deletion; the matching identity remains inspectable and repairable.
 
+Selection is also a capability boundary, not a convenience lookup. Root-local
+stores accept `WorkspaceContext`; machine-env writes additionally require the
+exact registry store and revalidate canonical name plus UUID. The TUI and its
+background threads clone the same `Arc<WorkspaceContext>`. Detached Brain
+children repeat the canonical `--brain` selector, and Brain-owned integrations
+receive exactly workspace ID, canonical name, root, and actor ID. Therefore a
+later default change cannot redirect an already-started operation.
+
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
 Task management is a big domain with its own CSVs, recurrence rules, and TUI.
@@ -579,13 +587,10 @@ whereas the jpsyx mirror-write footgun the original decision was avoiding is
 merely inconvenient (a lost local edit) rather than a wrong path or a leaked
 secret landing somewhere it shouldn't.
 
-Splitting off brain env also **retires the circularity argument** that used to
-justify treating `root` as unstorable: `root` couldn't live *inside* the brain
-root because you'd need the root to find the setting that names the root. Once
-brain env lives at a fixed path outside the brain root, that circularity is
-gone — `root` becomes a normal (if machine-local) env variable, and the legacy
-`~/.config/brain-root` pointer becomes a back-compat read, auto-migrated into
-`env.json`'s `root` key on first run.
+Splitting off brain env also gives the machine registry a non-circular home for
+workspace roots. In schema v2, `root` is structural `WorkspaceRecord` data,
+not writable free-form env. The legacy `~/.config/brain-root` pointer remains
+a back-compat read and is folded into the first record during migration.
 
 **The residual jpsyx mirror-write footgun, now on `env.json`.** `env.json` is
 runtime-mutable (`brain env set`, and the `markdown_to_pdf_path` self-heal), so
@@ -883,14 +888,14 @@ lock simply skips. The watcher's `Debouncer` re-arms after a skip, so pending
 changes aren't stranded. One-way watcher pushes write no local files, so they
 cannot create a feedback loop.
 
-**Why a machine-wide advisory sync lock (and that it closes a pre-existing
-race).** Concurrent triggers are the norm under C4: shell start + the watcher + a
-second `brain` shell + a manual `brain sync` can all want to sync at once, and two
-`rclone bisync` runs against the same bucket at the same time is exactly what must
-not happen. A single PID-file lock at `~/.cache/brain/sync/sync.lock`, taken
+**Why the advisory sync lock is keyed by workspace UUID.** Concurrent triggers
+are the norm: shell start + the watcher + a second shell + a manual sync can all
+target the same workspace, and two `rclone bisync` runs for that workspace must
+not overlap. A PID-file lock at `<workspace-cache>/sync/sync.lock`, taken
 atomically (`create_new`/O_EXCL) and reaped when stale (owner PID no longer alive
 via `kill -0` or heartbeat mtime older than the stale cap), gives "one sync at a
-time, machine-wide" cheaply, with no daemon or IPC. The heartbeat is the minimal
+time per workspace" cheaply, while allowing two different workspace UUIDs to
+sync concurrently. The heartbeat is the minimal
 extra mechanism needed to avoid the SIGKILL + PID-recycle wedge: a real long
 sync keeps refreshing the lockfile mtime, but a stale lock left behind by a dead
 process stops refreshing and becomes reapable even if the old PID number later
@@ -1307,15 +1312,16 @@ field:
    immediately reap-able even though the orphaned `rclone` was still writing.
 
 The fix makes execution independent of the shell: every automatic trigger
-(startup, watcher, receiver freshness) spawns a detached `brain sync --if-idle`
-child (`process_group(0)` + null stdio). A separate process can't touch the
+(startup, watcher, receiver freshness) spawns a detached
+`brain --brain <canonical-name> sync --if-idle` child (`process_group(0)` +
+null stdio). A separate process can't touch the
 TUI, and a child in its own process group outlives the shell and a terminal
 close. There is no in-process sync path anymore. While the TUI remains alive,
 it keeps each child handle in a waiter thread and calls `wait()` so completed
 children are reaped instead of accumulating as `<defunct>` processes.
 
-Detaching hid the progress, so a running sync now records shared state under
-`~/.cache/brain/sync/`: a `Reporter` appends every line to `current.log` (and
+Detaching hid the progress, so a running sync now records selected-workspace
+state under `<workspace-cache>/sync/`: a `Reporter` appends every line to `current.log` (and
 echoes to its own stderr, which is the terminal for a foreground run and
 `/dev/null` for a detached one) and writes a `current.json` marker while it
 runs. `brain sync status` surfaces `syncing now …` from that marker; a user-run
@@ -1328,10 +1334,10 @@ coalesces (exits silently) rather than following.
 
 An interrupted `bisync` (a quit shell, a powered-off machine) can leave rclone's
 workdir with a stale lock file or half-written listings that wedge the next run.
-brain now pins that workdir with `--workdir ~/.cache/brain/sync/bisync` instead
-of leaving it at rclone's HOME-dependent default. Two payoffs:
+brain now pins that workdir with `--workdir <workspace-cache>/sync/bisync`
+instead of leaving it at rclone's HOME-dependent default. Two payoffs:
 
-- **Deterministic, reapable state.** Because brain's own machine-wide lock
+- **Deterministic, reapable state.** Because brain's own workspace lock
   already serializes all syncs, any `.lck` present in that workdir is
   necessarily from a dead, interrupted run — so brain removes it before each run
   (`run::reap_stale_bisync_locks`), preserving the `.lst` baselines.

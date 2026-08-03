@@ -40,8 +40,13 @@ fn dispatch_background(
     Ok(())
 }
 
-pub fn send_sms_background(action: &'static str, to: String, body: String) {
-    if let Err(error) = dispatch_background(action, move || send_sms(&to, &body)) {
+pub fn send_sms_background(
+    command: crate::workspace::CommandContext,
+    action: &'static str,
+    to: String,
+    body: String,
+) {
+    if let Err(error) = dispatch_background(action, move || send_sms(&command, &to, &body)) {
         crate::logging::log(format!(
             "receiver delivery could not start action={action} error={error:#}"
         ));
@@ -49,15 +54,16 @@ pub fn send_sms_background(action: &'static str, to: String, body: String) {
 }
 
 pub fn send_email_background(
+    command: crate::workspace::CommandContext,
     action: &'static str,
     to: Vec<String>,
     subject: String,
     text: String,
     html: String,
 ) {
-    if let Err(error) =
-        dispatch_background(action, move || send_email(&to, &subject, &text, &html))
-    {
+    if let Err(error) = dispatch_background(action, move || {
+        send_email(&command, &to, &subject, &text, &html)
+    }) {
         crate::logging::log(format!(
             "receiver delivery could not start action={action} error={error:#}"
         ));
@@ -89,12 +95,16 @@ pub fn allowed_thread_recipients(
 
 /// Send a final SMS through Twilio. The credentials are read only when a
 /// remote job completes, never from the portable brain config.
-pub fn send_sms(to: &str, body: &str) -> anyhow::Result<()> {
-    let account = super::provider::get("TWILIO_ACCOUNT_SID", "twilio_account_sid")
+pub fn send_sms(
+    command: &crate::workspace::CommandContext,
+    to: &str,
+    body: &str,
+) -> anyhow::Result<()> {
+    let account = super::provider::get(command, "twilio_account_sid")
         .ok_or_else(|| anyhow::anyhow!("TWILIO_ACCOUNT_SID is not configured"))?;
-    let token = super::provider::get("TWILIO_AUTH_TOKEN", "twilio_auth_token")
+    let token = super::provider::get(command, "twilio_auth_token")
         .ok_or_else(|| anyhow::anyhow!("TWILIO_AUTH_TOKEN is not configured"))?;
-    let from = super::provider::get("TWILIO_FROM_NUMBER", "twilio_from_number")
+    let from = super::provider::get(command, "twilio_from_number")
         .ok_or_else(|| anyhow::anyhow!("TWILIO_FROM_NUMBER is not configured"))?;
     let endpoint = format!("https://api.twilio.com/2010-04-01/Accounts/{account}/Messages.json");
     let output = super::provider::CurlRequest::new()
@@ -116,10 +126,16 @@ pub fn send_sms(to: &str, body: &str) -> anyhow::Result<()> {
 
 /// Send a threaded email through Resend. The caller has already applied the
 /// participant/allowlist intersection before invoking this function.
-pub fn send_email(to: &[String], subject: &str, text: &str, html: &str) -> anyhow::Result<()> {
-    let key = super::provider::get("RESEND_API_KEY", "resend_api_key")
+pub fn send_email(
+    command: &crate::workspace::CommandContext,
+    to: &[String],
+    subject: &str,
+    text: &str,
+    html: &str,
+) -> anyhow::Result<()> {
+    let key = super::provider::get(command, "resend_api_key")
         .ok_or_else(|| anyhow::anyhow!("RESEND_API_KEY is not configured"))?;
-    let from = super::provider::get("RESEND_FROM_EMAIL", "resend_from_email")
+    let from = super::provider::get(command, "resend_from_email")
         .ok_or_else(|| anyhow::anyhow!("RESEND_FROM_EMAIL is not configured"))?;
     let payload = serde_json::json!({
         "from": from,

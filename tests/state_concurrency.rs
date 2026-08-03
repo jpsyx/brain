@@ -23,7 +23,7 @@ use brain::state::Db;
 fn fresh_db() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::TempDir::new().unwrap();
     let path = tmp.path().join("state.db");
-    drop(Db::open(&path).unwrap());
+    drop(Db::open_path(&path).unwrap());
     (tmp, path)
 }
 
@@ -40,7 +40,7 @@ fn concurrent_register_fresh_from_n_threads_do_not_clobber() {
         .map(|i| {
             let path = Arc::clone(&path);
             thread::spawn(move || {
-                let db = Db::open(&path).expect("open per-thread");
+                let db = Db::open_path(&path).expect("open per-thread");
                 db.register_fresh(&format!("sess-{i}"), &format!("inst-{i}"), 1000 + i as i32)
                     .expect("register_fresh");
                 // Then release so the row becomes resumable.
@@ -52,7 +52,7 @@ fn concurrent_register_fresh_from_n_threads_do_not_clobber() {
         h.join().expect("thread join");
     }
 
-    let db = Db::open(&path).unwrap();
+    let db = Db::open_path(&path).unwrap();
     assert_eq!(
         db.free_sessions_by_recency().len(),
         SHELLS,
@@ -66,7 +66,7 @@ fn only_one_thread_wins_a_claim_on_a_shared_free_session() {
     // is a conditional UPDATE, so exactly one must win.
     let (_tmp, path) = fresh_db();
     {
-        let db = Db::open(&path).unwrap();
+        let db = Db::open_path(&path).unwrap();
         db.register_fresh("shared", "seed", 1).unwrap();
         db.release("seed").unwrap(); // now free
     }
@@ -77,7 +77,7 @@ fn only_one_thread_wins_a_claim_on_a_shared_free_session() {
         .map(|i| {
             let path = Arc::clone(&path);
             thread::spawn(move || {
-                let db = Db::open(&path).expect("open per-thread");
+                let db = Db::open_path(&path).expect("open per-thread");
                 db.claim("shared", &format!("inst-{i}"), 2000 + i as i32)
                     .expect("claim")
             })

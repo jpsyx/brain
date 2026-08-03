@@ -64,4 +64,34 @@ impl WorkspacePaths {
     pub fn sync_dir(&self) -> PathBuf {
         self.cache_dir.join("sync")
     }
+
+    /// The workspace-scoped sync lock.
+    #[must_use]
+    pub fn sync_lock(&self) -> PathBuf {
+        self.sync_dir().join("sync.lock")
+    }
+
+    /// The workspace-scoped sync journal database.
+    #[must_use]
+    pub fn sync_journal(&self) -> PathBuf {
+        self.sync_dir().join("journal.db")
+    }
+
+    /// The workspace-scoped in-flight sync state.
+    #[must_use]
+    pub fn sync_current_state(&self) -> PathBuf {
+        self.sync_dir().join("current.json")
+    }
+
+    /// The workspace-scoped in-flight sync log.
+    #[must_use]
+    pub fn sync_current_log(&self) -> PathBuf {
+        self.sync_dir().join("current.log")
+    }
+
+    /// The workspace-scoped semantic CSV baseline directory.
+    #[must_use]
+    pub fn sync_csv_baselines(&self) -> PathBuf {
+        self.sync_dir().join("baselines")
+    }
 }

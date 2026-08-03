@@ -1,16 +1,13 @@
-//! Brain-root resolution: where the brain (PARA) directory lives.
+//! Legacy single-workspace root resolution.
 //!
-//! Resolution order: the default schema-v2 workspace root (or a pre-migration
-//! flat `root`), else the legacy `~/.config/brain-root` pointer file, else
+//! Ordinary commands select a schema-v2 [`crate::workspace::WorkspaceContext`]
+//! before accessing workspace-owned state and use its immutable root snapshot.
+//! These helpers remain for legacy migration compatibility: a pre-migration
+//! flat `root`, else the read-only `~/.config/brain-root` pointer, else
 //! `$HOME/brain`.
 //!
-//! `root` is the **one** machine-local pointer brain needs, and the *only*
-//! thing that can't live inside the brain root itself (you can't store the
-//! brain's location inside the brain — that's circular). It is edited by hand
-//! (or tracked externally, e.g. via jpsyx), never by a `brain` CLI command — it
-//! is deliberately not a `brain config` variable. Everything else brain persists
-//! lives *inside* the resolved root at `<root>/.config/` (config.json,
-//! personalization.json, extensions/, plugins/), so it travels with the brain.
+//! In schema v2, `root` is a validated structural registry field rather than a
+//! writable free-form env variable. The legacy pointer is never written.
 //!
 //! The IO-free pieces (`resolve_root`, `parse_root_key`, `parse_brain_root_file`,
 //! `expand_tilde_with_home`) are split out from the env/filesystem-touching
@@ -21,17 +18,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 
-/// Resolve the absolute brain-root directory, creating it when needed.
+/// Resolve and create the legacy/default root for migration compatibility.
 pub fn brain_root() -> Result<PathBuf> {
     let root = brain_root_path();
     std::fs::create_dir_all(&root)?;
     Ok(root)
 }
 
-/// Resolve the brain-root path **without** requiring it to exist.
-///
-/// Used to derive the config dir (`<root>/.config`), where a missing dir must
-/// read as empty rather than fail — config lookups must never block startup.
+/// Resolve the legacy/default root path without requiring it to exist.
 #[must_use]
 pub fn brain_root_path() -> PathBuf {
     let home = home_dir().unwrap_or_default();
@@ -42,7 +36,7 @@ pub fn brain_root_path() -> PathBuf {
     )
 }
 
-/// Pure brain-root precedence: the `root` env key, else the legacy
+/// Pure legacy-root precedence: the flat/schema-default `root`, else the legacy
 /// `~/.config/brain-root` pointer, else the `<home>/brain` default. Each
 /// candidate is tilde-expanded against `home`.
 #[must_use]
@@ -51,7 +45,10 @@ pub fn resolve_root(env_key: Option<&str>, legacy_pointer: Option<&str>, home: &
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .or_else(|| legacy_pointer.map(str::trim).filter(|s| !s.is_empty()));
-    pick.map_or_else(|| home.join("brain"), |raw| expand_tilde_with_home(raw, home))
+    pick.map_or_else(
+        || home.join("brain"),
+        |raw| expand_tilde_with_home(raw, home),
+    )
 }
 
 /// Read the `root` field from `~/.config/brain/env.json`, if any. A missing
@@ -86,19 +83,23 @@ pub fn parse_root_key(env_json: &str) -> Option<String> {
 fn brain_root_file() -> PathBuf {
     let config_home = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|s| !s.is_empty())
-        .map_or_else(|| home_dir().unwrap_or_default().join(".config"), PathBuf::from);
+        .map_or_else(
+            || home_dir().unwrap_or_default().join(".config"),
+            PathBuf::from,
+        );
     config_home.join("brain-root")
 }
 
 /// The machine-local brain-env directory.
 ///
-/// `$XDG_CONFIG_HOME/brain` or `~/.config/brain`. It holds `env.json` (brain
-/// env). Unlike the brain-internal config dir it lives at a fixed `$HOME`-side
-/// path that does **not** depend on the brain root, so it can hold `root`
-/// itself without circularity and never rides the brain-dir sync.
+/// `$XDG_CONFIG_HOME/brain` or `~/.config/brain`. It holds the schema-v2
+/// workspace registry in `env.json`. Unlike a workspace's internal config dir,
+/// it lives at a fixed `$HOME`-side path and never rides workspace sync.
 #[must_use]
 pub fn machine_config_dir() -> PathBuf {
-    let xdg = std::env::var("XDG_CONFIG_HOME").ok().filter(|s| !s.is_empty());
+    let xdg = std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .filter(|s| !s.is_empty());
     let home = home_dir().unwrap_or_default();
     machine_config_dir_from(xdg.as_deref(), &home)
 }
@@ -154,12 +155,18 @@ mod tests {
     #[test]
     fn parse_reads_the_path_line() {
         assert_eq!(parse_brain_root_file("~/brain"), Some("~/brain".to_owned()));
-        assert_eq!(parse_brain_root_file("/srv/brain"), Some("/srv/brain".to_owned()));
+        assert_eq!(
+            parse_brain_root_file("/srv/brain"),
+            Some("/srv/brain".to_owned())
+        );
     }
 
     #[test]
     fn parse_trims_surrounding_whitespace_and_newlines() {
-        assert_eq!(parse_brain_root_file("  ~/brain \n"), Some("~/brain".to_owned()));
+        assert_eq!(
+            parse_brain_root_file("  ~/brain \n"),
+            Some("~/brain".to_owned())
+        );
     }
 
     #[test]
@@ -230,13 +237,22 @@ mod tests {
     #[test]
     fn resolve_root_falls_back_to_the_legacy_pointer_then_default() {
         let home = Path::new("/Users/x");
-        assert_eq!(resolve_root(None, Some("/srv/brain"), home), PathBuf::from("/srv/brain"));
-        assert_eq!(resolve_root(None, None, home), PathBuf::from("/Users/x/brain"));
+        assert_eq!(
+            resolve_root(None, Some("/srv/brain"), home),
+            PathBuf::from("/srv/brain")
+        );
+        assert_eq!(
+            resolve_root(None, None, home),
+            PathBuf::from("/Users/x/brain")
+        );
     }
 
     #[test]
     fn parse_root_key_reads_the_string_field() {
-        assert_eq!(parse_root_key(r#"{"root": "~/brain"}"#), Some("~/brain".to_owned()));
+        assert_eq!(
+            parse_root_key(r#"{"root": "~/brain"}"#),
+            Some("~/brain".to_owned())
+        );
         assert_eq!(parse_root_key(r#"{"root": ""}"#), None);
         assert_eq!(parse_root_key(r#"{"markdown_to_pdf_path": "x"}"#), None);
         assert_eq!(parse_root_key("not json"), None);

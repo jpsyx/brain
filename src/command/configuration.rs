@@ -6,14 +6,14 @@ use crate::cli::{
     ConfigAction, ConfigArgs, EnvAction, EnvArgs, PersonalizeAction, PersonalizeArgs,
 };
 
-pub fn run_config(args: &ConfigArgs, _context: &crate::workspace::CommandContext) -> Result<()> {
+pub fn run_config(args: &ConfigArgs, context: &crate::workspace::CommandContext) -> Result<()> {
     match args.action.as_ref().unwrap_or(&ConfigAction::List) {
         ConfigAction::List => {
             crate::logging::log("config list");
             print!(
                 "{}",
                 crate::settings::render_list(
-                    &crate::settings::resolve_all(),
+                    &crate::settings::resolve_all(&context.workspace),
                     crate::theme::Theme::active(),
                 )
             );
@@ -21,7 +21,7 @@ pub fn run_config(args: &ConfigArgs, _context: &crate::workspace::CommandContext
         ConfigAction::Get { name } => {
             let name = crate::settings::normalize_name(name);
             crate::logging::log(format!("config get name={name}"));
-            match crate::settings::resolve_one(&name) {
+            match crate::settings::resolve_one(&context.workspace, &name) {
                 Some(value) => println!("{value}"),
                 None => eprintln!("{name} is unset"),
             }
@@ -30,29 +30,29 @@ pub fn run_config(args: &ConfigArgs, _context: &crate::workspace::CommandContext
             if let Some((raw_name, value)) = assignment.split_once('=') {
                 let (name, value) = (crate::settings::normalize_name(raw_name), value.trim());
                 crate::logging::log(format!("config set name={name}"));
-                crate::settings::set(&name, value)?;
-                crate::skills::resync_skills();
+                crate::settings::set(&context.workspace, &name, value)?;
+                crate::skills::resync_skills(&context.workspace);
                 println!(
                     "{}",
                     crate::settings::set_confirmation(&name, value, crate::theme::Theme::active(),)
                 );
             } else {
                 crate::logging::log(format!("config set interactive name={assignment}"));
-                config_set_interactive(&crate::settings::normalize_name(assignment))?;
+                config_set_interactive(context, &crate::settings::normalize_name(assignment))?;
             }
         }
     }
     Ok(())
 }
 
-pub fn run_env(args: &EnvArgs, _context: &crate::workspace::CommandContext) -> Result<()> {
+pub fn run_env(args: &EnvArgs, context: &crate::workspace::CommandContext) -> Result<()> {
     match args.action.as_ref().unwrap_or(&EnvAction::List) {
         EnvAction::List => {
             crate::logging::log("env list");
             println!(
                 "{}",
                 crate::settings::render_list(
-                    &crate::env::resolve_all(),
+                    &crate::env::resolve_all(context),
                     crate::theme::Theme::active(),
                 )
             );
@@ -60,7 +60,7 @@ pub fn run_env(args: &EnvArgs, _context: &crate::workspace::CommandContext) -> R
         EnvAction::Get { name } => {
             let name = crate::settings::normalize_name(name);
             crate::logging::log(format!("env get name={name}"));
-            match crate::env::resolve_one(&name) {
+            match crate::env::resolve_one(context, &name) {
                 Some(value) => println!("{value}"),
                 None => eprintln!("{name} is unset"),
             }
@@ -71,14 +71,14 @@ pub fn run_env(args: &EnvArgs, _context: &crate::workspace::CommandContext) -> R
             {
                 let name = crate::settings::normalize_name(name);
                 crate::logging::log(format!("env set name={name}"));
-                crate::env::set(&name, value)?;
+                crate::env::set(context, &name, value)?;
                 println!(
                     "{}",
                     crate::settings::set_confirmation(&name, value, crate::theme::Theme::active(),)
                 );
             } else {
                 crate::logging::log("env set interactive");
-                env_set_interactive(assignment.as_deref())?;
+                env_set_interactive(context, assignment.as_deref())?;
             }
         }
     }
@@ -87,41 +87,41 @@ pub fn run_env(args: &EnvArgs, _context: &crate::workspace::CommandContext) -> R
 
 pub fn run_personalize(
     args: &PersonalizeArgs,
-    _context: &crate::workspace::CommandContext,
+    context: &crate::workspace::CommandContext,
 ) -> Result<()> {
     match args.action.as_ref() {
         Some(PersonalizeAction::Show) => {
             crate::logging::log("personalize show");
-            crate::personalization::command::run_show();
+            crate::personalization::command::run_show(&context.workspace);
             Ok(())
         }
         Some(PersonalizeAction::Get { field }) => {
             crate::logging::log(format!("personalize get field={field}"));
-            crate::personalization::command::run_get(field);
+            crate::personalization::command::run_get(&context.workspace, field);
             Ok(())
         }
         Some(PersonalizeAction::Set { assignment }) => {
             crate::logging::log(format!("personalize set assignment={assignment:?}"));
             if assignment.contains('=') {
-                crate::personalization::command::run_set(assignment)
+                crate::personalization::command::run_set(&context.workspace, assignment)
             } else {
-                personalize_set_interactive(assignment)
+                personalize_set_interactive(&context.workspace, assignment)
             }
         }
         Some(PersonalizeAction::Edit) => {
             crate::logging::log("personalize edit");
-            crate::personalization::command::run_edit()
+            crate::personalization::command::run_edit(&context.workspace)
         }
         None => {
             crate::logging::log("personalize default");
-            crate::personalization::onboarding::run_or_show()
+            crate::personalization::onboarding::run_or_show(&context.workspace)
         }
     }
 }
 
 pub fn run_skills(
     args: &crate::cli::SkillsArgs,
-    _context: &crate::workspace::CommandContext,
+    context: &crate::workspace::CommandContext,
 ) -> Result<()> {
     let root = match &args.action {
         Some(crate::cli::SkillsAction::Sync { root }) => root.as_deref(),
@@ -131,13 +131,17 @@ pub fn run_skills(
         "skills sync root={}",
         root.map_or_else(|| "(real)".to_owned(), |path| path.display().to_string())
     ));
-    crate::skills::command::run_sync(root)
+    crate::skills::command::run_sync(&context.workspace, root)
 }
 
-fn config_set_interactive(name: &str) -> Result<()> {
+fn config_set_interactive(context: &crate::workspace::CommandContext, name: &str) -> Result<()> {
     match name {
-        "namespaces" => return crate::personalization::command::run_set_namespaces(),
-        "tags" | "tag_styles" => return crate::personalization::command::run_set_tags(),
+        "namespaces" => {
+            return crate::personalization::command::run_set_namespaces(&context.workspace);
+        }
+        "tags" | "tag_styles" => {
+            return crate::personalization::command::run_set_tags(&context.workspace);
+        }
         _ => {}
     }
     let Some(value) = prompt_tty_line(&format!("Set {name} = "))? else {
@@ -146,8 +150,8 @@ fn config_set_interactive(name: &str) -> Result<()> {
         ));
     };
     let value = value.trim();
-    crate::settings::set(name, value)?;
-    crate::skills::resync_skills();
+    crate::settings::set(&context.workspace, name, value)?;
+    crate::skills::resync_skills(&context.workspace);
     println!(
         "{}",
         crate::settings::set_confirmation(name, value, crate::theme::Theme::active())
@@ -155,11 +159,14 @@ fn config_set_interactive(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn env_set_interactive(requested: Option<&str>) -> Result<()> {
+fn env_set_interactive(
+    context: &crate::workspace::CommandContext,
+    requested: Option<&str>,
+) -> Result<()> {
     let name = if let Some(name) = requested {
         crate::settings::normalize_name(name)
     } else {
-        let rows = crate::env::resolve_all();
+        let rows = crate::env::resolve_all(context);
         println!(
             "{}",
             crate::theme::Theme::active().heading("Brain environment")
@@ -194,7 +201,7 @@ fn env_set_interactive(requested: Option<&str>) -> Result<()> {
         anyhow::bail!("no terminal for interactive set; use `brain env set {name}=<value>`");
     };
     let value = value.trim();
-    crate::env::set(&name, value)?;
+    crate::env::set(context, &name, value)?;
     println!(
         "{}",
         crate::settings::set_confirmation(&name, value, crate::theme::Theme::active())
@@ -202,14 +209,17 @@ fn env_set_interactive(requested: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn personalize_set_interactive(field: &str) -> Result<()> {
+fn personalize_set_interactive(
+    workspace: &crate::workspace::WorkspaceContext,
+    field: &str,
+) -> Result<()> {
     let field = crate::settings::normalize_name(field);
     let Some(value) = prompt_tty_line(&format!("Set {field} = "))? else {
         anyhow::bail!(
             "no terminal for interactive set; use `brain personalize set {field}=<value>`"
         );
     };
-    crate::personalization::command::run_set(&format!("{field}={}", value.trim()))
+    crate::personalization::command::run_set(workspace, &format!("{field}={}", value.trim()))
 }
 
 pub(crate) fn prompt_tty_line(prompt: &str) -> Result<Option<String>> {

@@ -37,9 +37,9 @@
 
 mod app_actions;
 mod app_brain;
+mod app_state;
 mod app_sync;
 mod app_triage_tab;
-mod app_state;
 mod draw;
 mod draw_help;
 mod draw_modals;
@@ -55,7 +55,7 @@ mod palette;
 mod receiver_state;
 mod search_view;
 mod shell;
-mod singleton;
+pub mod singleton;
 mod status_warning;
 
 #[cfg(test)]
@@ -152,6 +152,8 @@ pub(crate) struct ReceiverSyncGate {
 }
 
 pub(crate) struct App<'a> {
+    command_context: crate::workspace::CommandContext,
+    tag_styles: crate::personalization::tags::TagStyles,
     today: NaiveDate,
     /// Runtime config, held so post-startup actions (the `r`-hotkey triage
     /// re-check) can reach `daily_triage_name_pattern` and
@@ -288,11 +290,11 @@ pub(crate) struct App<'a> {
 
     /// This shell's lineage id (one per running tasks shell). Owns the lock on
     /// whatever Claude session it's currently driving; the SessionStart hook
-    /// attributes session rows to it via `TASKS_INSTANCE_ID`.
+    /// attributes session rows to it via `BRAIN_INSTANCE_ID`.
     instance: String,
-    /// The directory the agent runs in for the brain panel (`~/brain`). Used to
-    /// resolve the SessionStart hook's `.claude/settings.json` and to locate
-    /// session transcripts on disk before a `--resume`.
+    /// The selected workspace root in which the agent panel runs. Used to
+    /// resolve that workspace's `.claude/settings.json` and to locate session
+    /// transcripts on disk before a `--resume`.
     brain_root: PathBuf,
     /// Path to the state DB, passed down to Claude (via `BRAIN_STATE_DB`) so
     /// the hook writes to the same DB this shell reads.

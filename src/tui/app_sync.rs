@@ -18,9 +18,12 @@ impl App<'_> {
             return;
         }
         self.sync_status_next_poll = now + SYNC_STATUS_POLL;
-        self.sync_status = live_sync_state().map(|state| {
+        self.sync_status = live_sync_state(self.command_context.workspace.paths()).map(|state| {
             if self.receiver_sync_gate.is_some() {
-                format!("↻ syncing brain before receiver message ({})…", state.direction)
+                format!(
+                    "↻ syncing brain before receiver message ({})…",
+                    state.direction
+                )
             } else {
                 format!("↻ syncing brain ({})…", state.direction)
             }
@@ -31,7 +34,7 @@ impl App<'_> {
     }
 
     pub(crate) fn receiver_sync_ready(&mut self) -> bool {
-        let config = SyncConfig::load();
+        let config = SyncConfig::load(&self.command_context);
         if !config.is_configured() {
             return true;
         }
@@ -42,13 +45,16 @@ impl App<'_> {
                 self.receiver_sync_gate = Some(gate);
                 return false;
             }
-            if journal_advanced(gate.seen_journal_id, latest_journal_id()) {
+            if journal_advanced(
+                gate.seen_journal_id,
+                latest_journal_id(self.command_context.workspace.paths()),
+            ) {
                 crate::logging::log("receiver freshness pull completed; dispatch may continue");
                 self.sync_status = None;
                 let _ = self.reload_tasks();
                 return true;
             }
-            if live_sync_state().is_some() {
+            if live_sync_state(self.command_context.workspace.paths()).is_some() {
                 gate.next_poll = now + SYNC_STATUS_POLL;
                 self.receiver_sync_gate = Some(gate);
                 return false;
@@ -71,14 +77,14 @@ impl App<'_> {
             return self.launch_receiver_pull(gate.attempts.saturating_add(1));
         }
 
-        if let Some(state) = live_sync_state() {
+        if let Some(state) = live_sync_state(self.command_context.workspace.paths()) {
             if state.direction != "push" {
                 self.arm_receiver_sync_gate(0);
             }
             return false;
         }
 
-        let last_downstream = Journal::open(&Journal::default_path())
+        let last_downstream = Journal::open(&self.command_context.workspace.paths().sync_journal())
             .ok()
             .and_then(|journal| journal.latest_downstream_completion().ok())
             .flatten();
@@ -92,7 +98,12 @@ impl App<'_> {
         crate::logging::log(format!(
             "receiver message waiting for downstream freshness pull attempt={attempts}"
         ));
-        if crate::sync::trigger::spawn_detached_sync(Direction::Pull).is_none() {
+        if crate::sync::trigger::spawn_detached_sync(
+            &self.command_context.workspace,
+            Direction::Pull,
+        )
+        .is_none()
+        {
             self.flash = Some(FlashKind::Error(
                 "receiver sync could not start; processing with local brain state".to_owned(),
             ));
@@ -105,7 +116,7 @@ impl App<'_> {
     fn arm_receiver_sync_gate(&mut self, attempts: u8) {
         let now = std::time::Instant::now();
         self.receiver_sync_gate = Some(ReceiverSyncGate {
-            seen_journal_id: latest_journal_id(),
+            seen_journal_id: latest_journal_id(self.command_context.workspace.paths()),
             launched_at: now,
             next_poll: now,
             attempts,
@@ -114,13 +125,15 @@ impl App<'_> {
     }
 }
 
-fn live_sync_state() -> Option<crate::sync::current::CurrentState> {
-    crate::sync::current::read_state()
+fn live_sync_state(
+    paths: &crate::workspace::WorkspacePaths,
+) -> Option<crate::sync::current::CurrentState> {
+    crate::sync::current::read_state(paths)
         .filter(|state| crate::server::lifecycle::pid_alive(state.pid))
 }
 
-fn latest_journal_id() -> Option<i64> {
-    Journal::open(&Journal::default_path())
+fn latest_journal_id(paths: &crate::workspace::WorkspacePaths) -> Option<i64> {
+    Journal::open(&paths.sync_journal())
         .ok()
         .and_then(|journal| journal.latest_id().ok())
         .flatten()

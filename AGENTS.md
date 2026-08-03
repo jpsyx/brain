@@ -11,13 +11,13 @@ so Claude Code picks it up too.)
 `brain` is the user's **central terminal dispatch** and the **single CLI**
 for both their second brain and their task system. (The standalone `tasks`
 binary was merged in; it no longer exists.) It's a small Rust CLI
-(clap + ratatui) that browses `~/brain` (PARA) and manages
-`~/brain/tasks/{tasks,habits}.csv`.
+(clap + ratatui) that browses a selected brain workspace (PARA) and manages
+that root's `tasks/{tasks,habits}.csv`.
 
 Bare `brain` (and `brain tasks …`) opens a **persistent shell** (`tui/`) with
 **two main views** — the **tasks view** (task management, agenda, triage; the
-startup default) and the **brain-directory search view** (fuzzy-pick over
-`~/brain`) — plus one app-level **brain panel** (an interactive agent session
+startup default) and the **brain-directory search view** (fuzzy-pick over the
+selected root) — plus one app-level **brain panel** (an interactive agent session
 in a PTY, Claude by default or Codex with `--codex` / `-cx`, open at startup and
 shared by both views). Switch views with `Ctrl+L`/`Ctrl+H` (cycle) or
 `Ctrl+T`/`Ctrl+B` (jump). Read [docs/glossary.md](docs/glossary.md) first for
@@ -32,7 +32,8 @@ sources change and `exec`s it directly. Everything the user does happens
 inside the TUI, which renders to `/dev/tty` and performs its own file-open,
 Finder-reveal, and agent-launch actions by spawning processes; the
 binary's stdout carries only `brain config` output plus clap help/errors. The
-persistent shell keeps state (`~/.cache/brain/state.db`, table
+persistent shell keeps UUID-scoped state
+(`~/.cache/brain/workspaces/<workspace-uuid>/state.db`, table
 `brain_sessions`) to resume the right Claude session (lock + recency) and
 remember the panel layout. Claude sessions are fed by a single Claude
 `SessionStart` hook (`scripts/claude_session_start_hook.py`, keyed on
@@ -61,7 +62,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | How the brain panel launches Claude or Codex (`claude_cmd`, `codex_cmd`, `--codex` / `-cx`), or the file-open / Finder path | `docs/integrations.md` (launch builder in `src/session.rs`, agent launch commands in `src/env/`, openers in `src/open_target.rs`) |
 | The SessionStart hook, state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/claude_session_start_hook.py`, `scripts/install_hook.sh`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
-| Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, the `sync` block's fields, or **root resolution** (`root` is a brain-env key in `~/.config/brain/env.json`; the legacy `~/.config/brain-root` pointer is read-only back-compat, auto-migrated into `env.json` on first run — root is *not* a `brain config` var) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; root resolution in `src/paths.rs`; the `sync` block schema in `src/sync/config.rs`) |
+| Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, the `sync` block's fields, or **root resolution** (`root` is structural workspace-registry data in `~/.config/brain/env.json`, never writable free-form env; the legacy `~/.config/brain-root` pointer is read-only migration input) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; legacy compatibility in `src/paths.rs`; selected roots in `src/workspace/`; the `sync` block schema in `src/sync/config.rs`) |
 | `brain sync` itself (the `sync`/`--push`/`--pull`/`setup`/`repair`/`status`/`conflicts` surface), the rclone bisync transport, keep-both conflict naming, the `--max-delete` guard, or the sync journal | `docs/features.md` + `docs/integrations.md` + `docs/architecture.md` + `docs/data-model.md` (pipeline in `src/sync/`: `config`, `remote`, `args`, `run`, `conflicts`, `verify`, `journal`, `setup`, `command`; dispatched before the gate in `src/main.rs`) |
 | The `tasks.csv`/`habits.csv` id-keyed semantic merge (excluding them from bisync, the baseline cache, the merge rules, or the journal's `csv:` note) | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (pure merge in `src/sync/csv_merge.rs`; baseline + rclone `copyto` transport + orchestration in `src/sync/csv_sync.rs`; wired into `src/sync/command.rs::sync_once`; excludes in `src/sync/args.rs`) |
 | The auto-sync triggers (startup pull, change-triggered push, receiver freshness pull, the `notify` watcher + debounce, the sync lock) | `docs/features.md` + `docs/architecture.md` + `docs/integrations.md` + `docs/decisions.md` (modules `src/sync/{freshness,lock,trigger,watch}.rs`; `debounce_ms` in `src/sync/config.rs`; `format_triggers` in `src/sync/command/mod.rs`; seams in `src/tui/{app_sync,event_loop/setup}.rs`) |

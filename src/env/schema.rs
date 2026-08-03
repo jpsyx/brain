@@ -1,5 +1,6 @@
-//! Declared brain-env variables: what `brain env list` prints, what
-//! `brain env set` accepts, and their defaults.
+//! Declared brain-env rows: what `brain env list` prints and their defaults.
+//! The virtual `root` row is structural and read-only; all other rows are
+//! writable machine env unless a caller applies tighter validation.
 
 pub(super) struct VarSpec {
     pub(super) name: &'static str,
@@ -18,8 +19,8 @@ pub(super) const DEFAULT_CLAUDE_CMD: &str = "claude --dangerously-skip-permissio
 pub(super) const VARS: [VarSpec; 11] = [
     VarSpec {
         name: "root",
-        description: "Absolute or ~-relative path to the brain (PARA) directory on THIS machine. Defaults to ~/brain; a legacy ~/.config/brain-root pointer is migrated into this key.",
-        default: Some("~/brain"),
+        description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",
+        default: None,
     },
     VarSpec {
         name: "markdown_to_pdf_path",
@@ -74,16 +75,35 @@ pub(super) const VARS: [VarSpec; 11] = [
 ];
 
 pub(super) fn is_known(name: &str) -> bool {
-    VARS.iter().any(|v| v.name == name)
+    VARS.iter().any(|v| v.name == name) && !is_structural(name)
+}
+
+pub(super) fn is_structural(name: &str) -> bool {
+    matches!(
+        name.split('.').next().unwrap_or_default(),
+        "root"
+            | "workspace_id"
+            | "workspace_name"
+            | "canonical_name"
+            | "aliases"
+            | "local_user_id"
+            | "receiver_enabled"
+            | "access_mode"
+            | "access_policy"
+            | "schema_version"
+            | "default_workspace"
+            | "workspaces"
+            | "env"
+            | "receiver_ingress_id"
+            | "minimum_brain_version"
+    )
 }
 
 #[must_use]
 pub fn is_sensitive(name: &str) -> bool {
     matches!(
         name,
-        "twilio_auth_token"
-            | "resend_api_key"
-            | "resend_webhook_signing_secret"
+        "twilio_auth_token" | "resend_api_key" | "resend_webhook_signing_secret"
     )
 }
 
@@ -92,5 +112,9 @@ pub(super) fn default_of(name: &str) -> Option<&'static str> {
 }
 
 pub(super) fn known_names() -> String {
-    VARS.iter().map(|v| v.name).collect::<Vec<_>>().join(", ")
+    VARS.iter()
+        .map(|v| v.name)
+        .filter(|name| !is_structural(name))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

@@ -1,8 +1,9 @@
 # Data model
 
-Most of `brain`'s "model" is the in-memory representation of `~/brain`'s
-directory tree plus the picker's match state. The **persistent shell** adds
-a small SQLite store (sessions + layout) — see "Persistent state" below.
+Most of `brain`'s "model" is the in-memory representation of the selected
+workspace's directory tree plus the picker's match state. The **persistent
+shell** adds a UUID-scoped SQLite store (sessions + layout), described under
+"Persistent state" below.
 
 ## `Bucket` (`entry.rs`)
 
@@ -21,7 +22,7 @@ still searchable but stays out of the way of live work.
 ```rust
 struct Entry {
     path: PathBuf,   // absolute path on disk; handed to `open` / the editor / trash
-    display: String, // `~/brain/...` form, for the UI and fuzzy matching
+    display: String, // `~/<selected-root-name>/...` form when root is below HOME
     bucket: Bucket,  // which section it renders under
 }
 ```
@@ -33,9 +34,9 @@ pair with `walkdir`:
   (`.git`, `.DS_Store`, dotfiles). This mirrors the old `fd .` default.
 - **The root itself is skipped** (`depth() == 0`); only its contents are
   pickable.
-- **`display` rewrites `$HOME/brain/...` → `~/brain/...`** via
-  `display_path`, which strips the `brain.parent()` prefix. Paths outside
-  that prefix fall back to their absolute form.
+- **`display` rewrites a selected root below `$HOME` to
+  `~/<selected-root-name>/...`** via `display_path`, which strips the selected
+  root's parent prefix. Paths outside that prefix fall back to absolute form.
 - **Missing roots are silently skipped**, so a brain without an `areas/`
   dir doesn't error.
 
@@ -207,8 +208,8 @@ and replace the live value but do not persist. `RegistryStore::update` reloads
 inside the interprocess transaction, advances the file first, and replaces the
 caller's live value only after the atomic save succeeds. IO failures retain the
 failed operation, relevant destination or temporary paths, error kind, and
-message. Startup migration and the default-record env compatibility writer use
-this same transaction owner.
+message. Startup migration and selected-record env writes use this same
+transaction owner.
 
 ### Workspace CLI decisions (`workspace/command/`)
 
@@ -219,7 +220,8 @@ real/test normalization extracts `--brain value`, `-b value`, or
 `--brain=value` from any pre-`--` position and keeps the exact raw value.
 Selector-looking tokens after `--` remain delegated values. Bootstrap applies
 this selection once for every ordinary command and returns one immutable
-`CommandContext`. Full store-signature threading remains Task 6.
+`CommandContext`. Every ordinary store and runtime path receives that context
+or an explicit path derived from it; no handler reselects the default.
 
 Collected management values first become a pure `Mutation` enum. `Create` and
 `Attach` carry a validated canonical name plus an absolute, tilde-expanded,
@@ -298,7 +300,7 @@ to the first free adjacent `env.json.legacy-backup[.N]` before atomic registry
 replacement. A valid v2 input is never rewritten or backed up, making reruns
 UUID-stable and byte-stable.
 
-## Persistent state (`state.rs`, `~/.cache/brain/state.db`)
+## Persistent state (`state.rs`, `<workspace-cache>/state.db`)
 
 The persistent shell tracks Claude sessions and the layout preference in
 SQLite (WAL). Codex panels currently launch fresh because their launch semantics
@@ -396,11 +398,10 @@ value — the app never requires personalization.
 `TagStyle` (`personalization/tags.rs`) is `{ emoji: String, label: String }`,
 rendered as `"{emoji} {label}"`. Resolution (`TagStyles`) layers the user's
 overrides over the generic defaults (`mit` → `❗ MIT`, `personal` → `✌ personal`,
-`work` → `💼 work`); an unknown tag falls back to its raw name. The renderer
-reads a process-cached copy (`personalization::runtime`, loaded once at startup)
-so tag labels resolve without threading state through every render signature;
-unit tests see the generic defaults (the cache is uninitialized), keeping them
-hermetic.
+`work` → `💼 work`); an unknown tag falls back to its raw name. The TUI
+loads the selected workspace's styles explicitly and retains them in its
+`App`; there is no process-global personalization cache that another workspace
+can inherit.
 
 The `brain personalize show` block is the **skill-lookup contract**: a stable,
 keyed `name:`/`role:`/`works_for:`/`namespaces:` text block that
@@ -422,16 +423,15 @@ namespaces|tags` re-runs it seeded with the current set.
 Machine-local config is siloed under each workspace record, deliberately
 **outside** every brain root so it never rides whatever syncs the brain
 directory. Workspace management resolves explicit selection directly against
-the registry. Existing env/runtime callers still read and atomically update the
-default record through a compatibility view until runtime context threading
-lands.
+the registry. Env callers receive the selected `CommandContext`; writes reload
+under the registry transaction and require both canonical name and immutable
+UUID before replacing that record's free-form `env` object.
 See [config.md](config.md) for migration and storage details.
 
 `env::schema::VARS` (`src/env/schema.rs`):
 
 | Variable | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `root` | `String` | `~/brain` | The selected record's absolute lexical brain root. During legacy migration its source precedence is flat root → read-only pointer → `<home>/brain`; commands that need the directory use `paths::brain_root()`, which creates it on demand, while `env::vars::resolve_one("root")` and `paths::brain_root_path()` remain side-effect-free. |
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
 | `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Read by `env::claude_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
 | `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Read by `env::codex_command`; blank falls back to `codex`. |
@@ -442,6 +442,11 @@ uses (re-exported from `settings::schema::Resolved`), so `brain env list`
 shares its table layout with `brain config list`. Nested paths use dot
 notation, for example `sync.remote.key_id`; array elements use numeric path
 segments.
+
+The workspace root is not an env variable. It is a validated structural field
+on `WorkspaceRecord`; free-form env writes reject `root` and other structural
+names. Legacy flat `root` and the old pointer are consumed only while building
+the first schema-v2 record.
 
 The `sync` field is not in `VARS`, but its nested values are still listable and
 addressable with dotted `brain env get` and `brain env set` paths. The sync
@@ -463,7 +468,7 @@ exist (`brain sync` prints "sync is not configured — run `brain sync setup`" a
 does nothing, with no watcher thread or startup sync).
 
 **Machine-local runtime state** (never synced) lives beside the journal under
-`~/.cache/brain/sync/`:
+`<workspace-cache>/sync/`:
 
 - `current.json` — the [`current::CurrentState`] record of the sync in progress
   right now: `{ pid: u32, direction: String, started_at: String }`. Written
@@ -511,16 +516,16 @@ Two derived predicates:
 The sync transport executable is not part of this data model. `brain sync`
 checks for external `rclone` before invoking the configured remote.
 
-`SyncConfig::load()` reads the `sync` key out of the brain-env store
-(`env::load_map()`) and deserializes it, falling back to `SyncConfig::default()`
+`SyncConfig::load(command)` reads the `sync` key out of the selected workspace
+record and deserializes it, falling back to `SyncConfig::default()`
 on a missing key or a parse failure — a broken or absent `sync` block never
 blocks startup.
 
-## Sync journal (`src/sync/journal.rs`, `~/.cache/brain/sync/journal.db`)
+## Sync journal (`src/sync/journal.rs`, `<workspace-cache>/sync/journal.db`)
 
 Every `brain sync` run (including `setup`'s initial baseline) is recorded into
-a SQLite journal, machine-local and **never synced** (it lives under
-`~/.cache`, like `state.db`, not inside the brain root). WAL mode, like the
+a SQLite journal, machine-local and **never synced** (it lives under the
+selected UUID cache, not inside the brain root). WAL mode, like the
 state DB. One table:
 
 ```sql
@@ -566,11 +571,12 @@ resync (see [integrations.md](integrations.md) and
 [decisions.md](decisions.md) for why this one abort kind is safe to
 auto-retry while others are not).
 
-## Sync lock (`src/sync/lock.rs`, `~/.cache/brain/sync/sync.lock`)
+## Sync lock (`src/sync/lock.rs`, `<workspace-cache>/sync/sync.lock`)
 
-The C4 machine-wide advisory sync lock is a single file at
-`~/.cache/brain/sync/sync.lock` (beside the sync journal, machine-local cache,
-never synced). Its "record" is intentionally minimal: **the file's contents are
+The advisory lock is one file per workspace UUID (beside that workspace's sync
+journal, machine-local and never synced). Different workspaces may sync
+concurrently; the same workspace still serializes every trigger. Its "record"
+is intentionally minimal: **the file's contents are
 the bare owning PID** (the decimal `std::process::id()`, no JSON, no timestamp).
 The timestamp is the file's mtime: `Guard` refreshes it from a heartbeat thread
 while the sync is running. It is created atomically with `create_new` (O_EXCL),
@@ -748,10 +754,10 @@ both properties are asserted directly in `csv_merge`'s test suite
 (`convergence_swapping_ours_and_theirs_is_byte_identical`,
 `idempotency_merging_a_merged_table_with_itself_is_a_no_op`).
 
-**Baseline.** `csv_sync::baseline_path(name)` resolves to
-`~/.cache/brain/sync/baselines/{tasks.csv,habits.csv}` — a machine-local
+**Baseline.** `csv_sync::baseline_path(paths, name)` resolves to
+`<workspace-cache>/sync/baselines/{tasks.csv,habits.csv}` — a machine-local
 cache of the last-synced (post-merge) content for that file, never synced
-itself, alongside the sync journal under `~/.cache/brain/sync/`. `sync_one`
+itself, alongside the selected workspace's sync journal. `sync_one`
 reads it as `base` (empty if absent, so the very first CSV sync on a machine
 merges as a safe union of local + remote); after merging, it writes the
 result to the local file and the remote (via `rclone copyto`), then

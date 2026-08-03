@@ -111,8 +111,8 @@ impl App<'_> {
 
         let token = uuid::Uuid::new_v4().to_string();
         let llm_cmd = match self.agent_kind {
-            AgentKind::Claude => crate::env::claude_command(),
-            AgentKind::Codex => crate::env::codex_command(),
+            AgentKind::Claude => crate::env::claude_command(&self.command_context),
+            AgentKind::Codex => crate::env::codex_command(&self.command_context),
         };
         // A fresh, throwaway session id: never claimed, never registered in the
         // DB, so the SessionStart hook (which keys off the absent
@@ -125,7 +125,7 @@ impl App<'_> {
             &plan,
             Some("/triage"),
         );
-        let env = session::env_for_triage(&done_url, &token);
+        let env = session::env_for_triage(&self.command_context.workspace, &done_url, &token);
         match PtyPane::spawn_shell_command_with_env(&command, &env, &self.brain_root, 24, 80) {
             Ok(panel) => {
                 self.triage_brain = Some(panel);
@@ -206,10 +206,7 @@ mod tests {
 
     #[test]
     fn triage_is_shown_only_when_a_triage_session_exists() {
-        assert_eq!(
-            resolve_active_tab(BrainTab::Triage, true),
-            BrainTab::Triage
-        );
+        assert_eq!(resolve_active_tab(BrainTab::Triage, true), BrainTab::Triage);
         assert_eq!(resolve_active_tab(BrainTab::Triage, false), BrainTab::Main);
     }
 

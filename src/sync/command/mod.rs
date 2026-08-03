@@ -51,6 +51,7 @@ pub fn hostname() -> String {
 /// call is testable and to keep clock reads out of pure code). Returns the
 /// verified outcome.
 pub fn sync_once(
+    paths: &crate::workspace::WorkspacePaths,
     cfg: &SyncConfig,
     root: &Path,
     dir: Direction,
@@ -62,7 +63,7 @@ pub fn sync_once(
     let (started_at, finished_at, date) = now;
     let remote = build_remote(cfg);
     let local = root.to_string_lossy().into_owned();
-    let workdir = crate::sync::run::bisync_workdir();
+    let workdir = crate::sync::run::bisync_workdir(paths);
     let _ = std::fs::create_dir_all(&workdir);
     let workdir_arg = workdir.to_string_lossy().into_owned();
     let argv = if dir == Direction::Push {
@@ -74,8 +75,12 @@ pub fn sync_once(
     // The single output sink for this run: everything below is mirrored to
     // `current.log` (so a following `brain sync` and `brain sync status` can
     // observe a detached background sync) and echoed to this process's stderr.
-    let reporter =
-        crate::sync::current::Reporter::begin(direction_label(dir), started_at, std::process::id());
+    let reporter = crate::sync::current::Reporter::begin(
+        paths,
+        direction_label(dir),
+        started_at,
+        std::process::id(),
+    );
     crate::logging::log(format!(
         "sync_once direction={} root={} remote={}",
         direction_label(dir),
@@ -99,7 +104,7 @@ pub fn sync_once(
         crate::sync::check_access::ensure_markers(root, &remote)?;
     }
 
-    // We hold brain's machine-wide sync lock here, so any rclone bisync lock
+    // We hold this workspace UUID's sync lock here, so any rclone bisync lock
     // file in the workdir is from a dead, interrupted run — reap it so an
     // earlier crash (TUI quit, power off) never wedges this run.
     crate::sync::run::reap_stale_bisync_locks(&workdir);
@@ -166,7 +171,7 @@ pub fn sync_once(
     } else {
         crate::logging::log("sync csv merge start");
         reporter.line(&theme.info("Merging task and habit CSVs by row id…"));
-        let note = format_csv_note(&crate::sync::csv_sync::sync_csvs(cfg, root, dir));
+        let note = format_csv_note(&crate::sync::csv_sync::sync_csvs(paths, cfg, root, dir));
         crate::logging::log(format!("sync csv merge note={note:?}"));
         // Reconcile the monotonic id counters by max, so neither machine ever
         // reuses an id the other already handed out. Best-effort, like the CSVs.
@@ -176,11 +181,8 @@ pub fn sync_once(
         note
     };
 
-    let journal = Journal::open(&Journal::default_path())?;
-    crate::logging::log(format!(
-        "sync journal {}",
-        Journal::default_path().display()
-    ));
+    let journal = Journal::open(&paths.sync_journal())?;
+    crate::logging::log(format!("sync journal {}", paths.sync_journal().display()));
     journal.record(&SyncRun {
         started_at: started_at.to_owned(),
         finished_at: finished_at.to_owned(),
@@ -434,7 +436,11 @@ pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
 }
 
 /// Print `brain sync status`.
-pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
+pub fn print_status(
+    paths: &crate::workspace::WorkspacePaths,
+    cfg: &SyncConfig,
+    root: &Path,
+) -> Result<()> {
     let theme = Theme::active();
     if !cfg.is_configured() {
         crate::logging::log("sync status unconfigured");
@@ -446,19 +452,19 @@ pub fn print_status(cfg: &SyncConfig, root: &Path) -> Result<()> {
     }
     crate::logging::log(format!(
         "sync status journal={} root={}",
-        Journal::default_path().display(),
+        paths.sync_journal().display(),
         root.display()
     ));
     // Surface a sync happening right now (in a detached background process or
     // another shell) above the last completed run, so status always answers
     // "is anything syncing?" first.
-    if let Some(state) = crate::sync::current::read_state() {
+    if let Some(state) = crate::sync::current::read_state(paths) {
         if crate::server::lifecycle::pid_alive(state.pid) {
             crate::logging::log("sync status in-progress");
             println!("{}", format_in_progress(&state, theme));
         }
     }
-    let journal = Journal::open(&Journal::default_path())?;
+    let journal = Journal::open(&paths.sync_journal())?;
     let recent = journal.recent(1)?;
     println!("{}", format_last_run(recent.first(), theme));
     println!("{}", format_triggers(cfg, theme));
@@ -982,7 +988,12 @@ mod tests {
     #[test]
     fn sync_once_refuses_when_unconfigured() {
         let cfg: SyncConfig = serde_json::from_str("{}").unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(
+            Path::new("/home/tester"),
+            crate::workspace::WorkspaceId::new(),
+        );
         let err = sync_once(
+            &paths,
             &cfg,
             Path::new("/tmp"),
             Direction::Both,

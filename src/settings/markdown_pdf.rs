@@ -69,7 +69,11 @@ fn shell_resolved_candidates() -> Vec<PathBuf> {
 #[must_use]
 pub fn discover_markdown_to_pdf() -> Option<PathBuf> {
     let on_path = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).map(|d| d.join("markdown-to-pdf")).collect::<Vec<_>>())
+        .map(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join("markdown-to-pdf"))
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
 
     on_path
@@ -84,8 +88,8 @@ pub fn discover_markdown_to_pdf() -> Option<PathBuf> {
 /// Assumes [`ensure_markdown_to_pdf`] already ran at startup, but re-validates
 /// so a config edited mid-session still errors cleanly rather than spawning a
 /// bogus path.
-pub fn markdown_to_pdf_command() -> Result<PathBuf> {
-    match crate::env::get("markdown_to_pdf_path") {
+pub fn markdown_to_pdf_command(command: &crate::workspace::CommandContext) -> Result<PathBuf> {
+    match crate::env::get(command, "markdown_to_pdf_path") {
         Some(p) if is_executable_file(Path::new(&p)) => Ok(PathBuf::from(p)),
         _ => Err(anyhow!(
             "markdown-to-pdf is not configured; run `brain env set markdown_to_pdf_path=<path>`"
@@ -108,7 +112,9 @@ fn missing_markdown_to_pdf_message(configured: Option<&str>, color: bool) -> Str
                 .to_owned()
         },
         |p| {
-            format!("The configured `markdown_to_pdf_path` is missing or not executable:\n\n    {p}\n")
+            format!(
+                "The configured `markdown_to_pdf_path` is missing or not executable:\n\n    {p}\n"
+            )
         },
     );
     format!(
@@ -136,7 +142,11 @@ enum GateAction {
 /// stored path that is invalid on *this* machine — e.g. a config.json synced
 /// from another host) we prefer a freshly discovered path before failing, so a
 /// synced-but-stale `markdown_to_pdf_path` self-heals rather than blocking start.
-fn gate_action(configured: Option<&str>, configured_valid: bool, discovered: Option<PathBuf>) -> GateAction {
+fn gate_action(
+    configured: Option<&str>,
+    configured_valid: bool,
+    discovered: Option<PathBuf>,
+) -> GateAction {
     if configured_valid {
         return GateAction::Pass;
     }
@@ -152,14 +162,24 @@ fn gate_action(configured: Option<&str>, configured_valid: bool, discovered: Opt
 /// discovered path (non-fatal on save error, since the tool is usable now) or
 /// print the red message and exit non-zero. Exits directly (not via `anyhow`)
 /// so the message prints verbatim without an `Error:` prefix.
-pub fn ensure_markdown_to_pdf() {
-    let configured = crate::env::get("markdown_to_pdf_path");
-    let valid = configured.as_deref().is_some_and(|p| is_executable_file(Path::new(p)));
-    let discovered = if valid { None } else { discover_markdown_to_pdf() };
+pub fn ensure_markdown_to_pdf(command: &crate::workspace::CommandContext) {
+    let configured = crate::env::get(command, "markdown_to_pdf_path");
+    let valid = configured
+        .as_deref()
+        .is_some_and(|p| is_executable_file(Path::new(p)));
+    let discovered = if valid {
+        None
+    } else {
+        discover_markdown_to_pdf()
+    };
     match gate_action(configured.as_deref(), valid, discovered) {
         GateAction::Pass => {}
         GateAction::Persist(found) => {
-            let _ = crate::env::set("markdown_to_pdf_path", &found.display().to_string());
+            let _ = crate::env::set(
+                command,
+                "markdown_to_pdf_path",
+                &found.display().to_string(),
+            );
         }
         GateAction::Fail(configured) => fail_missing(configured.as_deref()),
     }
@@ -241,12 +261,18 @@ mod tests {
     #[test]
     fn gate_persists_a_discovered_path_when_unset() {
         let found = PathBuf::from("/usr/local/bin/markdown-to-pdf");
-        assert_eq!(gate_action(None, false, Some(found.clone())), GateAction::Persist(found));
+        assert_eq!(
+            gate_action(None, false, Some(found.clone())),
+            GateAction::Persist(found)
+        );
     }
 
     #[test]
     fn gate_fails_when_invalid_and_nothing_discovered() {
-        assert_eq!(gate_action(Some("/bad/mtp"), false, None), GateAction::Fail(Some("/bad/mtp".to_owned())));
+        assert_eq!(
+            gate_action(Some("/bad/mtp"), false, None),
+            GateAction::Fail(Some("/bad/mtp".to_owned()))
+        );
         assert_eq!(gate_action(None, false, None), GateAction::Fail(None));
     }
 }

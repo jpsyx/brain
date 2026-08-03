@@ -12,13 +12,13 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = "tasks",
     version,
-    about = "Browse your brain tasks CSV in a beautiful, scrollable shell.",
-    long_about = "Browse your brain tasks CSV in a beautiful, scrollable shell.\n\
+    about = "Browse the selected workspace's tasks in a beautiful, scrollable shell.",
+    long_about = "Browse the selected workspace's tasks in a beautiful, scrollable shell.\n\
                   \n\
                   By default, shows today's agenda: tasks due today plus everything past-due.\n\
                   Pass a view token to start in a specific view: 'today', 'mit', 'past_due',\n\
-                  'week', 'habits', or 'all'. 'habits' lists today's habits from\n\
-                  ~/brain/tasks/habits.csv (filtered by recurrence interval). In the shell,\n\
+                  'week', 'habits', or 'all'. 'habits' lists today's habits from the\n\
+                  selected workspace (filtered by recurrence interval). In the shell,\n\
                   press Tab to cycle forward through these modes and Shift+Tab to cycle\n\
                   backward (today → mit → past_due → week → habits → all → today).\n\
                   You can also pass a date (YYYY-MM-DD), 'tomorrow', 'yesterday', or a weekday\n\
@@ -51,7 +51,7 @@ pub struct Cli {
     #[command(flatten)]
     pub display: DisplayOpts,
 
-    /// Path to the tasks CSV (default: ~/brain/tasks/tasks.csv,
+    /// Path to the tasks CSV (default: the selected workspace's tasks/tasks.csv,
     /// or the value of $BRAIN_TASKS_CSV).
     #[arg(long, env = "BRAIN_TASKS_CSV", value_name = "PATH")]
     pub csv: Option<PathBuf>,
@@ -175,4 +175,18 @@ pub struct DisplayOpts {
     /// Show the long notes field in full (default: truncate to ~120 chars).
     #[arg(long, global = true)]
     pub full_notes: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn help_describes_tasks_under_the_selected_workspace() {
+        let help = Cli::command().render_long_help().to_string();
+
+        assert!(help.contains("selected workspace"), "{help}");
+        assert!(!help.contains("~/brain/tasks"), "{help}");
+    }
 }

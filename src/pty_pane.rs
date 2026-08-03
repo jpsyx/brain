@@ -49,8 +49,9 @@ impl PtyPane {
     /// Spawn `shell -ic <command>` so that aliases / shell functions defined
     /// in the user's interactive rc resolve the same way they do at the
     /// prompt. Extra `env` vars are injected into the child; brain uses them
-    /// to propagate `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` down
-    /// into claude so the SessionStart hook can attribute the session.
+    /// to propagate the selected workspace/actor identity plus
+    /// `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` into Claude so the
+    /// SessionStart hook can attribute the session to the selected state DB.
     pub fn spawn_shell_command_with_env(
         command: &str,
         env: &[(String, String)],

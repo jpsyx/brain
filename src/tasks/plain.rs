@@ -6,7 +6,12 @@ use crate::tasks::render::{status_label, truncate, type_label};
 use crate::tasks::task::Task;
 use crate::tasks::view::ViewSpec;
 
-pub fn print_plain(view: &ViewSpec, today: NaiveDate, full_notes: bool) {
+pub fn print_plain(
+    view: &ViewSpec,
+    today: NaiveDate,
+    full_notes: bool,
+    tag_styles: &crate::personalization::tags::TagStyles,
+) {
     println!("== {} ==", view.title);
     if !view.subtitle.is_empty() {
         println!("   {}", view.subtitle);
@@ -18,17 +23,22 @@ pub fn print_plain(view: &ViewSpec, today: NaiveDate, full_notes: bool) {
         return;
     }
     for t in &view.tasks {
-        print_task(t, today, full_notes);
+        print_task(t, today, full_notes, tag_styles);
     }
 }
 
-fn print_task(t: &Task, today: NaiveDate, full_notes: bool) {
+fn print_task(
+    t: &Task,
+    today: NaiveDate,
+    full_notes: bool,
+    tag_styles: &crate::personalization::tags::TagStyles,
+) {
     let due = format_due(t.due_date, today);
     let hard = if t.hard_deadline { " ⚠HARD" } else { "" };
     let types = t
         .types
         .iter()
-        .map(|x| type_label(x))
+        .map(|x| type_label(tag_styles, x))
         .collect::<Vec<_>>()
         .join(" ");
     println!(

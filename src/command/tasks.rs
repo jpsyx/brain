@@ -11,17 +11,20 @@ use crate::tasks::view::View;
 
 pub fn launch(
     mut cli: TasksCli,
-    root: &Path,
+    context: &crate::workspace::CommandContext,
     agent_kind: crate::session::AgentKind,
     with_receiver: bool,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
+    let root = context.workspace.root();
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
-        Some(TasksCommand::Complete(args)) => return crate::tasks::complete::run(&args.id),
+        Some(TasksCommand::Complete(args)) => {
+            return crate::tasks::complete::run(root, &args.id);
+        }
         Some(TasksCommand::Search(args)) => Initial::CustomSearch(args.query.join(" ")),
         Some(TasksCommand::Doctor) => {
-            let db_path = crate::state::Db::default_path();
+            let db_path = context.workspace.paths().state_db();
             let settings_dir = root.join(".claude");
             eprintln!(
                 "{}",
@@ -31,7 +34,11 @@ pub fn launch(
                     crate::theme::Theme::active(),
                 )
             );
-            let diagnostic = crate::tasks::doctor::run_doctor(&db_path, &settings_dir);
+            let diagnostic = crate::tasks::doctor::run_doctor(
+                &db_path,
+                &settings_dir,
+                crate::sync::config::SyncConfig::load(context).is_configured(),
+            );
             std::process::exit(crate::tasks::doctor::print_report(&diagnostic));
         }
         None => resolve_query(&cli.query, today),
@@ -39,7 +46,7 @@ pub fn launch(
     browse(
         initial,
         &mut cli,
-        root,
+        context,
         today,
         agent_kind,
         with_receiver,
@@ -71,13 +78,14 @@ fn resolve_query(tokens: &[String], today: NaiveDate) -> Initial {
 fn browse(
     initial: Initial,
     cli: &mut TasksCli,
-    root: &Path,
+    context: &crate::workspace::CommandContext,
     today: NaiveDate,
     agent_kind: crate::session::AgentKind,
     with_receiver: bool,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
     crate::logging::log("tasks browse");
+    let root = context.workspace.root();
     let csv_path = cli.csv.clone().unwrap_or_else(|| default_csv_path(root));
     crate::logging::log(format!("tasks csv {}", csv_path.display()));
     let all_tasks = crate::tasks::task::load_tasks(&csv_path)?;
@@ -116,11 +124,13 @@ fn browse(
     ));
     if cli.display.no_tui {
         crate::logging::log("render tasks no-tui");
-        crate::tasks::plain::print_plain(&view, today, cli.display.full_notes);
+        let tag_styles = crate::personalization::load_tag_styles(&context.workspace);
+        crate::tasks::plain::print_plain(&view, today, cli.display.full_notes, &tag_styles);
     } else {
         crate::logging::set_stdout_enabled(false);
         crate::logging::log("enter tui");
         crate::tui::run_tui(
+            context,
             &view,
             cli,
             agent_kind,

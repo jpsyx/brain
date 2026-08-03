@@ -40,7 +40,8 @@ pub enum EnvAction {
         name: String,
     },
     /// Set an env variable: `brain env set <name>=<value>`. Nested values use
-    /// dot notation, for example `sync.b2_bucket`.
+    /// dot notation, for example `sync.b2_bucket`. Structural workspace fields
+    /// are read-only and are managed with `brain workspace`.
     Set {
         /// A single `name=value` assignment.
         assignment: Option<String>,
@@ -90,7 +91,7 @@ pub enum SkillsAction {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
 
     use super::EnvAction;
     use crate::cli::{Cli, Cmd};
@@ -100,5 +101,22 @@ mod tests {
         let cli = Cli::try_parse_from(["brain", "env", "set"]).expect("parse");
         assert!(matches!(cli.command, Some(Cmd::Env(args))
             if matches!(args.action, Some(EnvAction::Set { assignment: None }))));
+    }
+
+    #[test]
+    fn env_set_help_says_structural_workspace_fields_are_read_only() {
+        let mut command = Cli::command();
+        let help = command
+            .find_subcommand_mut("env")
+            .expect("env command")
+            .find_subcommand_mut("set")
+            .expect("env set command")
+            .render_long_help()
+            .to_string();
+
+        assert!(
+            help.contains("Structural workspace fields are read-only"),
+            "{help}"
+        );
     }
 }

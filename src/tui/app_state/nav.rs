@@ -42,7 +42,7 @@ impl App<'_> {
         let full = self.full_notes;
         let expanded = &self.expanded_notes;
         let (lines, ranges) =
-            build_body_lines_with_ranges(&visible, self.today, |t| {
+            build_body_lines_with_ranges(&visible, self.today, &self.tag_styles, |t| {
                 full || expanded.contains(&t.id)
             });
         self.body_lines = lines;
@@ -117,7 +117,9 @@ impl App<'_> {
     }
 
     pub(crate) fn select_next(&mut self, n: usize) {
-        let Some(sel) = self.selected_task else { return };
+        let Some(sel) = self.selected_task else {
+            return;
+        };
         let len = self.visible_tasks.len();
         if len == 0 {
             return;
@@ -126,7 +128,9 @@ impl App<'_> {
     }
 
     pub(crate) fn select_prev(&mut self, n: usize) {
-        let Some(sel) = self.selected_task else { return };
+        let Some(sel) = self.selected_task else {
+            return;
+        };
         self.set_selected(sel.saturating_sub(n));
     }
 
@@ -160,8 +164,12 @@ impl App<'_> {
     /// after every selection change and at the top of `draw_tasks` once
     /// `last_inner_height` is known.
     pub(crate) fn ensure_selected_visible(&mut self) {
-        let Some(sel) = self.selected_task else { return };
-        let Some(range) = self.task_line_ranges.get(sel) else { return };
+        let Some(sel) = self.selected_task else {
+            return;
+        };
+        let Some(range) = self.task_line_ranges.get(sel) else {
+            return;
+        };
         let vis = visual_range(&self.visual_row_offsets, range.clone());
         let start = vis.start;
         let end = vis.end;

@@ -1,7 +1,8 @@
 //! The *in-flight* sync's shared state, so a sync that runs in a detached
 //! background process is still observable from any other `brain` invocation.
 //!
-//! Two machine-local files live beside the journal in `~/.cache/brain/sync/`:
+//! Two machine-local files live beside the journal in the selected workspace's
+//! UUID-scoped sync cache:
 //!
 //! - `current.json` — a small [`CurrentState`] record written when a sync
 //!   starts and removed when it ends. Its presence (validated against the
@@ -37,27 +38,6 @@ pub struct CurrentState {
     pub started_at: String,
 }
 
-/// `~/.cache/brain/sync` — beside the journal and lock (machine-local cache).
-#[must_use]
-pub fn dir() -> PathBuf {
-    std::env::var_os("HOME").map_or_else(
-        || PathBuf::from("."),
-        |h| PathBuf::from(h).join(".cache").join("brain").join("sync"),
-    )
-}
-
-/// `~/.cache/brain/sync/current.json`.
-#[must_use]
-pub fn state_path() -> PathBuf {
-    dir().join("current.json")
-}
-
-/// `~/.cache/brain/sync/current.log`.
-#[must_use]
-pub fn log_path() -> PathBuf {
-    dir().join("current.log")
-}
-
 /// Pure staleness decision.
 ///
 /// A sync is "in progress" only when its state record exists *and* the process
@@ -77,15 +57,15 @@ pub fn read_state_at(path: &Path) -> Option<CurrentState> {
 
 /// Read the default state record.
 #[must_use]
-pub fn read_state() -> Option<CurrentState> {
-    read_state_at(&state_path())
+pub fn read_state(paths: &crate::workspace::WorkspacePaths) -> Option<CurrentState> {
+    read_state_at(&paths.sync_current_state())
 }
 
 /// Whether a sync is currently in progress (default paths), validated against
 /// the owning PID's liveness.
 #[must_use]
-pub fn is_running() -> bool {
-    match read_state() {
+pub fn is_running(paths: &crate::workspace::WorkspacePaths) -> bool {
+    match read_state(paths) {
         Some(s) => {
             let alive = crate::server::lifecycle::pid_alive(s.pid);
             running(Some(&s), alive)
@@ -109,8 +89,13 @@ impl Reporter {
     /// the state record. Best-effort — a filesystem failure degrades to a
     /// reporter that still echoes to stderr but records nothing.
     #[must_use]
-    pub fn begin(direction: &str, started_at: &str, pid: u32) -> Self {
-        Self::begin_in(&dir(), direction, started_at, pid)
+    pub fn begin(
+        paths: &crate::workspace::WorkspacePaths,
+        direction: &str,
+        started_at: &str,
+        pid: u32,
+    ) -> Self {
+        Self::begin_in(&paths.sync_dir(), direction, started_at, pid)
     }
 
     #[must_use]
@@ -159,6 +144,14 @@ impl Drop for Reporter {
 mod tests {
     use super::*;
 
+    fn paths() -> crate::workspace::WorkspacePaths {
+        crate::workspace::WorkspacePaths::new(
+            Path::new("/home/tester"),
+            crate::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b")
+                .expect("valid id"),
+        )
+    }
+
     #[test]
     fn running_requires_both_a_record_and_a_live_owner() {
         let s = CurrentState {
@@ -172,9 +165,9 @@ mod tests {
     }
 
     #[test]
-    fn default_paths_are_under_cache_brain_sync() {
-        assert!(state_path().ends_with(".cache/brain/sync/current.json"));
-        assert!(log_path().ends_with(".cache/brain/sync/current.log"));
+    fn selected_paths_are_under_the_workspace_sync_cache() {
+        assert!(paths().sync_current_state().ends_with("sync/current.json"));
+        assert!(paths().sync_current_log().ends_with("sync/current.log"));
     }
 
     #[test]

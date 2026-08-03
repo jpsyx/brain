@@ -12,12 +12,13 @@ pub struct StagedAttachment {
 /// Download every inbound media item into a job-scoped cache directory. A
 /// failed download is returned as data so the agent can report it explicitly.
 #[must_use]
-pub fn stage_attachments(message: &InboundMessage) -> Vec<StagedAttachment> {
+pub fn stage_attachments(
+    workspace: &crate::workspace::WorkspaceContext,
+    command: &crate::workspace::CommandContext,
+    message: &InboundMessage,
+) -> Vec<StagedAttachment> {
     let job = uuid::Uuid::new_v4().to_string();
-    let dir = std::env::var_os("HOME").map_or_else(
-        || PathBuf::from(".cache/brain/inbox").join(&job),
-        |home| PathBuf::from(home).join(".cache/brain/inbox").join(&job),
-    );
+    let dir = workspace.paths().inbox_dir().join(&job);
     let dir_error = std::fs::create_dir_all(&dir)
         .err()
         .map(|error| error.to_string());
@@ -48,8 +49,8 @@ pub fn stage_attachments(message: &InboundMessage) -> Vec<StagedAttachment> {
                 .option("max-filesize", "41943040");
             if message.channel == Channel::Sms
                 && let (Some(account), Some(token)) = (
-                    crate::server::provider::get("TWILIO_ACCOUNT_SID", "twilio_account_sid"),
-                    crate::server::provider::get("TWILIO_AUTH_TOKEN", "twilio_auth_token"),
+                    crate::server::provider::get(command, "twilio_account_sid"),
+                    crate::server::provider::get(command, "twilio_auth_token"),
                 )
             {
                 request = request.option("user", &format!("{account}:{token}"));

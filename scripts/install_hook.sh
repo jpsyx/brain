@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Idempotently install brain's Claude Code hooks into ~/brain/.claude/settings.json.
+# Idempotently install brain's Claude Code hooks into a selected workspace.
 #
-# Deploys the two hook scripts into ~/brain/.claude/brain-hooks/ (so they travel
-# with the synced brain dir) and registers them with HOME-relative (`~/…`)
-# commands, so the synced settings.json resolves on EVERY machine regardless of
-# home dir (/Users/pablo vs /Users/juanpablosarmiento). An absolute path would
-# bake one machine's home into the synced config and break everywhere else.
+# Usage: ./scripts/install_hook.sh [brain-root]
 #
-# This writes exactly the same entries as `brain receiver setup`
-# (install_receiver_hooks in src/main.rs → hook_command), so the two installers
-# are idempotent with each other. Both hooks:
+# Root precedence is the explicit argument, then BRAIN_ROOT, then $HOME/brain.
+# The final branch is a compatibility fallback for old single-workspace repair
+# instructions; multi-workspace callers should always pass the selected root.
+#
+# The scripts live below the selected root so they travel with that workspace.
+# Hook commands are project-relative because Claude runs project hooks with the
+# selected workspace as its working directory. This keeps synced settings
+# portable across machines and across workspace root locations.
+#
+# Both hooks:
 #   - SessionStart: records which Claude session the brain panel drives (resume).
 #   - Stop: captures the final assistant message for authenticated receiver jobs
 #     (no-op unless $BRAIN_RESPONSE_DIR is set).
@@ -23,13 +26,27 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repo_session="${script_dir}/claude_session_start_hook.py"
 repo_stop="${script_dir}/claude_stop_hook.py"
 
-hook_dir="${HOME}/brain/.claude/brain-hooks"
-settings_dir="${HOME}/brain/.claude"
+if [[ $# -gt 1 ]]; then
+  echo "usage: $0 [brain-root]" >&2
+  exit 2
+fi
+
+selected_root="${1:-${BRAIN_ROOT:-}}"
+if [[ -z "$selected_root" ]]; then
+  selected_root="${HOME}/brain"
+fi
+case "$selected_root" in
+  "~") selected_root="$HOME" ;;
+  "~/"*) selected_root="${HOME}/${selected_root#\~/}" ;;
+esac
+
+hook_dir="${selected_root}/.claude/brain-hooks"
+settings_dir="${selected_root}/.claude"
 settings_path="${settings_dir}/settings.json"
 
-# HOME-relative commands — identical to install_receiver_hooks' hook_command output.
-sess_cmd="python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py"
-stop_cmd="python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py"
+# Project-relative commands remain valid when the synced workspace moves.
+sess_cmd="python3 .claude/brain-hooks/claude_session_start_hook.py"
+stop_cmd="python3 .claude/brain-hooks/claude_stop_hook.py"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "install_hook.sh: jq is required (brew install jq)" >&2
@@ -50,7 +67,7 @@ mkdir -p "$settings_dir"
 
 # Strip any prior session/stop hook entries (stale absolute paths, wrong-home
 # paths, legacy rc/ locations — matched by script basename), then install the
-# canonical HOME-relative commands exactly once each.
+# canonical project-relative commands exactly once each.
 tmp="$(mktemp)"
 jq --arg sess "$sess_cmd" --arg stop "$stop_cmd" '
   def strip($base):
@@ -64,5 +81,5 @@ jq --arg sess "$sess_cmd" --arg stop "$stop_cmd" '
 ' "$settings_path" > "$tmp"
 mv "$tmp" "$settings_path"
 
-echo "install_hook.sh: hooks installed (HOME-relative) → $hook_dir"
+echo "install_hook.sh: hooks installed (project-relative) → $hook_dir"
 echo "settings: $settings_path"

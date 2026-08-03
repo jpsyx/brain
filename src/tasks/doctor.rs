@@ -3,7 +3,7 @@
 //!
 //! Reports on:
 //! - State DB file presence + a smoke schema query.
-//! - `~/brain/.claude/settings.json` has a SessionStart-hook entry pointing
+//! - `<selected-root>/.claude/settings.json` has a SessionStart-hook entry pointing
 //!   at our `claude_session_start_hook.py`.
 //!
 //! Failure here means the SessionStart hook never records the brain panel's
@@ -39,10 +39,10 @@ impl Diagnosis {
 }
 
 /// Run all checks. Pure function over paths so tests can point it at
-/// a temp dir; the binary entry point uses `Db::default_path` and
-/// `~/brain/.claude` as the production locations.
+/// a temp dir; the binary entry point passes the selected workspace's
+/// UUID-scoped state DB and `.claude` directory.
 #[must_use]
-pub fn run_doctor(db_path: &Path, settings_dir: &Path) -> Diagnosis {
+pub fn run_doctor(db_path: &Path, settings_dir: &Path, sync_configured: bool) -> Diagnosis {
     crate::logging::log(format!(
         "doctor start db={} settings_dir={}",
         db_path.display(),
@@ -76,7 +76,7 @@ pub fn run_doctor(db_path: &Path, settings_dir: &Path) -> Diagnosis {
     diag.rclone_version = detect_rclone_version();
     crate::logging::log(format!("doctor rclone version={:?}", diag.rclone_version));
     crate::logging::log("doctor load sync config");
-    diag.sync_configured = crate::sync::config::SyncConfig::load().is_configured();
+    diag.sync_configured = sync_configured;
     crate::logging::log(format!("doctor sync configured={}", diag.sync_configured));
     diag
 }

@@ -1,10 +1,10 @@
 # brain
 
 **`brain` is the central terminal dispatch for the user's second brain and
-task system.** It's the one command to reach everything you do from the
-terminal around `~/brain`: manage tasks, fuzzy-pick a note across the PARA
-buckets, or think alongside an agent session rooted in the brain. Bare
-`brain` opens a persistent shell with all of it.
+task system.** It's the one command to reach everything in the selected
+workspace: manage tasks, fuzzy-pick a note across the PARA buckets, or think
+alongside an agent session rooted in that workspace. Bare `brain` opens the
+default workspace in a persistent shell with all of it.
 
 Anything brain-related or task-related — notes, projects, areas,
 resources, tasks, habits, agenda, triage — goes through `brain`.
@@ -71,6 +71,8 @@ brain tasks today --no-tui        # print today's tasks, no TUI
 brain tasks complete t123         # mark a task complete
 brain tasks doctor                # health check
 brain config          # read/change persistent config
+brain sync -b family  # run a command in another registered workspace
+brain workspace list  # show registered workspaces, aliases, and the default
 ```
 
 Inside the shell: `Ctrl-L`/`Ctrl-H` cycle main views, `Ctrl-T`/`Ctrl-B`
@@ -109,12 +111,21 @@ work and how to make them yours without forking the repo.
 - The `claude` CLI for the default brain panel, or the `codex` CLI if you run
   `brain --codex` / `brain -cx`.
 
-**Point brain at your brain**
+**Register a workspace**
 
 Your "brain" is a [PARA](https://fortelabs.com/blog/para/) directory —
-`projects/`, `areas/`, `resources/`, `archive/`, plus `tasks/`. By default brain
-uses `~/brain`. To keep it elsewhere, run `brain env set root=/path/to/your/brain`
-(see [Where brain keeps things](#2-where-brain-keeps-things)).
+`projects/`, `areas/`, `resources/`, `archive/`, plus `tasks/`. The first
+workspace becomes the default. Create a new root, or attach an existing synced
+root:
+
+```sh
+brain workspace create --name brain --root ~/brain
+brain workspace attach ~/family
+```
+
+Run any workspace-scoped command with `--brain <name-or-alias>` or `-b`; omit
+the selector to use the default. `brain workspace default <name>` changes only
+which workspace an omitted selector chooses. It does not change access mode.
 
 **First run**
 
@@ -126,10 +137,10 @@ your name, role, and who you work for, then installs the bundled skills. That's 
 
 brain splits what it persists into **two stores**, by lifecycle:
 
-- **brain config** — a dir inside your brain root, `<brain-root>/.config/`
+- **brain config** — a dir inside each workspace root, `<brain-root>/.config/`
   (e.g. `~/brain/.config/`). Holds everything that's *right* on every machine.
-  Because it lives **inside your brain**, it travels with it: whatever syncs
-  your `~/brain` across machines syncs these too. Nothing external (no
+  Because it lives **inside that workspace**, it travels with it: whatever
+  syncs the workspace root across machines syncs these too. Nothing external (no
   dotfiles tool) is involved.
 
   | Path | What it is |
@@ -139,17 +150,16 @@ brain splits what it persists into **two stores**, by lifecycle:
   | `extensions/<skill>.md` | your tweaks to a bundled skill ([hooks](#6-extend-a-skill-with-hooks)) |
   | `plugins/<name>/` | your own whole skills ([plugins](#7-add-a-whole-skill-plugins)) |
 
-- **brain env** — a fixed, machine-local path, `~/.config/brain/env.json`
-  (managed by `brain env`, mirroring `brain config`). Holds everything that
-  would be *wrong* if copied to another machine: your brain's location on
-  *this* machine, a machine-specific binary path, and (parse-only for now) B2
-  sync credentials, and the local agent launch commands. It lives **outside**
-  your brain root on purpose, so it
-  never syncs along with it.
+- **brain env and workspace registry** — one fixed, machine-local file,
+  `~/.config/brain/env.json`. Schema v2 stores the default workspace and a
+  record keyed by each canonical workspace name. Each record contains its root,
+  aliases, stable workspace ID, local user ID, receiver state, and fully siloed
+  machine-local env values. The file lives **outside** every workspace root, so
+  it never syncs with workspace content.
 
-  | Variable | What it is |
+  | Field | What it is |
   | --- | --- |
-  | `root` | where your brain (PARA directory) lives on this machine |
+  | `root` | registry-owned path for this workspace; visible through `brain env get root`, but read-only there |
   | `markdown_to_pdf_path` | path to the `markdown-to-pdf` binary on this machine |
   | `claude_cmd` | command used to launch Claude on this machine |
   | `codex_cmd` | command used to launch Codex on this machine |
@@ -158,17 +168,21 @@ brain splits what it persists into **two stores**, by lifecycle:
   The rule of thumb: **wrong if synced → brain env; right everywhere → brain
   config.**
 
-**Setting your brain's location — `root`.** By default your brain is `~/brain`.
-To point brain elsewhere, set the `root` env variable:
+**Workspace roots and selectors.** Roots are structural registry fields, not
+writable env variables. Use workspace commands to register roots and manage
+names, aliases, or the default:
 
 ```sh
-brain env set root=~/notes/brain   # keep your brain somewhere else
+brain workspace create --name family --root ~/family
+brain workspace alias add family fam
+brain workspace default family
+brain sync -b fam
 ```
 
 A legacy `~/.config/brain-root` one-line pointer file is still read for
-back-compat (and is automatically, idempotently folded into `env.json`'s
-`root` key the first time you run brain), but `brain env set root=…` is the
-supported way to change it going forward.
+back-compat and is automatically, idempotently folded into the first schema-v2
+workspace during migration. After migration, `brain workspace create` and
+`brain workspace attach` are the supported ways to register roots.
 
 ## 3. Configuration
 
@@ -190,25 +204,27 @@ brain env set claude_cmd='claude --dangerously-skip-permissions'
 | `calendar_id` | *(empty)* | Calendar to pull busy blocks from when building the agenda. Empty = no calendar. |
 | `skills_auto_sync` | `true` | When true, every `config`/`personalize` change re-renders + reinstalls your skills. Set false to sync only via `brain skills sync`. |
 
-Names normalize (`-`→`_`, lower-cased), so `Linear-Workspace` works. `root` and
-agent launch commands are **not** here — they're brain-env values (see below).
+Names normalize (`-`→`_`, lower-cased), so `Linear-Workspace` works. Workspace
+roots are registry-owned; agent launch commands are machine-local env values.
 
 ### `brain env`: machine-local values
 
-`brain env` mirrors `brain config` exactly, but over the machine-local store
-(`~/.config/brain/env.json`) instead:
+`brain env` operates on the selected workspace's machine-local env map inside
+`~/.config/brain/env.json`. The selected root is shown as a read-only virtual
+value; structural registry fields cannot be changed through `brain env set`:
 
 ```sh
 brain env list                 # every env variable, value, description
-brain env get root             # your brain's location on this machine
+brain env get root             # selected workspace root (read-only)
 brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf
 brain env set claude_cmd='claude --dangerously-skip-permissions'
 brain env set codex_cmd='codex --model gpt-5'
+brain env get root -b family
 ```
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `root` | `~/brain` | Where your brain (PARA directory) lives on this machine. |
+| `root` | selected workspace root | Registry-owned and read-only through `brain env`. |
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on this machine. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command the Claude brain panel launches on this machine. |
 | `codex_cmd` | `codex` | Command the Codex brain panel launches on this machine. |
@@ -343,24 +359,23 @@ Linear or Zotero integration) without putting them in the public repo.
 
 ## 8. Syncing across machines
 
-Because your **brain config** (`config.json`, `personalization.json`,
-`extensions/`, `plugins/`) all lives under `~/brain/.config/`, it rides along
-with whatever syncs your brain directory (cloud drive, git, etc.). Your
-**brain env** (`~/.config/brain/env.json`) deliberately does **not** — it's
-machine-local by design, since `root` and `markdown_to_pdf_path` would be wrong
-if copied verbatim to another machine.
+Because each workspace's **brain config** (`config.json`,
+`personalization.json`, `extensions/`, `plugins/`) lives under that root's
+`.config/`, it rides along with whatever syncs the workspace. The schema-v2
+registry and **brain env** (`~/.config/brain/env.json`) deliberately do not. The
+registry contains machine-local roots, and each workspace env can contain local
+binary paths or credentials.
 
 On a new machine:
 
-1. get your `~/brain` there (however you sync it),
-2. run `brain env set root=~/wherever` if your brain isn't at `~/brain` (or
-   let it auto-discover `markdown-to-pdf` on first run),
-3. run `brain` — it installs the skills from your synced extensions/plugins.
+1. get the workspace root onto the new machine (however you sync it),
+2. run `brain workspace attach ~/wherever` to register that existing root,
+3. run `brain` (or select it with `-b`) to install skills from its synced
+   extensions and plugins.
 
-If you want your brain-env values to follow you too (e.g. `root` is the same
-on every machine, or you're tracking B2 sync credentials privately), that's on
-you to sync `~/.config/brain/env.json` yourself, outside of brain — brain never
-does this automatically, and never will for secrets.
+The machine registry should remain local. Portable configuration travels inside
+each workspace; machine-local roots, receiver state, agent commands, and
+credentials do not.
 
 ## Developing
 

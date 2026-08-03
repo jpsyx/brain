@@ -229,6 +229,7 @@ fn has_csv_deltas(csv: &[CsvPending]) -> bool {
 }
 
 fn collect_csv_pending(
+    paths: &crate::workspace::WorkspacePaths,
     root: &Path,
     remote_env: &[(String, String)],
     remote_arg: &str,
@@ -238,24 +239,27 @@ fn collect_csv_pending(
         root,
         &CSVS,
         |name| {
-            let path = baseline_path(name);
+            let path = baseline_path(paths, name);
             crate::logging::log(format!("check csv baseline {}", path.display()));
             std::fs::read_to_string(path).unwrap_or_default()
         },
         |rel| {
             crate::logging::log(format!("check csv remote {rel}"));
-            fetch_remote_csv(remote_env, remote_arg, rel)
+            fetch_remote_csv(paths, remote_env, remote_arg, rel)
         },
     )
 }
 
 fn fetch_remote_csv(
+    paths: &crate::workspace::WorkspacePaths,
     remote_env: &[(String, String)],
     remote_arg: &str,
     rel: &str,
 ) -> Option<String> {
-    let tmp = std::env::temp_dir().join(format!(
-        "brain-csv-check-{}-{}",
+    let temporary_dir = paths.sync_dir().join("tmp");
+    let _ = std::fs::create_dir_all(&temporary_dir);
+    let tmp = temporary_dir.join(format!(
+        "csv-check-{}-{}",
         std::process::id(),
         rel.replace('/', "_")
     ));
@@ -279,7 +283,7 @@ fn fetch_remote_csv(
 /// Thin IO shell; the report text itself is built by [`format_report`]. Never
 /// fails: rclone/IO errors surface as a themed warning rather than a hard
 /// error, since this is a read-only convenience report, not a sync.
-pub fn run(cfg: &SyncConfig, root: &std::path::Path) {
+pub fn run(paths: &crate::workspace::WorkspacePaths, cfg: &SyncConfig, root: &std::path::Path) {
     let theme = Theme::active();
     if !cfg.is_configured() {
         crate::logging::log("check unconfigured");
@@ -299,7 +303,7 @@ pub fn run(cfg: &SyncConfig, root: &std::path::Path) {
         remote.arg
     ));
     let local = root.to_string_lossy().into_owned();
-    let workdir = crate::sync::run::bisync_workdir();
+    let workdir = crate::sync::run::bisync_workdir(paths);
     let mut args = crate::sync::args::bisync_args(
         cfg,
         &local,
@@ -348,7 +352,7 @@ pub fn run(cfg: &SyncConfig, root: &std::path::Path) {
         pull.len()
     ));
     println!("{}", theme.muted("Checking task and habit CSV baselines…"));
-    let csv = collect_csv_pending(root, &remote.env, &remote.arg);
+    let csv = collect_csv_pending(paths, root, &remote.env, &remote.arg);
     crate::logging::log(format!("check csv files={}", csv.len()));
     println!("{}", format_report(&push, &pull, &csv, theme));
 }

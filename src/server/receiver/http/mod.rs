@@ -23,29 +23,26 @@ pub(super) struct SecurityConfig {
     twilio_auth_token: String,
     public_base_url: String,
     resend_signing_secret: String,
+    resend_api_key: String,
     allowed_sms: Vec<String>,
     allowed_email: Vec<String>,
 }
 
 impl SecurityConfig {
-    fn load() -> Self {
-        let config = crate::config::Config::load();
+    fn load(command: &crate::workspace::CommandContext) -> Self {
+        let config = crate::config::Config::load(&command.workspace);
         Self {
-            twilio_auth_token: crate::server::provider::get(
-                "TWILIO_AUTH_TOKEN",
-                "twilio_auth_token",
-            )
-            .unwrap_or_default(),
-            public_base_url: crate::server::provider::get(
-                "BRAIN_RECEIVER_PUBLIC_URL",
-                "brain_receiver_public_url",
-            )
-            .unwrap_or_default(),
+            twilio_auth_token: crate::server::provider::get(command, "twilio_auth_token")
+                .unwrap_or_default(),
+            public_base_url: crate::server::provider::get(command, "brain_receiver_public_url")
+                .unwrap_or_default(),
             resend_signing_secret: crate::server::provider::get(
-                "RESEND_WEBHOOK_SIGNING_SECRET",
+                command,
                 "resend_webhook_signing_secret",
             )
             .unwrap_or_default(),
+            resend_api_key: crate::server::provider::get(command, "resend_api_key")
+                .unwrap_or_default(),
             allowed_sms: config.allowed_sms(),
             allowed_email: config.allowed_email(),
         }
@@ -87,7 +84,11 @@ pub struct ReceiverServer {
 
 impl ReceiverServer {
     /// Bind and start the TUI-owned listener.
-    pub fn start(port: u16, tx: &SyncSender<InboundMessage>) -> Result<Self> {
+    pub fn start(
+        command: &crate::workspace::CommandContext,
+        port: u16,
+        tx: &SyncSender<InboundMessage>,
+    ) -> Result<Self> {
         let server = Arc::new(
             Server::http(("127.0.0.1", port))
                 .map_err(|error| anyhow::anyhow!("binding receiver server: {error}"))?,
@@ -97,7 +98,7 @@ impl ReceiverServer {
             .to_ip()
             .context("resolving receiver server address")?
             .port();
-        let security = SecurityConfig::load();
+        let security = SecurityConfig::load(command);
         let recent = Arc::new(Mutex::new(RecentMessageIds::default()));
         let mut joins = Vec::with_capacity(RECEIVER_WORKERS);
         for index in 0..RECEIVER_WORKERS {
@@ -288,6 +289,25 @@ mod tests {
     use super::{ReceiverServer, RecentMessageIds, enqueue, read_body_from_reader};
     use crate::server::receiver::{Channel, INBOUND_QUEUE_CAPACITY, InboundMessage};
 
+    fn command() -> crate::workspace::CommandContext {
+        crate::workspace::CommandContext {
+            workspace: std::sync::Arc::new(
+                crate::workspace::WorkspaceContext::new(
+                    std::path::Path::new("/home/tester"),
+                    crate::workspace::WorkspaceId::new(),
+                    crate::workspace::WorkspaceName::parse("brain").expect("valid name"),
+                    std::path::Path::new("/home/tester/brain"),
+                    "tester",
+                    std::path::Path::new("/home/tester"),
+                )
+                .expect("context"),
+            ),
+            registry_store: crate::workspace::RegistryStore::from_path(std::path::PathBuf::from(
+                "/missing/env.json",
+            )),
+        }
+    }
+
     fn message(provider_id: &str) -> InboundMessage {
         InboundMessage {
             channel: Channel::Sms,
@@ -346,7 +366,7 @@ mod tests {
         let port = probe.local_addr().unwrap().port();
         drop(probe);
         let (message_tx, _message_rx) = mpsc::sync_channel(INBOUND_QUEUE_CAPACITY);
-        let receiver = ReceiverServer::start(port, &message_tx).unwrap();
+        let receiver = ReceiverServer::start(&command(), port, &message_tx).unwrap();
         let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         client
             .set_read_timeout(Some(Duration::from_secs(2)))
@@ -372,7 +392,7 @@ mod tests {
         let port = probe.local_addr().unwrap().port();
         drop(probe);
         let (message_tx, _message_rx) = mpsc::sync_channel(INBOUND_QUEUE_CAPACITY);
-        let receiver = ReceiverServer::start(port, &message_tx).unwrap();
+        let receiver = ReceiverServer::start(&command(), port, &message_tx).unwrap();
         let mut slow = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         slow.write_all(
             b"POST /sms HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\nConnection: close\r\n\r\n",
@@ -400,7 +420,7 @@ mod tests {
     #[test]
     fn dropping_receiver_unblocks_and_joins_the_workers() {
         let (message_tx, _message_rx) = mpsc::sync_channel(INBOUND_QUEUE_CAPACITY);
-        let receiver = ReceiverServer::start(0, &message_tx).unwrap();
+        let receiver = ReceiverServer::start(&command(), 0, &message_tx).unwrap();
         let (done_tx, done_rx) = mpsc::channel();
 
         std::thread::spawn(move || {

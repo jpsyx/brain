@@ -161,17 +161,19 @@ fn id_number(id: &str) -> u32 {
 }
 
 /// CLI runner for `brain habits revive|fix <query>`.
-pub fn run(query: &str) -> Result<()> {
-    let root = crate::paths::brain_root()?;
+pub fn run(root: &std::path::Path, query: &str) -> Result<()> {
     let today = Local::now().date_naive();
-    match revive_fuzzy_in_root(&root, query, today)? {
+    match revive_fuzzy_in_root(root, query, today)? {
         ReviveOutcome::NoMatch => {
             let theme = Theme::active();
-            eprintln!("{}", theme.warning(&format!("No habit matches \"{query}\".")));
+            eprintln!(
+                "{}",
+                theme.warning(&format!("No habit matches \"{query}\"."))
+            );
         }
         ReviveOutcome::Ambiguous(names) => {
             if let Some(chosen) = prompt_selection(&names)? {
-                let outcome = revive_named_in_root(&root, &chosen, today)?;
+                let outcome = revive_named_in_root(root, &chosen, today)?;
                 print_outcome(&outcome);
             }
         }
@@ -271,8 +273,14 @@ mod tests {
 
     #[test]
     fn name_matches_tolerates_word_reordering() {
-        assert!(name_matches("Send status update to team", "send team status update"));
-        assert!(name_matches("Morning Inbox & Readings (10 mins)", "morning inbox"));
+        assert!(name_matches(
+            "Send status update to team",
+            "send team status update"
+        ));
+        assert!(name_matches(
+            "Morning Inbox & Readings (10 mins)",
+            "morning inbox"
+        ));
         assert!(!name_matches("Meds", "meditate"));
     }
 

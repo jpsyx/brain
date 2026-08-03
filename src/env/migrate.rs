@@ -3,6 +3,7 @@
 
 use anyhow::Context;
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LegacySource {
     Registry,
@@ -11,6 +12,7 @@ enum LegacySource {
     Fresh,
 }
 
+#[cfg(test)]
 const fn classify_legacy_source(
     registry_exists: bool,
     pointer_exists: bool,
@@ -34,18 +36,35 @@ pub(crate) fn registry_setup_needs_migration() -> anyhow::Result<bool> {
         .map(std::path::PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
     let config_home = config_home();
-    let paths = [
-        config_home.join("brain/env.json"),
-        config_home.join("brain-root"),
-        home.join("brain"),
-    ];
-    let mut exists = [false; 3];
-    for (found, path) in exists.iter_mut().zip(&paths) {
-        *found = path
-            .try_exists()
-            .with_context(|| format!("inspect legacy Brain path {}", path.display()))?;
+    let registry_path = config_home.join("brain/env.json");
+    if registry_path
+        .try_exists()
+        .with_context(|| format!("inspect Brain registry path {}", registry_path.display()))?
+    {
+        return Ok(crate::workspace::RegistryStore::load_from(&registry_path).is_err());
     }
-    Ok(classify_legacy_source(exists[0], exists[1], exists[2]) != LegacySource::Fresh)
+    for path in [config_home.join("brain-root"), home.join("brain")] {
+        if path
+            .try_exists()
+            .with_context(|| format!("inspect legacy Brain path {}", path.display()))?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Whether the fixed registry path already contains a valid schema-v2 registry.
+/// This check never resolves or reads a workspace root.
+pub(crate) fn registry_is_valid_v2() -> anyhow::Result<bool> {
+    let registry_path = config_home().join("brain/env.json");
+    if !registry_path
+        .try_exists()
+        .with_context(|| format!("inspect Brain registry path {}", registry_path.display()))?
+    {
+        return Ok(false);
+    }
+    Ok(crate::workspace::RegistryStore::load_from(&registry_path).is_ok())
 }
 
 /// Run the one-time migration against the real machine dirs. Idempotent;
@@ -58,7 +77,11 @@ pub fn migrate() {
 pub(crate) fn migrate_checked() -> anyhow::Result<()> {
     let home =
         std::env::var_os("HOME").map_or_else(std::path::PathBuf::new, std::path::PathBuf::from);
-    migrate_in_with_home(&home, &config_home(), &crate::settings::config_dir())
+    migrate_in_with_home(
+        &home,
+        &config_home(),
+        &crate::paths::brain_root_path().join(".config"),
+    )
 }
 
 fn migrate_in_with_home(

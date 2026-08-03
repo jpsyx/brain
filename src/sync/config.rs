@@ -1,4 +1,5 @@
-//! Typed, parse-only view of the `sync` block in `~/.config/brain/env.json`.
+//! Typed, parse-only view of the selected workspace record's `sync` block in
+//! `~/.config/brain/env.json`.
 //!
 //! C1 only *parses* this — no rclone, no transfers, no triggers. C2+ reads these
 //! values to drive Backblaze sync. All fields are optional; an absent block ⇒
@@ -46,8 +47,8 @@ fn default_debounce_ms() -> u64 {
 impl SyncConfig {
     /// Load the `sync` block from the brain-env store; defaults when absent.
     #[must_use]
-    pub fn load() -> Self {
-        crate::env::load_map()
+    pub fn load(command: &crate::workspace::CommandContext) -> Self {
+        crate::env::load_map(command)
             .get("sync")
             .cloned()
             .and_then(|v| serde_json::from_value(v).ok())

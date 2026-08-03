@@ -117,20 +117,32 @@ pub fn project_dir_name(brain_root: &Path) -> String {
     brain_root.to_string_lossy().replace(['/', '.'], "-")
 }
 
-/// Env vars injected into the Claude child so the SessionStart hook can
-/// attribute the session to this brain shell (and update the DB on
-/// `/new` / `/clear` re-sessions).
+/// Selected workspace/actor identity plus session vars injected into Claude.
+///
+/// The SessionStart and Stop hooks use the matching UUID-scoped DB/response
+/// paths, including after `/new` / `/clear` re-sessions.
 #[must_use]
-pub fn env_for(instance: &str, pid: i32, db_path: &Path) -> Vec<(String, String)> {
-    vec![
+pub fn env_for(
+    workspace: &crate::workspace::WorkspaceContext,
+    instance: &str,
+    pid: i32,
+    db_path: &Path,
+) -> Vec<(String, String)> {
+    let mut env = workspace
+        .integration_env(workspace.local_user_id())
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect::<Vec<_>>();
+    env.extend([
         ("BRAIN_INSTANCE_ID".to_owned(), instance.to_owned()),
         ("BRAIN_PID".to_owned(), pid.to_string()),
         ("BRAIN_STATE_DB".to_owned(), db_path.display().to_string()),
         (
             "BRAIN_RESPONSE_DIR".to_owned(),
-            response_dir().display().to_string(),
+            workspace.paths().responses_dir().display().to_string(),
         ),
-    ]
+    ]);
+    env
 }
 
 /// Env vars injected into the *ephemeral* daily-triage session.
@@ -144,25 +156,40 @@ pub fn env_for(instance: &str, pid: i32, db_path: &Path) -> Vec<(String, String)
 /// the brain-server done URL and the one-time token brain matches when the
 /// signal comes back (see [`crate::triage_signal`]).
 #[must_use]
-pub fn env_for_triage(done_url: &str, token: &str) -> Vec<(String, String)> {
-    vec![
+pub fn env_for_triage(
+    workspace: &crate::workspace::WorkspaceContext,
+    done_url: &str,
+    token: &str,
+) -> Vec<(String, String)> {
+    let mut env = workspace
+        .integration_env(workspace.local_user_id())
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect::<Vec<_>>();
+    env.extend([
         ("BRAIN_TRIAGE_DONE_URL".to_owned(), done_url.to_owned()),
         ("BRAIN_TRIAGE_TOKEN".to_owned(), token.to_owned()),
-    ]
-}
-
-#[must_use]
-pub fn response_dir() -> std::path::PathBuf {
-    std::env::var_os("HOME").map_or_else(
-        || std::path::PathBuf::from(".cache/brain/responses"),
-        |home| std::path::PathBuf::from(home).join(".cache/brain/responses"),
-    )
+    ]);
+    env
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    fn workspace() -> crate::workspace::WorkspaceContext {
+        crate::workspace::WorkspaceContext::new(
+            std::path::Path::new("/home/tester"),
+            crate::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b")
+                .expect("valid id"),
+            crate::workspace::WorkspaceName::parse("family").expect("valid name"),
+            std::path::Path::new("/home/tester/family"),
+            "pablo",
+            std::path::Path::new("/home/tester"),
+        )
+        .expect("context")
+    }
 
     #[test]
     fn decide_resumes_when_a_candidate_exists() {
@@ -302,7 +329,12 @@ mod tests {
 
     #[test]
     fn env_carries_instance_pid_and_db_path() {
-        let env = env_for("inst-1", 4321, &PathBuf::from("/tmp/state.db"));
+        let env = env_for(
+            &workspace(),
+            "inst-1",
+            4321,
+            &PathBuf::from("/tmp/state.db"),
+        );
         assert!(env.contains(&("BRAIN_INSTANCE_ID".to_owned(), "inst-1".to_owned())));
         assert!(env.contains(&("BRAIN_PID".to_owned(), "4321".to_owned())));
         assert!(env.contains(&("BRAIN_STATE_DB".to_owned(), "/tmp/state.db".to_owned())));
@@ -310,7 +342,7 @@ mod tests {
 
     #[test]
     fn triage_env_carries_done_url_and_token() {
-        let env = env_for_triage("http://127.0.0.1:8787/triage/done", "tok-9");
+        let env = env_for_triage(&workspace(), "http://127.0.0.1:8787/triage/done", "tok-9");
         assert!(env.contains(&(
             "BRAIN_TRIAGE_DONE_URL".to_owned(),
             "http://127.0.0.1:8787/triage/done".to_owned()
@@ -322,7 +354,7 @@ mod tests {
     fn triage_env_omits_the_tracking_vars_so_the_session_stays_ephemeral() {
         // The SessionStart hook keys off BRAIN_INSTANCE_ID / BRAIN_STATE_DB;
         // their absence is exactly what keeps the triage session out of the DB.
-        let env = env_for_triage("http://127.0.0.1:8787/triage/done", "tok-9");
+        let env = env_for_triage(&workspace(), "http://127.0.0.1:8787/triage/done", "tok-9");
         let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
         assert!(!keys.contains(&"BRAIN_INSTANCE_ID"));
         assert!(!keys.contains(&"BRAIN_STATE_DB"));

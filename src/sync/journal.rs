@@ -1,9 +1,9 @@
-//! The sync journal: a small SQLite DB at `~/.cache/brain/sync/journal.db`.
+//! The sync journal: a small SQLite DB in one workspace's UUID-scoped cache.
 //!
 //! Machine-local cache, never synced. Records each run; mirrors the WAL setup
 //! of `crate::state`. The CSV-merge baselines (C3) will live beside it.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -27,16 +27,6 @@ pub struct Journal {
 }
 
 impl Journal {
-    /// `~/.cache/brain/sync/journal.db`.
-    #[must_use]
-    pub fn default_path() -> PathBuf {
-        let base = std::env::var_os("HOME").map_or_else(
-            || PathBuf::from("."),
-            |h| PathBuf::from(h).join(".cache").join("brain").join("sync"),
-        );
-        base.join("journal.db")
-    }
-
     /// Open (creating parent dirs + schema). WAL like the state DB.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
@@ -168,11 +158,6 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].direction, "pull");
         assert_eq!(got[1].direction, "push");
-    }
-
-    #[test]
-    fn default_path_is_under_cache_brain_sync() {
-        assert!(Journal::default_path().ends_with(".cache/brain/sync/journal.db"));
     }
 
     #[test]

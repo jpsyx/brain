@@ -165,3 +165,48 @@ T1,Ship fix,code,done,,p1,,false,,me,,,,,,,,'',2026-07-01,,2026-07-01,\n",
         "repaired task row should be stamped with today's last_touched:\n{updated}"
     );
 }
+
+#[test]
+fn sync_rules_honors_the_selected_brain_root() {
+    let home = tempfile::tempdir().unwrap();
+    let family = home.path().join("family");
+    let tasks_dir = family.join("tasks");
+    std::fs::create_dir_all(&tasks_dir).unwrap();
+    let tasks = tasks_dir.join("tasks.csv");
+    std::fs::write(
+        &tasks,
+        "task_id,task_name,task_type,status,waiting_since,priority,due_date,hard_deadline,start_date,assignee,see_also,notes,project,energy_level,context,estimated_duration,blocked_by,defer_count,created_date,completed_date,last_touched,linear_issue\n\
+T1,Ship fix,code,done,,p1,,false,,me,,,,,,,,'',2026-07-01,,2026-07-01,\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tasks_dir.join("habits.csv"),
+        "task_id,task_name,status,priority,due_date,hard_deadline,assignee,see_also,notes,project,energy_level,context,estimated_duration,recur_interval,recur_unit,created_date,completed_date,last_touched\n",
+    )
+    .unwrap();
+
+    let output = Command::new("python3")
+        .arg(script("apply_sync_rules.py"))
+        .arg("--fix")
+        .env("HOME", home.path())
+        .env("BRAIN_ROOT", &family)
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let updated = std::fs::read_to_string(tasks).unwrap();
+    let today = Local::now().date_naive().to_string();
+    assert!(
+        updated
+            .lines()
+            .nth(1)
+            .unwrap_or_default()
+            .ends_with(&format!("{today},")),
+        "selected-root task row was not repaired:\n{updated}"
+    );
+}

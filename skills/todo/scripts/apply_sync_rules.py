@@ -24,12 +24,13 @@ Usage:
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 from datetime import date
 from pathlib import Path
 
-BRAIN = Path.home() / "brain"
+BRAIN = Path(os.environ.get("BRAIN_ROOT", Path.home() / "brain")).expanduser()
 TASKS = BRAIN / "tasks" / "tasks.csv"
 HABITS = BRAIN / "tasks" / "habits.csv"
 PROJECTS_DIR = BRAIN / "projects"

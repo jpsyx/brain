@@ -48,13 +48,15 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
                     registry_only_prompt_order(invocation),
                     Some(RegistryOnlyPromptOrder::BeforeMigration)
                 );
-                let should_migrate = matches!(
-                    invocation,
-                    Invocation::WorkspaceRemove | Invocation::WorkspaceRepair
-                ) || (matches!(
-                    invocation,
-                    Invocation::WorkspaceCreate | Invocation::WorkspaceAttach
-                ) && crate::env::registry_setup_needs_migration()?);
+                let should_migrate = match invocation {
+                    Invocation::WorkspaceCreate | Invocation::WorkspaceAttach => {
+                        crate::env::registry_setup_needs_migration()?
+                    }
+                    Invocation::WorkspaceRemove | Invocation::WorkspaceRepair => {
+                        !crate::env::registry_is_valid_v2()?
+                    }
+                    _ => false,
+                };
                 if should_migrate {
                     crate::env::migrate_checked()?;
                 }
@@ -63,7 +65,9 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
         );
     }
 
-    crate::env::migrate_checked()?;
+    if !crate::env::registry_is_valid_v2()? {
+        crate::env::migrate_checked()?;
+    }
     let home = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .ok_or_else(|| anyhow!("HOME is not set"))?;

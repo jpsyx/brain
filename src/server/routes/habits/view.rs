@@ -10,7 +10,8 @@ use std::fmt::Write as _;
 
 use chrono::{Datelike, NaiveDate};
 
-use super::model::{Habit, TimeBucket, PRIORITY_ORDER};
+use super::model::{Habit, PRIORITY_ORDER, TimeBucket};
+use crate::workspace::WorkspaceId;
 
 /// The page shell and its two inlined assets, embedded at compile time.
 const SHELL: &str = include_str!("../../../../web/habits/index.html");
@@ -59,7 +60,11 @@ fn escape(s: &str) -> String {
 
 /// One pending-habit card.
 fn render_card(h: &Habit, today: NaiveDate) -> String {
-    let name = if h.name.is_empty() { "(unnamed)" } else { &h.name };
+    let name = if h.name.is_empty() {
+        "(unnamed)"
+    } else {
+        &h.name
+    };
     let color = priority_color(&h.priority);
 
     let mut badges = String::new();
@@ -107,7 +112,11 @@ fn render_card(h: &Habit, today: NaiveDate) -> String {
 
 /// One completed-habit card (no done button, muted styling).
 fn render_completed_card(h: &Habit) -> String {
-    let name = if h.name.is_empty() { "(unnamed)" } else { &h.name };
+    let name = if h.name.is_empty() {
+        "(unnamed)"
+    } else {
+        &h.name
+    };
     let mut chips = String::new();
     if let Some(dur) = h.estimated_duration {
         let _ = write!(chips, r#"<span class="meta-chip">{dur}m</span>"#);
@@ -152,15 +161,19 @@ fn render_priority_subsection(priority: &str, rows: &[&Habit], today: NaiveDate)
 
 /// Render the full habits page as a self-contained HTML document.
 #[must_use]
-pub fn render(pending: &[Habit], completed: &[Habit], today: NaiveDate) -> String {
+pub fn render(
+    pending: &[Habit],
+    completed: &[Habit],
+    today: NaiveDate,
+    workspace_id: WorkspaceId,
+) -> String {
     let body = if pending.is_empty() {
         r#"<div class="empty">All habits done for today. Nice work.</div>"#.to_owned()
     } else {
         TimeBucket::ALL
             .iter()
             .filter_map(|&bucket| {
-                let rows: Vec<&Habit> =
-                    pending.iter().filter(|h| h.bucket() == bucket).collect();
+                let rows: Vec<&Habit> = pending.iter().filter(|h| h.bucket() == bucket).collect();
                 (!rows.is_empty()).then(|| render_time_section(bucket, &rows, today))
             })
             .collect::<Vec<_>>()
@@ -183,7 +196,13 @@ pub fn render(pending: &[Habit], completed: &[Habit], today: NaiveDate) -> Strin
 
     SHELL
         .replace("{{CSS}}", CSS)
-        .replace("{{JS}}", APP_JS)
+        .replace(
+            "{{JS}}",
+            &APP_JS.replace(
+                "{{HABITS_DONE_URL}}",
+                &crate::server::habits_done_path(workspace_id),
+            ),
+        )
         .replace("{{TODAY_LABEL}}", &escape(&today_label))
         .replace("{{COUNT}}", &pending.len().to_string())
         .replace("{{COMPLETED_DISPLAY}}", completed_display)
@@ -198,10 +217,12 @@ fn render_time_section(bucket: TimeBucket, rows: &[&Habit], today: NaiveDate) ->
     let subs = PRIORITY_ORDER
         .iter()
         .filter_map(|&priority| {
-            let pri_rows: Vec<&Habit> =
-                rows.iter().copied().filter(|h| h.priority == priority).collect();
-            (!pri_rows.is_empty())
-                .then(|| render_priority_subsection(priority, &pri_rows, today))
+            let pri_rows: Vec<&Habit> = rows
+                .iter()
+                .copied()
+                .filter(|h| h.priority == priority)
+                .collect();
+            (!pri_rows.is_empty()).then(|| render_priority_subsection(priority, &pri_rows, today))
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -253,10 +274,19 @@ mod tests {
         }
     }
 
+    fn render_page(pending: &[Habit], completed: &[Habit], today: NaiveDate) -> String {
+        render(
+            pending,
+            completed,
+            today,
+            WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
+        )
+    }
+
     #[test]
     fn render_includes_pending_habit_name_and_id() {
         let today = day(2026, 7, 25);
-        let html = render(&[habit("H7", "Floss teeth")], &[], today);
+        let html = render_page(&[habit("H7", "Floss teeth")], &[], today);
         assert!(html.contains("Floss teeth"), "habit name must render");
         assert!(
             html.contains(r#"data-task-id="H7""#),
@@ -267,10 +297,10 @@ mod tests {
     #[test]
     fn render_injects_the_shell_css_and_js() {
         let today = day(2026, 7, 25);
-        let html = render(&[habit("H1", "x")], &[], today);
+        let html = render_page(&[habit("H1", "x")], &[], today);
         assert!(html.contains(".done-btn"), "CSS must be inlined");
         assert!(
-            html.contains("/habits/done"),
+            html.contains("/habits/done?workspace_id=e806258e-491a-436d-9db4-a5ca9903e0d4"),
             "JS must post to the brain-server endpoint"
         );
         assert!(!html.contains("{{CSS}}"), "no shell token may leak");
@@ -280,15 +310,18 @@ mod tests {
     #[test]
     fn render_escapes_html_in_names() {
         let today = day(2026, 7, 25);
-        let html = render(&[habit("H1", "<b>hack</b>")], &[], today);
-        assert!(html.contains("&lt;b&gt;hack&lt;/b&gt;"), "name must be escaped");
+        let html = render_page(&[habit("H1", "<b>hack</b>")], &[], today);
+        assert!(
+            html.contains("&lt;b&gt;hack&lt;/b&gt;"),
+            "name must be escaped"
+        );
         assert!(!html.contains("<b>hack</b>"), "raw markup must not survive");
     }
 
     #[test]
     fn render_empty_state_when_no_pending() {
         let today = day(2026, 7, 25);
-        let html = render(&[], &[], today);
+        let html = render_page(&[], &[], today);
         assert!(html.contains("All habits done for today"));
     }
 
@@ -298,7 +331,7 @@ mod tests {
         let mut done = habit("H9", "Meditate");
         done.status = "done".to_owned();
         done.completed_date = Some(today);
-        let html = render(&[], &[done], today);
+        let html = render_page(&[], &[done], today);
         assert!(html.contains("Meditate"));
         assert!(html.contains("✓ done"));
     }
@@ -308,7 +341,7 @@ mod tests {
         let today = day(2026, 7, 25);
         let mut h = habit("H1", "Overdue thing");
         h.due_date = Some(day(2026, 7, 22));
-        let html = render(&[h], &[], today);
+        let html = render_page(&[h], &[], today);
         assert!(html.contains("3d past-due"), "overdue delta must render");
     }
 }

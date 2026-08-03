@@ -1,4 +1,4 @@
-//! The `/habits` route: a today's-habits page and a mark-done endpoint.
+//! The UUID-scoped `/habits` route: a today's-habits page and mark-done endpoint.
 //!
 //! Thin controller. [`model`] reads + filters + sorts habits (pure decisions
 //! plus one file read); [`view`] renders them into the `web/habits/` shell.
@@ -11,6 +11,7 @@
 
 pub mod model;
 pub mod view;
+pub(crate) mod workspace;
 
 use std::path::Path;
 
@@ -47,11 +48,11 @@ impl DoneOutcome {
 
 /// Render today's habits page for `root`, as of the local date.
 #[must_use]
-pub fn page(root: &Path) -> String {
+pub fn page(root: &Path, workspace_id: crate::workspace::WorkspaceId) -> String {
     let today = Local::now().date_naive();
     let rows = model::load(root);
     let (pending, completed) = model::classify(rows, today);
-    view::render(&pending, &completed, today)
+    view::render(&pending, &completed, today, workspace_id)
 }
 
 /// Extract and validate the `task_id` from a `POST /habits/done` JSON body.

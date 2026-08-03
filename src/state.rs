@@ -17,11 +17,12 @@
 //! - `meta` — small key/value store; today just the `panel_side` layout
 //!   preference (which side the brain panel sits on).
 //!
-//! The SessionStart hook attributes its writes by reading
-//! `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` from its env (set by
-//! brain when it spawns claude). No env → ambient claude usage, hook no-ops.
+//! The SessionStart hook requires the four selected workspace/actor variables
+//! plus `BRAIN_INSTANCE_ID` and the selected UUID-scoped `BRAIN_STATE_DB`.
+//! `BRAIN_PID` supplies optional lock ownership. Incomplete attribution means
+//! ambient Claude usage, so the hook no-ops.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -123,7 +124,12 @@ pub struct Db {
 impl Db {
     /// Open or create a state DB at `path`. Runs migrations idempotently and
     /// enables WAL mode so concurrent shells + the hook don't block.
-    pub fn open(path: &Path) -> Result<Self> {
+    pub fn open(workspace: &crate::workspace::WorkspaceContext) -> Result<Self> {
+        Self::open_path(&workspace.paths().state_db())
+    }
+
+    /// Open or create a state DB at an explicit path.
+    pub fn open_path(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
@@ -204,16 +210,6 @@ impl Db {
 
     fn now(&self) -> i64 {
         (self.clock)()
-    }
-
-    /// Where the state DB lives: `~/.cache/brain/state.db`.
-    #[must_use]
-    pub fn default_path() -> PathBuf {
-        let base = std::env::var_os("HOME").map_or_else(
-            || PathBuf::from("."),
-            |h| PathBuf::from(h).join(".cache").join("brain"),
-        );
-        base.join("state.db")
     }
 
     // -- session locking -------------------------------------------------

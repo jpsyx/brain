@@ -101,7 +101,7 @@ pub fn section_header_line(label: &str, count: usize) -> Line<'static> {
 #[must_use]
 pub fn empty_line(query_empty: bool) -> Line<'static> {
     let msg = if query_empty {
-        "  No entries found in ~/brain."
+        "  No entries found in this workspace."
     } else {
         "  No matches. Try a different query."
     };
@@ -248,7 +248,10 @@ mod tests {
 
     #[test]
     fn empty_line_differs_for_empty_vs_no_match() {
-        assert!(text_of(&empty_line(true)).contains("No entries"));
+        assert_eq!(
+            text_of(&empty_line(true)),
+            "  No entries found in this workspace."
+        );
         assert!(text_of(&empty_line(false)).contains("No matches"));
     }
 
@@ -279,9 +282,7 @@ mod tests {
     fn selected_entry_uses_the_selection_background() {
         let line = entry_line("note.md", &BTreeSet::new(), true);
         assert!(
-            line.spans
-                .iter()
-                .any(|s| s.style.bg == Some(SELECTED_BG)),
+            line.spans.iter().any(|s| s.style.bg == Some(SELECTED_BG)),
             "selected rows should paint the selection background"
         );
     }

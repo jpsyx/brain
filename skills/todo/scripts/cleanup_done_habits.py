@@ -6,11 +6,13 @@ short. The completed-but-recent rows stay for a week so the user can
 inspect / undo.
 """
 import csv
+import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-HABITS = Path.home() / "brain" / "tasks" / "habits.csv"
+BRAIN = Path(os.environ.get("BRAIN_ROOT", Path.home() / "brain")).expanduser()
+HABITS = BRAIN / "tasks" / "habits.csv"
 CUTOFF = date.today() - timedelta(days=7)
 
 

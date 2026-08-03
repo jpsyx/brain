@@ -1,8 +1,8 @@
 # Architecture
 
-`brain` is a small Rust CLI that browses `~/brain` (a PARA-organized second
-brain: projects / areas / resources) and acts as the single terminal
-entry point for the user's knowledge and task workflows.
+`brain` is a small Rust CLI that browses one selected PARA-organized workspace
+(projects / areas / resources) and acts as the single terminal entry point for
+the user's knowledge and task workflows.
 
 As of the tasks↔brain merge, `brain` is the single CLI for both the second
 brain and the task system; the standalone `tasks` binary is gone. It has two
@@ -11,7 +11,7 @@ surfaces:
 - **Bare `brain`** (and `brain tasks …`) opens a **persistent shell**
   (`tui/`) with **three main views** — the **tasks view** (task management,
   agenda, triage; the startup default) and the **brain-directory search view**
-  (fuzzy-pick over `~/brain`) — plus one app-level **brain panel** (an
+  (fuzzy-pick over the selected root) — plus one app-level **brain panel** (an
   interactive `claude` session in a PTY). You switch main views with
   `Ctrl+L`/`Ctrl+H` (cycle) or `Ctrl+T`/`Ctrl+B` (jump); the brain panel
   persists across a switch and closing it makes the main view full-width. The
@@ -65,8 +65,9 @@ argv
       ├─→ workspace::bootstrap            (explicit per-invocation policy)
       │    ├─ context-free/internal → no registry, root, or prompt
       │    ├─ create/attach/remove/repair → registry capability only
-      │    └─ ordinary command → migrate, select once, validate readiness,
-      │         repair interactively when permitted, return CommandContext
+      │    └─ ordinary command → migrate only without a valid v2 registry,
+      │         select once, validate readiness, repair interactively,
+      │         return CommandContext
       └─→ command::dispatch::run          (focused handlers under command/)
            ├─→ configuration / sync / server / workspace / reindex handlers
            └─→ settings::ensure_markdown_to_pdf (tasks/TUI prerequisite gate)
@@ -77,8 +78,8 @@ argv
                                           --no-tui → plain::print_plain
                                           else     → tui::run_tui (MERGED SHELL)
 
-tui::run_tui(view, cli, …)                  (the persistent shell)
- ├─→ paths::brain_root()                     (env `root` → legacy pointer → else $HOME/brain)
+tui::run_tui(command_context, view, cli, …) (the persistent shell)
+ ├─→ command_context.workspace.root()       (immutable selected root snapshot)
  ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)
  └─→ App event loop (tasks view + search view + agent PTY)
        ├─ state::Db: reap dead locks, pick_resume / claim or register_fresh
@@ -105,7 +106,9 @@ boundary. It links the library modules instead of declaring a duplicate module
 tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
 `command/{configuration,tasks,sync,server,workspace,reindex}` modules own the
 existing handlers. `command/server/` further separates receiver setup, HTTP
-server lifecycle, and habits dispatch.
+server lifecycle, and habits dispatch. Receiver command ownership is reflected
+on disk: `receiver/mod.rs` owns dispatch and provider setup, while
+`receiver/hooks.rs` owns workspace-sensitive Claude/Codex hook installation.
 
 ### `cli/`
 The clap derive surface, split by command family. `mod.rs` keeps the parser
@@ -132,13 +135,13 @@ task CSV loads and writes, sync/rclone work, server lifecycle probes, doctor
 checks, and skill installation.
 
 ### `paths.rs`
-Brain-root resolution. `brain_root()` reads the configured root and creates the
-resolved directory (including missing parents) when a command needs it;
-`brain_root_path()` is the side-effect-free variant used to derive the config
-dir. `root` is deliberately *not* a config variable — it can't live inside
-the brain root it resolves. The IO-free pieces (`parse_brain_root_file`,
-`expand_tilde_with_home`) are split out so they're unit-testable without a
-real `$HOME` or pointer file. See [config.md](config.md).
+Legacy single-root resolution only. `brain_root()` / `brain_root_path()` retain
+the pre-migration flat-root, read-only pointer, and `~/brain` fallback boundary
+needed to construct the first schema-v2 record. Ordinary commands do not use
+them to select a workspace; bootstrap supplies an immutable
+`WorkspaceContext::root()`. The IO-free compatibility pieces
+(`parse_brain_root_file`, `expand_tilde_with_home`) remain unit-testable without
+a real `$HOME` or pointer file. See [config.md](config.md).
 
 ### `workspace/`
 The typed, selection-independent workspace foundation. `id` owns the immutable
@@ -155,14 +158,23 @@ and `migrate` (the one-time flat-env conversion and exact-byte backup).
 `bootstrap` executes that policy. Context-free and hidden internal-server
 routes cannot prompt. Create, attach, remove, and repair first run the
 `command::preflight` prompt-and-validation stage; only a complete request may
-trigger legacy migration and receive a registry capability. All ordinary
-commands migrate first and require a ready selected workspace. `readiness` is
+trigger legacy migration and receive a registry capability. Ordinary commands
+inspect the fixed registry path and enter legacy migration only when it is not
+already valid schema v2; a valid registry avoids all legacy root/config lookup.
+They then require a ready selected workspace. `readiness` is
 the pure manifest/local-user decision,
 `manifest` owns strict portable identity parsing, and successful bootstrap
 returns one immutable `CommandContext` containing an `Arc<WorkspaceContext>`
 plus the registry store. Interactive repair uses injected `BufRead`/`Write`,
 persists under the registry transaction, reloads, and continues the originally
-requested command.
+requested command. Root-local stores take the context, machine-env writes also
+take its exact `RegistryStore`, and the TUI retains the same `Arc` for watcher,
+receiver, session, rendering, state, response, and sync paths. Brain-owned
+children receive the four-variable workspace/actor integration environment.
+Detached workspace-owned sync children additionally carry
+`--brain <canonical-name>`. The detached shared-server child is the deliberate
+exception: it owns only machine-shared lifecycle/control state and resolves
+request payloads by workspace UUID, so it has no selected `--brain` argument.
 
 `command/` owns the workspace CLI: `mutate` turns collected values into pure,
 validated registry-only decisions and owns registry-only mutations;
@@ -237,13 +249,11 @@ its UUID. Invalid manifests, duplicate UUIDs, and already-registered or
 overlapping roots fail without changing registry bytes or root contents. Rename,
 aliases, default changes, and removal use `RegistryStore` transactions. Adding
 an alias already present on the same record is a typed error rather than a
-successful no-op. Removal detaches only the record. Existing env/root callers
-still use a default-record
-compatibility view. Its writes and bootstrap migration enter the same registry
-transaction, so every in-process writer is serialized. Bootstrap resolves
-`--brain` once and dispatch already consumes the selected root for sync, check,
-task CSV selection, and receiver setup. Task 6 owns removal of the remaining
-default-record compatibility reads inside underlying stores.
+successful no-op. Removal detaches only the record. Bootstrap resolves
+`--brain` once into `CommandContext`; env writes revalidate canonical name plus
+UUID under the registry transaction, and all ordinary config, personalization,
+task, reindex, sync, receiver, and TUI paths consume that same selected context.
+Legacy root helpers remain only inside the tested one-time migration boundary.
 
 Deserialization has a single trusted boundary: JSON first enters a private raw
 schema DTO, then conversion runs the same pure whole-registry validator used by
@@ -279,8 +289,8 @@ so it travels with the brain). Split into `model` (the `Personalization` schema 
 parse), `store` (path resolution in the brain config dir + load/save), `tags`
 (the `TagStyle`/`TagStyles` model, the
 generic defaults `mit`/`personal`/`work`, and pure label resolution with
-raw-name fallback), `runtime` (a process-cached copy of the resolved tag styles
-so the renderer resolves labels without threading state), `command` (the
+raw-name fallback), `runtime` (explicit selected-workspace style loading for
+the TUI's retained `App` state), `command` (the
 `brain personalize` show/get/set/edit logic — pure helpers + thin IO), and
 `onboarding` (the skippable first-run prompt). The task renderer's
 `type_label` delegates here, so the public binary carries no personal taxonomy.
@@ -446,7 +456,7 @@ outcome + the count of copies renamed + any leftover markers into `Clean` /
 `NeedsAttention` / `Aborted` (a run that created any conflict copy is
 `NeedsAttention` even after the markers are renamed away); and
 `journal::Journal` records the run into the
-SQLite journal at `~/.cache/brain/sync/journal.db` (table `sync_runs`,
+SQLite journal at `<workspace-cache>/sync/journal.db` (table `sync_runs`,
 machine-local, never synced). `command::sync_once` is the thin orchestrator
 that runs this whole pipeline; `command::print_status`/`print_conflicts` back
 `brain sync status`/`brain sync conflicts`. `setup.rs` is `brain sync setup`'s
@@ -484,8 +494,8 @@ into the shell lifecycle and receiver dispatch) makes sync automatic while keepi
 split. The **pure** cores carry the decisions and the tests; the thin shells do
 the IO/threads/`Command`:
 
-- `lock.rs` — the machine-wide advisory sync lock at
-  `~/.cache/brain/sync/sync.lock` (a PID file beside the journal). Pure
+- `lock.rs` — one advisory sync lock per workspace UUID at
+  `<workspace-cache>/sync/sync.lock` (a PID file beside the journal). Pure
   `is_stale(owner_alive, age, cap)` decides reap-ability (dead owner or
   heartbeat mtime past the cap); `try_acquire(path)` is the atomic
   (`create_new`/O_EXCL) thin IO shell returning `Option<Guard>` (`None` when a
@@ -504,8 +514,9 @@ the IO/threads/`Command`:
   `Direction::Push` run. That direction uses a one-way, non-deleting rclone
   copy; its CSV/counter pass reads remote state only to build a safe upload and
   never writes local state, so the push cannot re-arm its own watcher.
-- `trigger.rs` — the single shell-facing entry point: `spawn_detached_sync(dir)`
-  spawns the current exe as `brain sync [--pull|--push] --if-idle`, fully
+- `trigger.rs` — the single shell-facing entry point:
+  `spawn_detached_sync(workspace, dir)` spawns the current exe as
+  `brain --brain <canonical-name> sync [--pull|--push] --if-idle`, fully
   detached (`process_group(0)` + null stdio). Automatic startup, watcher, and
   receiver-freshness triggers go through it, for two reasons: a sync in a
   separate process can never write over the TUI, and a detached child in its own
@@ -514,9 +525,9 @@ the IO/threads/`Command`:
   in-process sync path anymore (the old `run_locked_sync`/`sync_in_background`
   are gone). The parent moves each `Child` into a small waiter thread so a
   completed background sync is reaped and cannot accumulate as a zombie.
-- `current.rs` — the in-flight sync's shared state, so a detached background
-  sync stays observable. `Reporter` is the single output sink of a run: each
-  line is appended to `~/.cache/brain/sync/current.log` and echoed to the
+- `current.rs` — the in-flight sync's UUID-scoped observable state, so a
+  detached background sync stays observable. `Reporter` is the single output sink of a run: each
+  line is appended to `<workspace-cache>/sync/current.log` and echoed to the
   process's own stderr (the terminal for a foreground run, `/dev/null` for a
   detached one). `begin` writes the `current.json` record (pid + direction +
   start); `Drop` removes it. Pure `running(state, owner_alive)` +
@@ -613,9 +624,11 @@ the transient palette flash.
 
 ### Startup (`run_tui`)
 `run_tui()` opens the state DB, builds the brain-search picker
-(`build_search`), constructs the `App`, then `open_or_focus_brain(None)` spawns
-the initial `claude` PTY (resume-vs-fresh) and `focus_tasks()` returns focus to
-the tasks main view so `j`/`k` work at once. It then wires the auto-sync
+(`build_search`), and constructs the `App` from the selected `CommandContext`.
+The constructor derives its retained root and state-DB path from that context;
+callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
+then spawns the initial `claude` PTY (resume-vs-fresh) and `focus_tasks()`
+returns focus to the tasks main view so `j`/`k` work at once. It then wires the auto-sync
 triggers (a mandatory detached pull-biased startup sync and, when
 `watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
 loop, then drops the watcher and releases the session lock. No exit sync or
@@ -648,24 +661,28 @@ Pure launch planning: `AgentKind::{Claude,Codex}`, `Plan::{Resume,Fresh}`
 (chosen from the DB's resume candidate + a fresh UUID for Claude, fresh-only
 for Codex today), `build_llm_command` (`cd <root> && <claude_cmd> --resume
 <id>` / `--session-id <id>` for Claude; `cd <root> && <codex_cmd> resume <id>`
-for a known Codex resume id; no Claude flags for fresh Codex), and `env_for`
-(the `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` env handed to Claude
-for the SessionStart hook). `claude_cmd` and `codex_cmd` are machine-local brain
-env values. Both configured commands are spliced in verbatim so they may carry
-their own flags, and brain never depends on a shell alias. `env_for_triage` is
-the ephemeral-session counterpart: it injects only `BRAIN_TRIAGE_DONE_URL` /
-`BRAIN_TRIAGE_TOKEN` and deliberately omits the tracking vars, so the
-daily-triage tab stays out of the session DB.
+for a known Codex resume id; no Claude flags for fresh Codex), and `env_for`.
+Agent env starts with `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and
+`BRAIN_ACTOR_ID`, then adds `BRAIN_INSTANCE_ID`, `BRAIN_PID`, the selected
+`BRAIN_STATE_DB`, and selected `BRAIN_RESPONSE_DIR` for the hooks. `claude_cmd`
+and `codex_cmd` are machine-local brain env values. Both configured commands
+are spliced in verbatim so they may carry their own flags, and brain never
+depends on a shell alias. `env_for_triage` starts with the same four common
+identity variables, adds `BRAIN_TRIAGE_DONE_URL` / `BRAIN_TRIAGE_TOKEN`, and
+deliberately omits the session tracking vars so the daily-triage tab stays out
+of the session DB.
 
 ### `triage_signal.rs`
 The on-disk bridge for the daily-triage tab's completion signal. Pure
 `parse_token` plus a thin file shell (`record_done` / `read_token` / `clear`,
 `~/.cache/brain/triage-done.json`): the brain server writes it from
 `POST /triage/done`, the TUI polls it each tick. See
-[integrations.md](integrations.md).
+[integrations.md](integrations.md). This file remains part of the transitional
+machine-shared server control plane; workspace membership/routing and its
+replacement belong to the approved shared-server phase.
 
 ### `state.rs`
-The SQLite state layer (`rusqlite`, WAL) at `~/.cache/brain/state.db`.
+The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
 `brain_sessions` tracks every Claude session brain launched/adopted with a
 `locked_pid` lock; `meta` stores the `panel_side` layout preference. The
 resume model is **lock + recency** (`reap_dead_locks`, `pick_resume`,
@@ -689,7 +706,10 @@ and cannot outlive the interactive shell.
 - `server/security.rs` — pure Twilio HMAC, Resend/Svix HMAC, and exact
   allowlist decisions, including E.164 phone-number validation.
 - `server/lifecycle.rs` — the legacy local habits-server lifecycle.
-- `server/routes/habits/` — the habits MVC route and embedded frontend.
+- `server/routes/habits/` — the habits MVC route and embedded frontend. GET
+  and completion POST requests carry `workspace_id`; the shared process
+  reloads the registry by exact UUID and verifies the root's portable manifest
+  before accessing that workspace's CSV.
 - `server/routes/triage/` — the `POST /triage/done` controller: the ephemeral
   daily-triage session's completion signal (see `triage_signal.rs`).
 

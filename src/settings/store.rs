@@ -16,14 +16,14 @@ use serde_json::{Map, Value};
 /// it. The one exception is the brain-root pointer itself, which can't live
 /// inside the root (see [`crate::paths`]).
 #[must_use]
-pub fn config_dir() -> PathBuf {
-    crate::paths::brain_root_path().join(".config")
+pub fn config_dir(workspace: &crate::workspace::WorkspaceContext) -> PathBuf {
+    workspace.root().join(".config")
 }
 
 /// Absolute path to the JSON config store.
 #[must_use]
-pub fn store_path() -> PathBuf {
-    config_dir().join("config.json")
+pub fn store_path(workspace: &crate::workspace::WorkspaceContext) -> PathBuf {
+    config_dir(workspace).join("config.json")
 }
 
 /// Read a JSON object at an explicit `path`. A missing, unreadable, or
@@ -47,8 +47,8 @@ pub(crate) fn load_map_at(path: &Path) -> Map<String, Value> {
 /// Read the store as a JSON object. A missing, unreadable, or non-object file
 /// yields an empty map — a broken config never blocks startup.
 #[must_use]
-pub(crate) fn load_map() -> Map<String, Value> {
-    load_map_at(&store_path())
+pub(crate) fn load_map(workspace: &crate::workspace::WorkspaceContext) -> Map<String, Value> {
+    load_map_at(&store_path(workspace))
 }
 
 /// Write `map` as the JSON object at an explicit `path`, creating parent dirs
@@ -63,8 +63,11 @@ pub(crate) fn save_map_at(path: &Path, map: &Map<String, Value>) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn save_map(map: &Map<String, Value>) -> Result<()> {
-    save_map_at(&store_path(), map)
+pub(super) fn save_map(
+    workspace: &crate::workspace::WorkspaceContext,
+    map: &Map<String, Value>,
+) -> Result<()> {
+    save_map_at(&store_path(workspace), map)
 }
 
 pub(super) fn home_dir() -> PathBuf {
@@ -77,11 +80,20 @@ mod tests {
 
     #[test]
     fn store_path_is_config_json_inside_the_brain_root() {
-        // config.json lives at <brain-root>/.config/config.json now, so it
-        // travels with the brain. We can't safely mutate the process env here,
-        // so assert the shape the resolver produces.
-        let p = store_path();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            Path::new("/home/tester"),
+            crate::workspace::WorkspaceId::new(),
+            crate::workspace::WorkspaceName::parse("brain").unwrap(),
+            Path::new("/home/tester/brain"),
+            "tester",
+            Path::new("/home/tester"),
+        )
+        .unwrap();
+        let p = store_path(&workspace);
         assert!(p.ends_with(".config/config.json"));
-        assert_eq!(p.parent(), Some(crate::settings::config_dir().as_path()));
+        assert_eq!(
+            p.parent(),
+            Some(crate::settings::config_dir(&workspace).as_path())
+        );
     }
 }

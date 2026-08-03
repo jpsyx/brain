@@ -29,7 +29,10 @@ pub struct Debouncer {
 impl Debouncer {
     #[must_use]
     pub fn new(window: Duration) -> Self {
-        Self { window, deadline: None }
+        Self {
+            window,
+            deadline: None,
+        }
     }
 
     /// A relevant event arrived: (re)arm the quiescence timer.
@@ -155,10 +158,16 @@ where
 
 /// Start the real auto-sync watcher: fires a one-way push when changes under
 /// `root` settle for the configured debounce window.
-pub fn spawn_watcher(root: &Path, cfg: &SyncConfig) -> anyhow::Result<WatcherHandle> {
-    spawn_watcher_with(root, cfg.debounce(), || {
-        let _ =
-            crate::sync::trigger::spawn_detached_sync(crate::sync::args::Direction::Push);
+pub fn spawn_watcher(
+    workspace: std::sync::Arc<crate::workspace::WorkspaceContext>,
+    cfg: &SyncConfig,
+) -> anyhow::Result<WatcherHandle> {
+    let root = workspace.root().to_path_buf();
+    spawn_watcher_with(&root, cfg.debounce(), move || {
+        let _ = crate::sync::trigger::spawn_detached_sync(
+            &workspace,
+            crate::sync::args::Direction::Push,
+        );
     })
 }
 
@@ -182,7 +191,10 @@ mod tests {
         d.on_event(t0);
         assert!(!d.poll(t0 + Duration::from_secs(1)), "not yet quiet");
         assert!(d.poll(t0 + Duration::from_secs(3)), "fires at the window");
-        assert!(!d.poll(t0 + Duration::from_secs(4)), "disarmed after firing");
+        assert!(
+            !d.poll(t0 + Duration::from_secs(4)),
+            "disarmed after firing"
+        );
     }
 
     #[test]
@@ -192,8 +204,14 @@ mod tests {
         d.on_event(t0);
         d.on_event(t0 + Duration::from_secs(1)); // re-arms → deadline = t0+4s
         d.on_event(t0 + Duration::from_secs(2)); // re-arms → deadline = t0+5s
-        assert!(!d.poll(t0 + Duration::from_secs(4)), "still within the extended window");
-        assert!(d.poll(t0 + Duration::from_secs(5)), "one fire once the burst settles");
+        assert!(
+            !d.poll(t0 + Duration::from_secs(4)),
+            "still within the extended window"
+        );
+        assert!(
+            d.poll(t0 + Duration::from_secs(5)),
+            "one fire once the burst settles"
+        );
         assert!(!d.poll(t0 + Duration::from_secs(6)));
     }
 
@@ -203,7 +221,10 @@ mod tests {
         let mut d = Debouncer::new(Duration::from_secs(3));
         d.on_event(t0);
         assert_eq!(d.time_until_fire(t0), Some(Duration::from_secs(3)));
-        assert_eq!(d.time_until_fire(t0 + Duration::from_secs(3)), Some(Duration::ZERO));
+        assert_eq!(
+            d.time_until_fire(t0 + Duration::from_secs(3)),
+            Some(Duration::ZERO)
+        );
     }
 
     #[test]
@@ -211,14 +232,18 @@ mod tests {
         assert!(!is_watch_relevant(Path::new(".git/index")));
         assert!(!is_watch_relevant(Path::new("notes/.DS_Store")));
         assert!(!is_watch_relevant(Path::new(".cache/x")));
-        assert!(!is_watch_relevant(Path::new("notes/idea (conflict mac 2026-07-25).md")));
+        assert!(!is_watch_relevant(Path::new(
+            "notes/idea (conflict mac 2026-07-25).md"
+        )));
     }
 
     #[test]
     fn excludes_the_raw_rclone_conflict_marker() {
         // The marker rclone leaves before the friendly rename must not re-trigger
         // a sync (mirrors the bisync `*.__brainconflict__*` exclude).
-        assert!(!is_watch_relevant(Path::new("notes/idea.md.__brainconflict__")));
+        assert!(!is_watch_relevant(Path::new(
+            "notes/idea.md.__brainconflict__"
+        )));
     }
 
     #[test]

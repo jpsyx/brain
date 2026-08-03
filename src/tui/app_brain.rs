@@ -31,6 +31,7 @@ impl App<'_> {
         let (tx, rx) =
             std::sync::mpsc::sync_channel(crate::server::receiver::INBOUND_QUEUE_CAPACITY);
         match crate::server::receiver::ReceiverServer::start(
+            &self.command_context,
             crate::server::receiver::DEFAULT_PORT,
             &tx,
         ) {
@@ -151,6 +152,7 @@ impl App<'_> {
                         crate::server::receiver::Channel::Sms => {
                             let notice = crate::server::reply::processing_notice("sms");
                             crate::server::delivery::send_sms_background(
+                                self.command_context.clone(),
                                 "queued SMS notice",
                                 message.sender.clone(),
                                 notice.text,
@@ -166,6 +168,7 @@ impl App<'_> {
                                 let notice = crate::server::reply::processing_notice("email");
                                 let html = crate::server::reply::email_html(&notice.text);
                                 crate::server::delivery::send_email_background(
+                                    self.command_context.clone(),
                                     "queued email notice",
                                     recipients,
                                     "Brain received your message".to_owned(),
@@ -204,14 +207,10 @@ impl App<'_> {
             }
             crate::tui::receiver_state::DispatchAction::CloseIdlePanel => {
                 if self.receiver_session_id.is_some() {
-                    crate::logging::log(
-                        "receiver dispatch switching from a warm receiver channel",
-                    );
+                    crate::logging::log("receiver dispatch switching from a warm receiver channel");
                     self.close_receiver_panel(false);
                 } else {
-                    crate::logging::log(
-                        "receiver dispatch replacing idle interactive brain panel",
-                    );
+                    crate::logging::log("receiver dispatch replacing idle interactive brain panel");
                     self.close_brain();
                 }
             }
@@ -236,7 +235,11 @@ impl App<'_> {
             }
         };
         let _ = crate::server::reply::processing_notice(label);
-        let staged = crate::server::receiver::stage_attachments(&message);
+        let staged = crate::server::receiver::stage_attachments(
+            &self.command_context.workspace,
+            &self.command_context,
+            &message,
+        );
         let mut attachments = String::new();
         for attachment in staged {
             use std::fmt::Write;
@@ -262,8 +265,12 @@ impl App<'_> {
         let reusing_receiver_panel = self.receiver_session_id.is_some() && self.brain_panel_open();
         if reusing_receiver_panel {
             if let Some(session_id) = self.receiver_session_id.as_deref() {
-                let response_path =
-                    crate::session::response_dir().join(format!("{session_id}.json"));
+                let response_path = self
+                    .command_context
+                    .workspace
+                    .paths()
+                    .responses_dir()
+                    .join(format!("{session_id}.json"));
                 let _ = std::fs::remove_file(response_path);
             }
         } else {
@@ -273,8 +280,7 @@ impl App<'_> {
             });
         }
         let launched = self.open_or_focus_brain(Some(&(prompt + &attachments)));
-        let _ =
-            crate::tui::receiver_state::commit_dispatch(&mut self.receiver_queue, launched);
+        let _ = crate::tui::receiver_state::commit_dispatch(&mut self.receiver_queue, launched);
         if launched {
             self.receiver_retry_at = None;
             self.receiver_sender = Some(message.sender.clone());
@@ -317,7 +323,12 @@ impl App<'_> {
         let Some(session_id) = self.interactive_session_id.clone() else {
             return;
         };
-        let path = crate::session::response_dir().join(format!("{session_id}.json"));
+        let path = self
+            .command_context
+            .workspace
+            .paths()
+            .responses_dir()
+            .join(format!("{session_id}.json"));
         if !path.is_file() {
             return;
         }
@@ -351,6 +362,7 @@ impl App<'_> {
         match channel {
             crate::server::receiver::Channel::Sms => {
                 crate::server::delivery::send_sms_background(
+                    self.command_context.clone(),
                     "delayed SMS notice",
                     sender,
                     notice.text,
@@ -365,6 +377,7 @@ impl App<'_> {
                 if !recipients.is_empty() {
                     let html = crate::server::reply::email_html(&notice.text);
                     crate::server::delivery::send_email_background(
+                        self.command_context.clone(),
                         "delayed email notice",
                         recipients,
                         "Brain is still working".to_owned(),
@@ -385,7 +398,12 @@ impl App<'_> {
         ) else {
             return;
         };
-        let path = crate::session::response_dir().join(format!("{session_id}.json"));
+        let path = self
+            .command_context
+            .workspace
+            .paths()
+            .responses_dir()
+            .join(format!("{session_id}.json"));
         let Ok(raw) = std::fs::read_to_string(&path) else {
             return;
         };
@@ -403,6 +421,7 @@ impl App<'_> {
             crate::server::receiver::Channel::Sms => {
                 let reply = crate::server::reply::sms(message);
                 crate::server::delivery::send_sms_background(
+                    self.command_context.clone(),
                     "final SMS response",
                     sender,
                     reply.text,
@@ -418,6 +437,7 @@ impl App<'_> {
                     let reply = crate::server::reply::email(message);
                     let html = crate::server::reply::email_html(&reply.text);
                     crate::server::delivery::send_email_background(
+                        self.command_context.clone(),
                         "final email response",
                         recipients,
                         "Brain response".to_owned(),
@@ -541,10 +561,15 @@ impl App<'_> {
             self.receiver_session_id = Some(match &plan {
                 Plan::Resume(id) | Plan::Fresh(id) => id.clone(),
             });
-            let response_path = crate::session::response_dir().join(format!(
-                "{}.json",
-                self.receiver_session_id.as_deref().unwrap_or_default()
-            ));
+            let response_path =
+                self.command_context
+                    .workspace
+                    .paths()
+                    .responses_dir()
+                    .join(format!(
+                        "{}.json",
+                        self.receiver_session_id.as_deref().unwrap_or_default()
+                    ));
             let _ = std::fs::remove_file(response_path);
         }
         if requested_channel.is_none() {
@@ -566,20 +591,19 @@ impl App<'_> {
         };
 
         let llm_cmd = match self.agent_kind {
-            AgentKind::Claude => crate::env::claude_command(),
-            AgentKind::Codex => crate::env::codex_command(),
+            AgentKind::Claude => crate::env::claude_command(&self.command_context),
+            AgentKind::Codex => crate::env::codex_command(&self.command_context),
         };
         let command =
             session::build_llm_command(&self.brain_root, self.agent_kind, &llm_cmd, &plan, prompt);
-        let env = session::env_for(&self.instance, pid, &self.db_path);
+        let env = session::env_for(
+            &self.command_context.workspace,
+            &self.instance,
+            pid,
+            &self.db_path,
+        );
         // Placeholder size; the first draw resizes the PTY to the real panel.
-        match PtyPane::spawn_shell_command_with_env(
-            &command,
-            &env,
-            &self.brain_root,
-            24,
-            80,
-        ) {
+        match PtyPane::spawn_shell_command_with_env(&command, &env, &self.brain_root, 24, 80) {
             Ok(panel) => {
                 self.brain = Some(panel);
                 self.brain_turn_active = false;
@@ -616,7 +640,12 @@ impl App<'_> {
         if self.receiver_lease.is_none()
             && let Some(session_id) = self.interactive_session_id.as_deref()
         {
-            let path = crate::session::response_dir().join(format!("{session_id}.json"));
+            let path = self
+                .command_context
+                .workspace
+                .paths()
+                .responses_dir()
+                .join(format!("{session_id}.json"));
             let _ = std::fs::remove_file(path);
         }
         if !self.brain_turn_active {
@@ -646,6 +675,7 @@ impl App<'_> {
                     crate::server::receiver::Channel::Sms => {
                         let reply = crate::server::reply::sms(&final_text);
                         crate::server::delivery::send_sms_background(
+                            self.command_context.clone(),
                             "fallback final SMS response",
                             sender,
                             reply.text,
@@ -661,6 +691,7 @@ impl App<'_> {
                             let reply = crate::server::reply::email(&final_text);
                             let html = crate::server::reply::email_html(&reply.text);
                             crate::server::delivery::send_email_background(
+                                self.command_context.clone(),
                                 "fallback final email response",
                                 recipients,
                                 "Brain response".to_owned(),

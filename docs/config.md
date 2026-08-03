@@ -7,7 +7,7 @@ they are never inherited or merged from the default or another record.
 
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
-| **brain env / workspace registry** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** every brain root) | `brain workspace …` manages records; `brain env …` keeps the temporary default-record compatibility view | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
+| **brain env / workspace registry** | `~/.config/brain/env.json` (fixed XDG-style path, **outside** every brain root) | `brain workspace …` manages records; `brain env …` reads and writes the already-selected record | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
 | **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes** — travels with the brain | `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
@@ -65,14 +65,14 @@ reports structural JSON and IO failures with the failed operation and path
 
 `brain workspace` explicitly loads this schema-v2 registry and applies every
 mutation through `RegistryStore`'s interprocess transaction and atomic-save
-boundaries. Startup migration and the legacy/default `brain env` compatibility
-writer use the same lock, so they cannot overwrite a workspace command.
+boundaries. Startup migration and selected-record `brain env` writes use the
+same lock, so they cannot overwrite a workspace command.
 Its global `--brain/-b` selector resolves canonical names and aliases once at
 the bootstrap boundary. Ordinary commands receive a ready selected context;
-sync, check, task CSV selection, and receiver setup already consume its root.
-Some underlying config/env/personalization helpers still use the temporary
-default-record compatibility view until Task 6 threads context through every
-store signature.
+env writes verify both canonical name and immutable UUID, while config,
+personalization, tasks, reindex, sync, receiver setup, and the TUI consume that
+same context. Changing the default after bootstrap cannot redirect a read or
+write already in progress.
 
 ### The `brain workspace` command
 
@@ -116,17 +116,15 @@ commands. The first `workspace create` therefore leaves `local_user_id` empty,
 and the next ordinary command is the explicit setup point. Version/help and
 hidden internal server execution perform no workspace IO or prompt.
 
-### Legacy single-workspace brain env compatibility
+### Selected workspace env
 
-Machine-local config. It lives at a fixed path — `$XDG_CONFIG_HOME/brain` or
-`~/.config/brain` (`paths::machine_config_dir`) — that does **not** depend on
-the brain root, so it can hold `root` itself without circularity, and it never
-rides whatever syncs the brain directory (Backblaze, a cloud drive, etc.).
-Everything in it is created on demand; a fresh checkout has none.
+Machine-local env values live inside the selected workspace record at the
+fixed registry path. They do **not** depend on the workspace root and never
+ride whatever syncs that root (Backblaze, a cloud drive, etc.). Structural
+record fields are managed by `brain workspace`, not exposed as free-form env.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `root` | `~/brain` | Absolute or `~`-relative path to the brain (PARA) directory on **this machine**. Replaces the legacy `~/.config/brain-root` pointer file (still read for back-compat; see below). |
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
 | `codex_cmd` | `codex` | Command that launches the brain panel's Codex frontend on **this machine**. brain appends `resume <id>` only when it has a Codex session id to resume; fresh Codex panels launch without Claude-only `--session-id` / `--resume` flags. Blank falls back to `codex`. |
@@ -140,7 +138,7 @@ Mirrors `brain config` exactly, over the env store:
 | --- | --- |
 | `brain env list` | Print every env value, including recursively nested objects, using dot-separated paths such as `sync.b2_bucket`. Bare `brain env` also lists. |
 | `brain env get <name>` | Print the effective value of one variable or dotted nested path, such as `sync.b2_bucket`. |
-| `brain env set <name>=<value>` | Set a scalar variable or dotted nested path and persist it into `~/.config/brain/env.json`, preserving sibling values. |
+| `brain env set <name>=<value>` | Set a declared scalar variable or dotted nested env path in the selected record, preserving sibling values. Structural record fields such as `root`, UUID, aliases, local identity, receiver enablement, and access policy are rejected. |
 
 ### The `brain sync` command
 
@@ -194,26 +192,18 @@ it tries to spawn it. `brain tasks doctor` reports rclone's presence/version
 and whether sync is configured as one informational line; an unconfigured (or
 rclone-less) sync is a normal, healthy state.
 
-### `root`: now an env key, with legacy back-compat
+### Structural workspace root and legacy back-compat
 
-`root` used to be the one thing that couldn't live in *any* config store —
-you'd need to know the root to read the setting that tells you the root. Now
-that brain env lives at a fixed path *outside* the brain root, that
-circularity is gone: `~/.config/brain/env.json` is found without knowing the
-root, so `root` is a normal (if machine-local) env variable.
+`root` is a required structural field on each schema-v2 `WorkspaceRecord`, not
+a free-form env key. Workspace create/attach and the one-time legacy migration
+establish it; ordinary commands use the immutable root snapshot in their
+selected `WorkspaceContext`. `brain env set root=...` is therefore rejected
+instead of allowing an env write to split record identity from its root.
 
-Resolution order (`paths::brain_root_path`):
-
-1. the default schema-v2 workspace's `root` (or the pre-migration flat `root`),
-   if present and non-empty;
-2. otherwise the legacy `~/.config/brain-root` one-line pointer file (kept for
-   back-compat, tilde-expanded against `$HOME`), if present and non-empty;
-3. otherwise the default `~/brain`.
-
-`brain_root()` (used when a command actually needs the directory) creates the
-resolved path and any missing parent directories on demand.
-`brain_root_path()` (used to derive the config dir) remains side-effect-free, so
-env and config lookups don't create or require a brain directory.
+The old `paths::brain_root()` / `brain_root_path()` resolution order remains a
+compatibility seam for legacy migration only: pre-migration flat `root`, then
+the read-only `~/.config/brain-root` pointer, then `~/brain`. It is not an
+ordinary TUI, config, task, receiver-payload, or sync workspace selector.
 
 **Migration.** When an invocation's bootstrap policy permits registry access,
 brain checks `env.json` through `env::migrate`. A valid schema-v2 registry is a byte-for-byte no-op. Any other
@@ -256,9 +246,10 @@ is cleaned up only after that write succeeds; a failed registry write leaves
 the portable value intact. The explicit migration API returns typed errors,
 while the existing startup wrapper remains nonfatal.
 
-You can still hand-edit `~/.config/brain-root` (or have a dotfiles tool track
-it there — safe, since brain only ever *reads* it), but the supported path
-going forward is `brain env set root=<path>`.
+You can still hand-edit `~/.config/brain-root` before migration (or have a
+dotfiles tool track it there). Brain only reads it as compatibility input. New
+roots are established through `brain workspace create --root <path>` or
+`brain workspace attach <path>`.
 
 ## brain config (`<brain-root>/.config/config.json`)
 
@@ -297,11 +288,13 @@ long-form SMS responses are delivered:
 | `allowed_sms_senders` | Comma-separated E.164 phone numbers permitted to send SMS/MMS messages, including the leading `+` and country code (for example, `+16072809118`). |
 | `allowed_email_senders` | Comma-separated email addresses permitted to issue brain messages and participate in automatic thread replies. |
 
-Provider credentials are machine-local values in `~/.config/brain/env.json`.
-`brain receiver setup` prompts for the credentials required by the selected
-SMS, email, or both-channel configuration and stores them there. Existing
-process environment variables such as `TWILIO_AUTH_TOKEN` remain supported as
-overrides. `brain env list` and `brain env get` redact secret values.
+Provider credentials are machine-local values in the selected workspace's
+record in `~/.config/brain/env.json`. `brain receiver setup` prompts for the
+credentials required by the selected SMS, email, or both-channel configuration
+and stores them only in that record. Ordinary provider lookup never reads
+`TWILIO_*`, `RESEND_*`, or `BRAIN_RECEIVER_PUBLIC_URL` from Brain's process
+environment, so a workspace cannot inherit another workspace's shell values.
+`brain env list` and `brain env get` redact secret values.
 
 The setup prompt asks for one public base URL, such as
 `https://brain.example.com`, and derives the exact webhook endpoints
@@ -349,9 +342,9 @@ the `name=value` form.
 machine-specific values.
 
 Every variable is optional; a missing file or missing field falls back to the
-default above. The brain directory itself is resolved by `paths::brain_root_path()`
-from the brain-env `root` key (or the legacy pointer / `~/brain` default; see
-above — it is *not* a `brain config` variable). The runtime knobs
+default above. The brain directory is the selected `WorkspaceContext::root()`;
+only one-time legacy migration consults `paths::brain_root_path()` and the old
+pointer/default precedence. The runtime knobs
 (`daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
 by `config.rs::Config`; they all read the same `config.json` and ignore fields
 they don't use. Agent launch commands are read by `env::claude_command` and
@@ -383,9 +376,9 @@ The IO-touching wrappers are thin; the decisions worth testing are pure:
 
 - `settings/` units — schema resolution, the `config list` table layout, the
   prerequisite message wording, shell-output path extraction, value coercion.
-- `env/` units — the env schema/vars (`root`, `markdown_to_pdf_path`,
-  `claude_cmd`, `codex_cmd`), the
-  migration `plan` (pointer→`root`, config→env `markdown_to_pdf_path`
+- `env/` units — the writable env schema/vars (`markdown_to_pdf_path`,
+  `claude_cmd`, `codex_cmd`), structural-name rejection, and the
+  migration `plan` (legacy pointer→record `root`, config→env `markdown_to_pdf_path`
   relocation), and the store round-trip.
 - `sync::config` units — `SyncConfig` field defaults, `is_configured`,
   `watch_effective`; plus `sync::args` (the bisync argv per direction),
@@ -394,8 +387,10 @@ The IO-touching wrappers are thin; the decisions worth testing are pure:
   classification), `sync::conflicts` (friendly-name rewriting), and
   `sync::command` (hostname, direction/label mapping, status formatting). See
   [data-model.md](data-model.md).
-- `paths::parse_root_key` — reading the `root` field out of a raw `env.json` body.
-- `paths::resolve_root` — the `root` env key → legacy pointer → default precedence.
+- `paths::parse_root_key` — reading the legacy flat or schema-default record
+  root during compatibility migration.
+- `paths::resolve_root` — the legacy flat root → read-only pointer → default
+  precedence.
 - `paths::parse_brain_root_file` — reading the legacy pointer file, empty-is-unset.
 - `paths::expand_tilde_with_home` — tilde expansion against an explicit home.
 - `paths::machine_config_dir_from` — the XDG-vs-`~/.config` precedence for the
@@ -434,11 +429,11 @@ with no personalization, and skills fall back to generic behavior. Any
 so the installed skills stay in sync; the render pipeline itself is a later
 sub-project (the trigger is wired now, currently a no-op).
 
-## Persistent state (`~/.cache/brain/state.db`)
+## Persistent state (`~/.cache/brain/workspaces/<workspace-id>/state.db`)
 
 Neither config store is the only *user-edited* state. The **persistent brain
 shell** also keeps machine-managed state in a SQLite DB at
-`~/.cache/brain/state.db` (created on first run; see `state.rs` and
+`~/.cache/brain/workspaces/<workspace-id>/state.db` (created on first run; see `state.rs` and
 [data-model.md](data-model.md)):
 
 - `brain_sessions` — the Claude sessions brain has launched/adopted, with a
@@ -448,7 +443,7 @@ shell** also keeps machine-managed state in a SQLite DB at
   `"right"`), the side the brain panel sits on, set by the palette's "Move
   brain panel…" command and read on startup.
 
-You don't edit this file by hand. Deleting it is safe: brain recreates it,
+You don't edit a workspace state DB by hand. Deleting it is safe: brain recreates it,
 starts a fresh Claude session, and reverts to the default right-side layout.
 The `brain config`, `brain env`, and `brain tasks {complete,doctor,--no-tui}`
 utility paths never touch it.

@@ -13,8 +13,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::sync::config::SyncConfig;
 use crate::sync::args::Direction;
+use crate::sync::config::SyncConfig;
 use crate::sync::csv_merge::{merge, parse, serialize};
 use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone_capture;
@@ -33,15 +33,10 @@ pub struct CsvMergeOutcome {
 }
 
 /// The machine-local baseline (last-synced snapshot) for a CSV:
-/// `~/.cache/brain/sync/baselines/<name>`. Mirrors the journal's cache-dir
-/// style; never synced.
+/// `<workspace-cache>/sync/baselines/<name>`. Never synced.
 #[must_use]
-pub fn baseline_path(name: &str) -> PathBuf {
-    let base = std::env::var_os("HOME").map_or_else(
-        || PathBuf::from("."),
-        |h| PathBuf::from(h).join(".cache").join("brain").join("sync").join("baselines"),
-    );
-    base.join(name)
+pub fn baseline_path(paths: &crate::workspace::WorkspacePaths, name: &str) -> PathBuf {
+    paths.sync_csv_baselines().join(name)
 }
 
 /// Join a remote base with a CSV's repo-relative path, trimming one trailing
@@ -59,32 +54,39 @@ pub fn remote_csv_arg(remote_arg: &str, rel: &str) -> String {
 /// if missing) as `ours`, and `fetch()` (empty if `None`) as `theirs`; merges,
 /// writes the result back to `local`, pushes it, and refreshes the baseline.
 pub fn sync_one(
+    paths: &crate::workspace::WorkspacePaths,
     local: &Path,
     rel: &str,
     fetch: impl Fn() -> Option<String>,
     push: impl Fn(&str) -> bool,
 ) -> CsvMergeOutcome {
-    sync_one_with_mode(local, rel, fetch, push, true)
+    sync_one_with_mode(paths, local, rel, fetch, push, true)
 }
 
 fn sync_one_push_only(
+    paths: &crate::workspace::WorkspacePaths,
     local: &Path,
     rel: &str,
     fetch: impl Fn() -> Option<String>,
     push: impl Fn(&str) -> bool,
 ) -> CsvMergeOutcome {
-    sync_one_with_mode(local, rel, fetch, push, false)
+    sync_one_with_mode(paths, local, rel, fetch, push, false)
 }
 
 fn sync_one_with_mode(
+    paths: &crate::workspace::WorkspacePaths,
     local: &Path,
     rel: &str,
     fetch: impl Fn() -> Option<String>,
     push: impl Fn(&str) -> bool,
     update_local_and_baseline: bool,
 ) -> CsvMergeOutcome {
-    let name = Path::new(rel).file_name().and_then(|s| s.to_str()).unwrap_or(rel).to_owned();
-    let baseline = baseline_path(&name);
+    let name = Path::new(rel)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(rel)
+        .to_owned();
+    let baseline = baseline_path(paths, &name);
 
     let baseline_text = std::fs::read_to_string(&baseline).unwrap_or_default();
     let local_text = std::fs::read_to_string(local).unwrap_or_default();
@@ -130,11 +132,14 @@ fn write_all(path: &Path, text: &str) {
 /// counts rather than aborting the caller's sync.
 #[must_use]
 pub fn sync_csvs(
+    paths: &crate::workspace::WorkspacePaths,
     cfg: &SyncConfig,
     root: &Path,
     direction: Direction,
 ) -> Vec<CsvMergeOutcome> {
     let remote = build_remote(cfg);
+    let temporary_dir = paths.sync_dir().join("tmp");
+    let _ = std::fs::create_dir_all(&temporary_dir);
     let mut outcomes = Vec::with_capacity(CSVS.len());
     for rel in CSVS {
         let local = root.join(rel);
@@ -142,28 +147,36 @@ pub fn sync_csvs(
         let tag = rel.replace('/', "_");
 
         let fetch = || {
-            let tmp = std::env::temp_dir().join(format!("brain-csv-fetch-{}-{tag}", std::process::id()));
-            let args = ["copyto".to_owned(), remote_arg.clone(), tmp.to_string_lossy().into_owned()];
+            let tmp = temporary_dir.join(format!("csv-fetch-{}-{tag}", std::process::id()));
+            let args = [
+                "copyto".to_owned(),
+                remote_arg.clone(),
+                tmp.to_string_lossy().into_owned(),
+            ];
             let (ok, _) = run_rclone_capture(&remote.env, &args);
             let text = ok.then(|| std::fs::read_to_string(&tmp).ok()).flatten();
             let _ = std::fs::remove_file(&tmp);
             text
         };
         let push = |text: &str| {
-            let tmp = std::env::temp_dir().join(format!("brain-csv-push-{}-{tag}", std::process::id()));
+            let tmp = temporary_dir.join(format!("csv-push-{}-{tag}", std::process::id()));
             if std::fs::write(&tmp, text).is_err() {
                 return false;
             }
-            let args = ["copyto".to_owned(), tmp.to_string_lossy().into_owned(), remote_arg.clone()];
+            let args = [
+                "copyto".to_owned(),
+                tmp.to_string_lossy().into_owned(),
+                remote_arg.clone(),
+            ];
             let (ok, _) = run_rclone_capture(&remote.env, &args);
             let _ = std::fs::remove_file(&tmp);
             ok
         };
 
         outcomes.push(if direction == Direction::Push {
-            sync_one_push_only(&local, rel, fetch, push)
+            sync_one_push_only(paths, &local, rel, fetch, push)
         } else {
-            sync_one(&local, rel, fetch, push)
+            sync_one(paths, &local, rel, fetch, push)
         });
     }
     outcomes
@@ -173,10 +186,15 @@ pub fn sync_csvs(
 mod tests {
     use super::*;
 
+    fn paths(home: &Path) -> crate::workspace::WorkspacePaths {
+        crate::workspace::WorkspacePaths::new(home, crate::workspace::WorkspaceId::new())
+    }
+
     #[test]
     fn baseline_path_is_under_cache_brain_sync_baselines() {
-        assert!(baseline_path("tasks.csv").ends_with(".cache/brain/sync/baselines/tasks.csv"));
-        assert!(baseline_path("habits.csv").ends_with(".cache/brain/sync/baselines/habits.csv"));
+        let paths = paths(Path::new("/home/tester"));
+        assert!(baseline_path(&paths, "tasks.csv").ends_with("sync/baselines/tasks.csv"));
+        assert!(baseline_path(&paths, "habits.csv").ends_with("sync/baselines/habits.csv"));
     }
 
     #[test]
@@ -195,19 +213,20 @@ mod tests {
     fn push_only_merge_preserves_remote_rows_without_downloading_them() {
         use std::cell::RefCell;
 
-        let base =
-            std::env::temp_dir().join(format!("brain-csv-push-only-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("brain-csv-push-only-{}", std::process::id()));
         std::fs::create_dir_all(&base).unwrap();
         let local = base.join("local.csv");
         let rel = format!("tasks/push-only-{}.csv", std::process::id());
         let name = Path::new(&rel).file_name().unwrap().to_str().unwrap();
-        let baseline = baseline_path(name);
+        let paths = paths(&base);
+        let baseline = baseline_path(&paths, name);
         std::fs::remove_file(&baseline).ok();
         let header = "task_id,status,notes,last_touched\n";
         std::fs::write(&local, format!("{header}A,open,local,t1\n")).unwrap();
         let uploaded = RefCell::new(String::new());
 
         sync_one_push_only(
+            &paths,
             &local,
             &rel,
             || Some(format!("{header}B,open,remote,t1\n")),
@@ -223,7 +242,10 @@ mod tests {
         let remote_after = uploaded.borrow();
         assert!(remote_after.contains("A,open,local"));
         assert!(remote_after.contains("B,open,remote"));
-        assert!(!baseline.exists(), "push-only must not advance the downstream baseline");
+        assert!(
+            !baseline.exists(),
+            "push-only must not advance the downstream baseline"
+        );
 
         std::fs::remove_dir_all(base).ok();
     }

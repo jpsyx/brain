@@ -64,7 +64,7 @@ impl App<'_> {
     pub(crate) fn run_open_habits(&mut self) {
         self.flash = Some(match crate::server::lifecycle::ensure_running() {
             Ok(port) => {
-                let url = crate::server::url(port, "/habits");
+                let url = crate::server::habits_url(port, self.command_context.workspace.id());
                 open_url(self.open_runner.as_ref(), &url)
             }
             Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
@@ -212,6 +212,7 @@ impl App<'_> {
             }
             PaletteAction::SyncBrainNow => {
                 if crate::sync::trigger::spawn_detached_sync(
+                    &self.command_context.workspace,
                     crate::sync::args::Direction::Both,
                 )
                 .is_some()
@@ -223,8 +224,9 @@ impl App<'_> {
             }
             PaletteAction::ShowSyncStatus => {
                 crate::logging::log("palette request sync status");
+                let workspace_paths = self.command_context.workspace.paths();
                 self.flash = Some(FlashKind::Info(
-                    crate::sync::current::read_state()
+                    crate::sync::current::read_state(workspace_paths)
                         .filter(|state| crate::server::lifecycle::pid_alive(state.pid))
                         .map_or_else(
                             || "no sync is currently running".to_owned(),

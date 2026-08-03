@@ -74,11 +74,11 @@ fn extract_workspace_selectors(args: Vec<String>) -> Vec<String> {
     name = "brain",
     version = env!("CARGO_PKG_VERSION"),
     disable_version_flag = true,
-    about = "Brain CLI: central terminal dispatch for ~/brain and the task system.",
+    about = "Brain CLI: central terminal dispatch for registered workspaces and tasks.",
     long_about = "Brain CLI: the central terminal dispatch for the user's second\n\
                   brain and task system. Bare `brain` opens a persistent shell\n\
                   with two main views (tasks: management, agenda, triage, the\n\
-                  startup default; and a fuzzy search over ~/brain), plus an\n\
+                  startup default; and a fuzzy search over the selected workspace), plus an\n\
                   app-level brain panel running an interactive agent session.\n\
                   \n\
                   Subcommands:\n\
@@ -142,6 +142,22 @@ impl Cli {
 mod tests {
     use super::*;
     use crate::session::AgentKind;
+    use clap::CommandFactory;
+
+    #[test]
+    fn help_describes_the_selected_workspace_instead_of_one_fixed_root() {
+        let help = Cli::command().render_long_help().to_string();
+
+        assert!(help.contains("selected workspace"), "{help}");
+        assert!(!help.contains("over ~/brain"), "{help}");
+    }
+
+    #[test]
+    fn help_marks_the_workspace_root_as_registry_owned_and_read_only() {
+        let help = Cli::command().render_long_help().to_string();
+
+        assert!(help.contains("registry-owned, read-only `root`"), "{help}");
+    }
 
     #[test]
     fn codex_flag_selects_codex_frontend() {

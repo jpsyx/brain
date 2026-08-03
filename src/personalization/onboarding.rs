@@ -33,24 +33,24 @@ pub fn from_answers(name: &str, role: &str, works_for: &str) -> Personalization 
 }
 
 /// Bare `brain personalize`: run onboarding if nothing is set, else `show`.
-pub fn run_or_show() -> Result<()> {
-    if store::load().is_empty() {
-        run_interactive()
+pub fn run_or_show(workspace: &crate::workspace::WorkspaceContext) -> Result<()> {
+    if store::load(workspace).is_empty() {
+        run_interactive(workspace)
     } else {
-        command::run_show();
+        command::run_show(workspace);
         Ok(())
     }
 }
 
 /// Startup hook: run onboarding only when nothing is set. Never fails a startup
 /// — any error (including no terminal) is swallowed.
-pub fn maybe_run_first_time() {
-    if store::load().is_empty() {
-        let _ = run_interactive();
+pub fn maybe_run_first_time(workspace: &crate::workspace::WorkspaceContext) {
+    if store::load(workspace).is_empty() {
+        let _ = run_interactive(workspace);
     }
 }
 
-fn run_interactive() -> Result<()> {
+fn run_interactive(workspace: &crate::workspace::WorkspaceContext) -> Result<()> {
     // Open the controlling terminal directly so the prompt works even when the
     // TUI owns /dev/tty and regardless of stdin redirection. No tty → skip.
     let Ok(tty) = std::fs::OpenOptions::new()
@@ -63,7 +63,10 @@ fn run_interactive() -> Result<()> {
     let mut out = tty.try_clone()?;
     let mut reader = BufReader::new(tty);
 
-    writeln!(out, "\nLet's personalize brain (press Enter to skip any).\n")?;
+    writeln!(
+        out,
+        "\nLet's personalize brain (press Enter to skip any).\n"
+    )?;
     let mut answers = [String::new(), String::new(), String::new()];
     for (i, (_, prompt)) in QUESTIONS.iter().enumerate() {
         write!(out, "  {prompt}: ")?;
@@ -104,9 +107,12 @@ fn run_interactive() -> Result<()> {
         writeln!(out, "\nSkipped — run `brain personalize` anytime.\n")?;
         return Ok(());
     }
-    store::save(&p)?;
-    crate::skills::resync_skills();
-    writeln!(out, "\nSaved. Change it anytime with `brain personalize`.\n")?;
+    store::save(workspace, &p)?;
+    crate::skills::resync_skills(workspace);
+    writeln!(
+        out,
+        "\nSaved. Change it anytime with `brain personalize`.\n"
+    )?;
     Ok(())
 }
 

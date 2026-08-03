@@ -60,6 +60,24 @@ first move is a failing test that reproduces it, *then* the fix.
   survival when later registry persistence fails. The first-create regression
   explicitly proves that create leaves `local_user_id` empty and the next
   ordinary command is the setup boundary.
+- **Workspace runtime isolation.** `tests/workspace_runtime_isolation.rs`
+  is a small integration entry point with cohesive `portable_stores`,
+  `runtime_state`, and `env_identity` modules plus shared fixture support. It
+  constructs two records and contexts under one temporary home, then performs
+  real selected writes through env/config/personalization, session response,
+  state DB, TUI and sync locks, sync Journal, Reporter current state/log, and
+  CSV-baseline APIs. It snapshots the peer registry record plus portable and
+  runtime file trees byte-for-byte, repeats selected writes after changing the
+  default, and tests same-name/different-UUID rejection. Focused tests also pin
+  alias-to-canonical detached sync arguments after alias removal/default change,
+  the four-variable integration env, selected reindex `BRAIN_ROOT`, and
+  request-UUID habits GET/POST isolation.
+- **Hook integration.** `tests/hook_integration.rs` runs the real Python
+  SessionStart hook against a temporary SQLite DB and the real shell installer
+  against temporary homes/roots. It covers the complete four-variable
+  workspace identity plus session attribution contract, selected-root argument
+  and `BRAIN_ROOT` precedence, project-relative commands, session rotation, and
+  malformed/ambient no-op behavior.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
   map (defaults vs overrides — never the real store), the `config list` table
   layout and coloring, value coercion (`4`→number), name normalization, the
@@ -171,6 +189,8 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: manifest-aware create/attach, persistence failures, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. |
 | `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
 | `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, and persistence-failure preservation. |
+| `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
+| `tests/todo_script_mutators.rs` | Brain-owned task scripts, including selected-root `BRAIN_ROOT` propagation for reindex. |
 | `tests/verbose_cli.rs` | End-to-end `--verbose` contract for the compiled binary: stdout mirroring, `/tmp` log-file creation, command/action breadcrumbs, and task CSV load/write logging. |
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because

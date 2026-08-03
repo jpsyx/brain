@@ -1,17 +1,10 @@
-//! Machine-local provider configuration with process-environment compatibility.
+//! Workspace-siloed machine-local provider configuration.
 
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
-fn prefer_process_value(process: Option<String>, stored: Option<String>) -> Option<String> {
-    process.filter(|value| !value.trim().is_empty()).or(stored)
-}
-
-pub(super) fn get(process_name: &str, stored_name: &str) -> Option<String> {
-    prefer_process_value(
-        std::env::var(process_name).ok(),
-        crate::env::get(stored_name),
-    )
+pub(super) fn get(command: &crate::workspace::CommandContext, stored_name: &str) -> Option<String> {
+    crate::env::get(command, stored_name)
 }
 
 pub(super) struct CurlRequest {
@@ -83,22 +76,113 @@ impl CurlRequest {
 
 #[cfg(test)]
 mod tests {
-    use super::{CurlRequest, prefer_process_value};
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::Arc;
 
-    #[test]
-    fn nonempty_process_value_overrides_machine_local_value() {
-        assert_eq!(
-            prefer_process_value(Some("process".to_owned()), Some("stored".to_owned())),
-            Some("process".to_owned())
-        );
+    use serde_json::{Map, json};
+
+    use super::{CurlRequest, get};
+    use crate::workspace::{
+        CommandContext, MachineRegistry, RegistryStore, WorkspaceContext, WorkspaceId,
+        WorkspaceName, WorkspaceRecord,
+    };
+
+    const PROVIDER_ENV_CHILD: &str = "BRAIN_PROVIDER_ENV_ISOLATION_CHILD";
+
+    fn workspace_record(
+        workspace_id: &str,
+        root: &std::path::Path,
+        provider_value: Option<&str>,
+    ) -> WorkspaceRecord {
+        let mut env = Map::new();
+        if let Some(value) = provider_value {
+            env.insert("twilio_auth_token".to_owned(), json!(value));
+        }
+        WorkspaceRecord {
+            workspace_id: WorkspaceId::parse(workspace_id).expect("valid workspace id"),
+            root: root.to_owned(),
+            aliases: BTreeSet::new(),
+            local_user_id: "pablo".to_owned(),
+            receiver_enabled: true,
+            env,
+        }
+    }
+
+    fn command_context(
+        home: &std::path::Path,
+        store: &RegistryStore,
+        name: &str,
+        record: &WorkspaceRecord,
+    ) -> CommandContext {
+        CommandContext {
+            workspace: Arc::new(
+                WorkspaceContext::new(
+                    home,
+                    record.workspace_id,
+                    WorkspaceName::parse(name).expect("valid workspace name"),
+                    &record.root,
+                    &record.local_user_id,
+                    home,
+                )
+                .expect("workspace context"),
+            ),
+            registry_store: store.clone(),
+        }
     }
 
     #[test]
-    fn blank_process_value_falls_back_to_machine_local_value() {
-        assert_eq!(
-            prefer_process_value(Some("  ".to_owned()), Some("stored".to_owned())),
-            Some("stored".to_owned())
+    fn selected_workspace_provider_values_ignore_the_process_environment() {
+        if std::env::var_os(PROVIDER_ENV_CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+                .args([
+                    "--exact",
+                    "server::provider::tests::selected_workspace_provider_values_ignore_the_process_environment",
+                    "--nocapture",
+                ])
+                .env(PROVIDER_ENV_CHILD, "1")
+                .env("TWILIO_AUTH_TOKEN", "process-token")
+                .output()
+                .expect("child test process");
+
+            assert!(
+                output.status.success(),
+                "child failed:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let home = tempfile::tempdir().expect("temporary home");
+        let personal_name = WorkspaceName::parse("personal").expect("valid name");
+        let family_name = WorkspaceName::parse("family").expect("valid name");
+        let personal = workspace_record(
+            "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+            &home.path().join("personal"),
+            Some("personal-token"),
         );
+        let family = workspace_record(
+            "e806258e-491a-436d-9db4-a5ca9903e0d4",
+            &home.path().join("family"),
+            None,
+        );
+        let registry = MachineRegistry {
+            schema_version: 2,
+            default_workspace: personal_name.clone(),
+            workspaces: BTreeMap::from([
+                (personal_name, personal.clone()),
+                (family_name, family.clone()),
+            ]),
+        };
+        let store = RegistryStore::from_path(home.path().join("config/brain/env.json"));
+        store.replace(&registry).expect("write registry");
+        let personal_command = command_context(home.path(), &store, "personal", &personal);
+        let family_command = command_context(home.path(), &store, "family", &family);
+
+        assert_eq!(
+            get(&personal_command, "twilio_auth_token"),
+            Some("personal-token".to_owned())
+        );
+        assert_eq!(get(&family_command, "twilio_auth_token"), None);
     }
 
     #[test]

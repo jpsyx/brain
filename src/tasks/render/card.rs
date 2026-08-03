@@ -13,12 +13,15 @@ use crate::tasks::task::Task;
 
 use super::markdown::notes_lines;
 use super::style::{
-    ACCENT_CYAN, ACCENT_PURPLE, DUE_OVERDUE, DUE_TODAY, STATUS_DONE, TEXT_DIM, TEXT_PRIMARY, accent,
-    dim, due_span, energy_icon, priority_style, sep, status_label, status_style, truncate,
+    ACCENT_CYAN, ACCENT_PURPLE, DUE_OVERDUE, DUE_TODAY, STATUS_DONE, TEXT_DIM, TEXT_PRIMARY,
+    accent, dim, due_span, energy_icon, priority_style, sep, status_label, status_style, truncate,
     type_label, very_dim,
 };
 
-fn header_chip_line(task: &Task) -> Line<'static> {
+fn header_chip_line(
+    task: &Task,
+    tag_styles: &crate::personalization::tags::TagStyles,
+) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(8);
     spans.push(accent(&task.priority));
     spans.push(Span::styled(
@@ -33,7 +36,11 @@ fn header_chip_line(task: &Task) -> Line<'static> {
 
     if !task.types.is_empty() {
         spans.push(sep());
-        let labels: Vec<String> = task.types.iter().map(|t| type_label(t)).collect();
+        let labels: Vec<String> = task
+            .types
+            .iter()
+            .map(|t| type_label(tag_styles, t))
+            .collect();
         spans.push(Span::styled(labels.join(" · "), Style::new().fg(TEXT_DIM)));
     }
     if task.hard_deadline {
@@ -136,9 +143,14 @@ fn see_also_line(task: &Task) -> Option<Line<'static>> {
 }
 
 #[must_use]
-pub fn task_lines(task: &Task, today: NaiveDate, notes_expanded: bool) -> Vec<Line<'static>> {
+pub fn task_lines(
+    task: &Task,
+    today: NaiveDate,
+    notes_expanded: bool,
+    tag_styles: &crate::personalization::tags::TagStyles,
+) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::with_capacity(6);
-    lines.push(header_chip_line(task));
+    lines.push(header_chip_line(task, tag_styles));
     lines.push(name_line(task));
     lines.push(meta_line(task, today));
     lines.extend(notes_lines(task, notes_expanded));
@@ -163,6 +175,7 @@ pub fn task_lines(task: &Task, today: NaiveDate, notes_expanded: bool) -> Vec<Li
 pub fn build_body_lines_with_ranges(
     tasks: &[Task],
     today: NaiveDate,
+    tag_styles: &crate::personalization::tags::TagStyles,
     is_expanded: impl Fn(&Task) -> bool,
 ) -> (Vec<Line<'static>>, Vec<std::ops::Range<usize>>) {
     let mut lines: Vec<Line<'static>> = Vec::with_capacity(tasks.len() * 5 + 1);
@@ -170,7 +183,7 @@ pub fn build_body_lines_with_ranges(
     lines.push(Line::from(""));
     for task in tasks {
         let start = lines.len();
-        let task_l = task_lines(task, today, is_expanded(task));
+        let task_l = task_lines(task, today, is_expanded(task), tag_styles);
         let task_count = task_l.len();
         lines.extend(task_l);
         // Each task ends with a blank separator we want to exclude from the
@@ -186,6 +199,10 @@ mod tests {
     use crate::tasks::task::test_task;
     use chrono::NaiveDate;
     use ratatui::text::Line;
+
+    fn styles() -> crate::personalization::tags::TagStyles {
+        crate::personalization::tags::TagStyles::with_overrides(&std::collections::BTreeMap::new())
+    }
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, day).unwrap()
@@ -203,11 +220,7 @@ mod tests {
     fn linear_marker_rows(lines: &[Line<'_>]) -> usize {
         lines
             .iter()
-            .filter(|l| {
-                l.spans
-                    .iter()
-                    .any(|s| s.content.as_ref().contains('◇'))
-            })
+            .filter(|l| l.spans.iter().any(|s| s.content.as_ref().contains('◇')))
             .count()
     }
 
@@ -216,7 +229,7 @@ mod tests {
         let today = d(2026, 6, 23);
         let mut t = test_task("T9", "not_started");
         t.linear_issue = "AVA-123".to_owned();
-        let lines = task_lines(&t, today, false);
+        let lines = task_lines(&t, today, false, &styles());
         let flat = flat(&lines);
         assert!(
             flat.contains("AVA-123"),
@@ -237,8 +250,8 @@ mod tests {
         // Expanding notes must not add a second `◇` line (the full-URL line
         // that previously read as a duplicate of the header marker). The
         // header chip's compact marker is the only Linear row, expanded or not.
-        let collapsed = task_lines(&t, today, false);
-        let expanded = task_lines(&t, today, true);
+        let collapsed = task_lines(&t, today, false, &styles());
+        let expanded = task_lines(&t, today, true, &styles());
         assert_eq!(linear_marker_rows(&collapsed), 1);
         assert_eq!(
             linear_marker_rows(&expanded),
@@ -253,6 +266,6 @@ mod tests {
     fn task_row_has_no_linear_marker_when_unlinked() {
         let today = d(2026, 6, 23);
         let t = test_task("T9", "not_started"); // linear_issue empty
-        assert!(!flat(&task_lines(&t, today, false)).contains("AVA"));
+        assert!(!flat(&task_lines(&t, today, false, &styles())).contains("AVA"));
     }
 }

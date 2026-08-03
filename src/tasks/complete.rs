@@ -64,12 +64,11 @@ pub fn normalize_id(raw: &str) -> Result<String> {
     Ok(format!("{prefix}{n}"))
 }
 
-pub fn run(raw_id: &str) -> Result<()> {
+pub fn run(root: &Path, raw_id: &str) -> Result<()> {
     crate::logging::log(format!("tasks complete raw_id={raw_id}"));
-    let root = crate::paths::brain_root()?;
     crate::logging::log(format!("complete root {}", root.display()));
     let today = Local::now().date_naive();
-    let result = complete_in_root_with_today(&root, raw_id, today)?;
+    let result = complete_in_root_with_today(root, raw_id, today)?;
     crate::logging::log(format!(
         "complete result kind={:?} id={}",
         result.kind, result.task_id

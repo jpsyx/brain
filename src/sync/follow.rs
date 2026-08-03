@@ -35,11 +35,23 @@ pub fn appended(content: &str, already: usize) -> (&str, usize) {
 ///
 /// Then print the final journal outcome. Best-effort throughout: unreadable
 /// files or a missing journal degrade to less output, never an error.
-pub fn follow_until_done() {
-    follow_with(&current::log_path(), Theme::active(), current::is_running, POLL);
+pub fn follow_until_done(paths: &crate::workspace::WorkspacePaths) {
+    follow_with(
+        &paths.sync_current_log(),
+        &paths.sync_journal(),
+        Theme::active(),
+        || current::is_running(paths),
+        POLL,
+    );
 }
 
-fn follow_with<F: Fn() -> bool>(log: &Path, theme: Theme, is_running: F, poll: Duration) {
+fn follow_with<F: Fn() -> bool>(
+    log: &Path,
+    journal_path: &Path,
+    theme: Theme,
+    is_running: F,
+    poll: Duration,
+) {
     let mut err = std::io::stderr();
     let _ = writeln!(
         err,
@@ -56,7 +68,7 @@ fn follow_with<F: Fn() -> bool>(log: &Path, theme: Theme, is_running: F, poll: D
         std::thread::sleep(poll);
     }
     let _ = offset;
-    if let Ok(journal) = Journal::open(&Journal::default_path()) {
+    if let Ok(journal) = Journal::open(journal_path) {
         if let Ok(recent) = journal.recent(1) {
             let _ = writeln!(err, "{}", command::format_last_run(recent.first(), theme));
         }
@@ -107,8 +119,8 @@ mod tests {
 
     #[test]
     fn follow_drains_the_log_and_stops_when_the_sync_ends() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let dir = std::env::temp_dir().join(format!("brain-follow-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

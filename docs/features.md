@@ -106,7 +106,7 @@ queue key; Claude still receives `Enter`.
 
 **Swap the layout.** The palette's "Move brain panel to the left/right"
 command flips which side the brain panel sits on; the choice is persisted
-(`~/.cache/brain/state.db`), so it sticks across runs. `Alt+H`/`Alt+L`
+(`<workspace-cache>/state.db`), so it sticks across runs. `Alt+H`/`Alt+L`
 follow the new layout (always left/right).
 
 **Opening files never closes the shell.** Selecting a file in search opens
@@ -193,7 +193,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env. Use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
 | `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present. |
 | `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair}` | Manage the schema-v2 machine registry and portable manifest. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. `repair --manifest --local-user-id <id>` supplies readiness explicitly. |
-| `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
+| `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
@@ -263,7 +263,7 @@ for back-compat and auto-migrated into the `root` key on first run. See
 ### `brain workspace`
 
 Manages the schema-v2 registry at the fixed machine path without going through
-the legacy/default env compatibility view. Canonical names and aliases are
+the selected record. Canonical names and aliases are
 case-folded selectors; `--brain/-b` is global and may be placed around nested
 subcommands or after a delegated task positional. The long equals form is also
 accepted. A `--` option terminator leaves later selector-looking tokens in the
@@ -319,6 +319,15 @@ before a local user is known. Its next ordinary command triggers interactive
 setup or the headless repair instruction. Help, version, and hidden internal
 server execution never prompt.
 
+After readiness, the selected context is pinned for the command's lifetime.
+Root-local config and personalization, task paths, reindex scripts, TUI state,
+locks, responses, and sync runtime files all derive from it. Two workspace UUIDs
+may hold TUIs and run syncs concurrently; a second TUI or sync for the same UUID
+is still rejected or coalesced. Changing the machine default affects only a
+future invocation. Brain-owned child scripts receive the selected workspace
+and local actor identity through `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`,
+`BRAIN_ROOT`, and `BRAIN_ACTOR_ID`.
+
 ### `brain reindex`
 
 Rebuilds brain's **derived lookup indexes** from their canonical sources.
@@ -335,15 +344,15 @@ The two lookup CSVs are derived, not authored:
 
 `brain reindex` (bare) rebuilds both CSVs and re-applies the task/habit rules;
 `--projects` / `--resources` / `--tasks` narrow the run. The `--tasks` half
-shells out to the shared `/todo` rule scripts and targets the default `~/brain`
-root (a non-default root is reported skipped, with a pointer to `/todo reindex`).
+shells out to the shared `/todo` rule scripts with the selected root in
+`BRAIN_ROOT`, so non-default workspaces are reindexed in place.
 Output is LF-terminated, matching brain's other CSVs. This is the operation the
 `/second-brain reindex` and `/todo reindex` skill rows invoke.
 
 ### `brain sync`
 
-Manual, bidirectional cross-machine sync of the brain directory
-(`brain_root()`) to a private Backblaze B2 bucket, via `rclone bisync`. Sync
+Manual, bidirectional cross-machine sync of the selected workspace root to a
+private Backblaze B2 bucket, via `rclone bisync`. Sync
 is **opt-in**: with no configured `sync` block (see [config.md](config.md)),
 `brain sync`, `brain sync repair`, `brain sync status`, and `brain check` print a
 plain explanation that cloud sync is not set up yet and end with the exact next
@@ -418,7 +427,7 @@ every 10 seconds (files/bytes transferred, percent complete, transfer rate,
 ETA) — useful on the first sync of a large brain, which can take a while.
 
 Every sync (foreground or background) mirrors that same progress to a machine-
-local log (`~/.cache/brain/sync/current.log`) and records a small `current.json`
+local log (`<workspace-cache>/sync/current.log`) and records a small `current.json`
 "a sync is in progress" marker while it runs. That is how a background sync
 stays observable without ever printing to a terminal: `brain sync status` reads
 the marker, and a `brain sync` run started while another sync is already going
@@ -431,8 +440,8 @@ never bleed over the TUI. (This is also why quitting the shell can't interrupt a
 sync — see below.)
 
 **Crash-safe / resumable.** brain owns rclone's bisync working directory
-(`~/.cache/brain/sync/bisync`) rather than leaving it at rclone's default. Since
-brain's machine-wide lock already serializes all syncs, any leftover rclone lock
+(`<workspace-cache>/sync/bisync`) rather than leaving it at rclone's default. Since
+brain's workspace lock already serializes that workspace's syncs, any leftover rclone lock
 file in that workdir is necessarily from a dead, interrupted run (a quit shell,
 a powered-off machine), so brain reaps it before each run. If an interrupted run
 left the baseline listings unusable, the next sync detects it and self-heals
@@ -444,8 +453,9 @@ a configured machine, sync is event-driven rather than periodic. There is no
 idle sync loop and no exit sync.
 
 Every trigger below spawns a **detached background `brain sync` process** (with
-`--if-idle`, so it coalesces silently when a sync is already running); none runs
-a sync on a thread inside the shell. The shell never waits on, and can never be
+the canonical `--brain <workspace>` plus `--if-idle`, so changing the machine
+default cannot redirect it and an alias is never propagated); none runs a sync
+on a thread inside the shell. The shell never waits on, and can never be
 interrupted by, the network.
 
 - **On start.** Opening any sync-configured shell always kicks a pull-biased
@@ -465,8 +475,9 @@ interrupted by, the network.
   two-hour timer.
 
 All three are journalled like manual syncs and **coalesce** through a
-machine-wide lock: concurrent triggers (startup + watcher + receiver gate + a second shell + a
-manual `brain sync`) never run two rclone syncs at once. A redundant background
+workspace-UUID lock: concurrent triggers (startup + watcher + receiver gate + a second shell + a
+manual `brain sync`) never run two rclone syncs for the same workspace at once.
+Different workspaces may sync concurrently. A redundant background
 trigger exits silently; a user-run `brain sync` instead *follows* the in-flight
 one. All are best-effort: a held lock, an unconfigured brain, or a spawn
 failure never crashes the shell. With no configured `sync` block, no automatic
@@ -512,7 +523,7 @@ per machine you want to join it.
    walkthrough from step 1), writes the `sync` block into that machine's
    `~/.config/brain/env.json` (see [`brain env`](#brain-env) above — this is
    machine-local and never rides into the bucket itself), and establishes the
-   bisync baseline. On a brand-new machine with an empty `~/brain`, that
+   bisync baseline. On a brand-new machine with an empty selected root, that
    initial baseline is effectively a full pull of everything already in the
    bucket.
 3. **Verify the triggers.** Run `brain sync status` and confirm it reports
@@ -520,10 +531,12 @@ per machine you want to join it.
    last run.
    Auto-sync is on by default the moment `brain sync setup` finishes — you
    don't need to flip anything else on.
-4. **Env auto-migration.** The legacy `~/.config/brain-root` pointer and
+4. **Env auto-migration.** Before a valid schema-v2 registry exists, the legacy
+   `~/.config/brain-root` pointer and
    `config.json`'s `markdown_to_pdf_path` are migrated into
-   `~/.config/brain/env.json` on every first launch of the new binary — a
-   no-op on a brand-new machine with no legacy pointer or config to migrate —
+   `~/.config/brain/env.json` during the one-time migration path. Once the
+   registry is valid, ordinary commands never consult legacy root/config input.
+   Migration is a no-op on a brand-new machine with no legacy pointer or config —
    see [`brain env`](#brain-env) above. No manual step needed; it happens
    quietly, before `sync setup` even starts.
 5. **Confirm it actually works, across two machines:**
@@ -915,7 +928,8 @@ as the "Create PDF" row.
 ## Open tasks
 
 `Ctrl-t` (or palette item "Open tasks") switches to the **tasks main view**,
-the ratatui task-management surface backed by `~/brain/tasks/{tasks,habits}.csv`
+the ratatui task-management surface backed by the selected root's
+`tasks/{tasks,habits}.csv`
 (today / MIT / past-due / week / habits views, agenda, triage). It is the
 startup default and `brain tasks` opens straight onto it. The tasks view is
 in-process — a main view of the same shell, not a separate binary — so the

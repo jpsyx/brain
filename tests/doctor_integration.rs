@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use brain::tasks::doctor::{Diagnosis, run_doctor};
 
 fn make_db(path: &std::path::Path) {
-    brain::state::Db::open(path).expect("open");
+    brain::state::Db::open_path(path).expect("open");
 }
 
 #[test]
@@ -14,7 +14,7 @@ fn doctor_reports_db_missing_when_path_does_not_exist() {
     let tmp = tempfile::TempDir::new().unwrap();
     let missing: PathBuf = tmp.path().join("nope.db");
     let settings_dir = tmp.path().join("brain").join(".claude");
-    let diag = run_doctor(&missing, &settings_dir);
+    let diag = run_doctor(&missing, &settings_dir, false);
     assert!(!diag.db_present, "db should be reported missing");
     // Schema check is N/A when the file isn't there.
     assert!(diag.db_schema_ok, "schema check is vacuously OK");
@@ -26,7 +26,7 @@ fn doctor_reports_db_schema_ok_when_db_freshly_opened() {
     let db_path = tmp.path().join("state.db");
     make_db(&db_path);
     let settings_dir = tmp.path().join("brain").join(".claude");
-    let diag = run_doctor(&db_path, &settings_dir);
+    let diag = run_doctor(&db_path, &settings_dir, false);
     assert!(diag.db_present);
     assert!(diag.db_schema_ok);
 }
@@ -37,7 +37,7 @@ fn doctor_reports_hook_missing_when_settings_file_absent() {
     let db_path = tmp.path().join("state.db");
     make_db(&db_path);
     let settings_dir = tmp.path().join("brain").join(".claude");
-    let diag = run_doctor(&db_path, &settings_dir);
+    let diag = run_doctor(&db_path, &settings_dir, false);
     assert!(!diag.hook_installed, "no settings file => no hook");
 }
 
@@ -53,7 +53,7 @@ fn doctor_reports_hook_missing_when_settings_lacks_session_start_entry() {
         r#"{"hooks": {"PreToolUse": []}}"#,
     )
     .unwrap();
-    let diag = run_doctor(&db_path, &settings_dir);
+    let diag = run_doctor(&db_path, &settings_dir, false);
     assert!(!diag.hook_installed);
 }
 
@@ -75,7 +75,7 @@ fn doctor_reports_hook_installed_when_session_start_entry_references_script() {
       }
     }"#;
     std::fs::write(settings_dir.join("settings.json"), json).unwrap();
-    let diag = run_doctor(&db_path, &settings_dir);
+    let diag = run_doctor(&db_path, &settings_dir, false);
     assert!(diag.hook_installed, "diag={diag:?}");
 }
 
@@ -93,7 +93,7 @@ fn a_legacy_tasks_hook_alone_does_not_count_as_installed() {
       {"type":"command","command":"/home/me/scripts/rc/tasks/scripts/claude_session_start_hook.py"}
     ]}]}}"#;
     std::fs::write(settings_dir.join("settings.json"), json).unwrap();
-    let diag = run_doctor(&db_path, &settings_dir);
+    let diag = run_doctor(&db_path, &settings_dir, false);
     assert!(!diag.hook_installed, "a legacy tasks-path hook is not ours");
 }
 
@@ -108,7 +108,7 @@ fn diagnosis_is_ok_when_all_checks_pass() {
       {"type":"command","command":"/x/rc/brain/scripts/claude_session_start_hook.py"}
     ]}]}}"#;
     std::fs::write(settings_dir.join("settings.json"), json).unwrap();
-    let diag = run_doctor(&db_path, &settings_dir);
+    let diag = run_doctor(&db_path, &settings_dir, false);
     assert!(diag.is_ok());
 }
 
