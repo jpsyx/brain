@@ -119,7 +119,7 @@ boundaries:
 | --- | --- | --- |
 | Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, `.config/users.json`, config, personalization, extensions, and plugins |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
-| Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, inbox, responses, and sync lock/journal/current state/baselines |
+| Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, portable-user transaction lock, inbox, responses, and sync lock/journal/current state/baselines |
 | Shared infrastructure | Machine server/control and transitional triage-signal paths only | Process coordination, never a default workspace payload path |
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
@@ -230,10 +230,13 @@ person IDs; `normalize` canonicalizes unambiguous phone numbers and
 case-normalizes email addresses without provider-specific rewriting; `model`
 and `validate` reject unknown schema fields and ambiguous enabled identities;
 `store` publishes canonical JSON through a same-directory atomic replacement;
-and `command` owns pure add/update/remove mutations plus the inactive legacy
-conversion proposal. The selected machine record's `local_user_id` must name
-one member when this portable file exists. It identifies a person, not a
-device, owner, creator, or authorization principal.
+`transaction` coordinates grouped registry and assignment changes with a
+portable recovery journal plus a workspace UUID-scoped machine lock; and
+`command` owns pure add/update/remove mutations plus the inactive legacy
+conversion proposal. A pending grouped transaction restores the old generation
+before the next portable-user load. The selected machine record's
+`local_user_id` must name one member when this portable file exists. It
+identifies a person, not a device, owner, creator, or authorization principal.
 
 `command/` owns the workspace CLI: `mutate` turns collected values into pure,
 validated registry-only decisions and owns registry-only mutations;

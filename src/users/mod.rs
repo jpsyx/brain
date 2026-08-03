@@ -5,6 +5,7 @@ mod id;
 mod model;
 mod normalize;
 mod store;
+mod transaction;
 mod validate;
 
 pub use command::{
@@ -15,4 +16,5 @@ pub use id::{UserId, UserIdError};
 pub use model::{EmailIdentity, PhoneIdentity, USERS_SCHEMA_VERSION, User, Users};
 pub use normalize::{NormalizeError, normalize_email, normalize_phone};
 pub use store::UsersStore;
+pub(crate) use transaction::{FileChange, replace_group};
 pub use validate::UsersError;

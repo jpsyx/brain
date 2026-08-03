@@ -469,6 +469,63 @@ fn first_user_setup_asks_for_contacts_only_for_configured_receiver_channels() {
 }
 
 #[test]
+fn response_email_alone_does_not_enable_or_prompt_for_an_email_identity() {
+    let home = tempfile::tempdir().unwrap();
+    let config_home = tempfile::tempdir().unwrap();
+    let root = home.path().join("family");
+    std::fs::create_dir_all(root.join(".config")).unwrap();
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    WorkspaceManifest::new(workspace_id)
+        .write_new(&root)
+        .unwrap();
+    std::fs::write(
+        root.join(".config/config.json"),
+        br#"{"response_email":"alex@example.com"}"#,
+    )
+    .unwrap();
+    let canonical_name = WorkspaceName::parse("family").unwrap();
+    let registry = MachineRegistry {
+        schema_version: REGISTRY_SCHEMA_VERSION,
+        default_workspace: canonical_name.clone(),
+        workspaces: std::collections::BTreeMap::from([(
+            canonical_name,
+            WorkspaceRecord {
+                workspace_id,
+                root,
+                aliases: BTreeSet::new(),
+                local_user_id: String::new(),
+                receiver_enabled: true,
+                env: Map::new(),
+            },
+        )]),
+    };
+    let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
+    store.replace(&registry).unwrap();
+    let mut cli = try_parse_from(["brain", "config", "list", "-b", "family"]).unwrap();
+    let mut input = Cursor::new(b"Alex Smith\n\n".to_vec());
+    let mut output = Vec::new();
+
+    let outcome = bootstrap_with_io(
+        &mut cli,
+        store,
+        home.path(),
+        home.path(),
+        InteractionMode::Interactive,
+        &mut input,
+        &mut output,
+    )
+    .unwrap();
+
+    let BootstrapContext::Ready(context) = outcome else {
+        panic!("response-only setup must continue without an email prompt");
+    };
+    let users = UsersStore::load(&context.workspace).unwrap();
+    assert!(users.users[0].emails.is_empty());
+    assert!(users.users[0].response_email.is_none());
+    assert!(!String::from_utf8(output).unwrap().contains("Email"));
+}
+
+#[test]
 fn manifest_parsing_is_strict_and_checks_compatibility() {
     let workspace_id = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
     let ingress_id = "e806258e-491a-436d-9db4-a5ca9903e0d4";

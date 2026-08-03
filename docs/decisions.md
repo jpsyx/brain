@@ -1574,3 +1574,26 @@ the child agent, the *reliable* app-level surface is the command palette
 (`Ctrl+P` → filter → Enter), so **Show main brain session** / **Show daily
 triage session** are the works-anywhere path; the Alt chords remain as a bonus
 where the terminal supports them.
+
+## Portable-user removal uses a recovery journal, not absent live files
+
+Removing a portable person can update two assignment CSVs and `users.json`, but
+the filesystem has no cross-file rename primitive. Moving live files aside
+before replacement left a crash window where ordinary readers found files
+missing, and best-effort rollback could silently leave a mixed generation.
+
+The grouped transaction now copies mode-preserving backups, stages and syncs
+all replacements, and publishes a strict portable journal before touching live
+paths. Each installation is an atomic same-directory rename over an existing
+live file; assignment files install first and `users.json` last. An ordinary
+error rolls the whole group back and reports rollback failures. If the process
+stops after journal publication, the next portable-user load restores the old
+generation before parsing it. Journal removal is the durable commit point, so
+cleanup after that point cannot change the committed result.
+
+The journal travels inside workspace config because another machine may
+encounter the interrupted portable state. Its SQLite serialization lock does
+not travel: it is derived from the immutable workspace UUID under the
+machine-local runtime cache. This boundary avoids syncing lock state while
+still preventing concurrent Brain processes on one machine from publishing the
+same grouped mutation.

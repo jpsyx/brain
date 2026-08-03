@@ -368,14 +368,22 @@ is accepted only when it can be normalized without guessing. Emails are
 trimmed and ASCII-lowercased, with no provider-specific alias rewriting.
 Only contacts explicitly marked by the add/update commands are enabled for
 inbound identity resolution. An enabled phone or email may identify only one
-portable person.
+portable person. Compatibility setup offers an email only when the email
+receiver allowlist is configured. A legacy response email migrates to the first
+person only when it matches that allowlist; otherwise it remains unresolved
+for explicit review.
 
 `brain user local [<id>]` selects an existing portable person for this machine.
 `brain user remove [<id>]` refuses to remove the last person and scans both
 `tasks/tasks.csv` and `tasks/habits.csv` for `assigned_to` (plus the legacy
 `assignee` heading). If work is assigned, removal requires
-`--reassign-to <existing-id>`. The portable registry and every affected CSV
-are staged before replacement; an error restores the original files.
+`--reassign-to <existing-id>`. Brain stages and syncs replacement files plus
+mode-preserving backups, publishes a portable recovery journal, then installs
+assignment files before `users.json`. The workspace UUID-scoped machine lock
+serializes this sequence. Ordinary errors restore the complete old generation;
+if the process stops after the journal is published, the next portable-user
+load performs the same recovery before continuing. Journal removal is the
+commit point, after which leftover staging files are safe to clean up.
 
 ### `brain reindex`
 

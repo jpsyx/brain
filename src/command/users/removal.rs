@@ -1,12 +1,11 @@
 //! Atomic portable-user removal and task reassignment.
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::users::{UserId, UserMutation, UsersStore, apply_mutation};
+use crate::users::{FileChange, UserId, UserMutation, UsersStore, apply_mutation, replace_group};
 use crate::workspace::WorkspaceContext;
 
 type CsvChange = (Vec<u8>, Vec<u8>, usize);
@@ -50,9 +49,17 @@ pub(super) fn remove_user(
     let users_path = UsersStore::path(workspace);
     let users_before = fs::read(&users_path).context("read portable users before removal")?;
     let users_after = users.to_bytes()?;
-    let mut changes = vec![(users_path, users_before, users_after)];
-    changes.extend(csv_changes);
-    replace_group(changes)
+    let mut changes = csv_changes
+        .into_iter()
+        .map(|(path, before, after)| FileChange::new(path, before, after))
+        .collect::<Vec<_>>();
+    changes.push(FileChange::new(users_path, users_before, users_after));
+    replace_group(
+        workspace.root(),
+        &workspace.paths().user_transaction_lock(),
+        changes,
+    )
+    .map_err(Into::into)
 }
 
 fn reassigned_csv(
@@ -113,50 +120,4 @@ fn reassigned_csv(
         .into_inner()
         .map_err(csv::IntoInnerError::into_error)?;
     Ok(Some((before, after, assigned)))
-}
-
-fn replace_group(changes: Vec<(PathBuf, Vec<u8>, Vec<u8>)>) -> Result<()> {
-    let nonce = format!(
-        "{}-{}",
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
-    );
-    let mut staged = Vec::new();
-    for (index, (path, before, after)) in changes.into_iter().enumerate() {
-        let temporary = path.with_file_name(format!(".brain-user-{nonce}-{index}.tmp"));
-        let backup = path.with_file_name(format!(".brain-user-{nonce}-{index}.backup"));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        file.write_all(&after)?;
-        file.sync_all()?;
-        staged.push((path, before, temporary, backup));
-    }
-
-    let result = (|| -> Result<()> {
-        for (path, _, _, backup) in &staged {
-            fs::rename(path, backup)?;
-        }
-        for (path, _, temporary, _) in &staged {
-            fs::rename(temporary, path)?;
-        }
-        Ok(())
-    })();
-    if let Err(error) = result {
-        for (path, before, temporary, backup) in &staged {
-            let _ = fs::remove_file(temporary);
-            if backup.exists() {
-                let _ = fs::remove_file(path);
-                if fs::rename(backup, path).is_err() {
-                    let _ = fs::write(path, before);
-                }
-            }
-        }
-        return Err(error).context("atomically remove portable user and reassign tasks");
-    }
-    for (_, _, _, backup) in &staged {
-        fs::remove_file(backup)?;
-    }
-    Ok(())
 }

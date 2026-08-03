@@ -64,6 +64,9 @@ pub enum UsersError {
     CannotRemoveLastUser {
         user_id: String,
     },
+    Transaction {
+        message: String,
+    },
     Io {
         operation: &'static str,
         path: PathBuf,
@@ -142,6 +145,9 @@ impl Display for UsersError {
             }
             Self::CannotRemoveLastUser { user_id } => {
                 write!(formatter, "cannot remove the last portable user {user_id}")
+            }
+            Self::Transaction { message } => {
+                write!(formatter, "portable user transaction failed: {message}")
             }
             Self::Io {
                 operation,

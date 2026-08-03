@@ -359,14 +359,17 @@ fn prompt_first_user(
             inbound_allowed: true,
         })
     };
-    let email_default = if !config.response_email.trim().is_empty() {
-        Some(config.response_email.trim())
-    } else if allowed_emails.len() == 1 {
-        Some(allowed_emails[0].as_str())
-    } else {
-        None
-    };
-    let email = if allowed_emails.is_empty() && email_default.is_none() {
+    let response_email = crate::users::normalize_email(&config.response_email).ok();
+    let email_default = response_email
+        .as_deref()
+        .filter(|response| {
+            allowed_emails.iter().any(|allowed| {
+                crate::users::normalize_email(allowed)
+                    .is_ok_and(|normalized| normalized == *response)
+            })
+        })
+        .or_else(|| (allowed_emails.len() == 1).then(|| allowed_emails[0].as_str()));
+    let email = if allowed_emails.is_empty() {
         None
     } else {
         let value = read_prompt_value(reader, writer, "Email", email_default, theme)?;
@@ -376,11 +379,9 @@ fn prompt_first_user(
             inbound_allowed: true,
         })
     };
-    let response_email = email.as_ref().and_then(|email| {
-        crate::users::normalize_email(&config.response_email)
-            .ok()
-            .filter(|response| response == &email.value)
-    });
+    let response_email = email
+        .as_ref()
+        .and_then(|email| response_email.filter(|response| response == &email.value));
     Ok(crate::users::User {
         id,
         name,

@@ -161,7 +161,7 @@ pub fn propose_legacy_user_migration(
             unresolved_phones.push(normalized);
         }
     }
-    let response_email = if response_email.trim().is_empty() {
+    let legacy_response_email = if response_email.trim().is_empty() {
         None
     } else {
         Some(
@@ -171,25 +171,35 @@ pub fn propose_legacy_user_migration(
             })?,
         )
     };
-    let mut response_inbound = false;
     let mut unresolved_emails = Vec::new();
     for value in allowed_emails {
         let normalized = normalize_email(value).map_err(|_| UsersError::InvalidEmail {
             user_id: id.to_string(),
             value: value.clone(),
         })?;
-        if response_email.as_deref() == Some(normalized.as_str()) {
-            response_inbound = true;
-        } else if !unresolved_emails.contains(&normalized) {
+        if legacy_response_email.as_deref() != Some(normalized.as_str())
+            && !unresolved_emails.contains(&normalized)
+        {
             unresolved_emails.push(normalized);
         }
     }
+    let response_matches = legacy_response_email.as_ref().is_some_and(|response| {
+        allowed_emails
+            .iter()
+            .any(|allowed| normalize_email(allowed).is_ok_and(|normalized| normalized == *response))
+    });
+    if let Some(unmatched) = legacy_response_email.as_ref().filter(|_| !response_matches)
+        && !unresolved_emails.contains(unmatched)
+    {
+        unresolved_emails.push(unmatched.clone());
+    }
+    let response_email = legacy_response_email.filter(|_| response_matches);
     let emails = response_email
         .as_ref()
         .map(|value| {
             vec![EmailIdentity {
                 value: value.clone(),
-                inbound_allowed: response_inbound,
+                inbound_allowed: true,
             }]
         })
         .unwrap_or_default();

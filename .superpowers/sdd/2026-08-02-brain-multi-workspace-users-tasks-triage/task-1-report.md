@@ -77,3 +77,92 @@ pre-existing formatting drift across unrelated source files. Task 1 files pass
 an explicit `rustfmt --check`, and no unrelated formatting was retained. The
 repository declares Rust 1.85 but that formatter toolchain is not installed in
 this environment.
+
+## Fix round 1 of 5
+
+### Findings addressed
+
+- Legacy response-email migration no longer guesses that an unmatched response
+  address belongs to the first portable person. Only a normalized match in the
+  legacy email receiver allowlist migrates; unmatched addresses remain explicit
+  unresolved inputs.
+- A response setting by itself no longer enables email identity or causes the
+  first-person readiness flow to prompt for email. Email setup is offered only
+  when the receiver email allowlist is configured.
+- User removal now uses a recoverable multi-file transaction. It stages and
+  syncs mode-preserving replacements and backups, publishes a strict portable
+  journal, installs assignment CSVs before `users.json`, and treats journal
+  removal as the commit point.
+- Ordinary replacement errors restore the complete old generation. Rollback
+  failures are returned to the caller and leave the journal/backups recoverable
+  for the next load instead of being ignored.
+- Process interruption after journal publication is recovered before the next
+  `UsersStore::load`. A process interruption during pre-journal staging is also
+  cleaned on that recovery path, covering the minor staging-artifact finding.
+- The SQLite serialization lock is machine-local and UUID-scoped at
+  `~/.cache/brain/workspaces/<workspace-uuid>/users.transaction.lock`; it does
+  not add machine state to portable workspace config.
+- Grouped replacement preserves each live file's permissions, including an
+  owner-only `users.json`.
+- The transaction implementation is split into a 321-line coordinator and a
+  153-line owned filesystem-primitives child module.
+- Brain was bumped from `0.18.0` to `0.18.1`.
+
+### RED evidence
+
+- `legacy_response_email_without_an_allowlist_match_stays_unresolved` failed at
+  `proposal.user.response_email.is_none()` because the response address was
+  assigned to the first person unconditionally.
+- `response_email_alone_does_not_enable_or_prompt_for_an_email_identity` failed
+  with `workspace setup cancelled before portable user creation` because setup
+  consumed an unexpected email prompt.
+- `grouped_removal_preserves_owner_only_users_permissions` failed with mode
+  `420` (`0644`) instead of `384` (`0600`).
+- The first transaction failure-injection tests failed to compile with an
+  unresolved `users::transaction` module before the durable coordinator
+  existed.
+- The rollback-error injection test required a restore failure step that did
+  not exist in the old sequential replacer.
+- `different_workspace_ids_never_share_runtime_paths` failed to compile because
+  `WorkspacePaths::user_transaction_lock` did not exist. This test captured the
+  correction after focused verification found the first lock implementation
+  had created `.config/.users.transaction.lock` in portable state.
+- `recovery_removes_pre_journal_artifacts_left_by_an_interruption` failed because
+  `.brain-user-*` staging artifacts remained after recovery when the simulated
+  process stopped before journal publication.
+
+### GREEN evidence
+
+- `cargo test --release --test users_store`: 12 passed.
+- `cargo test --release --test workspace_readiness`: 13 passed.
+- `cargo test --release users::store::transaction_tests`: 5 passed.
+- `different_workspace_ids_never_share_runtime_paths`: passed.
+- `bundled_skills_carry_no_personal_data`: passed.
+- Final isolated `cargo test --release`, with isolated `HOME`, XDG config/cache,
+  `TMPDIR`, and Python 3.14 first in `PATH`: 1,124 tests passed.
+- `cargo clippy --release --all-targets -- -D warnings`: passed.
+- Explicit `rustfmt --check` over every fix-round Rust file: passed.
+- `git diff --check`: passed.
+
+The first isolated full-suite run used macOS `/usr/bin/python3` 3.9 and failed
+two unchanged bundled-script tests on the Python 3.10 `date | None` syntax.
+Repeating the same isolated run with `/opt/homebrew/bin` first in `PATH` selected
+Python 3.14 and passed all 1,124 tests.
+
+Repository-wide `cargo fmt --check` still reports the same extensive unrelated
+Rust 1.95 formatter drift documented above. No unrelated formatting was
+retained, and every file changed in this fix round passes an explicit formatter
+check.
+
+### Files changed in this fix round
+
+- `Cargo.toml`, `Cargo.lock`
+- `src/users/{command,mod,store,transaction,validate}.rs`
+- `src/users/transaction/files.rs`
+- `src/command/users/removal.rs`
+- `src/workspace/{bootstrap,mod,paths}.rs`
+- `tests/users_store.rs`, `tests/workspace_readiness.rs`
+- `docs/{architecture,config,data-model,decisions,features}.md`
+
+Commit: the fix-round branch HEAD created immediately after this report; no push
+or merge was performed.

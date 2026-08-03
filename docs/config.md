@@ -124,6 +124,11 @@ and email identities, inbound-enabled flags, and optional response emails.
 The file travels with the workspace; the selected person's `local_user_id`
 remains in the machine registry.
 
+First-person setup asks for an email identity only when the workspace email
+receiver allowlist is non-empty. A legacy `response_email` supplies the default
+and migrates only when its normalized value matches that allowlist. A response
+setting alone does not enable inbound email or create a portable identity.
+
 Create and attach are registry-only setup commands, so they can establish an
 incomplete record. Before every ordinary command, Brain then requires manifest
 agreement and, when `users.json` exists, a local ID that names one portable

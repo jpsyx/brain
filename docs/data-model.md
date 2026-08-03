@@ -274,7 +274,7 @@ non-default record only.
   "schema_version": 1,
   "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
   "receiver_ingress_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
-  "minimum_brain_version": "0.18.0"
+  "minimum_brain_version": "0.18.1"
 }
 ```
 
@@ -327,6 +327,22 @@ trimmed and ASCII-lowercased without provider-specific rewriting. A person
 cannot repeat one contact, and one enabled inbound contact cannot belong to
 multiple people. `response_email`, when present, must also appear in that
 person's email list; it need not be enabled for inbound resolution.
+
+Legacy conversion associates a workspace-level response email with the first
+portable person only when it matches a normalized email receiver allowlist
+entry. An unmatched response address and every other allowlisted address stay
+in the unresolved proposal for explicit assignment. A response setting by
+itself does not configure an inbound email identity or trigger an email prompt.
+
+Removing a person can change `tasks.csv`, `habits.csv`, and `users.json` as one
+recoverable group. Same-directory staged files and backups preserve each live
+file's mode. The transient `.config/.brain-user-transaction.json` journal is
+portable so another machine can recognize an interrupted publication; relative
+paths in it are validated before recovery. The SQLite serialization lock is
+machine-local at
+`~/.cache/brain/workspaces/<workspace-uuid>/users.transaction.lock`. Before a
+portable-user load, Brain rolls any journaled group back to its complete old
+generation. Removing the journal commits the new generation.
 
 `local_user_id` stays in the machine registry because different machines may
 be used by different people in the same portable workspace. It denotes the
