@@ -1115,10 +1115,16 @@ user's extension. So the whole email-triage-first pass, the Superhuman
 reply-reconcile, the Linear reconcile/mirror-in/grooming pass (it hardcodes an
 owner email — which personalization has no field for — plus an `AVA-###` prefix
 and a `/linear-pm` dependency), and the private Notion In-Basket URL all live in
-Pablo's `triage` extension, not the repo. The core declares four hooks
-(`triage:daily-open`, `triage:daily-linear`, `triage:weekly-inboxes`,
-`triage:weekly-linear`) at the exact points those passes ran, so the rendered
-copy reproduces the original flow byte-for-behavior while the repo stays generic.
+Pablo's `triage` extension, not the repo. The core declares six hooks
+(`triage:daily-open`, `triage:daily-subagents`, `triage:daily-linear`,
+`triage:daily-merge`, `triage:weekly-inboxes`, `triage:weekly-linear`) at the
+exact points those passes ran, so the rendered copy reproduces the original flow
+byte-for-behavior while the repo stays generic. The `daily-subagents` /
+`daily-merge` pair is the generic seam for running an extension's work (e.g. the
+email pass) **in parallel** with daily triage instead of serially before it: the
+core launches registered sub-agents at the start, and gates the final agenda PDF
+on all of them finishing and merging their output into the agenda before Step 9
+regenerates it.
 A guard test (`bundled_skills_carry_no_personal_data`) fails the build if any
 bundled skill grows a personal token, so this line can't silently erode.
 

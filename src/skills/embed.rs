@@ -115,7 +115,9 @@ mod tests {
         // Its personalization-point markers, filled by the user's triage extension.
         for hook in [
             "triage:daily-open",
+            "triage:daily-subagents",
             "triage:daily-linear",
+            "triage:daily-merge",
             "triage:weekly-inboxes",
             "triage:weekly-linear",
         ] {
@@ -124,6 +126,19 @@ mod tests {
                 "declares the `{hook}` extension hook"
             );
         }
+        // Daily triage can run extension-registered sub-agents in parallel, and
+        // the final agenda PDF is gated on all of them finishing + merging.
+        // Collapse whitespace so line-wrapping/bold in the prose can't break the
+        // sentinel match.
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+        assert!(
+            flat.contains("in parallel with the rest of daily triage"),
+            "documents launching sub-agents in parallel"
+        );
+        assert!(
+            flat.contains("wait for every registered sub-agent to finish"),
+            "gates the final PDF on all sub-agents finishing before merge"
+        );
         // The historical heuristics reference file ships alongside it.
         assert!(
             triage
