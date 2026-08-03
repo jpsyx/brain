@@ -243,12 +243,42 @@ users in `skills/`.)
   bump yourself: before v1, additive user-visible features bump the minor
   version, and compatible fixes/internal changes bump the patch version. Do not
   ask for confirmation; the user will say when `brain` is ready for `1.0.0`.
+  The **one exception** is a project-management-log-only commit (see the next
+  rule): it touches no source, triggers no release, and must **not** bump the
+  version.
 - **Every LLM capability must work with both Claude and Codex.** When adding
   or changing brain-panel behavior, implement and test equivalent lifecycle,
   prompt, completion, and delivery behavior for both frontends. If one agent
   exposes a different integration surface (for example, Claude settings versus
   Codex `~/.codex/hooks.json`), bridge the difference inside brain rather than
   silently leaving one frontend unsupported.
+- **Auto-commit project-management-log-only changes straight to `main`.** When
+  a change is **exclusively** an update to the project-management log under
+  `docs/product-manager/` made through the `/repo-product-manager` skill (a new
+  task, a triage edit, a cycle plan, a closed/archived task, etc.) and touches
+  **nothing else**, commit and push it to `main` automatically, without asking.
+  This is a standing authorized Git exception (it overrides the default
+  "don't commit/push" posture) precisely because it is not product work — it is
+  bookkeeping. The rules:
+  - **Markdown only, no source.** The commit may contain **only**
+    `docs/product-manager/**` changes (and its `media/` attachments). If the
+    working tree also has any source, doc, or config change, it is **not** a
+    PM-only change: do not auto-commit; leave everything for normal review.
+  - **No version bump, no release.** Do **not** touch `Cargo.toml` /
+    `Cargo.lock`; a PM-log commit never triggers a version bump or a release
+    (the sole exception to the version-bump rule above).
+  - **Never mix it into the working branch.** The PM update must **not** land on
+    whatever branch or worktree you are currently on. Treat it as a brief
+    detour: stash or set aside the PM changes as needed, commit them to `main`
+    and push, then return to the exact branch/worktree you were on and resume
+    the real work. The current branch's diff must look afterward as if the PM
+    commit never happened there.
+  - **Commit message.** Use a `docs(pm):` (or `chore(pm):`) subject naming the
+    task id(s) touched, e.g. `docs(pm): add BR-3 …`.
+  - **Scope.** This applies only to `docs/product-manager/` bookkeeping. Any
+    change that is *about the product* (source, tests, product docs under
+    `docs/` outside `product-manager/`) follows the normal branch + review +
+    version-bump flow, even when a `/repo-product-manager` step accompanies it.
 
 ## CLI ↔ command-palette state parity
 

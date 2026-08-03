@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "repo-product-manager": {
+      "source": "jpsyx/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/repo-product-manager/SKILL.md",
+      "computedHash": "ebee459141645b213c026bf0faaac7988c097618713b317f1ef6735afcd3fd2c"
+    },
     "rust-skills": {
       "source": "leonardomso/rust-skills",
       "sourceType": "github",
