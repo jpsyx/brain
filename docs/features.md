@@ -422,13 +422,16 @@ Commands still locate rows by mutable display `task_id`, then preserve the
 matched UUID during completion and edits. A spawned habit occurrence receives
 a new UUID while retaining assignment and `system_key`. Deterministic UUIDv5
 conversion for legacy rows exists only behind an inactive helper: it requires
-the rollout-owned last-legacy-sync state and an explicit machine-local backup
-directory. No startup, readiness, sync, or command path invokes it. Existing
+the rollout-owned last-legacy-sync state, an existing durable machine-local
+backup base, and an explicit destination beneath that base. No startup,
+readiness, sync, or command path invokes it. Existing
 legacy CSV sync remains keyed by `task_id` until coordinated migration. The
-inactive helper rejects backup/workspace path overlap, durably syncs every
-exact backup, and journals the three-file replacement so a retry recovers from
-failure or interruption at any replacement boundary. UUID merge and display-ID
-collision reconciliation are later rollout work.
+inactive helper rejects backup/workspace path overlap, creates a deep backup
+path one component at a time while syncing every actual parent, durably syncs
+every exact backup, and journals the three-file replacement so a retry
+recovers from failure or interruption at any replacement boundary. Journal
+publication errors also remove their temporary file before returning. UUID
+merge and display-ID collision reconciliation are later rollout work.
 
 ### `brain reindex`
 

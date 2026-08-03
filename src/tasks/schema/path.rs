@@ -7,9 +7,22 @@ use anyhow::{Context, Result, anyhow, bail};
 
 pub(super) fn validate_backup_destination(
     workspace_root: &Path,
+    preexisting_backup_base: &Path,
     backup_dir: &Path,
-) -> Result<(PathBuf, PathBuf)> {
+) -> Result<(PathBuf, PathBuf, PathBuf)> {
     let workspace_root = resolve_path(workspace_root)?;
+    let backup_base = fs::canonicalize(preexisting_backup_base).with_context(|| {
+        format!(
+            "task migration backup base must already exist and be durable: {}",
+            preexisting_backup_base.display()
+        )
+    })?;
+    if !backup_base.is_dir() {
+        bail!(
+            "task migration backup base must already exist as a directory: {}",
+            preexisting_backup_base.display()
+        );
+    }
     let backup_dir = resolve_path(backup_dir)?;
     if workspace_root.starts_with(&backup_dir) || backup_dir.starts_with(&workspace_root) {
         bail!(
@@ -18,7 +31,14 @@ pub(super) fn validate_backup_destination(
             workspace_root.display()
         );
     }
-    Ok((workspace_root, backup_dir))
+    if !backup_dir.starts_with(&backup_base) {
+        bail!(
+            "task migration backup must be at or below its pre-existing durable base: {} and {}",
+            backup_dir.display(),
+            backup_base.display()
+        );
+    }
+    Ok((workspace_root, backup_base, backup_dir))
 }
 
 fn resolve_path(path: &Path) -> Result<PathBuf> {

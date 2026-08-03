@@ -15,6 +15,8 @@ const REPLACEMENTS: [&str; 3] = ["tasks.csv", "habits.csv", "SCHEMA.json"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum MigrationStep {
+    BackupDirectoryParentOpen(usize),
+    BackupDirectoryParentSync(usize),
     BackupParentOpen(usize),
     BackupParentSync(usize),
     Stage(usize),
@@ -22,6 +24,8 @@ pub(super) enum MigrationStep {
     Restore(usize),
     Commit,
     Committed,
+    JournalPublishPrepared,
+    JournalPublishCommitted,
 }
 
 #[derive(Debug)]
@@ -66,6 +70,7 @@ pub(super) fn replace_group(
         workspace_root,
         workspace_id,
         JournalState::Prepared,
+        hook,
     ) {
         cleanup_artifacts(&tasks_dir)?;
         return Err(error);
@@ -92,6 +97,7 @@ pub(super) fn replace_group(
         workspace_root,
         workspace_id,
         JournalState::Committed,
+        hook,
     )?;
     hook(MigrationStep::Committed).context("finishing committed task-schema migration")?;
     finish_committed(&tasks_dir, backup_dir)
@@ -206,6 +212,7 @@ fn write_journal(
     workspace_root: &Path,
     workspace_id: WorkspaceId,
     state: JournalState,
+    hook: &mut impl FnMut(MigrationStep) -> std::io::Result<()>,
 ) -> Result<()> {
     let journal = Journal {
         schema_version: JOURNAL_SCHEMA_VERSION,
@@ -219,10 +226,27 @@ fn write_journal(
     let path = journal_path(backup_dir);
     let temporary = journal_temporary_path(backup_dir);
     remove_if_exists(&temporary)?;
-    write_new(&temporary, &bytes)?;
-    fs::rename(&temporary, &path)
-        .with_context(|| format!("publishing task-schema journal {}", path.display()))?;
-    sync_parent(&path)
+    let result = (|| {
+        write_new(&temporary, &bytes)?;
+        let publish_step = match state {
+            JournalState::Prepared => MigrationStep::JournalPublishPrepared,
+            JournalState::Committed => MigrationStep::JournalPublishCommitted,
+        };
+        hook(publish_step)
+            .with_context(|| format!("publishing task-schema journal {}", path.display()))?;
+        fs::rename(&temporary, &path)
+            .with_context(|| format!("publishing task-schema journal {}", path.display()))?;
+        sync_parent(&path)
+    })();
+    if let Err(error) = result {
+        if let Err(cleanup_error) = cleanup_journal_temporary(backup_dir) {
+            return Err(anyhow!(
+                "{error:#}; cleaning temporary task-schema journal also failed: {cleanup_error:#}"
+            ));
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn validate_journal(
@@ -264,7 +288,12 @@ fn clear_journal(backup_dir: &Path) -> Result<()> {
 }
 
 fn cleanup_journal_temporary(backup_dir: &Path) -> Result<()> {
-    remove_if_exists(&journal_temporary_path(backup_dir))
+    let temporary = journal_temporary_path(backup_dir);
+    match fs::remove_file(&temporary) {
+        Ok(()) => sync_parent(&temporary),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("removing {}", temporary.display())),
+    }
 }
 
 fn cleanup_artifacts(tasks_dir: &Path) -> Result<()> {

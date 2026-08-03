@@ -676,10 +676,13 @@ normalizes legacy `assignee` headers to `assigned_to` before any write.
 New task and habit rows carry UUIDv4 identity; completion and edits preserve
 it, while a spawned habit occurrence gets a new UUID and retains assignment
 and `system_key`. The schema helper requires the rollout coordinator to state
-that the last legacy semantic sync is complete or not configured, and it takes
-an explicit machine-local backup directory that must resolve disjoint from the
-workspace tree. Every permanent backup entry and transaction artifact is
-file-synced and parent-directory-synced before live replacement. A durable
+that the last legacy semantic sync is complete or not configured. It takes an
+existing durable machine-local backup base plus a backup directory beneath
+that base; the destination must resolve disjoint from the workspace tree. The
+helper creates each missing descendant one component at a time and syncs every
+actual parent, including partially created chains found on retry. Every
+permanent backup entry and transaction artifact is file-synced and
+parent-directory-synced before live replacement. A durable
 prepared/committed journal makes failure or interruption between replacements
 recoverable; retry rolls a prepared generation back before migrating, or
 finishes committed cleanup. Nothing in startup, readiness, sync, or command

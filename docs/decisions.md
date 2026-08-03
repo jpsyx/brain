@@ -282,11 +282,15 @@ ID. Completion and ordinary edits preserve the UUID; habit recurrence creates
 a new UUID while retaining assignment and `system_key`.
 
 Activation is deliberately separate. The fixture-tested schema helper requires
-an explicit last-legacy-sync state and machine-local backup directory, and no
-runtime path calls it. Existing legacy CSVs keep `task_id` first so the current
-semantic merge remains unchanged. The helper rejects canonical or lexical path
-overlap with the workspace, durably syncs each exact backup before replacement,
-and publishes an internal prepared/committed recovery journal. A retry restores
+an explicit last-legacy-sync state, an existing durable machine-local backup
+base, and a destination beneath that base; no runtime path calls it. Existing
+legacy CSVs keep `task_id` first so the current semantic merge remains
+unchanged. The helper rejects canonical or lexical path overlap with the
+workspace, creates each missing backup-directory component separately, syncs
+every actual parent on both first attempt and retry, durably syncs each exact
+backup before replacement, and publishes an internal prepared/committed
+recovery journal. A publication error removes the journal temporary before
+returning. A retry restores
 the complete legacy generation after a prepared interruption or retains the
 complete new generation after commit, so a mixed schema is never accepted as a
 new migration input. The coordinated rollout still owns the final legacy sync,

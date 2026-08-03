@@ -2,7 +2,8 @@
 //!
 //! This module performs no discovery and is not called by bootstrap, task
 //! commands, readiness, or sync. The coordinated rollout supplies an explicit
-//! legacy-sync precondition, workspace root, and machine-local backup path.
+//! legacy-sync precondition, workspace root, pre-existing durable backup base,
+//! and a machine-local backup path beneath that base.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -49,6 +50,13 @@ pub enum LegacySemanticSync {
 pub struct TaskSchemaMigration<'a> {
     pub workspace_id: WorkspaceId,
     pub workspace_root: &'a Path,
+    /// Existing machine-local directory whose entry is already durable.
+    ///
+    /// The migration creates `backup_dir` beneath this base one component at a
+    /// time and syncs every parent. Callers must create and durably publish the
+    /// base before invoking this helper.
+    pub preexisting_backup_base: &'a Path,
+    /// Machine-local destination at or below `preexisting_backup_base`.
     pub backup_dir: &'a Path,
     pub legacy_semantic_sync: LegacySemanticSync,
 }
@@ -70,8 +78,11 @@ fn migrate_inactive_with_hook(
     request: TaskSchemaMigration<'_>,
     mut hook: impl FnMut(MigrationStep) -> std::io::Result<()>,
 ) -> Result<MigrationOutcome> {
-    let (workspace_root, backup_dir) =
-        validate_backup_destination(request.workspace_root, request.backup_dir)?;
+    let (workspace_root, backup_base, backup_dir) = validate_backup_destination(
+        request.workspace_root,
+        request.preexisting_backup_base,
+        request.backup_dir,
+    )?;
     recover_pending(
         &workspace_root,
         &backup_dir,
@@ -95,7 +106,7 @@ fn migrate_inactive_with_hook(
         );
     }
 
-    back_up_portable_files(&tasks_dir, &backup_dir, &mut hook)?;
+    back_up_portable_files(&tasks_dir, &backup_base, &backup_dir, &mut hook)?;
     let migrated_tasks = migrate_csv(&tasks_bytes, request.workspace_id, CsvKind::Tasks)?;
     let migrated_habits = migrate_csv(&habits_bytes, request.workspace_id, CsvKind::Habits)?;
     let migrated_schema = migrate_schema_metadata(&schema_bytes)?;
@@ -131,18 +142,12 @@ fn read_required(path: &Path) -> Result<Vec<u8>> {
 
 fn back_up_portable_files(
     tasks_dir: &Path,
+    backup_base: &Path,
     backup_dir: &Path,
     hook: &mut impl FnMut(MigrationStep) -> std::io::Result<()>,
 ) -> Result<()> {
     let destination_dir = backup_dir.join("tasks");
-    fs::create_dir_all(&destination_dir).with_context(|| {
-        format!(
-            "creating task migration backup {}",
-            destination_dir.display()
-        )
-    })?;
-    sync_parent(backup_dir)?;
-    sync_parent(&destination_dir)?;
+    ensure_durable_directory_chain(backup_base, &destination_dir, hook)?;
     for (index, name) in PORTABLE_FILES.into_iter().enumerate() {
         let source = tasks_dir.join(name);
         if !source.exists() {
@@ -170,6 +175,76 @@ fn back_up_portable_files(
         sync_backup_parent(&destination, index, hook)?;
     }
     Ok(())
+}
+
+fn ensure_durable_directory_chain(
+    base: &Path,
+    destination: &Path,
+    hook: &mut impl FnMut(MigrationStep) -> std::io::Result<()>,
+) -> Result<()> {
+    let relative = destination.strip_prefix(base).with_context(|| {
+        format!(
+            "task migration backup {} is outside durable base {}",
+            destination.display(),
+            base.display()
+        )
+    })?;
+    let mut parent = base.to_path_buf();
+    for (index, component) in relative.components().enumerate() {
+        let child = parent.join(component);
+        match fs::create_dir(&child) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && child.is_dir() => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "creating task migration backup directory {}",
+                        child.display()
+                    )
+                });
+            }
+        }
+        sync_backup_directory_parent(&child, index, hook)?;
+        parent = child;
+    }
+    Ok(())
+}
+
+fn sync_backup_directory_parent(
+    path: &Path,
+    index: usize,
+    hook: &mut impl FnMut(MigrationStep) -> std::io::Result<()>,
+) -> Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        anyhow!(
+            "task migration backup directory has no parent: {}",
+            path.display()
+        )
+    })?;
+    hook(MigrationStep::BackupDirectoryParentOpen(index)).with_context(|| {
+        format!(
+            "opening task migration backup directory parent {}",
+            parent.display()
+        )
+    })?;
+    let directory = fs::File::open(parent).with_context(|| {
+        format!(
+            "opening task migration backup directory parent {}",
+            parent.display()
+        )
+    })?;
+    hook(MigrationStep::BackupDirectoryParentSync(index)).with_context(|| {
+        format!(
+            "syncing task migration backup directory parent {}",
+            parent.display()
+        )
+    })?;
+    directory.sync_all().with_context(|| {
+        format!(
+            "syncing task migration backup directory parent {}",
+            parent.display()
+        )
+    })
 }
 
 fn sync_backup_parent(
@@ -217,6 +292,7 @@ fn sync_parent(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod transaction_tests {
+    use std::cell::Cell;
     use std::collections::BTreeMap;
     use std::io;
     use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -228,6 +304,7 @@ mod transaction_tests {
     struct Fixture {
         _temporary: tempfile::TempDir,
         root: PathBuf,
+        backup_base: PathBuf,
         backup: PathBuf,
         original: BTreeMap<&'static str, Vec<u8>>,
     }
@@ -237,8 +314,10 @@ mod transaction_tests {
             let temporary = tempfile::tempdir().unwrap();
             let root = temporary.path().join("workspace");
             let tasks = root.join("tasks");
-            let backup = temporary.path().join("machine-local/task-schema");
+            let backup_base = temporary.path().join("machine-local");
+            let backup = backup_base.join("level-one/level-two/task-schema");
             fs::create_dir_all(&tasks).unwrap();
+            fs::create_dir(&backup_base).unwrap();
             let files = [
                 (
                     "tasks.csv",
@@ -262,6 +341,7 @@ mod transaction_tests {
             Self {
                 _temporary: temporary,
                 root,
+                backup_base,
                 backup,
                 original,
             }
@@ -271,6 +351,7 @@ mod transaction_tests {
             TaskSchemaMigration {
                 workspace_id: WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
                 workspace_root: &self.root,
+                preexisting_backup_base: &self.backup_base,
                 backup_dir: &self.backup,
                 legacy_semantic_sync: LegacySemanticSync::Complete,
             }
@@ -459,6 +540,93 @@ mod transaction_tests {
             );
             fixture.assert_migrated_and_backed_up();
         }
+    }
+
+    #[test]
+    fn every_deep_backup_directory_parent_failure_precedes_replacement_and_is_retryable() {
+        for failed_index in 0..4 {
+            for failed_step in [
+                MigrationStep::BackupDirectoryParentOpen(failed_index),
+                MigrationStep::BackupDirectoryParentSync(failed_index),
+            ] {
+                let fixture = Fixture::new();
+                let install_started = Cell::new(false);
+
+                let error = migrate_inactive_with_hook(fixture.request(), |step| {
+                    if matches!(step, MigrationStep::Install(_)) {
+                        install_started.set(true);
+                    }
+                    if step == failed_step {
+                        return Err(io::Error::other("injected backup directory parent failure"));
+                    }
+                    Ok(())
+                })
+                .unwrap_err();
+
+                assert!(format!("{error:#}").contains("injected backup directory parent failure"));
+                assert!(!install_started.get());
+                fixture.assert_live_original();
+                assert_eq!(
+                    migrate_inactive(fixture.request()).unwrap(),
+                    MigrationOutcome::Migrated
+                );
+                fixture.assert_migrated_and_backed_up();
+            }
+        }
+    }
+
+    #[test]
+    fn crash_at_each_deep_backup_directory_sync_is_recovered_before_replacement() {
+        for crash_index in 0..4 {
+            let fixture = Fixture::new();
+            let install_started = Cell::new(false);
+
+            let interrupted = catch_unwind(AssertUnwindSafe(|| {
+                let _ = migrate_inactive_with_hook(fixture.request(), |step| {
+                    if matches!(step, MigrationStep::Install(_)) {
+                        install_started.set(true);
+                    }
+                    assert_ne!(
+                        step,
+                        MigrationStep::BackupDirectoryParentSync(crash_index),
+                        "injected backup directory sync crash"
+                    );
+                    Ok(())
+                });
+            }));
+
+            assert!(interrupted.is_err());
+            assert!(!install_started.get());
+            fixture.assert_live_original();
+            assert_eq!(
+                migrate_inactive(fixture.request()).unwrap(),
+                MigrationOutcome::Migrated
+            );
+            fixture.assert_migrated_and_backed_up();
+        }
+    }
+
+    #[test]
+    fn prepared_journal_publish_failure_removes_temporary_file_immediately() {
+        let fixture = Fixture::new();
+
+        let error = migrate_inactive_with_hook(fixture.request(), |step| {
+            if step == MigrationStep::JournalPublishPrepared {
+                return Err(io::Error::other("injected journal publish failure"));
+            }
+            Ok(())
+        })
+        .unwrap_err();
+
+        assert!(format!("{error:#}").contains("injected journal publish failure"));
+        fixture.assert_live_original();
+        assert!(transaction_artifacts(&fixture.root).is_empty());
+        assert!(
+            !fixture
+                .backup
+                .join(".brain-task-schema-transaction.json.tmp")
+                .exists()
+        );
     }
 
     fn transaction_artifacts(root: &Path) -> Vec<PathBuf> {

@@ -13,6 +13,7 @@ const OTHER_WORKSPACE_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
 struct Fixture {
     temporary: tempfile::TempDir,
     root: PathBuf,
+    backup_base: PathBuf,
     backup: PathBuf,
     original: BTreeMap<&'static str, Vec<u8>>,
 }
@@ -22,10 +23,10 @@ impl Fixture {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("workspace");
         let tasks_dir = root.join("tasks");
-        let backup = temporary
-            .path()
-            .join("runtime/migration-backups/task-schema");
+        let backup_base = temporary.path().join("machine-local");
+        let backup = backup_base.join("runtime/migration-backups/task-schema");
         std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::create_dir(&backup_base).unwrap();
         let files = [
             (
                 "tasks.csv",
@@ -50,6 +51,7 @@ impl Fixture {
         Self {
             temporary,
             root,
+            backup_base,
             backup,
             original,
         }
@@ -67,6 +69,7 @@ impl Fixture {
         migrate_inactive(TaskSchemaMigration {
             workspace_id: WorkspaceId::parse(WORKSPACE_ID).unwrap(),
             workspace_root: &self.root,
+            preexisting_backup_base: &self.backup_base,
             backup_dir,
             legacy_semantic_sync: sync,
         })
@@ -160,6 +163,26 @@ fn inactive_migration_requires_the_rollout_owned_legacy_sync_precondition() {
         );
     }
     assert!(!fixture.backup.exists());
+}
+
+#[test]
+fn inactive_migration_requires_an_existing_durable_backup_base() {
+    let fixture = Fixture::new();
+    let missing_base = fixture.temporary.path().join("missing-backup-base");
+    let backup = missing_base.join("deep/task-schema");
+
+    let error = migrate_inactive(TaskSchemaMigration {
+        workspace_id: WorkspaceId::parse(WORKSPACE_ID).unwrap(),
+        workspace_root: &fixture.root,
+        preexisting_backup_base: &missing_base,
+        backup_dir: &backup,
+        legacy_semantic_sync: LegacySemanticSync::Complete,
+    })
+    .unwrap_err();
+
+    assert!(error.to_string().contains("backup base must already exist"));
+    fixture.assert_live_inputs_unchanged();
+    assert!(!backup.exists());
 }
 
 #[test]

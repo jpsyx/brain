@@ -403,17 +403,22 @@ legacy UUIDv5 values from
 `<workspace-uuid>:<csv-kind>:<legacy-task-id>`, backs up both CSVs, both
 counters, and `SCHEMA.json`, then writes task schema version 2 with
 `task_uuid` as immutable merge identity and `task_id` as mutable display
-identity. A backup destination is accepted only when its canonicalized path is
-disjoint from the workspace tree. Exact backup bytes are file-synced and their
-actual parent directory is synced before any portable replacement. The helper
-publishes a durable prepared/committed transaction journal before sequential
-atomic replacements, so retry can roll back an interrupted prepared generation
-or finish cleanup for a committed one. Current detection validates the merge
+identity. The caller supplies an existing durable backup base; a backup
+destination is accepted only when its canonicalized path is beneath that base
+and disjoint from the workspace tree. Each missing descendant is created
+separately, and every actual parent is synced before continuing, including on
+retry through a partially created chain. Exact backup bytes are file-synced
+and their actual parent directory is synced before any portable replacement.
+The helper publishes a durable prepared/committed transaction journal before
+sequential atomic replacements, so retry can roll back an interrupted prepared
+generation or finish cleanup for a committed one; failed journal publication
+removes its temporary file immediately. Current detection validates the merge
 key, mutable display identity, canonical assignment, `system_key`, and UUIDs,
-not the schema version alone. It is not called by startup, readiness, sync, or commands. The
-rollout coordinator still owns the last legacy semantic sync, activation, and
-backup location. Existing legacy files retain `task_id` as their first sync
-key until migration; UUID merge and collision reconciliation remain Task 5.
+not the schema version alone. It is not called by startup, readiness, sync, or
+commands. The rollout coordinator still owns the last legacy semantic sync,
+activation, and backup location. Existing legacy files retain `task_id` as
+their first sync key until migration; UUID merge and collision reconciliation
+remain Task 5.
 The release also does not implement triage-habit policy,
 access-mode enforcement, the agent-controller/OpenCode facade, or the final
 shared receiver lifecycle.
