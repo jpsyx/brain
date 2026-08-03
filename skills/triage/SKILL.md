@@ -85,6 +85,25 @@ The original "morning triage" — a fast pass over past-due tasks that bulk-grou
 
 <!-- brain:ext triage:daily-open -->
 
+## Parallel sub-agents — launch now, before the task passes
+
+Daily triage can run **background sub-agents in parallel with the rest of daily
+triage** — independent jobs (an inbox sweep, an issue-tracker reconcile, a report
+build) that don't depend on the grouping / at-risk / chronic passes and would only
+burn wall-clock if run serially first. An extension registers each such sub-agent
+at the hook below.
+
+**Launch every registered sub-agent now, in the background, and do NOT block on
+them here.** Record each sub-agent's handle so you can collect it when the task
+passes are done. The task-triage passes (Steps 0–8) run *while* the sub-agents
+work. Every registered sub-agent must also declare, at `triage:daily-merge`
+(collected just before Step 9), how its output folds back into the day's agenda
+before the final PDF is produced — launching a sub-agent here without a matching
+merge rule there is a mistake. If no sub-agent is registered, this is a no-op — go
+straight to Step 0.
+
+<!-- brain:ext triage:daily-subagents -->
+
 ## Step 0 — Backlog auto-purge (silent, runs every triage)
 
 Before the task-triage steps, run the 6-month backlog purge:
@@ -318,6 +337,31 @@ Triage complete:
 ```
 
 Omit the at-risk / chronic-ignore lines when those scans were skipped or returned zero hits — just note "At-risk: none" / "Chronic-ignore: none" in that case. Any integration passes you run from an extension (email, issue-tracker reconcile) add their own summary lines above these.
+
+## Collect sub-agents, then merge into the agenda (gates the final PDF)
+
+If you launched any sub-agents at `triage:daily-subagents`, the day's agenda is
+**not** finalized to PDF until they all finish and their output has been merged
+in. Do this before Step 9 lets the agenda (re)generate:
+
+1. **Wait for every registered sub-agent to finish** and collect each one's result
+   (its output markdown / artifacts). Never render, print, or hand the user the
+   final agenda PDF while a sub-agent is still running — the one printable must
+   contain their work. This is the hard rule: the final daily-triage PDF is gated
+   on all sub-agents completing.
+2. **Merge each finished sub-agent's output into the daily-triage output** — the
+   day's agenda markdown — following the merge instructions that sub-agent's
+   extension declares at the hook below. The usual shape is to **append the
+   sub-agent's markdown section(s) to the agenda markdown**, so the single agenda
+   PDF ends up carrying both the triage agenda and the sub-agent's content. If a
+   sub-agent failed or was skipped, say so in the Step 8 summary and proceed with
+   what you have.
+3. Only once all sub-agents are collected and merged do you let the agenda PDF be
+   (re)generated in Step 9. That regenerated PDF is the combined printable.
+
+With no registered sub-agents, this step is a no-op.
+
+<!-- brain:ext triage:daily-merge -->
 
 ## Step 9 — Mark Morning Triage habit done
 

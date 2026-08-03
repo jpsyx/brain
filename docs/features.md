@@ -756,9 +756,14 @@ brain (synced, never committed to the repo):
   marker in the **built copy** (the repo skill is never touched). Content with no
   matching marker is appended as a "Personal extensions" section, so nothing is
   lost. This is how, e.g., the bundled `triage` skill declares
-  `triage:daily-open` / `triage:daily-linear` / `triage:weekly-inboxes` /
-  `triage:weekly-linear` hooks so a personal extension can bolt an email pass,
-  an issue-tracker reconcile, and a cloud in-basket onto the generic core.
+  `triage:daily-open` / `triage:daily-subagents` / `triage:daily-linear` /
+  `triage:daily-merge` / `triage:weekly-inboxes` / `triage:weekly-linear` hooks so
+  a personal extension can bolt an email pass, an issue-tracker reconcile, and a
+  cloud in-basket onto the generic core. The `triage:daily-subagents` /
+  `triage:daily-merge` pair lets an extension run work **in parallel** with daily
+  triage (launched at the start, collected before Step 9) and fold its output into
+  the day's agenda; the final agenda PDF is gated on every registered sub-agent
+  finishing and merging first.
 - **Plugins** — whole skills you own, in `<root>/.config/plugins/<name>/`. The
   sync installs them alongside the bundled cores, into the same registry and
   frontends.

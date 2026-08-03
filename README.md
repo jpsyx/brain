@@ -379,7 +379,7 @@ touches):
 | `contacts` | `contacts:fallback` |
 | `second-brain` | `second-brain:company-context`, `second-brain:reference-manager` |
 | `todo` | `todo:linear`, `todo:linear-backlog`, `todo:calendar`, `todo:cutoff`, `todo:anchors` |
-| `triage` | `triage:daily-open`, `triage:daily-linear`, `triage:weekly-inboxes`, `triage:weekly-linear` |
+| `triage` | `triage:daily-open`, `triage:daily-subagents`, `triage:daily-linear`, `triage:daily-merge`, `triage:weekly-inboxes`, `triage:weekly-linear` |
 
 There are **two ways to make skills yours without forking**: *extensions* (tweak a
 bundled skill) and *plugins* (add a whole new skill). Both are stored with your
