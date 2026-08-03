@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 
 use super::{MachineRegistry, REGISTRY_SCHEMA_VERSION};
+use crate::workspace::ManifestError;
 use crate::workspace::{WorkspaceId, WorkspaceName, context::normalize_root};
 
 /// The storage operation that failed at a registry boundary.
@@ -103,6 +104,8 @@ pub enum RegistryError {
         kind: std::io::ErrorKind,
         message: String,
     },
+    /// Portable manifest creation or validation failed during migration.
+    Manifest(ManifestError),
 }
 
 impl Display for RegistryError {
@@ -196,11 +199,19 @@ impl Display for RegistryError {
                 }
                 write!(formatter, ": {message}")
             }
+            Self::Manifest(error) => Display::fmt(error, formatter),
         }
     }
 }
 
-impl Error for RegistryError {}
+impl Error for RegistryError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Manifest(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// Validate every invariant that makes registry selection unambiguous and safe.
 pub fn validate_registry(registry: &MachineRegistry) -> Result<(), RegistryError> {

@@ -3,14 +3,20 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use brain::workspace::{
-    MachineRegistry, REGISTRY_SCHEMA_VERSION, RegistryStore, WorkspaceId, WorkspaceName,
-    WorkspaceRecord, migrate_legacy,
+    MachineRegistry, REGISTRY_SCHEMA_VERSION, RegistryStore, WorkspaceId, WorkspaceManifest,
+    WorkspaceName, WorkspaceRecord, migrate_legacy,
 };
 use serde_json::json;
 
 fn run_migration(home: &std::path::Path, config_home: &std::path::Path) {
     let output = Command::new(env!("CARGO_BIN_EXE_brain"))
-        .args(["env", "list"])
+        .args([
+            "workspace",
+            "repair",
+            "--manifest",
+            "--local-user-id",
+            "migration-user",
+        ])
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", config_home)
         .env("NO_COLOR", "1")
@@ -106,7 +112,10 @@ fn flat_bytes_are_backed_up_exactly_and_machine_keys_are_siloed_losslessly() {
     assert_eq!(selected.canonical_name().as_str(), "brain_data");
     assert_eq!(selected.record().root, home.path().join("Brain_Data"));
     assert!(selected.record().root.is_absolute());
-    assert!(!selected.record().root.exists());
+    assert!(selected.record().root.is_dir());
+    let manifest = WorkspaceManifest::load(&selected.record().root, env!("CARGO_PKG_VERSION"))
+        .expect("legacy migration creates the portable manifest");
+    assert_eq!(manifest.workspace_id(), selected.record().workspace_id);
     assert_eq!(outcome.registry.workspaces.len(), 1);
     assert!(selected.record().aliases.is_empty());
     assert!(selected.record().local_user_id.is_empty());
@@ -243,6 +252,34 @@ fn rerun_keeps_the_uuid_and_registry_bytes_and_creates_no_new_backup() {
 }
 
 #[test]
+fn migration_adopts_an_existing_portable_manifest_without_changing_its_identity() {
+    let (home, _config_home, config_dir) = fixture_dirs();
+    let env_path = config_dir.join("env.json");
+    let root = home.path().join("brain");
+    fs::create_dir_all(&root).unwrap();
+    let legacy = br#"{"root":"~/brain","custom":"keep"}"#;
+    fs::write(&env_path, legacy).unwrap();
+    let portable =
+        WorkspaceManifest::new(WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap());
+    portable.write_new(&root).unwrap();
+    let manifest_path = WorkspaceManifest::path(&root);
+    let original_bytes = fs::read(&manifest_path).unwrap();
+    let original_ingress = portable.receiver_ingress_id();
+
+    let outcome = migrate_legacy(home.path(), &config_dir, legacy).unwrap();
+
+    let selected = outcome.registry.select(None).unwrap();
+    assert_eq!(selected.record().workspace_id, portable.workspace_id());
+    assert_eq!(fs::read(&manifest_path).unwrap(), original_bytes);
+    assert_eq!(
+        WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION"))
+            .unwrap()
+            .receiver_ingress_id(),
+        original_ingress
+    );
+}
+
+#[test]
 fn valid_schema_v2_registry_is_a_byte_for_byte_no_op() {
     let (home, _config_home, config_dir) = fixture_dirs();
     let env_path = config_dir.join("env.json");
@@ -342,7 +379,20 @@ fn failed_registry_replacement_never_removes_the_portable_markdown_path() {
     let portable = br#"{"markdown_to_pdf_path":"/portable/bin/markdown-to-pdf"}"#;
     fs::write(&portable_path, portable).expect("write portable config");
 
-    run_migration(home.path(), config_home.path());
+    let output = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .args([
+            "workspace",
+            "repair",
+            "--manifest",
+            "--local-user-id",
+            "migration-user",
+        ])
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", config_home.path())
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run failed migration");
+    assert!(!output.status.success(), "blocked registry must fail");
 
     assert_eq!(
         fs::read(portable_path).expect("portable config remains"),

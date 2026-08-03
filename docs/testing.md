@@ -45,7 +45,21 @@ first move is a failing test that reproduces it, *then* the fix.
   `workspace::command::prompt` tests which missing values require `/dev/tty`,
   plus EOF cancellation, required-value retry, optional blank names,
   multi-answer collection, and contextual read/write failures through injected
-  `BufRead`/`Write` seams. The real `/dev/tty` opener stays thin.
+  `BufRead`/`Write` seams. Registry-only preflight tests snapshot legacy env and
+  pointer bytes plus the complete root/config trees across create/attach EOF,
+  prove migration is never called after cancellation, and prove complete flag
+  forms perform no terminal IO. The real `/dev/tty` opener stays thin.
+- **Workspace bootstrap and readiness.** An exhaustive pure invocation table
+  proves every route is context-free, internal-no-prompt, registry-only, or
+  ready-workspace. Manifest tests reject unknown fields, schema/version
+  incompatibility, and UUID disagreement. Injected `BufRead`/`Write` tests
+  prove interactive repair persists and continues the original command, while
+  compiled headless tests prove the exact repair commands and that no terminal
+  prompt is attempted. Create/attach tests cover manifest ordering/adoption,
+  invalid and colliding identities, registry-byte preservation, and manifest
+  survival when later registry persistence fails. The first-create regression
+  explicitly proves that create leaves `local_user_id` empty and the next
+  ordinary command is the setup boundary.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
   map (defaults vs overrides — never the real store), the `config list` table
   layout and coloring, value coercion (`4`→number), name normalization, the
@@ -154,7 +168,9 @@ first move is a failing test that reproduces it, *then* the fix.
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
-| `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: create/default, attach, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. |
+| `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: manifest-aware create/attach, persistence failures, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. |
+| `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
+| `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, and persistence-failure preservation. |
 | `tests/verbose_cli.rs` | End-to-end `--verbose` contract for the compiled binary: stdout mirroring, `/tmp` log-file creation, command/action breadcrumbs, and task CSV load/write logging. |
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because

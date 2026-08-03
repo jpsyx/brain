@@ -1,0 +1,31 @@
+//! Habits web command dispatch.
+
+use anyhow::Result;
+
+pub fn run_habits(
+    args: &crate::cli::HabitsArgs,
+    _context: &crate::workspace::CommandContext,
+) -> Result<()> {
+    match &args.action {
+        None => open_habits(),
+        Some(crate::cli::HabitsAction::Revive(revive)) => {
+            crate::tasks::revive::run(&revive.query.join(" "))
+        }
+        Some(crate::cli::HabitsAction::Skip(skip)) => {
+            crate::tasks::skip::run(&skip.id, skip.until.as_deref())
+        }
+    }
+}
+
+fn open_habits() -> Result<()> {
+    let theme = crate::theme::Theme::active();
+    eprintln!("{}", crate::server::lifecycle::format_ensure_plan(theme));
+    crate::logging::log("habits ensure server");
+    let port = crate::server::lifecycle::ensure_running()?;
+    let target = crate::server::url(port, "/habits");
+    crate::logging::log(format!("habits open {target}"));
+    println!("{}", theme.info(&format!("Opening {target}")));
+    crate::logging::log(format!("spawn open {target}"));
+    let _ = std::process::Command::new("open").arg(&target).spawn();
+    Ok(())
+}

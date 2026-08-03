@@ -62,15 +62,14 @@ argv
  └─→ Cli::parse                          (cli/)
       ├─→ -v / --version / Cmd::Version ─→ print crate version and exit before any gates
       ├─→ logging::init                  (timestamped `/tmp` log; stdout mirror with `--verbose`)
-      ├─→ Cmd::Workspace ─→ workspace::command::run (registry management; before migration/gate)
-      ├─→ Cmd::Config ─→ config_command   (list/get/set; runs BEFORE the gate)
-      ├─→ Cmd::Env ─→ env_command         (list/get/set over env.json; also BEFORE the gate)
-      ├─→ Cmd::Sync ─→ sync_command       (sync/--push/--pull/setup/repair/status/conflicts; also BEFORE the gate)
-      ├─→ Cmd::Check ─→ sync::check::run  (read-only dry-run push/pull report; also BEFORE the gate)
-      ├─→ Cmd::Reindex ─→ reindex::run    (rebuild derived lookup CSVs + task/habit rules; also BEFORE the gate)
-      ├─→ Cmd::Personalize ─→ personalize_command (show/get/set/edit / onboarding; also BEFORE the gate)
-      ├─→ Cmd::Server ─→ server_command   (start/status/kill/run — the background HTTP daemon; also BEFORE the gate)
-      └─→ settings::ensure_markdown_to_pdf (prereq gate: config path, else discover; red ❌ + exit if unresolved)
+      ├─→ workspace::bootstrap            (explicit per-invocation policy)
+      │    ├─ context-free/internal → no registry, root, or prompt
+      │    ├─ create/attach/remove/repair → registry capability only
+      │    └─ ordinary command → migrate, select once, validate readiness,
+      │         repair interactively when permitted, return CommandContext
+      └─→ command::dispatch::run          (focused handlers under command/)
+           ├─→ configuration / sync / server / workspace / reindex handlers
+           └─→ settings::ensure_markdown_to_pdf (tasks/TUI prerequisite gate)
            ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
            └─ Cmd::Tasks(rest)       ─→ TasksCli::parse_from(rest) → tasks_launch:
                                           complete → complete::run (native CSV completion)
@@ -100,14 +99,13 @@ and the shell stays up.
 ## Modules
 
 ### `main.rs`
-Owns argv → `Cli` and the top-level `match` over `Cmd`. `brain workspace …` is
-dispatched before legacy migration and the `markdown-to-pdf` gate so a fresh
-machine can create or attach its first registry record directly. `brain config …`
-and the other short-lived management commands also run before the gate. Bare
-`brain` and `brain tasks …` both flow into `tasks_launch`, which either runs a tasks
-utility (`complete` → native CSV completion; `doctor` → `run_doctor`; `--no-tui`
-→ `plain::print_plain`) or opens the merged shell via `tui::run_tui`. There is
-no plan and no `Exit` mapping: the shell just returns when the user quits.
+The binary entry point is intentionally thin: parse, context-free version exit,
+logging, one workspace bootstrap, one dispatch call, and one top-level error
+boundary. It links the library modules instead of declaring a duplicate module
+tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
+`command/{configuration,tasks,sync,server,workspace,reindex}` modules own the
+existing handlers. `command/server/` further separates receiver setup, HTTP
+server lifecycle, and habits dispatch.
 
 ### `cli/`
 The clap derive surface, split by command family. `mod.rs` keeps the parser
@@ -153,11 +151,25 @@ validated mutations), `validate` (pure whole-registry invariants), `select`
 path, lock-owning transactions, and same-directory atomic replacement), `lock`
 (the bounded SQLite transaction lock on the stable adjacent database),
 and `migrate` (the one-time flat-env conversion and exact-byte backup).
+`bootstrap_policy` classifies every invocation before workspace IO, while
+`bootstrap` executes that policy. Context-free and hidden internal-server
+routes cannot prompt. Create, attach, remove, and repair first run the
+`command::preflight` prompt-and-validation stage; only a complete request may
+trigger legacy migration and receive a registry capability. All ordinary
+commands migrate first and require a ready selected workspace. `readiness` is
+the pure manifest/local-user decision,
+`manifest` owns strict portable identity parsing, and successful bootstrap
+returns one immutable `CommandContext` containing an `Arc<WorkspaceContext>`
+plus the registry store. Interactive repair uses injected `BufRead`/`Write`,
+persists under the registry transaction, reloads, and continues the originally
+requested command.
+
 `command/` owns the workspace CLI: `mutate` turns collected values into pure,
-validated registry-only decisions and owns registry-only mutations; `provision`
-owns create/attach filesystem and persistence transactions; `list` renders
-deterministic themed output; `prompt` collects omitted human values from
-`/dev/tty`; and `mod.rs` stays focused on dispatch and re-exports.
+validated registry-only decisions and owns registry-only mutations;
+`preflight` applies and validates registry-only prompt answers before migration;
+`provision` owns create/attach filesystem and persistence transactions; `list`
+renders deterministic themed output; `prompt` collects omitted human values
+from `/dev/tty`; and `mod.rs` stays focused on dispatch and re-exports.
 Root normalization is pure:
 it resolves a relative input against an explicit current-directory base and
 removes lexical `.` / `..` components without requiring the path to exist or
@@ -185,24 +197,34 @@ its own permissions failure in a read-only parent. SQLite releases its OS lock
 on normal close or process exit. A stable owner sidecar supplies the diagnostic
 PID. Atomic replacement remains a separate persistence guarantee.
 
-At startup, `registry::migrate` checks this fixed file before ordinary command
-dispatch. A valid schema-v2 registry is returned without any write. Otherwise
+When bootstrap policy permits registry access, `registry::migrate` checks this
+fixed file before ordinary command dispatch. A valid schema-v2 registry is
+returned without any write. Otherwise
 it converts the legacy flat object into exactly one default record, resolving
 the root from flat `root`, then the read-only legacy pointer, then
 `<home>/brain`; the result is tilde-expanded and lexically normalized without
-requiring the directory to exist. The new record receives one UUID, no aliases,
+requiring the directory to exist. The new record receives no aliases,
 an empty local-user placeholder, a de-duplicated receiver switch, and all other
-machine-local flat values inside its `env`. Access policy is deliberately not
-machine-local; migration reports that portable setup remains required for a
-later readiness layer.
+machine-local flat values inside its `env`. It creates the root and the first
+matching portable manifest before persisting the registry. If that root already
+contains a valid portable manifest, migration adopts its workspace UUID and
+receiver-ingress UUID without changing its bytes. Only a missing manifest
+causes migration to generate those identities. Access policy is
+deliberately not machine-local; readiness remains incomplete until this
+machine's local user ID is supplied.
 
 Before replacing an existing flat file, migration creates an adjacent
 exact-byte `env.json.legacy-backup` (or the first free numeric suffix), then
 uses the atomic registry store. Re-running sees schema v2 and preserves both the
-UUID and registry bytes without another backup. Workspace management is the
-exception to this startup ordering: it runs first, loads schema v2 explicitly,
-and never projects through the compatibility view. `workspace create` creates
-only its requested root after validating the complete registry candidate. It
+UUID and registry bytes without another backup. Registry-only create and attach
+collect and validate their complete request before classifying the machine or
+migrating. An existing
+`env.json`, legacy `$XDG_CONFIG_HOME/brain-root` pointer, or `<home>/brain`
+directory is legacy-install evidence and is migrated first. Only a genuinely
+fresh machine with none of those sources lets the requested create/attach
+become the first record. Workspace commands then load schema v2 explicitly and
+never project through the compatibility view. `workspace create` creates only
+its requested root after validating the complete registry candidate. It
 tracks every missing root-directory component it creates. If later directory
 creation or registry persistence fails, Brain never deletes those paths:
 safe Rust 1.85 path APIs cannot atomically couple ownership verification with
@@ -210,15 +232,18 @@ deletion. A composed error keeps the original provisioning or persistence
 error as its source and lists only the paths this invocation created, deepest
 first, for manual inspection and cleanup. An `AlreadyExists` result is an
 ownership race, not successful provisioning and is never added to that list.
-`attach` requires an existing root; rename,
+`attach` requires an existing root with a strict compatible manifest and adopts
+its UUID. Invalid manifests, duplicate UUIDs, and already-registered or
+overlapping roots fail without changing registry bytes or root contents. Rename,
 aliases, default changes, and removal use `RegistryStore` transactions. Adding
 an alias already present on the same record is a typed error rather than a
 successful no-op. Removal detaches only the record. Existing env/root callers
 still use a default-record
-compatibility view. Its writes and startup migration enter the same registry
-transaction, so every in-process writer is serialized. `--brain` is not yet
-threaded through ordinary runtime stores or the TUI; readiness is also later
-work.
+compatibility view. Its writes and bootstrap migration enter the same registry
+transaction, so every in-process writer is serialized. Bootstrap resolves
+`--brain` once and dispatch already consumes the selected root for sync, check,
+task CSV selection, and receiver setup. Task 6 owns removal of the remaining
+default-record compatibility reads inside underlying stores.
 
 Deserialization has a single trusted boundary: JSON first enters a private raw
 schema DTO, then conversion runs the same pure whole-registry validator used by
@@ -229,8 +254,8 @@ domain failures retain their typed `RegistryError` variants. Storage failures
 likewise retain their operation, primary and related paths, IO error kind, and
 message.
 
-After selection, later layers construct one `WorkspaceContext` before passing
-it to workspace-aware commands. Context fields are private and accessors expose
+After selection, bootstrap constructs one `WorkspaceContext` before passing it
+to ordinary commands. Context fields are private and accessors expose
 only immutable views, so callers cannot desynchronize the workspace UUID from
 its UUID-derived runtime paths.
 
@@ -396,7 +421,8 @@ in the separate `env.json`) are ignored here.
 
 ### `sync/`
 `brain sync`: manual, bidirectional cross-machine sync of the brain root to a
-private Backblaze B2 bucket via `rclone bisync`, dispatched in `main.rs`
+private Backblaze B2 bucket via `rclone bisync`, dispatched in
+`src/command/sync.rs`
 **before** the `markdown-to-pdf` prerequisite gate (like `config`/`env`/
 `personalize`/`skills`). The data flow per run is **build → run → post-pass →
 verify → journal**: `config` (`SyncConfig`, parsed from the brain-env `sync`
@@ -466,8 +492,8 @@ the IO/threads/`Command`:
   live, fresh sync holds it), and `Guard` owns a heartbeat thread that refreshes
   the lockfile mtime until drop. Drop stops the heartbeat and removes the file
   only if it still holds our PID. It wraps **all** sync entry points, including
-  the manual `run_sync` in `main.rs`, closing a pre-existing concurrent-`brain
-  sync` race.
+  the manual command path in `src/command/sync.rs`, closing a pre-existing
+  concurrent-`brain sync` race.
 - `watch.rs` — the pure `Debouncer` (a clock-injected quiescence state machine:
   `on_event`/`time_until_fire`/`poll`) and the pure `is_watch_relevant(path)`
   exclude predicate, plus the thin `notify` shell `spawn_watcher_with` (owns the
@@ -686,10 +712,9 @@ block every route, treats idle time as normal, and uses
 `tiny_http::unblock()` only for graceful shutdown.
 
 ### `lib.rs`
-Re-exports the modules so integration tests in `tests/` can link against
-them. The binary (`main.rs`) declares the same modules privately; with a
-`lib.rs` present the source files compile into both a bin and a lib crate
-(the same pattern `tasks` uses).
+Re-exports the modules so integration tests in `tests/` and the thin binary
+entry point share one compiled module graph. `main.rs` calls this library
+surface instead of privately declaring every module a second time.
 
 ## Build / run loop
 

@@ -24,7 +24,8 @@ pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
         bail!("internal workspace create decision mismatch");
     };
     store.transaction(|transaction| -> anyhow::Result<()> {
-        let record = fresh_record(root.clone());
+        let workspace_id = WorkspaceId::new();
+        let record = fresh_record(root.clone(), workspace_id);
         let candidate = match transaction.load() {
             Ok(mut registry) => {
                 registry.attach_record(canonical_name.clone(), record)?;
@@ -37,7 +38,13 @@ pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
             }
             Err(error) => return Err(error.into()),
         };
-        let created_directories = create_missing_directory_chain(&root)?;
+        let mut created_directories = create_missing_directory_chain(&root)?;
+        let config_dir = root.join(".config");
+        created_directories.extend(create_missing_directory_chain(&config_dir)?);
+        let manifest = crate::workspace::WorkspaceManifest::new(workspace_id);
+        if let Err(error) = manifest.write_new(&root) {
+            return Err(manual_cleanup_required(error.into(), &created_directories));
+        }
         if let Err(error) = transaction.save(&candidate) {
             return Err(manual_cleanup_required(error.into(), &created_directories));
         }
@@ -165,7 +172,8 @@ pub(super) fn attach(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
                 root.display()
             );
         }
-        let record = fresh_record(root.clone());
+        let manifest = crate::workspace::WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION"))?;
+        let record = fresh_record(root.clone(), manifest.workspace_id());
         match transaction.load() {
             Ok(mut registry) => transaction.update(&mut registry, |candidate| {
                 candidate.attach_record(canonical_name.clone(), record)
@@ -188,9 +196,9 @@ pub(super) fn attach(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
     Ok(())
 }
 
-fn fresh_record(root: PathBuf) -> WorkspaceRecord {
+fn fresh_record(root: PathBuf, workspace_id: WorkspaceId) -> WorkspaceRecord {
     WorkspaceRecord {
-        workspace_id: WorkspaceId::new(),
+        workspace_id,
         root,
         aliases: BTreeSet::new(),
         local_user_id: String::new(),

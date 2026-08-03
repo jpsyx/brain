@@ -47,6 +47,15 @@ pub enum WorkspaceAction {
         /// Canonical name or alias.
         workspace: Option<String>,
     },
+    /// Repair the selected workspace's required local setup.
+    Repair {
+        /// Create a missing portable workspace manifest.
+        #[arg(long)]
+        manifest: bool,
+        /// Set this machine's local user ID for the selected workspace.
+        #[arg(long, value_name = "USER_ID")]
+        local_user_id: Option<String>,
+    },
 }
 
 #[derive(Args, Debug)]

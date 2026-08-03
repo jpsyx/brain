@@ -67,31 +67,54 @@ reports structural JSON and IO failures with the failed operation and path
 mutation through `RegistryStore`'s interprocess transaction and atomic-save
 boundaries. Startup migration and the legacy/default `brain env` compatibility
 writer use the same lock, so they cannot overwrite a workspace command.
-Its global `--brain/-b` selector resolves canonical names and aliases for this
-registry-aware surface. Existing `brain env` commands and runtime root
-resolution still use a temporary default-record compatibility view, preserving
-their single-workspace behavior without flattening the registry. Threading the
-selected context into ordinary stores/TUI plus portable readiness and
-onboarding remain later work.
+Its global `--brain/-b` selector resolves canonical names and aliases once at
+the bootstrap boundary. Ordinary commands receive a ready selected context;
+sync, check, task CSV selection, and receiver setup already consume its root.
+Some underlying config/env/personalization helpers still use the temporary
+default-record compatibility view until Task 6 threads context through every
+store signature.
 
 ### The `brain workspace` command
 
 | Command | Effect |
 | --- | --- |
 | `brain workspace list` | Deterministically list canonical records with the default marker, root, aliases, local user, receiver state, and the root's portable `access_mode` when available. Empty/unavailable setup is explicit. |
-| `brain workspace create [--name <name>] [--root <path>]` | Validate the complete candidate, create only the requested normalized root chain, and register a fresh record; root basename supplies an omitted name. A later provisioning or persistence failure preserves every directory path the invocation created and lists those paths for manual cleanup. |
-| `brain workspace attach [<root>]` | Register an existing root without creating, deleting, or editing its contents. Manifest/UUID adoption is deferred. |
+| `brain workspace create [--name <name>] [--root <path>]` | Validate the complete candidate, create the normalized root and strict portable manifest, then register the same UUID; root basename supplies an omitted name. A later persistence failure preserves the manifest and every directory path the invocation created for manual cleanup. |
+| `brain workspace attach [<root>]` | Validate a strict compatible manifest in an existing root and register its UUID without editing root contents. Invalid or colliding identities leave registry bytes unchanged. |
 | `brain workspace rename [<workspace>] [<name>]` | Rekey the canonical name while preserving the complete record and updating the default if needed. |
 | `brain workspace alias {add\|remove} [<workspace>] [<alias>]` | Add or remove an alternative case-folded selector. A duplicate alias on the same record is an actionable error and leaves bytes unchanged. |
 | `brain workspace default [<workspace>]` | Set the canonical default through a canonical-name or alias selector. |
 | `brain workspace remove [<workspace>]` | Detach only the registry record; root and every local/remote runtime artifact remain untouched. |
+| `brain workspace repair [--manifest] [--local-user-id <id>]` | Recreate a missing manifest that matches the registry and/or set this machine's local identity. Omitting both flags uses the interactive prompt. |
 
 Every optional grammar value has a `/dev/tty` prompt when omitted and a flag
-or positional noninteractive form. All missing values are collected before the
-transaction, so cancellation cannot partially mutate the registry. Workspace
-commands run before the `markdown-to-pdf` gate; first `create`/`attach` can
-therefore establish the initial schema-v2 registry without legacy migration
-inventing a competing default.
+or positional noninteractive form. For create, attach, remove, and repair,
+bootstrap collects and validates the complete request before legacy
+classification or migration. EOF/cancellation therefore leaves legacy env and
+pointer bytes, the root tree, manifests, backups, and registry bytes unchanged.
+Complete noninteractive forms skip terminal IO and then perform any required
+migration before executing the prepared request. Workspace commands run before
+the `markdown-to-pdf` gate; on a genuinely fresh machine, first
+`create`/`attach` can therefore establish the initial schema-v2 registry
+without migration inventing a competing default.
+
+### Portable manifest and readiness
+
+Each workspace root carries `<brain-root>/.config/workspace.json`. Schema `1`
+contains the workspace UUID, a stable receiver ingress UUID, and the minimum
+compatible Brain version. Parsing rejects unknown fields, unsupported schema
+versions, invalid UUIDs, and a minimum version newer than the running binary.
+The manifest UUID must equal the selected machine-registry UUID.
+
+Create and attach are registry-only setup commands, so they can establish an
+incomplete record. Before every ordinary command, Brain then requires that
+manifest agreement plus a non-empty `local_user_id`. An interactive invocation
+prompts for missing setup, persists it under the registry transaction, reloads
+the immutable context, and continues. A headless invocation never opens
+`/dev/tty`; it reports exact `brain workspace repair -b <workspace> ...`
+commands. The first `workspace create` therefore leaves `local_user_id` empty,
+and the next ordinary command is the explicit setup point. Version/help and
+hidden internal server execution perform no workspace IO or prompt.
 
 ### Legacy single-workspace brain env compatibility
 
@@ -192,19 +215,23 @@ resolved path and any missing parent directories on demand.
 `brain_root_path()` (used to derive the config dir) remains side-effect-free, so
 env and config lookups don't create or require a brain directory.
 
-**Migration.** On every startup brain checks `env.json` through
-`env::migrate`. A valid schema-v2 registry is a byte-for-byte no-op. Any other
+**Migration.** When an invocation's bootstrap policy permits registry access,
+brain checks `env.json` through `env::migrate`. A valid schema-v2 registry is a byte-for-byte no-op. Any other
 body is interpreted as the legacy flat JSON object; invalid or non-object JSON
 is treated as an empty object. Migration creates exactly one default record:
 
 1. Root precedence remains flat nonblank `root`, then the nonblank legacy
    `~/.config/brain-root` pointer, then `<home>/brain`.
 2. Leading `~` is expanded against the explicit home and the result is made
-   absolute and lexically normalized without touching the target directory.
+   absolute and lexically normalized without requiring the target directory to exist.
 3. A valid root basename becomes the canonical workspace name; otherwise it
    falls back to `brain`.
-4. The record gets one stable UUID, no aliases, an empty `local_user_id` for
-   later readiness, and the old receiver-enabled value in the dedicated field.
+4. Migration creates the root, then validates and adopts an existing strict
+   portable manifest's workspace UUID and receiver-ingress UUID without
+   rewriting it. Only when the manifest is absent does migration generate both
+   identities and create the manifest. The record gets no aliases, an empty
+   `local_user_id` for readiness, and the old receiver-enabled value in the
+   dedicated field.
    Every other flat machine-local value except `root` moves unchanged into that
    record's `env`, including nested objects. Receiver and access-policy keys are
    not duplicated into `env`; portable access setup remains required.
@@ -215,6 +242,12 @@ beside it as `env.json.legacy-backup`; a collision uses the first free suffix
 `env.json`. A successful rerun keeps the same UUID and exact registry bytes,
 creates no new backup, and reports no new migration. The pointer file is
 compatibility input only: brain never creates, rewrites, or removes it.
+
+For registry-only `workspace create` and `workspace attach`, an existing
+`env.json`, legacy `$XDG_CONFIG_HOME/brain-root` pointer, or `<home>/brain`
+directory counts as legacy-install evidence and is migrated before the new
+record is added. Only a machine with none of those sources is treated as fresh,
+so its requested create or attach becomes the first workspace.
 
 The same pass preserves the older `markdown_to_pdf_path` relocation. If the
 portable `config.json` still contains that key and the legacy env lacks it, the

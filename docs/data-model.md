@@ -217,9 +217,9 @@ boundary, `MachineRegistry::select` case-folds it and resolves a canonical name
 or alias. Before Clap delegates a trailing task argument list, one shared
 real/test normalization extracts `--brain value`, `-b value`, or
 `--brain=value` from any pre-`--` position and keeps the exact raw value.
-Selector-looking tokens after `--` remain delegated values. This selection is
-active for registry-aware workspace commands only in this foundation; ordinary
-runtime/store context threading is a later layer.
+Selector-looking tokens after `--` remain delegated values. Bootstrap applies
+this selection once for every ordinary command and returns one immutable
+`CommandContext`. Full store-signature threading remains Task 6.
 
 Collected management values first become a pure `Mutation` enum. `Create` and
 `Attach` carry a validated canonical name plus an absolute, tilde-expanded,
@@ -228,7 +228,7 @@ names; default/removal carry only selectors. In particular, `Remove` has no
 filesystem path or deletion operation. The shell then loads schema v2 directly
 and persists via `RegistryStore`; it never flattens through legacy env helpers.
 
-Fresh create/attach records receive a new UUID, empty local-user placeholder,
+Fresh create records receive a new UUID, empty local-user placeholder,
 disabled receiver, no aliases, and an empty machine env. `create` may create
 only its requested root after candidate validation. It records the exact
 missing directory chain. If later provisioning or persistence fails, every
@@ -238,11 +238,43 @@ ownership and delete the same object. The structured error retains the
 original failure as its source and lists only those invocation-created paths,
 deepest first, for manual inspection and cleanup. `AlreadyExists` during
 creation is treated as a race, left untouched, and omitted from the cleanup
-list. `attach` requires an existing directory. Rename, alias, and default
+list. `attach` requires an existing directory with a strict portable manifest
+and adopts its UUID. Rename, alias, and default
 changes preserve the record's UUID and all unrelated data. Removal detaches a
-non-default record only. Manifest validation, UUID adoption,
-portable local-user readiness, and selected `WorkspaceContext` bootstrap are
-not part of this layer.
+non-default record only.
+
+### Portable workspace manifest and command readiness
+
+`<workspace-root>/.config/workspace.json` is portable and strict:
+
+```json
+{
+  "schema_version": 1,
+  "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+  "receiver_ingress_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
+  "minimum_brain_version": "0.16.0"
+}
+```
+
+Unknown fields, unsupported schemas, malformed UUIDs, and incompatible minimum
+versions are errors. The manifest UUID must equal the selected registry record;
+the stable receiver ingress UUID remains portable across machines. Create
+writes the manifest before registry persistence. Attach reads it without
+editing it. Legacy flat-env migration creates the root and first matching
+manifest before replacing the flat registry.
+
+`workspace::bootstrap` maps every parsed route to `None`, `InternalNoPrompt`,
+`RegistryOnly`, or `ReadyWorkspace`. Only the last class selects and validates
+a record. Readiness is manifest validity/UUID agreement plus a non-empty
+machine-local `local_user_id`. Missing values become a pure
+`ReadinessAction::Prompt(fields)` interactively or a typed error carrying exact
+repair commands headlessly. Successful interactive repair happens under the
+registry transaction, then bootstrap reloads and constructs one
+`CommandContext` containing `Arc<WorkspaceContext>` and `RegistryStore`.
+
+The first create deliberately leaves `local_user_id` empty. Its next ordinary
+command is therefore the prompt/remediation boundary; after repair that same
+requested command continues.
 
 ### Legacy flat-env migration
 
@@ -255,10 +287,13 @@ leading `~`, and is made absolute and lexically normalized without filesystem
 canonicalization. A valid normalized basename supplies the canonical name;
 invalid basenames use `brain`.
 
-Freshly migrated records have a generated immutable UUID, empty aliases, and an
-empty `local_user_id`. The outcome marks portable setup required so a later
-readiness layer can establish identity and the portable unrestricted default;
-this migration does not invent either. Existing flat bytes are copied exactly
+When the migrated root already has a valid portable manifest, the record adopts
+that manifest's immutable workspace UUID and preserves its receiver-ingress UUID
+and exact bytes. Only an absent manifest causes migration to generate those
+identities and create a matching manifest. Migrated records have empty aliases
+and an empty `local_user_id`; the outcome marks local identity setup required,
+and migration does not invent that user identity.
+Existing flat bytes are copied exactly
 to the first free adjacent `env.json.legacy-backup[.N]` before atomic registry
 replacement. A valid v2 input is never rewritten or backed up, making reruns
 UUID-stable and byte-stable.

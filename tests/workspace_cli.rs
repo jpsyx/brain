@@ -4,7 +4,7 @@ use std::process::{Command, Output};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use brain::workspace::{MachineRegistry, RegistryStore, WorkspaceName};
+use brain::workspace::{MachineRegistry, RegistryStore, WorkspaceManifest, WorkspaceName};
 use tempfile::TempDir;
 
 struct Fixture {
@@ -59,6 +59,17 @@ impl Fixture {
 
     fn registry(&self) -> MachineRegistry {
         RegistryStore::load_from(&self.registry_path()).expect("valid isolated registry")
+    }
+
+    fn make_ready(&self, workspace: &str) {
+        assert_success(&self.run(&[
+            "workspace",
+            "repair",
+            "--local-user-id",
+            "test-user",
+            "-b",
+            workspace,
+        ]));
     }
 }
 
@@ -147,6 +158,124 @@ fn first_workspace_create_uses_root_basename_and_becomes_default() {
     assert_eq!(registry.default_workspace, name("family"));
     assert_eq!(registry.workspaces.len(), 1);
     assert_eq!(registry.workspaces[&name("family")].root, root);
+    let manifest = WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION"))
+        .expect("created workspace manifest");
+    assert_eq!(
+        manifest.workspace_id(),
+        registry.workspaces[&name("family")].workspace_id
+    );
+}
+
+#[test]
+fn workspace_create_migrates_a_flat_env_before_adding_the_requested_workspace() {
+    let fixture = Fixture::new();
+    let machine_config = fixture.config_home.path().join("brain");
+    std::fs::create_dir_all(&machine_config).unwrap();
+    std::fs::write(
+        machine_config.join("env.json"),
+        br#"{"root":"~/brain","claude_cmd":"claude --legacy"}"#,
+    )
+    .unwrap();
+    let family = fixture.home.path().join("family");
+
+    let output = fixture.run(&["workspace", "create", "--root", path_arg(&family)]);
+
+    assert_success(&output);
+    let registry = fixture.registry();
+    assert_eq!(registry.default_workspace, name("brain"));
+    assert_eq!(registry.workspaces.len(), 2);
+    assert_eq!(
+        registry.workspaces[&name("brain")].root,
+        fixture.home.path().join("brain")
+    );
+    assert_eq!(registry.workspaces[&name("family")].root, family);
+}
+
+#[test]
+fn workspace_attach_migrates_a_flat_env_before_adding_the_requested_workspace() {
+    let fixture = Fixture::new();
+    let machine_config = fixture.config_home.path().join("brain");
+    std::fs::create_dir_all(&machine_config).unwrap();
+    std::fs::write(machine_config.join("env.json"), br#"{"root":"~/brain"}"#).unwrap();
+    let shared = fixture.home.path().join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    let manifest = WorkspaceManifest::new(brain::workspace::WorkspaceId::new());
+    manifest.write_new(&shared).unwrap();
+
+    let output = fixture.run(&["workspace", "attach", path_arg(&shared)]);
+
+    assert_success(&output);
+    let registry = fixture.registry();
+    assert_eq!(registry.default_workspace, name("brain"));
+    assert_eq!(registry.workspaces.len(), 2);
+    assert_eq!(
+        registry.workspaces[&name("shared")].workspace_id,
+        manifest.workspace_id()
+    );
+}
+
+#[test]
+fn workspace_create_migrates_a_pointer_only_legacy_install_before_adding_family() {
+    let fixture = Fixture::new();
+    let legacy = fixture.home.path().join("legacy-brain");
+    std::fs::create_dir_all(&legacy).unwrap();
+    std::fs::write(
+        fixture.config_home.path().join("brain-root"),
+        format!("{}\n", legacy.display()),
+    )
+    .unwrap();
+    let family = fixture.home.path().join("family");
+
+    let output = fixture.run(&["workspace", "create", "--root", path_arg(&family)]);
+
+    assert_success(&output);
+    let registry = fixture.registry();
+    assert_eq!(registry.default_workspace, name("legacy-brain"));
+    assert_eq!(registry.workspaces.len(), 2);
+    assert_eq!(registry.workspaces[&name("legacy-brain")].root, legacy);
+    assert_eq!(registry.workspaces[&name("family")].root, family);
+}
+
+#[test]
+fn workspace_attach_migrates_a_pointer_only_legacy_install_before_adding_shared() {
+    let fixture = Fixture::new();
+    let legacy = fixture.home.path().join("legacy-brain");
+    std::fs::create_dir_all(&legacy).unwrap();
+    std::fs::write(
+        fixture.config_home.path().join("brain-root"),
+        format!("{}\n", legacy.display()),
+    )
+    .unwrap();
+    let shared = fixture.home.path().join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    let manifest = WorkspaceManifest::new(brain::workspace::WorkspaceId::new());
+    manifest.write_new(&shared).unwrap();
+
+    let output = fixture.run(&["workspace", "attach", path_arg(&shared)]);
+
+    assert_success(&output);
+    let registry = fixture.registry();
+    assert_eq!(registry.default_workspace, name("legacy-brain"));
+    assert_eq!(registry.workspaces.len(), 2);
+    assert_eq!(registry.workspaces[&name("legacy-brain")].root, legacy);
+    assert_eq!(registry.workspaces[&name("shared")].root, shared);
+}
+
+#[test]
+fn workspace_create_treats_an_existing_default_root_as_legacy_install_evidence() {
+    let fixture = Fixture::new();
+    let legacy = fixture.home.path().join("brain");
+    std::fs::create_dir_all(&legacy).unwrap();
+    let family = fixture.home.path().join("family");
+
+    let output = fixture.run(&["workspace", "create", "--root", path_arg(&family)]);
+
+    assert_success(&output);
+    let registry = fixture.registry();
+    assert_eq!(registry.default_workspace, name("brain"));
+    assert_eq!(registry.workspaces.len(), 2);
+    assert_eq!(registry.workspaces[&name("brain")].root, legacy);
+    assert_eq!(registry.workspaces[&name("family")].root, family);
 }
 
 #[test]
@@ -240,6 +369,10 @@ fn first_create_persistence_failure_preserves_its_new_root_chain_for_manual_clea
     assert!(!fixture.registry_path().exists());
     assert!(root_parent.is_dir());
     assert!(root.is_dir());
+    assert!(
+        WorkspaceManifest::path(&root).is_file(),
+        "a valid manifest must survive registry persistence failure"
+    );
 }
 
 #[cfg(unix)]
@@ -272,6 +405,10 @@ fn later_create_persistence_failure_preserves_registry_bytes_and_new_root_chain(
     );
     assert!(root_parent.is_dir());
     assert!(root.is_dir());
+    assert!(
+        WorkspaceManifest::path(&root).is_file(),
+        "a valid manifest must survive registry persistence failure"
+    );
 }
 
 #[test]
@@ -281,6 +418,11 @@ fn workspace_attach_registers_an_existing_root_without_changing_its_contents() {
     assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&family)]));
     let shared = fixture.home.path().join("shared");
     std::fs::create_dir(&shared).expect("existing shared root");
+    let attached_manifest = WorkspaceManifest::new(brain::workspace::WorkspaceId::new());
+    attached_manifest
+        .write_new(&shared)
+        .expect("portable manifest");
+    let manifest_bytes = std::fs::read(WorkspaceManifest::path(&shared)).unwrap();
     let sentinel = shared.join("keep.txt");
     std::fs::write(&sentinel, "untouched").expect("sentinel");
 
@@ -289,7 +431,102 @@ fn workspace_attach_registers_an_existing_root_without_changing_its_contents() {
     assert_success(&output);
     let registry = fixture.registry();
     assert_eq!(registry.workspaces[&name("shared")].root, shared);
+    assert_eq!(
+        registry.workspaces[&name("shared")].workspace_id,
+        attached_manifest.workspace_id()
+    );
+    assert_eq!(
+        WorkspaceManifest::load(&shared, env!("CARGO_PKG_VERSION"))
+            .unwrap()
+            .receiver_ingress_id(),
+        attached_manifest.receiver_ingress_id()
+    );
+    assert_eq!(
+        std::fs::read(WorkspaceManifest::path(&shared)).unwrap(),
+        manifest_bytes
+    );
     assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "untouched");
+}
+
+#[test]
+fn workspace_attach_rejects_invalid_or_colliding_manifests_without_mutation() {
+    let fixture = Fixture::new();
+    let family = fixture.home.path().join("family");
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&family)]));
+    let registry_bytes = std::fs::read(fixture.registry_path()).unwrap();
+    let family_id = fixture.registry().workspaces[&name("family")].workspace_id;
+
+    let invalid = fixture.home.path().join("invalid");
+    std::fs::create_dir_all(invalid.join(".config")).unwrap();
+    std::fs::write(
+        WorkspaceManifest::path(&invalid),
+        br#"{"schema_version":1,"unexpected":true}"#,
+    )
+    .unwrap();
+    let invalid_output = fixture.run(&["workspace", "attach", path_arg(&invalid)]);
+    assert_failure_contains(
+        &invalid_output,
+        &["Workspace error:", "invalid workspace manifest"],
+    );
+    assert_eq!(
+        std::fs::read(fixture.registry_path()).unwrap(),
+        registry_bytes
+    );
+
+    let colliding = fixture.home.path().join("colliding");
+    std::fs::create_dir(&colliding).unwrap();
+    WorkspaceManifest::new(family_id)
+        .write_new(&colliding)
+        .unwrap();
+    let sentinel = colliding.join("keep.txt");
+    std::fs::write(&sentinel, "preserved").unwrap();
+    let collision_output = fixture.run(&["workspace", "attach", path_arg(&colliding)]);
+    assert_failure_contains(
+        &collision_output,
+        &["Workspace error:", "workspace ID", "not unique"],
+    );
+    assert_eq!(
+        std::fs::read(fixture.registry_path()).unwrap(),
+        registry_bytes
+    );
+    assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "preserved");
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_repair_persistence_failure_preserves_the_new_manifest() {
+    let fixture = Fixture::new();
+    let family = fixture.home.path().join("family");
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&family)]));
+    std::fs::remove_file(WorkspaceManifest::path(&family)).unwrap();
+    let registry_bytes = std::fs::read(fixture.registry_path()).unwrap();
+    let registry_dir = fixture.registry_path().parent().unwrap().to_path_buf();
+    let read_only = ReadOnlyDir::new(&registry_dir);
+
+    let output = fixture.run(&[
+        "workspace",
+        "repair",
+        "--manifest",
+        "--local-user-id",
+        "pablo",
+        "-b",
+        "family",
+    ]);
+
+    drop(read_only);
+    assert_failure_contains(
+        &output,
+        &["Workspace error:", "create temporary workspace registry"],
+    );
+    assert_eq!(
+        std::fs::read(fixture.registry_path()).unwrap(),
+        registry_bytes
+    );
+    let manifest = WorkspaceManifest::load(&family, env!("CARGO_PKG_VERSION")).unwrap();
+    assert_eq!(
+        manifest.workspace_id(),
+        fixture.registry().workspaces[&name("family")].workspace_id
+    );
 }
 
 #[test]
@@ -300,6 +537,7 @@ fn alias_rename_and_default_mutations_preserve_the_complete_workspace_record() {
     for root in [&family, &work] {
         assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(root)]));
     }
+    fixture.make_ready("family");
     let mut registry = fixture.registry();
     let work_record = registry.workspaces.get_mut(&name("work")).unwrap();
     work_record.local_user_id = "person-7".to_owned();
@@ -311,6 +549,11 @@ fn alias_rename_and_default_mutations_preserve_the_complete_workspace_record() {
         .replace(&registry)
         .unwrap();
     let original = registry.workspaces[&name("work")].clone();
+    let manifest_path = WorkspaceManifest::path(&work);
+    let original_manifest_bytes = std::fs::read(&manifest_path).unwrap();
+    let original_ingress = WorkspaceManifest::load(&work, env!("CARGO_PKG_VERSION"))
+        .unwrap()
+        .receiver_ingress_id();
 
     assert_success(&fixture.run(&["workspace", "alias", "add", "work", "job"]));
     assert_success(&fixture.run(&["workspace", "rename", "job", "office"]));
@@ -330,6 +573,16 @@ fn alias_rename_and_default_mutations_preserve_the_complete_workspace_record() {
         renamed.aliases,
         std::iter::once(name("workplace")).collect()
     );
+    assert_eq!(
+        std::fs::read(&manifest_path).unwrap(),
+        original_manifest_bytes
+    );
+    assert_eq!(
+        WorkspaceManifest::load(&work, env!("CARGO_PKG_VERSION"))
+            .unwrap()
+            .receiver_ingress_id(),
+        original_ingress
+    );
 }
 
 #[test]
@@ -340,6 +593,7 @@ fn workspace_remove_detaches_an_alias_selected_record_and_leaves_root_contents()
     for root in [&family, &work] {
         assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(root)]));
     }
+    fixture.make_ready("family");
     let sentinel = work.join("keep.txt");
     std::fs::write(&sentinel, "never delete me").expect("sentinel");
     assert_success(&fixture.run(&["workspace", "alias", "add", "work", "job"]));
@@ -364,6 +618,8 @@ fn workspace_list_is_sorted_complete_plain_and_accepts_a_global_alias_selector()
     for root in [&zeta, &alpha] {
         assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(root)]));
     }
+    fixture.make_ready("alpha");
+    fixture.make_ready("zeta");
     assert_success(&fixture.run(&["workspace", "alias", "add", "alpha", "shared"]));
     assert_success(&fixture.run(&["workspace", "alias", "add", "alpha", "a"]));
     let mut registry = fixture.registry();
@@ -388,7 +644,7 @@ fn workspace_list_is_sorted_complete_plain_and_accepts_a_global_alias_selector()
     assert_eq!(
         stdout,
         format!(
-            "Workspaces\n\n  alpha\n    root: {}\n    aliases: a, shared\n    local user: setup pending\n    receiver: disabled\n    access mode: read-only\n* zeta (default)\n    root: {}\n    aliases: none\n    local user: user-z\n    receiver: enabled\n    access mode: setup pending\n",
+            "Workspaces\n\n  alpha\n    root: {}\n    aliases: a, shared\n    local user: test-user\n    receiver: disabled\n    access mode: read-only\n* zeta (default)\n    root: {}\n    aliases: none\n    local user: user-z\n    receiver: enabled\n    access mode: setup pending\n",
             alpha.display(),
             zeta.display()
         )
@@ -401,6 +657,7 @@ fn trailing_workspace_selector_forms_do_not_leak_into_binary_task_arguments() {
     let fixture = Fixture::new();
     let family = fixture.home.path().join("family");
     assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&family)]));
+    fixture.make_ready("family");
     let markdown_to_pdf = fixture.current_dir.path().join("markdown-to-pdf");
     fake_markdown_to_pdf(&markdown_to_pdf);
     let mut registry = fixture.registry();
@@ -512,6 +769,7 @@ fn duplicate_workspace_alias_reports_the_unique_selector_remedy() {
     for root in [&family, &work] {
         assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(root)]));
     }
+    fixture.make_ready("family");
 
     let output = fixture.run(&["workspace", "alias", "add", "work", "family"]);
 
@@ -530,6 +788,7 @@ fn duplicate_alias_on_the_same_workspace_fails_without_changing_registry_bytes()
     let fixture = Fixture::new();
     let family = fixture.home.path().join("family");
     assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&family)]));
+    fixture.make_ready("family");
     assert_success(&fixture.run(&["workspace", "alias", "add", "family", "alt"]));
     let registry_bytes = std::fs::read(fixture.registry_path()).expect("registry bytes");
 

@@ -2,8 +2,12 @@
 
 mod list;
 mod mutate;
-mod prompt;
+mod preflight;
+pub(super) mod prompt;
 mod provision;
+
+pub(crate) use preflight::registry_only as preflight_registry_only;
+pub(crate) use preflight::registry_only_with_io as preflight_registry_only_with_io;
 
 use std::path::{Path, PathBuf};
 
@@ -13,22 +17,87 @@ use mutate::{MutationInput, decide_mutation};
 
 use crate::cli::{WorkspaceAction, WorkspaceAliasAction, WorkspaceArgs};
 use crate::theme::Theme;
-use crate::workspace::RegistryStore;
+use crate::workspace::{
+    CommandContext, MachineRegistry, RegistryStore, WorkspaceId, WorkspaceName,
+};
 
-/// Run one workspace registry management command.
-pub fn run(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
-    run_inner(args, selector).map_err(mutate::render_command_error)
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum CommandSelection<'a> {
+    Raw(Option<&'a str>),
+    Pinned {
+        canonical_name: &'a WorkspaceName,
+        workspace_id: WorkspaceId,
+    },
 }
 
-fn run_inner(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
-    let store = RegistryStore::real();
+impl<'a> CommandSelection<'a> {
+    fn validate(self, registry: &MachineRegistry) -> Result<()> {
+        match self {
+            Self::Raw(Some(selector)) => {
+                registry.select(Some(selector))?;
+            }
+            Self::Raw(None) => {}
+            Self::Pinned {
+                canonical_name,
+                workspace_id,
+            } => {
+                let selected = registry.select(Some(canonical_name.as_str()))?;
+                if selected.record().workspace_id != workspace_id {
+                    anyhow::bail!("selected workspace identity changed after command bootstrap");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn raw_selector(self) -> Result<Option<&'a str>> {
+        match self {
+            Self::Raw(selector) => Ok(selector),
+            Self::Pinned { .. } => {
+                anyhow::bail!("internal workspace repair expected a registry-only selection")
+            }
+        }
+    }
+}
+
+/// Run an ordinary workspace command against bootstrap's pinned identity.
+pub(crate) fn run_ready(args: &WorkspaceArgs, context: &CommandContext) -> Result<()> {
+    run_inner(
+        args,
+        CommandSelection::Pinned {
+            canonical_name: context.workspace.name(),
+            workspace_id: context.workspace.id(),
+        },
+        &context.registry_store,
+    )
+    .map_err(mutate::render_command_error)
+}
+
+/// Run a registry-only workspace command whose global selector has not yet
+/// been resolved by bootstrap.
+pub(crate) fn run_registry_only(
+    args: &WorkspaceArgs,
+    selector: Option<&str>,
+    store: &RegistryStore,
+) -> Result<()> {
+    run_inner(args, CommandSelection::Raw(selector), store).map_err(mutate::render_command_error)
+}
+
+#[must_use]
+pub fn render_error(error: anyhow::Error) -> anyhow::Error {
+    mutate::render_command_error(error)
+}
+
+fn run_inner(
+    args: &WorkspaceArgs,
+    selection: CommandSelection<'_>,
+    store: &RegistryStore,
+) -> Result<()> {
     let answers = prompt::collect(&args.action)?;
     match &args.action {
         WorkspaceAction::List => {
-            let registry = mutate::load_registry(&store)?;
-            if let Some(selector) = selector {
-                registry.select(Some(selector))?;
-            }
+            let registry = mutate::load_registry(store)?;
+            selection.validate(&registry)?;
             list::print(&registry, Theme::active());
             Ok(())
         }
@@ -50,7 +119,7 @@ fn run_inner(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
                 &home,
                 &current_dir,
             )?;
-            provision::create(&store, decision)?;
+            provision::create(store, decision)?;
             Ok(())
         }
         WorkspaceAction::Attach { root } => {
@@ -62,7 +131,7 @@ fn run_inner(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
             let home = mutate::home_dir()?;
             let current_dir = std::env::current_dir().context("read the current directory")?;
             let decision = decide_mutation(MutationInput::Attach { root }, &home, &current_dir)?;
-            provision::attach(&store, decision)?;
+            provision::attach(store, decision)?;
             Ok(())
         }
         WorkspaceAction::Rename { workspace, name } => {
@@ -78,8 +147,8 @@ fn run_inner(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
                 "new workspace name",
             )?;
             mutate::execute(
-                &store,
-                selector,
+                store,
+                selection,
                 decide_mutation(
                     MutationInput::Rename {
                         selector: workspace,
@@ -92,8 +161,8 @@ fn run_inner(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
         }
         WorkspaceAction::Alias(args) => match &args.action {
             WorkspaceAliasAction::Add { workspace, alias } => mutate::execute(
-                &store,
-                selector,
+                store,
+                selection,
                 decide_mutation(
                     MutationInput::AddAlias {
                         selector: required(
@@ -114,8 +183,8 @@ fn run_inner(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
                 )?,
             ),
             WorkspaceAliasAction::Remove { workspace, alias } => mutate::execute(
-                &store,
-                selector,
+                store,
+                selection,
                 decide_mutation(
                     MutationInput::RemoveAlias {
                         selector: required(
@@ -137,8 +206,8 @@ fn run_inner(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
             ),
         },
         WorkspaceAction::Default { workspace } => mutate::execute(
-            &store,
-            selector,
+            store,
+            selection,
             decide_mutation(
                 MutationInput::SetDefault {
                     selector: required(
@@ -153,8 +222,8 @@ fn run_inner(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
             )?,
         ),
         WorkspaceAction::Remove { workspace } => mutate::execute(
-            &store,
-            selector,
+            store,
+            selection,
             decide_mutation(
                 MutationInput::Remove {
                     selector: required(
@@ -168,7 +237,71 @@ fn run_inner(args: &WorkspaceArgs, selector: Option<&str>) -> Result<()> {
                 Path::new("/"),
             )?,
         ),
+        WorkspaceAction::Repair {
+            manifest,
+            local_user_id,
+        } => {
+            let interactive_repair = !manifest && local_user_id.is_none();
+            repair(
+                store,
+                selection.raw_selector()?,
+                *manifest || interactive_repair,
+                local_user_id
+                    .as_deref()
+                    .or_else(|| answers.value(prompt::PromptField::LocalUserId)),
+            )
+        }
     }
+}
+
+fn repair(
+    store: &RegistryStore,
+    selector: Option<&str>,
+    repair_manifest: bool,
+    local_user_id: Option<&str>,
+) -> Result<()> {
+    if local_user_id.is_some_and(|value| value.trim().is_empty()) {
+        anyhow::bail!("local user ID cannot be empty");
+    }
+    let local_user_id = local_user_id.map(str::trim).map(str::to_owned);
+    store.transaction(|transaction| -> Result<()> {
+        let mut registry = transaction.load()?;
+        let selected = registry.select(selector)?;
+        let canonical_name = selected.canonical_name().clone();
+        let root = selected.record().root.clone();
+        let workspace_id = selected.record().workspace_id;
+        if repair_manifest {
+            match crate::workspace::WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION")) {
+                Ok(manifest) if manifest.workspace_id() == workspace_id => {}
+                Ok(manifest) => anyhow::bail!(
+                    "workspace manifest UUID {} does not match registry UUID {}",
+                    manifest.workspace_id(),
+                    workspace_id
+                ),
+                Err(crate::workspace::ManifestError::Io {
+                    kind: std::io::ErrorKind::NotFound,
+                    ..
+                }) => {
+                    crate::workspace::WorkspaceManifest::new(workspace_id).write_new(&root)?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        if let Some(local_user_id) = local_user_id.as_deref() {
+            transaction.update(&mut registry, |candidate| {
+                let target = &mut candidate
+                    .workspaces
+                    .get_mut(&canonical_name)
+                    .expect("selected canonical workspace remains present")
+                    .local_user_id;
+                local_user_id.clone_into(target);
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })?;
+    println!("{}", Theme::active().success("Workspace setup repaired"));
+    Ok(())
 }
 
 fn required<'a>(value: Option<&'a str>, label: &str) -> Result<&'a str> {

@@ -188,6 +188,34 @@ and lists only paths created by that invocation, deepest first, so the user can
 inspect and remove them manually. This leaves harmless empty directories in a
 failure case in exchange for never deleting an ambiguously owned path.
 
+## Why workspace readiness is one policy-driven bootstrap
+
+Workspace selection cannot be an optional convenience around individual
+handlers: a command that reads the wrong default before later honoring `-b`
+has already crossed the silo boundary. Brain therefore classifies every parsed
+invocation first. Help/version and hidden internal execution receive no
+workspace and cannot prompt; create/attach/remove/repair receive only the
+registry capability needed to establish or fix setup; every ordinary command
+must receive one ready immutable `CommandContext`. There is no implicit fallback
+policy for a new route.
+
+The portable manifest is strict and separate from the machine registry. Its
+workspace UUID proves that two machines mean the same workspace even when their
+canonical names or roots differ; its receiver ingress UUID is portable; its
+minimum version prevents an older binary from silently misreading newer state.
+Unknown fields and schemas fail instead of being ignored because silently
+accepting a changed identity contract is more dangerous than an actionable
+upgrade error.
+
+Create writes the manifest before registry persistence and deliberately leaves
+`local_user_id` empty. This keeps create usable as a registry-only setup command
+and makes the next ordinary command the single interactive onboarding point.
+Headless callers receive exact repair commands instead of any `/dev/tty` access.
+Interactive repair persists under the registry transaction, reloads the record,
+and continues the originally requested command. On a later persistence failure,
+Brain preserves the newly written manifest rather than performing a racy
+path-based deletion; the matching identity remains inspectable and repairable.
+
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
 Task management is a big domain with its own CSVs, recurrence rules, and TUI.
@@ -205,10 +233,10 @@ Every decision worth testing is pulled into a pure function:
 `finder_target`, `handle_key`, the `App` matching/navigation, the render
 helpers, and `session::build_llm_command`. The thin shells that touch
 `/dev/tty`, `$HOME`, the exe path, or `std::process::Command` stay
-untested by design. `lib.rs` re-exports the modules so integration tests
-can link them; the binary declares the same modules privately. This mirrors
-the sibling `tasks` project so an agent moving between them finds the same
-shape.
+untested by design. `lib.rs` re-exports the modules so integration tests and the
+thin binary entry point share one module graph. This avoids compiling a second
+private copy of every module and keeps `main.rs` limited to bootstrap and
+dispatch.
 
 ## Why bare `brain` is a persistent two-panel shell with an always-on claude
 
@@ -867,7 +895,7 @@ extra mechanism needed to avoid the SIGKILL + PID-recycle wedge: a real long
 sync keeps refreshing the lockfile mtime, but a stale lock left behind by a dead
 process stops refreshing and becomes reapable even if the old PID number later
 belongs to an unrelated live process. Crucially the lock wraps **all** sync entry
-points, including the manual `run_sync` in `main.rs`, which closes a latent
+points, including the manual command path in `src/command/sync.rs`, which closes a latent
 C2/C3 race that existed before C4: two concurrent manual `brain sync`
 invocations could previously collide, and now the second cleanly skips. Manual
 sync deliberately skips-with-a-message rather than blocking; a short

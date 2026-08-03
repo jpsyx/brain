@@ -164,14 +164,12 @@ impl From<WorkspaceContextError> for MutationDecisionError {
 
 pub(super) fn execute(
     store: &RegistryStore,
-    global_selector: Option<&str>,
+    selection: super::CommandSelection<'_>,
     mutation: Mutation,
 ) -> anyhow::Result<()> {
     let message = store.transaction(|transaction| -> anyhow::Result<String> {
         let mut registry = transaction.load()?;
-        if let Some(selector) = global_selector {
-            registry.select(Some(selector))?;
-        }
+        selection.validate(&registry)?;
         let message = match mutation {
             Mutation::Rename { selector, new_name } => {
                 let display = format!("Renamed workspace to {new_name}");
@@ -281,7 +279,8 @@ fn registry_error_hint(error: &RegistryError) -> Option<&'static str> {
         | RegistryError::DuplicateWorkspaceId { .. }
         | RegistryError::RelativeRoot { .. }
         | RegistryError::Json { .. }
-        | RegistryError::Io { .. } => None,
+        | RegistryError::Io { .. }
+        | RegistryError::Manifest(_) => None,
     }
 }
 

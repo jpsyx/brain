@@ -183,7 +183,7 @@ management and reporting commands stay outside the persistent shell.
 | --- | --- |
 | `brain` | Open the persistent shell on the tasks view (the startup default) with the default Claude brain panel. |
 | `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. Claude remains the default. |
-| `brain --brain <workspace>` / `brain -b <workspace>` | Retain a global canonical-name or alias selector. Workspace registry commands resolve it now; ordinary config/env/sync/TUI context threading follows in the later runtime-context layer. The option may appear before or after a subcommand or delegated task positional. `--brain=<workspace>` is equivalent; `--` ends option extraction. |
+| `brain --brain <workspace>` / `brain -b <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--brain=<workspace>` is equivalent; `--` ends option extraction. |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` may be passed before or after `tasks` to use Codex in the brain panel. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
 | `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
@@ -192,7 +192,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env. Use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
 | `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present. |
-| `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove}` | Manage the schema-v2 machine registry atomically. Omitted values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. |
+| `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair}` | Manage the schema-v2 machine registry and portable manifest. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. `repair --manifest --local-user-id <id>` supplies readiness explicitly. |
 | `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync `~/brain` to a private Backblaze B2 bucket via `rclone bisync` (see below). Opt-in: does nothing until `brain sync setup` configures it. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
@@ -271,20 +271,21 @@ delegated task values.
 
 - `workspace create [--name <name>] [--root <path>]` normalizes the root
   against explicit home/current-directory inputs, creates that requested root,
-  and registers a fresh UUID. A missing name derives from the root basename;
+  writes a strict portable `.config/workspace.json`, and registers that UUID.
+  A missing name derives from the root basename;
   the first record becomes default and later creates preserve the current
   default. The complete registry candidate is validated before root creation.
   `RegistryStore` serializes every writer before its load. If persistence
-  or later directory creation fails, brain never automatically deletes a
-  created path because verification and deletion cannot be coupled atomically
+  or later directory creation fails, brain preserves the created manifest and
+  never automatically deletes a created path because verification and deletion cannot be coupled atomically
   with the supported safe standard-library API. The structured error preserves
   the original failure as its source and lists only paths this invocation
   created, deepest first, for manual inspection and cleanup. An
   `AlreadyExists` path belongs to the competing actor and is preserved without
   being listed as invocation-created.
-- `workspace attach [<root>]` registers an existing directory without changing
-  its contents. Manifest validation and UUID adoption are intentionally deferred
-  to the readiness layer.
+- `workspace attach [<root>]` requires a strict, compatible manifest, adopts
+  its stable workspace UUID, and otherwise leaves the directory unchanged.
+  Invalid or colliding identities do not mutate registry bytes or root contents.
 - `workspace rename [<workspace>] [<name>]`, `workspace alias add/remove`, and
   `workspace default [<workspace>]` preserve the complete selected record and
   persist through the interprocess registry transaction and atomic-save
@@ -294,13 +295,29 @@ delegated task values.
 - `workspace remove [<workspace>]` detaches only a non-default registry record.
   It never deletes root, config, cache, sync, or remote data. Choose another
   default first when removing the current default.
+- `workspace repair [--manifest] [--local-user-id <id>]` recreates a missing
+  matching manifest and/or sets this machine's local identity. With no repair
+  flags, an interactive terminal asks for the local ID and repairs both fields.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
   text under `NO_COLOR`. Empty local user and unavailable portable
   `access_mode` are shown as `setup pending`, not guessed.
 
-When a human omits a value, brain collects all missing values from `/dev/tty`
-before mutating anything; EOF cancels without a partial registry change. The
-same operations remain fully scriptable through flags and positional values.
+For create, attach, remove, and repair, brain collects and validates all missing
+values from `/dev/tty` before legacy classification, migration, or mutation.
+EOF/cancellation leaves legacy env and pointer bytes, root contents, manifests,
+backups, and registry bytes unchanged. Complete flags and positional values do
+not open the terminal; after preflight they perform any required migration and
+execute normally.
+
+Every ordinary command crosses one readiness gate after selection. A workspace
+must have a compatible manifest whose UUID matches the registry and a non-empty
+`local_user_id`. Interactive invocations ask for missing setup, persist it, and
+continue the original command. Headless invocations never open `/dev/tty`; they
+stop with exact `brain workspace repair -b <workspace> ...` commands. Create
+and attach remain registry-only setup operations, so first create succeeds
+before a local user is known. Its next ordinary command triggers interactive
+setup or the headless repair instruction. Help, version, and hidden internal
+server execution never prompt.
 
 ### `brain reindex`
 

@@ -49,6 +49,16 @@ pub(crate) fn migrate_legacy_with(
     legacy_body: &[u8],
     fallback_env: &Map<String, Value>,
 ) -> Result<MigrationOutcome, RegistryError> {
+    migrate_legacy_with_before_save(home, config_dir, legacy_body, fallback_env, || Ok(()))
+}
+
+fn migrate_legacy_with_before_save(
+    home: &Path,
+    config_dir: &Path,
+    legacy_body: &[u8],
+    fallback_env: &Map<String, Value>,
+    before_save: impl FnOnce() -> Result<(), RegistryError>,
+) -> Result<MigrationOutcome, RegistryError> {
     let env_path = config_dir.join("env.json");
     RegistryStore::from_path(env_path).transaction(|transaction| {
         let authoritative_body = match transaction.read_bytes() {
@@ -66,6 +76,7 @@ pub(crate) fn migrate_legacy_with(
             config_dir,
             &authoritative_body,
             fallback_env,
+            before_save,
         )
     })
 }
@@ -76,6 +87,7 @@ fn migrate_locked(
     config_dir: &Path,
     legacy_body: &[u8],
     fallback_env: &Map<String, Value>,
+    before_save: impl FnOnce() -> Result<(), RegistryError>,
 ) -> Result<MigrationOutcome, RegistryError> {
     if let Ok(registry) = serde_json::from_slice::<MachineRegistry>(legacy_body) {
         return Ok(MigrationOutcome {
@@ -101,13 +113,40 @@ fn migrate_locked(
     legacy.remove("access_mode");
     legacy.remove("access_policy");
 
+    let env_path = config_dir.join("env.json");
+    let backup_path = env_path
+        .is_file()
+        .then(|| backup_legacy(&env_path, legacy_body))
+        .transpose()?;
+    fs::create_dir_all(&root).map_err(|error| RegistryError::Io {
+        operation: RegistryOperation::CreateDirectory,
+        path: root.clone(),
+        related_path: Some(env_path.clone()),
+        kind: error.kind(),
+        message: error.to_string(),
+    })?;
+    let workspace_id =
+        match crate::workspace::WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION")) {
+            Ok(manifest) => manifest.workspace_id(),
+            Err(crate::workspace::ManifestError::Io {
+                kind: std::io::ErrorKind::NotFound,
+                ..
+            }) => {
+                let workspace_id = WorkspaceId::new();
+                crate::workspace::WorkspaceManifest::new(workspace_id)
+                    .write_new(&root)
+                    .map_err(RegistryError::Manifest)?;
+                workspace_id
+            }
+            Err(error) => return Err(RegistryError::Manifest(error)),
+        };
     let registry = MachineRegistry {
         schema_version: REGISTRY_SCHEMA_VERSION,
         default_workspace: canonical_name.clone(),
         workspaces: BTreeMap::from([(
             canonical_name,
             WorkspaceRecord {
-                workspace_id: WorkspaceId::new(),
+                workspace_id,
                 root,
                 aliases: BTreeSet::new(),
                 local_user_id: String::new(),
@@ -116,11 +155,7 @@ fn migrate_locked(
             },
         )]),
     };
-    let env_path = config_dir.join("env.json");
-    let backup_path = env_path
-        .is_file()
-        .then(|| backup_legacy(&env_path, legacy_body))
-        .transpose()?;
+    before_save()?;
     transaction.save(&registry)?;
     Ok(MigrationOutcome {
         registry,
@@ -230,4 +265,56 @@ fn resolved_root(home: &Path, config_dir: &Path, legacy: &Map<String, Value>) ->
         |root| crate::paths::expand_tilde_with_home(root, home),
     );
     normalize_root(&expanded, home).unwrap_or_else(|_| home.join("brain"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{migrate_legacy_with, migrate_legacy_with_before_save};
+    use crate::workspace::{RegistryError, RegistryOperation, WorkspaceManifest};
+    use serde_json::Map;
+
+    #[test]
+    fn retry_after_post_manifest_save_failure_adopts_the_same_portable_identity() {
+        let home = tempfile::tempdir().unwrap();
+        let config_home = tempfile::tempdir().unwrap();
+        let config_dir = config_home.path().join("brain");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let env_path = config_dir.join("env.json");
+        let legacy = br#"{"root":"~/brain","custom":"keep"}"#;
+        std::fs::write(&env_path, legacy).unwrap();
+
+        let error =
+            migrate_legacy_with_before_save(home.path(), &config_dir, legacy, &Map::new(), || {
+                Err(RegistryError::Io {
+                    operation: RegistryOperation::ReplaceRegistry,
+                    path: env_path.clone(),
+                    related_path: None,
+                    kind: std::io::ErrorKind::Other,
+                    message: "injected registry save failure".to_owned(),
+                })
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("injected registry save failure"));
+        assert_eq!(std::fs::read(&env_path).unwrap(), legacy);
+        let root = home.path().join("brain");
+        let first_manifest_bytes = std::fs::read(WorkspaceManifest::path(&root)).unwrap();
+        let first_manifest = WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION")).unwrap();
+
+        let retried = migrate_legacy_with(home.path(), &config_dir, legacy, &Map::new()).unwrap();
+
+        assert_eq!(
+            retried.registry.select(None).unwrap().record().workspace_id,
+            first_manifest.workspace_id()
+        );
+        assert_eq!(
+            WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION"))
+                .unwrap()
+                .receiver_ingress_id(),
+            first_manifest.receiver_ingress_id()
+        );
+        assert_eq!(
+            std::fs::read(WorkspaceManifest::path(&root)).unwrap(),
+            first_manifest_bytes
+        );
+    }
 }

@@ -31,11 +31,30 @@ fn write_env(config_home: &TempDir) -> std::path::PathBuf {
     path
 }
 
+fn make_ready(home: &TempDir, config_home: &TempDir) {
+    let output = brain_command(home, config_home)
+        .args([
+            "workspace",
+            "repair",
+            "--manifest",
+            "--local-user-id",
+            "test-user",
+        ])
+        .output()
+        .expect("repair migrated workspace");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn env_list_get_and_set_support_recursive_dotted_paths() {
     let home = tempfile::tempdir().expect("home tempdir");
     let config_home = tempfile::tempdir().expect("config tempdir");
     let env_path = write_env(&config_home);
+    make_ready(&home, &config_home);
 
     let listed = brain_command(&home, &config_home)
         .args(["env", "list"])

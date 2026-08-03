@@ -10,11 +10,12 @@ use crate::cli::{WorkspaceAction, WorkspaceAliasAction};
 use crate::theme::Theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum PromptField {
+pub(in crate::workspace) enum PromptField {
     Root,
     Name,
     Workspace,
     Alias,
+    LocalUserId,
 }
 
 #[derive(Debug)]
@@ -29,6 +30,13 @@ impl Answers {
 pub(super) fn missing_fields(action: &WorkspaceAction) -> Vec<PromptField> {
     match action {
         WorkspaceAction::List => Vec::new(),
+        WorkspaceAction::Repair {
+            manifest,
+            local_user_id,
+        } => (!manifest && local_user_id.is_none())
+            .then_some(PromptField::LocalUserId)
+            .into_iter()
+            .collect(),
         WorkspaceAction::Create { name, root } => {
             let mut fields = Vec::new();
             if root.is_none() {
@@ -84,7 +92,7 @@ pub(super) fn collect(action: &WorkspaceAction) -> Result<Answers> {
     collect_from(action, &mut reader, &mut tty, Theme::active())
 }
 
-fn collect_from(
+pub(super) fn collect_from(
     action: &WorkspaceAction,
     reader: &mut impl BufRead,
     writer: &mut impl Write,
@@ -115,6 +123,7 @@ fn read_answer(
         PromptField::Name => "New workspace name:",
         PromptField::Workspace => "Workspace name or alias:",
         PromptField::Alias => "Workspace alias:",
+        PromptField::LocalUserId => "Local user ID (for example, pablo):",
     };
     loop {
         write!(writer, "{} ", theme.prompt(label)).context("write workspace prompt")?;
@@ -139,6 +148,17 @@ fn read_answer(
         writeln!(writer, "{}", theme.warning("A value is required."))
             .context("write workspace prompt validation")?;
     }
+}
+
+pub(in crate::workspace) fn read_required(
+    writer: &mut impl Write,
+    reader: &mut impl BufRead,
+    field: PromptField,
+    theme: Theme,
+) -> Result<String> {
+    read_answer(writer, reader, field, false, theme)?.ok_or_else(|| {
+        anyhow!("workspace setup was cancelled before required values were provided")
+    })
 }
 
 #[cfg(test)]
@@ -222,6 +242,13 @@ mod tests {
             (
                 WorkspaceAction::Remove { workspace: None },
                 vec![PromptField::Workspace],
+            ),
+            (
+                WorkspaceAction::Repair {
+                    manifest: false,
+                    local_user_id: None,
+                },
+                vec![PromptField::LocalUserId],
             ),
         ];
 

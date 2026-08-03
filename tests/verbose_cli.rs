@@ -38,9 +38,37 @@ fn write_env(
     .expect("env json");
 }
 
+fn make_ready(home: &std::path::Path, config: &std::path::Path) {
+    let output = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", config)
+        .env("NO_COLOR", "1")
+        .args([
+            "workspace",
+            "repair",
+            "--manifest",
+            "--local-user-id",
+            "test-user",
+        ])
+        .output()
+        .expect("repair workspace readiness");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn verbose_non_tui_commands_mirror_logs_and_print_the_log_path() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    let config = temp.path().join("config");
+    make_ready(&home, &config);
     let output = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", &config)
+        .env("NO_COLOR", "1")
         .args(["--verbose", "config", "get", "__missing_verbose_test_key__"])
         .output()
         .expect("run brain binary");
@@ -86,6 +114,7 @@ fn verbose_no_tui_tasks_log_the_csv_load_and_render_path() {
     let markdown_to_pdf = bin.join("markdown-to-pdf");
     fake_markdown_to_pdf(&markdown_to_pdf);
     write_env(&config, &markdown_to_pdf, None);
+    make_ready(&home, &config);
 
     let tasks_csv = tasks_dir.join("tasks.csv");
     std::fs::write(
@@ -141,6 +170,7 @@ fn verbose_complete_logs_the_root_id_and_csv_mutation() {
     let markdown_to_pdf = bin.join("markdown-to-pdf");
     fake_markdown_to_pdf(&markdown_to_pdf);
     write_env(&config, &markdown_to_pdf, Some(&brain));
+    make_ready(&home, &config);
 
     std::fs::write(
         tasks_dir.join("tasks.csv"),

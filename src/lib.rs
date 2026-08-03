@@ -9,6 +9,7 @@
 //! the modules themselves.
 
 pub mod cli;
+pub mod command;
 pub mod config;
 pub mod confirm;
 pub mod entry;

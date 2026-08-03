@@ -12,7 +12,7 @@ fn brain_command(home: &TempDir, xdg_config_home: &TempDir) -> Command {
 }
 
 #[test]
-fn sync_creates_a_missing_configured_root() {
+fn readiness_migration_creates_a_missing_configured_root_before_sync() {
     let home = tempfile::tempdir().expect("home tempdir");
     let config_home = tempfile::tempdir().expect("config tempdir");
     let root = home.path().join("nested").join("configured-brain");
@@ -25,17 +25,30 @@ fn sync_creates_a_missing_configured_root() {
     .expect("env config");
     assert!(!root.exists());
 
+    let repair = brain_command(&home, &config_home)
+        .args([
+            "workspace",
+            "repair",
+            "--manifest",
+            "--local-user-id",
+            "test-user",
+        ])
+        .output()
+        .expect("repair migrated workspace");
+    assert!(repair.status.success(), "repair failed: {repair:?}");
+    assert!(root.is_dir(), "migration did not create {}", root.display());
+
     let output = brain_command(&home, &config_home)
         .arg("sync")
         .output()
         .expect("run brain sync");
 
     assert!(output.status.success(), "sync failed: {output:?}");
-    assert!(root.is_dir(), "sync did not create {}", root.display());
+    assert!(root.is_dir());
 }
 
 #[test]
-fn env_list_does_not_create_the_brain_root() {
+fn first_env_list_creates_the_migrated_root_but_requires_local_identity() {
     let home = tempfile::tempdir().expect("home tempdir");
     let config_home = tempfile::tempdir().expect("config tempdir");
     let root = home.path().join("brain");
@@ -46,9 +59,13 @@ fn env_list_does_not_create_the_brain_root() {
         .output()
         .expect("run brain env list");
 
-    assert!(output.status.success(), "env list failed: {output:?}");
+    assert!(!output.status.success(), "env list unexpectedly succeeded");
     assert!(
-        !root.exists(),
-        "env list unexpectedly created the brain root"
+        String::from_utf8_lossy(&output.stderr)
+            .contains("brain workspace repair -b brain --local-user-id <USER_ID>")
+    );
+    assert!(
+        root.is_dir(),
+        "manifest migration must create the workspace root"
     );
 }

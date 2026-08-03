@@ -1,17 +1,27 @@
 //! Immutable workspace identity, normalized roots, and workspace-scoped paths.
 
+mod bootstrap;
+mod bootstrap_policy;
 pub mod command;
 mod context;
 mod id;
+mod manifest;
 mod name;
 mod paths;
+mod readiness;
 pub mod registry;
 
+pub use bootstrap::{BootstrapContext, CommandContext, bootstrap, bootstrap_with_io};
+pub use bootstrap_policy::{BootstrapPolicy, Invocation, bootstrap_policy, invocation_for};
 pub(crate) use context::normalize_root;
 pub use context::{WorkspaceContext, WorkspaceContextError};
 pub use id::{WorkspaceId, WorkspaceIdError};
+pub use manifest::{MANIFEST_SCHEMA_VERSION, ManifestError, WorkspaceManifest};
 pub use name::{WorkspaceName, WorkspaceNameError};
 pub use paths::WorkspacePaths;
+pub use readiness::{
+    InteractionMode, ReadinessAction, ReadinessError, ReadinessField, readiness_action,
+};
 pub use registry::{
     MachineRegistry, MigrationOutcome, REGISTRY_SCHEMA_VERSION, RegistryError, RegistryOperation,
     RegistryStore, SelectedWorkspace, WorkspaceRecord, migrate_legacy, validate_registry,

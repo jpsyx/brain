@@ -58,14 +58,14 @@ helpers and shell-outs live in the tasks modules:
   shell out to a zsh function.
 - **`brain habits revive|fix <name>`** — repair a lapsed recurring habit (all
   occurrences `done`, none pending) by fuzzy name, without touching the server.
-  Dispatched before the gate in `main.rs` alongside bare `brain habits`; the
+  Dispatched after workspace bootstrap by `command/server/habits.rs`; the
   logic lives in `tasks::revive`, which reuses `tasks::complete`'s
   `spawn_next_occurrence` so revived and completion-spawned occurrences share
   one anchor-to-due code path. See [features.md](features.md).
 - **`brain habits skip <id|fuzzy> [--until YYYY-MM-DD]`** — cadence-aware
   "not today" for a habit (daily → mark done + respawn; non-daily → defer one
-  day; `--until` → defer to a date). Dispatched before the gate in `main.rs`
-  alongside bare `brain habits` / `revive`; the logic lives in `tasks::skip`,
+  day; `--until` → defer to a date). Dispatched by the same focused habits
+  command module; the logic lives in `tasks::skip`,
   which reuses `tasks::complete`'s `locate` (id/fuzzy resolution, rejecting task
   ids) and `spawn_next_occurrence`. Native port of the retired `skip_habit.py`.
   See [features.md](features.md).
@@ -210,7 +210,7 @@ one machine's home into the synced config and fail everywhere else with
 `No such file or directory`. So the registered command is
 `python3 ~/brain/.claude/brain-hooks/<script>.py` — Claude Code runs hook
 commands through `/bin/sh`, which tilde-expands `~` to the local home. The Rust
-installer builds this via `hook_command` (`src/main.rs`); `install_hook.sh`
+installer builds this via `hook_command` (`src/command/server/receiver.rs`); `install_hook.sh`
 writes the byte-identical string, so the two installers are idempotent with each
 other and neither clobbers the other.
 
@@ -562,7 +562,7 @@ outside-world touchpoints:
   removes the file on drop, but only if it still holds **our** PID, so a Guard
   whose lock was reaped out from under it (a crash-recovery race) never deletes
   the new owner's lock. A missing or garbage lockfile reads as stale/reapable.
-  The manual `run_sync` in `main.rs` takes this lock too, closing a pre-existing
+  The manual `run_sync` in `command/sync.rs` takes this lock too, closing a pre-existing
   concurrent-`brain sync` race.
 - **The detached sync spawn** (`trigger::spawn_detached_sync(dir)`) is the one
   entry point the startup, watcher, and receiver-freshness triggers use. It

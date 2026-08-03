@@ -1,0 +1,139 @@
+//! Pure command classification for workspace bootstrap.
+
+/// One parsed Brain invocation, classified before any workspace IO.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Invocation {
+    Help,
+    Version,
+    AgentHook,
+    InternalServer,
+    WorkspaceCreate,
+    WorkspaceAttach,
+    WorkspaceRemove,
+    WorkspaceRepair,
+    WorkspaceList,
+    WorkspaceRename,
+    WorkspaceAlias,
+    WorkspaceDefault,
+    Config,
+    Env,
+    Sync,
+    Check,
+    Personalize,
+    Skills,
+    Server,
+    Receiver,
+    Habits,
+    Reindex,
+    Tasks,
+    Tui,
+}
+
+/// How much workspace bootstrap an invocation permits and requires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootstrapPolicy {
+    None,
+    InternalNoPrompt,
+    RegistryOnly,
+    ReadyWorkspace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RegistryOnlyPromptOrder {
+    BeforeMigration,
+}
+
+pub(super) const fn registry_only_prompt_order(
+    invocation: Invocation,
+) -> Option<RegistryOnlyPromptOrder> {
+    match invocation {
+        Invocation::WorkspaceCreate
+        | Invocation::WorkspaceAttach
+        | Invocation::WorkspaceRemove
+        | Invocation::WorkspaceRepair => Some(RegistryOnlyPromptOrder::BeforeMigration),
+        Invocation::Help
+        | Invocation::Version
+        | Invocation::AgentHook
+        | Invocation::InternalServer
+        | Invocation::WorkspaceList
+        | Invocation::WorkspaceRename
+        | Invocation::WorkspaceAlias
+        | Invocation::WorkspaceDefault
+        | Invocation::Config
+        | Invocation::Env
+        | Invocation::Sync
+        | Invocation::Check
+        | Invocation::Personalize
+        | Invocation::Skills
+        | Invocation::Server
+        | Invocation::Receiver
+        | Invocation::Habits
+        | Invocation::Reindex
+        | Invocation::Tasks
+        | Invocation::Tui => None,
+    }
+}
+
+/// Return the explicit bootstrap policy for an invocation.
+#[must_use]
+pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
+    match invocation {
+        Invocation::Help | Invocation::Version => BootstrapPolicy::None,
+        Invocation::AgentHook | Invocation::InternalServer => BootstrapPolicy::InternalNoPrompt,
+        Invocation::WorkspaceCreate
+        | Invocation::WorkspaceAttach
+        | Invocation::WorkspaceRemove
+        | Invocation::WorkspaceRepair => BootstrapPolicy::RegistryOnly,
+        Invocation::WorkspaceList
+        | Invocation::WorkspaceRename
+        | Invocation::WorkspaceAlias
+        | Invocation::WorkspaceDefault
+        | Invocation::Config
+        | Invocation::Env
+        | Invocation::Sync
+        | Invocation::Check
+        | Invocation::Personalize
+        | Invocation::Skills
+        | Invocation::Server
+        | Invocation::Receiver
+        | Invocation::Habits
+        | Invocation::Reindex
+        | Invocation::Tasks
+        | Invocation::Tui => BootstrapPolicy::ReadyWorkspace,
+    }
+}
+
+/// Classify one already parsed CLI route without consulting workspace state.
+#[must_use]
+pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
+    use crate::cli::{Cmd, ServerAction, WorkspaceAction};
+
+    match &cli.command {
+        None => Invocation::Tui,
+        Some(Cmd::Version) => Invocation::Version,
+        Some(Cmd::Workspace(args)) => match &args.action {
+            WorkspaceAction::List => Invocation::WorkspaceList,
+            WorkspaceAction::Create { .. } => Invocation::WorkspaceCreate,
+            WorkspaceAction::Attach { .. } => Invocation::WorkspaceAttach,
+            WorkspaceAction::Rename { .. } => Invocation::WorkspaceRename,
+            WorkspaceAction::Alias(_) => Invocation::WorkspaceAlias,
+            WorkspaceAction::Default { .. } => Invocation::WorkspaceDefault,
+            WorkspaceAction::Remove { .. } => Invocation::WorkspaceRemove,
+            WorkspaceAction::Repair { .. } => Invocation::WorkspaceRepair,
+        },
+        Some(Cmd::Config(_)) => Invocation::Config,
+        Some(Cmd::Env(_)) => Invocation::Env,
+        Some(Cmd::Sync(_)) => Invocation::Sync,
+        Some(Cmd::Check) => Invocation::Check,
+        Some(Cmd::Personalize(_)) => Invocation::Personalize,
+        Some(Cmd::Skills(_)) => Invocation::Skills,
+        Some(Cmd::Server(args)) => match args.action {
+            ServerAction::Run { .. } => Invocation::InternalServer,
+            ServerAction::Start | ServerAction::Status | ServerAction::Kill => Invocation::Server,
+        },
+        Some(Cmd::Receiver(_)) => Invocation::Receiver,
+        Some(Cmd::Habits(_)) => Invocation::Habits,
+        Some(Cmd::Reindex(_)) => Invocation::Reindex,
+        Some(Cmd::Tasks(_)) => Invocation::Tasks,
+    }
+}
