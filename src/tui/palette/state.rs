@@ -3,6 +3,7 @@
 //! the visible rows, and cursor movement / text editing. The struct itself
 //! lives in the `tui` root so every submodule can reach its fields.
 
+use crate::tasks::task::AssignmentUiMode;
 use crate::tui::*;
 
 use super::command::{PALETTE_COMMANDS, PaletteScope};
@@ -34,7 +35,7 @@ impl PaletteState {
             triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
-            assignment_controls_visible: false,
+            assignment_mode: hidden_assignment_mode(),
         }
     }
 
@@ -66,7 +67,7 @@ impl PaletteState {
             triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
-            assignment_controls_visible: false,
+            assignment_mode: hidden_assignment_mode(),
         }
     }
 
@@ -86,14 +87,14 @@ impl PaletteState {
             triage_open: false,
             logs_view: true,
             daily_triage_alert_disabled: false,
-            assignment_controls_visible: false,
+            assignment_mode: hidden_assignment_mode(),
         }
     }
 
-    /// Seed shared-workspace assignment controls when the palette opens.
+    /// Seed the selected workspace's per-surface assignment visibility.
     #[must_use]
-    pub(crate) const fn with_assignment_controls(mut self, visible: bool) -> Self {
-        self.assignment_controls_visible = visible;
+    pub(crate) const fn with_assignment_mode(mut self, mode: AssignmentUiMode) -> Self {
+        self.assignment_mode = mode;
         self
     }
 
@@ -303,5 +304,14 @@ impl PaletteState {
     pub(crate) fn pop(&mut self) {
         self.filter.pop();
         self.selected = 0;
+    }
+}
+
+const fn hidden_assignment_mode() -> AssignmentUiMode {
+    AssignmentUiMode {
+        show_in_detail: false,
+        show_create_control: false,
+        show_reassign_control: false,
+        show_filter: false,
     }
 }

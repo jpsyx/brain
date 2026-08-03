@@ -405,11 +405,15 @@ once from the selected workspace's portable registry. Shared task cards show
 their assignment, `Ctrl+P` adds **Add task** and **Filter by assignee**, and a
 task's `Enter` actions add **Reassign this task**. The filter opens a captive
 numbered member picker with an **All assignees** clear row and remains visible
-in the task header while active. Add and reassign hand the interactive choice
+in its own task-header row while active. Switching members and clearing to
+**All assignees** always work from the complete current-view data. Add and reassign hand the interactive choice
 to the embedded agent's `/todo` flow; the scripts remain the noninteractive
-path. `brain tasks --assigned-to <user-id>` provides the equivalent startup and
-plain-output filter. A ready legacy workspace with no `users.json` uses its
-compatibility actor and keeps all assignment-specific TUI surfaces hidden.
+path. `brain tasks --assigned-to <user-id>` validates the ID against the
+selected workspace and initializes the same process-scoped filter used by the
+picker; plain output applies the equivalent final filter. A one-person or ready
+legacy workspace keeps assignment-specific TUI surfaces hidden, but an explicit
+valid startup filter remains recoverable because task-view `Esc` clears it
+before quitting.
 
 ### `brain reindex`
 

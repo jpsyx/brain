@@ -9,7 +9,8 @@ mod load;
 
 pub use assignment::{
     AssignmentContext, AssignmentUiMode, AssignmentUser, assignment_after_edit,
-    assignment_for_create, assignment_ui_mode,
+    assignment_context_for_workspace, assignment_filter_for_startup, assignment_for_create,
+    assignment_ui_mode,
 };
 pub use load::{load_habits, load_tasks};
 
@@ -185,8 +186,8 @@ pub fn test_task(id: &str, status: &str) -> Task {
 #[cfg(test)]
 mod tests {
     use super::{
-        AssignmentContext, Task, assignment_after_edit, assignment_for_create, assignment_ui_mode,
-        test_task,
+        AssignmentContext, Task, assignment_after_edit, assignment_filter_for_startup,
+        assignment_for_create, assignment_ui_mode, test_task,
     };
     use chrono::NaiveDate;
 
@@ -311,6 +312,46 @@ mod tests {
         assert!(!context.mode().show_in_detail);
         assert!(!context.mode().show_create_control);
         assert!(!context.mode().show_reassign_control);
+        assert!(!context.mode().show_filter);
+    }
+
+    #[test]
+    fn startup_assignment_filter_resolves_a_portable_member() {
+        let context = AssignmentContext::from_users(
+            &users(&["pablo", "wife"]),
+            &crate::actor::test_actor("pablo"),
+        );
+
+        assert_eq!(
+            assignment_filter_for_startup(&context, Some("wife"))
+                .unwrap()
+                .as_ref()
+                .map(UserId::as_str),
+            Some("wife")
+        );
+        assert_eq!(assignment_filter_for_startup(&context, None).unwrap(), None);
+    }
+
+    #[test]
+    fn startup_assignment_filter_rejects_a_non_member() {
+        let context = AssignmentContext::from_users(
+            &users(&["pablo", "wife"]),
+            &crate::actor::test_actor("pablo"),
+        );
+
+        let error = assignment_filter_for_startup(&context, Some("stranger")).unwrap_err();
+
+        assert!(error.to_string().contains("selected workspace member"));
+    }
+
+    #[test]
+    fn one_user_startup_filter_is_valid_even_with_hidden_picker_controls() {
+        let context =
+            AssignmentContext::from_users(&users(&["pablo"]), &crate::actor::test_actor("pablo"));
+
+        let filter = assignment_filter_for_startup(&context, Some("pablo")).unwrap();
+
+        assert_eq!(filter.as_ref().map(UserId::as_str), Some("pablo"));
         assert!(!context.mode().show_filter);
     }
 

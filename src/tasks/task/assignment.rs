@@ -86,6 +86,45 @@ impl AssignmentContext {
     }
 }
 
+/// Load assignment state for the selected workspace, retaining the legacy
+/// one-actor fallback only when the portable registry is absent.
+///
+/// # Errors
+///
+/// Returns an error when an existing portable registry cannot be loaded.
+pub fn assignment_context_for_workspace(
+    workspace: &crate::workspace::WorkspaceContext,
+    actor: &ActorContext,
+) -> Result<AssignmentContext> {
+    match crate::users::UsersStore::load(workspace) {
+        Ok(users) => Ok(AssignmentContext::from_users(&users, actor)),
+        Err(error) if error.is_missing_store() => Ok(AssignmentContext::legacy(actor)),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Resolve the startup CLI filter against the selected workspace members.
+///
+/// # Errors
+///
+/// Returns an error when the requested ID is invalid or is not a portable
+/// member of the selected workspace.
+pub fn assignment_filter_for_startup(
+    context: &AssignmentContext,
+    requested: Option<&str>,
+) -> Result<Option<UserId>> {
+    let Some(requested) = requested else {
+        return Ok(None);
+    };
+    let requested = UserId::parse(requested)?;
+    if !context.users.iter().any(|user| user.id == requested) {
+        return Err(anyhow!(
+            "--assigned-to must name a selected workspace member; unknown portable user {requested}"
+        ));
+    }
+    Ok(Some(requested))
+}
+
 /// Default a new row to the request's immutable effective actor.
 #[must_use]
 pub fn assignment_for_create(actor: &ActorContext, users: &Users) -> UserId {

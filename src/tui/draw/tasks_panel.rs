@@ -24,9 +24,7 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
             .map_or_else(|| user_id.as_str(), |user| user.name.as_str());
         header.push(assignee_filter_line(name, user_id.as_str()));
     }
-    let header_h = u16::try_from(header.len().min(3))
-        .unwrap_or(u16::MAX)
-        .max(1);
+    let header_h = tasks_header_height(header.len());
     let search_h: u16 = u16::from(app.show_search_bar());
 
     let chunks = Layout::default()
@@ -168,13 +166,11 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     // Footer slot: a transient palette flash takes priority until the next
     // keystroke. A persistent receiver warning then returns; otherwise show
     // the usual search hint or compact shortcut bar.
-    let footer = if let Some(status) =
-        status_override_line(
-            app.flash.as_ref(),
-            app.sync_status.as_deref(),
-            app.persistent_warning.as_deref(),
-        )
-    {
+    let footer = if let Some(status) = status_override_line(
+        app.flash.as_ref(),
+        app.sync_status.as_deref(),
+        app.persistent_warning.as_deref(),
+    ) {
         status
     } else if app.in_search {
         search_footer_line()
@@ -182,6 +178,10 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
         compact_footer_line(chunks[3].width, app.pending_count)
     };
     f.render_widget(Paragraph::new(vec![footer]), chunks[3]);
+}
+
+pub(crate) fn tasks_header_height(line_count: usize) -> u16 {
+    u16::try_from(line_count).unwrap_or(u16::MAX).max(1)
 }
 
 pub(crate) fn assignee_filter_line(name: &str, user_id: &str) -> Line<'static> {

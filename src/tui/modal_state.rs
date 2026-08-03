@@ -9,7 +9,7 @@
 
 use ratatui::style::Color;
 
-use crate::tasks::task::AssignmentUser;
+use crate::tasks::task::{AssignmentUiMode, AssignmentUser};
 use crate::tui::{Link, LinkKind};
 
 /// One row in the command palette. See `palette` for the command table.
@@ -58,8 +58,8 @@ pub(crate) struct PaletteState {
     /// like `receiver_server_running`; drives the toggle command's
     /// Disable/Enable label.
     pub(super) daily_triage_alert_disabled: bool,
-    /// Whether the selected workspace has multiple portable members.
-    pub(super) assignment_controls_visible: bool,
+    /// Per-surface assignment visibility for the selected workspace.
+    pub(super) assignment_mode: AssignmentUiMode,
 }
 
 /// Visual intent of a confirm modal — drives the accent (border, title,

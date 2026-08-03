@@ -679,9 +679,13 @@ panel, `focus` (main panel vs brain panel), `main_view`, `panel_side`, and one
 startup-resolved task `AssignmentContext`. That context carries the effective
 actor, portable-member rows, and the one-person/shared visibility decision.
 `App` also owns the process-scoped assignee filter and its captive member
-picker; body rebuilding applies the filter before fuzzy matching and passes
-the context's detail mode into task-card rendering. A missing portable registry
-uses a one-actor compatibility context with hidden assignment controls.
+picker. Startup validates `--assigned-to` against the assignment context and
+seeds that same field; view materialization retains the complete base set so
+body rebuilding can switch members or clear to all before fuzzy matching. Plain
+output instead applies assignment as a final render filter. The context's
+detail mode controls task-card rendering, and its create, reassign, and filter
+flags independently gate their palette rows. A missing portable registry uses
+a one-actor compatibility context with hidden assignment controls.
 `event_loop` routes keys in the precedence documented in
 [keybindings.md](keybindings.md): app-level accelerators (view switch, help,
 panel focus/scroll, brain open/close/new, quit) → captive modal → brain panel

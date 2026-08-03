@@ -61,9 +61,16 @@ fn if_has_links(s: &PaletteState) -> bool {
     s.context_links != LinkKind::None
 }
 
-/// Visible only when the selected workspace has multiple portable members.
-fn if_assignment_controls(s: &PaletteState) -> bool {
-    s.assignment_controls_visible
+fn if_assignment_create(s: &PaletteState) -> bool {
+    s.assignment_mode.show_create_control
+}
+
+fn if_assignment_reassign(s: &PaletteState) -> bool {
+    s.assignment_mode.show_reassign_control
+}
+
+fn if_assignment_filter(s: &PaletteState) -> bool {
+    s.assignment_mode.show_filter
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -207,7 +214,7 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         action: PaletteAction::AddTask,
         scope: PaletteScope::Global,
         works_on_habits: false,
-        is_visible: if_assignment_controls,
+        is_visible: if_assignment_create,
     },
     PaletteCommand {
         label: "Start this task",
@@ -318,14 +325,14 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         action: PaletteAction::ReassignTask,
         scope: PaletteScope::TaskSpecific,
         works_on_habits: true,
-        is_visible: if_assignment_controls,
+        is_visible: if_assignment_reassign,
     },
     PaletteCommand {
         label: "Filter by assignee",
         action: PaletteAction::ChooseAssigneeFilter,
         scope: PaletteScope::Global,
         works_on_habits: false,
-        is_visible: if_assignment_controls,
+        is_visible: if_assignment_filter,
     },
     PaletteCommand {
         label: "Defer +1d",

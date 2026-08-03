@@ -1,5 +1,8 @@
-use crate::tasks::task::AssignmentUser;
-use crate::tui::{AssigneeFilterState, assignee_filter_line};
+use crate::tasks::task::{AssignmentUiMode, AssignmentUser};
+use crate::tui::{
+    AssigneeFilterState, EscapeAction, assignee_filter_line, normal_escape_action,
+    tasks_header_height,
+};
 use crate::users::UserId;
 
 fn user(id: &str, name: &str) -> AssignmentUser {
@@ -58,4 +61,23 @@ fn active_assignee_filter_line_names_the_portable_member() {
     assert!(text.contains("ASSIGNEE"));
     assert!(text.contains("Wife"));
     assert!(text.contains("wife"));
+}
+
+#[test]
+fn assignment_banner_receives_its_own_header_row() {
+    assert_eq!(tasks_header_height(4), 4);
+}
+
+#[test]
+fn escape_clears_a_startup_assignment_filter_before_quitting() {
+    let one_user_mode = AssignmentUiMode {
+        show_in_detail: false,
+        show_create_control: false,
+        show_reassign_control: false,
+        show_filter: false,
+    };
+
+    assert!(!one_user_mode.show_filter);
+    assert_eq!(normal_escape_action(true), EscapeAction::ClearFilters);
+    assert_eq!(normal_escape_action(false), EscapeAction::Quit);
 }
