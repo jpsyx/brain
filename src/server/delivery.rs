@@ -93,6 +93,27 @@ pub fn allowed_thread_recipients(
         .collect()
 }
 
+/// Restrict a reply to enabled email identities owned by the initiating actor.
+#[must_use]
+pub fn actor_thread_recipients(
+    participants: &[String],
+    users: &crate::users::Users,
+    actor: &crate::actor::ActorContext,
+    receiving_address: &str,
+) -> Vec<String> {
+    let allowed = users
+        .user(actor.user_id())
+        .map(|user| {
+            user.emails
+                .iter()
+                .filter(|email| email.inbound_allowed)
+                .map(|email| email.value.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    allowed_thread_recipients(participants, &allowed, receiving_address)
+}
+
 /// Send a final SMS through Twilio. The credentials are read only when a
 /// remote job completes, never from the portable brain config.
 pub fn send_sms(
@@ -167,6 +188,31 @@ pub fn send_email(
 mod tests {
     use super::*;
 
+    fn users() -> crate::users::Users {
+        crate::users::Users {
+            schema_version: crate::users::USERS_SCHEMA_VERSION,
+            users: vec![crate::users::User {
+                id: crate::users::UserId::parse("member").unwrap(),
+                name: "Member".to_owned(),
+                phones: Vec::new(),
+                emails: vec![crate::users::EmailIdentity {
+                    value: "member@example.test".to_owned(),
+                    inbound_allowed: true,
+                }],
+                response_email: Some("member@example.test".to_owned()),
+            }],
+        }
+    }
+
+    fn actor() -> crate::actor::ActorContext {
+        crate::actor::resolve_actor(
+            &crate::users::UserId::parse("member").unwrap(),
+            crate::actor::RequestIdentity::Local,
+            &users(),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn provider_delivery_runs_off_the_tui_thread() {
         let started = std::time::Instant::now();
@@ -194,5 +240,19 @@ mod tests {
             "me@example.com",
         );
         assert_eq!(recipients, vec!["other@example.com"]);
+    }
+
+    #[test]
+    fn response_recipients_are_derived_from_the_immutable_actor() {
+        let recipients = actor_thread_recipients(
+            &[
+                "member@example.test".to_owned(),
+                "another@example.test".to_owned(),
+            ],
+            &users(),
+            &actor(),
+            "brain@example.test",
+        );
+        assert_eq!(recipients, vec!["member@example.test"]);
     }
 }

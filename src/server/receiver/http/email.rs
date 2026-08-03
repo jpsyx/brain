@@ -31,9 +31,6 @@ pub(super) fn parse_email(
     body: &[u8],
     security: &SecurityConfig,
 ) -> Result<InboundMessage, (u16, String)> {
-    if security.allowed_email.is_empty() {
-        return Err((503, "email receiving is not configured".to_owned()));
-    }
     if security.resend_signing_secret.is_empty() {
         return Err((503, "Resend security is not configured".to_owned()));
     }
@@ -47,40 +44,59 @@ pub(super) fn parse_email(
     };
     let webhook_id = header("svix-id");
     let timestamp = header("svix-timestamp");
-    if !crate::server::security::verify_resend(
+    let authenticated = crate::server::security::verify_resend(
         &security.resend_signing_secret,
         webhook_id,
         timestamp,
         body,
         header("svix-signature"),
-    ) {
-        return Err((403, "invalid Resend signature".to_owned()));
-    }
+    );
     let webhook: ResendWebhook = serde_json::from_slice(body)
         .map_err(|_| (400, "invalid Resend webhook JSON".to_owned()))?;
     if webhook.event_type != "email.received" {
         return Err((202, "event ignored".to_owned()));
     }
-    if !crate::server::security::sender_allowed(&webhook.data.from, &security.allowed_email) {
-        return Err((403, "email sender is not allowed".to_owned()));
-    }
+    security
+        .resolve_actor(
+            authenticated,
+            crate::actor::RequestIdentity::Email {
+                from: &webhook.data.from,
+            },
+        )
+        .map_err(|error| match error {
+            crate::server::security::AuthenticatedActorError::ProviderAuthenticationFailed => {
+                (403, "invalid Resend signature".to_owned())
+            }
+            crate::server::security::AuthenticatedActorError::UnknownOrDisallowedSender => {
+                (403, "email sender is not allowed".to_owned())
+            }
+        })?;
     let Some(email_id) = webhook.data.email_id.as_deref() else {
         return Err((400, "received email has no email id".to_owned()));
     };
     let fetched = fetch_resend_email(email_id, &security.resend_api_key)?;
-    if !crate::server::security::sender_allowed(&fetched.sender, &security.allowed_email) {
-        return Err((403, "email sender is not allowed".to_owned()));
-    }
+    let actor = security
+        .resolve_actor(
+            true,
+            crate::actor::RequestIdentity::Email {
+                from: &fetched.sender,
+            },
+        )
+        .map_err(|_| (403, "email sender is not allowed".to_owned()))?;
     if fetched.body.trim().is_empty() && fetched.attachments.is_empty() {
         return Err((
             400,
             "received email has no text body or attachment".to_owned(),
         ));
     }
+    let sender = crate::users::normalize_email(&fetched.sender)
+        .map_err(|_| (403, "email sender is not allowed".to_owned()))?;
     Ok(InboundMessage {
+        workspace_id: security.workspace_id,
+        actor,
         channel: Channel::Email,
         body: fetched.body,
-        sender: fetched.sender,
+        sender,
         participants: fetched.participants,
         provider_id: Some(webhook_id.to_owned()),
         attachments: fetched.attachments,

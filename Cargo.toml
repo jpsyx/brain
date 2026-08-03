@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.18.3"
+version = "0.19.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."

@@ -78,12 +78,16 @@ impl WorkspaceContext {
 
     /// Identity passed to Brain-owned child integrations.
     #[must_use]
-    pub fn integration_env(&self, actor_id: &str) -> [(&'static str, String); 4] {
+    pub fn integration_env(
+        &self,
+        actor: &crate::actor::ActorContext,
+    ) -> [(&'static str, String); 5] {
         [
             ("BRAIN_WORKSPACE_ID", self.id.to_string()),
             ("BRAIN_WORKSPACE", self.name.as_str().to_owned()),
             ("BRAIN_ROOT", self.root.display().to_string()),
-            ("BRAIN_ACTOR_ID", actor_id.to_owned()),
+            ("BRAIN_ACTOR_ID", actor.user_id().to_string()),
+            ("BRAIN_CHANNEL", actor.channel().as_str().to_owned()),
         ]
     }
 }
@@ -205,8 +209,24 @@ mod tests {
         )
         .expect("context");
 
+        let users = crate::users::Users {
+            schema_version: crate::users::USERS_SCHEMA_VERSION,
+            users: vec![crate::users::User {
+                id: crate::users::UserId::parse("inbound-user").unwrap(),
+                name: "Inbound user".to_owned(),
+                phones: Vec::new(),
+                emails: Vec::new(),
+                response_email: None,
+            }],
+        };
+        let actor = crate::actor::resolve_actor(
+            &crate::users::UserId::parse("inbound-user").unwrap(),
+            crate::actor::RequestIdentity::Local,
+            &users,
+        )
+        .unwrap();
         assert_eq!(
-            workspace.integration_env("inbound-user"),
+            workspace.integration_env(&actor),
             [
                 (
                     "BRAIN_WORKSPACE_ID",
@@ -215,6 +235,7 @@ mod tests {
                 ("BRAIN_WORKSPACE", "family".to_owned()),
                 ("BRAIN_ROOT", "/home/tester/family".to_owned()),
                 ("BRAIN_ACTOR_ID", "inbound-user".to_owned()),
+                ("BRAIN_CHANNEL", "interactive".to_owned()),
             ]
         );
     }

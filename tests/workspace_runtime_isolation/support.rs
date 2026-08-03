@@ -84,6 +84,18 @@ impl Fixture {
             )
             .expect("family context"),
         );
+        let users = brain::users::Users {
+            schema_version: brain::users::USERS_SCHEMA_VERSION,
+            users: vec![brain::users::User {
+                id: brain::users::UserId::parse("pablo").expect("fixture user"),
+                name: "Workspace member".to_owned(),
+                phones: Vec::new(),
+                emails: Vec::new(),
+                response_email: None,
+            }],
+        };
+        brain::users::UsersStore::save(&personal_workspace, &users).expect("personal users");
+        brain::users::UsersStore::save(&family_workspace, &users).expect("family users");
 
         Self {
             _home: home,
@@ -130,11 +142,15 @@ pub(crate) fn snapshot_tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 }
 
 pub(crate) fn write_session_response(workspace: &WorkspaceContext, session: &str, body: &[u8]) {
+    let actor = brain::actor::local_actor(workspace).expect("fixture local actor");
     let env = brain::session::env_for(
         workspace,
+        &actor,
+        brain::session::AgentKind::Claude,
         session,
         i32::try_from(std::process::id()).expect("test PID fits i32"),
         &workspace.paths().state_db(),
+        session,
     );
     let response_dir = env
         .iter()

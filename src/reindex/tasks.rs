@@ -44,11 +44,13 @@ pub fn reindex_tasks(workspace: &crate::workspace::WorkspaceContext, home: &Path
 }
 
 fn run_py(workspace: &crate::workspace::WorkspaceContext, script: &Path, args: &[&str]) {
-    let _ = Command::new("python3")
-        .arg(script)
-        .args(args)
-        .envs(workspace.integration_env(workspace.local_user_id()))
-        .status();
+    if let Ok(actor) = crate::actor::local_actor(workspace) {
+        let _ = Command::new("python3")
+            .arg(script)
+            .args(args)
+            .envs(workspace.integration_env(&actor))
+            .status();
+    }
 }
 
 /// The themed report line for a task outcome. Pure.

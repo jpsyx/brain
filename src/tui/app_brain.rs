@@ -129,6 +129,10 @@ impl App<'_> {
         }
         if let Some(rx) = &self.receiver_rx {
             for message in rx.try_iter() {
+                if message.workspace_id != self.command_context.workspace.id() {
+                    crate::logging::log("receiver rejected queued job for another workspace");
+                    continue;
+                }
                 let must_wait = self.brain_turn_active
                     || self.receiver_started.is_some()
                     || !self.receiver_queue.is_empty();
@@ -159,11 +163,8 @@ impl App<'_> {
                             );
                         }
                         crate::server::receiver::Channel::Email => {
-                            let recipients = crate::server::delivery::allowed_thread_recipients(
-                                &message.participants,
-                                &self.config.allowed_email(),
-                                &self.config.response_email,
-                            );
+                            let recipients = self
+                                .receiver_email_recipients(&message.participants, &message.actor);
                             if !recipients.is_empty() {
                                 let notice = crate::server::reply::processing_notice("email");
                                 let html = crate::server::reply::email_html(&notice.text);
@@ -194,11 +195,16 @@ impl App<'_> {
         {
             return;
         }
-        let queued_channel = self.receiver_queue.first().map(|message| message.channel);
+        let queued = self.receiver_queue.first();
+        let queued_channel = queued.map(|message| message.channel);
+        let reusable_channel = self.receiver_lease.and_then(|lease| {
+            (queued.is_some_and(|message| self.session_actor.as_ref() == Some(&message.actor)))
+                .then_some(lease.channel)
+        });
         match crate::tui::receiver_state::dispatch_action_for_channel(
             queued_channel,
             self.brain_panel_open(),
-            self.receiver_lease.map(|lease| lease.channel),
+            reusable_channel,
             self.brain_turn_active,
             self.receiver_started.is_some(),
         ) {
@@ -226,11 +232,7 @@ impl App<'_> {
             crate::server::receiver::Channel::Sms => crate::server::reply::sms(&message.body),
             crate::server::receiver::Channel::Email => {
                 let _ = crate::server::reply::email_html(&message.body);
-                let _ = crate::server::delivery::allowed_thread_recipients(
-                    &message.participants,
-                    &self.config.allowed_email(),
-                    &self.config.response_email,
-                );
+                let _ = self.receiver_email_recipients(&message.participants, &message.actor);
                 crate::server::reply::email(&message.body)
             }
         };
@@ -259,8 +261,10 @@ impl App<'_> {
             );
         }
         let prompt = format!(
-            "This is an authenticated {label} message from {}. Respond as the user's brain.\n\n{}",
-            message.sender, message.body
+            "This is an authenticated {label} message from {} (actor {}). Respond as the user's brain.\n\n{}",
+            message.actor.display_name(),
+            message.actor.user_id(),
+            message.body
         );
         let reusing_receiver_panel = self.receiver_session_id.is_some() && self.brain_panel_open();
         if reusing_receiver_panel {
@@ -274,10 +278,7 @@ impl App<'_> {
                 let _ = std::fs::remove_file(response_path);
             }
         } else {
-            self.requested_receiver_channel = Some(match message.channel {
-                crate::server::receiver::Channel::Sms => crate::state::SessionChannel::Sms,
-                crate::server::receiver::Channel::Email => crate::state::SessionChannel::Email,
-            });
+            self.requested_receiver_actor = Some(message.actor.clone());
         }
         let launched = self.open_or_focus_brain(Some(&(prompt + &attachments)));
         let _ = crate::tui::receiver_state::commit_dispatch(&mut self.receiver_queue, launched);
@@ -299,7 +300,7 @@ impl App<'_> {
                 self.receiver_queue.len()
             ));
         } else {
-            self.requested_receiver_channel = None;
+            self.requested_receiver_actor = None;
             self.receiver_retry_at =
                 Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
             crate::logging::log(format!(
@@ -329,7 +330,15 @@ impl App<'_> {
             .paths()
             .responses_dir()
             .join(format!("{session_id}.json"));
-        if !path.is_file() {
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return;
+        };
+        if !crate::server::reply::completion_matches_actor(&value, &self.interactive_actor) {
+            let _ = std::fs::remove_file(path);
+            crate::logging::log("interactive completion actor mismatch discarded");
             return;
         }
         let _ = std::fs::remove_file(path);
@@ -369,11 +378,9 @@ impl App<'_> {
                 );
             }
             crate::server::receiver::Channel::Email => {
-                let recipients = crate::server::delivery::allowed_thread_recipients(
-                    &self.receiver_recipients,
-                    &self.config.allowed_email(),
-                    &self.config.response_email,
-                );
+                let recipients = self.session_actor.as_ref().map_or_else(Vec::new, |actor| {
+                    self.receiver_email_recipients(&self.receiver_recipients, actor)
+                });
                 if !recipients.is_empty() {
                     let html = crate::server::reply::email_html(&notice.text);
                     crate::server::delivery::send_email_background(
@@ -410,6 +417,16 @@ impl App<'_> {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
             return;
         };
+        if self
+            .session_actor
+            .as_ref()
+            .is_none_or(|actor| !crate::server::reply::completion_matches_actor(&value, actor))
+        {
+            let _ = std::fs::remove_file(path);
+            crate::logging::log("receiver completion actor mismatch discarded");
+            self.close_receiver_panel(true);
+            return;
+        }
         let Some(message) = value.get("message").and_then(serde_json::Value::as_str) else {
             return;
         };
@@ -428,11 +445,9 @@ impl App<'_> {
                 );
             }
             crate::server::receiver::Channel::Email => {
-                let recipients = crate::server::delivery::allowed_thread_recipients(
-                    &self.receiver_recipients,
-                    &self.config.allowed_email(),
-                    &self.config.response_email,
-                );
+                let recipients = self.session_actor.as_ref().map_or_else(Vec::new, |actor| {
+                    self.receiver_email_recipients(&self.receiver_recipients, actor)
+                });
                 if !recipients.is_empty() {
                     let reply = crate::server::reply::email(message);
                     let html = crate::server::reply::email_html(&reply.text);
@@ -471,6 +486,19 @@ impl App<'_> {
         self.receiver_server
             .as_ref()
             .is_some_and(crate::server::receiver::ReceiverServer::is_running)
+    }
+
+    fn receiver_email_recipients(
+        &self,
+        participants: &[String],
+        actor: &crate::actor::ActorContext,
+    ) -> Vec<String> {
+        let Ok(users) = crate::users::UsersStore::load(&self.command_context.workspace) else {
+            return Vec::new();
+        };
+        let receiving =
+            crate::env::get(&self.command_context, "resend_from_email").unwrap_or_default();
+        crate::server::delivery::actor_thread_recipients(participants, &users, actor, &receiving)
     }
 
     pub(crate) fn focus_brain(&mut self) {
@@ -528,20 +556,25 @@ impl App<'_> {
         }
 
         let pid = i32::try_from(std::process::id()).unwrap_or(0);
-        let requested_channel = self.requested_receiver_channel.take();
+        let requested_actor = self.requested_receiver_actor.take();
+        let receiver_request = requested_actor.is_some();
+        let actor = requested_actor
+            .unwrap_or_else(|| crate::actor::ActorContext::follow_up(&self.interactive_actor));
+        let scope = crate::state::SessionScope::new(
+            self.agent_kind,
+            self.command_context.workspace.id(),
+            actor.clone(),
+        );
         let resume_override = self.receiver_resume_session.take();
         let mut resume = None;
         let mut skipped_missing = false;
-        if self.agent_kind == AgentKind::Claude {
-            let candidates = resume_override
-                .map(|id| vec![id])
-                .or_else(|| {
-                    requested_channel
-                        .and_then(|channel| self.db.session_for_channel(channel).map(|id| vec![id]))
-                })
-                .unwrap_or_else(|| self.db.free_sessions_by_recency());
+        {
+            let candidates =
+                resume_override.map_or_else(|| self.db.sessions_by_recency(&scope), |id| vec![id]);
             for id in candidates {
-                if !session_transcript_exists(&self.brain_root, &id) {
+                if self.agent_kind == AgentKind::Claude
+                    && !session_transcript_exists(&self.brain_root, &id)
+                {
                     skipped_missing = true;
                     continue;
                 }
@@ -557,10 +590,13 @@ impl App<'_> {
         let session_id = match &plan {
             Plan::Resume(id) | Plan::Fresh(id) => id.clone(),
         };
-        if requested_channel.is_some() {
-            self.receiver_session_id = Some(match &plan {
-                Plan::Resume(id) | Plan::Fresh(id) => id.clone(),
-            });
+        let response_id = if self.agent_kind == AgentKind::Claude {
+            session_id
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        };
+        if receiver_request {
+            self.receiver_session_id = Some(response_id.clone());
             let response_path =
                 self.command_context
                     .workspace
@@ -572,16 +608,14 @@ impl App<'_> {
                     ));
             let _ = std::fs::remove_file(response_path);
         }
-        if requested_channel.is_none() {
-            self.interactive_session_id = Some(session_id);
+        if !receiver_request {
+            self.interactive_session_id = Some(response_id.clone());
         }
         self.alert = if matches!(plan, Plan::Fresh(_)) {
-            if let Some(channel) = requested_channel {
+            if self.agent_kind == AgentKind::Claude {
                 let _ = self
                     .db
-                    .register_channel_fresh(&new_id, &self.instance, pid, channel);
-            } else if self.agent_kind == AgentKind::Claude {
-                let _ = self.db.register_fresh(&new_id, &self.instance, pid);
+                    .register_scoped_fresh(&new_id, &self.instance, pid, &scope);
             }
             skipped_missing.then(|| {
                 "⚠ couldn't find a session to resume — starting a new brain chat".to_owned()
@@ -598,14 +632,18 @@ impl App<'_> {
             session::build_llm_command(&self.brain_root, self.agent_kind, &llm_cmd, &plan, prompt);
         let env = session::env_for(
             &self.command_context.workspace,
+            &actor,
+            self.agent_kind,
             &self.instance,
             pid,
             &self.db_path,
+            &response_id,
         );
         // Placeholder size; the first draw resizes the PTY to the real panel.
         match PtyPane::spawn_shell_command_with_env(&command, &env, &self.brain_root, 24, 80) {
             Ok(panel) => {
                 self.brain = Some(panel);
+                self.session_actor = Some(actor);
                 self.brain_turn_active = false;
                 if prompt.is_some_and(|value| !value.trim().is_empty()) {
                     self.mark_brain_turn_started();
@@ -626,6 +664,7 @@ impl App<'_> {
                 self.brain = None;
                 self.brain_turn_active = false;
                 self.receiver_session_id = None;
+                self.session_actor = None;
                 let _ = self.db.release(&self.instance);
                 self.flash = Some(FlashKind::Error(format!(
                     "{} could not start: {error}",
@@ -682,11 +721,10 @@ impl App<'_> {
                         );
                     }
                     crate::server::receiver::Channel::Email => {
-                        let recipients = crate::server::delivery::allowed_thread_recipients(
-                            &self.receiver_recipients,
-                            &self.config.allowed_email(),
-                            &self.config.response_email,
-                        );
+                        let recipients =
+                            self.session_actor.as_ref().map_or_else(Vec::new, |actor| {
+                                self.receiver_email_recipients(&self.receiver_recipients, actor)
+                            });
                         if !recipients.is_empty() {
                             let reply = crate::server::reply::email(&final_text);
                             let html = crate::server::reply::email_html(&reply.text);
@@ -704,6 +742,7 @@ impl App<'_> {
             }
         }
         self.brain = None;
+        self.session_actor = None;
         self.brain_turn_active = false;
         self.pending_brain_submit = 0;
         self.alert = None;
@@ -780,6 +819,7 @@ impl App<'_> {
 
     fn close_receiver_panel(&mut self, restore_interactive: bool) {
         self.brain = None;
+        self.session_actor = None;
         self.brain_turn_active = false;
         self.pending_brain_submit = 0;
         self.alert = None;
@@ -788,7 +828,9 @@ impl App<'_> {
         self.clear_receiver_panel_state();
         self.reload_after_brain();
         if restore_interactive {
-            self.receiver_resume_session = self.interactive_session_id.take();
+            self.receiver_resume_session = (self.agent_kind == AgentKind::Claude)
+                .then(|| self.interactive_session_id.take())
+                .flatten();
             self.open_or_focus_brain(None);
         }
     }
@@ -813,7 +855,7 @@ impl App<'_> {
         self.receiver_lease = None;
         self.receiver_started = None;
         self.receiver_delay_sent = false;
-        self.requested_receiver_channel = None;
+        self.requested_receiver_actor = None;
     }
 }
 

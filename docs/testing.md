@@ -70,7 +70,7 @@ first move is a failing test that reproduces it, *then* the fix.
   runtime file trees byte-for-byte, repeats selected writes after changing the
   default, and tests same-name/different-UUID rejection. Focused tests also pin
   alias-to-canonical detached sync arguments after alias removal/default change,
-  the four-variable integration env, selected reindex `BRAIN_ROOT`, and
+  the typed actor integration env, selected reindex `BRAIN_ROOT`, and
   request-UUID habits GET/POST isolation.
 - **Workspace documentation contract.** `tests/workspace_docs.rs` runs the
   compiled binary's root, workspace, and nested alias help, then checks only
@@ -82,10 +82,12 @@ first move is a failing test that reproduces it, *then* the fix.
   deliberately avoids snapshots and punctuation-heavy prose.
 - **Hook integration.** `tests/hook_integration.rs` runs the real Python
   SessionStart hook against a temporary SQLite DB and the real shell installer
-  against temporary homes/roots. It covers the complete four-variable
-  workspace identity plus session attribution contract, selected-root argument
-  and `BRAIN_ROOT` precedence, project-relative commands, session rotation, and
-  malformed/ambient no-op behavior.
+  against temporary homes/roots. It covers the typed workspace/actor
+  identity plus session attribution contract, selected-root argument
+  and `BRAIN_ROOT` precedence, project-relative commands, actor-scoped session
+  rotation, schema-v2 row preservation, and malformed/ambient no-op behavior.
+  `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
+  completion contract for a Codex-style `thread_id` payload.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
   map (defaults vs overrides — never the real store), the `config list` table
   layout and coloring, value coercion (`4`→number), name normalization, the
@@ -125,8 +127,8 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Filesystem collection** (integration). `entry::collect` against real
   temp trees: bucket tagging, `~/brain/...` rewriting, hidden-file
   skipping, root-skipping, tolerance of a missing bucket.
-- **The session store** (`state.rs`, in-memory SQLite). `pick_resume`
-  ordering, `claim` win/lose, `register_fresh` + `release` round-trip,
+- **The session store** (`state.rs`, in-memory SQLite). Scoped resume
+  ordering, `claim` win/lose, registration + `release` round-trip,
   `reap_dead_locks` with an injected pid-liveness predicate, the
   two-shells-take-distinct-sessions invariant, and `panel_side` round-trip
   + flip. `open_in_memory` / `with_pid_alive` are the test seams

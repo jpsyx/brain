@@ -95,7 +95,7 @@ tui::run_tui(command_context, view, cli, …) (the persistent shell)
  ├─→ command_context.workspace.root()       (immutable selected root snapshot)
  ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)
  └─→ App event loop (tasks view + search view + agent PTY)
-       ├─ state::Db: reap dead locks, pick_resume / claim or register_fresh
+       ├─ state::Db: reap dead locks, scoped resume / claim or register
        ├─ session::build_llm_command(root, agent_kind, command, …) + env_for
        │    → PtyPane spawns configured Claude (default) or Codex (`--codex` / `-cx`)
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
@@ -126,16 +126,16 @@ One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
 Env, config, personalization, state, TUI, tasks, reindex, sync, and child
 integrations consume that selection or a path derived from it. Ordinary
 runtime code does not reopen the registry or resolve a global root. Detached
-Brain children carry `--brain <canonical-name>`; integrations receive the
-four common variables `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
-and `BRAIN_ACTOR_ID`, with agent-session values added separately.
+Brain children carry `--brain <canonical-name>`; integrations receive
+`BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, and
+`BRAIN_CHANNEL`, with agent-session values added separately.
 
 Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
 not use that UUID-scoped path.
 
 This is the current isolation foundation, not the complete approved roadmap.
-Inbound actor resolution, task assignment, triage-habit
+Task assignment, triage-habit
 policy, advisory access modes, the agent-controller/OpenCode facade, and the
 shared receiver lease lifecycle remain later phases. In particular,
 `workspace_only` is planned prompt-based guidance and light guardrails. It is
@@ -216,11 +216,19 @@ persists under the registry transaction, reloads, and continues the originally
 requested command. Root-local stores take the context, machine-env writes also
 take its exact `RegistryStore`, and the TUI retains the same `Arc` for watcher,
 receiver, session, rendering, state, response, and sync paths. Brain-owned
-children receive the four-variable workspace/actor integration environment.
+children receive the typed workspace/actor integration environment.
 Detached workspace-owned sync children additionally carry
 `--brain <canonical-name>`. The detached shared-server child is the deliberate
 exception: it owns only machine-shared lifecycle/control state and resolves
 request payloads by workspace UUID, so it has no selected `--brain` argument.
+
+### `actor/`
+
+The immutable effective person for one request lineage. `resolve` uses the
+machine's portable local user for interactive work, or an enabled normalized
+phone/email identity after provider authentication. `context` carries the
+validated person ID, display name, and initiating channel through queueing,
+session lookup, hooks, task-agent prompts, completion, and response delivery.
 
 ### `users/`
 
@@ -720,13 +728,13 @@ rendering. Reader / writer / waiter threads; `send` / `resize` /
 
 ### `session.rs`
 Pure launch planning: `AgentKind::{Claude,Codex}`, `Plan::{Resume,Fresh}`
-(chosen from the DB's resume candidate + a fresh UUID for Claude, fresh-only
-for Codex today), `build_llm_command` (`cd <root> && <claude_cmd> --resume
+(chosen from actor-scoped DB resume candidates), `build_llm_command` (`cd <root> && <claude_cmd> --resume
 <id>` / `--session-id <id>` for Claude; `cd <root> && <codex_cmd> resume <id>`
 for a known Codex resume id; no Claude flags for fresh Codex), and `env_for`.
-Agent env starts with `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and
-`BRAIN_ACTOR_ID`, then adds `BRAIN_INSTANCE_ID`, `BRAIN_PID`, the selected
-`BRAIN_STATE_DB`, and selected `BRAIN_RESPONSE_DIR` for the hooks. `claude_cmd`
+Agent env starts with `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
+`BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and `BRAIN_AGENT_KIND`, then adds
+`BRAIN_INSTANCE_ID`, `BRAIN_PID`, the selected `BRAIN_STATE_DB`, and selected
+`BRAIN_RESPONSE_DIR`/`BRAIN_RESPONSE_ID` for the hooks. `claude_cmd`
 and `codex_cmd` are machine-local brain env values. Both configured commands
 are spliced in verbatim so they may carry their own flags, and brain never
 depends on a shell alias. `env_for_triage` starts with the same four common
@@ -745,10 +753,11 @@ replacement belong to the approved shared-server phase.
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
-`brain_sessions` tracks every Claude session brain launched/adopted with a
-`locked_pid` lock; `meta` stores the `panel_side` layout preference. The
-resume model is **lock + recency** (`reap_dead_locks`, `pick_resume`,
-`claim`, `register_fresh`, `release`). The `PanelSide` enum lives here since
+`brain_sessions` tracks Claude and Codex sessions by agent kind, session ID,
+workspace UUID, actor ID, and channel with a `locked_pid` lock; `meta` stores
+the `panel_side` layout preference. The resume model is scoped lock + recency
+(`reap_dead_locks`, `sessions_by_recency`, `claim`, `register_scoped_fresh`,
+`release`). The `PanelSide` enum lives here since
 it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
@@ -765,8 +774,8 @@ and cannot outlive the interactive shell.
   `tiny_http` listener and channel queue, `http/sms.rs` and `http/email.rs`
   own provider parsing, `attachments.rs` stages media, and `control.rs` owns
   the protected local command socket.
-- `server/security.rs` — pure Twilio HMAC, Resend/Svix HMAC, and exact
-  allowlist decisions, including E.164 phone-number validation.
+- `server/security.rs` owns pure Twilio HMAC, Resend/Svix HMAC, and the ordered
+  authenticate-then-resolve decision for enabled portable identities.
 - `server/lifecycle.rs` — the legacy local habits-server lifecycle.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST requests carry `workspace_id`; the shared process
@@ -779,7 +788,8 @@ and cannot outlive the interactive shell.
 
 `brain --with-receiver` starts the receiver listener after the TUI singleton is
 acquired. The global palette can start, stop, restart, and inspect it while
-the TUI is alive. Inbound work is queued into a bounded in-memory channel and
+the TUI is alive. Inbound work is queued as workspace UUID plus immutable
+actor context in a bounded in-memory channel and
 is never allowed to interrupt an active agent turn. `tui/receiver_state.rs`
 distinguishes a submitted turn from an idle open PTY, so an idle startup panel
 can switch to the receiver session even when a modal is on screen. It also

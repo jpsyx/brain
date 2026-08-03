@@ -159,8 +159,9 @@ localhost-only endpoint consistent with `/habits/done`.
 Which session to run is decided by the **lock + recency** model in
 `state.rs` (DB at `<workspace-cache>/state.db`, WAL):
 
-1. On startup brain reaps locks held by dead PIDs, then walks
-   `free_sessions_by_recency()` (sessions no live brain holds, newest first)
+1. On startup brain resolves the local actor once, reaps locks held by dead
+   PIDs, then walks `sessions_by_recency()` within the exact
+   frontend/workspace/actor/channel scope
    and resumes the first whose **transcript actually exists** on disk —
    `~/.claude/projects/<mangled selected-root>/<id>.jsonl`
    (`session::project_dir_name` + a fallback scan). A session opened but
@@ -171,26 +172,30 @@ Which session to run is decided by the **lock + recency** model in
    it skipped a missing-transcript candidate, shows a status-line alert:
    *"couldn't find a session to resume — starting a new brain chat"*.
 2. brain passes the selected workspace's `BRAIN_WORKSPACE_ID`,
-   `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and `BRAIN_ACTOR_ID` plus
+   `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and
+   `BRAIN_AGENT_KIND` plus
    `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` /
-   `BRAIN_RESPONSE_DIR` into the Claude child's environment
-   (`session::env_for`). Actor identity is the selected record's
-   `local_user_id`; when portable users are present, readiness has already
-   verified that it names one person. The current receiver still applies its
-   legacy allowlists and does not yet resolve inbound senders through this
-   portable registry.
+   `BRAIN_RESPONSE_DIR` / `BRAIN_RESPONSE_ID` into the child environment
+   (`session::env_for`). Local work uses the resolved `local_user_id`.
+   Receiver work first authenticates the provider request, then resolves an
+   enabled portable sender; the queued workspace UUID and actor override the
+   machine default for that complete request lineage.
 3. A **SessionStart hook** —
    `scripts/claude_session_start_hook.py`, wired into
    `<brain-root>/.claude/settings.json` under `hooks.SessionStart` — fires on
    every session start / resume / `/clear` / compact. Reading those env
-   vars, it upserts the current session id (locked to `BRAIN_PID`) and frees
+   vars, it upserts the actual frontend session id plus immutable attribution
+   (locked to `BRAIN_PID`) and frees
    the instance's other sessions, so a `/new` mid-run becomes the session
    brain resumes next time and the prior conversation stays resumable. With
    any common workspace identity or required session attribution variable
    absent, the hook is a no-op.
 4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
    `last_assistant_message` under
-   `<workspace-cache>/responses/<session-id>.json`.
+   `<workspace-cache>/responses/<response-id>.json`. The stable response ID is
+   independent of the frontend session ID, which gives fresh Codex turns the
+   same completion path as Claude. The artifact repeats actor and channel; the
+   TUI discards it unless both match the launched session context.
    For an interactive turn, the TUI consumes it as the completion signal that
    allows queued receiver work to switch sessions. For an active SMS/email
    job, it sends the channel-specific final response, marks remote work idle,

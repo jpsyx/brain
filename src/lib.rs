@@ -8,6 +8,7 @@
 //! (matching, grouping, navigation) is covered by `#[cfg(test)]` units in
 //! the modules themselves.
 
+pub mod actor;
 pub mod cli;
 pub mod command;
 pub mod config;

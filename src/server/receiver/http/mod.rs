@@ -24,14 +24,18 @@ pub(super) struct SecurityConfig {
     public_base_url: String,
     resend_signing_secret: String,
     resend_api_key: String,
-    allowed_sms: Vec<String>,
-    allowed_email: Vec<String>,
+    workspace_id: crate::workspace::WorkspaceId,
+    local_user_id: crate::users::UserId,
+    users: crate::users::Users,
 }
 
 impl SecurityConfig {
-    fn load(command: &crate::workspace::CommandContext) -> Self {
-        let config = crate::config::Config::load(&command.workspace);
-        Self {
+    fn load(command: &crate::workspace::CommandContext) -> Result<Self> {
+        let local_user_id = crate::users::UserId::parse(command.workspace.local_user_id())
+            .context("parsing selected local user")?;
+        let users = crate::users::UsersStore::load(&command.workspace)
+            .context("loading portable workspace users")?;
+        Ok(Self {
             twilio_auth_token: crate::server::provider::get(command, "twilio_auth_token")
                 .unwrap_or_default(),
             public_base_url: crate::server::provider::get(command, "brain_receiver_public_url")
@@ -43,9 +47,23 @@ impl SecurityConfig {
             .unwrap_or_default(),
             resend_api_key: crate::server::provider::get(command, "resend_api_key")
                 .unwrap_or_default(),
-            allowed_sms: config.allowed_sms(),
-            allowed_email: config.allowed_email(),
-        }
+            workspace_id: command.workspace.id(),
+            local_user_id,
+            users,
+        })
+    }
+
+    fn resolve_actor(
+        &self,
+        provider_authenticated: bool,
+        identity: crate::actor::RequestIdentity<'_>,
+    ) -> Result<crate::actor::ActorContext, crate::server::security::AuthenticatedActorError> {
+        crate::server::security::resolve_authenticated_actor(
+            provider_authenticated,
+            &self.local_user_id,
+            identity,
+            &self.users,
+        )
     }
 }
 
@@ -98,7 +116,7 @@ impl ReceiverServer {
             .to_ip()
             .context("resolving receiver server address")?
             .port();
-        let security = SecurityConfig::load(command);
+        let security = SecurityConfig::load(command)?;
         let recent = Arc::new(Mutex::new(RecentMessageIds::default()));
         let mut joins = Vec::with_capacity(RECEIVER_WORKERS);
         for index in 0..RECEIVER_WORKERS {
@@ -289,27 +307,69 @@ mod tests {
     use super::{ReceiverServer, RecentMessageIds, enqueue, read_body_from_reader};
     use crate::server::receiver::{Channel, INBOUND_QUEUE_CAPACITY, InboundMessage};
 
-    fn command() -> crate::workspace::CommandContext {
-        crate::workspace::CommandContext {
-            workspace: std::sync::Arc::new(
-                crate::workspace::WorkspaceContext::new(
-                    std::path::Path::new("/home/tester"),
-                    crate::workspace::WorkspaceId::new(),
-                    crate::workspace::WorkspaceName::parse("brain").expect("valid name"),
-                    std::path::Path::new("/home/tester/brain"),
-                    "tester",
-                    std::path::Path::new("/home/tester"),
-                )
-                .expect("context"),
-            ),
-            registry_store: crate::workspace::RegistryStore::from_path(std::path::PathBuf::from(
-                "/missing/env.json",
-            )),
+    struct CommandFixture {
+        _temp: tempfile::TempDir,
+        command: crate::workspace::CommandContext,
+    }
+
+    fn command() -> CommandFixture {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("brain");
+        std::fs::create_dir_all(&root).unwrap();
+        let workspace = std::sync::Arc::new(
+            crate::workspace::WorkspaceContext::new(
+                temp.path(),
+                crate::workspace::WorkspaceId::new(),
+                crate::workspace::WorkspaceName::parse("brain").expect("valid name"),
+                &root,
+                "tester",
+                temp.path(),
+            )
+            .expect("context"),
+        );
+        crate::users::UsersStore::save(
+            &workspace,
+            &crate::users::Users {
+                schema_version: crate::users::USERS_SCHEMA_VERSION,
+                users: vec![crate::users::User {
+                    id: crate::users::UserId::parse("tester").unwrap(),
+                    name: "Tester".to_owned(),
+                    phones: Vec::new(),
+                    emails: Vec::new(),
+                    response_email: None,
+                }],
+            },
+        )
+        .unwrap();
+        CommandFixture {
+            _temp: temp,
+            command: crate::workspace::CommandContext {
+                workspace,
+                registry_store: crate::workspace::RegistryStore::from_path(
+                    std::path::PathBuf::from("/missing/env.json"),
+                ),
+            },
         }
     }
 
     fn message(provider_id: &str) -> InboundMessage {
         InboundMessage {
+            workspace_id: crate::workspace::WorkspaceId::new(),
+            actor: crate::actor::resolve_actor(
+                &crate::users::UserId::parse("tester").unwrap(),
+                crate::actor::RequestIdentity::Local,
+                &crate::users::Users {
+                    schema_version: crate::users::USERS_SCHEMA_VERSION,
+                    users: vec![crate::users::User {
+                        id: crate::users::UserId::parse("tester").unwrap(),
+                        name: "Tester".to_owned(),
+                        phones: Vec::new(),
+                        emails: Vec::new(),
+                        response_email: None,
+                    }],
+                },
+            )
+            .unwrap(),
             channel: Channel::Sms,
             body: "hello".to_owned(),
             sender: "+15551234567".to_owned(),
@@ -366,7 +426,8 @@ mod tests {
         let port = probe.local_addr().unwrap().port();
         drop(probe);
         let (message_tx, _message_rx) = mpsc::sync_channel(INBOUND_QUEUE_CAPACITY);
-        let receiver = ReceiverServer::start(&command(), port, &message_tx).unwrap();
+        let command = command();
+        let receiver = ReceiverServer::start(&command.command, port, &message_tx).unwrap();
         let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         client
             .set_read_timeout(Some(Duration::from_secs(2)))
@@ -392,7 +453,8 @@ mod tests {
         let port = probe.local_addr().unwrap().port();
         drop(probe);
         let (message_tx, _message_rx) = mpsc::sync_channel(INBOUND_QUEUE_CAPACITY);
-        let receiver = ReceiverServer::start(&command(), port, &message_tx).unwrap();
+        let command = command();
+        let receiver = ReceiverServer::start(&command.command, port, &message_tx).unwrap();
         let mut slow = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         slow.write_all(
             b"POST /sms HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\nConnection: close\r\n\r\n",
@@ -420,7 +482,8 @@ mod tests {
     #[test]
     fn dropping_receiver_unblocks_and_joins_the_workers() {
         let (message_tx, _message_rx) = mpsc::sync_channel(INBOUND_QUEUE_CAPACITY);
-        let receiver = ReceiverServer::start(&command(), 0, &message_tx).unwrap();
+        let command = command();
+        let receiver = ReceiverServer::start(&command.command, 0, &message_tx).unwrap();
         let (done_tx, done_rx) = mpsc::channel();
 
         std::thread::spawn(move || {

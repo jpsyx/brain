@@ -7,8 +7,8 @@
 //! layer, scoped to what brain needs.
 //!
 //! Two tables:
-//! - `brain_sessions` — one row per Claude session brain has launched or
-//!   adopted. `locked_pid` is the PID of the live brain shell currently
+//! - `brain_sessions` stores frontend sessions with immutable workspace,
+//!   actor, and channel attribution. `locked_pid` is the PID of the live brain shell currently
 //!   driving that session (NULL when free). The session-resume model is
 //!   "lock + recency": on startup we resume the most-recently-active free
 //!   session and lock it; on exit we release the lock; stale locks (dead
@@ -17,7 +17,7 @@
 //! - `meta` — small key/value store; today just the `panel_side` layout
 //!   preference (which side the brain panel sits on).
 //!
-//! The SessionStart hook requires the four selected workspace/actor variables
+//! The SessionStart hook requires the selected workspace/actor variables
 //! plus `BRAIN_INSTANCE_ID` and the selected UUID-scoped `BRAIN_STATE_DB`.
 //! `BRAIN_PID` supplies optional lock ownership. Incomplete attribution means
 //! ambient Claude usage, so the hook no-ops.
@@ -26,6 +26,34 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
+
+/// Immutable lookup scope for one actor's sessions in one workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionScope {
+    agent_kind: crate::session::AgentKind,
+    workspace_id: crate::workspace::WorkspaceId,
+    actor: crate::actor::ActorContext,
+}
+
+impl SessionScope {
+    #[must_use]
+    pub const fn new(
+        agent_kind: crate::session::AgentKind,
+        workspace_id: crate::workspace::WorkspaceId,
+        actor: crate::actor::ActorContext,
+    ) -> Self {
+        Self {
+            agent_kind,
+            workspace_id,
+            actor,
+        }
+    }
+
+    #[must_use]
+    pub const fn actor(&self) -> &crate::actor::ActorContext {
+        &self.actor
+    }
+}
 
 /// Wall-clock provider (unix seconds). Production uses [`system_clock`];
 /// tests inject a deterministic value.
@@ -68,24 +96,6 @@ pub enum PanelSide {
     Right,
 }
 
-/// Conversation role persisted for a brain session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SessionChannel {
-    Interactive,
-    Sms,
-    Email,
-}
-
-impl SessionChannel {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Interactive => "interactive",
-            Self::Sms => "sms",
-            Self::Email => "email",
-        }
-    }
-}
-
 impl PanelSide {
     /// Default: brain panel on the right, search on the left.
     pub const DEFAULT: Self = Self::Right;
@@ -125,11 +135,24 @@ impl Db {
     /// Open or create a state DB at `path`. Runs migrations idempotently and
     /// enables WAL mode so concurrent shells + the hook don't block.
     pub fn open(workspace: &crate::workspace::WorkspaceContext) -> Result<Self> {
-        Self::open_path(&workspace.paths().state_db())
+        Self::open_path_with_legacy_identity(
+            &workspace.paths().state_db(),
+            &workspace.id().to_string(),
+            workspace.local_user_id(),
+        )
     }
 
     /// Open or create a state DB at an explicit path.
     pub fn open_path(path: &Path) -> Result<Self> {
+        Self::open_path_with_legacy_identity(path, "legacy-workspace", "legacy-user")
+    }
+
+    /// Open a DB while supplying the attribution applied to pre-actor rows.
+    pub fn open_path_with_legacy_identity(
+        path: &Path,
+        workspace_id: &str,
+        local_actor_id: &str,
+    ) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
@@ -142,7 +165,7 @@ impl Db {
             clock: system_clock,
             pid_alive: system_pid_alive,
         };
-        db.migrate()?;
+        db.migrate(workspace_id, local_actor_id)?;
         Ok(db)
     }
 
@@ -157,7 +180,7 @@ impl Db {
             clock: || 1_000_000,
             pid_alive: |_| true,
         };
-        db.migrate()?;
+        db.migrate("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b", "test-user")?;
         Ok(db)
     }
 
@@ -174,7 +197,7 @@ impl Db {
         Ok(())
     }
 
-    fn migrate(&self) -> Result<()> {
+    fn migrate(&self, workspace_id: &str, local_actor_id: &str) -> Result<()> {
         let version: i32 = self
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -205,6 +228,42 @@ impl Db {
                  PRAGMA user_version = 2;",
             )?;
         }
+        if version < 3 {
+            let transaction = self.conn.unchecked_transaction()?;
+            transaction.execute_batch(
+                "ALTER TABLE brain_sessions RENAME TO brain_sessions_legacy;
+                 DROP INDEX IF EXISTS brain_sessions_by_active;
+                 CREATE TABLE brain_sessions (
+                   agent_kind       TEXT NOT NULL,
+                   agent_session_id TEXT PRIMARY KEY,
+                   brain_instance_id TEXT NOT NULL,
+                   locked_pid       INTEGER,
+                   source           TEXT,
+                   workspace_id     TEXT NOT NULL,
+                   actor_id         TEXT NOT NULL,
+                   channel          TEXT NOT NULL,
+                   created_at       INTEGER NOT NULL,
+                   last_active_at   INTEGER NOT NULL
+                 );
+                 CREATE INDEX brain_sessions_by_active
+                   ON brain_sessions(agent_kind, workspace_id, actor_id, channel,
+                                     locked_pid, last_active_at);",
+            )?;
+            transaction.execute(
+                "INSERT INTO brain_sessions
+                   (agent_kind, agent_session_id, brain_instance_id, locked_pid,
+                    source, workspace_id, actor_id, channel, created_at, last_active_at)
+                 SELECT 'claude', claude_session_id, brain_instance_id, locked_pid,
+                        source, ?1, ?2, 'interactive', created_at, last_active_at
+                 FROM brain_sessions_legacy",
+                rusqlite::params![workspace_id, local_actor_id],
+            )?;
+            transaction.execute_batch(
+                "DROP TABLE brain_sessions_legacy;
+                 PRAGMA user_version = 3;",
+            )?;
+            transaction.commit()?;
+        }
         Ok(())
     }
 
@@ -219,7 +278,7 @@ impl Db {
     pub fn reap_dead_locks(&self) -> Result<()> {
         let locked: Vec<(String, i64)> = {
             let mut stmt = self.conn.prepare(
-                "SELECT claude_session_id, locked_pid FROM brain_sessions
+                "SELECT agent_session_id, locked_pid FROM brain_sessions
                  WHERE locked_pid IS NOT NULL",
             )?;
             let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
@@ -229,7 +288,7 @@ impl Db {
             if !(self.pid_alive)(i32::try_from(pid).unwrap_or(0)) {
                 self.conn.execute(
                     "UPDATE brain_sessions SET locked_pid = NULL
-                     WHERE claude_session_id = ?1",
+                     WHERE agent_session_id = ?1",
                     [&id],
                 )?;
             }
@@ -237,20 +296,26 @@ impl Db {
         Ok(())
     }
 
-    /// Sessions no live brain holds, most-recently-active first. The caller
-    /// walks this list and resumes the first whose transcript actually
-    /// exists on disk (a session opened but never chatted in leaves a DB row
-    /// with no `.jsonl`, which `claude --resume` can't find).
+    /// Free sessions restricted to one immutable workspace/actor/frontend/channel scope.
     #[must_use]
-    pub fn free_sessions_by_recency(&self) -> Vec<String> {
-        let Ok(mut stmt) = self.conn.prepare(
-            "SELECT claude_session_id FROM brain_sessions
-             WHERE locked_pid IS NULL
+    pub fn sessions_by_recency(&self, scope: &SessionScope) -> Vec<String> {
+        let Ok(mut statement) = self.conn.prepare(
+            "SELECT agent_session_id FROM brain_sessions
+             WHERE agent_kind = ?1 AND workspace_id = ?2 AND actor_id = ?3
+               AND channel = ?4 AND locked_pid IS NULL
              ORDER BY last_active_at DESC, rowid DESC",
         ) else {
             return Vec::new();
         };
-        let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else {
+        let Ok(rows) = statement.query_map(
+            rusqlite::params![
+                scope.agent_kind.as_str(),
+                scope.workspace_id.to_string(),
+                scope.actor.user_id().as_str(),
+                scope.actor.channel().as_str(),
+            ],
+            |row| row.get::<_, String>(0),
+        ) else {
             return Vec::new();
         };
         rows.flatten().collect()
@@ -264,59 +329,38 @@ impl Db {
         let n = self.conn.execute(
             "UPDATE brain_sessions
              SET locked_pid = ?2, brain_instance_id = ?3, last_active_at = ?4
-             WHERE claude_session_id = ?1 AND locked_pid IS NULL",
+             WHERE agent_session_id = ?1 AND locked_pid IS NULL",
             rusqlite::params![claude_session_id, pid, instance, now],
         )?;
         Ok(n == 1)
     }
 
-    /// Register a brand-new session id, locked to this shell.
-    pub fn register_fresh(&self, claude_session_id: &str, instance: &str, pid: i32) -> Result<()> {
-        let now = self.now();
-        self.conn.execute(
-            "INSERT INTO brain_sessions
-               (claude_session_id, brain_instance_id, locked_pid, source,
-                channel, created_at, last_active_at)
-             VALUES (?1, ?2, ?3, 'fresh', ?4, ?5, ?5)",
-            rusqlite::params![
-                claude_session_id,
-                instance,
-                pid,
-                SessionChannel::Interactive.as_str(),
-                now
-            ],
-        )?;
-        Ok(())
-    }
-
-    pub fn register_channel_fresh(
+    /// Register a fresh session with its complete immutable attribution.
+    pub fn register_scoped_fresh(
         &self,
-        claude_session_id: &str,
+        agent_session_id: &str,
         instance: &str,
         pid: i32,
-        channel: SessionChannel,
+        scope: &SessionScope,
     ) -> Result<()> {
         let now = self.now();
         self.conn.execute(
             "INSERT INTO brain_sessions
-               (claude_session_id, brain_instance_id, locked_pid, source,
-                channel, created_at, last_active_at)
-             VALUES (?1, ?2, ?3, 'fresh', ?4, ?5, ?5)",
-            rusqlite::params![claude_session_id, instance, pid, channel.as_str(), now],
+               (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+                workspace_id, actor_id, channel, created_at, last_active_at)
+             VALUES (?1, ?2, ?3, ?4, 'fresh', ?5, ?6, ?7, ?8, ?8)",
+            rusqlite::params![
+                scope.agent_kind.as_str(),
+                agent_session_id,
+                instance,
+                pid,
+                scope.workspace_id.to_string(),
+                scope.actor.user_id().as_str(),
+                scope.actor.channel().as_str(),
+                now,
+            ],
         )?;
         Ok(())
-    }
-
-    #[must_use]
-    pub fn session_for_channel(&self, channel: SessionChannel) -> Option<String> {
-        self.conn
-            .query_row(
-                "SELECT claude_session_id FROM brain_sessions
-                 WHERE channel = ?1 ORDER BY last_active_at DESC LIMIT 1",
-                [channel.as_str()],
-                |row| row.get(0),
-            )
-            .ok()
     }
 
     /// Release every lock held by `instance` and stamp `last_active`, so the
@@ -359,15 +403,40 @@ impl Db {
 mod tests {
     use super::*;
 
+    fn scope() -> SessionScope {
+        let users = crate::users::Users {
+            schema_version: crate::users::USERS_SCHEMA_VERSION,
+            users: vec![crate::users::User {
+                id: crate::users::UserId::parse("test-user").unwrap(),
+                name: "Test user".to_owned(),
+                phones: Vec::new(),
+                emails: Vec::new(),
+                response_email: None,
+            }],
+        };
+        let actor = crate::actor::resolve_actor(
+            &crate::users::UserId::parse("test-user").unwrap(),
+            crate::actor::RequestIdentity::Local,
+            &users,
+        )
+        .unwrap();
+        SessionScope::new(
+            crate::session::AgentKind::Claude,
+            crate::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+            actor,
+        )
+    }
+
     /// Insert a session row directly with an explicit `last_active`,
     /// bypassing the clock, for ordering tests.
     fn seed(db: &Db, id: &str, instance: &str, locked: Option<i32>, last_active: i64) {
         db.conn
             .execute(
                 "INSERT INTO brain_sessions
-                   (claude_session_id, brain_instance_id, locked_pid, source,
-                    created_at, last_active_at)
-                 VALUES (?1, ?2, ?3, 'seed', ?4, ?4)",
+                   (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+                    workspace_id, actor_id, channel, created_at, last_active_at)
+                 VALUES ('claude', ?1, ?2, ?3, 'seed', '8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b',
+                         'test-user', 'interactive', ?4, ?4)",
                 rusqlite::params![id, instance, locked, last_active],
             )
             .unwrap();
@@ -376,7 +445,7 @@ mod tests {
     #[test]
     fn free_sessions_is_empty_on_an_empty_db() {
         let db = Db::open_in_memory().unwrap();
-        assert!(db.free_sessions_by_recency().is_empty());
+        assert!(db.sessions_by_recency(&scope()).is_empty());
     }
 
     #[test]
@@ -387,17 +456,17 @@ mod tests {
         seed(&db, "locked-newer", "i2", Some(4242), 300);
         // The locked one is newer but held by a live shell, so it's excluded;
         // the rest come newest-first.
-        assert_eq!(db.free_sessions_by_recency(), vec!["new", "old"]);
+        assert_eq!(db.sessions_by_recency(&scope()), vec!["new", "old"]);
     }
 
     #[test]
     fn register_fresh_then_release_makes_it_resumable() {
         let db = Db::open_in_memory().unwrap();
-        db.register_fresh("s1", "i1", 999).unwrap();
+        db.register_scoped_fresh("s1", "i1", 999, &scope()).unwrap();
         // While locked, nothing is free to resume.
-        assert!(db.free_sessions_by_recency().is_empty());
+        assert!(db.sessions_by_recency(&scope()).is_empty());
         db.release("i1").unwrap();
-        assert_eq!(db.free_sessions_by_recency(), vec!["s1"]);
+        assert_eq!(db.sessions_by_recency(&scope()), vec!["s1"]);
     }
 
     #[test]
@@ -419,7 +488,7 @@ mod tests {
         seed(&db, "alive", "i2", Some(2), 200);
         db.reap_dead_locks().unwrap();
         // The dead-held session is now resumable; the live-held one is not.
-        assert_eq!(db.free_sessions_by_recency(), vec!["dead"]);
+        assert_eq!(db.sessions_by_recency(&scope()), vec!["dead"]);
     }
 
     #[test]
@@ -428,30 +497,12 @@ mod tests {
         // free and would start fresh — never sharing A's thread.
         let db = Db::open_in_memory().unwrap();
         seed(&db, "s1", "i0", None, 100);
-        let a = db.free_sessions_by_recency().into_iter().next().unwrap();
+        let a = db.sessions_by_recency(&scope()).into_iter().next().unwrap();
         assert!(db.claim(&a, "A", 10).unwrap());
         assert!(
-            db.free_sessions_by_recency().is_empty(),
+            db.sessions_by_recency(&scope()).is_empty(),
             "B sees nothing free"
         );
-    }
-
-    #[test]
-    fn channel_sessions_are_kept_separate_from_interactive_sessions() {
-        let db = Db::open_in_memory().unwrap();
-        db.register_channel_fresh("sms-1", "i1", 10, SessionChannel::Sms)
-            .unwrap();
-        db.register_channel_fresh("email-1", "i1", 10, SessionChannel::Email)
-            .unwrap();
-        assert_eq!(
-            db.session_for_channel(SessionChannel::Sms).as_deref(),
-            Some("sms-1")
-        );
-        assert_eq!(
-            db.session_for_channel(SessionChannel::Email).as_deref(),
-            Some("email-1")
-        );
-        assert_eq!(db.session_for_channel(SessionChannel::Interactive), None);
     }
 
     #[test]

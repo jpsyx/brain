@@ -93,6 +93,7 @@ pub fn run_tui(
     // to attribute brain-panel Claude sessions to this shell.
     let db = Db::open(&command_context.workspace)?;
     let config = Config::load(&command_context.workspace);
+    let interactive_actor = crate::actor::local_actor(&command_context.workspace)?;
     // Best-effort maintenance before this shell touches anything: free
     // session locks held by tasks shells that have since died, so their
     // sessions become resumable. A failure here must never block startup.
@@ -120,6 +121,7 @@ pub fn run_tui(
         Box::new(ZshFunctionRunner::new("")),
         config,
         agent_kind,
+        interactive_actor,
         instance.clone(),
         db,
         search,

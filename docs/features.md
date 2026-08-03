@@ -337,8 +337,9 @@ locks, responses, and sync runtime files all derive from it. Two workspace UUIDs
 may hold TUIs and run syncs concurrently; a second TUI or sync for the same UUID
 is still rejected or coalesced. Changing the machine default affects only a
 future invocation. Brain-owned child scripts receive the selected workspace
-and local actor identity through `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`,
-`BRAIN_ROOT`, and `BRAIN_ACTOR_ID`.
+and immutable actor identity through `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`,
+`BRAIN_ROOT`, `BRAIN_ACTOR_ID`, and `BRAIN_CHANNEL`. Agent panels also receive
+`BRAIN_AGENT_KIND`.
 
 The first record becomes the default; later create/attach operations preserve
 it. Rename updates the default's canonical name when needed. Changing the
@@ -349,9 +350,9 @@ The current foundation does not enforce access modes. The planned
 `workspace_only` mode is prompt-based guidance with light guardrails, not a
 filesystem sandbox, authentication boundary, container, or OS-user boundary.
 It aims only to reduce accidental and naive leakage between highly trusted,
-self-hosted workspaces. Inbound actor resolution, a canonical task
-`assigned_to` field, triage-habit policy, the agent-controller/OpenCode facade, and
-the shared receiver lease lifecycle are also later phases.
+self-hosted workspaces. A canonical task `assigned_to` field, triage-habit
+policy, the agent-controller/OpenCode facade, and the shared receiver lease
+lifecycle remain later phases.
 
 ### `brain user`
 
@@ -810,9 +811,10 @@ or mismatched identities are rejected and never fall back to the machine
 default. This service is separate from external message intake.
 
 The receiver server is owned by the running TUI and is opt-in. It exposes only
-authenticated `POST /sms` and `POST /email` routes. Twilio signatures and phone
-allowlists protect SMS/MMS; Resend/Svix signatures and email allowlists protect
-email. Resend timestamps must be within five minutes, recent provider delivery
+authenticated `POST /sms` and `POST /email` routes. Brain verifies the Twilio
+or Resend/Svix signature before resolving the normalized sender through the
+selected workspace's enabled portable phone or email identities. Unknown and
+disabled senders are rejected. Resend timestamps must be within five minutes, recent provider delivery
 IDs are deduplicated for the life of the receiver, request bodies are capped at
 1 MiB, and a bounded queue returns `503` backpressure instead of growing
 without limit. SMS numbers use exact E.164 matching, including the leading `+`
@@ -831,8 +833,10 @@ modal is visible. The modal itself never closes the agent panel. A submitted
 local turn is allowed to finish first; its Stop-hook completion is consumed
 even while an SMS/email lease is warm, so queued messages cannot become
 stranded. After a remote response, its channel panel remains open and reusable
-for three minutes. Another message on the same channel reuses it; the other
-channel switches immediately once active work finishes. A local prompt or
+for three minutes. Another message reuses it only when both channel and actor
+match; a different actor or channel switches once active work finishes. The
+initiating actor remains fixed for every follow-up in that session, even if a
+different machine-local user is selected elsewhere. A local prompt or
 keyboard input leaves a warm remote panel and resumes the interactive session.
 If an agent process cannot be launched, the inbound message remains queued and
 the receiver retries after a short backoff instead of leaving a phantom

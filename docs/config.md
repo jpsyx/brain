@@ -148,11 +148,12 @@ authentication boundary, container, OS-account boundary, or protection from a
 malicious trusted user. Its purpose is only to reduce accidental and naive
 cross-workspace leakage in a high-trust self-hosted environment.
 
-Inbound request actor selection, task `assigned_to`, triage-habit policy, the
-agent-controller/OpenCode facade, and final shared receiver lifecycle are later
-phases. Receiver allowlists and response settings remain compatibility inputs;
-they are offered during interactive first-person setup, but current receiver
-handling does not yet read `users.json`.
+Inbound request actor selection now reads `users.json`: provider signatures are
+verified first, then the normalized sender must match an enabled phone or email
+identity. Legacy receiver allowlists and response settings remain compatibility
+inputs while the coordinated portable schema migration stays deferred. Task
+`assigned_to`, triage-habit policy, the agent-controller/OpenCode facade, and
+the final shared receiver lifecycle remain later phases.
 
 ### Selected workspace env
 
@@ -476,14 +477,14 @@ shell** also keeps machine-managed state in a SQLite DB at
 `~/.cache/brain/workspaces/<workspace-id>/state.db` (created on first run; see `state.rs` and
 [data-model.md](data-model.md)):
 
-- `brain_sessions` — the Claude sessions brain has launched/adopted, with a
-  per-session PID lock, used to resume the right conversation (lock +
-  recency). Written by both `brain` and the SessionStart hook.
+- `brain_sessions` records Claude and Codex session identity plus workspace,
+  actor, and channel attribution, with a per-session PID lock used for scoped
+  lock-and-recency resume. Written by both `brain` and the SessionStart hook.
 - `meta` — small key/value store; today just `panel_side` (`"left"` or
   `"right"`), the side the brain panel sits on, set by the palette's "Move
   brain panel…" command and read on startup.
 
 You don't edit a workspace state DB by hand. Deleting it is safe: brain recreates it,
-starts a fresh Claude session, and reverts to the default right-side layout.
+starts a fresh agent session, and reverts to the default right-side layout.
 The `brain config`, `brain env`, and `brain tasks {complete,doctor,--no-tui}`
 utility paths never touch it.

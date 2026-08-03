@@ -18,7 +18,31 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
-use brain::state::Db;
+use brain::state::{Db, SessionScope};
+
+fn scope() -> SessionScope {
+    let users = brain::users::Users {
+        schema_version: brain::users::USERS_SCHEMA_VERSION,
+        users: vec![brain::users::User {
+            id: brain::users::UserId::parse("member").unwrap(),
+            name: "Member".to_owned(),
+            phones: Vec::new(),
+            emails: Vec::new(),
+            response_email: None,
+        }],
+    };
+    let actor = brain::actor::resolve_actor(
+        &brain::users::UserId::parse("member").unwrap(),
+        brain::actor::RequestIdentity::Local,
+        &users,
+    )
+    .unwrap();
+    SessionScope::new(
+        brain::session::AgentKind::Claude,
+        brain::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+        actor,
+    )
+}
 
 fn fresh_db() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::TempDir::new().unwrap();
@@ -41,8 +65,13 @@ fn concurrent_register_fresh_from_n_threads_do_not_clobber() {
             let path = Arc::clone(&path);
             thread::spawn(move || {
                 let db = Db::open_path(&path).expect("open per-thread");
-                db.register_fresh(&format!("sess-{i}"), &format!("inst-{i}"), 1000 + i as i32)
-                    .expect("register_fresh");
+                db.register_scoped_fresh(
+                    &format!("sess-{i}"),
+                    &format!("inst-{i}"),
+                    1000 + i as i32,
+                    &scope(),
+                )
+                .expect("register session");
                 // Then release so the row becomes resumable.
                 db.release(&format!("inst-{i}")).expect("release");
             })
@@ -54,7 +83,7 @@ fn concurrent_register_fresh_from_n_threads_do_not_clobber() {
 
     let db = Db::open_path(&path).unwrap();
     assert_eq!(
-        db.free_sessions_by_recency().len(),
+        db.sessions_by_recency(&scope()).len(),
         SHELLS,
         "every registered+released session is resumable"
     );
@@ -67,7 +96,8 @@ fn only_one_thread_wins_a_claim_on_a_shared_free_session() {
     let (_tmp, path) = fresh_db();
     {
         let db = Db::open_path(&path).unwrap();
-        db.register_fresh("shared", "seed", 1).unwrap();
+        db.register_scoped_fresh("shared", "seed", 1, &scope())
+            .unwrap();
         db.release("seed").unwrap(); // now free
     }
 

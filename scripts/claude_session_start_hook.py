@@ -13,6 +13,8 @@ conversation, including a fresh session created mid-run by `/new`.
   BRAIN_WORKSPACE    — selected canonical workspace name
   BRAIN_ROOT         — selected workspace root
   BRAIN_ACTOR_ID     — actor attributed to this launch
+  BRAIN_CHANNEL: initiating channel retained by follow-up turns
+  BRAIN_AGENT_KIND: agent frontend (`claude` or `codex`)
 
 The agent session extends that environment with:
 
@@ -51,6 +53,8 @@ def main() -> None:
         "BRAIN_WORKSPACE",
         "BRAIN_ROOT",
         "BRAIN_ACTOR_ID",
+        "BRAIN_CHANNEL",
+        "BRAIN_AGENT_KIND",
         "BRAIN_INSTANCE_ID",
         "BRAIN_STATE_DB",
     )
@@ -83,23 +87,38 @@ def main() -> None:
         conn.execute(
             """
             INSERT INTO brain_sessions
-              (claude_session_id, brain_instance_id, locked_pid, source,
-               created_at, last_active_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(claude_session_id) DO UPDATE SET
+              (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+               workspace_id, actor_id, channel, created_at, last_active_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(agent_session_id) DO UPDATE SET
+              agent_kind       = excluded.agent_kind,
               brain_instance_id = excluded.brain_instance_id,
               locked_pid        = excluded.locked_pid,
               source            = excluded.source,
+              workspace_id      = excluded.workspace_id,
+              actor_id          = excluded.actor_id,
+              channel           = excluded.channel,
               last_active_at    = excluded.last_active_at
             """,
-            (session_id, instance, pid, source, now, now),
+            (
+                launch["BRAIN_AGENT_KIND"],
+                session_id,
+                instance,
+                pid,
+                source,
+                launch["BRAIN_WORKSPACE_ID"],
+                launch["BRAIN_ACTOR_ID"],
+                launch["BRAIN_CHANNEL"],
+                now,
+                now,
+            ),
         )
         # Exactly one current session per instance: free the others so a
         # /new (which may rotate the id) leaves the prior one resumable.
         conn.execute(
             """
             UPDATE brain_sessions SET locked_pid = NULL
-            WHERE brain_instance_id = ? AND claude_session_id <> ?
+            WHERE brain_instance_id = ? AND agent_session_id <> ?
             """,
             (instance, session_id),
         )

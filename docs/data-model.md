@@ -379,10 +379,15 @@ normal readiness boundary.
 
 ### Current boundary versus planned policy
 
-The current release provides the portable user registry and pure enabled
-contact lookup, but receiver request handling still uses its legacy allowlists
-until the later actor-resolution phase. It does not yet provide a canonical
-task `assigned_to` field. It also does not implement triage-habit policy,
+The current release resolves one immutable `ActorContext` before local or
+receiver agent work. Local/TUI work resolves `local_user_id`; authenticated
+SMS/email work resolves an enabled portable identity and takes precedence over
+that machine default. A queued receiver job contains the workspace UUID and
+the resolved actor, never an untrusted sender string as `BRAIN_ACTOR_ID`.
+Follow-ups retain the initiating actor. This does not add authentication,
+ownership, creator metadata, audit history, or device identity. The release
+does not yet provide a canonical task `assigned_to` field or the coordinated
+portable task-schema migration. It also does not implement triage-habit policy,
 access-mode enforcement, the agent-controller/OpenCode facade, or the final
 shared receiver lifecycle.
 
@@ -396,18 +401,21 @@ explicitly configures it otherwise.
 
 ## Persistent state (`state.rs`, `<workspace-cache>/state.db`)
 
-The persistent shell tracks Claude sessions and the layout preference in
-SQLite (WAL). Codex panels currently launch fresh because their launch semantics
-remain frontend-specific. Receiver completion is hook-backed in both frontends.
+The persistent shell tracks frontend-scoped actor sessions and the layout
+preference in SQLite (WAL). Receiver completion is hook-backed in both
+frontends.
 Two tables:
 
 ```sql
 brain_sessions(
-  claude_session_id  TEXT PRIMARY KEY,
+  agent_kind         TEXT NOT NULL,  -- claude | codex
+  agent_session_id   TEXT PRIMARY KEY,
   brain_instance_id  TEXT NOT NULL,  -- one per running `brain` shell (a lineage)
   locked_pid         INTEGER,        -- live brain holding it, or NULL when free
   source             TEXT,           -- last SessionStart source (startup/resume/clear/…)
-  channel            TEXT NOT NULL DEFAULT 'interactive', -- interactive | sms | email
+  workspace_id       TEXT NOT NULL,
+  actor_id           TEXT NOT NULL,
+  channel            TEXT NOT NULL,  -- interactive | sms | email
   created_at         INTEGER NOT NULL,
   last_active_at     INTEGER NOT NULL
 )
@@ -416,7 +424,8 @@ meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- key 'panel_side' = 'left' | 
 
 **The lock + recency model.** A session is "free" when `locked_pid IS NULL`.
 
-- `free_sessions_by_recency` → free sessions, newest (`last_active_at DESC`)
+- `sessions_by_recency` selects free sessions only within the exact
+  agent/workspace/actor/channel scope, newest (`last_active_at DESC`)
   first. The caller walks them and resumes the first whose **transcript
   exists** on disk (`tui::session_transcript_exists` +
   `session::project_dir_name`) — a session opened but never chatted in has a
@@ -425,11 +434,11 @@ meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- key 'panel_side' = 'left' | 
   chat).
 - `claim` → lock a free session to this shell's PID (loses cleanly if
   another shell grabbed it first).
-- `register_fresh` → insert a brand-new session, locked.
-- Channel sessions are reserved for exactly one reusable SMS session and one
-  reusable email session. Remote messages select their channel row, while
-  interactive work uses the `interactive` role. A `/new` inbound command
-  creates a fresh row for that same channel.
+- `register_scoped_fresh` inserts a new Claude session with complete immutable
+  attribution. Hooks record actual Claude or Codex session IDs.
+- Legacy schema-v2 rows migrate transactionally as Claude, interactive rows
+  for the selected workspace and its machine-local user; existing locks,
+  source, and timestamps are preserved.
 - Receiver runtime state distinguishes an active remote job
   (`receiver_started` is set) from a warm channel panel (`receiver_session_id`
   plus a three-minute `receiver_lease`). A warm lease never counts as active

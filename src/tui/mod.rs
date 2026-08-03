@@ -241,8 +241,8 @@ pub(crate) struct App<'a> {
     /// the user opens it (Ctrl+M, a brain action, …); once open the layout
     /// splits 50/50 and the panel persists until the user closes it (Ctrl+X /
     /// "Close brain") or the agent exits. Opening it resumes the
-    /// most-recently-active free Claude session (lock + recency, see `state`);
-    /// Codex panels launch fresh, but use the same receiver completion hooks.
+    /// most-recently-active free session for the selected frontend, workspace,
+    /// actor, and channel (lock + recency, see `state`).
     brain: Option<PtyPane>,
     /// Whether the panel has a submitted prompt whose Stop hook has not
     /// completed. Receiver dispatch waits for active work, but can replace an
@@ -292,6 +292,10 @@ pub(crate) struct App<'a> {
     /// whatever Claude session it's currently driving; the SessionStart hook
     /// attributes session rows to it via `BRAIN_INSTANCE_ID`.
     instance: String,
+    /// Machine-local actor resolved once when this shell starts.
+    interactive_actor: crate::actor::ActorContext,
+    /// Actor immutable for the currently open agent session.
+    session_actor: Option<crate::actor::ActorContext>,
     /// The selected workspace root in which the agent panel runs. Used to
     /// resolve that workspace's `.claude/settings.json` and to locate session
     /// transcripts on disk before a `--resume`.
@@ -348,7 +352,7 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_control: Option<crate::server::receiver::ControlSocket>,
     pub(crate) receiver_rx: Option<Receiver<crate::server::receiver::InboundMessage>>,
     pub(crate) receiver_queue: Vec<crate::server::receiver::InboundMessage>,
-    pub(crate) requested_receiver_channel: Option<crate::state::SessionChannel>,
+    pub(crate) requested_receiver_actor: Option<crate::actor::ActorContext>,
     pub(crate) receiver_lease: Option<receiver_state::Lease>,
     pub(crate) receiver_generation: u64,
     pub(crate) receiver_sender: Option<String>,
