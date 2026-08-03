@@ -304,9 +304,9 @@ delegated task values.
 - `workspace remove [<workspace>]` detaches only a non-default registry record.
   It never deletes root, config, cache, sync, or remote data. Choose another
   default first when removing the current default.
-- `workspace repair [--manifest] [--local-user-id <id>]` recreates a missing
-  matching manifest and/or sets this machine's local identity. With no repair
-  flags, an interactive terminal asks for the local ID and repairs both fields.
+- `workspace repair [--manifest] [--local-user-id <id>]` retains the legacy
+  manifest and local-ID repair surface. New portable workspaces select an
+  existing person with `brain user local <id>`.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
   text under `NO_COLOR`. Empty local user and unavailable portable
   `access_mode` are shown as `setup pending`, not guessed.
@@ -319,14 +319,17 @@ not open the terminal; after preflight they perform any required migration and
 execute normally.
 
 Every ordinary command crosses one readiness gate after selection. A workspace
-must have a compatible manifest whose UUID matches the registry and a non-empty
-`local_user_id`. Interactive invocations ask for missing setup, persist it, and
-continue the original command. Headless invocations never open `/dev/tty`; they
-stop with exact `brain workspace repair -b <workspace> ...` commands. Create
-and attach remain registry-only setup operations, so first create succeeds
-before a local user is known. Its next ordinary command triggers interactive
-setup or the headless repair instruction. Help, version, and hidden internal
-server execution never prompt.
+must have a compatible manifest whose UUID matches the registry. When
+`.config/users.json` exists, it must contain at least one portable person and
+the machine's `local_user_id` must name one of them. The first interactive
+ordinary command creates that first person, optionally collecting receiver
+contacts already configured for the workspace, selects the person locally,
+and continues. Headless invocations never open `/dev/tty`; they stop with exact
+`brain user add` and `brain user local` commands. Create and attach remain
+registry-only setup operations. For compatibility, an existing workspace with
+no `users.json` and a non-empty legacy local ID remains ready and is not
+silently migrated. Help, version, and hidden internal server execution never
+prompt.
 
 After readiness, the selected context is pinned for the command's lifetime.
 Root-local config and personalization, task paths, reindex scripts, TUI state,
@@ -346,9 +349,33 @@ The current foundation does not enforce access modes. The planned
 `workspace_only` mode is prompt-based guidance with light guardrails, not a
 filesystem sandbox, authentication boundary, container, or OS-user boundary.
 It aims only to reduce accidental and naive leakage between highly trusted,
-self-hosted workspaces. Portable users, inbound actor resolution,
-`assigned_to`, triage-habit policy, the agent-controller/OpenCode facade, and
+self-hosted workspaces. Inbound actor resolution, a canonical task
+`assigned_to` field, triage-habit policy, the agent-controller/OpenCode facade, and
 the shared receiver lease lifecycle are also later phases.
+
+### `brain user`
+
+Portable members live in `<brain-root>/.config/users.json` and travel with the
+workspace. IDs use exact lower-case kebab case and identify people, not devices
+or authorization roles. `brain user list` shows every member.
+`brain user add` and `brain user update` accept a
+display name, repeatable `--phone`/`--email` or
+`--add-phone`/`--add-email` values, and an optional `--response-email`.
+Interactive invocations prompt for missing required values.
+
+Phones are stored as unambiguous E.164 values; common North American formatting
+is accepted only when it can be normalized without guessing. Emails are
+trimmed and ASCII-lowercased, with no provider-specific alias rewriting.
+Only contacts explicitly marked by the add/update commands are enabled for
+inbound identity resolution. An enabled phone or email may identify only one
+portable person.
+
+`brain user local [<id>]` selects an existing portable person for this machine.
+`brain user remove [<id>]` refuses to remove the last person and scans both
+`tasks/tasks.csv` and `tasks/habits.csv` for `assigned_to` (plus the legacy
+`assignee` heading). If work is assigned, removal requires
+`--reassign-to <existing-id>`. The portable registry and every affected CSV
+are staged before replacement; an error restores the original files.
 
 ### `brain reindex`
 

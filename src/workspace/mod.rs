@@ -21,6 +21,7 @@ pub use name::{WorkspaceName, WorkspaceNameError};
 pub use paths::WorkspacePaths;
 pub use readiness::{
     InteractionMode, ReadinessAction, ReadinessError, ReadinessField, readiness_action,
+    readiness_action_with_users,
 };
 pub use registry::{
     MachineRegistry, MigrationOutcome, REGISTRY_SCHEMA_VERSION, RegistryError, RegistryOperation,

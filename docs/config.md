@@ -118,15 +118,20 @@ The manifest is create-only and strict: create publishes it only when the path
 is absent, attach reads it without editing, and unknown fields or identity
 mismatches fail rather than silently replacing portable identity.
 
+The same directory carries strict schema-1 `users.json` when portable people
+have been configured. It contains person IDs, display names, normalized phone
+and email identities, inbound-enabled flags, and optional response emails.
+The file travels with the workspace; the selected person's `local_user_id`
+remains in the machine registry.
+
 Create and attach are registry-only setup commands, so they can establish an
-incomplete record. Before every ordinary command, Brain then requires that
-manifest agreement plus a non-empty `local_user_id`. An interactive invocation
-prompts for missing setup, persists it under the registry transaction, reloads
-the immutable context, and continues. A headless invocation never opens
-`/dev/tty`; it reports exact `brain workspace repair -b <workspace> ...`
-commands. The first `workspace create` therefore leaves `local_user_id` empty,
-and the next ordinary command is the explicit setup point. Version/help and
-hidden internal server execution perform no workspace IO or prompt.
+incomplete record. Before every ordinary command, Brain then requires manifest
+agreement and, when `users.json` exists, a local ID that names one portable
+person. An interactive first-use flow creates and selects the first person; a
+headless invocation reports exact `brain user add` and `brain user local`
+commands. An existing workspace with no `users.json` and a non-empty legacy
+local ID stays ready without being rewritten. Version/help and hidden internal
+server execution perform no workspace IO or prompt.
 
 ### Access policy status
 
@@ -138,9 +143,11 @@ authentication boundary, container, OS-account boundary, or protection from a
 malicious trusted user. Its purpose is only to reduce accidental and naive
 cross-workspace leakage in a high-trust self-hosted environment.
 
-Portable users, inbound identity mapping, task `assigned_to`, triage-habit
-policy, the agent-controller/OpenCode facade, and final shared receiver
-lifecycle are also later phases, not schema exposed by this release.
+Inbound request actor selection, task `assigned_to`, triage-habit policy, the
+agent-controller/OpenCode facade, and final shared receiver lifecycle are later
+phases. Receiver allowlists and response settings remain compatibility inputs;
+they are offered during interactive first-person setup, but current receiver
+handling does not yet read `users.json`.
 
 ### Selected workspace env
 

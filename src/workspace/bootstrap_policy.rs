@@ -15,6 +15,7 @@ pub enum Invocation {
     WorkspaceRename,
     WorkspaceAlias,
     WorkspaceDefault,
+    User,
     Config,
     Env,
     Sync,
@@ -50,7 +51,8 @@ pub(super) const fn registry_only_prompt_order(
         Invocation::WorkspaceCreate
         | Invocation::WorkspaceAttach
         | Invocation::WorkspaceRemove
-        | Invocation::WorkspaceRepair => Some(RegistryOnlyPromptOrder::BeforeMigration),
+        | Invocation::WorkspaceRepair
+        | Invocation::User => Some(RegistryOnlyPromptOrder::BeforeMigration),
         Invocation::Help
         | Invocation::Version
         | Invocation::AgentHook
@@ -83,7 +85,8 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         Invocation::WorkspaceCreate
         | Invocation::WorkspaceAttach
         | Invocation::WorkspaceRemove
-        | Invocation::WorkspaceRepair => BootstrapPolicy::RegistryOnly,
+        | Invocation::WorkspaceRepair
+        | Invocation::User => BootstrapPolicy::RegistryOnly,
         Invocation::WorkspaceList
         | Invocation::WorkspaceRename
         | Invocation::WorkspaceAlias
@@ -121,6 +124,7 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
             WorkspaceAction::Remove { .. } => Invocation::WorkspaceRemove,
             WorkspaceAction::Repair { .. } => Invocation::WorkspaceRepair,
         },
+        Some(Cmd::User(_)) => Invocation::User,
         Some(Cmd::Config(_)) => Invocation::Config,
         Some(Cmd::Env(_)) => Invocation::Env,
         Some(Cmd::Sync(_)) => Invocation::Sync,

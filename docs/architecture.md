@@ -21,8 +21,8 @@ execution surfaces are a persistent TUI and short-lived command families:
   it resumes the right Claude session and remembers the panel layout. See
   [glossary.md](glossary.md) for the main-view / sub-view / panel vocabulary.
 - **Short-lived command families** cover non-TUI task utilities, config, env,
-  workspace, sync, personalization, skills, server/receiver, habits, checks,
-  and reindexing. They mutate or report through their focused handlers, then
+  workspace, portable users, sync, personalization, skills, server/receiver,
+  habits, checks, and reindexing. They mutate or report through their focused handlers, then
   exit without opening the persistent shell. `brain tasks complete`,
   `brain tasks doctor`, and `brain tasks --no-tui` are short-lived;
   `brain tasks search` opens the persistent TUI.
@@ -47,7 +47,7 @@ the binary:
   ├─ help / version → print and exit without opening the TUI
   ├─ tasks complete / doctor / --no-tui → mutation, health check, or plain output
   ├─ tasks search → opens the persistent TUI with a custom task search
-  ├─ config / env / workspace → selected configuration or registry management
+  ├─ config / env / workspace / user → selected configuration or registry management
   ├─ sync / personalization / skills → focused setup, reporting, or mutation
   ├─ server / receiver / habits / checks / reindexing → focused handlers
   └─ bare brain and other interactive task routes → persistent TUI on /dev/tty
@@ -117,7 +117,7 @@ boundaries:
 
 | Owner | Location | Examples |
 | --- | --- | --- |
-| Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, config, personalization, extensions, and plugins |
+| Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, `.config/users.json`, config, personalization, extensions, and plugins |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
 | Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, inbox, responses, and sync lock/journal/current state/baselines |
 | Shared infrastructure | Machine server/control and transitional triage-signal paths only | Process coordination, never a default workspace payload path |
@@ -135,7 +135,7 @@ Active run logs remain under `/tmp` through `logging.rs`.
 not use that UUID-scoped path.
 
 This is the current isolation foundation, not the complete approved roadmap.
-Portable users, inbound actor resolution, task assignment, triage-habit
+Inbound actor resolution, task assignment, triage-habit
 policy, advisory access modes, the agent-controller/OpenCode facade, and the
 shared receiver lease lifecycle remain later phases. In particular,
 `workspace_only` is planned prompt-based guidance and light guardrails. It is
@@ -150,7 +150,7 @@ The binary entry point is intentionally thin: parse, context-free version exit,
 logging, one workspace bootstrap, one dispatch call, and one top-level error
 boundary. It links the library modules instead of declaring a duplicate module
 tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
-`command/{configuration,tasks,sync,server,workspace,reindex}` modules own the
+`command/{configuration,tasks,sync,server,workspace,users,reindex}` modules own the
 existing handlers. `command/server/` further separates receiver setup, HTTP
 server lifecycle, and habits dispatch. Receiver command ownership is reflected
 on disk: `receiver/mod.rs` owns dispatch and provider setup, while
@@ -159,7 +159,7 @@ on disk: `receiver/mod.rs` owns dispatch and provider setup, while
 ### `cli/`
 The clap derive surface, split by command family. `mod.rs` keeps the parser
 entry, public re-exports, and the small top-level `Cmd`; `global`,
-`configuration`, `tasks`, `sync`, `server`, and `workspace` own their focused
+`configuration`, `tasks`, `sync`, `server`, `workspace`, and `users` own their focused
 arguments. All former `crate::cli::*` type paths remain stable. `Cli` owns the
 global flags, including raw `--brain/-b <workspace>` selection, plus one
 optional `Cmd`. The shared real/test parser normalization extracts that selector
@@ -208,7 +208,7 @@ trigger legacy migration and receive a registry capability. Ordinary commands
 inspect the fixed registry path and enter legacy migration only when it is not
 already valid schema v2; a valid registry avoids all legacy root/config lookup.
 They then require a ready selected workspace. `readiness` is
-the pure manifest/local-user decision,
+the pure manifest/portable-membership/local-user decision,
 `manifest` owns strict portable identity parsing, and successful bootstrap
 returns one immutable `CommandContext` containing an `Arc<WorkspaceContext>`
 plus the registry store. Interactive repair uses injected `BufRead`/`Write`,
@@ -221,6 +221,19 @@ Detached workspace-owned sync children additionally carry
 `--brain <canonical-name>`. The detached shared-server child is the deliberate
 exception: it owns only machine-shared lifecycle/control state and resolves
 request payloads by workspace UUID, so it has no selected `--brain` argument.
+
+### `users/`
+
+The strict schema-1 portable people registry at
+`<workspace-root>/.config/users.json`. `id` validates exact lower-case kebab
+person IDs; `normalize` canonicalizes unambiguous phone numbers and
+case-normalizes email addresses without provider-specific rewriting; `model`
+and `validate` reject unknown schema fields and ambiguous enabled identities;
+`store` publishes canonical JSON through a same-directory atomic replacement;
+and `command` owns pure add/update/remove mutations plus the inactive legacy
+conversion proposal. The selected machine record's `local_user_id` must name
+one member when this portable file exists. It identifies a person, not a
+device, owner, creator, or authorization principal.
 
 `command/` owns the workspace CLI: `mutate` turns collected values into pure,
 validated registry-only decisions and owns registry-only mutations;

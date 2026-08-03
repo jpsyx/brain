@@ -110,7 +110,7 @@ struct WorkspaceContext {
     id: WorkspaceId,       // immutable UUID identity
     name: WorkspaceName,   // canonical [a-z0-9][a-z0-9_-]* slug
     root: PathBuf,         // absolute lexical path, resolved once
-    local_user_id: String, // this machine's user identity in the workspace
+    local_user_id: String, // this machine's selected portable person
     paths: WorkspacePaths, // machine-local paths keyed by id
 }
 ```
@@ -274,7 +274,7 @@ non-default record only.
   "schema_version": 1,
   "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
   "receiver_ingress_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
-  "minimum_brain_version": "0.17.1"
+  "minimum_brain_version": "0.18.0"
 }
 ```
 
@@ -287,16 +287,51 @@ manifest before replacing the flat registry.
 
 `workspace::bootstrap` maps every parsed route to `None`, `InternalNoPrompt`,
 `RegistryOnly`, or `ReadyWorkspace`. Only the last class selects and validates
-a record. Readiness is manifest validity/UUID agreement plus a non-empty
-machine-local `local_user_id`. Missing values become a pure
+a record. Readiness is manifest validity/UUID agreement plus portable
+membership when `.config/users.json` exists. In that schema, the machine-local
+`local_user_id` must parse as a user ID and name one member. Missing values become a pure
 `ReadinessAction::Prompt(fields)` interactively or a typed error carrying exact
 repair commands headlessly. Successful interactive repair happens under the
 registry transaction, then bootstrap reloads and constructs one
 `CommandContext` containing `Arc<WorkspaceContext>` and `RegistryStore`.
 
 The first create deliberately leaves `local_user_id` empty. Its next ordinary
-command is therefore the prompt/remediation boundary; after repair that same
-requested command continues.
+interactive command creates the first portable person, selects it locally, and
+continues the requested command. Headless setup uses `brain user add` followed
+by `brain user local`. An existing workspace with no `users.json` and a
+non-empty legacy local ID remains ready so this release does not activate an
+unreviewed migration.
+
+### Portable people (`.config/users.json`)
+
+Schema `1` is strict and rejects unknown fields:
+
+```json
+{
+  "schema_version": 1,
+  "users": [
+    {
+      "id": "alex-smith",
+      "name": "Alex Smith",
+      "phones": [{ "value": "+12125550123", "inbound_allowed": true }],
+      "emails": [{ "value": "alex@example.com", "inbound_allowed": true }],
+      "response_email": "alex@example.com"
+    }
+  ]
+}
+```
+
+User IDs are exact lower-case kebab identifiers. Names are non-empty display
+labels. Phone values are normalized to unambiguous E.164, and email values are
+trimmed and ASCII-lowercased without provider-specific rewriting. A person
+cannot repeat one contact, and one enabled inbound contact cannot belong to
+multiple people. `response_email`, when present, must also appear in that
+person's email list; it need not be enabled for inbound resolution.
+
+`local_user_id` stays in the machine registry because different machines may
+be used by different people in the same portable workspace. It denotes the
+person acting locally, not a device identity, workspace owner, creator,
+authentication claim, or audit principal.
 
 ### Legacy flat-env migration
 
@@ -326,10 +361,11 @@ requested workspace directly. A fresh ordinary or repair invocation instead
 synthesizes the compatible default `brain` workspace and then crosses the
 normal readiness boundary.
 
-### Foundation versus planned portable policy
+### Current boundary versus planned policy
 
-The current foundation stores one machine-local `local_user_id`, but it does
-not yet provide the portable user registry, inbound sender-to-user mapping, or
+The current release provides the portable user registry and pure enabled
+contact lookup, but receiver request handling still uses its legacy allowlists
+until the later actor-resolution phase. It does not yet provide a canonical
 task `assigned_to` field. It also does not implement triage-habit policy,
 access-mode enforcement, the agent-controller/OpenCode facade, or the final
 shared receiver lifecycle.

@@ -15,7 +15,8 @@ pub struct WorkspaceContext {
     name: WorkspaceName,
     /// The absolute lexically normalized workspace root.
     root: PathBuf,
-    /// The user identity for this machine within the workspace.
+    /// The portable person selected by this machine within the workspace.
+    /// This is a person identity, not a machine or device identity.
     local_user_id: String,
     /// Machine-local runtime paths derived from the immutable workspace ID.
     paths: WorkspacePaths,
@@ -63,7 +64,7 @@ impl WorkspaceContext {
         &self.root
     }
 
-    /// The user identity for this machine within the workspace.
+    /// The portable person selected by this machine within the workspace.
     #[must_use]
     pub fn local_user_id(&self) -> &str {
         &self.local_user_id

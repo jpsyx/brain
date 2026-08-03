@@ -285,7 +285,7 @@ fn architecture_lists_the_complete_short_lived_command_surface() {
     let architecture = read_doc_normalized("docs/architecture.md");
     assert!(architecture.contains("a persistent TUI and short-lived command families"));
     assert!(architecture.contains(
-        "non-TUI task utilities, config, env, workspace, sync, personalization, skills, \
+        "non-TUI task utilities, config, env, workspace, portable users, sync, personalization, skills, \
          server/receiver, habits, checks, and reindexing"
     ));
 }

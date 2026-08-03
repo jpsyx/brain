@@ -174,8 +174,11 @@ Which session to run is decided by the **lock + recency** model in
    `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and `BRAIN_ACTOR_ID` plus
    `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` /
    `BRAIN_RESPONSE_DIR` into the Claude child's environment
-   (`session::env_for`). Foundation actor identity is the selected record's
-   `local_user_id`.
+   (`session::env_for`). Actor identity is the selected record's
+   `local_user_id`; when portable users are present, readiness has already
+   verified that it names one person. The current receiver still applies its
+   legacy allowlists and does not yet resolve inbound senders through this
+   portable registry.
 3. A **SessionStart hook** —
    `scripts/claude_session_start_hook.py`, wired into
    `<brain-root>/.claude/settings.json` under `hooks.SessionStart` — fires on

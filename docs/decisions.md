@@ -211,11 +211,18 @@ upgrade error.
 Create writes the manifest before registry persistence and deliberately leaves
 `local_user_id` empty. This keeps create usable as a registry-only setup command
 and makes the next ordinary command the single interactive onboarding point.
-Headless callers receive exact repair commands instead of any `/dev/tty` access.
-Interactive repair persists under the registry transaction, reloads the record,
-and continues the originally requested command. On a later persistence failure,
+That flow creates the first portable person and selects it locally. Headless
+callers receive exact `brain user add` and `brain user local` commands instead
+of any `/dev/tty` access. On a later persistence failure,
 Brain preserves the newly written manifest rather than performing a racy
 path-based deletion; the matching identity remains inspectable and repairable.
+
+An existing workspace with no portable user file and a non-empty legacy local
+ID remains ready. Brain includes a pure legacy-conversion proposal so mappings
+can be reviewed and tested, but bootstrap deliberately does not call it. This
+compatibility gate avoids silently assigning old allowlisted contacts to an
+invented person or changing a workspace merely because a newer binary opened
+it.
 
 Selection is also a capability boundary, not a convenience lookup. Root-local
 stores accept `WorkspaceContext`; machine-env writes additionally require the
@@ -242,8 +249,8 @@ filesystem sandbox, authentication boundary, container, OS-account boundary,
 or defense against a malicious trusted user. Real adversarial isolation must
 remain outside Brain.
 
-The portable user registry, inbound actor precedence, task `assigned_to`,
-triage-habit policy, agent-controller/OpenCode facade, and shared receiver
+Inbound actor precedence, task `assigned_to`, triage-habit policy,
+agent-controller/OpenCode facade, and shared receiver
 leases remain later phases. Documenting those as current would make the
 foundation look safer and more complete than it is.
 

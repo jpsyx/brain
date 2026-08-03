@@ -48,7 +48,7 @@ fn readiness_migration_creates_a_missing_configured_root_before_sync() {
 }
 
 #[test]
-fn first_env_list_creates_the_migrated_root_but_requires_local_identity() {
+fn first_env_list_creates_the_migrated_root_but_requires_a_portable_local_person() {
     let home = tempfile::tempdir().expect("home tempdir");
     let config_home = tempfile::tempdir().expect("config tempdir");
     let root = home.path().join("brain");
@@ -60,10 +60,9 @@ fn first_env_list_creates_the_migrated_root_but_requires_local_identity() {
         .expect("run brain env list");
 
     assert!(!output.status.success(), "env list unexpectedly succeeded");
-    assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("brain workspace repair -b brain --local-user-id <USER_ID>")
-    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("brain user add -b brain --id <USER_ID> --name <DISPLAY_NAME>"));
+    assert!(stderr.contains("brain user local <USER_ID> -b brain"));
     assert!(
         root.is_dir(),
         "manifest migration must create the workspace root"

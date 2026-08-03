@@ -61,6 +61,17 @@ pub fn run(
             }
         };
     }
+    if let Some(Cmd::User(args)) = &cli.command {
+        crate::logging::log("dispatch user");
+        return match capability {
+            DispatchCapability::Registry(store) => {
+                super::users::run(args, cli.brain.as_deref(), store)
+            }
+            DispatchCapability::None | DispatchCapability::Ready(_) => {
+                anyhow::bail!("internal user command dispatch expected a workspace registry")
+            }
+        };
+    }
     if let Some(Cmd::Server(args)) = &cli.command
         && matches!(args.action, crate::cli::ServerAction::Run { .. })
     {
@@ -160,7 +171,8 @@ pub fn run(
             | Cmd::Habits(_)
             | Cmd::Check
             | Cmd::Reindex(_)
-            | Cmd::Workspace(_),
+            | Cmd::Workspace(_)
+            | Cmd::User(_),
         ) => unreachable!("short-lived command dispatched above"),
     }
 }
