@@ -353,6 +353,32 @@ impl Db {
         )?;
         Ok(())
     }
+
+    // -- skills-render version stamp ------------------------------------
+
+    /// The brain version that last rendered this workspace's skills into the
+    /// registry, or `None` if a version-aware binary has never rendered them.
+    /// Used by the startup auto-resync (see `crate::skills`).
+    #[must_use]
+    pub fn skills_synced_version(&self) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'skills_synced_version'",
+                [],
+                |r| r.get(0),
+            )
+            .ok()
+    }
+
+    /// Record the brain version that just rendered this workspace's skills.
+    pub fn set_skills_synced_version(&self, version: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('skills_synced_version', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [version],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -468,5 +494,16 @@ mod tests {
     fn panel_side_flip_is_symmetric() {
         assert_eq!(PanelSide::Left.flipped(), PanelSide::Right);
         assert_eq!(PanelSide::Right.flipped(), PanelSide::Left);
+    }
+
+    #[test]
+    fn skills_synced_version_is_absent_then_round_trips() {
+        let db = Db::open_in_memory().unwrap();
+        assert_eq!(db.skills_synced_version(), None);
+        db.set_skills_synced_version("0.18.0").unwrap();
+        assert_eq!(db.skills_synced_version().as_deref(), Some("0.18.0"));
+        // A later render overwrites it in place.
+        db.set_skills_synced_version("0.19.0").unwrap();
+        assert_eq!(db.skills_synced_version().as_deref(), Some("0.19.0"));
     }
 }

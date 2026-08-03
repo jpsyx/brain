@@ -1083,6 +1083,39 @@ is brain-owned, and jpsyx no longer fights brain for it, so a mutation *should*
 re-render the live registry (program invariant #5). Setting it `false` reverts to
 sync-only-on-demand via explicit `brain skills sync`.
 
+## Why a version-stamped auto-resync (a brain update must ship skill changes)
+
+A bundled-skill change is worthless until it is *rendered* into the registry the
+LLM reads. Before this, the only triggers were an explicit `brain skills sync`
+or an incidental config/personalize mutation, so after a plain `git pull` +
+rebuild the installed flattened skills silently lagged the binary: the code half
+of a change went live, the skill half did not (this is exactly what stranded the
+daily-triage completion-signal fix on an old render). We close the gap by making
+a **version change** a render trigger, entirely in code (no LLM): `bootstrap`
+stamps `env!("CARGO_PKG_VERSION")` per workspace (`state` DB
+`meta('skills_synced_version')`) and, on the first ready-workspace invocation
+after the stamp differs, runs the same pipeline once and re-stamps
+(`needs_resync` is the pure decision). Key choices:
+
+- **On any workspace-opening command, not just the TUI or an explicit sync.**
+  The trigger the user wants is "a new brain version ran," which is every real
+  command; `--help`/`--version` (no workspace), the internal hook/server, and
+  registry-only maintenance structurally have no ready workspace, so they are
+  the natural exclusions — no special-casing needed.
+- **Per-workspace stamp in the state DB.** The flattened render depends on the
+  *selected* workspace's extensions/plugins, and the state DB is already
+  UUID-scoped, so the stamp belongs there (a generic `meta` key, no migration).
+- **Reuse `skills_auto_sync` as the opt-out.** Both auto-render triggers are
+  "auto-sync skills"; one knob keeps the mental model simple. `false` ⇒ manage
+  the registry only via explicit `brain skills sync`.
+- **Extension-agnostic, per [AGENTS.md](../AGENTS.md).** The mechanism knows
+  nothing about what any extension renders; an empty extension set renders
+  identically, so the bundled core and any fork behave the same. Every
+  authoritative render path (version-resync, mutation `resync_skills`, real
+  `brain skills sync`) writes the stamp so none re-fires; a `--root` sandbox
+  sync writes none. A failed resync leaves the stamp untouched (next invocation
+  retries) and never fails the command that triggered it.
+
 ## Why extensions inject at named hooks (not append-only, not runtime lookup)
 
 A user must be able to personalize a bundled skill without forking it — and

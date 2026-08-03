@@ -733,11 +733,23 @@ OpenCode, Cursor) session, not just inside brain.
   never disturbs your live setup.
 
 The skills are embedded in the binary, so a fresh clone needs no extra files.
-Installing is also triggered automatically after a `config`/`personalize` change
-when `skills_auto_sync` is `true` (the default since the B4 cutover; set it
-`false` to sync only on demand). Bundled today: `article-summarizer`, `triage`,
-`brain-knowledge-capture`, `second-brain`, `contacts`, and `todo`. See
-[config.md](config.md) and the sub-project B spec.
+Installing is also triggered automatically in two cases when `skills_auto_sync`
+is `true` (the default since the B4 cutover; set it `false` to sync only on
+demand):
+
+- after a `config`/`personalize` change, and
+- **the first time a new brain version runs.** Any command that opens a
+  workspace (i.e. anything but `--help`/`--version`) checks the brain version
+  that last rendered your skills; if the binary has since been updated, it
+  re-renders them once (printing a short `Brain updated: refreshing installed
+  skills` line) and records the new version. So a brain update ships its
+  bundled-skill changes automatically, the same way it ships code changes, with
+  no manual `brain skills sync`. It is deterministic (no LLM), a no-op once
+  recorded, and skips cleanly when the workspace still needs setup.
+
+Bundled today: `article-summarizer`, `triage`, `brain-knowledge-capture`,
+`second-brain`, `contacts`, and `todo`. See [config.md](config.md) and the
+sub-project B spec.
 
 Before writing anything, `brain skills sync` prints the built-skill directory,
 the shared registry directory, the number of frontend skill directories it will

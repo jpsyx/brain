@@ -77,7 +77,7 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
     } else {
         InteractionMode::NonInteractive
     };
-    if interaction == InteractionMode::Interactive {
+    let context = if interaction == InteractionMode::Interactive {
         let tty = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -93,7 +93,7 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
             interaction,
             &mut reader,
             &mut writer,
-        )
+        )?
     } else {
         bootstrap_with_io(
             cli,
@@ -103,8 +103,17 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
             interaction,
             &mut std::io::empty(),
             &mut std::io::sink(),
-        )
+        )?
+    };
+    // First run of a new brain binary against a ready workspace re-renders the
+    // bundled skills so a version bump ships its skill changes the way it ships
+    // code changes. Deterministic, LLM-free, and a no-op once stamped. Only the
+    // ready path reaches here, so `--help`/`--version`, the internal
+    // hook/server, and registry-only maintenance never trigger it.
+    if let BootstrapContext::Ready(command_context) = &context {
+        crate::skills::resync_on_version_change(&command_context.workspace);
     }
+    Ok(context)
 }
 
 /// Bootstrap against injected paths and terminal IO.

@@ -359,8 +359,18 @@ brain_sessions(
   created_at         INTEGER NOT NULL,
   last_active_at     INTEGER NOT NULL
 )
-meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- key 'panel_side' = 'left' | 'right'
+meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)
+  -- 'panel_side'            = 'left' | 'right'
+  -- 'skills_synced_version' = brain version that last rendered this workspace's
+  --                           skills (the startup auto-resync stamp)
 ```
+
+The `meta` table is a generic key/value store, so a new key like
+`skills_synced_version` needs no schema migration. It records the
+`CARGO_PKG_VERSION` that last rendered this workspace's skills into the
+registry; `skills::resync_on_version_change` re-renders (and re-stamps) when the
+running binary differs, so a version bump ships its bundled-skill changes
+without a manual `brain skills sync`.
 
 **The lock + recency model.** A session is "free" when `locked_pid IS NULL`.
 

@@ -365,6 +365,20 @@ explicit `brain skills sync`. jpsyx delegates to `brain skills sync` and never
 prunes brain-owned links (they resolve into brain's built dir, outside jpsyx's
 sources). See the B spec under `docs/superpowers/specs/`.
 
+**Version-stamped auto-resync.** So a version bump ships its *skill* changes the
+way it ships *code* changes (immediately, no manual step), `bootstrap` calls
+`skills::resync_on_version_change()` for every ready-workspace invocation. It
+compares `env!("CARGO_PKG_VERSION")` to a per-workspace render stamp
+(`state` DB `meta('skills_synced_version')`) and, when they differ, runs the
+same pipeline once, then re-stamps (`needs_resync` is the pure decision). It is
+LLM-free, gated by the same `skills_auto_sync` flag, never fails the invocation,
+and is a no-op once stamped — so `--help`/`--version` (no workspace), the
+internal hook/server, and registry-only maintenance never trigger it, and a
+fork with no extensions renders identically. Every authoritative render path
+(the version-resync, the mutation `resync_skills`, and a real `brain skills
+sync`) writes the stamp so none re-fires redundantly; a `--root` sandbox sync
+leaves no stamp.
+
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =
 display order, Archive last) and `Entry` (absolute selected-workspace `path`,
@@ -734,7 +748,9 @@ replacement belong to the approved shared-server phase.
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
 `brain_sessions` tracks every Claude session brain launched/adopted with a
-`locked_pid` lock; `meta` stores the `panel_side` layout preference. The
+`locked_pid` lock; `meta` stores the `panel_side` layout preference and the
+`skills_synced_version` render stamp (the brain version that last rendered this
+workspace's skills, read by `skills::resync_on_version_change`). The
 resume model is **lock + recency** (`reap_dead_locks`, `pick_resume`,
 `claim`, `register_fresh`, `release`). The `PanelSide` enum lives here since
 it's the persisted value. Mirrors `tasks/src/state`. See

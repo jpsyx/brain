@@ -39,6 +39,12 @@ pub fn run_sync(workspace: &crate::workspace::WorkspaceContext, root: Option<&Pa
     ));
     let report = install::sync(&layout, &sources)?;
     crate::logging::log(format!("skills sync installed={}", report.installed.len()));
+    // A real (non-sandbox) sync is an authoritative render, so record the brain
+    // version that produced it — this is what the startup auto-resync checks.
+    // A `--root` sandbox run touches no live registry, so it leaves no stamp.
+    if root.is_none() {
+        super::record_synced_version(workspace, super::current_version());
+    }
     println!(
         "{} {}",
         theme.success(&format!("synced {} skill(s):", report.installed.len())),
