@@ -19,6 +19,7 @@ pub mod schema;
 pub mod selector;
 pub mod shortcuts;
 pub mod skip;
+pub(crate) mod store_lock;
 pub mod task;
 pub mod triage_habits;
 pub mod view;

@@ -18,7 +18,7 @@ use std::path::Path;
 use chrono::Local;
 use serde_json::json;
 
-use crate::tasks::complete::{complete_in_root_protected_with_today, normalize_id};
+use crate::tasks::complete::{complete_in_root_protected_owned_with_today, normalize_id};
 
 /// The result of a `POST /habits/done`, ready to become an HTTP response.
 #[derive(Debug, PartialEq, Eq)]
@@ -73,7 +73,7 @@ fn parse_task_id(body: &str) -> Result<String, DoneOutcome> {
 
 /// Mark a habit done through brain's native completion path.
 #[must_use]
-pub fn done(root: &Path, body: &str) -> DoneOutcome {
+pub fn done(root: &Path, lock_path: &Path, body: &str) -> DoneOutcome {
     let raw_id = match parse_task_id(body) {
         Ok(id) => id,
         Err(bad) => return bad,
@@ -83,7 +83,13 @@ pub fn done(root: &Path, body: &str) -> DoneOutcome {
         Err(e) => return DoneOutcome::BadRequest(e.to_string()),
     };
     let enabled = crate::config::Config::load_from_root(root).enable_triage_habits;
-    match complete_in_root_protected_with_today(root, &id, Local::now().date_naive(), enabled) {
+    match complete_in_root_protected_owned_with_today(
+        root,
+        lock_path,
+        &id,
+        Local::now().date_naive(),
+        enabled,
+    ) {
         Ok(result) => DoneOutcome::Done {
             next_due: result.next_due,
         },
@@ -184,7 +190,11 @@ mod tests {
         )
         .unwrap();
 
-        let outcome = done(workspace.root(), r#"{"task_id":"H1"}"#);
+        let outcome = done(
+            workspace.root(),
+            &workspace.paths().task_store_lock(),
+            r#"{"task_id":"H1"}"#,
+        );
 
         assert!(matches!(
             outcome,

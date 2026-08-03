@@ -168,12 +168,10 @@ fn disabling_purges_every_managed_row_and_derived_reference_then_reenables_fresh
     let old_daily_uuid = daily.task_uuid.unwrap().to_string();
     let old_daily_id = daily.id.clone();
 
-    brain::tasks::complete::complete_in_root_with_today(
-        root,
-        &old_daily_id,
-        chrono::Local::now().date_naive(),
-    )
-    .unwrap();
+    let habits_before = std::fs::read_to_string(&habits_path).unwrap();
+    let habits_done = habits_before.replacen(",not_started,", ",done,", 1);
+    std::fs::write(&habits_path, habits_done).unwrap();
+    apply_triage_habits_config(&workspace, true).unwrap();
     let after_completion = load_habits(&habits_path).unwrap();
     let next_daily = after_completion
         .iter()
@@ -374,13 +372,31 @@ fn portable_config_set_runs_reconciliation_and_rejects_non_booleans() {
 }
 
 #[test]
+fn malformed_or_non_object_config_aborts_before_mutating_managed_data() {
+    for invalid in [b"not json\n".as_slice(), b"[]\n".as_slice()] {
+        let (_temporary, workspace) = empty_workspace();
+        let config_path = workspace.root().join(".config/config.json");
+        let habits_path = workspace.root().join("tasks/habits.csv");
+        std::fs::write(&config_path, invalid).unwrap();
+        let before_config = std::fs::read(&config_path).unwrap();
+        let before_habits = std::fs::read(&habits_path).unwrap();
+
+        let error = apply_triage_habits_config(&workspace, true).unwrap_err();
+
+        assert!(format!("{error:#}").contains("config.json"));
+        assert_eq!(std::fs::read(&config_path).unwrap(), before_config);
+        assert_eq!(std::fs::read(&habits_path).unwrap(), before_habits);
+    }
+}
+
+#[test]
 fn bundled_skills_gate_only_managed_habit_mutation_when_feature_is_disabled() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let triage = std::fs::read_to_string(root.join("skills/triage/SKILL.md")).unwrap();
     let todo = std::fs::read_to_string(root.join("skills/todo/SKILL.md")).unwrap();
 
     for contract in [
-        "brain config get enable_triage_habits",
+        "brain --brain \"$BRAIN_WORKSPACE\" config get enable_triage_habits",
         "--complete-managed-triage daily",
         "--complete-managed-triage weekly",
         "still run the full manual triage workflow",
@@ -394,4 +410,45 @@ fn bundled_skills_gate_only_managed_habit_mutation_when_feature_is_disabled() {
     assert!(todo.contains("system_key=brain.triage.daily"));
     assert!(todo.contains("system_key=brain.triage.weekly"));
     assert!(todo.contains("managed triage rows cannot be removed"));
+}
+
+#[test]
+fn raw_root_task_mutators_are_not_public_api() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (path, forbidden) in [
+        ("src/tasks/complete.rs", "pub fn complete_in_root"),
+        ("src/tasks/revive.rs", "pub fn revive_fuzzy_in_root"),
+        ("src/tasks/revive.rs", "pub fn revive_named_in_root"),
+        ("src/tasks/skip.rs", "pub fn skip_in_root_with_today"),
+        ("src/sync/csv_sync/mod.rs", "pub fn sync_csvs"),
+        ("src/sync/counters.rs", "pub fn sync_counters"),
+    ] {
+        let source = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(!source.contains(forbidden), "{path} exposes {forbidden}");
+    }
+}
+
+#[test]
+fn every_task_store_writer_declares_the_shared_owner_boundary() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for path in [
+        "src/tasks/complete.rs",
+        "src/tasks/revive.rs",
+        "src/tasks/skip.rs",
+        "src/tasks/triage_habits/reconcile.rs",
+        "src/tasks/schema/mod.rs",
+        "src/sync/command/mod.rs",
+        "src/command/users/removal.rs",
+    ] {
+        let source = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            source.contains("TaskStoreOwner"),
+            "task-store writer {path} lacks the shared owner"
+        );
+    }
+    let csvlib = std::fs::read_to_string(root.join("skills/todo/scripts/_csvlib.py")).unwrap();
+    assert!(csvlib.contains("BEGIN IMMEDIATE"));
+    assert!(csvlib.contains("changed after it was read"));
+    let next_id = std::fs::read_to_string(root.join("skills/todo/scripts/next_id.py")).unwrap();
+    assert!(next_id.contains("_acquire_task_store_lock"));
 }

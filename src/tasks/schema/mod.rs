@@ -50,6 +50,8 @@ pub enum LegacySemanticSync {
 pub struct TaskSchemaMigration<'a> {
     pub workspace_id: WorkspaceId,
     pub workspace_root: &'a Path,
+    /// UUID-scoped interprocess task-store ownership path.
+    pub task_store_lock: &'a Path,
     /// Existing machine-local directory whose entry is already durable.
     ///
     /// The migration creates `backup_dir` beneath this base one component at a
@@ -78,6 +80,8 @@ fn migrate_inactive_with_hook(
     request: TaskSchemaMigration<'_>,
     mut hook: impl FnMut(MigrationStep) -> std::io::Result<()>,
 ) -> Result<MigrationOutcome> {
+    let _task_owner =
+        crate::tasks::store_lock::TaskStoreOwner::acquire_path(request.task_store_lock)?;
     let (workspace_root, backup_base, backup_dir) = validate_backup_destination(
         request.workspace_root,
         request.preexisting_backup_base,
@@ -306,6 +310,7 @@ mod transaction_tests {
         root: PathBuf,
         backup_base: PathBuf,
         backup: PathBuf,
+        task_store_lock: PathBuf,
         original: BTreeMap<&'static str, Vec<u8>>,
     }
 
@@ -338,11 +343,13 @@ mod transaction_tests {
                 fs::write(tasks.join(name), bytes).unwrap();
                 original.insert(name, bytes.to_vec());
             }
+            let task_store_lock = backup_base.join("tasks.transaction.lock");
             Self {
                 _temporary: temporary,
                 root,
                 backup_base,
                 backup,
+                task_store_lock,
                 original,
             }
         }
@@ -351,6 +358,7 @@ mod transaction_tests {
             TaskSchemaMigration {
                 workspace_id: WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
                 workspace_root: &self.root,
+                task_store_lock: &self.task_store_lock,
                 preexisting_backup_base: &self.backup_base,
                 backup_dir: &self.backup,
                 legacy_semantic_sync: LegacySemanticSync::Complete,

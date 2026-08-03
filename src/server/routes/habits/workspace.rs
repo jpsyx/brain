@@ -22,6 +22,12 @@ impl ResolvedWorkspace {
     pub fn root(&self) -> &std::path::Path {
         &self.root
     }
+
+    #[must_use]
+    pub fn task_store_lock(&self) -> PathBuf {
+        let home = std::env::var_os("HOME").map_or_else(std::env::temp_dir, PathBuf::from);
+        crate::workspace::WorkspacePaths::new(&home, self.workspace_id).task_store_lock()
+    }
 }
 
 /// A request could not be safely mapped to one attached workspace.

@@ -180,6 +180,8 @@ pub fn sync_once(
     } else {
         crate::logging::log("sync csv merge start");
         reporter.line(&theme.info("Merging task and habit CSVs by row id…"));
+        let _task_owner =
+            crate::tasks::store_lock::TaskStoreOwner::acquire_path(&paths.task_store_lock())?;
         let csv = sync_task_state(
             || crate::sync::csv_sync::sync_csvs(paths, cfg, root, dir),
             |floors| {

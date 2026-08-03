@@ -1518,13 +1518,29 @@ then resolving it, but the simpler and better behavior is to **not show it at
 all until we know the truth**. On a sync-configured machine, `run_tui`
 defers the check: the shell is fully usable at once (no modal to dismiss), and
 `tick_triage_gate` runs the real `check_daily_triage` only after the startup
-sync completes (detected by a newer sync-journal row). The modal then appears
+sync completes successfully (detected by a newer clean downstream sync-journal
+row). Before evaluating the modal, Brain reloads portable config, applies the
+incoming managed-triage policy under the task-store owner, and reloads both
+task tables. The modal then appears
 only if triage is genuinely still due; if
 another machine handled it, it never appears. The gate keys on the journal's
 row id rather than the `current.json` in-flight marker specifically to avoid the
 "sync hasn't written its marker yet" start-gap: a new journal row is an
-unambiguous "a sync cycle finished" signal. If the sync is offline or fails,
+unambiguous successful-downstream signal. Push-only and non-clean rows do not
+open the gate. If the sync is offline or fails,
 the gate remains closed for that shell rather than evaluating stale local data.
+
+## Why all task writers share one workspace-scoped owner
+
+Managed-triage reconciliation changes portable config, task and habit tables,
+counters, and derived references as one logical generation. A process-local
+mutex would not protect the Rust CLI, TUI, server, sync worker, and bundled
+Python scripts from one another. Brain therefore uses a SQLite immediate
+transaction at the workspace UUID cache path as a stable interprocess owner.
+Rust mutation entry points hold it across read, decision, and publication;
+Python CSV writers hold the same owner, compare current bytes with their read
+snapshot, and publish with an atomic same-directory replace. A stale writer
+fails explicitly instead of silently overwriting reconciliation.
 ## TUI-owned receiver server
 
 The external receiver listener is deliberately owned by the singleton brain

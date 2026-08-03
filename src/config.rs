@@ -89,6 +89,23 @@ impl Config {
         Self::load_from_root(workspace.root())
     }
 
+    /// Strictly load portable config. Only a missing file yields defaults.
+    pub(crate) fn try_load(workspace: &crate::workspace::WorkspaceContext) -> anyhow::Result<Self> {
+        let path = workspace.root().join(".config/config.json");
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self::default());
+            }
+            Err(error) => return Err(anyhow::Error::from(error)),
+        };
+        let value: Value = serde_json::from_slice(&bytes).map_err(anyhow::Error::from)?;
+        if !value.is_object() {
+            anyhow::bail!("{} must contain a JSON object", path.display());
+        }
+        serde_json::from_value(value).map_err(anyhow::Error::from)
+    }
+
     #[must_use]
     pub(crate) fn load_from_root(root: &std::path::Path) -> Self {
         let path = root.join(".config/config.json");

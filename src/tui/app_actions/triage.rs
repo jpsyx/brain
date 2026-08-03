@@ -7,6 +7,31 @@ use regex::RegexBuilder;
 use crate::tasks::task::Task;
 use crate::tui::*;
 
+struct StartupTriageRefresh {
+    config: crate::config::Config,
+    tasks: Vec<Task>,
+    habits: Vec<Task>,
+}
+
+fn refresh_after_successful_startup_sync(
+    workspace: &crate::workspace::WorkspaceContext,
+) -> anyhow::Result<StartupTriageRefresh> {
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
+    let config = crate::config::Config::try_load(workspace)?;
+    crate::tasks::triage_habits::apply_triage_habits_config_owned(
+        workspace,
+        config.enable_triage_habits,
+        &owner,
+    )?;
+    let tasks = crate::tasks::task::load_tasks(&workspace.root().join("tasks/tasks.csv"))?;
+    let habits = crate::tasks::task::load_habits(&workspace.root().join("tasks/habits.csv"))?;
+    Ok(StartupTriageRefresh {
+        config,
+        tasks,
+        habits,
+    })
+}
+
 impl App<'_> {
     /// Yes-path for the startup daily-triage modal. Opens the daily-triage pass
     /// in its own ephemeral brain-panel tab (`Alt+2`) seeded with `/triage`, so
@@ -92,12 +117,40 @@ impl App<'_> {
             &self.command_context.workspace.paths().sync_journal(),
         )
         .ok()
-        .and_then(|j| j.latest_id().ok())
+        .and_then(|j| j.latest_successful_downstream_id().ok())
         .flatten();
         if triage_gate_resolved(gate.seen_journal_id, latest) {
             self.triage_gate = None;
-            let _ = self.reload_tasks();
-            self.check_daily_triage();
+            match refresh_after_successful_startup_sync(&self.command_context.workspace) {
+                Ok(refreshed) => {
+                    self.config = refreshed.config;
+                    self.all_tasks = refreshed.tasks;
+                    self.all_habits = refreshed.habits;
+                    let selector = self
+                        .active_view
+                        .map_or(crate::tasks::selector::Selector::All, |view| {
+                            view.selector(self.today)
+                        });
+                    let spec = crate::tasks::view::build_view(
+                        self.cli,
+                        &selector,
+                        self.active_view,
+                        self.data_for_view(self.active_view),
+                        self.today,
+                    );
+                    self.header =
+                        crate::tasks::render::header_lines(&spec, self.cli, self.active_view);
+                    self.base_tasks = spec.tasks;
+                    self.rebuild_body();
+                    self.check_daily_triage();
+                }
+                Err(error) => {
+                    crate::logging::log(format!("post-sync triage refresh failed: {error:#}"));
+                    self.flash = Some(FlashKind::Error(format!(
+                        "post-sync task refresh failed: {error}"
+                    )));
+                }
+            }
         } else if let Some(gate) = self.triage_gate.as_mut() {
             gate.next_poll = now + std::time::Duration::from_millis(500);
         }
@@ -237,7 +290,7 @@ fn triage_rollover(
 
 #[cfg(test)]
 mod triage_gate_tests {
-    use super::triage_gate_resolved;
+    use super::{refresh_after_successful_startup_sync, triage_gate_resolved};
 
     #[test]
     fn resolves_when_a_newer_journal_row_appears() {
@@ -260,6 +313,107 @@ mod triage_gate_tests {
         // sync completed.
         assert!(!triage_gate_resolved(Some(5), Some(5)));
         assert!(!triage_gate_resolved(None, None));
+    }
+
+    #[test]
+    fn successful_startup_sync_reloads_opposite_portable_config_and_task_state() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        std::fs::create_dir_all(root.join("tasks")).unwrap();
+        std::fs::write(
+            root.join(".config/config.json"),
+            b"{\"enable_triage_habits\":false}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            b"task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/habits.csv"),
+            b"task_uuid,task_id,task_name,status,assigned_to,system_key\n8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Morning Triage,not_started,member,brain.triage.daily\n",
+        ).unwrap();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            temporary.path(),
+            crate::workspace::WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
+            crate::workspace::WorkspaceName::parse("family").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+
+        let refreshed = refresh_after_successful_startup_sync(&workspace).unwrap();
+
+        assert!(!refreshed.config.enable_triage_habits);
+        assert!(
+            refreshed
+                .habits
+                .iter()
+                .all(|habit| !habit.is_managed_triage())
+        );
+        assert!(
+            crate::tasks::task::load_habits(&root.join("tasks/habits.csv"))
+                .unwrap()
+                .iter()
+                .all(|habit| !habit.is_managed_triage())
+        );
+    }
+
+    #[test]
+    fn successful_startup_sync_reads_config_after_acquiring_the_task_store_owner() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        std::fs::create_dir_all(root.join("tasks")).unwrap();
+        std::fs::write(
+            root.join(".config/config.json"),
+            b"{\"enable_triage_habits\":true}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            b"task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/habits.csv"),
+            b"task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            temporary.path(),
+            crate::workspace::WorkspaceId::parse("a09c6257-6ccc-4a39-97a4-058c73a8c569").unwrap(),
+            crate::workspace::WorkspaceName::parse("family").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+        let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&workspace).unwrap();
+        let refresh_workspace = workspace;
+        let refresh = std::thread::spawn(move || {
+            refresh_after_successful_startup_sync(&refresh_workspace).unwrap()
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::fs::write(
+            root.join(".config/config.json"),
+            b"{\"enable_triage_habits\":false}\n",
+        )
+        .unwrap();
+        drop(owner);
+
+        let refreshed = refresh.join().unwrap();
+        assert!(!refreshed.config.enable_triage_habits);
+        assert!(
+            refreshed
+                .habits
+                .iter()
+                .all(|habit| !habit.is_managed_triage())
+        );
     }
 }
 

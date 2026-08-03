@@ -172,7 +172,7 @@ pub(crate) fn sync_counters_with_transport(
 /// Reconcile counter files using display floors produced by the exact CSV
 /// tables published in the same sync operation.
 #[must_use]
-pub fn sync_counters(
+pub(crate) fn sync_counters(
     cfg: &SyncConfig,
     root: &Path,
     direction: Direction,

@@ -47,6 +47,11 @@ helpers and shell-outs live in the tasks modules:
   Managed triage rows are rejected at each of those user-facing entry points;
   `/triage` alone uses `apply_sync_rules.py --complete-managed-triage
   daily|weekly`, which becomes a no-op when the portable feature is disabled.
+  All Rust task mutations and bundled Python CSV/counter writers acquire the
+  same SQLite immediate transaction at
+  `<workspace-cache>/tasks.transaction.lock`. Python writers also reject a
+  changed read snapshot and use a synced same-directory atomic replacement.
+  The protected `remove_task.py` boundary rejects enabled managed-row deletion.
 - **`brain tasks doctor`** — prints a progress plan via
   `tasks::doctor::format_doctor_plan` before checking the state DB schema,
   SessionStart hook settings, `rclone version`, and sync env.
@@ -532,7 +537,9 @@ bookkeeping.
   default excludes (`src/sync/args.rs`), so Lane-A bisync never touches them —
   line-based bisync would happily let one machine's edit clobber another's on
   structured, id-keyed data. Instead `command::sync_once` runs a dedicated
-  step (`crate::sync::csv_sync::sync_csvs`) once bisync itself hasn't aborted:
+  step (`crate::sync::csv_sync::sync_csvs`) once bisync itself hasn't aborted.
+  It holds the workspace task-store owner across CSV publication and dependent
+  counter reconciliation. For each CSV it then
   for each CSV it reads the cached baseline (`csv_sync::baseline_path`,
   `<workspace-cache>/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
   never synced), the local file, and the remote copy (fetched with `rclone

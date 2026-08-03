@@ -12,6 +12,7 @@ use super::purge::{ManagedIdentities, derived_changes, purge_rows};
 use super::transaction::{FileChange, recover_pending, replace_group};
 use crate::tasks::complete::{CsvFile, Row, field, serialize_csv};
 use crate::tasks::identity::TaskUuid;
+use crate::tasks::store_lock::TaskStoreOwner;
 use crate::workspace::WorkspaceContext;
 
 const HABIT_COLUMNS: [&str; 21] = [
@@ -39,11 +40,21 @@ const HABIT_COLUMNS: [&str; 21] = [
 ];
 
 pub fn apply_triage_habits_config(workspace: &WorkspaceContext, enabled: bool) -> Result<()> {
-    recover_pending(workspace.root())?;
+    let owner = TaskStoreOwner::acquire(workspace)?;
+    apply_triage_habits_config_owned(workspace, enabled, &owner)
+}
+
+pub(crate) fn apply_triage_habits_config_owned(
+    workspace: &WorkspaceContext,
+    enabled: bool,
+    owner: &TaskStoreOwner,
+) -> Result<()> {
+    let config_path = crate::settings::config_dir(workspace).join("config.json");
+    validate_existing_config(&config_path)?;
+    recover_pending(workspace, owner)?;
     let tasks_dir = workspace.root().join("tasks");
     let tasks_path = tasks_dir.join("tasks.csv");
     let habits_path = tasks_dir.join("habits.csv");
-    let config_path = crate::settings::config_dir(workspace).join("config.json");
     let counter_path = tasks_dir.join(".habits_next_id");
 
     let tasks_before = read_optional(&tasks_path)?;
@@ -70,8 +81,7 @@ pub fn apply_triage_habits_config(workspace: &WorkspaceContext, enabled: bool) -
             });
         }
     } else {
-        let mut identities = ManagedIdentities::collect(&tasks);
-        identities.extend(ManagedIdentities::collect(&habits));
+        let identities = ManagedIdentities::collect_all(&[&tasks, &habits]);
         purge_rows(&mut tasks);
         purge_rows(&mut habits);
         push_csv_change(&mut changes, tasks_path, tasks_before, &tasks)?;
@@ -81,7 +91,8 @@ pub fn apply_triage_habits_config(workspace: &WorkspaceContext, enabled: bool) -
 
     let mut config = config_before
         .as_deref()
-        .map(config_map_from_bytes)
+        .map(|bytes| config_map_from_bytes(&config_path, bytes))
+        .transpose()?
         .unwrap_or_default();
     config.insert("enable_triage_habits".to_owned(), Value::Bool(enabled));
     let mut config_after = serde_json::to_vec_pretty(&Value::Object(config))?;
@@ -94,14 +105,23 @@ pub fn apply_triage_habits_config(workspace: &WorkspaceContext, enabled: bool) -
         });
     }
 
-    replace_group(workspace.root(), &changes)
+    replace_group(workspace, owner, &changes)
 }
 
-fn config_map_from_bytes(bytes: &[u8]) -> serde_json::Map<String, Value> {
-    serde_json::from_slice::<Value>(bytes)
-        .ok()
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or_default()
+fn validate_existing_config(path: &Path) -> Result<()> {
+    if let Some(bytes) = read_optional(path)? {
+        config_map_from_bytes(path, &bytes)?;
+    }
+    Ok(())
+}
+
+fn config_map_from_bytes(path: &Path, bytes: &[u8]) -> Result<serde_json::Map<String, Value>> {
+    let value: Value =
+        serde_json::from_slice(bytes).with_context(|| format!("parsing {}", path.display()))?;
+    value
+        .as_object()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("{} must contain a JSON object", path.display()))
 }
 
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {

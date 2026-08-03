@@ -1241,7 +1241,10 @@ load-bearing ones:
   any sequential dependencies between sub-tasks encoded explicitly
   via `blocked_by`. Don't leave the dependency structure in the
   user's head.
-- **`/todo done|defer|add|remove|list`** — the usual CRUD.
+- **`/todo done|defer|add|remove|list`** covers the usual CRUD. After resolving any
+  links or confirmation needed for removal, `/todo remove` must execute
+  [scripts/remove_task.py](scripts/remove_task.py) so deletion crosses the
+  config-aware task-store guard. Never delete a CSV row directly.
 - **`/todo chronic`** — list chronically-ignored tasks (the same set
   that `/triage` Step 7 sweeps). Backed by
   [scripts/find_chronic_ignored.py](scripts/find_chronic_ignored.py).

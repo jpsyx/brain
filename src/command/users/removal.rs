@@ -16,6 +16,7 @@ pub(super) fn remove_user(
     removed: &UserId,
     replacement: Option<&UserId>,
 ) -> Result<()> {
+    let _task_owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
     let mut users = UsersStore::load(workspace)?;
     if users.user(removed).is_none() {
         return Err(crate::users::UsersError::UnknownUser {

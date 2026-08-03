@@ -47,6 +47,12 @@ impl WorkspacePaths {
         self.cache_dir.join("users.transaction.lock")
     }
 
+    /// The workspace-scoped task-store transaction lock.
+    #[must_use]
+    pub fn task_store_lock(&self) -> PathBuf {
+        self.cache_dir.join("tasks.transaction.lock")
+    }
+
     /// The workspace-scoped receiver inbox directory.
     #[must_use]
     pub fn inbox_dir(&self) -> PathBuf {

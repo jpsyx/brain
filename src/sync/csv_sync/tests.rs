@@ -379,7 +379,9 @@ fn push_only_collision_floors_task_and_habit_counters_before_allocation() {
             .arg(&script)
             .args(["--kind", kind])
             .current_dir(script.parent().unwrap())
+            .env("HOME", directory.path())
             .env("BRAIN_ROOT", &root)
+            .env("BRAIN_WORKSPACE_ID", "e806258e-491a-436d-9db4-a5ca9903e0d4")
             .output()
             .unwrap();
         assert!(output.status.success());

@@ -441,14 +441,22 @@ default. Brain identifies its daily and weekly chains with
 TUI startup, task reindex, and a successful explicit `brain sync repair`
 restore one open occurrence per enabled chain. Ordinary CLI, TUI, web, and
 skill mutation paths refuse to remove, complete, revive, or skip managed rows;
-the triage skill uses its narrow marker-aware completion helper.
+the triage skill uses its narrow marker-aware completion helper. Every native
+or bundled-script task, habit, and display-counter writer participates in one
+workspace UUID-scoped task-store lock. Python writers also verify the exact
+bytes they read before atomically replacing a CSV, and `/todo remove` uses the
+protected removal script instead of editing a row directly.
 
 `brain config set enable_triage_habits=false` stages config, both task CSVs,
 and affected derived references as one recoverable transaction. It removes
 open and completed managed history while preserving unmarked similarly named
 habits and unrelated transcripts. The startup modal stays suppressed, but
 manual daily and weekly triage continue without habit mutation. Re-enabling
-creates fresh UUIDs and does not restore history.
+creates fresh UUIDs and does not restore history. The grouped journal is bound
+to the selected workspace ID and root, accepts only schema-defined live targets
+and exact sibling artifacts, and rejects duplicates, symlink ancestors, and
+path escapes. Existing live files are replaced atomically from synced staged
+files, so readers never observe a missing-file interval.
 
 ### `brain reindex`
 

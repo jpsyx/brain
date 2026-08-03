@@ -69,6 +69,7 @@ impl Fixture {
         migrate_inactive(TaskSchemaMigration {
             workspace_id: WorkspaceId::parse(WORKSPACE_ID).unwrap(),
             workspace_root: &self.root,
+            task_store_lock: &self.temporary.path().join("tasks.transaction.lock"),
             preexisting_backup_base: &self.backup_base,
             backup_dir,
             legacy_semantic_sync: sync,
@@ -174,6 +175,7 @@ fn inactive_migration_requires_an_existing_durable_backup_base() {
     let error = migrate_inactive(TaskSchemaMigration {
         workspace_id: WorkspaceId::parse(WORKSPACE_ID).unwrap(),
         workspace_root: &fixture.root,
+        task_store_lock: &fixture.temporary.path().join("tasks.transaction.lock"),
         preexisting_backup_base: &missing_base,
         backup_dir: &backup,
         legacy_semantic_sync: LegacySemanticSync::Complete,

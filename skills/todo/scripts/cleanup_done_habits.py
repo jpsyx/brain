@@ -43,9 +43,10 @@ def main() -> int:
     deferred_managed_purge = 0
     for r in rows:
         managed = (r.get("system_key") or "").strip() in MANAGED_TRIAGE_KEYS
-        if managed and not triage_enabled:
+        if managed:
             keep.append(r)
-            deferred_managed_purge += 1
+            if not triage_enabled:
+                deferred_managed_purge += 1
             continue
         if r.get("status") == "done":
             cd = parse_date(r.get("completed_date") or "")

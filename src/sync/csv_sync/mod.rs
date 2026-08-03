@@ -188,7 +188,7 @@ fn write_all(path: &Path, text: &str) {
 
 /// Merge both task CSVs as one validated operation and publish their project
 /// metadata through the same typed result boundary.
-pub fn sync_csvs(
+pub(crate) fn sync_csvs(
     paths: &crate::workspace::WorkspacePaths,
     cfg: &SyncConfig,
     root: &Path,

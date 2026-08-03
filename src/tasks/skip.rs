@@ -56,6 +56,7 @@ pub fn run(
     _actor: &crate::actor::ActorContext,
 ) -> Result<()> {
     crate::logging::log(format!("habits skip raw_id={raw_id} until={until:?}"));
+    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
     protect_managed_skip(workspace, raw_id)?;
     let today = Local::now().date_naive();
     let until = until.map(parse_until).transpose()?;
@@ -89,7 +90,7 @@ fn parse_until(raw: &str) -> Result<NaiveDate> {
         .map_err(|_| anyhow!("--until must be YYYY-MM-DD, got '{raw}'"))
 }
 
-pub fn skip_in_root_with_today(
+pub(crate) fn skip_in_root_with_today(
     root: &Path,
     raw_id: &str,
     until: Option<NaiveDate>,

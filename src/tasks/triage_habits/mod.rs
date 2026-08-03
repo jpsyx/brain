@@ -11,3 +11,4 @@ pub use model::{
     can_remove, can_revive, can_skip, is_managed_system_key,
 };
 pub use reconcile::apply_triage_habits_config;
+pub(crate) use reconcile::apply_triage_habits_config_owned;

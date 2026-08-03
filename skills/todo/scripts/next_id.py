@@ -28,7 +28,7 @@ import re
 import sys
 from pathlib import Path
 
-from _csvlib import habits_csv, tasks_csv
+from _csvlib import _acquire_task_store_lock, _reject_pending_rust_transaction, habits_csv, tasks_csv
 
 
 def _kind(kind: str):
@@ -75,9 +75,15 @@ def peek(kind: str) -> str:
 
 
 def new_id(kind: str) -> str:
-    n = _read_counter(kind)
-    _write_counter(kind, n + 1)
-    return f"{_kind(kind)['prefix']}{n}"
+    lock = _acquire_task_store_lock()
+    try:
+        _reject_pending_rust_transaction()
+        n = _read_counter(kind)
+        _write_counter(kind, n + 1)
+        return f"{_kind(kind)['prefix']}{n}"
+    finally:
+        lock.rollback()
+        lock.close()
 
 
 def main() -> int:

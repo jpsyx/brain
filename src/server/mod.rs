@@ -102,7 +102,9 @@ fn respond(request: &mut Request) -> Response<std::io::Cursor<Vec<u8>>> {
                 request.url(),
             ) {
                 Ok(workspace) => {
-                    let (status, json) = routes::habits::done(workspace.root(), &body).response();
+                    let (status, json) =
+                        routes::habits::done(workspace.root(), &workspace.task_store_lock(), &body)
+                            .response();
                     Response::from_string(json)
                         .with_status_code(status)
                         .with_header(content_type("application/json"))

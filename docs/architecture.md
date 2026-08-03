@@ -765,13 +765,16 @@ triggers (a mandatory detached pull-biased startup sync and, when
 loop, then drops the watcher and releases the session lock. No exit sync or
 idle timer exists. The **daily-triage nudge**
 is coupled to that startup sync: when a configured startup sync is pending, `run_tui`
-does *not* run the check immediately — it captures the sync journal's latest row
-id, kicks the sync, and calls `App::arm_triage_gate` (deferral, no modal). Each
-event-loop tick then calls `App::tick_triage_gate`, which — once a newer journal
-row appears (the sync finished) — reloads
-the synced CSVs and runs `check_daily_triage` exactly once, so the modal
-reflects post-sync completion state (pure `triage_gate_resolved` decides
-resolution). With no startup sync, the check runs immediately as before. The
+does *not* run the check immediately. It captures the sync journal's latest
+clean downstream row ID, kicks the sync, and calls `App::arm_triage_gate`
+(deferral, no modal). Each event-loop tick then calls `App::tick_triage_gate`.
+Once a newer clean pull/both/resync row appears, it strictly reloads portable
+config, reconciles managed policy under the workspace task-store owner, reloads
+both synced CSVs, and runs `check_daily_triage` exactly once. Reload or
+reconciliation errors are logged and shown in the TUI rather than discarded,
+so the modal reflects post-sync completion state (pure `triage_gate_resolved`
+decides resolution). With no startup sync, the check runs immediately as
+before. The
 brain
 panel is **closeable** (claude exit → `close_brain` drops the PTY and the main
 view goes full-width); `open_or_focus_brain` (`Ctrl+M`) re-opens it. The

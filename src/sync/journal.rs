@@ -88,6 +88,17 @@ impl Journal {
         Ok(id)
     }
 
+    /// Highest clean run that could have installed remote task/config data.
+    pub fn latest_successful_downstream_id(&self) -> Result<Option<i64>> {
+        let id: Option<i64> = self.conn.query_row(
+            "SELECT MAX(id) FROM sync_runs
+             WHERE direction IN ('both', 'pull', 'resync') AND outcome = 'clean'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(id)
+    }
+
     /// Completion time of the newest successful run that could have brought
     /// remote changes downstream. Push-only and aborted runs do not refresh
     /// the receiver's remote-freshness clock.
@@ -191,5 +202,18 @@ mod tests {
             j.latest_downstream_completion().unwrap().as_deref(),
             Some("2026-07-30T10:00:00Z")
         );
+    }
+
+    #[test]
+    fn successful_downstream_cursor_ignores_push_and_non_clean_runs() {
+        let j = mem();
+        j.record(&run("push")).unwrap();
+        let mut attention = run("pull");
+        attention.outcome = "needs_attention".into();
+        j.record(&attention).unwrap();
+        assert_eq!(j.latest_successful_downstream_id().unwrap(), None);
+
+        j.record(&run("both")).unwrap();
+        assert_eq!(j.latest_successful_downstream_id().unwrap(), Some(3));
     }
 }

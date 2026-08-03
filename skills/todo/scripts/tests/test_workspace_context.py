@@ -15,6 +15,7 @@ REASSIGN_TASK = SCRIPTS / "reassign_task.py"
 NEXT_OCCURRENCE = SCRIPTS / "next_habit_occurrence.py"
 APPLY_SYNC_RULES = SCRIPTS / "apply_sync_rules.py"
 CLEANUP_DONE_HABITS = SCRIPTS / "cleanup_done_habits.py"
+NEXT_ID = SCRIPTS / "next_id.py"
 WORKSPACE_ID = "e806258e-491a-436d-9db4-a5ca9903e0d4"
 
 
@@ -107,6 +108,120 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertIn("launch this script through Brain", result.stderr)
         self.assertEqual(
             (self.home / "brain" / "tasks" / "tasks.csv").read_bytes(), before
+        )
+
+    def test_csv_writer_rejects_a_stale_snapshot_instead_of_losing_a_concurrent_change(self):
+        tasks = self.root / "tasks" / "tasks.csv"
+        tasks.write_text(
+            "task_id,task_name,status,system_key\nT1,Original,not_started,\n",
+            encoding="utf-8",
+        )
+        program = (
+            "from _csvlib import read_csv, write_csv, tasks_csv\n"
+            "path = tasks_csv()\n"
+            "columns, rows = read_csv(path)\n"
+            "path.write_text('task_id,task_name,status,system_key\\nT1,Concurrent,not_started,\\n', encoding='utf-8')\n"
+            "rows[0]['task_name'] = 'Stale writer'\n"
+            "write_csv(path, columns, rows)\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", program],
+            cwd=SCRIPTS,
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Concurrent", tasks.read_text(encoding="utf-8"))
+
+    def test_csv_writer_rejects_deleting_an_enabled_managed_triage_row(self):
+        tasks = self.root / "tasks" / "habits.csv"
+        tasks.write_text(
+            "task_id,task_name,status,system_key\n"
+            "H1,Morning Triage,not_started,brain.triage.daily\n",
+            encoding="utf-8",
+        )
+        (self.root / ".config" / "config.json").write_text(
+            '{"enable_triage_habits":true}\n', encoding="utf-8"
+        )
+        program = (
+            "from _csvlib import read_csv, write_csv, habits_csv\n"
+            "path = habits_csv()\n"
+            "columns, rows = read_csv(path)\n"
+            "write_csv(path, columns, [])\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", program],
+            cwd=SCRIPTS,
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("brain.triage.daily", tasks.read_text(encoding="utf-8"))
+
+    def test_csv_writer_rejects_replacing_a_legacy_managed_row_with_the_same_display_id(self):
+        habits = self.root / "tasks" / "habits.csv"
+        habits.write_text(
+            "task_id,task_name,status,system_key\n"
+            "H1,Morning Triage,not_started,brain.triage.daily\n",
+            encoding="utf-8",
+        )
+        (self.root / ".config" / "config.json").write_text(
+            '{"enable_triage_habits":true}\n', encoding="utf-8"
+        )
+        program = (
+            "from _csvlib import read_csv, write_csv, habits_csv\n"
+            "path = habits_csv()\n"
+            "columns, rows = read_csv(path)\n"
+            "rows[0]['task_name'] = 'Ordinary replacement'\n"
+            "rows[0]['system_key'] = ''\n"
+            "write_csv(path, columns, rows)\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", program],
+            cwd=SCRIPTS,
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("brain.triage.daily", habits.read_text(encoding="utf-8"))
+
+    def test_concurrent_id_allocators_share_the_workspace_task_lock(self):
+        tasks = self.root / "tasks" / "tasks.csv"
+        tasks.write_text("task_id,task_name\n", encoding="utf-8")
+        processes = [
+            subprocess.Popen(
+                [sys.executable, str(NEXT_ID), "--kind", "tasks"],
+                cwd=SCRIPTS,
+                env=self.env(),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for _ in range(12)
+        ]
+
+        outputs = []
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, stderr)
+            outputs.append(stdout.strip())
+
+        self.assertEqual(len(set(outputs)), 12)
+        self.assertEqual(set(outputs), {f"T{number}" for number in range(1, 13)})
+        self.assertEqual(
+            (self.root / "tasks" / ".tasks_next_id").read_text().strip(), "13"
         )
 
     def test_explicit_assignment_must_name_a_portable_member(self):
@@ -340,7 +455,7 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), before)
         self.assertIn("disabled", result.stdout)
 
-    def test_cleanup_uses_normal_retention_for_managed_history_when_enabled(self):
+    def test_cleanup_preserves_managed_history_for_transactional_policy(self):
         path = self.root / "tasks" / "habits.csv"
         path.write_text(
             "task_uuid,task_id,task_name,status,due_date,assigned_to,"
@@ -366,7 +481,7 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         with path.open(newline="") as handle:
             rows = list(csv.DictReader(handle))
-        self.assertEqual([row["task_id"] for row in rows], ["H2"])
+        self.assertEqual([row["task_id"] for row in rows], ["H1", "H2"])
 
     def test_cleanup_does_not_attempt_partial_managed_purge_when_disabled(self):
         path = self.root / "tasks" / "habits.csv"

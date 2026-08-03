@@ -117,26 +117,25 @@ pub(crate) fn complete_in_workspace_for_actor_with_today(
     today: NaiveDate,
     actor: &crate::actor::ActorContext,
 ) -> Result<CompletionResult> {
+    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
     protect_managed_completion(workspace, raw_id)?;
     complete_in_root_for_actor_with_today(workspace.root(), raw_id, today, actor)
 }
 
-pub(crate) fn complete_in_root_protected_with_today(
+pub(crate) fn complete_in_root_protected_owned_with_today(
     root: &Path,
+    lock_path: &Path,
     raw_id: &str,
     today: NaiveDate,
     enabled: bool,
 ) -> Result<CompletionResult> {
+    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire_path(lock_path)?;
     protect_managed_completion_at(root, raw_id, enabled)?;
     complete_in_root_with_today(root, raw_id, today)
 }
 
-pub fn complete_in_root(root: &Path, raw_id: &str) -> Result<CompletionResult> {
-    complete_in_root_with_today(root, raw_id, Local::now().date_naive())
-}
-
 /// Complete one task under the actor bound at the request boundary.
-pub fn complete_in_root_for_actor_with_today(
+pub(crate) fn complete_in_root_for_actor_with_today(
     root: &Path,
     raw_id: &str,
     today: NaiveDate,
@@ -145,7 +144,7 @@ pub fn complete_in_root_for_actor_with_today(
     complete_in_root_with_today(root, raw_id, today)
 }
 
-pub fn complete_in_root_with_today(
+pub(crate) fn complete_in_root_with_today(
     root: &Path,
     raw_id: &str,
     today: NaiveDate,

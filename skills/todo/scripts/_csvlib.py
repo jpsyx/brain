@@ -8,7 +8,9 @@ import csv
 import json
 import os
 import re
+import sqlite3
 import sys
+import tempfile
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -23,6 +25,8 @@ BARE_INT_RE = re.compile(r"^\d+$")
 # like "Pay (Q1) bills (2/5)" still parses correctly.
 CHUNK_NAME_RE = re.compile(r"^(.+) \((\d+)/(\d+)\)$")
 USER_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+MANAGED_TRIAGE_KEYS = {"brain.triage.daily", "brain.triage.weekly"}
+_READ_SNAPSHOTS: dict[Path, bytes | None] = {}
 
 
 def _required_environment(name: str) -> str:
@@ -197,7 +201,9 @@ def cascade_chunk_dates_forward(rows, current_row):
 
 def read_csv(path: Path):
     if not path.exists():
+        _READ_SNAPSHOTS[path] = None
         return [], []
+    _READ_SNAPSHOTS[path] = path.read_bytes()
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
         return _canonical_assignment(reader.fieldnames or [], list(reader))
@@ -214,11 +220,97 @@ def write_csv(path: Path, columns, rows):
         columns = [*columns, "task_uuid"]
     if any((r.get("last_touched") or "").strip() for r in rows) and "last_touched" not in columns:
         columns = list(columns) + ["last_touched"]
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
-        w.writeheader()
-        for r in rows:
-            w.writerow({c: r.get(c, "") for c in columns})
+    lock = _acquire_task_store_lock()
+    try:
+        _reject_pending_rust_transaction()
+        before = _READ_SNAPSHOTS.get(path, object())
+        current = path.read_bytes() if path.exists() else None
+        if not isinstance(before, (bytes, type(None))) or before != current:
+            raise SystemExit(f"{path} changed after it was read; retry the task operation")
+        _protect_managed_removal(before, rows)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", newline="", dir=path.parent, prefix=f".{path.name}.",
+            suffix=".pending", delete=False
+        ) as f:
+            temporary = Path(f.name)
+            w = csv.DictWriter(f, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
+            w.writeheader()
+            for r in rows:
+                w.writerow({c: r.get(c, "") for c in columns})
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        _READ_SNAPSHOTS[path] = path.read_bytes()
+    finally:
+        lock.rollback()
+        lock.close()
+
+
+def _task_store_lock_path() -> Path:
+    raw = _required_environment("BRAIN_WORKSPACE_ID")
+    try:
+        workspace_id = str(uuid.UUID(raw))
+    except ValueError as error:
+        raise SystemExit("BRAIN_WORKSPACE_ID must be a UUID") from error
+    return Path.home() / ".cache" / "brain" / "workspaces" / workspace_id / "tasks.transaction.lock"
+
+
+def _acquire_task_store_lock():
+    path = _task_store_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=30, isolation_level=None)
+    connection.execute("PRAGMA journal_mode = OFF")
+    connection.execute("BEGIN IMMEDIATE")
+    return connection
+
+
+def _reject_pending_rust_transaction() -> None:
+    journal = brain_root() / ".config" / ".brain-triage-habits-transaction.json"
+    if journal.exists():
+        raise SystemExit(f"pending task transaction at {journal}; run Brain to recover it")
+
+
+def _protect_managed_removal(before: bytes | None, after_rows) -> None:
+    if before is None or not _triage_habits_enabled():
+        return
+    old_rows = list(csv.DictReader(before.decode("utf-8").splitlines()))
+    new_identities = {_row_identity(row) for row in after_rows}
+    for row in old_rows:
+        if row.get("system_key") in MANAGED_TRIAGE_KEYS and _row_identity(row) not in new_identities:
+            raise SystemExit("managed triage rows cannot be removed while enable_triage_habits is true")
+
+
+def _row_identity(row) -> tuple[str, ...]:
+    task_uuid = (row.get("task_uuid") or "").strip()
+    if task_uuid:
+        return "uuid", task_uuid
+    return (
+        "display",
+        (row.get("task_id") or "").strip(),
+        (row.get("system_key") or "").strip(),
+    )
+
+
+def _triage_habits_enabled() -> bool:
+    path = brain_root() / ".config" / "config.json"
+    if not path.exists():
+        return True
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"cannot read portable config {path}: {error}") from error
+    if not isinstance(value, dict):
+        raise SystemExit(f"portable config {path} must contain a JSON object")
+    enabled = value.get("enable_triage_habits", True)
+    if not isinstance(enabled, bool):
+        raise SystemExit("enable_triage_habits must be true or false")
+    return enabled
 
 
 def _canonical_assignment(columns, rows):

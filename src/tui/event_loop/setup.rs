@@ -198,7 +198,7 @@ pub fn run_tui(
         let seen =
             crate::sync::journal::Journal::open(&command_context.workspace.paths().sync_journal())
                 .ok()
-                .and_then(|j| j.latest_id().ok())
+                .and_then(|j| j.latest_successful_downstream_id().ok())
                 .flatten();
         let _ = crate::sync::trigger::spawn_detached_sync(
             &command_context.workspace,
