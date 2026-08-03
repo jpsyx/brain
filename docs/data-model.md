@@ -894,10 +894,13 @@ lexicographically smallest UUID retains each contested label; loser UUIDs are
 ordered deterministically and assigned numbers after the maximum display
 number across all three inputs. `relationships.rs` first resolves each side's
 pipe/comma-separated `blocked_by` labels through that side's pre-reconciliation
-display-to-UUID map, then emits the final labels. It applies the same rewrite
-to composite `see_also` values, preserving non-task URLs and falling back to
-the original display label when a referenced row is deleted, so temporary UUID
-markers never reach disk. The same final table derives each project's
+display-to-UUID map, then emits the final labels. `see_also` is free text: task
+IDs may be space-separated or surrounded by punctuation because writers append
+URLs with a space. Its column-specific rewrite changes only bounded `T###` or
+`H###` references outside `http(s)` URLs, preserving whitespace, punctuation,
+separators, URLs, and text such as `T100` when only `T10` changed. It falls back
+to the original display label when a referenced row is deleted, so temporary
+UUID markers never reach disk. The same final table derives each project's
 `.METADATA.json:tasks[]`; every metadata file is parsed and staged before any
 local rewrite. Remote publication sends every authoritative metadata file,
 including locally unchanged files, so retry heals a prior partial upload.

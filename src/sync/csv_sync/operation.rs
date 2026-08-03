@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::sync::args::Direction;
 use crate::sync::csv_merge::{Table, merge, parse, serialize, validate_for_merge};
 
-use super::metadata::{prepare_project_metadata, publish_project_metadata};
+use super::metadata::{MetadataPublishError, prepare_project_metadata, publish_project_metadata};
 use super::{CSVS, CsvMergeOutcome, CsvSyncError, CsvSyncResult, DisplayIdFloors, baseline_path};
 
 struct CsvGeneration {
@@ -152,7 +152,10 @@ pub(super) fn sync_csvs_with_transport(
     publish_project_metadata(&metadata, direction != Direction::Push, |relative, text| {
         push(relative, text)
     })
-    .map_err(|error| CsvSyncError::RemotePublish(format!("{error:#}")))?;
+    .map_err(|error| match error {
+        MetadataPublishError::Local(message) => CsvSyncError::LocalWrite(message),
+        MetadataPublishError::Remote(relative) => CsvSyncError::RemotePublish(relative),
+    })?;
 
     Ok(CsvSyncResult {
         outcomes: prepared.into_iter().map(|csv| csv.outcome).collect(),

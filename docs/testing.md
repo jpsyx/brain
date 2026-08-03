@@ -169,7 +169,8 @@ first move is a failing test that reproduces it, *then* the fix.
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable
   winners, mirror-order convergence, idempotence, composite dependency
-  and `see_also` rewrites, deleted-reference fallback, project reverse-link
+  and free-text `see_also` rewrites, URL/substr preservation,
+  deleted-reference fallback, project reverse-link
   regeneration, whole-operation schema refusal, retryable metadata
   publication, and task/habit counter floors through the real allocator. The
   CSV integration regression verifies an unchanged second pass performs no remote write, and
@@ -219,7 +220,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/todo_script_mutators.rs` | Brain-owned task scripts, including selected-root `BRAIN_ROOT` propagation and isolated actor/workspace environment for every subprocess. |
 | `tests/task_schema_migration.rs` + `tasks::schema::transaction_tests` | Temp-only inactive migration fixtures: workspace/kind-scoped deterministic UUIDv5, explicit last-legacy-sync and pre-existing durable-backup-base preconditions, exact durable portable backups, canonical/lexical backup-path separation, strict current-schema detection, row/display-ID preservation, byte-idempotent reruns, injected deep-directory and backup-file parent open/sync failures, immediate journal-temporary cleanup, and crash/failure recovery before and throughout replacement. |
-| `tests/task_id_collision_merge.rs` + `sync::csv_merge`/`csv_sync`/`counters` tests | Temp-only and pure fixtures for UUID merge identity, name-aligned headers, deterministic display-ID collision winners/allocation, mirror-order and repeat convergence, pipe/comma `blocked_by` and `see_also` rewrites, deleted-target fallback without marker leaks, project metadata reverse links and retry, strict/forward-compatible whole-operation schema policy, no-write refusal, and task/habit next-counter floors. |
+| `tests/task_id_collision_merge.rs` + `sync::csv_merge`/`csv_sync`/`counters` tests | Temp-only and pure fixtures for UUID merge identity, name-aligned headers, deterministic display-ID collision winners/allocation, mirror-order and repeat convergence, pipe/comma `blocked_by`, production-format free-text `see_also` rewrites with URL and substring preservation, deleted-target fallback without marker leaks, project metadata reverse links, retry and local/remote error classification, strict/forward-compatible whole-operation schema policy, no-write refusal, and task/habit next-counter floors. |
 | `skills/todo/scripts/tests/test_workspace_context.py` | Standalone Python subprocess coverage for selected-root-only writes, effective-actor assignment, explicit portable-membership validation, legacy and absent assignment-header migration, empty-CSV schema initialization, missing-context failure, UUIDv4 creation, UUID-preserving edits, and fresh habit-occurrence identity with assignment/system-key retention. |
 | `tests/verbose_cli.rs` | End-to-end `--verbose` contract for the compiled binary: stdout mirroring, `/tmp` log-file creation, command/action breadcrumbs, and task CSV load/write logging. |
 

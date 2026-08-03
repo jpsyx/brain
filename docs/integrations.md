@@ -541,11 +541,14 @@ bookkeeping.
   inactive task-schema helper is never called by sync; see
   [data-model.md](data-model.md) for the rules. Distinct UUIDs that claim one
   display ID are renumbered deterministically, side-specific `blocked_by` and
-  `see_also` references are resolved through UUIDs, and final project reverse links are
+  bounded task references in free-text `see_also` are resolved through UUIDs;
+  URL spans and non-reference text remain byte-preserved. Final project reverse links are
   staged from CSV `project` fields before repo-relative `.METADATA.json` paths
   are copied to the configured remote. Every authoritative metadata file is
   republished, even when its local bytes were already current, so retry heals
-  a previous partial remote publication. The operation writes the merged CSV
+  a previous partial remote publication. Local metadata write failures surface
+  as local-write errors, while callback failures identify remote publication.
+  The operation writes the merged CSV
   back to the local file, pushes it to the remote with another `rclone
   copyto`, then overwrites the baseline with the same merged text. A missing
   baseline (first run on a machine) means every row reads as newly added, so

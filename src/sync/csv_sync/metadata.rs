@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 use crate::sync::csv_merge::{Table, project_task_lists, rewrite_project_metadata};
 
@@ -10,6 +10,12 @@ pub(super) struct MetadataUpdate {
     before: Vec<u8>,
     after: Vec<u8>,
     locally_changed: bool,
+}
+
+#[derive(Debug)]
+pub(super) enum MetadataPublishError {
+    Local(String),
+    Remote(String),
 }
 
 pub(super) fn prepare_project_metadata(
@@ -67,7 +73,7 @@ pub(super) fn publish_project_metadata(
     staged: &[MetadataUpdate],
     update_local: bool,
     mut push: impl FnMut(&str, &str) -> bool,
-) -> Result<usize> {
+) -> std::result::Result<usize, MetadataPublishError> {
     let mut written = Vec::new();
     if update_local {
         for update in staged {
@@ -78,9 +84,10 @@ pub(super) fn publish_project_metadata(
                 for (written_path, original) in written.into_iter().rev() {
                     let _ = std::fs::write(written_path, original);
                 }
-                return Err(error).with_context(|| {
-                    format!("writing project metadata {}", update.path.display())
-                });
+                return Err(MetadataPublishError::Local(format!(
+                    "writing project metadata {}: {error}",
+                    update.path.display()
+                )));
             }
             written.push((&update.path, &update.before));
         }
@@ -88,7 +95,7 @@ pub(super) fn publish_project_metadata(
     for update in staged {
         let text = String::from_utf8_lossy(&update.after);
         if !push(&update.relative, &text) {
-            bail!("pushing reconciled project metadata {}", update.relative);
+            return Err(MetadataPublishError::Remote(update.relative.clone()));
         }
     }
     Ok(staged
@@ -106,4 +113,5 @@ pub(super) fn reconcile_project_metadata(
 ) -> Result<usize> {
     let staged = prepare_project_metadata(root, tables)?;
     publish_project_metadata(&staged, update_local, push)
+        .map_err(|error| anyhow::anyhow!("{error:?}"))
 }

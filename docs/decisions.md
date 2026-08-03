@@ -906,9 +906,11 @@ or remote. This side-independent rule makes mirror-order merges byte-identical.
 
 **Why relationships resolve before display reconciliation.** A remote child's
 `blocked_by=T10` means the remote `T10`, not whichever UUID later wins that
-label globally. Each side therefore resolves `blocked_by` and `see_also` task
-labels to UUIDs before row merge, then emits final display IDs afterward while
-preserving URLs. A missing target emits its original display label, never an
+label globally. Each side therefore resolves `blocked_by` labels and bounded
+task IDs in free-text `see_also` to UUIDs before row merge, then emits final
+display IDs afterward. The `see_also` scanner skips `http(s)` URL spans and
+preserves every separator and non-reference character, including longer IDs
+that only contain the changed label. A missing target emits its original display label, never an
 internal UUID marker. Project metadata reverse
 links are regenerated from the authoritative CSV `project` column for the same
 reason. All metadata rewrites are parsed and staged before local publication,

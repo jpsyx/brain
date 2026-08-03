@@ -22,15 +22,17 @@ pub(crate) fn resolve_side_references(table: &Table) -> Table {
             (!display.is_empty()).then(|| (display.to_owned(), uuid.clone()))
         })
         .collect::<BTreeMap<_, _>>();
-    ["blocked_by", "see_also"]
-        .into_iter()
-        .fold(table.clone(), |rewritten, column| {
-            rewrite_column(&rewritten, column, |token| {
-                display_to_uuid
-                    .get(token)
-                    .map(|uuid| format!("{UUID_MARKER}{uuid}{DISPLAY_FALLBACK_MARKER}{token}"))
-            })
-        })
+    let replacement = |token: &str| {
+        display_to_uuid
+            .get(token)
+            .map(|uuid| format!("{UUID_MARKER}{uuid}{DISPLAY_FALLBACK_MARKER}{token}"))
+    };
+    let rewritten = rewrite_column(table, "blocked_by", |value| {
+        rewrite_list(value, &replacement)
+    });
+    rewrite_column(&rewritten, "see_also", |value| {
+        rewrite_see_also(value, &replacement)
+    })
 }
 
 pub(crate) fn emit_final_references(table: &Table) -> Table {
@@ -45,27 +47,25 @@ pub(crate) fn emit_final_references(table: &Table) -> Table {
         .iter()
         .filter_map(|(uuid, row)| Some((uuid.clone(), row.get(display_index)?.clone())))
         .collect::<BTreeMap<_, _>>();
-    ["blocked_by", "see_also"]
-        .into_iter()
-        .fold(table.clone(), |rewritten, column| {
-            rewrite_column(&rewritten, column, |token| {
-                let encoded = token.strip_prefix(UUID_MARKER)?;
-                let (uuid, fallback) = encoded.split_once(DISPLAY_FALLBACK_MARKER)?;
-                Some(
-                    uuid_to_display
-                        .get(uuid)
-                        .cloned()
-                        .unwrap_or_else(|| fallback.to_owned()),
-                )
-            })
-        })
+    let replacement = |token: &str| {
+        let encoded = token.strip_prefix(UUID_MARKER)?;
+        let (uuid, fallback) = encoded.split_once(DISPLAY_FALLBACK_MARKER)?;
+        Some(
+            uuid_to_display
+                .get(uuid)
+                .cloned()
+                .unwrap_or_else(|| fallback.to_owned()),
+        )
+    };
+    let rewritten = rewrite_column(table, "blocked_by", |value| {
+        rewrite_list(value, &replacement)
+    });
+    rewrite_column(&rewritten, "see_also", |value| {
+        rewrite_see_also(value, &replacement)
+    })
 }
 
-fn rewrite_column(
-    table: &Table,
-    column: &str,
-    replacement: impl Fn(&str) -> Option<String>,
-) -> Table {
+fn rewrite_column(table: &Table, column: &str, rewrite: impl Fn(&str) -> String) -> Table {
     let Some(index) = table.column(column) else {
         return table.clone();
     };
@@ -74,9 +74,76 @@ fn rewrite_column(
         let Some(value) = row.get_mut(index) else {
             continue;
         };
-        *value = rewrite_list(value, &replacement);
+        *value = rewrite(value);
     }
     rewritten
+}
+
+fn rewrite_see_also(value: &str, replacement: &impl Fn(&str) -> Option<String>) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut index = 0;
+    while index < value.len() {
+        let tail = &value[index..];
+        if tail.starts_with("https://") || tail.starts_with("http://") {
+            let length = tail.find(char::is_whitespace).unwrap_or(tail.len());
+            output.push_str(&tail[..length]);
+            index += length;
+            continue;
+        }
+        if let Some(length) = encoded_reference_len(tail) {
+            let token = &tail[..length];
+            output.push_str(&replacement(token).unwrap_or_else(|| token.to_owned()));
+            index += length;
+            continue;
+        }
+        if let Some(length) = display_reference_len(value, index) {
+            let token = &value[index..index + length];
+            output.push_str(&replacement(token).unwrap_or_else(|| token.to_owned()));
+            index += length;
+            continue;
+        }
+        let character = tail.chars().next().expect("index is before string end");
+        output.push(character);
+        index += character.len_utf8();
+    }
+    output
+}
+
+fn encoded_reference_len(value: &str) -> Option<usize> {
+    let encoded = value.strip_prefix(UUID_MARKER)?;
+    let marker = encoded.find(DISPLAY_FALLBACK_MARKER)?;
+    let uuid = &encoded[..marker];
+    uuid::Uuid::parse_str(uuid).ok()?;
+    let display_start = UUID_MARKER.len() + marker + DISPLAY_FALLBACK_MARKER.len();
+    let display_length = display_reference_len(value, display_start)?;
+    Some(display_start + display_length)
+}
+
+fn display_reference_len(value: &str, start: usize) -> Option<usize> {
+    let bytes = value.as_bytes();
+    let prefix = *bytes.get(start)?;
+    if !matches!(prefix, b'T' | b'H') {
+        return None;
+    }
+    if start > 0 && is_reference_word_byte(bytes[start - 1]) {
+        return None;
+    }
+    let mut end = start + 1;
+    while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+        end += 1;
+    }
+    if end == start + 1
+        || bytes
+            .get(end)
+            .is_some_and(|byte| is_reference_word_byte(*byte))
+    {
+        return None;
+    }
+    Some(end - start)
+}
+
+fn is_reference_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn rewrite_list(value: &str, replacement: &impl Fn(&str) -> Option<String>) -> String {

@@ -156,6 +156,39 @@ fn malformed_project_metadata_aborts_before_rewriting_unrelated_projects() {
     assert_eq!(std::fs::read(alpha).unwrap(), original);
 }
 
+#[cfg(unix)]
+#[test]
+fn project_metadata_local_write_failure_is_classified_as_local_write() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let metadata = directory.path().join("projects/alpha/.METADATA.json");
+    std::fs::create_dir_all(metadata.parent().unwrap()).unwrap();
+    std::fs::write(&metadata, b"{\"name\":\"alpha\",\"tasks\":[\"T99\"]}\n").unwrap();
+    std::fs::set_permissions(&metadata, std::fs::Permissions::from_mode(0o400)).unwrap();
+    let paths = paths(directory.path());
+
+    let result = sync_csvs_with_transport(
+        &paths,
+        directory.path(),
+        Direction::Both,
+        |_| None,
+        |_, _| true,
+    );
+
+    std::fs::set_permissions(&metadata, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let error = result.unwrap_err();
+    assert!(matches!(
+        &error,
+        CsvSyncError::LocalWrite(message) if message.contains(".METADATA.json")
+    ));
+    assert!(
+        error
+            .to_string()
+            .starts_with("task state local write failed: writing project metadata")
+    );
+}
+
 #[test]
 fn metadata_retry_republishes_locally_unchanged_authoritative_files() {
     use std::cell::{Cell, RefCell};

@@ -695,6 +695,8 @@ allocation (`reconcile`), and dependency/project reverse-link rewriting
 base, local, and remote task/habit table as one operation before any write;
 `csv_sync/metadata.rs` stages project metadata and republishes every
 authoritative metadata file so retries heal partial remote publication.
+Its publication result distinguishes local filesystem failures from remote
+transport failures so command diagnostics identify the failing boundary.
 `counters` consumes display-ID floors from the reconciled tables only after
 that operation succeeds. None of these paths activates the migration helper.
 

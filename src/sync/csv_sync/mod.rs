@@ -73,7 +73,7 @@ impl fmt::Display for CsvSyncError {
         match self {
             Self::Preflight(message) => write!(formatter, "task CSV preflight failed: {message}"),
             Self::LocalWrite(message) => {
-                write!(formatter, "task CSV local write failed: {message}")
+                write!(formatter, "task state local write failed: {message}")
             }
             Self::RemotePublish(relative) => {
                 write!(

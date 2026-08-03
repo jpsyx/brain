@@ -84,6 +84,26 @@ fn deleted_reference_target_falls_back_to_original_display_id_without_marker_lea
 }
 
 #[test]
+fn space_separated_see_also_rewrites_bounded_ids_without_touching_urls_or_substrings() {
+    let header = "task_uuid,task_id,see_also,last_touched\n";
+    let base = parse(header);
+    let local = parse(&format!("{header}{LOCAL_PARENT_UUID},T10,,2026-08-02\n"));
+    let remote = parse(&format!(
+        "{header}\
+         {REMOTE_PARENT_UUID},T10,,2026-08-02\n\
+         {REMOTE_CHILD_UUID},T11,\"T10 https://linear.app/acme/issue/T10  (T10), T100 AT10 note-T10!\",2026-08-02\n"
+    ));
+
+    let merged = merge(&base, &local, &remote).0;
+
+    assert_eq!(cell(&merged, REMOTE_PARENT_UUID, "task_id"), "T12");
+    assert_eq!(
+        cell(&merged, REMOTE_CHILD_UUID, "see_also"),
+        "T12 https://linear.app/acme/issue/T10  (T12), T100 AT10 note-T12!"
+    );
+}
+
+#[test]
 fn project_metadata_reverse_links_are_regenerated_from_final_display_ids() {
     let (base, local, remote) = fixture();
     let merged = merge(&base, &local, &remote).0;

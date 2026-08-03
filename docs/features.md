@@ -757,7 +757,8 @@ tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
 UUID keeps it and the other rows receive deterministic IDs above the greatest
 number visible on either side. `blocked_by` chains and project metadata task
 lists are rewritten to the final labels; composite `see_also` values are too,
-without changing URLs. Unsupported schema versions, missing identity columns,
+including space-separated and punctuation-wrapped task IDs, without changing
+URLs or longer identifiers that merely contain the same characters. Unsupported schema versions, missing identity columns,
 legacy rows without `task_id`, or undeclared unknown columns refuse the whole
 task/habit operation before any CSV, baseline, metadata, remote, or counter
 write. See [data-model.md](data-model.md)
