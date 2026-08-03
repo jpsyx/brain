@@ -97,9 +97,9 @@ at the hook below.
 them here.** Record each sub-agent's handle so you can collect it when the task
 passes are done. The task-triage passes (Steps 0–8) run *while* the sub-agents
 work. Every registered sub-agent must also declare, at `triage:daily-merge`
-(collected just before Step 9), how its output folds back into the day's agenda
-before the final PDF is produced — launching a sub-agent here without a matching
-merge rule there is a mistake. If no sub-agent is registered, this is a no-op — go
+(collected just before Step 9), how its output folds back into the run's output
+before the run finalizes — launching a sub-agent here without a matching merge
+rule there is a mistake. If no sub-agent is registered, this is a no-op — go
 straight to Step 0.
 
 <!-- brain:ext triage:daily-subagents -->
@@ -338,28 +338,26 @@ Triage complete:
 
 Omit the at-risk / chronic-ignore lines when those scans were skipped or returned zero hits — just note "At-risk: none" / "Chronic-ignore: none" in that case. Any integration passes you run from an extension (email, issue-tracker reconcile) add their own summary lines above these.
 
-## Collect sub-agents, then merge into the agenda (gates the final PDF)
+## Collect sub-agents, then merge their output (before you finalize anything)
 
-If you launched any sub-agents at `triage:daily-subagents`, the day's agenda is
-**not** finalized to PDF until they all finish and their output has been merged
-in. Do this before Step 9 lets the agenda (re)generate:
+If you launched any sub-agents at `triage:daily-subagents`, the run is **not**
+finished until they all complete and their output has been merged in. Do this
+before Step 9:
 
-1. **Wait for every registered sub-agent to finish** and collect each one's result
-   (its output markdown / artifacts). Never render, print, or hand the user the
-   final agenda PDF while a sub-agent is still running — the one printable must
-   contain their work. This is the hard rule: the final daily-triage PDF is gated
-   on all sub-agents completing.
-2. **Merge each finished sub-agent's output into the daily-triage output** — the
-   day's agenda markdown — following the merge instructions that sub-agent's
-   extension declares at the hook below. The usual shape is to **append the
-   sub-agent's markdown section(s) to the agenda markdown**, so the single agenda
-   PDF ends up carrying both the triage agenda and the sub-agent's content. If a
-   sub-agent failed or was skipped, say so in the Step 8 summary and proceed with
-   what you have.
-3. Only once all sub-agents are collected and merged do you let the agenda PDF be
-   (re)generated in Step 9. That regenerated PDF is the combined printable.
+1. **Wait for every registered sub-agent to finish** and collect each one's
+   result (its output markdown / artifacts). Never finalize, render, or hand the
+   user any combined output of the run while a sub-agent is still running — a
+   printable the run produces must contain their work. This is the hard rule.
+2. **Merge each finished sub-agent's output into the run's output**, following
+   the merge instructions that sub-agent's extension declares at the hook below.
+   If a sub-agent failed or was skipped, say so in the Step 8 summary and proceed
+   with what you have.
+3. Only once all sub-agents are collected and merged do you produce or regenerate
+   the run's final output(s), then move to Step 9.
 
-With no registered sub-agents, this step is a no-op.
+Core itself produces no such output — this section only guarantees that *if* an
+extension does, the sub-agents' work is folded in first. With no registered
+sub-agents, this step is a no-op.
 
 <!-- brain:ext triage:daily-merge -->
 
@@ -388,17 +386,39 @@ the user gets nagged even though triage ran.
    When the tasks view launches daily triage in its own ephemeral tab it sets
    two environment variables in this session: `BRAIN_TRIAGE_DONE_URL` (a local
    brain-server URL) and `BRAIN_TRIAGE_TOKEN` (a one-time token). **Only when
-   both are set**, after the habit is marked done, POST the token so the tasks
-   view auto-closes this triage tab:
+   both are set**, after the habit is marked done, POST the completion signal so
+   the tasks view auto-closes this triage tab.
+
+   **The signal carries a `require` list — the paths of every output this run
+   committed to producing that must exist before the tab may close.** Core
+   itself declares none, so by default the list is empty. But this run may have
+   had extension steps rendered into it (at the hooks above, and at the
+   required-outputs hook just below) that produce a printable, a report, a
+   digest, or similar. If any such step told you it produces an output artifact
+   that must be on disk before closing, put that artifact's path in `require`.
+   brain holds the signal open and will **not** close the tab until every listed
+   path exists — so a premature signal can't kill the session before the run's
+   declared outputs land. With an empty list the tab closes as soon as the
+   signal arrives.
+
+   Declare here any required output paths (an extension fills this in; if none
+   is rendered, there are none and `require` stays empty):
+
+   <!-- brain:ext triage:daily-required-outputs -->
+
+   Then POST, substituting the required-output paths as a JSON string array (use
+   `[]` when there are none):
    ```
    [ -n "$BRAIN_TRIAGE_DONE_URL" ] && curl -fsS -X POST "$BRAIN_TRIAGE_DONE_URL" \
      -H 'Content-Type: application/json' \
-     -d "{\"token\": \"$BRAIN_TRIAGE_TOKEN\"}" >/dev/null || true
+     -d "{\"token\": \"$BRAIN_TRIAGE_TOKEN\", \"require\": [<required-output paths, or empty>]}" \
+     >/dev/null || true
    ```
-   Do this as the very last action of the pass — the tab closes as soon as the
-   signal lands, so anything you still need to show the user must come first.
-   When the variables are unset (a normal in-session `/triage`, not a
-   background tab), skip this step entirely; there is nothing to close.
+   Do this as the very last action of the pass — once every required output
+   exists the tab closes as soon as the signal lands, so anything you still need
+   to show the user must come first. When the variables are unset (a normal
+   in-session `/triage`, not a background tab), skip this step entirely; there is
+   nothing to close.
 
 **"Skip daily triage today" ⇒ skip the Morning Triage habit anyway
 (explicit user rule).** When the user explicitly says we can **skip**

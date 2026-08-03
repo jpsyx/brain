@@ -181,11 +181,26 @@ impl App<'_> {
             self.close_triage_tab();
             return;
         }
-        if crate::triage_signal::read_token().as_deref() == Some(expected.as_str()) {
-            crate::logging::log("triage tab: completion signal received; closing");
-            self.close_triage_tab();
-            self.flash = Some(FlashKind::Info("✓ daily triage complete".to_owned()));
+        let Some(signal) = crate::triage_signal::read_signal() else {
+            return;
+        };
+        if signal.token != expected {
+            return;
         }
+        // The token matches, but the pass declared output artifacts (an
+        // extension's printable, report, …) that must exist first. Hold the
+        // signal — leave the file, keep the tab open — and re-check next tick,
+        // so a premature POST can't close the tab before those outputs land.
+        // An empty `require` list (core alone, or a fork with no extension)
+        // closes immediately.
+        if !crate::triage_signal::ready_to_close(&signal.require, |p| {
+            std::path::Path::new(p).exists()
+        }) {
+            return;
+        }
+        crate::logging::log("triage tab: completion signal received; closing");
+        self.close_triage_tab();
+        self.flash = Some(FlashKind::Info("✓ daily triage complete".to_owned()));
     }
 }
 

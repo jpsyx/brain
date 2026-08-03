@@ -757,13 +757,18 @@ brain (synced, never committed to the repo):
   matching marker is appended as a "Personal extensions" section, so nothing is
   lost. This is how, e.g., the bundled `triage` skill declares
   `triage:daily-open` / `triage:daily-subagents` / `triage:daily-linear` /
-  `triage:daily-merge` / `triage:weekly-inboxes` / `triage:weekly-linear` hooks so
-  a personal extension can bolt an email pass, an issue-tracker reconcile, and a
-  cloud in-basket onto the generic core. The `triage:daily-subagents` /
-  `triage:daily-merge` pair lets an extension run work **in parallel** with daily
-  triage (launched at the start, collected before Step 9) and fold its output into
-  the day's agenda; the final agenda PDF is gated on every registered sub-agent
-  finishing and merging first.
+  `triage:daily-merge` / `triage:daily-required-outputs` / `triage:weekly-inboxes`
+  / `triage:weekly-linear` hooks so a personal extension can bolt an email pass,
+  an issue-tracker reconcile, and a cloud in-basket onto the generic core. The
+  `triage:daily-subagents` / `triage:daily-merge` pair lets an extension run work
+  **in parallel** with daily triage (launched at the start, collected before Step
+  9) and fold its output into the run's output. The tab-close is then gated
+  generically: the completion signal carries a `require` list of output paths the
+  run declared (an extension supplies them at `triage:daily-required-outputs`;
+  core supplies none), and the daily-triage tab will not close until every one
+  exists — so a premature "done" can't kill the session before an extension's
+  printable is written. An empty list closes immediately, keeping the generic
+  core and any fork identical to the old behavior.
 - **Plugins** — whole skills you own, in `<root>/.config/plugins/<name>/`. The
   sync installs them alongside the bundled cores, into the same registry and
   frontends.

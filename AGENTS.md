@@ -160,6 +160,26 @@ users in `skills/`.)
 
 ## House rules (project-specific)
 
+- **Skill code and core skill text know nothing about extensions.** A bundled
+  skill (`skills/<name>/SKILL.md`) declares hooks (`<!-- brain:ext <skill>:<hook> -->`)
+  that a user's extension *may* fill; the skills pipeline renders them into a
+  flattened copy (markers stripped, content inlined or appended — see
+  `src/skills/extension.rs`). When you touch **anything skill-related** — a
+  bundled `SKILL.md`, the skills pipeline, or any code that coordinates with a
+  skill (the triage completion signal, a hook-driven handoff) — you may assume
+  only that *a hook might carry extension content*. Never assume an extension
+  exists, never assume what it contains, and **never bake an
+  extension-specific artifact into core** — no path, filename, directory, URL,
+  or product name (`~/Downloads`, an "agenda", a "PDF", a private endpoint) may
+  appear in core code or core skill text unless it is genuinely part of the
+  generic core. Any generic mechanism core provides for extensions must have a
+  correct **no-op default** when no extension contributes (an empty list, a
+  skipped step), so the bundled core and any fork behave identically with no
+  extensions installed. When a run must hand core data an extension produced
+  (e.g. "these output files must exist before the tab closes"), pass it as
+  **runtime data the run supplies**, not an author-time assumption in core. The
+  daily-triage completion signal's `require` gate (`src/triage_signal.rs`,
+  `docs/decisions.md`) is the reference implementation.
 - **No `unsafe`.** `[lints.rust] unsafe_code = "forbid"` enforces it.
 - **Keep clippy clean.** `pedantic` + `nursery` are on at `warn`; don't
   add new warnings.

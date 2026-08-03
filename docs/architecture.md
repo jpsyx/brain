@@ -720,9 +720,13 @@ of the session DB.
 
 ### `triage_signal.rs`
 The on-disk bridge for the daily-triage tab's completion signal. Pure
-`parse_token` plus a thin file shell (`record_done` / `read_token` / `clear`,
+`parse_signal` + `ready_to_close` (the close gate: every path the run declared
+in `require` must exist; core declares none, so an empty list closes at once)
+plus a thin file shell (`record_done` / `read_signal` / `clear`,
 `~/.cache/brain/triage-done.json`): the brain server writes it from
-`POST /triage/done`, the TUI polls it each tick. See
+`POST /triage/done`, the TUI polls it each tick and holds a premature signal
+until its required outputs land. Deliberately ignorant of *what* those outputs
+are — see the extension-agnostic rule in [AGENTS.md](../AGENTS.md). See
 [integrations.md](integrations.md). This file remains part of the transitional
 machine-shared server control plane; workspace membership/routing and its
 replacement belong to the approved shared-server phase.

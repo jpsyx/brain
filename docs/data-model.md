@@ -407,18 +407,27 @@ is torn down when triage completes or the shell exits.
 ## Daily-triage completion signal (`triage_signal.rs`, `~/.cache/brain/triage-done.json`)
 
 The cross-process signal that closes the daily-triage tab. When the `/triage`
-skill finishes a background pass it POSTs `{"token": "<one-time-token>"}` to the
-brain server's `POST /triage/done`; the handler writes:
+skill finishes a background pass it POSTs
+`{"token": "<one-time-token>", "require": ["<path>", …]}` to the brain server's
+`POST /triage/done`; the handler writes:
 
 ```json
-{ "token": "<one-time-token>", "at": 1730000000 }
+{ "token": "<one-time-token>", "require": ["/abs/path/one", "/abs/path/two"], "at": 1730000000 }
 ```
 
 `token` is the value brain handed the session in `BRAIN_TRIAGE_TOKEN`; `at` is
-an epoch-seconds diagnostic. The TUI polls this file each tick and closes the
-triage tab only when `token` equals the token of the tab it opened, so a stale
-signal from an earlier run cannot close a fresh tab. `parse_token` is pure; the
-file IO (`record_done` / `read_token` / `clear`) is a thin shell around it.
+an epoch-seconds diagnostic. `require` is the set of **output paths this run
+declared must exist before the tab may close** — the fix for a premature signal
+closing the tab before the run's outputs were written. **Core declares none**,
+so `require` is empty unless an extension rendered into the skill contributed a
+path (at the `triage:daily-required-outputs` hook); `triage_signal.rs` and the
+TUI stay completely ignorant of *what* the paths are. The TUI polls this file
+each tick and closes the triage tab only when `token` equals the token of the
+tab it opened **and** every path in `require` exists on disk (an empty list
+closes immediately, so a fork with no extensions behaves as before); a stale
+signal from an earlier run cannot close a fresh tab. `parse_signal` and
+`ready_to_close` are pure; the file IO (`record_done` / `read_signal` / `clear`)
+is a thin shell around them.
 
 ## Personalization (`personalization/`, `<brain-root>/.config/personalization.json`)
 

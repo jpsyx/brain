@@ -140,15 +140,23 @@ but with two deliberate differences from the main panel:
   back-and-forth with the user, so "the agent went idle" is not a reliable done
   signal. brain first calls `server::lifecycle::ensure_running()` to bring up the
   internal habits daemon and passes its `POST /triage/done` URL plus a one-time
-  token into the session. When the `/triage` skill finishes (PDF written, habit
-  marked) it POSTs `{"token": "<token>"}` to that URL. The daemon and the TUI are
-  separate processes, so the signal crosses on disk: the `routes::triage`
-  handler records it to `~/.cache/brain/triage-done.json` via
+  token into the session. When the `/triage` skill finishes (the habit marked
+  and every output the run declared it must produce on disk) it POSTs
+  `{"token": "<token>", "require": ["<path>", …]}` to that URL. The daemon and
+  the TUI are separate processes, so the signal crosses on disk: the
+  `routes::triage` handler records it to `~/.cache/brain/triage-done.json` via
   `crate::triage_signal::record_done`, and the TUI's per-tick
-  `App::tick_triage_done` reads it (`triage_signal::read_token`) and auto-closes
-  the tab only when the token matches the tab it opened. The token guard means a
-  stale signal from an earlier run can't close a freshly-opened tab. If the
-  triage child exits on its own, the same tick closes the tab.
+  `App::tick_triage_done` reads it (`triage_signal::read_signal`) and auto-closes
+  the tab only when the token matches the tab it opened **and** every path in
+  `require` exists (`triage_signal::ready_to_close`). The token guard means a
+  stale signal from an earlier run can't close a freshly-opened tab; the
+  `require` gate means a *premature* signal can't close the tab before the run's
+  declared outputs are written (the signal is held, re-checked each tick, until
+  they exist). **Core knows nothing about what those outputs are** — `require`
+  is empty unless an extension rendered into the skill declared a path at the
+  `triage:daily-required-outputs` hook, and an empty list closes immediately, so
+  the generic core (and any fork) behaves exactly as before. If the triage child
+  exits on its own, the same tick closes the tab regardless.
 
 `brain server`'s route table therefore gains `POST /triage/done` (see
 `server/router.rs` + `server/routes/triage/`), an unauthenticated

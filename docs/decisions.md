@@ -1115,16 +1115,35 @@ user's extension. So the whole email-triage-first pass, the Superhuman
 reply-reconcile, the Linear reconcile/mirror-in/grooming pass (it hardcodes an
 owner email — which personalization has no field for — plus an `AVA-###` prefix
 and a `/linear-pm` dependency), and the private Notion In-Basket URL all live in
-Pablo's `triage` extension, not the repo. The core declares six hooks
+Pablo's `triage` extension, not the repo. The core declares seven hooks
 (`triage:daily-open`, `triage:daily-subagents`, `triage:daily-linear`,
-`triage:daily-merge`, `triage:weekly-inboxes`, `triage:weekly-linear`) at the
-exact points those passes ran, so the rendered copy reproduces the original flow
-byte-for-behavior while the repo stays generic. The `daily-subagents` /
-`daily-merge` pair is the generic seam for running an extension's work (e.g. the
-email pass) **in parallel** with daily triage instead of serially before it: the
-core launches registered sub-agents at the start, and gates the final agenda PDF
-on all of them finishing and merging their output into the agenda before Step 9
-regenerates it.
+`triage:daily-merge`, `triage:daily-required-outputs`, `triage:weekly-inboxes`,
+`triage:weekly-linear`) at the exact points those passes ran, so the rendered
+copy reproduces the original flow byte-for-behavior while the repo stays generic.
+The `daily-subagents` / `daily-merge` pair is the generic seam for running an
+extension's work (e.g. the email pass) **in parallel** with daily triage instead
+of serially before it: the core launches registered sub-agents at the start, and
+requires all of them to finish and merge their output into the run's output
+before Step 9.
+
+**Gating the tab-close on the run's declared outputs (extension-agnostic).**
+The daily-triage tab used to close the instant the `/triage` skill POSTed its
+one-time token, and in practice the model fired that POST as soon as the *task*
+passes finished — before an extension's printable/PDF was baked — so the tab
+died mid-bake and the output never landed. The tempting fix (have the code wait
+for the PDF) is exactly wrong here: the agenda, the markdown, and `~/Downloads`
+are all a *user extension's* concern (`triage:daily-merge`), and the core skill +
+`triage_signal.rs` must assume **nothing** about whether any such extension
+exists or what files it writes. So the fix is a generic contract: the completion
+POST carries a `require` list of output paths *the run itself declared* (an
+extension supplies them at `triage:daily-required-outputs`; core supplies none),
+and `App::tick_triage_done` holds the signal and refuses to close until every
+listed path exists (`triage_signal::ready_to_close`, pure). An empty list —
+the no-extension / fork case — closes immediately, identical to the old
+behavior. This is the reference case for the extension-agnostic rule now written
+into [AGENTS.md](../AGENTS.md): skill-related code and core skill text may assume
+a hook *might* carry extension content, never what it contains, and every
+generic mechanism must no-op when no extension contributes.
 A guard test (`bundled_skills_carry_no_personal_data`) fails the build if any
 bundled skill grows a personal token, so this line can't silently erode.
 
