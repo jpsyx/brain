@@ -532,16 +532,20 @@ bookkeeping.
   `<workspace-cache>/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
   never synced), the local file, and the remote copy (fetched with `rclone
   copyto <remote> <tmp>`, over the same env-var `BRAIN:` remote bisync uses);
-  validates `tasks/SCHEMA.json`, then merges the three with the pure 3-way
-  merge in `crate::sync::csv_merge`. Legacy input remains keyed by `task_id`;
+  preflights `tasks/SCHEMA.json` plus the base, local, and remote generations
+  of both CSVs, then merges with the pure 3-way merge in
+  `crate::sync::csv_merge`. Any preflight failure aborts this whole lane before
+  CSVs, baselines, project metadata, remote objects, or counters change.
+  Nonempty legacy input must contain and remains keyed by `task_id`;
   schema-v2 input is name-aligned and keyed by immutable `task_uuid`. The
   inactive task-schema helper is never called by sync; see
   [data-model.md](data-model.md) for the rules. Distinct UUIDs that claim one
-  display ID are renumbered deterministically, side-specific `blocked_by`
-  references are resolved through UUIDs, and final project reverse links are
+  display ID are renumbered deterministically, side-specific `blocked_by` and
+  `see_also` references are resolved through UUIDs, and final project reverse links are
   staged from CSV `project` fields before repo-relative `.METADATA.json` paths
-  are copied to the configured remote;
-  writes the merged CSV
+  are copied to the configured remote. Every authoritative metadata file is
+  republished, even when its local bytes were already current, so retry heals
+  a previous partial remote publication. The operation writes the merged CSV
   back to the local file, pushes it to the remote with another `rclone
   copyto`, then overwrites the baseline with the same merged text. A missing
   baseline (first run on a machine) means every row reads as newly added, so
@@ -550,19 +554,21 @@ bookkeeping.
   same-field CSV conflicts normally resolve by row recency on both tables. The
   merge outcome (added/merged/deleted/soft-conflict counts) is folded into the
   sync journal's `note` column as a `csv: +A ~M -D` segment (see
-  [data-model.md](data-model.md)); a CSV-merge failure never changes the
-  bisync run's own outcome, and the step is skipped entirely when that run
-  aborted. See [decisions.md](decisions.md) for why this file pair gets a
-  semantic merge instead of keep-both.
+  [data-model.md](data-model.md)); a typed CSV-lane failure stops sync and
+  prevents counter reconciliation. The step is skipped entirely when the
+  bisync run aborted. See [decisions.md](decisions.md) for why this file pair
+  gets a semantic merge instead of keep-both.
 - **The two id counters are max-merged and floored out-of-band, right after the CSVs.**
   `tasks/.tasks_next_id` and `tasks/.habits_next_id` hold the next integer id to
   hand out. They're excluded from bisync too, because bisync's newer-mtime rule
   would let a machine with a *lower* counter that wrote more recently win, and it
   would then re-hand-out ids the other machine already assigned. Instead
   `command::sync_once` calls `crate::sync::counters::sync_counters`: for each
-  counter it fetches the remote value (same `rclone copyto` transport), reads the
-  local value, scans the name-aligned local and remote CSV display IDs, and
-  writes/pushes `max(local, remote, emitted_max + 1)`. The floor prevents a
+  counter it fetches the remote value (same `rclone copyto` transport), reads
+  the local value, and applies the corresponding floor returned by the CSV
+  operation. It does not fetch the remote CSVs a second time. The resulting
+  value is `max(local, remote, reconciled_max + 1)`. Push-only sync also writes
+  the reconciled floor locally. The floor prevents a
   normal writer from reissuing a display label created by collision
   reconciliation. Missing or garbage counter values are treated as absent.
 - **`brain check` has a read-only CSV lane too.** Since those two CSVs are

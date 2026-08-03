@@ -104,26 +104,35 @@ fn sync_one_counter_push_only(
 
 fn sync_one_counter_with_mode(
     local: &Path,
-    fetch: impl Fn() -> Option<String>,
-    push: impl Fn(&str) -> bool,
-    update_local: bool,
+    mut fetch: impl FnMut() -> Option<String>,
+    mut push: impl FnMut(&str) -> bool,
+    download_remote: bool,
     floor: u32,
 ) -> Option<u32> {
     let ours = std::fs::read_to_string(local)
         .ok()
         .and_then(|t| parse_counter(&t));
     let theirs = fetch().and_then(|t| parse_counter(&t));
-    let merged = merge_counter(merge_counter(ours, theirs), (floor > 0).then_some(floor));
-    if let Some(value) = merged {
+    let floor = (floor > 0).then_some(floor);
+    let merged = merge_counter(merge_counter(ours, theirs), floor);
+    let local_value = if download_remote {
+        merged
+    } else {
+        merge_counter(ours, floor)
+    };
+    if let Some(value) = local_value {
         // Only write when the merged value differs from what each side already
         // holds, so an unchanged counter doesn't churn the file or the remote.
         let text = format!("{value}\n");
-        if update_local && ours != Some(value) {
+        if ours != Some(value) {
             if let Some(dir) = local.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
             let _ = std::fs::write(local, &text);
         }
+    }
+    if let Some(value) = merged {
+        let text = format!("{value}\n");
         if theirs != Some(value) {
             let _ = push(&text);
         }
@@ -137,79 +146,70 @@ fn sync_one_counter_with_mode(
 /// Transport uses rclone `copyto` through a temp file. Best-effort: a
 /// per-counter failure yields `None` rather than aborting the caller's sync.
 #[must_use]
+pub(crate) fn sync_counters_with_transport(
+    root: &Path,
+    direction: Direction,
+    floors: crate::sync::csv_sync::DisplayIdFloors,
+    mut fetch: impl FnMut(&str) -> Option<String>,
+    mut push: impl FnMut(&str, &str) -> bool,
+) -> Vec<(String, Option<u32>)> {
+    let mut out = Vec::with_capacity(COUNTERS.len());
+    for rel in COUNTERS {
+        let local = counter_path(root, rel);
+        let floor = floors.for_counter(rel);
+        let value = sync_one_counter_with_mode(
+            &local,
+            || fetch(rel),
+            |text| push(rel, text),
+            direction != Direction::Push,
+            floor,
+        );
+        out.push((rel.to_owned(), value));
+    }
+    out
+}
+
+/// Reconcile counter files using display floors produced by the exact CSV
+/// tables published in the same sync operation.
+#[must_use]
 pub fn sync_counters(
     cfg: &SyncConfig,
     root: &Path,
     direction: Direction,
+    floors: crate::sync::csv_sync::DisplayIdFloors,
 ) -> Vec<(String, Option<u32>)> {
     let remote = build_remote(cfg);
-    let mut out = Vec::with_capacity(COUNTERS.len());
-    for rel in COUNTERS {
-        let local = counter_path(root, rel);
-        let remote_arg = crate::sync::csv_sync::remote_csv_arg(&remote.arg, rel);
-        let tag = rel.replace('/', "_");
-
-        let (csv_rel, prefix) = if rel.ends_with(".tasks_next_id") {
-            ("tasks/tasks.csv", 'T')
-        } else {
-            ("tasks/habits.csv", 'H')
-        };
-        let local_csv = std::fs::read_to_string(root.join(csv_rel)).unwrap_or_default();
-        let remote_csv_arg = crate::sync::csv_sync::remote_csv_arg(&remote.arg, csv_rel);
-        let remote_csv_tmp = std::env::temp_dir().join(format!(
-            "brain-counter-csv-floor-{}-{tag}",
-            std::process::id()
-        ));
-        let csv_args = [
+    let fetch = |relative: &str| {
+        let tag = relative.replace('/', "_");
+        let tmp =
+            std::env::temp_dir().join(format!("brain-counter-fetch-{}-{tag}", std::process::id()));
+        let args = [
             "copyto".to_owned(),
-            remote_csv_arg,
-            remote_csv_tmp.to_string_lossy().into_owned(),
+            crate::sync::csv_sync::remote_csv_arg(&remote.arg, relative),
+            tmp.to_string_lossy().into_owned(),
         ];
-        let (csv_ok, _) = run_rclone_capture(&remote.env, &csv_args);
-        let remote_csv = csv_ok
-            .then(|| std::fs::read_to_string(&remote_csv_tmp).ok())
-            .flatten()
-            .unwrap_or_default();
-        let _ = std::fs::remove_file(&remote_csv_tmp);
-        let floor = counter_floor_from_csvs(&local_csv, &remote_csv, prefix).unwrap_or(0);
-
-        let fetch = || {
-            let tmp = std::env::temp_dir()
-                .join(format!("brain-counter-fetch-{}-{tag}", std::process::id()));
-            let args = [
-                "copyto".to_owned(),
-                remote_arg.clone(),
-                tmp.to_string_lossy().into_owned(),
-            ];
-            let (ok, _) = run_rclone_capture(&remote.env, &args);
-            let text = ok.then(|| std::fs::read_to_string(&tmp).ok()).flatten();
-            let _ = std::fs::remove_file(&tmp);
-            text
-        };
-        let push = |text: &str| {
-            let tmp = std::env::temp_dir()
-                .join(format!("brain-counter-push-{}-{tag}", std::process::id()));
-            if std::fs::write(&tmp, text).is_err() {
-                return false;
-            }
-            let args = [
-                "copyto".to_owned(),
-                tmp.to_string_lossy().into_owned(),
-                remote_arg.clone(),
-            ];
-            let (ok, _) = run_rclone_capture(&remote.env, &args);
-            let _ = std::fs::remove_file(&tmp);
-            ok
-        };
-
-        let value = if direction == Direction::Push {
-            sync_one_counter_with_mode(&local, fetch, push, false, floor)
-        } else {
-            sync_one_counter_at_least(&local, fetch, push, floor)
-        };
-        out.push((rel.to_owned(), value));
-    }
-    out
+        let (ok, _) = run_rclone_capture(&remote.env, &args);
+        let text = ok.then(|| std::fs::read_to_string(&tmp).ok()).flatten();
+        let _ = std::fs::remove_file(&tmp);
+        text
+    };
+    let push = |relative: &str, text: &str| {
+        let tag = relative.replace('/', "_");
+        let tmp =
+            std::env::temp_dir().join(format!("brain-counter-push-{}-{tag}", std::process::id()));
+        if std::fs::write(&tmp, text).is_err() {
+            return false;
+        }
+        let args = [
+            "copyto".to_owned(),
+            tmp.to_string_lossy().into_owned(),
+            crate::sync::csv_sync::remote_csv_arg(&remote.arg, relative),
+        ];
+        let (ok, _) = run_rclone_capture(&remote.env, &args);
+        let _ = std::fs::remove_file(&tmp);
+        ok
+    };
+    sync_counters_with_transport(root, direction, floors, fetch, push)
 }
 
 #[cfg(test)]

@@ -742,7 +742,7 @@ canonical file, then clears the copies with `brain sync resolve <original>`.
 
 **Task CSVs merge by immutable identity, with no conflict copies.** `tasks/tasks.csv` and
 `tasks/habits.csv` don't go through the keep-both path above at all: brain
-excludes them from the bisync file lane and reconciles them itself with an
+excludes them from the bisync file lane and reconciles them itself with a
 three-way merge (a cached local baseline + your local copy + the remote
 copy), writing the merged result back to both sides. Two machines that each
 add, complete, delete, or edit different fields on the same task converge
@@ -756,17 +756,21 @@ tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
 `task_uuid`. If distinct UUIDs claim the same `T###` or `H###`, the smaller
 UUID keeps it and the other rows receive deterministic IDs above the greatest
 number visible on either side. `blocked_by` chains and project metadata task
-lists are rewritten to the final labels. Unsupported schema versions, missing
-identity columns, or undeclared unknown columns refuse the CSV write. See [data-model.md](data-model.md)
+lists are rewritten to the final labels; composite `see_also` values are too,
+without changing URLs. Unsupported schema versions, missing identity columns,
+legacy rows without `task_id`, or undeclared unknown columns refuse the whole
+task/habit operation before any CSV, baseline, metadata, remote, or counter
+write. See [data-model.md](data-model.md)
 for the merge rules and
 [integrations.md](integrations.md) for the transport.
 
 The two id counters (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) that say
 which id to hand out next are also excluded from bisync and reconciled
 separately: take the highest local/remote counter, then raise it beyond the
-greatest emitted CSV display ID. Neither machine ever
-re-hands-out an id the other already used — no id collisions, regardless of
-which machine synced last.
+greatest display ID in the reconciled tables. Push-only sync also applies that
+floor locally before another task or habit can be allocated. Neither machine
+ever re-hands-out an id the other already used, so there are no id collisions
+regardless of which machine synced last.
 
 **Doctor.** `brain tasks doctor` reports rclone/sync health as one
 informational line: `rclone ✓ <version> · sync configured` or

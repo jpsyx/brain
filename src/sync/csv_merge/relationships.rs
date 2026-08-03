@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::Table;
 
 const UUID_MARKER: &str = "uuid:";
+const DISPLAY_FALLBACK_MARKER: &str = ";display:";
 
 pub(crate) fn resolve_side_references(table: &Table) -> Table {
     if !table.is_uuid_keyed() {
@@ -21,11 +22,15 @@ pub(crate) fn resolve_side_references(table: &Table) -> Table {
             (!display.is_empty()).then(|| (display.to_owned(), uuid.clone()))
         })
         .collect::<BTreeMap<_, _>>();
-    rewrite_column(table, "blocked_by", |token| {
-        display_to_uuid
-            .get(token)
-            .map(|uuid| format!("{UUID_MARKER}{uuid}"))
-    })
+    ["blocked_by", "see_also"]
+        .into_iter()
+        .fold(table.clone(), |rewritten, column| {
+            rewrite_column(&rewritten, column, |token| {
+                display_to_uuid
+                    .get(token)
+                    .map(|uuid| format!("{UUID_MARKER}{uuid}{DISPLAY_FALLBACK_MARKER}{token}"))
+            })
+        })
 }
 
 pub(crate) fn emit_final_references(table: &Table) -> Table {
@@ -40,11 +45,20 @@ pub(crate) fn emit_final_references(table: &Table) -> Table {
         .iter()
         .filter_map(|(uuid, row)| Some((uuid.clone(), row.get(display_index)?.clone())))
         .collect::<BTreeMap<_, _>>();
-    rewrite_column(table, "blocked_by", |token| {
-        token
-            .strip_prefix(UUID_MARKER)
-            .and_then(|uuid| uuid_to_display.get(uuid).cloned())
-    })
+    ["blocked_by", "see_also"]
+        .into_iter()
+        .fold(table.clone(), |rewritten, column| {
+            rewrite_column(&rewritten, column, |token| {
+                let encoded = token.strip_prefix(UUID_MARKER)?;
+                let (uuid, fallback) = encoded.split_once(DISPLAY_FALLBACK_MARKER)?;
+                Some(
+                    uuid_to_display
+                        .get(uuid)
+                        .cloned()
+                        .unwrap_or_else(|| fallback.to_owned()),
+                )
+            })
+        })
 }
 
 fn rewrite_column(

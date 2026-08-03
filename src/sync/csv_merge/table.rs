@@ -26,7 +26,7 @@ impl Table {
         } else if self.column("task_id").is_some() {
             Some("task_id")
         } else {
-            self.header.first().map(String::as_str)
+            None
         }
     }
 
@@ -71,16 +71,17 @@ pub fn parse(text: &str) -> Table {
     let key_index = header
         .iter()
         .position(|column| column == "task_uuid")
-        .or_else(|| header.iter().position(|column| column == "task_id"))
-        .unwrap_or(0);
+        .or_else(|| header.iter().position(|column| column == "task_id"));
     let mut rows = BTreeMap::new();
-    for record in reader.records().flatten() {
+    for (row_index, record) in reader.records().flatten().enumerate() {
         let mut cells = record.iter().map(str::to_owned).collect::<Vec<_>>();
         if cells.is_empty() {
             continue;
         }
         cells.resize(width, String::new());
-        let key = cells.get(key_index).cloned().unwrap_or_default();
+        let key = key_index
+            .and_then(|index| cells.get(index).cloned())
+            .unwrap_or_else(|| format!("invalid-row-{row_index}"));
         rows.insert(key, cells);
     }
     Table { header, rows }
@@ -103,6 +104,11 @@ pub fn serialize(table: &Table) -> String {
 /// Validate tables against the portable task-schema manifest before sync
 /// writes. Legacy tables remain accepted only while schema v2 is absent.
 pub fn validate_for_merge(manifest: Option<&str>, tables: &[&Table]) -> Result<()> {
+    for table in tables.iter().filter(|table| !table.header.is_empty()) {
+        if !table.is_uuid_keyed() && table.column("task_id").is_none() {
+            bail!("legacy task CSV is missing required task_id merge key");
+        }
+    }
     let uuid_tables = tables
         .iter()
         .filter(|table| !table.header.is_empty() && table.is_uuid_keyed())
@@ -148,13 +154,7 @@ pub fn validate_for_merge(manifest: Option<&str>, tables: &[&Table]) -> Result<(
 }
 
 fn validate_current_table(table: &Table, preserve_unknown: bool) -> Result<()> {
-    const REQUIRED: [&str; 5] = [
-        "task_uuid",
-        "task_id",
-        "assigned_to",
-        "system_key",
-        "last_touched",
-    ];
+    const REQUIRED: [&str; 4] = ["task_uuid", "task_id", "assigned_to", "system_key"];
     const KNOWN: [&str; 29] = [
         "task_uuid",
         "task_id",

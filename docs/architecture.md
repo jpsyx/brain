@@ -691,9 +691,12 @@ dispatch invokes it. Legacy CSVs keep `task_id` as their first sync key until
 that coordinated migration runs. After migration, `sync/csv_merge/` owns
 name-aligned UUID merge (`table` + `merge`), deterministic mutable display-ID
 allocation (`reconcile`), and dependency/project reverse-link rewriting
-(`relationships`). `csv_sync` validates schema v2 before any write and stages
-project metadata before publishing it; `counters` floors the next ID beyond
-every emitted label. None of these paths activates the migration helper.
+(`relationships`). `csv_sync/operation.rs` preflights the manifest and every
+base, local, and remote task/habit table as one operation before any write;
+`csv_sync/metadata.rs` stages project metadata and republishes every
+authoritative metadata file so retries heal partial remote publication.
+`counters` consumes display-ID floors from the reconciled tables only after
+that operation succeeds. None of these paths activates the migration helper.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the

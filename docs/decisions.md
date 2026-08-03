@@ -906,11 +906,21 @@ or remote. This side-independent rule makes mirror-order merges byte-identical.
 
 **Why relationships resolve before display reconciliation.** A remote child's
 `blocked_by=T10` means the remote `T10`, not whichever UUID later wins that
-label globally. Each side therefore resolves dependency labels to UUIDs before
-row merge, then emits final display IDs afterward. Project metadata reverse
+label globally. Each side therefore resolves `blocked_by` and `see_also` task
+labels to UUIDs before row merge, then emits final display IDs afterward while
+preserving URLs. A missing target emits its original display label, never an
+internal UUID marker. Project metadata reverse
 links are regenerated from the authoritative CSV `project` column for the same
 reason. All metadata rewrites are parsed and staged before local publication,
 so one malformed project cannot partially rewrite unrelated projects.
+
+**Why schema-v2 validation is one whole-operation preflight.** Validating or
+publishing one CSV at a time could update tasks before discovering that habits
+is incompatible. Brain validates the manifest and all six base/local/remote
+tables first, then stages all project metadata. Any failure therefore leaves
+both CSVs, both baselines, metadata, remotes, and counters unchanged. Current
+identity requires `task_uuid`, `task_id`, `assigned_to`, and `system_key`;
+`last_touched` improves conflict resolution but is not identity.
 
 **Why schema-v2 unknown columns are opt-in.** Silently accepting a column Brain
 does not understand can preserve bytes while breaking relationship or identity
@@ -1466,11 +1476,13 @@ had already assigned — colliding in the id-keyed CSV merge (two different rows
 sharing one `task_id`). So the counters are now excluded from bisync and
 reconciled out-of-band by the maximum local and remote value.
 
-Max is the whole rule, deliberately. It is stateless (needs no 3-way baseline
+Max is the whole counter rule, deliberately. It is stateless (needs no 3-way baseline
 like the CSVs), convergent, idempotent, and monotonic, so it can never regress a
 counter and never lets an id be reused. UUID collision reconciliation adds one
-necessary floor: after CSV merge, the counter is also raised to one beyond the
-maximum emitted display number across the updated local and remote CSV. This
+necessary floor: the successful CSV operation returns one beyond the maximum
+emitted display number from its reconciled task and habit tables. Counter sync
+consumes those floors without fetching either remote CSV again. Push-only sync
+also writes the floor locally before the next allocation. This
 keeps the next ordinary writer from reissuing a label that reconciliation just
 created. A missing or garbage counter is treated as absent; absent counters
 still derive their first safe value from the CSV floor.

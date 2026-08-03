@@ -820,7 +820,7 @@ No groups at all serializes as `[]`. This is the shape the `/second-brain
 resolve-conflicts` skill parses; see [integrations.md](integrations.md) for
 the resolve side of the contract.
 
-## CSV semantic merge (`src/sync/csv_merge/`, `src/sync/csv_sync.rs`)
+## CSV semantic merge (`src/sync/csv_merge/`, `src/sync/csv_sync/`)
 
 `tasks/tasks.csv` and `tasks/habits.csv` are excluded from the bisync file
 lane (`args::bisync_args`'s default excludes) and reconciled instead by a
@@ -881,20 +881,26 @@ falls back to a deterministic lexicographic tiebreak (the greater cell value
 wins), noted as a soft conflict in the `Report`.
 
 The output header is the deterministic union of names from local, remote, and
-base. Schema version 2 requires `task_uuid`, `task_id`, `assigned_to`,
-`system_key`, and `last_touched`. Unknown columns survive only when
-`SCHEMA.json` declares `forward_compatible_columns: true`; otherwise sync
-refuses before writing local, remote, or baseline state.
+base. Schema version 2 requires `task_uuid`, `task_id`, `assigned_to`, and
+`system_key`; `last_touched` remains the preferred conflict timestamp but is
+not an identity requirement. A nonempty legacy table must contain `task_id`.
+Unknown columns survive only when `SCHEMA.json` declares
+`forward_compatible_columns: true`. The manifest and all six base/local/remote
+task and habit tables are preflighted together, so any rejection occurs before
+either CSV, baseline, metadata file, remote object, or counter changes.
 
 After row merge, `reconcile.rs` groups equal display IDs. The
 lexicographically smallest UUID retains each contested label; loser UUIDs are
 ordered deterministically and assigned numbers after the maximum display
 number across all three inputs. `relationships.rs` first resolves each side's
 pipe/comma-separated `blocked_by` labels through that side's pre-reconciliation
-display-to-UUID map, then emits the final labels. The same final table derives
-each project's `.METADATA.json:tasks[]`; every metadata file is parsed and
-staged before any local rewrite, and matching repo-relative metadata is pushed
-through the configured remote.
+display-to-UUID map, then emits the final labels. It applies the same rewrite
+to composite `see_also` values, preserving non-task URLs and falling back to
+the original display label when a referenced row is deleted, so temporary UUID
+markers never reach disk. The same final table derives each project's
+`.METADATA.json:tasks[]`; every metadata file is parsed and staged before any
+local rewrite. Remote publication sends every authoritative metadata file,
+including locally unchanged files, so retry heals a prior partial upload.
 
 `serialize` writes rows in current merge-key order (the `BTreeMap`'s natural
 ordering), so two machines merging the same three inputs — even with
@@ -912,7 +918,10 @@ reads it as `base` (empty if absent, so the very first CSV sync on a machine
 merges as a safe union of local + remote); after merging, it writes the
 result to the local file and the remote (via `rclone copyto`), then
 overwrites the baseline with that same merged text so the next sync's `base`
-reflects exactly what was agreed this round.
+reflects exactly what was agreed this round. The whole-operation result also
+carries task and habit display-ID floors directly from those reconciled tables;
+counter reconciliation does not fetch either remote CSV again. Push-only sync
+still advances the local counters to those floors before the next allocation.
 
 **Journal note.** `command::format_csv_note` folds the `Report` from both
 CSVs into one segment appended to the sync journal's `note` column (see
