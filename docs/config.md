@@ -80,8 +80,9 @@ Its global `--brain/-b` selector resolves canonical names and aliases once at
 the bootstrap boundary. Ordinary commands receive a ready selected context;
 env writes verify both canonical name and immutable UUID, while config,
 personalization, tasks, reindex, sync, receiver setup, and the TUI consume that
-same context. Changing the default after bootstrap cannot redirect a read or
-write already in progress.
+same context and its once-resolved actor. Changing the default or local user
+after bootstrap cannot redirect or reattribute a read or write already in
+progress.
 
 ### The `brain workspace` command
 

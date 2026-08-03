@@ -99,14 +99,10 @@ impl Fixture {
 
         Self {
             _home: home,
-            personal: CommandContext {
-                workspace: personal_workspace,
-                registry_store: store.clone(),
-            },
-            family: CommandContext {
-                workspace: family_workspace,
-                registry_store: store.clone(),
-            },
+            personal: CommandContext::new(personal_workspace, store.clone())
+                .expect("personal command actor"),
+            family: CommandContext::new(family_workspace, store.clone())
+                .expect("family command actor"),
             store,
         }
     }

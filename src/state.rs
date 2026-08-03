@@ -264,6 +264,39 @@ impl Db {
             )?;
             transaction.commit()?;
         }
+        if version < 4 {
+            let transaction = self.conn.unchecked_transaction()?;
+            transaction.execute_batch(
+                "ALTER TABLE brain_sessions RENAME TO brain_sessions_v3;
+                 DROP INDEX IF EXISTS brain_sessions_by_active;
+                 CREATE TABLE brain_sessions (
+                   agent_kind        TEXT NOT NULL,
+                   agent_session_id  TEXT NOT NULL,
+                   brain_instance_id TEXT NOT NULL,
+                   locked_pid        INTEGER,
+                   source            TEXT,
+                   workspace_id      TEXT NOT NULL,
+                   actor_id          TEXT NOT NULL,
+                   channel           TEXT NOT NULL,
+                   created_at        INTEGER NOT NULL,
+                   last_active_at    INTEGER NOT NULL,
+                   PRIMARY KEY
+                     (agent_kind, agent_session_id, workspace_id, actor_id, channel)
+                 );
+                 INSERT INTO brain_sessions
+                   (agent_kind, agent_session_id, brain_instance_id, locked_pid,
+                    source, workspace_id, actor_id, channel, created_at, last_active_at)
+                 SELECT agent_kind, agent_session_id, brain_instance_id, locked_pid,
+                        source, workspace_id, actor_id, channel, created_at, last_active_at
+                 FROM brain_sessions_v3;
+                 DROP TABLE brain_sessions_v3;
+                 CREATE INDEX brain_sessions_by_active
+                   ON brain_sessions(agent_kind, workspace_id, actor_id, channel,
+                                     locked_pid, last_active_at);
+                 PRAGMA user_version = 4;",
+            )?;
+            transaction.commit()?;
+        }
         Ok(())
     }
 
@@ -276,20 +309,31 @@ impl Db {
     /// Release locks held by dead brain shells so their sessions become
     /// resumable again. Best-effort; called on startup before `pick_resume`.
     pub fn reap_dead_locks(&self) -> Result<()> {
-        let locked: Vec<(String, i64)> = {
+        let locked: Vec<(String, String, String, String, String, i64)> = {
             let mut stmt = self.conn.prepare(
-                "SELECT agent_session_id, locked_pid FROM brain_sessions
+                "SELECT agent_kind, agent_session_id, workspace_id, actor_id, channel, locked_pid
+                 FROM brain_sessions
                  WHERE locked_pid IS NOT NULL",
             )?;
-            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })?;
             rows.collect::<rusqlite::Result<_>>()?
         };
-        for (id, pid) in locked {
+        for (agent_kind, id, workspace_id, actor_id, channel, pid) in locked {
             if !(self.pid_alive)(i32::try_from(pid).unwrap_or(0)) {
                 self.conn.execute(
                     "UPDATE brain_sessions SET locked_pid = NULL
-                     WHERE agent_session_id = ?1",
-                    [&id],
+                     WHERE agent_kind = ?1 AND agent_session_id = ?2
+                       AND workspace_id = ?3 AND actor_id = ?4 AND channel = ?5",
+                    rusqlite::params![agent_kind, id, workspace_id, actor_id, channel],
                 )?;
             }
         }
@@ -324,13 +368,30 @@ impl Db {
     /// Try to lock an existing free session to this shell. Returns `true`
     /// when the claim won; `false` if another shell grabbed it first (the
     /// caller should re-`pick_resume` and try again, or start fresh).
-    pub fn claim(&self, claude_session_id: &str, instance: &str, pid: i32) -> Result<bool> {
+    pub fn claim(
+        &self,
+        agent_session_id: &str,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> Result<bool> {
         let now = self.now();
         let n = self.conn.execute(
             "UPDATE brain_sessions
              SET locked_pid = ?2, brain_instance_id = ?3, last_active_at = ?4
-             WHERE agent_session_id = ?1 AND locked_pid IS NULL",
-            rusqlite::params![claude_session_id, pid, instance, now],
+             WHERE agent_session_id = ?1 AND locked_pid IS NULL
+               AND agent_kind = ?5 AND workspace_id = ?6
+               AND actor_id = ?7 AND channel = ?8",
+            rusqlite::params![
+                agent_session_id,
+                pid,
+                instance,
+                now,
+                scope.agent_kind.as_str(),
+                scope.workspace_id.to_string(),
+                scope.actor.user_id().as_str(),
+                scope.actor.channel().as_str(),
+            ],
         )?;
         Ok(n == 1)
     }
@@ -473,9 +534,12 @@ mod tests {
     fn claim_wins_once_then_loses_on_a_held_session() {
         let db = Db::open_in_memory().unwrap();
         seed(&db, "s1", "i0", None, 100);
-        assert!(db.claim("s1", "i1", 111).unwrap(), "first claim wins");
         assert!(
-            !db.claim("s1", "i2", 222).unwrap(),
+            db.claim("s1", "i1", 111, &scope()).unwrap(),
+            "first claim wins"
+        );
+        assert!(
+            !db.claim("s1", "i2", 222, &scope()).unwrap(),
             "a held session can't be claimed again"
         );
     }
@@ -498,7 +562,7 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         seed(&db, "s1", "i0", None, 100);
         let a = db.sessions_by_recency(&scope()).into_iter().next().unwrap();
-        assert!(db.claim(&a, "A", 10).unwrap());
+        assert!(db.claim(&a, "A", 10, &scope()).unwrap());
         assert!(
             db.sessions_by_recency(&scope()).is_empty(),
             "B sees nothing free"

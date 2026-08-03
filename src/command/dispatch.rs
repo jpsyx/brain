@@ -198,8 +198,8 @@ mod tests {
     #[test]
     fn dispatch_rejects_bootstrap_capabilities_for_the_wrong_policy() {
         let store = RegistryStore::from_path(std::path::PathBuf::from("/tmp/registry.json"));
-        let ready = BootstrapContext::Ready(CommandContext {
-            workspace: Arc::new(
+        let ready = BootstrapContext::Ready(CommandContext::for_test(
+            Arc::new(
                 WorkspaceContext::new(
                     Path::new("/home/tester"),
                     WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
@@ -210,8 +210,9 @@ mod tests {
                 )
                 .unwrap(),
             ),
-            registry_store: RegistryStore::from_path(PathBuf::from("/tmp/ready.json")),
-        });
+            RegistryStore::from_path(PathBuf::from("/tmp/ready.json")),
+            "tester",
+        ));
 
         let ordinary_error =
             capability_for(Invocation::Config, &BootstrapContext::RegistryOnly(store)).unwrap_err();

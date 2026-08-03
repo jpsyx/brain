@@ -241,7 +241,8 @@ or an explicit path derived from it; no handler reselects the default.
 Detached Brain children carry the canonical `--brain` selector, never the
 alias the caller happened to use. Brain-owned integrations receive exactly the
 common identity boundary `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
-and `BRAIN_ACTOR_ID`; agent-session variables are layered on separately.
+`BRAIN_ACTOR_ID`, and `BRAIN_CHANNEL`; agent-session variables are layered on
+separately.
 
 Collected management values first become a pure `Mutation` enum. `Create` and
 `Attach` carry a validated canonical name plus an absolute, tilde-expanded,
@@ -379,12 +380,15 @@ normal readiness boundary.
 
 ### Current boundary versus planned policy
 
-The current release resolves one immutable `ActorContext` before local or
-receiver agent work. Local/TUI work resolves `local_user_id`; authenticated
+The current release resolves one immutable `ActorContext` at ordinary command
+bootstrap, before task, reindex, TUI, or local-agent work. Local/TUI work
+resolves `local_user_id`; authenticated
 SMS/email work resolves an enabled portable identity and takes precedence over
 that machine default. A queued receiver job contains the workspace UUID and
 the resolved actor, never an untrusted sender string as `BRAIN_ACTOR_ID`.
-Follow-ups retain the initiating actor. This does not add authentication,
+Follow-ups retain the initiating actor. A ready legacy workspace whose portable
+user store is absent uses its non-empty local ID as an immutable compatibility
+actor and does not create `users.json`. This does not add authentication,
 ownership, creator metadata, audit history, or device identity. The release
 does not yet provide a canonical task `assigned_to` field or the coordinated
 portable task-schema migration. It also does not implement triage-habit policy,
@@ -409,7 +413,7 @@ Two tables:
 ```sql
 brain_sessions(
   agent_kind         TEXT NOT NULL,  -- claude | codex
-  agent_session_id   TEXT PRIMARY KEY,
+  agent_session_id   TEXT NOT NULL,
   brain_instance_id  TEXT NOT NULL,  -- one per running `brain` shell (a lineage)
   locked_pid         INTEGER,        -- live brain holding it, or NULL when free
   source             TEXT,           -- last SessionStart source (startup/resume/clear/…)
@@ -417,7 +421,8 @@ brain_sessions(
   actor_id           TEXT NOT NULL,
   channel            TEXT NOT NULL,  -- interactive | sms | email
   created_at         INTEGER NOT NULL,
-  last_active_at     INTEGER NOT NULL
+  last_active_at     INTEGER NOT NULL,
+  PRIMARY KEY(agent_kind, agent_session_id, workspace_id, actor_id, channel)
 )
 meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- key 'panel_side' = 'left' | 'right'
 ```
@@ -432,8 +437,8 @@ meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- key 'panel_side' = 'left' | 
   DB row but no `<id>.jsonl`, and `claude --resume` can't find it, so it's
   skipped (and the user gets a status-line alert when that forces a fresh
   chat).
-- `claim` → lock a free session to this shell's PID (loses cleanly if
-  another shell grabbed it first).
+- `claim` → lock a free session in the exact composite scope to this
+  shell's PID (loses cleanly if another shell grabbed that scoped row first).
 - `register_scoped_fresh` inserts a new Claude session with complete immutable
   attribution. Hooks record actual Claude or Codex session IDs.
 - Legacy schema-v2 rows migrate transactionally as Claude, interactive rows
@@ -448,8 +453,10 @@ meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)  -- key 'panel_side' = 'left' | 
   this instance's locks and stamp `last_active` (floats it to the top of the
   next resume — so re-opening with "Message brain" picks it back up, and a
   second terminal could too).
-- `reap_dead_locks` → on startup, free locks whose PID is no longer alive
-  (`kill -0`), so a crashed shell doesn't strand its session.
+- `reap_dead_locks` → on startup, free exact scoped rows whose PID is no
+  longer alive (`kill -0`), so a crashed shell doesn't strand its session.
+  Equal opaque IDs in other frontend/workspace/actor/channel scopes remain
+  independent.
 
 The invariant: at most one live shell holds a given session (no tangled
 threads), and exactly one session per instance is current (the SessionStart

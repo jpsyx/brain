@@ -102,8 +102,10 @@ Codex is selected per run with `brain --codex`, `brain -cx`,
 `brain tasks --codex`, or `brain tasks -cx` and
 uses `codex_cmd` from brain env (default `codex`). Claude uses `claude_cmd`
 from brain env (default `claude --dangerously-skip-permissions`). Codex panels
-launch fresh, but receiver setup installs equivalent Codex hooks so remote
-prompts and completion delivery work the same way. When brain
+resume within the same frontend/workspace/actor/channel scope. Every TUI
+startup refreshes the selected workspace's Claude and Codex hooks before state
+migration or agent launch, so remote prompts and completion delivery use the
+same current protocol. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
 queue key; Claude still receives `Enter`.
 
@@ -328,10 +330,12 @@ and continues. Headless invocations never open `/dev/tty`; they stop with exact
 `brain user add` and `brain user local` commands. Create and attach remain
 registry-only setup operations. For compatibility, an existing workspace with
 no `users.json` and a non-empty legacy local ID remains ready and is not
-silently migrated. Help, version, and hidden internal server execution never
-prompt.
+silently migrated. Brain treats that ID as a compatibility actor for the
+request without writing portable user data. Help, version, and hidden internal
+server execution never prompt.
 
-After readiness, the selected context is pinned for the command's lifetime.
+After readiness, the selected workspace and one resolved actor are pinned in
+the command context for the invocation's lifetime.
 Root-local config and personalization, task paths, reindex scripts, TUI state,
 locks, responses, and sync runtime files all derive from it. Two workspace UUIDs
 may hold TUIs and run syncs concurrently; a second TUI or sync for the same UUID

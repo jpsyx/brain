@@ -210,8 +210,8 @@ already valid schema v2; a valid registry avoids all legacy root/config lookup.
 They then require a ready selected workspace. `readiness` is
 the pure manifest/portable-membership/local-user decision,
 `manifest` owns strict portable identity parsing, and successful bootstrap
-returns one immutable `CommandContext` containing an `Arc<WorkspaceContext>`
-plus the registry store. Interactive repair uses injected `BufRead`/`Write`,
+returns one immutable `CommandContext` containing an `Arc<WorkspaceContext>`,
+the request's resolved local `ActorContext`, and the registry store. Interactive repair uses injected `BufRead`/`Write`,
 persists under the registry transaction, reloads, and continues the originally
 requested command. Root-local stores take the context, machine-env writes also
 take its exact `RegistryStore`, and the TUI retains the same `Arc` for watcher,
@@ -229,6 +229,9 @@ machine's portable local user for interactive work, or an enabled normalized
 phone/email identity after provider authentication. `context` carries the
 validated person ID, display name, and initiating channel through queueing,
 session lookup, hooks, task-agent prompts, completion, and response delivery.
+When readiness admits a legacy workspace with no portable user file,
+`local_actor` uses its valid legacy local ID as an interactive compatibility
+actor and writes nothing; the inactive portable migration remains inactive.
 
 ### `users/`
 
@@ -737,8 +740,9 @@ Agent env starts with `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
 `BRAIN_RESPONSE_DIR`/`BRAIN_RESPONSE_ID` for the hooks. `claude_cmd`
 and `codex_cmd` are machine-local brain env values. Both configured commands
 are spliced in verbatim so they may carry their own flags, and brain never
-depends on a shell alias. `env_for_triage` starts with the same four common
-identity variables, adds `BRAIN_TRIAGE_DONE_URL` / `BRAIN_TRIAGE_TOKEN`, and
+depends on a shell alias. `env_for_triage` starts with the five common
+workspace/actor variables plus `BRAIN_AGENT_KIND`, adds
+`BRAIN_TRIAGE_DONE_URL` / `BRAIN_TRIAGE_TOKEN`, and
 deliberately omits the session tracking vars so the daily-triage tab stays out
 of the session DB.
 
@@ -753,8 +757,9 @@ replacement belong to the approved shared-server phase.
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
-`brain_sessions` tracks Claude and Codex sessions by agent kind, session ID,
-workspace UUID, actor ID, and channel with a `locked_pid` lock; `meta` stores
+`brain_sessions` tracks Claude and Codex sessions by a composite agent-kind,
+session-ID, workspace-UUID, actor-ID, and channel key with a `locked_pid` lock;
+`meta` stores
 the `panel_side` layout preference. The resume model is scoped lock + recency
 (`reap_dead_locks`, `sessions_by_recency`, `claim`, `register_scoped_fresh`,
 `release`). The `PanelSide` enum lives here since

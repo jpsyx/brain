@@ -249,8 +249,11 @@ filesystem sandbox, authentication boundary, container, OS-account boundary,
 or defense against a malicious trusted user. Real adversarial isolation must
 remain outside Brain.
 
-Inbound actor precedence is now implemented as immutable request context after
-provider authentication. Task `assigned_to`, triage-habit policy, the
+Ordinary command bootstrap now pins one immutable local actor before task,
+reindex, TUI, or local-agent work. A ready legacy workspace with no portable
+user store uses its non-empty local ID as a non-writing compatibility actor.
+Inbound actor precedence remains immutable request context after provider
+authentication. Task `assigned_to`, triage-habit policy, the
 agent-controller/OpenCode facade, and shared receiver leases remain later
 phases. This actor context is attribution and routing, not a new authentication
 or access-control boundary.
@@ -381,9 +384,10 @@ command in verbatim, then appends the selected frontend's own session shape:
 Claude gets `--resume <id>` or `--session-id <id>`; Codex gets `resume <id>`
 only when a Codex id is known and no Claude-only flags for fresh launches.
 
-The state DB is frontend-scoped and actor-scoped. The same installed hook
-protocol records actual Claude or Codex session IDs with agent kind, workspace,
-actor, and channel. A separate stable response ID lets the Stop hook signal a
+The state DB keys sessions by frontend, opaque session ID, workspace, actor,
+and channel. Hook upserts, claims, and dead-lock reaping use that exact
+composite scope, so equal opaque IDs in different scopes never overwrite or
+unlock one another. A separate stable response ID lets the Stop hook signal a
 fresh Codex turn without pretending Brain chose Codex's thread ID.
 
 ## Why we disable alternate scroll (and motion) reporting for the mouse

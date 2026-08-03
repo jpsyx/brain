@@ -85,7 +85,10 @@ first move is a failing test that reproduces it, *then* the fix.
   against temporary homes/roots. It covers the typed workspace/actor
   identity plus session attribution contract, selected-root argument
   and `BRAIN_ROOT` precedence, project-relative commands, actor-scoped session
-  rotation, schema-v2 row preservation, and malformed/ambient no-op behavior.
+  rotation, equal opaque IDs with conflicting immutable attribution, schema-v2
+  row preservation, and malformed/ambient no-op behavior. The hook-installer
+  unit test executes the actual configured Codex start and stop commands as one
+  attributed lifecycle and proves stale deployed scripts are refreshed.
   `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
   completion contract for a Codex-style `thread_id` payload.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
@@ -128,8 +131,9 @@ first move is a failing test that reproduces it, *then* the fix.
   temp trees: bucket tagging, `~/brain/...` rewriting, hidden-file
   skipping, root-skipping, tolerance of a missing bucket.
 - **The session store** (`state.rs`, in-memory SQLite). Scoped resume
-  ordering, `claim` win/lose, registration + `release` round-trip,
-  `reap_dead_locks` with an injected pid-liveness predicate, the
+  ordering, exact composite-scope `claim` win/lose, registration + `release`
+  round-trip, exact composite-scope `reap_dead_locks` with an injected
+  pid-liveness predicate, preservation of equal opaque IDs across scopes, the
   two-shells-take-distinct-sessions invariant, and `panel_side` round-trip
   + flip. `open_in_memory` / `with_pid_alive` are the test seams
   (deterministic clock + injectable pid probe), so no real process or wall

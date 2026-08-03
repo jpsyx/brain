@@ -17,7 +17,33 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct CommandContext {
     pub workspace: Arc<WorkspaceContext>,
+    pub actor: crate::actor::ActorContext,
     pub registry_store: RegistryStore,
+}
+
+impl CommandContext {
+    /// Bind one immutable local actor to an ordinary command request.
+    pub fn new(workspace: Arc<WorkspaceContext>, registry_store: RegistryStore) -> Result<Self> {
+        let actor = crate::actor::local_actor(&workspace)?;
+        Ok(Self {
+            workspace,
+            actor,
+            registry_store,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        workspace: Arc<WorkspaceContext>,
+        registry_store: RegistryStore,
+        actor_id: &str,
+    ) -> Self {
+        Self {
+            workspace,
+            actor: crate::actor::test_actor(actor_id),
+            registry_store,
+        }
+    }
 }
 
 /// Bootstrap capability returned to top-level dispatch.
@@ -441,10 +467,10 @@ fn context_from_record(
         record.local_user_id.clone(),
         current_dir,
     )?;
-    Ok(BootstrapContext::Ready(CommandContext {
-        workspace: Arc::new(workspace),
-        registry_store: store.clone(),
-    }))
+    Ok(BootstrapContext::Ready(CommandContext::new(
+        Arc::new(workspace),
+        store.clone(),
+    )?))
 }
 
 #[cfg(test)]

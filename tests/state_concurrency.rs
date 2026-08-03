@@ -108,7 +108,7 @@ fn only_one_thread_wins_a_claim_on_a_shared_free_session() {
             let path = Arc::clone(&path);
             thread::spawn(move || {
                 let db = Db::open_path(&path).expect("open per-thread");
-                db.claim("shared", &format!("inst-{i}"), 2000 + i as i32)
+                db.claim("shared", &format!("inst-{i}"), 2000 + i as i32, &scope())
                     .expect("claim")
             })
         })

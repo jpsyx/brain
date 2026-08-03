@@ -49,7 +49,12 @@ pub struct SkipResult {
 }
 
 /// CLI runner for `brain habits skip <id|fuzzy> [--until YYYY-MM-DD]`.
-pub fn run(root: &Path, raw_id: &str, until: Option<&str>) -> Result<()> {
+pub fn run(
+    root: &Path,
+    raw_id: &str,
+    until: Option<&str>,
+    _actor: &crate::actor::ActorContext,
+) -> Result<()> {
     crate::logging::log(format!("habits skip raw_id={raw_id} until={until:?}"));
     let today = Local::now().date_naive();
     let until = until.map(parse_until).transpose()?;

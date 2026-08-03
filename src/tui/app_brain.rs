@@ -578,7 +578,11 @@ impl App<'_> {
                     skipped_missing = true;
                     continue;
                 }
-                if self.db.claim(&id, &self.instance, pid).unwrap_or(false) {
+                if self
+                    .db
+                    .claim(&id, &self.instance, pid, &scope)
+                    .unwrap_or(false)
+                {
                     resume = Some(id);
                     break;
                 }

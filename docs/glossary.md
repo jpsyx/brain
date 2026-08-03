@@ -14,7 +14,7 @@ here to find the code. Keep this in sync when you rename a concept.
 | **workspace UUID** | Portable, immutable identity. It survives canonical rename, root changes across machines, aliases, and default changes, and keys runtime paths. | `WorkspaceId`; `.config/workspace.json`; `WorkspaceRecord.workspace_id` |
 | **default workspace** | The canonical record selected only when `--brain/-b` is omitted. Changing the default workspace never changes access mode or any record field. | `MachineRegistry.default_workspace` |
 | **selected workspace** | The one immutable root/name/UUID/local-user snapshot resolved at command bootstrap. Ordinary runtime code receives this context instead of reopening the registry. | `CommandContext`; `Arc<WorkspaceContext>` |
-| **local user** / **local actor** | The machine-local `local_user_id` attached to the selected context. The portable user registry and inbound actor override are planned later phases. | `WorkspaceRecord.local_user_id`; `WorkspaceContext::local_user_id()` |
+| **local user** / **local actor** | The immutable local `ActorContext` resolved once during ordinary-command bootstrap from the machine's `local_user_id`. A legacy-ready workspace without `users.json` retains that ID as an interactive compatibility actor without creating portable state. | `CommandContext::actor`; `actor::local_actor` |
 | **workspace-only access** | A planned advisory mode based on prompt-based guidance and light guardrails. It is not a filesystem sandbox or an authentication boundary, and it is not enforced by the foundation release. | Later access-policy phase |
 
 ## The two-axis layout model

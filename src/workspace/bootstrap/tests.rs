@@ -129,6 +129,7 @@ fn bootstrap_pins_the_selected_uuid_when_the_default_changes_mid_bootstrap() {
     };
     assert_eq!(context.workspace.id(), family_id);
     assert_eq!(context.workspace.name().as_str(), "family");
+    assert_eq!(context.actor.user_id().as_str(), "pablo");
     let error = crate::command::dispatch::run(cli, crate::session::AgentKind::Claude, &outcome)
         .unwrap_err();
     assert!(

@@ -343,12 +343,13 @@ mod tests {
         .unwrap();
         CommandFixture {
             _temp: temp,
-            command: crate::workspace::CommandContext {
+            command: crate::workspace::CommandContext::new(
                 workspace,
-                registry_store: crate::workspace::RegistryStore::from_path(
-                    std::path::PathBuf::from("/missing/env.json"),
-                ),
-            },
+                crate::workspace::RegistryStore::from_path(std::path::PathBuf::from(
+                    "/missing/env.json",
+                )),
+            )
+            .unwrap(),
         }
     }
 

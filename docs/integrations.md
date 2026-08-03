@@ -130,7 +130,7 @@ ephemeral agent session as a brain-panel tab (`App::triage_brain`,
 launched through the same `session::build_llm_command` seeded with `/triage`,
 but with two deliberate differences from the main panel:
 
-- **It is never tracked.** `session::env_for_triage` injects the four common
+- **It is never tracked.** `session::env_for_triage` injects the five common
   workspace/actor variables plus `BRAIN_TRIAGE_DONE_URL` and
   `BRAIN_TRIAGE_TOKEN`, but **omits** `BRAIN_INSTANCE_ID` /
   `BRAIN_STATE_DB`. The SessionStart hook requires those tracking variables in
@@ -159,7 +159,9 @@ localhost-only endpoint consistent with `/habits/done`.
 Which session to run is decided by the **lock + recency** model in
 `state.rs` (DB at `<workspace-cache>/state.db`, WAL):
 
-1. On startup brain resolves the local actor once, reaps locks held by dead
+1. At ordinary command bootstrap brain resolves the local actor once. TUI
+   startup then refreshes the selected workspace's Claude and Codex hooks
+   before opening or migrating the state DB, reaps locks held by dead
    PIDs, then walks `sessions_by_recency()` within the exact
    frontend/workspace/actor/channel scope
    and resumes the first whose **transcript actually exists** on disk —
@@ -206,8 +208,9 @@ Which session to run is decided by the **lock + recency** model in
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
 
-Codex panels use the same hook scripts and state DB. Receiver setup writes
-equivalent `SessionStart` and `Stop` entries to `~/.codex/hooks.json`; current
+Codex panels use the same hook scripts and state DB. Every TUI startup and
+receiver setup writes equivalent `SessionStart` and `Stop` entries to
+`~/.codex/hooks.json`; current
 Codex CLI versions may ask you to trust those hooks once in the Codex UI.
 Claude and Codex remain separate session stores, but both frontends now report
 session starts and completed receiver turns through the same brain response
@@ -232,9 +235,9 @@ Rust installer and `install_hook.sh` emit the same command.
 
 `scripts/install_hook.sh` deploys + installs both the SessionStart and the brain
 `claude_stop_hook.py` Stop hook (stripping any stale entries — old absolute /
-wrong-home / legacy `rc/` paths — matched by script basename). `brain receiver
-setup` does the same automatically (and also writes the equivalent entries to
-`~/.codex/hooks.json`). The standalone
+wrong-home / legacy `rc/` paths — matched by script basename). Every TUI
+startup does the same automatically before state migration or agent launch;
+`brain receiver setup` also refreshes both frontends. The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude settings manually. Its root precedence is the explicit argument,
 then `BRAIN_ROOT`, with `$HOME/brain` retained only as a documented legacy

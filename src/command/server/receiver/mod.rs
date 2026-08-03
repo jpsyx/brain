@@ -4,6 +4,11 @@ use anyhow::Result;
 
 mod hooks;
 
+/// Refresh the bundled lifecycle hooks before an agent-capable TUI starts.
+pub(crate) fn refresh_agent_hooks(root: &std::path::Path) -> Result<()> {
+    hooks::install(root)
+}
+
 pub fn run_receiver(
     args: &crate::cli::ReceiverArgs,
     context: &crate::workspace::CommandContext,

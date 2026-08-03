@@ -64,11 +64,11 @@ pub fn normalize_id(raw: &str) -> Result<String> {
     Ok(format!("{prefix}{n}"))
 }
 
-pub fn run(root: &Path, raw_id: &str) -> Result<()> {
+pub fn run(root: &Path, raw_id: &str, actor: &crate::actor::ActorContext) -> Result<()> {
     crate::logging::log(format!("tasks complete raw_id={raw_id}"));
     crate::logging::log(format!("complete root {}", root.display()));
     let today = Local::now().date_naive();
-    let result = complete_in_root_with_today(root, raw_id, today)?;
+    let result = complete_in_root_for_actor_with_today(root, raw_id, today, actor)?;
     crate::logging::log(format!(
         "complete result kind={:?} id={}",
         result.kind, result.task_id
@@ -79,6 +79,16 @@ pub fn run(root: &Path, raw_id: &str) -> Result<()> {
 
 pub fn complete_in_root(root: &Path, raw_id: &str) -> Result<CompletionResult> {
     complete_in_root_with_today(root, raw_id, Local::now().date_naive())
+}
+
+/// Complete one task under the actor bound at the request boundary.
+pub fn complete_in_root_for_actor_with_today(
+    root: &Path,
+    raw_id: &str,
+    today: NaiveDate,
+    _actor: &crate::actor::ActorContext,
+) -> Result<CompletionResult> {
+    complete_in_root_with_today(root, raw_id, today)
 }
 
 pub fn complete_in_root_with_today(
@@ -534,8 +544,24 @@ fn nonempty(row: &Row, column: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompletionKind, complete_in_root_with_today, normalize_id};
+    use super::{
+        CompletionKind, complete_in_root_for_actor_with_today, complete_in_root_with_today,
+        normalize_id,
+    };
     use chrono::NaiveDate;
+
+    fn local_actor(root: &std::path::Path) -> crate::actor::ActorContext {
+        let workspace = crate::workspace::WorkspaceContext::new(
+            root,
+            crate::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+            crate::workspace::WorkspaceName::parse("legacy").unwrap(),
+            root,
+            "pablo",
+            root,
+        )
+        .unwrap();
+        crate::actor::local_actor(&workspace).unwrap()
+    }
 
     #[test]
     fn bare_number_assumes_task_prefix() {
@@ -587,10 +613,11 @@ mod tests {
         )
         .unwrap();
 
-        let result = complete_in_root_with_today(
+        let result = complete_in_root_for_actor_with_today(
             dir.path(),
             "T1",
             NaiveDate::from_ymd_opt(2026, 7, 26).unwrap(),
+            &local_actor(dir.path()),
         )
         .unwrap();
 

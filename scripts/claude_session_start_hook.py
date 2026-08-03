@@ -7,7 +7,7 @@ session in that selected workspace starts, resumes, clears (`/new` /
 `brain` shell so the next launch of that workspace can resume the right
 conversation, including a fresh session created mid-run by `/new`.
 
-`brain` passes the four common child-integration identity variables:
+`brain` passes the common child-integration identity variables:
 
   BRAIN_WORKSPACE_ID — immutable selected workspace UUID
   BRAIN_WORKSPACE    — selected canonical workspace name
@@ -90,14 +90,11 @@ def main() -> None:
               (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
                workspace_id, actor_id, channel, created_at, last_active_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(agent_session_id) DO UPDATE SET
-              agent_kind       = excluded.agent_kind,
+            ON CONFLICT(agent_kind, agent_session_id, workspace_id, actor_id, channel)
+            DO UPDATE SET
               brain_instance_id = excluded.brain_instance_id,
               locked_pid        = excluded.locked_pid,
               source            = excluded.source,
-              workspace_id      = excluded.workspace_id,
-              actor_id          = excluded.actor_id,
-              channel           = excluded.channel,
               last_active_at    = excluded.last_active_at
             """,
             (
@@ -118,9 +115,20 @@ def main() -> None:
         conn.execute(
             """
             UPDATE brain_sessions SET locked_pid = NULL
-            WHERE brain_instance_id = ? AND agent_session_id <> ?
+            WHERE brain_instance_id = ?
+              AND NOT (
+                agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
+                AND actor_id = ? AND channel = ?
+              )
             """,
-            (instance, session_id),
+            (
+                instance,
+                launch["BRAIN_AGENT_KIND"],
+                session_id,
+                launch["BRAIN_WORKSPACE_ID"],
+                launch["BRAIN_ACTOR_ID"],
+                launch["BRAIN_CHANNEL"],
+            ),
         )
         conn.commit()
     except Exception:

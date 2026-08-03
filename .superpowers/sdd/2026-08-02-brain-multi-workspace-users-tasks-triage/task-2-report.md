@@ -100,4 +100,90 @@ that formatter.
 - `tests/workspace_runtime_isolation/support.rs`
 - `docs/{architecture,config,data-model,decisions,features,glossary,integrations,testing}.md`
 
-Commit: created immediately after this report; no push or merge was performed.
+Original Task 2 commit: `c72ef10`; no push or merge was performed.
+
+## Fix round 1 of 5
+
+### Status
+
+Complete. This round closes the legacy-readiness crash, binds one actor at the
+ordinary command boundary, scopes opaque session identity consistently, and
+refreshes current Claude and Codex lifecycle hooks before TUI state migration
+or agent launch. No Task 3 assignment behavior was added.
+
+### Root causes and corrections
+
+- Readiness deliberately accepted a legacy workspace with a non-empty local ID
+  and no `users.json`, but `local_actor` later required the missing file. Such a
+  workspace now receives an immutable interactive compatibility actor without
+  writing portable user data.
+- `CommandContext` previously carried only the workspace. It now resolves and
+  pins one actor during ordinary bootstrap. Task completion, habit mutation,
+  reindex children, TUI state, and agent launches receive that same actor.
+- State schema v3 treated the frontend's opaque session ID as globally unique.
+  Schema v4 uses the composite key `(agent_kind, agent_session_id,
+  workspace_id, actor_id, channel)`. Hook upsert, claim, and dead-lock reaping
+  all address the same complete scope.
+- Hook deployment happened during receiver setup only. Every TUI now refreshes
+  the selected workspace's Claude scripts/settings and the machine's Codex
+  hooks before opening the state DB. Basename-matched stale registrations are
+  removed before canonical project-relative entries are installed.
+- Documentation still counted four common integration variables. It now names
+  all five workspace/actor variables and separately layers agent kind.
+
+### RED and GREEN evidence
+
+- `cargo test --release --test actor_resolution
+  legacy_workspace_without_portable_users_resolves_its_local_actor` failed
+  reading missing `.config/users.json`; it passed after compatibility actor
+  resolution was added.
+- The bootstrap request-lifetime test failed to compile with `E0609` because
+  `CommandContext` had no `actor`; it passed after boundary binding.
+- The reindex child test failed with `E0061` because `run_py` accepted no actor;
+  it passed after actor-aware environment propagation.
+- The task completion test failed on the missing actor-aware mutation seam; it
+  passed after the command and TUI paths passed the boundary actor.
+- The equal-opaque-ID migration test failed on the v3 unique constraint. The
+  scoped claim test then failed with `E0061`, and scoped reaping initially
+  unlocked the live row. All five state migration/scope tests now pass.
+- The conflicting-attribution hook test initially returned no preserved rows
+  under the composite schema. It passed after scoped upsert and rotation.
+- The Codex lifecycle test first failed because automatic installation was not
+  injectable. After lifecycle support existed, the strengthened stale-command
+  case failed by invoking `/old/claude_session_start_hook.py`; it now passes
+  through the actual installed Codex `SessionStart` and `Stop` commands.
+- The first final full-suite run exposed six unit fixtures that resolved actors
+  through intentionally fake `/home/tester` paths. Explicit immutable test
+  actors corrected the fixture boundary; the production resolver stayed at
+  ordinary bootstrap.
+
+### Final verification
+
+- Focused actor resolution: 7 passed.
+- Focused state migration and scope isolation: 5 passed.
+- Real start-hook integration: 10 passed; real Codex configured lifecycle: 1
+  passed; Stop-hook actor contract: 1 passed.
+- Focused bootstrap, task mutation, and reindex actor seams: 3 passed.
+- `cargo test --release bundled_skills_carry_no_personal_data`: passed.
+- `PATH="/opt/homebrew/bin:$PATH" cargo test --release --quiet`: 1,145 tests
+  passed.
+- `cargo clippy --release --all-targets -- -D warnings`: passed.
+- `rustfmt --edition 2024 --config skip_children=true --check` over every
+  changed Rust file: passed.
+- `git diff --check`: passed.
+- No bundled Python test directory exists; the full Rust integration suite
+  executes the bundled hook and task scripts.
+
+Repository-wide `cargo fmt --all -- --check` still reports the documented,
+pre-existing Rust 1.95 formatting drift in untouched files. No changed file
+fails the scoped formatter check.
+
+### Self-review
+
+The request actor is resolved once and reused across the delivered local
+seams. Legacy compatibility is read-only. Equal opaque IDs cannot overwrite,
+claim, or reap another immutable scope. Hook refresh precedes v3 migration and
+both frontend launch paths are exercised. Task mutation accepts actor context,
+but intentionally does not read or write `assigned_to`; that remains Task 3.
+The patch version is `0.19.1`. The fix-round commit is created immediately
+after this report; no push or merge is performed.

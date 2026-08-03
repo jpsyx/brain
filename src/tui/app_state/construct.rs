@@ -29,7 +29,6 @@ impl<'a> App<'a> {
         open_runner: Box<dyn ShellRunner>,
         config: Config,
         agent_kind: AgentKind,
-        interactive_actor: crate::actor::ActorContext,
         instance: String,
         db: Db,
         search: crate::picker::App,
@@ -37,6 +36,7 @@ impl<'a> App<'a> {
         skip_daily_triage_check: bool,
     ) -> Self {
         let (brain_root, db_path) = app_workspace_paths(&command_context);
+        let interactive_actor = command_context.actor.clone();
         let query = initial_search.unwrap_or_default();
         let in_search = !query.is_empty();
         let twilio_from = crate::env::get(&command_context, "twilio_from_number");
@@ -152,10 +152,11 @@ mod tests {
             Path::new("/workspaces"),
         )
         .expect("workspace context");
-        let context = CommandContext {
-            workspace: Arc::new(workspace),
-            registry_store: RegistryStore::from_path(home.join(".config/brain/env.json")),
-        };
+        let context = CommandContext::for_test(
+            Arc::new(workspace),
+            RegistryStore::from_path(home.join(".config/brain/env.json")),
+            "pablo",
+        );
 
         assert_eq!(
             app_workspace_paths(&context),

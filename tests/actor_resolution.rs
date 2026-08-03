@@ -132,3 +132,26 @@ fn follow_up_retains_the_initiating_actor_when_machine_default_differs() {
     assert_eq!(follow_up.user_id().as_str(), "wife");
     assert_eq!(follow_up.channel(), Channel::Sms);
 }
+
+#[test]
+fn legacy_workspace_without_portable_users_resolves_its_local_actor() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("legacy-brain");
+    std::fs::create_dir_all(&root).unwrap();
+    let workspace = brain::workspace::WorkspaceContext::new(
+        temp.path(),
+        brain::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+        brain::workspace::WorkspaceName::parse("legacy").unwrap(),
+        &root,
+        "pablo",
+        temp.path(),
+    )
+    .unwrap();
+
+    let actor = brain::actor::local_actor(&workspace).expect("legacy local actor compatibility");
+
+    assert_eq!(actor.user_id().as_str(), "pablo");
+    assert_eq!(actor.display_name(), "pablo");
+    assert_eq!(actor.channel(), Channel::Interactive);
+    assert!(!root.join(".config/users.json").exists());
+}

@@ -62,6 +62,27 @@ fn run_hook(db_path: &Path, attribution: Option<(&str, i32)>, input: &str) -> st
     run_hook_command(cmd, input)
 }
 
+fn run_scoped_hook(
+    db_path: &Path,
+    agent_kind: &str,
+    actor_id: &str,
+    instance: &str,
+    input: &str,
+) -> std::process::Output {
+    let mut cmd = Command::new("python3");
+    cmd.arg(hook_script());
+    cmd.env("BRAIN_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111");
+    cmd.env("BRAIN_WORKSPACE", "family");
+    cmd.env("BRAIN_ROOT", "/tmp/family");
+    cmd.env("BRAIN_ACTOR_ID", actor_id);
+    cmd.env("BRAIN_CHANNEL", "interactive");
+    cmd.env("BRAIN_AGENT_KIND", agent_kind);
+    cmd.env("BRAIN_INSTANCE_ID", instance);
+    cmd.env("BRAIN_PID", "4242");
+    cmd.env("BRAIN_STATE_DB", db_path);
+    run_hook_command(cmd, input)
+}
+
 fn run_hook_command(mut cmd: Command, input: &str) -> std::process::Output {
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
@@ -226,6 +247,55 @@ fn distinct_instances_get_distinct_locked_sessions() {
     run_hook(&db, Some(("inst-2", 20)), &start_input("sess-2"));
     assert_eq!(read_session(&db, "sess-1").unwrap().1, Some(10));
     assert_eq!(read_session(&db, "sess-2").unwrap().1, Some(20));
+}
+
+#[test]
+fn hook_preserves_equal_opaque_ids_with_conflicting_immutable_attribution() {
+    let (_tmp, db) = fresh_db();
+    let first = run_scoped_hook(
+        &db,
+        "claude",
+        "pablo",
+        "claude-instance",
+        &start_input("same-opaque-id"),
+    );
+    let second = run_scoped_hook(
+        &db,
+        "codex",
+        "partner",
+        "codex-instance",
+        &serde_json::json!({
+            "thread_id": "same-opaque-id",
+            "source": "startup",
+            "hook_event_name": "SessionStart"
+        })
+        .to_string(),
+    );
+    assert!(first.status.success());
+    assert!(second.status.success());
+
+    let conn = Connection::open(db).unwrap();
+    let mut statement = conn
+        .prepare(
+            "SELECT agent_kind, actor_id FROM brain_sessions
+             WHERE agent_session_id = 'same-opaque-id'
+             ORDER BY agent_kind",
+        )
+        .unwrap();
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("claude".to_owned(), "pablo".to_owned()),
+            ("codex".to_owned(), "partner".to_owned()),
+        ]
+    );
 }
 
 #[test]

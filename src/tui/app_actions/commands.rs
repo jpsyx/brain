@@ -122,7 +122,12 @@ impl App<'_> {
     /// Complete a task or habit natively, then refresh from disk.
     pub(crate) fn mark_task_complete(&mut self, raw_id: &str) -> Result<()> {
         let id = complete::normalize_id(raw_id)?;
-        complete::complete_in_root(&self.brain_root, &id)?;
+        complete::complete_in_root_for_actor_with_today(
+            &self.brain_root,
+            &id,
+            chrono::Local::now().date_naive(),
+            &self.command_context.actor,
+        )?;
         self.reload_tasks()?;
         Ok(())
     }

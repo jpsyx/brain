@@ -161,7 +161,7 @@ fn id_number(id: &str) -> u32 {
 }
 
 /// CLI runner for `brain habits revive|fix <query>`.
-pub fn run(root: &std::path::Path, query: &str) -> Result<()> {
+pub fn run(root: &std::path::Path, query: &str, _actor: &crate::actor::ActorContext) -> Result<()> {
     let today = Local::now().date_naive();
     match revive_fuzzy_in_root(root, query, today)? {
         ReviveOutcome::NoMatch => {

@@ -107,3 +107,66 @@ fn scoped_follow_ups_never_resume_another_actor_or_frontend() {
     assert_eq!(db.sessions_by_recency(&codex), vec!["pablo-codex"]);
     assert_eq!(pablo.actor().channel(), Channel::Interactive);
 }
+
+#[test]
+fn equal_opaque_session_ids_are_preserved_in_distinct_immutable_scopes() {
+    let db = Db::open_path(&tempfile::tempdir().unwrap().path().join("state.db")).unwrap();
+    let workspace = WorkspaceId::parse(WORKSPACE_ID).unwrap();
+    let claude = SessionScope::new(AgentKind::Claude, workspace, actor("pablo"));
+    let codex = SessionScope::new(AgentKind::Codex, workspace, actor("pablo"));
+    let partner = SessionScope::new(AgentKind::Claude, workspace, actor("partner"));
+
+    db.register_scoped_fresh("same-opaque-id", "claude-instance", 11, &claude)
+        .unwrap();
+    db.register_scoped_fresh("same-opaque-id", "codex-instance", 12, &codex)
+        .unwrap();
+    db.register_scoped_fresh("same-opaque-id", "partner-instance", 13, &partner)
+        .unwrap();
+    db.release("claude-instance").unwrap();
+    db.release("codex-instance").unwrap();
+    db.release("partner-instance").unwrap();
+
+    assert_eq!(db.sessions_by_recency(&claude), ["same-opaque-id"]);
+    assert_eq!(db.sessions_by_recency(&codex), ["same-opaque-id"]);
+    assert_eq!(db.sessions_by_recency(&partner), ["same-opaque-id"]);
+}
+
+#[test]
+fn claiming_an_equal_opaque_id_locks_only_the_requested_scope() {
+    let db = Db::open_path(&tempfile::tempdir().unwrap().path().join("state.db")).unwrap();
+    let workspace = WorkspaceId::parse(WORKSPACE_ID).unwrap();
+    let claude = SessionScope::new(AgentKind::Claude, workspace, actor("pablo"));
+    let codex = SessionScope::new(AgentKind::Codex, workspace, actor("pablo"));
+    db.register_scoped_fresh("same-opaque-id", "claude-instance", 11, &claude)
+        .unwrap();
+    db.register_scoped_fresh("same-opaque-id", "codex-instance", 12, &codex)
+        .unwrap();
+    db.release("claude-instance").unwrap();
+    db.release("codex-instance").unwrap();
+
+    assert!(
+        db.claim("same-opaque-id", "claiming-codex", 21, &codex)
+            .unwrap()
+    );
+
+    assert_eq!(db.sessions_by_recency(&claude), ["same-opaque-id"]);
+    assert!(db.sessions_by_recency(&codex).is_empty());
+}
+
+#[test]
+fn reaping_an_equal_opaque_id_unlocks_only_the_dead_scope() {
+    let db = Db::open_path(&tempfile::tempdir().unwrap().path().join("state.db")).unwrap();
+    let workspace = WorkspaceId::parse(WORKSPACE_ID).unwrap();
+    let claude = SessionScope::new(AgentKind::Claude, workspace, actor("pablo"));
+    let codex = SessionScope::new(AgentKind::Codex, workspace, actor("pablo"));
+    let live_pid = i32::try_from(std::process::id()).unwrap();
+    db.register_scoped_fresh("same-opaque-id", "dead-claude", i32::MAX, &claude)
+        .unwrap();
+    db.register_scoped_fresh("same-opaque-id", "live-codex", live_pid, &codex)
+        .unwrap();
+
+    db.reap_dead_locks().unwrap();
+
+    assert_eq!(db.sessions_by_recency(&claude), ["same-opaque-id"]);
+    assert!(db.sessions_by_recency(&codex).is_empty());
+}
