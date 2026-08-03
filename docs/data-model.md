@@ -425,15 +425,19 @@ chains even if their display names change. When enabled, reconciliation keeps
 exactly one pending occurrence for each key; recurrence creates a fresh UUID
 and retains its key and assignment. When disabled, one journaled grouped
 replacement removes every keyed task/habit row plus exact derived UUID/display
-references. Name-only matches are never purged.
+references. Every managed UUID is removed. A managed display ID is also
+removed unless an unmanaged row with that display ID survives; duplicate
+managed rows do not make their shared display ID ambiguous. Name-only matches
+are never purged.
 
 The managed-triage transaction journal is schema version 2. It records the
 workspace UUID, normalized root, state (`preparing`, `prepared`, or
 `committed`), generated transaction ID, and exact live/staged/backup set.
 Recovery authenticates those fields before touching a file. Project purge
 rewrites only the top-level `.METADATA.json:tasks[]` reference field;
-malformed JSON, invalid UTF-8 indexes, traversal errors, and ambiguous display
-IDs abort the whole transaction before publication.
+malformed JSON, invalid UTF-8 indexes, and traversal errors abort the whole
+transaction before publication. A display reference shared with an unmanaged
+row is preserved because the surviving row remains its possible target.
 
 The release still does not implement access-mode enforcement, the
 agent-controller/OpenCode facade, or the final

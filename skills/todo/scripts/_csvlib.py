@@ -27,6 +27,7 @@ CHUNK_NAME_RE = re.compile(r"^(.+) \((\d+)/(\d+)\)$")
 USER_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 MANAGED_TRIAGE_KEYS = {"brain.triage.daily", "brain.triage.weekly"}
 _READ_SNAPSHOTS: dict[Path, bytes | None] = {}
+_JSON_SNAPSHOTS: dict[Path, bytes | None] = {}
 
 
 def _required_environment(name: str) -> str:
@@ -209,6 +210,32 @@ def read_csv(path: Path):
         return _canonical_assignment(reader.fieldnames or [], list(reader))
 
 
+def read_json(path: Path):
+    """Read JSON while retaining the exact bytes required for safe replacement."""
+    before = path.read_bytes() if path.exists() else None
+    _JSON_SNAPSHOTS[path] = before
+    if before is None:
+        raise FileNotFoundError(path)
+    return json.loads(before)
+
+
+def write_json(path: Path, value) -> None:
+    """Publish JSON under task-store ownership without overwriting a newer read."""
+    lock = _acquire_task_store_lock()
+    try:
+        _reject_pending_rust_transaction()
+        before = _JSON_SNAPSHOTS.get(path, object())
+        current = path.read_bytes() if path.exists() else None
+        if not isinstance(before, (bytes, type(None))) or before != current:
+            raise SystemExit(f"{path} changed after it was read; retry the task operation")
+        payload = (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+        _atomic_replace_bytes(path, payload)
+        _JSON_SNAPSHOTS[path] = payload
+    finally:
+        lock.rollback()
+        lock.close()
+
+
 def write_csv(path: Path, columns, rows):
     columns, rows = _canonical_assignment(columns, rows)
     if (
@@ -250,6 +277,33 @@ def write_csv(path: Path, columns, rows):
     finally:
         lock.rollback()
         lock.close()
+
+
+def _atomic_replace_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".pending",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _task_store_lock_path() -> Path:

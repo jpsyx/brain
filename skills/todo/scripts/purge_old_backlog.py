@@ -32,7 +32,15 @@ import json
 import sys
 from datetime import date
 
-from _csvlib import brain_root, parse_date, read_csv, tasks_csv, write_csv
+from _csvlib import (
+    brain_root,
+    parse_date,
+    read_csv,
+    read_json,
+    tasks_csv,
+    write_csv,
+    write_json,
+)
 
 
 def minus_six_months(d: date) -> date:
@@ -72,7 +80,7 @@ def record_deletion_in_project(slug: str, task: dict, deleted_date: str) -> None
         return
     meta_path = proj / ".METADATA.json"
     try:
-        meta = json.loads(meta_path.read_text())
+        meta = read_json(meta_path)
     except (OSError, ValueError):
         return
     entry = {
@@ -84,7 +92,7 @@ def record_deletion_in_project(slug: str, task: dict, deleted_date: str) -> None
     meta.setdefault("deleted_backlog_tasks", []).append(entry)
     if isinstance(meta.get("tasks"), list) and task.get("task_id") in meta["tasks"]:
         meta["tasks"].remove(task.get("task_id"))
-    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
+    write_json(meta_path, meta)
 
     notes = proj / "notes.md"
     header = "## Deleted backlog tasks\n"

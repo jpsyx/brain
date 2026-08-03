@@ -670,7 +670,8 @@ assignment defaults/membership/UI visibility), `view` (sub-views +
 markdown), `shortcuts` (the help/footer catalogue), `complete` (native
 task/habit completion), `triage_habits` (stable managed definitions,
 marker-based mutation policy, complete purge, and durable grouped
-replacement/recovery), `doctor` (health check), `plain` (`--no-tui` printer),
+replacement/recovery split into orchestration, artifact, and journal modules),
+`doctor` (health check), `plain` (`--no-tui` printer),
 and `cli` (the tasks clap args, nested under `brain tasks`). Reuses the
 crate-level `session` / `state` / `pty_pane` shared with the brain-search view.
 Native task command runners accept explicit `WorkspaceContext` and
@@ -773,8 +774,9 @@ config, reconciles managed policy under the workspace task-store owner, reloads
 both synced CSVs, and runs `check_daily_triage` exactly once. Reload or
 reconciliation errors are logged and shown in the TUI rather than discarded,
 so the modal reflects post-sync completion state (pure `triage_gate_resolved`
-decides resolution). With no startup sync, the check runs immediately as
-before. The
+decides resolution). `--no-daily-triage-check` disables only the final alert;
+the same gate still performs the strict config, managed-policy, and task-table
+refresh. With no startup sync, the check runs immediately as before. The
 brain
 panel is **closeable** (claude exit → `close_brain` drops the PTY and the main
 view goes full-width); `open_or_focus_brain` (`Ctrl+M`) re-opens it. The

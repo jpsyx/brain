@@ -452,3 +452,24 @@ fn every_task_store_writer_declares_the_shared_owner_boundary() {
     let next_id = std::fs::read_to_string(root.join("skills/todo/scripts/next_id.py")).unwrap();
     assert!(next_id.contains("_acquire_task_store_lock"));
 }
+
+#[test]
+fn triage_transaction_is_split_into_small_cohesive_modules() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(!root.join("src/tasks/triage_habits/transaction.rs").exists());
+    for relative in [
+        "src/tasks/triage_habits/transaction/mod.rs",
+        "src/tasks/triage_habits/transaction/journal.rs",
+        "src/tasks/triage_habits/transaction/artifacts.rs",
+    ] {
+        let source = std::fs::read_to_string(root.join(relative)).unwrap();
+        let production_lines = source
+            .lines()
+            .take_while(|line| *line != "#[cfg(test)]")
+            .count();
+        assert!(
+            production_lines <= 400,
+            "{relative} has {production_lines} production lines"
+        );
+    }
+}

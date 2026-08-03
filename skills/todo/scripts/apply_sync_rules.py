@@ -35,9 +35,11 @@ from _csvlib import (
     new_habit_id,
     new_uuid,
     read_csv,
+    read_json,
     tasks_csv,
     touch_row,
     write_csv,
+    write_json,
 )
 from next_habit_occurrence import next_due
 
@@ -49,14 +51,11 @@ MANAGED_TRIAGE_KEYS = {
 
 
 def load_json(path: Path):
-    with open(path) as f:
-        return json.load(f)
+    return read_json(path)
 
 
 def save_json(path: Path, data):
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    write_json(path, data)
 
 
 def project_meta_paths():

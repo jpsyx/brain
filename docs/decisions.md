@@ -1538,9 +1538,14 @@ mutex would not protect the Rust CLI, TUI, server, sync worker, and bundled
 Python scripts from one another. Brain therefore uses a SQLite immediate
 transaction at the workspace UUID cache path as a stable interprocess owner.
 Rust mutation entry points hold it across read, decision, and publication;
-Python CSV writers hold the same owner, compare current bytes with their read
-snapshot, and publish with an atomic same-directory replace. A stale writer
-fails explicitly instead of silently overwriting reconciliation.
+portable config read-modify-write and web habit completion do the same. Python
+CSV and project-metadata JSON writers hold the same owner, compare current
+bytes with their read snapshot, and publish with a file-synced atomic
+same-directory replace followed by a parent-directory sync. A stale writer
+fails explicitly instead of silently overwriting reconciliation. The native
+sync metadata publisher already runs beneath the sync command's owner, and the
+managed-triage metadata purge runs inside its authenticated grouped
+transaction, so every production project-metadata writer shares this boundary.
 ## TUI-owned receiver server
 
 The external receiver listener is deliberately owned by the singleton brain

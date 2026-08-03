@@ -626,9 +626,11 @@ runs immediately at open as before.
 
 **Opting out for a run.** Passing `--no-daily-triage-check` (a process-scoped
 flag, valid for that invocation only, *not* a persistent config change)
-suppresses the nudge entirely: brain neither arms the deferred gate nor runs the
-check, so the modal can never open, no matter the habit state. The startup sync
-still runs. Mid-session, the command palette's **Disable/Enable daily triage
+suppresses only the alert. Brain still arms the post-sync refresh gate, then
+strictly reloads portable config, reconciles managed triage policy, and reloads
+the task tables after a clean startup sync; it skips only the modal check. The
+modal can never open for that invocation, no matter the habit state.
+Mid-session, the command palette's **Disable/Enable daily triage
 alert** toggle flips the same process-scoped state, so a long-running TUI that
 spans several days can suppress or restore the nudge without a restart. To
 disable the nudge permanently instead, clear the `daily_triage_name_pattern`

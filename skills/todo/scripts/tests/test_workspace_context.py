@@ -1,9 +1,11 @@
 import csv
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -382,6 +384,90 @@ class WorkspaceContextTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         uuid.UUID(result.stdout.strip())
+
+    def test_project_metadata_writer_rejects_a_stale_snapshot(self):
+        metadata = self.root / "projects" / "alpha" / ".METADATA.json"
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text('{"name":"alpha","tasks":[]}\n', encoding="utf-8")
+        program = (
+            "import os\n"
+            "from pathlib import Path\n"
+            "from apply_sync_rules import load_json, save_json\n"
+            "path = Path(os.environ['METADATA_PATH'])\n"
+            "value = load_json(path)\n"
+            "path.write_text('{\"name\":\"alpha\",\"tasks\":[],\"owner\":\"concurrent\"}\\n', encoding='utf-8')\n"
+            "value['tasks'] = ['T1']\n"
+            "save_json(path, value)\n"
+        )
+        environment = self.env()
+        environment["METADATA_PATH"] = str(metadata)
+
+        result = subprocess.run(
+            [sys.executable, "-c", program],
+            cwd=SCRIPTS,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            json.loads(metadata.read_text(encoding="utf-8"))["owner"],
+            "concurrent",
+        )
+
+    def test_project_metadata_writer_waits_for_the_shared_task_store_owner(self):
+        metadata = self.root / "projects" / "alpha" / ".METADATA.json"
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text('{"name":"alpha","tasks":[]}\n', encoding="utf-8")
+        ready = self.base / "metadata-ready"
+        lock_path = (
+            self.home
+            / ".cache"
+            / "brain"
+            / "workspaces"
+            / WORKSPACE_ID
+            / "tasks.transaction.lock"
+        )
+        lock_path.parent.mkdir(parents=True)
+        owner = sqlite3.connect(lock_path, timeout=30, isolation_level=None)
+        owner.execute("PRAGMA journal_mode = OFF")
+        owner.execute("BEGIN IMMEDIATE")
+        program = (
+            "import os\n"
+            "from pathlib import Path\n"
+            "from apply_sync_rules import load_json, save_json\n"
+            "path = Path(os.environ['METADATA_PATH'])\n"
+            "value = load_json(path)\n"
+            "Path(os.environ['READY_PATH']).write_text('ready', encoding='utf-8')\n"
+            "value['tasks'] = ['T1']\n"
+            "save_json(path, value)\n"
+        )
+        environment = self.env()
+        environment["METADATA_PATH"] = str(metadata)
+        environment["READY_PATH"] = str(ready)
+        process = subprocess.Popen(
+            [sys.executable, "-c", program],
+            cwd=SCRIPTS,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        deadline = time.monotonic() + 2
+        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(ready.exists(), "metadata writer never reached its save boundary")
+
+        with self.assertRaises(subprocess.TimeoutExpired):
+            process.wait(timeout=0.2)
+        owner.rollback()
+        owner.close()
+        stdout, stderr = process.communicate(timeout=2)
+
+        self.assertEqual(process.returncode, 0, f"stdout: {stdout}\nstderr: {stderr}")
+        self.assertEqual(json.loads(metadata.read_text(encoding="utf-8"))["tasks"], ["T1"])
 
     def write_managed_habits(self):
         path = self.root / "tasks" / "habits.csv"

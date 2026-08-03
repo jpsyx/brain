@@ -89,9 +89,11 @@ impl App<'_> {
         &mut self,
         seen_journal_id: Option<i64>,
         now: std::time::Instant,
+        alert_after_refresh: bool,
     ) {
         self.triage_gate = Some(TriageGate {
             seen_journal_id,
+            alert_after_refresh,
             // Allow an immediate first poll (a very fast sync may already be done).
             next_poll: now,
         });
@@ -120,6 +122,7 @@ impl App<'_> {
         .and_then(|j| j.latest_successful_downstream_id().ok())
         .flatten();
         if triage_gate_resolved(gate.seen_journal_id, latest) {
+            let alert_after_refresh = gate.alert_after_refresh;
             self.triage_gate = None;
             match refresh_after_successful_startup_sync(&self.command_context.workspace) {
                 Ok(refreshed) => {
@@ -142,7 +145,9 @@ impl App<'_> {
                         crate::tasks::render::header_lines(&spec, self.cli, self.active_view);
                     self.base_tasks = spec.tasks;
                     self.rebuild_body();
-                    self.check_daily_triage();
+                    if alert_after_refresh {
+                        self.check_daily_triage();
+                    }
                 }
                 Err(error) => {
                     crate::logging::log(format!("post-sync triage refresh failed: {error:#}"));

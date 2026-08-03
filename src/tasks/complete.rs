@@ -122,14 +122,15 @@ pub(crate) fn complete_in_workspace_for_actor_with_today(
     complete_in_root_for_actor_with_today(workspace.root(), raw_id, today, actor)
 }
 
-pub(crate) fn complete_in_root_protected_owned_with_today(
+pub(crate) fn complete_in_root_protected_with_owner_and_today(
     root: &Path,
     lock_path: &Path,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
     raw_id: &str,
     today: NaiveDate,
     enabled: bool,
 ) -> Result<CompletionResult> {
-    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire_path(lock_path)?;
+    owner.verify_path(lock_path)?;
     protect_managed_completion_at(root, raw_id, enabled)?;
     complete_in_root_with_today(root, raw_id, today)
 }

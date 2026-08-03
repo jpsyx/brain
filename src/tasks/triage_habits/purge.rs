@@ -1,6 +1,6 @@
 //! Managed-triage purge decisions and derived-reference rewriting.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -17,24 +17,23 @@ pub(super) struct ManagedIdentities {
 impl ManagedIdentities {
     pub(super) fn collect_all(csvs: &[&CsvFile]) -> Self {
         let mut values = BTreeSet::new();
-        let mut display_counts = BTreeMap::<String, usize>::new();
+        let mut preserved_displays = BTreeSet::new();
         let mut managed_displays = BTreeSet::new();
         for csv in csvs {
             for row in &csv.rows {
                 let display = field(row, "task_id");
-                if !display.trim().is_empty() {
-                    *display_counts.entry(display.clone()).or_default() += 1;
-                }
                 if is_managed_system_key(&field(row, "system_key")) {
                     values.insert(field(row, "task_uuid"));
                     managed_displays.insert(display);
+                } else if !display.trim().is_empty() {
+                    preserved_displays.insert(display);
                 }
             }
         }
         values.extend(
             managed_displays
                 .into_iter()
-                .filter(|display| display_counts.get(display).copied() == Some(1)),
+                .filter(|display| !preserved_displays.contains(display)),
         );
         values.retain(|value| !value.trim().is_empty());
         Self { values }
@@ -202,6 +201,18 @@ mod tests {
 
         assert!(identities.values.contains("managed-uuid"));
         assert!(!identities.values.contains("H1"));
+    }
+
+    #[test]
+    fn duplicate_display_id_is_purged_when_every_carrier_is_managed() {
+        let tasks = csv(&[("managed-old", "H1", "brain.triage.daily")]);
+        let habits = csv(&[("managed-new", "H1", "brain.triage.weekly")]);
+
+        let identities = ManagedIdentities::collect_all(&[&tasks, &habits]);
+
+        assert!(identities.values.contains("managed-old"));
+        assert!(identities.values.contains("managed-new"));
+        assert!(identities.values.contains("H1"));
     }
 
     #[test]

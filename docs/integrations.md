@@ -49,7 +49,9 @@ helpers and shell-outs live in the tasks modules:
   daily|weekly`, which becomes a no-op when the portable feature is disabled.
   All Rust task mutations and bundled Python CSV/counter writers acquire the
   same SQLite immediate transaction at
-  `<workspace-cache>/tasks.transaction.lock`. Python writers also reject a
+  `<workspace-cache>/tasks.transaction.lock`. Portable config read-modify-write
+  operations, the habits web completion route, and bundled Python project
+  metadata writers use that owner too. Python CSV and JSON writers reject a
   changed read snapshot and use a synced same-directory atomic replacement.
   The protected `remove_task.py` boundary rejects enabled managed-row deletion.
 - **`brain tasks doctor`** — prints a progress plan via

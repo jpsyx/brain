@@ -91,7 +91,12 @@ impl Config {
 
     /// Strictly load portable config. Only a missing file yields defaults.
     pub(crate) fn try_load(workspace: &crate::workspace::WorkspaceContext) -> anyhow::Result<Self> {
-        let path = workspace.root().join(".config/config.json");
+        Self::try_load_from_root(workspace.root())
+    }
+
+    /// Strictly load portable config from an explicit workspace root.
+    pub(crate) fn try_load_from_root(root: &std::path::Path) -> anyhow::Result<Self> {
+        let path = root.join(".config/config.json");
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

@@ -80,11 +80,15 @@ pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> 
             "false" => false,
             _ => bail!("enable_triage_habits must be true or false"),
         };
-        return crate::tasks::triage_habits::apply_triage_habits_config(workspace, enabled);
+        let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
+        return crate::tasks::triage_habits::apply_triage_habits_config_owned(
+            workspace, enabled, &owner,
+        );
     }
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
     let mut map = load_map(workspace);
     map.insert(name.to_owned(), parse_value(value));
-    save_map(workspace, &map)
+    save_map(workspace, &map, &owner)
 }
 
 /// Every declared variable with its resolved value, in schema order.
@@ -111,6 +115,22 @@ pub(super) fn resolve_all_from(map: &Map<String, Value>) -> Vec<Resolved> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temporary_workspace() -> (tempfile::TempDir, WorkspaceContext) {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("brain");
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        let workspace = WorkspaceContext::new(
+            temporary.path(),
+            crate::workspace::WorkspaceId::new(),
+            crate::workspace::WorkspaceName::parse("brain").unwrap(),
+            &root,
+            "tester",
+            temporary.path(),
+        )
+        .unwrap();
+        (temporary, workspace)
+    }
 
     fn workspace() -> WorkspaceContext {
         WorkspaceContext::new(
@@ -241,5 +261,36 @@ mod tests {
         let val = |n: &str| rows.iter().find(|r| r.name == n).unwrap().value.clone();
         assert_eq!(val("agenda_dir").as_deref(), Some("/srv/agenda"));
         assert_eq!(val("linear_workspace").as_deref(), Some("acme"));
+    }
+
+    #[test]
+    fn config_read_modify_write_waits_for_the_workspace_task_store_owner() {
+        let (_temporary, workspace) = temporary_workspace();
+        let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&workspace).unwrap();
+        let writer_workspace = workspace.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            done_tx
+                .send(set(&writer_workspace, "day_rollover_hour", "4"))
+                .unwrap();
+        });
+
+        assert!(
+            done_rx
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_err(),
+            "config writer entered while another task-store owner was active"
+        );
+        drop(owner);
+
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+            .unwrap();
+        writer.join().unwrap();
+        assert_eq!(
+            resolve_one(&workspace, "day_rollover_hour").as_deref(),
+            Some("4")
+        );
     }
 }

@@ -37,7 +37,11 @@ impl TaskStoreOwner {
     }
 
     pub(crate) fn verify(&self, workspace: &WorkspaceContext) -> Result<()> {
-        if self.lock_path != workspace.paths().task_store_lock() {
+        self.verify_path(&workspace.paths().task_store_lock())
+    }
+
+    pub(crate) fn verify_path(&self, lock_path: &Path) -> Result<()> {
+        if self.lock_path != lock_path {
             bail!("task-store owner belongs to a different workspace");
         }
         Ok(())

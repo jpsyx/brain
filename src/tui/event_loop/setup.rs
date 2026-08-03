@@ -26,6 +26,23 @@ use crate::tui::*;
 
 use super::run::event_loop;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StartupSyncPlan {
+    launch_sync: bool,
+    arm_refresh: bool,
+    alert_after_refresh: bool,
+    check_now: bool,
+}
+
+fn startup_sync_plan(sync_configured: bool, suppress_alert: bool) -> StartupSyncPlan {
+    StartupSyncPlan {
+        launch_sync: sync_configured,
+        arm_refresh: sync_configured,
+        alert_after_refresh: sync_configured && !suppress_alert,
+        check_now: !sync_configured && !suppress_alert,
+    }
+}
+
 /// Turn off mouse *motion* reporting (DECSET 1002 button-drag + 1003 any-event)
 /// that `EnableMouseCapture` also enables, keeping only button + wheel
 /// reporting. With motion reporting on, iTerm2 won't let ⌘-hover / ⌘-click reach
@@ -175,7 +192,7 @@ pub fn run_tui(
     // startup child nor a watcher thread.
     let sync_cfg = crate::sync::config::SyncConfig::load(command_context);
     let sync_configured = sync_cfg.is_configured();
-    let startup_sync = sync_configured;
+    let startup_plan = startup_sync_plan(sync_configured, skip_daily_triage_check);
 
     // The daily-triage nudge must reflect *post-sync* state: another machine may
     // already have done or skipped today's triage, and that only reaches this
@@ -184,28 +201,31 @@ pub fn run_tui(
     // Instead capture the journal baseline, kick the sync, and *arm the gate*;
     // `tick_triage_gate` runs the real check only once the sync completes. With
     // no startup sync, check right away.
-    // `--no-daily-triage-check` opts out of the nudge for this run entirely: we
-    // still run the startup pull (cross-machine freshness is unrelated), but we
-    // neither arm the gate nor check, so the modal can never appear.
-    if skip_daily_triage_check {
-        if startup_sync {
-            let _ = crate::sync::trigger::spawn_detached_sync(
-                &command_context.workspace,
-                crate::sync::args::Direction::Pull,
-            );
-        }
-    } else if startup_sync {
+    // `--no-daily-triage-check` suppresses only the nudge. The gate still
+    // refreshes config and task state after a successful startup pull.
+    let seen = if startup_plan.arm_refresh {
         let seen =
             crate::sync::journal::Journal::open(&command_context.workspace.paths().sync_journal())
                 .ok()
                 .and_then(|j| j.latest_successful_downstream_id().ok())
                 .flatten();
+        Some(seen)
+    } else {
+        None
+    };
+    if startup_plan.launch_sync {
         let _ = crate::sync::trigger::spawn_detached_sync(
             &command_context.workspace,
             crate::sync::args::Direction::Pull,
         );
-        app.arm_triage_gate(seen, std::time::Instant::now());
-    } else {
+    }
+    if let Some(seen) = seen {
+        app.arm_triage_gate(
+            seen,
+            std::time::Instant::now(),
+            startup_plan.alert_after_refresh,
+        );
+    } else if startup_plan.check_now {
         // No sync coming — the local state is authoritative, so check now. The
         // confirm modal it may set renders on the very first frame.
         app.check_daily_triage();
@@ -247,7 +267,17 @@ pub fn run_tui(
 
 #[cfg(test)]
 mod tests {
-    use super::acquire_singleton_then_refresh;
+    use super::{acquire_singleton_then_refresh, startup_sync_plan};
+
+    #[test]
+    fn suppressed_startup_alert_still_waits_to_refresh_synced_state() {
+        let plan = startup_sync_plan(true, true);
+
+        assert!(plan.launch_sync);
+        assert!(plan.arm_refresh);
+        assert!(!plan.alert_after_refresh);
+        assert!(!plan.check_now);
+    }
 
     #[test]
     fn held_workspace_singleton_prevents_hook_refresh() {

@@ -8,9 +8,10 @@ IDs are prefix + integer:
 Counters live next to the selected workspace CSVs, one plaintext file per kind.
 
 Each counter file holds a single decimal integer with no other content.
-Reading + incrementing is not atomic across concurrent processes; this is
-a single-user system so that's fine. If a counter file is missing it is
-recreated from the highest existing ID in the corresponding CSV.
+Allocation holds the selected workspace's shared task-store lock across the
+read and increment, so concurrent task writers cannot issue the same ID. If a
+counter file is missing it is recreated from the highest existing ID in the
+corresponding CSV.
 
 Usage:
     next_id.py --kind tasks      # prints e.g. "T108"
