@@ -5,10 +5,12 @@ description: Use when the user asks to triage tasks, run "morning triage", run w
 
 # triage
 
-Throughout this skill, `<brain>` is your brain root — the directory `brain
-config get root` returns (default `~/brain`) — and `~/.agents/skills/todo/scripts/`
-is where `brain skills sync` installs the `/todo` skill's helper scripts. Both
-resolve without you hardcoding a personal path.
+Throughout this skill, `<brain>` is the selected workspace root in
+`BRAIN_ROOT`, and `~/.agents/skills/todo/scripts/` is where `brain skills sync`
+installs the `/todo` skill's helper scripts. Run mutators only inside the Brain
+workspace/actor environment; they deliberately fail instead of falling back to
+a home-directory brain. Preserve each row's `assigned_to` unless the user asks
+for explicit reassignment through the validated `/todo assign` path.
 
 ## Establish "today" from the system clock FIRST (before anything else)
 

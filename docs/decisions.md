@@ -255,10 +255,22 @@ user store uses its exact lower-case kebab local ID as a non-writing
 compatibility actor. Readiness rejects malformed nonblank legacy IDs with a
 machine-local repair command, matching the actor parser exactly.
 Inbound actor precedence remains immutable request context after provider
-authentication. Task `assigned_to`, triage-habit policy, the
-agent-controller/OpenCode facade, and shared receiver leases remain later
-phases. This actor context is attribution and routing, not a new authentication
-or access-control boundary.
+authentication. Task `assigned_to` now defaults to that actor, while unrelated
+mutations preserve the existing assignment and explicit changes validate
+portable membership. This deliberately adds no owner, creator, audit, or device
+semantics. Triage-habit policy, the agent-controller/OpenCode facade, and shared
+receiver leases remain later phases. Actor context is attribution and routing,
+not a new authentication or access-control boundary.
+
+## Why assignment defaults to the effective actor
+
+The request actor is already immutable and portable, so it is the only default
+that behaves consistently for local and authenticated inbound work. User count
+changes presentation, not semantics: one-person workspaces hide redundant
+assignment controls but still persist the ID; shared workspaces reveal detail,
+creation/reassignment controls, and filtering. Compatibility is intentionally
+asymmetric: readers accept the legacy `assignee` heading, while any writer
+normalizes to `assigned_to`. The later `task_uuid` migration stays separate.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 

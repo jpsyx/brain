@@ -20,7 +20,7 @@ pub fn launch(
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
         Some(TasksCommand::Complete(args)) => {
-            return crate::tasks::complete::run(root, &args.id, &context.actor);
+            return crate::tasks::complete::run(&context.workspace, &args.id, &context.actor);
         }
         Some(TasksCommand::Search(args)) => Initial::CustomSearch(args.query.join(" ")),
         Some(TasksCommand::Doctor) => {

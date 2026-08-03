@@ -1,12 +1,12 @@
 # Schema reference
 
-Human-readable mirror of `~/brain/tasks/SCHEMA.json`. SCHEMA.json is
+Human-readable mirror of `<selected-workspace>/tasks/SCHEMA.json`. SCHEMA.json is
 the machine source-of-truth; this file is for reading.
 
 ## Files
 
 ```
-~/brain/tasks/
+<selected-workspace>/tasks/
   tasks.csv      # non-habit tasks
   habits.csv     # recurring habits
   SCHEMA.json    # canonical schema (machine)
@@ -36,8 +36,7 @@ Short, stable, human-typable. Two disjoint namespaces, one per CSV:
 - **Habits** (`habits.csv`): `H1`, `H2`, `H3`, … (prefix `H`)
 
 Issued by [`scripts/next_id.py`](../scripts/next_id.py); never reused, never
-edited by hand. Counters: `~/brain/tasks/.tasks_next_id` and
-`~/brain/tasks/.habits_next_id`. Each habit occurrence (spawned on `done`)
+edited by hand. Counters live beside each selected workspace's CSVs. Each habit occurrence (spawned on `done`)
 gets a fresh `H###`.
 
 CLI/LLM input is forgiving: `T17`, `t17`, and bare `17` all resolve. A
@@ -59,10 +58,10 @@ the user can reference rows in follow-ups** ("done T42", "defer 17 +3d").
 | 6 | `due_date` | date \| datetime \| empty | Empty if no due date. |
 | 7 | `hard_deadline` | bool | `true` / `false`. Triage doesn't bulk-defer these. |
 | 8 | `start_date` | date \| empty | Hide from views until this date. |
-| 9 | `assignee` | string | Default `me`; future-proofing if delegation comes in. |
+| 9 | `assigned_to` | portable user ID | Defaults to the effective actor. Explicit values and reassignments must name a member in `.config/users.json`; unrelated edits preserve it. Readers temporarily accept legacy `assignee`, while writers emit only `assigned_to`. |
 | 10 | `see_also` | string | URL or freetext context. |
 | 11 | `notes` | string | Task body. `- [ ]` patterns trigger "consider /todo turn-into-project". |
-| 12 | `project` | kebab-slug \| empty | Forward link to `~/brain/projects/<slug>`. |
+| 12 | `project` | kebab-slug \| empty | Forward link to `<selected-workspace>/projects/<slug>`. |
 | 13 | `energy_level` | enum \| empty | `high`, `medium`, `low`. Empty until needed for an assistant decision. |
 | 14 | `context` | enum \| empty | `home`, `office`, `computer`, `calls`, `errand`. Empty until needed. |
 | 15 | `estimated_duration` | int (minutes) \| empty | Thresholds: 5/15/30/45/60+. Best-guess silently when confident, ask user only when it would change an assistant decision. |
@@ -132,11 +131,10 @@ For provenance. The initial dump on 2026-06-08 mapped:
 - Page bodies (where non-default) → `notes`. Default scaffolds
   (empty Sub-tasks + Supporting files headers) were skipped.
 - Page `createdTime` → `created_date`.
-- `Assignee` was always self → `assignee = me`.
+- `Assignee` was mapped into the portable `assigned_to` field during writer migration.
 - `task_id` was originally generated as UUID4 and later migrated to short
   IDs (`T1..Tn` for tasks, `H1..Hn` for habits) on 2026-06-08 via
-  `scripts/next_id.py`. Counters live at `~/brain/tasks/.tasks_next_id`
-  and `~/brain/tasks/.habits_next_id`.
+  `scripts/next_id.py`. Counters live beside the selected workspace's CSVs.
 - `defer_count = 0`, `completed_date = ''`, project/energy/context/start/blocked_by all empty.
 - `estimated_duration` was inferred from notes when a duration hint
   was present (e.g. "Likely duration: 30 mins" → 30); empty otherwise.

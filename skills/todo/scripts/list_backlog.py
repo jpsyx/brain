@@ -15,7 +15,7 @@ import json
 import sys
 from datetime import date
 
-from _csvlib import TASKS_CSV, parse_date, read_csv
+from _csvlib import parse_date, read_csv, tasks_csv
 
 
 def main() -> int:
@@ -25,7 +25,7 @@ def main() -> int:
     args = p.parse_args()
 
     today = date.today()
-    _, rows = read_csv(TASKS_CSV)
+    _, rows = read_csv(tasks_csv())
     out = []
     for r in rows:
         if (r.get("status") or "").strip() != "backlog":

@@ -161,7 +161,12 @@ fn id_number(id: &str) -> u32 {
 }
 
 /// CLI runner for `brain habits revive|fix <query>`.
-pub fn run(root: &std::path::Path, query: &str, _actor: &crate::actor::ActorContext) -> Result<()> {
+pub fn run(
+    workspace: &crate::workspace::WorkspaceContext,
+    query: &str,
+    _actor: &crate::actor::ActorContext,
+) -> Result<()> {
+    let root = workspace.root();
     let today = Local::now().date_naive();
     match revive_fuzzy_in_root(root, query, today)? {
         ReviveOutcome::NoMatch => {
@@ -258,6 +263,19 @@ fn prompt_selection(names: &[String]) -> Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_runner_requires_explicit_workspace_and_actor_contexts() {
+        fn accepts_runner(
+            _: fn(
+                &crate::workspace::WorkspaceContext,
+                &str,
+                &crate::actor::ActorContext,
+            ) -> anyhow::Result<()>,
+        ) {
+        }
+        accepts_runner(super::run);
+    }
 
     const HEADER: &str = "task_id,task_name,status,priority,due_date,recur_interval,recur_unit,created_date,completed_date,last_touched\n";
 

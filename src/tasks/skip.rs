@@ -50,7 +50,7 @@ pub struct SkipResult {
 
 /// CLI runner for `brain habits skip <id|fuzzy> [--until YYYY-MM-DD]`.
 pub fn run(
-    root: &Path,
+    workspace: &crate::workspace::WorkspaceContext,
     raw_id: &str,
     until: Option<&str>,
     _actor: &crate::actor::ActorContext,
@@ -58,7 +58,7 @@ pub fn run(
     crate::logging::log(format!("habits skip raw_id={raw_id} until={until:?}"));
     let today = Local::now().date_naive();
     let until = until.map(parse_until).transpose()?;
-    let result = skip_in_root_with_today(root, raw_id, until, today)?;
+    let result = skip_in_root_with_today(workspace.root(), raw_id, until, today)?;
     print_result(&result);
     Ok(())
 }
@@ -223,6 +223,20 @@ fn print_result(result: &SkipResult) {
 mod tests {
     use super::{SkipKind, skip_in_root_with_today};
     use chrono::NaiveDate;
+
+    #[test]
+    fn command_runner_requires_explicit_workspace_and_actor_contexts() {
+        fn accepts_runner(
+            _: fn(
+                &crate::workspace::WorkspaceContext,
+                &str,
+                Option<&str>,
+                &crate::actor::ActorContext,
+            ) -> anyhow::Result<()>,
+        ) {
+        }
+        accepts_runner(super::run);
+    }
 
     const HABITS_HEADER: &str = "task_id,task_name,status,due_date,recur_interval,recur_unit,ideal_time,created_date,completed_date,last_touched";
 

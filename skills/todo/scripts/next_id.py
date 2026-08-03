@@ -5,9 +5,7 @@ IDs are prefix + integer:
 - Tasks (in tasks.csv) use `T1, T2, T3, ...`
 - Habits (in habits.csv) use `H1, H2, H3, ...`
 
-Counters live next to the CSVs, one plaintext file per kind:
-- ~/brain/tasks/.tasks_next_id   (next T# to issue)
-- ~/brain/tasks/.habits_next_id  (next H# to issue)
+Counters live next to the selected workspace CSVs, one plaintext file per kind.
 
 Each counter file holds a single decimal integer with no other content.
 Reading + incrementing is not atomic across concurrent processes; this is
@@ -30,21 +28,17 @@ import re
 import sys
 from pathlib import Path
 
-BRAIN = Path.home() / "brain"
-TASKS_DIR = BRAIN / "tasks"
+from _csvlib import habits_csv, tasks_csv
 
-KINDS = {
-    "tasks": {
-        "prefix": "T",
-        "counter": TASKS_DIR / ".tasks_next_id",
-        "csv": TASKS_DIR / "tasks.csv",
-    },
-    "habits": {
-        "prefix": "H",
-        "counter": TASKS_DIR / ".habits_next_id",
-        "csv": TASKS_DIR / "habits.csv",
-    },
-}
+
+def _kind(kind: str):
+    csv_path = tasks_csv() if kind == "tasks" else habits_csv()
+    prefix = "T" if kind == "tasks" else "H"
+    return {
+        "prefix": prefix,
+        "counter": csv_path.parent / f".{kind}_next_id",
+        "csv": csv_path,
+    }
 
 
 def _max_existing(csv_path: Path, prefix: str) -> int:
@@ -62,7 +56,7 @@ def _max_existing(csv_path: Path, prefix: str) -> int:
 
 
 def _read_counter(kind: str) -> int:
-    cfg = KINDS[kind]
+    cfg = _kind(kind)
     cf: Path = cfg["counter"]
     if cf.exists():
         txt = cf.read_text().strip()
@@ -73,22 +67,22 @@ def _read_counter(kind: str) -> int:
 
 
 def _write_counter(kind: str, value: int) -> None:
-    KINDS[kind]["counter"].write_text(f"{value}\n")
+    _kind(kind)["counter"].write_text(f"{value}\n")
 
 
 def peek(kind: str) -> str:
-    return f"{KINDS[kind]['prefix']}{_read_counter(kind)}"
+    return f"{_kind(kind)['prefix']}{_read_counter(kind)}"
 
 
 def new_id(kind: str) -> str:
     n = _read_counter(kind)
     _write_counter(kind, n + 1)
-    return f"{KINDS[kind]['prefix']}{n}"
+    return f"{_kind(kind)['prefix']}{n}"
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--kind", required=True, choices=sorted(KINDS))
+    p.add_argument("--kind", required=True, choices=["habits", "tasks"])
     p.add_argument("--peek", action="store_true",
                    help="show next ID without consuming the counter")
     args = p.parse_args()

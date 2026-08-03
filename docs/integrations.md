@@ -183,6 +183,11 @@ Which session to run is decided by the **lock + recency** model in
    Receiver work first authenticates the provider request, then resolves an
    enabled portable sender; the queued workspace UUID and actor override the
    machine default for that complete request lineage.
+   Bundled task mutators resolve their selected root and actor only from this
+   contract. A missing `BRAIN_ROOT` or `BRAIN_ACTOR_ID` fails directly; scripts
+   never fall back to a home-directory brain. New rows use `BRAIN_ACTOR_ID` for
+   `assigned_to`, while explicit assignment reads the selected root's portable
+   `users.json` before writing.
 3. A **SessionStart hook** —
    `scripts/claude_session_start_hook.py`, wired into
    `<brain-root>/.claude/settings.json` under `hooks.SessionStart` — fires on

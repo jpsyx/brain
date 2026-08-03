@@ -22,40 +22,15 @@ Usage:
     apply_sync_rules.py --fix       # write corrections
 """
 import argparse
-import csv
 import json
-import os
 import re
 import sys
 from datetime import date
 from pathlib import Path
 
-BRAIN = Path(os.environ.get("BRAIN_ROOT", Path.home() / "brain")).expanduser()
-TASKS = BRAIN / "tasks" / "tasks.csv"
-HABITS = BRAIN / "tasks" / "habits.csv"
-PROJECTS_DIR = BRAIN / "projects"
+from _csvlib import brain_root, habits_csv, read_csv, tasks_csv, touch_row, write_csv
 
 CHECKBOX_RE = re.compile(r"^\s*-\s*\[[ x]\]", re.MULTILINE)
-
-
-def read_csv(path: Path):
-    if not path.exists():
-        return [], []
-    with open(path, newline="") as f:
-        reader = csv.DictReader(f)
-        return reader.fieldnames or [], list(reader)
-
-
-def write_csv(path: Path, columns, rows):
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
-        w.writeheader()
-        for r in rows:
-            w.writerow({c: r.get(c, "") for c in columns})
-
-
-def touch_row(row: dict, today: str) -> None:
-    row["last_touched"] = today
 
 
 def load_json(path: Path):
@@ -70,9 +45,10 @@ def save_json(path: Path, data):
 
 
 def project_meta_paths():
-    if not PROJECTS_DIR.is_dir():
+    projects_dir = brain_root() / "projects"
+    if not projects_dir.is_dir():
         return []
-    return sorted(PROJECTS_DIR.glob("*/.METADATA.json"))
+    return sorted(projects_dir.glob("*/.METADATA.json"))
 
 
 def main() -> int:
@@ -86,7 +62,9 @@ def main() -> int:
     fixes_applied = []
 
     # 1-8 task-level rules ------------------------------------------------
-    for path in (TASKS, HABITS):
+    tasks = tasks_csv()
+    habits = habits_csv()
+    for path in (tasks, habits):
         if not path.exists():
             continue
         cols, rows = read_csv(path)
@@ -125,7 +103,7 @@ def main() -> int:
                     else:
                         issues.append(f"{path.name}: '{r.get('task_id')} {r.get('task_name')}' has empty defer_count")
             # rule 5: misplaced habit
-            if path == TASKS and "habit" in (r.get("task_type") or ""):
+            if path == tasks and "habit" in (r.get("task_type") or ""):
                 issues.append(f"tasks.csv: '{r.get('task_id')} {r.get('task_name')}' has task_type=habit — should move to habits.csv")
             # rule 7: sub-tasks → project
             if CHECKBOX_RE.search(r.get("notes") or ""):
@@ -152,7 +130,7 @@ def main() -> int:
     # 6. project bidirectional link ---------------------------------------
     forward = {}  # project_slug -> set of task_ids referencing it
     task_meta = {}  # task_id -> (path, row)
-    for path in (TASKS, HABITS):
+    for path in (tasks, habits):
         if not path.exists():
             continue
         _, rows = read_csv(path)
@@ -167,7 +145,7 @@ def main() -> int:
 
     # forward: every task.project must point to an existing project dir
     for slug, tids in forward.items():
-        meta_path = PROJECTS_DIR / slug / ".METADATA.json"
+        meta_path = brain_root() / "projects" / slug / ".METADATA.json"
         if not meta_path.exists():
             issues.append(
                 f"orphan task→project: project '{slug}' (referenced by {len(tids)} task(s)) does not exist"

@@ -6,6 +6,23 @@ fn script(name: &str) -> String {
     format!("skills/todo/scripts/{name}")
 }
 
+fn script_command(name: &str, home: &std::path::Path, root: &std::path::Path) -> Command {
+    let xdg = home.join("xdg");
+    std::fs::create_dir_all(xdg.join("brain")).unwrap();
+    std::fs::write(xdg.join("brain/env.json"), "{}\n").unwrap();
+    let mut command = Command::new("python3");
+    command
+        .arg(script(name))
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", &xdg)
+        .env("BRAIN_ROOT", root)
+        .env("BRAIN_WORKSPACE", "test")
+        .env("BRAIN_WORKSPACE_ID", "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b")
+        .env("BRAIN_ACTOR_ID", "tester")
+        .env("PYTHONDONTWRITEBYTECODE", "1");
+    command
+}
+
 #[test]
 fn defer_habit_stamps_last_touched_on_the_mutated_row() {
     let home = tempfile::tempdir().unwrap();
@@ -19,11 +36,8 @@ H1,Stretch,not_started,p2,2026-07-20,false,me,,,,,,,1,days,2026-07-01,,2026-07-0
     )
     .unwrap();
 
-    let output = Command::new("python3")
-        .arg(script("defer_habit.py"))
+    let output = script_command("defer_habit.py", home.path(), &home.path().join("brain"))
         .arg("H1")
-        .env("HOME", home.path())
-        .env("PYTHONDONTWRITEBYTECODE", "1")
         .output()
         .unwrap();
 
@@ -54,11 +68,8 @@ H1,Stretch,not_started,p2,2026-07-20,false,me,,,,,,,1,days,2026-07-01,\n",
     )
     .unwrap();
 
-    let output = Command::new("python3")
-        .arg(script("defer_habit.py"))
+    let output = script_command("defer_habit.py", home.path(), &home.path().join("brain"))
         .arg("H1")
-        .env("HOME", home.path())
-        .env("PYTHONDONTWRITEBYTECODE", "1")
         .output()
         .unwrap();
 
@@ -87,8 +98,7 @@ fn add_habit_writes_last_touched_for_new_habit_files() {
     let home = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(home.path().join("brain/tasks")).unwrap();
 
-    let output = Command::new("python3")
-        .arg(script("add_task.py"))
+    let output = script_command("add_task.py", home.path(), &home.path().join("brain"))
         .arg("--habit")
         .arg("--name")
         .arg("Stretch")
@@ -98,8 +108,6 @@ fn add_habit_writes_last_touched_for_new_habit_files() {
         .arg("1")
         .arg("--unit")
         .arg("days")
-        .env("HOME", home.path())
-        .env("PYTHONDONTWRITEBYTECODE", "1")
         .output()
         .unwrap();
 
@@ -141,13 +149,14 @@ T1,Ship fix,code,done,,p1,,false,,me,,,,,,,,'',2026-07-01,,2026-07-01,\n",
     )
     .unwrap();
 
-    let output = Command::new("python3")
-        .arg(script("apply_sync_rules.py"))
-        .arg("--fix")
-        .env("HOME", home.path())
-        .env("PYTHONDONTWRITEBYTECODE", "1")
-        .output()
-        .unwrap();
+    let output = script_command(
+        "apply_sync_rules.py",
+        home.path(),
+        &home.path().join("brain"),
+    )
+    .arg("--fix")
+    .output()
+    .unwrap();
 
     assert!(
         output.status.success(),
@@ -185,12 +194,8 @@ T1,Ship fix,code,done,,p1,,false,,me,,,,,,,,'',2026-07-01,,2026-07-01,\n",
     )
     .unwrap();
 
-    let output = Command::new("python3")
-        .arg(script("apply_sync_rules.py"))
+    let output = script_command("apply_sync_rules.py", home.path(), &family)
         .arg("--fix")
-        .env("HOME", home.path())
-        .env("BRAIN_ROOT", &family)
-        .env("PYTHONDONTWRITEBYTECODE", "1")
         .output()
         .unwrap();
 

@@ -16,19 +16,20 @@ Usage:
 import argparse
 import sys
 from _csvlib import (
-    HABITS_CSV, TASKS_CSV, new_habit_id, new_task_id, read_csv, today_iso, write_csv,
+    assignment_for_create, habits_csv, new_habit_id, new_task_id, read_csv,
+    tasks_csv, today_iso, write_csv,
 )
 
 TASK_COLS = [
     "task_id", "task_name", "task_type", "status", "waiting_since", "priority",
-    "due_date", "hard_deadline", "start_date", "assignee", "see_also",
+    "due_date", "hard_deadline", "start_date", "assigned_to", "see_also",
     "notes", "project", "energy_level", "context",
     "estimated_duration", "blocked_by", "defer_count",
     "created_date", "completed_date", "last_touched", "linear_issue",
 ]
 HABIT_COLS = [
     "task_id", "task_name", "status", "priority", "due_date",
-    "hard_deadline", "assignee", "see_also", "notes", "project",
+    "hard_deadline", "assigned_to", "see_also", "notes", "project",
     "energy_level", "context", "estimated_duration",
     "recur_interval", "recur_unit",
     "created_date", "completed_date", "last_touched",
@@ -54,7 +55,8 @@ def main() -> int:
     p.add_argument("--context", choices=["home", "office", "computer", "calls", "errand"], default="")
     p.add_argument("--duration", default="", help="estimated duration in minutes (per-chunk when --chunks is set)")
     p.add_argument("--blocked-by", default="")
-    p.add_argument("--assignee", default="me")
+    p.add_argument("--assigned-to", default=None,
+                   help="portable workspace user ID; defaults to BRAIN_ACTOR_ID")
     p.add_argument("--linear-issue", default="",
                    help="Linear issue identifier (e.g. AVA-123) for a code task already filed "
                         "in Linear. Usually set later via set_linear_issue.py once the issue "
@@ -76,7 +78,7 @@ def main() -> int:
         "priority": args.priority,
         "due_date": args.due,
         "hard_deadline": "true" if args.hard_deadline else "false",
-        "assignee": args.assignee,
+        "assigned_to": assignment_for_create(args.assigned_to),
         "see_also": args.see_also,
         "notes": args.notes,
         "project": args.project,
@@ -95,7 +97,7 @@ def main() -> int:
         if not (args.interval and args.unit):
             print("--habit requires --interval and --unit", file=sys.stderr)
             return 2
-        path = HABITS_CSV
+        path = habits_csv()
         cols = HABIT_COLS
         row = {**common,
                "task_id": new_habit_id(),
@@ -106,7 +108,7 @@ def main() -> int:
         if not args.type:
             print("--type is required for non-habit tasks", file=sys.stderr)
             return 2
-        path = TASKS_CSV
+        path = tasks_csv()
         cols = TASK_COLS
 
         if args.chunks:
@@ -181,7 +183,7 @@ def main() -> int:
         print(f"added: {r['task_id']}  {r['task_name']}  → {path.name}")
         if r.get("project"):
             print(f"  ⓘ project link '{r['project']}' — run /todo reindex --fix to mirror into .METADATA.json")
-        if path == TASKS_CSV:
+        if path == tasks_csv():
             _linear_hint(r)
     else:
         print(f"added {len(new_rows)} chunk(s) → {path.name}:")
@@ -190,7 +192,7 @@ def main() -> int:
             print(f"  {r['task_id']}  {r['task_name']}  [blocked_by: {blocker}]")
         if new_rows[0].get("project"):
             print(f"  ⓘ project link '{new_rows[0]['project']}' — run /todo reindex --fix to mirror into .METADATA.json")
-        if path == TASKS_CSV:
+        if path == tasks_csv():
             _linear_hint(new_rows[0])
     return 0
 

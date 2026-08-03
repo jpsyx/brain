@@ -39,7 +39,7 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from _csvlib import TASKS_CSV, read_csv
+from _csvlib import read_csv, tasks_csv
 
 STALE_TOUCH_DAYS = 21
 STUCK_IN_PROGRESS_DAYS = 14
@@ -139,7 +139,7 @@ def main() -> int:
     args = p.parse_args()
 
     today = date.today()
-    cols, rows = read_csv(TASKS_CSV)
+    cols, rows = read_csv(tasks_csv())
     if "last_touched" not in cols:
         print(
             "tasks.csv is missing the last_touched column. "

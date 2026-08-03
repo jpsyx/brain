@@ -4,8 +4,12 @@
 //! [`load`] owns the on-disk CSV row structs and the loaders that turn a
 //! file into `Vec<Task>`.
 
+mod assignment;
 mod load;
 
+pub use assignment::{
+    AssignmentUiMode, assignment_after_edit, assignment_for_create, assignment_ui_mode,
+};
 pub use load::{load_habits, load_tasks};
 
 use chrono::NaiveDate;
@@ -23,6 +27,8 @@ pub struct Task {
     pub due_date: Option<NaiveDate>,
     pub hard_deadline: bool,
     pub start_date: Option<NaiveDate>,
+    /// Portable workspace member currently responsible for this row.
+    pub assigned_to: String,
     pub notes: String,
     pub project: String,
     pub energy: String,
@@ -160,6 +166,7 @@ pub fn test_task(id: &str, status: &str) -> Task {
         due_date: None,
         hard_deadline: false,
         start_date: None,
+        assigned_to: String::new(),
         notes: String::new(),
         project: String::new(),
         energy: String::new(),
@@ -176,11 +183,101 @@ pub fn test_task(id: &str, status: &str) -> Task {
 
 #[cfg(test)]
 mod tests {
-    use super::{Task, test_task};
+    use super::{
+        Task, assignment_after_edit, assignment_for_create, assignment_ui_mode, test_task,
+    };
     use chrono::NaiveDate;
+
+    use crate::users::{USERS_SCHEMA_VERSION, User, UserId, Users};
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    fn users(ids: &[&str]) -> Users {
+        Users {
+            schema_version: USERS_SCHEMA_VERSION,
+            users: ids
+                .iter()
+                .map(|id| User {
+                    id: UserId::parse(id).unwrap(),
+                    name: (*id).to_owned(),
+                    phones: Vec::new(),
+                    emails: Vec::new(),
+                    response_email: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn creation_defaults_to_effective_actor_for_one_or_many_users() {
+        let actor = crate::actor::test_actor("wife");
+
+        assert_eq!(
+            assignment_for_create(&actor, &users(&["wife"])).as_str(),
+            "wife"
+        );
+        assert_eq!(
+            assignment_for_create(&actor, &users(&["pablo", "wife"])).as_str(),
+            "wife"
+        );
+    }
+
+    #[test]
+    fn unrelated_edits_preserve_assignment() {
+        let current = UserId::parse("pablo").unwrap();
+
+        assert_eq!(
+            assignment_after_edit(&current, None, &users(&["pablo", "wife"]))
+                .unwrap()
+                .as_str(),
+            "pablo"
+        );
+    }
+
+    #[test]
+    fn explicit_reassignment_requires_portable_membership() {
+        let current = UserId::parse("pablo").unwrap();
+        let workspace_users = users(&["pablo", "wife"]);
+
+        assert_eq!(
+            assignment_after_edit(&current, Some("wife"), &workspace_users)
+                .unwrap()
+                .as_str(),
+            "wife"
+        );
+        assert!(assignment_after_edit(&current, Some("stranger"), &workspace_users).is_err());
+    }
+
+    #[test]
+    fn one_user_hides_assignment_surfaces_without_changing_creation_default() {
+        let workspace_users = users(&["pablo"]);
+        let mode = assignment_ui_mode(&workspace_users);
+
+        assert!(!mode.show_in_detail);
+        assert!(!mode.show_create_control);
+        assert!(!mode.show_reassign_control);
+        assert!(!mode.show_filter);
+        assert_eq!(
+            assignment_for_create(&crate::actor::test_actor("pablo"), &workspace_users).as_str(),
+            "pablo"
+        );
+    }
+
+    #[test]
+    fn multiple_users_show_all_assignment_surfaces_and_still_default_to_actor() {
+        let workspace_users = users(&["pablo", "wife"]);
+        let mode = assignment_ui_mode(&workspace_users);
+
+        assert!(mode.show_in_detail);
+        assert!(mode.show_create_control);
+        assert!(mode.show_reassign_control);
+        assert!(mode.show_filter);
+        assert_eq!(
+            assignment_for_create(&crate::actor::test_actor("wife"), &workspace_users).as_str(),
+            "wife"
+        );
     }
 
     // --- Task predicates ---

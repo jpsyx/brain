@@ -2,17 +2,16 @@
 
 Keeps task/habit mutator scripts DRY. Not a CLI; imported only.
 """
+from __future__ import annotations
+
 import csv
+import json
+import os
 import re
 import sys
+import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
-
-from next_id import new_id
-
-BRAIN = Path.home() / "brain"
-TASKS_CSV = BRAIN / "tasks" / "tasks.csv"
-HABITS_CSV = BRAIN / "tasks" / "habits.csv"
 
 # T### lives in tasks.csv, H### lives in habits.csv.
 TASK_ID_RE = re.compile(r"^[Tt](\d+)$")
@@ -23,6 +22,62 @@ BARE_INT_RE = re.compile(r"^\d+$")
 # "Chunked tasks" for the lifecycle. Anchored to end-of-string so a name
 # like "Pay (Q1) bills (2/5)" still parses correctly.
 CHUNK_NAME_RE = re.compile(r"^(.+) \((\d+)/(\d+)\)$")
+USER_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def _required_environment(name: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        raise SystemExit(f"{name} is required; launch this script through Brain")
+    return value
+
+
+def brain_root() -> Path:
+    root = Path(_required_environment("BRAIN_ROOT"))
+    if not root.is_absolute():
+        raise SystemExit("BRAIN_ROOT must be absolute; launch this script through Brain")
+    return root
+
+
+def actor_id() -> str:
+    return _required_environment("BRAIN_ACTOR_ID")
+
+
+def tasks_csv() -> Path:
+    return brain_root() / "tasks" / "tasks.csv"
+
+
+def habits_csv() -> Path:
+    return brain_root() / "tasks" / "habits.csv"
+
+
+def new_uuid() -> str:
+    """Create an immutable UUID for callers that own a UUID-bearing schema."""
+    return str(uuid.uuid4())
+
+
+def validate_assigned_to(user_id: str) -> str:
+    """Return an explicit assignment only when it names a portable member."""
+    if not USER_ID_RE.fullmatch(user_id):
+        raise SystemExit(
+            f"invalid assigned_to '{user_id}'; use a lower-case kebab user ID"
+        )
+    path = brain_root() / ".config" / "users.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise SystemExit(f"cannot validate assigned_to without {path}: {error}") from error
+    except json.JSONDecodeError as error:
+        raise SystemExit(f"cannot validate assigned_to from {path}: {error}") from error
+    members = {user.get("id") for user in data.get("users", [])}
+    if user_id not in members:
+        raise SystemExit(f"assigned_to '{user_id}' is not a workspace member")
+    return user_id
+
+
+def assignment_for_create(explicit: str | None) -> str:
+    """Default assignment to the effective actor; validate explicit changes."""
+    return actor_id() if explicit is None else validate_assigned_to(explicit)
 
 
 def today_iso() -> str:
@@ -31,11 +86,15 @@ def today_iso() -> str:
 
 def new_task_id() -> str:
     """Issue a new tasks.csv ID (T###)."""
+    from next_id import new_id
+
     return new_id("tasks")
 
 
 def new_habit_id() -> str:
     """Issue a new habits.csv ID (H###)."""
+    from next_id import new_id
+
     return new_id("habits")
 
 
@@ -51,9 +110,9 @@ def shift_due(due_str: str, delta_days: int) -> str:
     return (d + timedelta(days=delta_days)).isoformat()
 
 
-def touch_row(row: dict) -> None:
+def touch_row(row: dict, touched: str | None = None) -> None:
     """Set last_touched to today on this row."""
-    row["last_touched"] = today_iso()
+    row["last_touched"] = touched or today_iso()
 
 
 def parse_chunk_name(name: str):
@@ -141,10 +200,11 @@ def read_csv(path: Path):
         return [], []
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
-        return reader.fieldnames or [], list(reader)
+        return _canonical_assignment(reader.fieldnames or [], list(reader))
 
 
 def write_csv(path: Path, columns, rows):
+    columns, rows = _canonical_assignment(columns, rows)
     if any((r.get("last_touched") or "").strip() for r in rows) and "last_touched" not in columns:
         columns = list(columns) + ["last_touched"]
     with open(path, "w", newline="") as f:
@@ -152,6 +212,20 @@ def write_csv(path: Path, columns, rows):
         w.writeheader()
         for r in rows:
             w.writerow({c: r.get(c, "") for c in columns})
+
+
+def _canonical_assignment(columns, rows):
+    columns = list(columns)
+    if "assigned_to" in columns:
+        if "assignee" in columns:
+            columns.remove("assignee")
+            for row in rows:
+                row.pop("assignee", None)
+    elif "assignee" in columns:
+        columns[columns.index("assignee")] = "assigned_to"
+        for row in rows:
+            row["assigned_to"] = row.pop("assignee", "")
+    return columns, rows
 
 
 def _normalize_id(needle: str):
@@ -214,7 +288,7 @@ def locate(needle: str):
     n = needle.strip()
     if BARE_INT_RE.match(n):
         hits = []
-        for path in (TASKS_CSV, HABITS_CSV):
+        for path in (tasks_csv(), habits_csv()):
             cols, rows = read_csv(path)
             idx, row = find_by_id_or_fuzzy(rows, n)
             if row is not None:
@@ -232,7 +306,7 @@ def locate(needle: str):
         print(f"no task matched '{needle}'", file=sys.stderr)
         sys.exit(1)
 
-    for path in (TASKS_CSV, HABITS_CSV):
+    for path in (tasks_csv(), habits_csv()):
         cols, rows = read_csv(path)
         idx, row = find_by_id_or_fuzzy(rows, n)
         if row is not None:

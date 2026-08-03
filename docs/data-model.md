@@ -392,8 +392,12 @@ compatibility actor and does not create `users.json`. Malformed nonblank legacy
 IDs are readiness errors with an explicit machine-local repair command. This
 does not add authentication,
 ownership, creator metadata, audit history, or device identity. The release
-does not yet provide a canonical task `assigned_to` field or the coordinated
-portable task-schema migration. It also does not implement triage-habit policy,
+now provides canonical `assigned_to` task and habit fields. The value is a
+portable `UserId`; creation defaults to the immutable effective actor,
+unrelated edits preserve it, and explicit changes validate membership. Readers
+accept legacy `assignee`, prefer `assigned_to` when both exist, and writers
+migrate to `assigned_to` by column name. This does not activate the separate
+`task_uuid` migration. The release also does not implement triage-habit policy,
 access-mode enforcement, the agent-controller/OpenCode facade, or the final
 shared receiver lifecycle.
 

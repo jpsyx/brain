@@ -5,14 +5,11 @@ Run as part of `/second-brain reindex` and `/todo reindex` so habits.csv stays
 short. The completed-but-recent rows stay for a week so the user can
 inspect / undo.
 """
-import csv
-import os
 import sys
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
-BRAIN = Path(os.environ.get("BRAIN_ROOT", Path.home() / "brain")).expanduser()
-HABITS = BRAIN / "tasks" / "habits.csv"
+from _csvlib import habits_csv, read_csv, write_csv
+
 CUTOFF = date.today() - timedelta(days=7)
 
 
@@ -24,13 +21,11 @@ def parse_date(s: str):
 
 
 def main() -> int:
-    if not HABITS.exists():
-        print(f"no {HABITS}", file=sys.stderr)
+    path = habits_csv()
+    if not path.exists():
+        print(f"no {path}", file=sys.stderr)
         return 0
-    with open(HABITS, newline="") as f:
-        reader = csv.DictReader(f)
-        columns = reader.fieldnames
-        rows = list(reader)
+    columns, rows = read_csv(path)
 
     keep, drop = [], []
     for r in rows:
@@ -45,11 +40,7 @@ def main() -> int:
         print(f"cleanup: no done habits older than {CUTOFF}; kept {len(keep)} rows")
         return 0
 
-    with open(HABITS, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
-        w.writeheader()
-        for r in keep:
-            w.writerow(r)
+    write_csv(path, columns, keep)
     print(f"cleanup: dropped {len(drop)} done habit(s) older than {CUTOFF}; kept {len(keep)} rows")
     for r in drop:
         print(f"  - {r.get('task_name')} (completed {r.get('completed_date')})")

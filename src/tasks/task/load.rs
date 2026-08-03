@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use super::Task;
 
@@ -21,8 +21,10 @@ pub struct TaskRow {
     pub due_date: String,
     pub hard_deadline: String,
     pub start_date: String,
-    #[allow(dead_code)]
+    #[serde(default)]
     pub assignee: String,
+    #[serde(default, deserialize_with = "deserialize_present_string")]
+    pub assigned_to: Option<String>,
     pub see_also: String,
     pub notes: String,
     pub project: String,
@@ -52,8 +54,10 @@ pub struct HabitRow {
     pub priority: String,
     pub due_date: String,
     pub hard_deadline: String,
-    #[allow(dead_code)]
+    #[serde(default)]
     pub assignee: String,
+    #[serde(default, deserialize_with = "deserialize_present_string")]
+    pub assigned_to: Option<String>,
     pub see_also: String,
     pub notes: String,
     pub project: String,
@@ -88,6 +92,7 @@ impl Task {
             due_date: parse_date_field(&row.due_date),
             hard_deadline: row.hard_deadline.eq_ignore_ascii_case("true"),
             start_date: parse_date_field(&row.start_date),
+            assigned_to: preferred_assignment(row.assigned_to.as_deref(), &row.assignee),
             notes: row.notes,
             project: row.project,
             energy: row.energy_level,
@@ -112,6 +117,7 @@ impl Task {
             due_date: parse_date_field(&row.due_date),
             hard_deadline: row.hard_deadline.eq_ignore_ascii_case("true"),
             start_date: None,
+            assigned_to: preferred_assignment(row.assigned_to.as_deref(), &row.assignee),
             notes: row.notes,
             project: row.project,
             energy: row.energy_level,
@@ -125,6 +131,17 @@ impl Task {
             linear_issue: String::new(),
         }
     }
+}
+
+fn preferred_assignment(assigned_to: Option<&str>, assignee: &str) -> String {
+    assigned_to.unwrap_or(assignee).to_owned()
+}
+
+fn deserialize_present_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    String::deserialize(deserializer).map(Some)
 }
 
 /// Accept either `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` (date portion only).
@@ -175,7 +192,7 @@ pub fn load_habits(path: &Path) -> Result<Vec<Task>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_habits, parse_date_field};
+    use super::{load_habits, load_tasks, parse_date_field};
     use chrono::NaiveDate;
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
@@ -223,5 +240,42 @@ H1,Stretch,not_started,p2,2026-07-27,false,me,,,,,,,,1,days,2026-07-01,,2026-07-
         let habits = load_habits(&path).unwrap();
 
         assert_eq!(habits[0].last_touched, Some(d(2026, 7, 26)));
+    }
+
+    fn load_one_task(csv: &str) -> super::Task {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tasks.csv");
+        std::fs::write(&path, csv).unwrap();
+        load_tasks(&path).unwrap().remove(0)
+    }
+
+    #[test]
+    fn task_reader_accepts_legacy_assignee_as_assigned_to() {
+        let task = load_one_task(
+            "task_id,task_name,task_type,status,priority,due_date,hard_deadline,start_date,assignee,see_also,notes,project,energy_level,context,estimated_duration,blocked_by,defer_count,created_date,completed_date,last_touched,linear_issue\n\
+T1,Legacy task,,not_started,p2,,false,,pablo,,,,,,,,0,2026-08-01,,,\n",
+        );
+
+        assert_eq!(task.assigned_to, "pablo");
+    }
+
+    #[test]
+    fn task_reader_prefers_assigned_to_when_both_columns_exist() {
+        let task = load_one_task(
+            "task_id,task_name,task_type,status,priority,due_date,hard_deadline,start_date,assignee,assigned_to,see_also,notes,project,energy_level,context,estimated_duration,blocked_by,defer_count,created_date,completed_date,last_touched,linear_issue\n\
+T1,Canonical task,,not_started,p2,,false,,legacy,wife,,,,,,,,0,2026-08-01,,,\n",
+        );
+
+        assert_eq!(task.assigned_to, "wife");
+    }
+
+    #[test]
+    fn task_reader_preserves_blank_assigned_to_when_both_columns_exist() {
+        let task = load_one_task(
+            "task_id,task_name,task_type,status,priority,due_date,hard_deadline,start_date,assignee,assigned_to,see_also,notes,project,energy_level,context,estimated_duration,blocked_by,defer_count,created_date,completed_date,last_touched,linear_issue\n\
+T1,Unassigned task,,not_started,p2,,false,,legacy,,,,,,,,,0,2026-08-01,,,\n",
+        );
+
+        assert_eq!(task.assigned_to, "");
     }
 }

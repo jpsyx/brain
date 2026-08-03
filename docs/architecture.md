@@ -660,12 +660,16 @@ copies via `resolve`, then runs one ordinary `brain sync`. See
 
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`
-crate under one namespace: `task` (CSV model + load), `view` (sub-views +
+crate under one namespace: `task` (CSV model, legacy-compatible load, and pure
+assignment defaults/membership/UI visibility), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
 markdown), `shortcuts` (the help/footer catalogue), `complete` (native
 task/habit completion), `doctor` (health check), `plain` (`--no-tui` printer),
 and `cli` (the tasks clap args, nested under `brain tasks`). Reuses the
 crate-level `session` / `state` / `pty_pane` shared with the brain-search view.
+Native task command runners accept explicit `WorkspaceContext` and
+`ActorContext`; they never re-resolve a global root. Shared CSV mutation code
+normalizes legacy `assignee` headers to `assigned_to` before any write.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the

@@ -64,7 +64,12 @@ pub fn normalize_id(raw: &str) -> Result<String> {
     Ok(format!("{prefix}{n}"))
 }
 
-pub fn run(root: &Path, raw_id: &str, actor: &crate::actor::ActorContext) -> Result<()> {
+pub fn run(
+    workspace: &crate::workspace::WorkspaceContext,
+    raw_id: &str,
+    actor: &crate::actor::ActorContext,
+) -> Result<()> {
+    let root = workspace.root();
     crate::logging::log(format!("tasks complete raw_id={raw_id}"));
     crate::logging::log(format!("complete root {}", root.display()));
     let today = Local::now().date_naive();
@@ -296,7 +301,28 @@ pub(crate) fn read_csv(path: &Path) -> Result<CsvFile> {
         }
         rows.push(row);
     }
-    Ok(CsvFile { header, rows })
+    Ok(normalize_assignment_header(CsvFile { header, rows }))
+}
+
+fn normalize_assignment_header(mut csv: CsvFile) -> CsvFile {
+    let legacy_position = csv.header.iter().position(|column| column == "assignee");
+    let has_canonical = csv.header.iter().any(|column| column == "assigned_to");
+    let Some(legacy_position) = legacy_position else {
+        return csv;
+    };
+    if has_canonical {
+        csv.header.remove(legacy_position);
+        for row in &mut csv.rows {
+            row.remove("assignee");
+        }
+    } else {
+        "assigned_to".clone_into(&mut csv.header[legacy_position]);
+        for row in &mut csv.rows {
+            let assignment = row.remove("assignee").unwrap_or_default();
+            row.insert("assigned_to".to_owned(), assignment);
+        }
+    }
+    csv
 }
 
 pub(crate) fn write_csv(path: &Path, csv: &CsvFile) -> Result<()> {
@@ -564,6 +590,19 @@ mod tests {
     }
 
     #[test]
+    fn command_runner_requires_explicit_workspace_and_actor_contexts() {
+        fn accepts_runner(
+            _: fn(
+                &crate::workspace::WorkspaceContext,
+                &str,
+                &crate::actor::ActorContext,
+            ) -> anyhow::Result<()>,
+        ) {
+        }
+        accepts_runner(super::run);
+    }
+
+    #[test]
     fn bare_number_assumes_task_prefix() {
         assert_eq!(normalize_id("123").unwrap(), "T123");
     }
@@ -625,6 +664,70 @@ mod tests {
         let written = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
         assert!(
             written.contains("T1,Ship native complete,mit,done,2026-07-26,2026-07-26,alpha,LIN-1")
+        );
+    }
+
+    #[test]
+    fn unrelated_mutation_migrates_assignee_header_and_preserves_assignment() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::write(
+            tasks_dir.join("tasks.csv"),
+            "task_id,task_name,status,assignee,completed_date,last_touched\n\
+T1,Preserve owner,not_started,wife,,\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tasks_dir.join("habits.csv"),
+            "task_id,task_name,status,assigned_to,completed_date,last_touched\n",
+        )
+        .unwrap();
+
+        complete_in_root_with_today(
+            dir.path(),
+            "T1",
+            NaiveDate::from_ymd_opt(2026, 8, 3).unwrap(),
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
+        assert_eq!(
+            written,
+            "task_id,task_name,status,assigned_to,completed_date,last_touched\n\
+T1,Preserve owner,done,wife,2026-08-03,2026-08-03\n"
+        );
+    }
+
+    #[test]
+    fn writer_prefers_canonical_assignment_when_both_headers_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::write(
+            tasks_dir.join("tasks.csv"),
+            "task_id,task_name,status,assignee,assigned_to,completed_date,last_touched\n\
+T1,Keep canonical,not_started,legacy,wife,,\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tasks_dir.join("habits.csv"),
+            "task_id,task_name,status,assigned_to,completed_date,last_touched\n",
+        )
+        .unwrap();
+
+        complete_in_root_with_today(
+            dir.path(),
+            "T1",
+            NaiveDate::from_ymd_opt(2026, 8, 3).unwrap(),
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
+        assert_eq!(
+            written,
+            "task_id,task_name,status,assigned_to,completed_date,last_touched\n\
+T1,Keep canonical,done,wife,2026-08-03,2026-08-03\n"
         );
     }
 

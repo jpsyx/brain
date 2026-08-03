@@ -7,7 +7,7 @@ the judgment of whether tonight qualifies; this script owns the
 persistence and the calendar arithmetic (LLMs are unreliable at date
 math, so streak counting lives here).
 
-Storage: ~/brain/tasks/.late_work_streak.json
+Storage: <selected-workspace>/tasks/.late_work_streak.json
 Format:  {"late_nights": ["YYYY-MM-DD", ...]}  (sorted, deduplicated)
 
 Subcommands:
@@ -34,16 +34,20 @@ import argparse
 import json
 import sys
 from datetime import date, timedelta
-from pathlib import Path
 
-STATE_PATH = Path.home() / "brain" / "tasks" / ".late_work_streak.json"
+from _csvlib import brain_root
+
+
+def state_path():
+    return brain_root() / "tasks" / ".late_work_streak.json"
 
 
 def _load() -> list[str]:
-    if not STATE_PATH.exists():
+    path = state_path()
+    if not path.exists():
         return []
     try:
-        data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return []
     nights = data.get("late_nights", [])
@@ -51,8 +55,9 @@ def _load() -> list[str]:
 
 
 def _save(nights: list[str]) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(
+    path = state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         json.dumps({"late_nights": sorted(set(nights))}, indent=2) + "\n",
         encoding="utf-8",
     )

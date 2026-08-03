@@ -383,6 +383,7 @@ mod triage_nudge_tests {
             due_date: Some(due),
             hard_deadline: false,
             start_date: None,
+            assigned_to: String::new(),
             notes: String::new(),
             project: String::new(),
             energy: String::new(),

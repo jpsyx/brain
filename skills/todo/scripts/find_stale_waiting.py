@@ -25,7 +25,7 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from _csvlib import TASKS_CSV, read_csv
+from _csvlib import read_csv, tasks_csv
 
 DEFAULT_THRESHOLD_DAYS = 7
 
@@ -71,7 +71,7 @@ def main() -> int:
     args = p.parse_args()
 
     today = date.today()
-    cols, rows = read_csv(TASKS_CSV)
+    cols, rows = read_csv(tasks_csv())
     if "waiting_since" not in cols:
         print(
             "tasks.csv is missing the waiting_since column. "

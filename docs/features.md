@@ -357,9 +357,9 @@ The current foundation does not enforce access modes. The planned
 `workspace_only` mode is prompt-based guidance with light guardrails, not a
 filesystem sandbox, authentication boundary, container, or OS-user boundary.
 It aims only to reduce accidental and naive leakage between highly trusted,
-self-hosted workspaces. A canonical task `assigned_to` field, triage-habit
-policy, the agent-controller/OpenCode facade, and the shared receiver lease
-lifecycle remain later phases.
+self-hosted workspaces. A canonical task `assigned_to` field is now active;
+triage-habit policy, the agent-controller/OpenCode facade, and the shared
+receiver lease lifecycle remain later phases.
 
 ### `brain user`
 
@@ -392,6 +392,15 @@ serializes this sequence. Ordinary errors restore the complete old generation;
 if the process stops after the journal is published, the next portable-user
 load performs the same recovery before continuing. Journal removal is the
 commit point, after which leftover staging files are safe to clean up.
+
+Task and habit readers temporarily accept the legacy `assignee` heading and
+prefer `assigned_to` when both appear. Any later write migrates the heading by
+name, preserves the value, and emits only `assigned_to`. New rows default to
+the immutable effective actor for the request. An unrelated edit never changes
+assignment; `--assigned-to` creation overrides and explicit reassignment must
+name a portable workspace member. One-person workspaces keep filling the ID but
+hide assignment detail, controls, and filters. Shared workspaces expose those
+surfaces without changing the actor default.
 
 ### `brain reindex`
 

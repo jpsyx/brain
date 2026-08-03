@@ -16,6 +16,7 @@ fn test_task(id: &str, status: &str) -> Task {
         due_date: None,
         hard_deadline: false,
         start_date: None,
+        assigned_to: String::new(),
         notes: String::new(),
         project: String::new(),
         energy: String::new(),

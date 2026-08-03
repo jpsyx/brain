@@ -48,7 +48,7 @@ import sys
 from pathlib import Path
 
 from _csvlib import (
-    HABITS_CSV, TASKS_CSV, find_next_chunk, parse_chunk_name, read_csv, today_iso,
+    find_next_chunk, habits_csv, parse_chunk_name, read_csv, tasks_csv, today_iso,
 )
 
 
@@ -221,7 +221,7 @@ def _maybe_next_chunk_row(task_id: str):
     mutation, so the just-completed row is already status=done in disk."""
     if not task_id.startswith("T"):
         return None
-    _, rows = read_csv(TASKS_CSV)
+    _, rows = read_csv(tasks_csv())
     completed = next(
         (r for r in rows if (r.get("task_id") or "").strip() == task_id),
         None,
@@ -261,7 +261,7 @@ def _habit_sort_key(h):
 def _render_today_habits_section():
     """Return [heading, body_lines] for "🔁 Today's habits", or None if
     zero habits qualify (caller should omit the section)."""
-    _, habits = read_csv(HABITS_CSV)
+    _, habits = read_csv(habits_csv())
     t = today_iso()
     pending, done_today = [], []
     for h in habits:
@@ -294,7 +294,7 @@ def _render_completed_today_section():
     nothing's completed today."""
     t = today_iso()
     done_rows = []
-    for path in (HABITS_CSV, TASKS_CSV):
+    for path in (habits_csv(), tasks_csv()):
         _, rows = read_csv(path)
         for r in rows:
             if (r.get("status") or "").strip() == "done" and (r.get("completed_date") or "").strip() == t:

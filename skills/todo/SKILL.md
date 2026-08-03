@@ -1,6 +1,6 @@
 ---
 name: todo
-description: Use when adding, completing, deferring, or planning tasks; when asking "what should I work on", "structure my day", or "anything slipping?"; for past-due triage; for converting an oversized task into a project; or any read/write to `~/brain/tasks/{tasks,habits}.csv`.
+description: Use when adding, completing, deferring, assigning, or planning tasks in the selected Brain workspace; when asking "what should I work on", "structure my day", or "anything slipping?"; for past-due triage; or for converting an oversized task into a project.
 ---
 
 # todo
@@ -11,9 +11,9 @@ The user's canonical task system lives at `<brain>/tasks/`:
 - `habits.csv` — recurring habits. The only recurring rows allowed.
 - `SCHEMA.json` — machine-readable schema.
 
-Throughout, `<brain>` is the brain root (`brain config get root`, default
-`~/brain`); `~/.agents/skills/todo/scripts/` is where `brain skills sync`
-installs this skill's helper scripts; `$AGENDA_DIR` is `brain config get
+Throughout, `<brain>` is the selected workspace root from `BRAIN_ROOT`;
+`~/.agents/skills/todo/scripts/` is where `brain skills sync` installs this
+skill's helper scripts; `$AGENDA_DIR` is `brain config get
 agenda_dir` (the folder the agenda PDF is written to, default your Downloads
 folder); and `markdown-to-pdf` is the configured PDF command
 (`markdown_to_pdf_path`).
@@ -100,10 +100,20 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
   external service. The sync *workflow* (when/how to mirror to a tracker) is
   personal; see the [External issue tracker](#external-issue-tracker-optional)
   section and its `todo:linear` extension point.
+- **Assignment follows the effective actor.** Every new task and habit defaults
+  `assigned_to` to the immutable effective actor in `BRAIN_ACTOR_ID`, whether
+  the workspace has one member or several. Unrelated edits never change it.
+  Explicit assignment uses `--assigned-to <user-id>` and explicit reassignment
+  uses `reassign_task.py <task> <user-id>`; both validate the ID through the
+  selected workspace's portable `.config/users.json`. One-person workspaces
+  hide assignment detail, creation/reassignment controls, and filters while
+  still filling the ID. Shared workspaces show those surfaces and accept
+  `assigned_to=<user-id>` as a list filter.
 - **Short task IDs are the canonical handle.** Tasks use `T###`
   (e.g. `T17`), habits use `H###` (e.g. `H42`). Issued by
-  [`scripts/next_id.py`](scripts/next_id.py); counters live at
-  `~/brain/tasks/.tasks_next_id` and `~/brain/tasks/.habits_next_id`.
+  [`scripts/next_id.py`](scripts/next_id.py); counters live beside the selected
+  workspace's CSVs. Scripts require Brain's workspace environment and never
+  fall back to a home-directory brain.
   Never edit IDs by hand. **Name-fragment matching still works for
   input** — IDs are shorthand, not a replacement. See
   [commands.md](references/commands.md) for the `<task>` resolution rules.
@@ -896,7 +906,7 @@ order is the most common source of broken agendas.
 ### Phase 1 — Load state (read-only)
 
 1. Note wall-clock time (`date`).
-2. Read `~/brain/tasks/tasks.csv` — keep rows where `status` is neither
+2. Read `<brain>/tasks/tasks.csv` — keep rows where `status` is neither
    `done` nor `backlog`, AND (`start_date` is empty OR `start_date <= today`).
    A `backlog` task is parked indefinitely (see "Backlog status") — it never
    appears on an agenda until restored. A task whose
@@ -908,7 +918,7 @@ order is the most common source of broken agendas.
    `start_date <= today`. (Its `due_date` can be well past `start_date` —
    the task simply isn't surfaced anywhere until its start day arrives,
    even if the deadline is sooner.)
-3. Read `~/brain/tasks/habits.csv` — keep rows where (`status != done`)
+3. Read `<brain>/tasks/habits.csv` — keep rows where (`status != done`)
    OR (`status == done` AND `completed_date == today`).
 4. Bucket the tasks:
    - **MITs**: `mit` in `task_type`.
@@ -1256,10 +1266,10 @@ load-bearing ones:
   "let's begin T361", "kick off T361" (any task id `T<number>`).
 - **When triggered, do this before anything else:**
   1. **Pull in the task's full context.** Read its row in
-     `~/brain/tasks/tasks.csv` (notes, project, `see_also` links,
+     `<brain>/tasks/tasks.csv` (notes, project, `see_also` links,
      `blocked_by`, `last_touched`, priority, due/deadline). If a
      `project` slug is set, read the associated project page under
-     `~/brain/projects/<slug>/` (README, checklists, findings). Follow
+     `<brain>/projects/<slug>/` (README, checklists, findings). Follow
      any `see_also` sibling tasks and supporting URLs referenced in the
      notes.
   2. **Then reply with exactly two things:**

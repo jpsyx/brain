@@ -19,7 +19,7 @@ Linear.
 """
 import argparse
 import sys
-from _csvlib import HABITS_CSV, TASKS_CSV, locate, touch_row, write_csv
+from _csvlib import habits_csv, locate, touch_row, write_csv
 
 
 def main() -> int:
@@ -33,7 +33,7 @@ def main() -> int:
     args = p.parse_args()
 
     path, cols, rows, idx, row = locate(args.needle)
-    if path == HABITS_CSV:
+    if path == habits_csv():
         print("set_linear_issue: habits don't link to Linear — only tasks.csv rows do.",
               file=sys.stderr)
         return 2

@@ -32,7 +32,7 @@ import json
 import re
 import sys
 
-from _csvlib import TASKS_CSV, parse_date, read_csv, write_csv
+from _csvlib import parse_date, read_csv, tasks_csv, write_csv
 
 _PUNCT = re.compile(r"[^\w\s]")
 _WS = re.compile(r"\s+")
@@ -51,7 +51,8 @@ def main() -> int:
     p.add_argument("--report", action="store_true")
     args = p.parse_args()
 
-    cols, rows = read_csv(TASKS_CSV)
+    path = tasks_csv()
+    cols, rows = read_csv(path)
 
     # Index active (non-done, non-backlog) tasks by normalized name -> latest created_date.
     active_created = {}
@@ -89,7 +90,7 @@ def main() -> int:
 
     if to_delete:
         kept = [r for r in rows if r.get("task_id") not in del_ids]
-        write_csv(TASKS_CSV, cols, kept)
+        write_csv(path, cols, kept)
 
     if args.report:
         print(json.dumps({"deleted_count": len(to_delete),
