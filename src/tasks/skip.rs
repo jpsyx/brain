@@ -56,10 +56,31 @@ pub fn run(
     _actor: &crate::actor::ActorContext,
 ) -> Result<()> {
     crate::logging::log(format!("habits skip raw_id={raw_id} until={until:?}"));
+    protect_managed_skip(workspace, raw_id)?;
     let today = Local::now().date_naive();
     let until = until.map(parse_until).transpose()?;
     let result = skip_in_root_with_today(workspace.root(), raw_id, until, today)?;
     print_result(&result);
+    Ok(())
+}
+
+fn protect_managed_skip(
+    workspace: &crate::workspace::WorkspaceContext,
+    raw_id: &str,
+) -> Result<()> {
+    let tasks_dir = workspace.root().join("tasks");
+    let tasks = read_csv(&tasks_dir.join("tasks.csv"))?;
+    let habits = read_csv(&tasks_dir.join("habits.csv"))?;
+    let row = match locate(&tasks, &habits, raw_id)? {
+        Located::Habit(index) => habits.rows.get(index),
+        Located::Task(_) => return Ok(()),
+    }
+    .ok_or_else(|| anyhow!("habit row disappeared"))?;
+    crate::tasks::triage_habits::protect_system_key(
+        &field(row, "system_key"),
+        crate::config::Config::load(workspace).enable_triage_habits,
+        crate::tasks::triage_habits::ManagedTaskError::ManagedTaskCannotSkip,
+    )?;
     Ok(())
 }
 

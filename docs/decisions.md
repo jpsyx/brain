@@ -258,9 +258,24 @@ Inbound actor precedence remains immutable request context after provider
 authentication. Task `assigned_to` now defaults to that actor, while unrelated
 mutations preserve the existing assignment and explicit changes validate
 portable membership. This deliberately adds no owner, creator, audit, or device
-semantics. Triage-habit policy, the agent-controller/OpenCode facade, and shared
-receiver leases remain later phases. Actor context is attribution and routing,
+semantics. The agent-controller/OpenCode facade and shared receiver leases
+remain later phases. Actor context is attribution and routing,
 not a new authentication or access-control boundary.
+
+## Why triage enable/disable is one durable grouped replacement
+
+The setting changes both policy and portable data. Saving JSON first could
+leave disabled managed history behind; deleting CSV rows first could lose the
+chains while config still claims they are enabled. Brain therefore stages the
+config, task/habit CSVs, counter, and exact derived-reference rewrites, then
+publishes a recovery journal before replacing any live file. Ordinary failures
+roll back immediately. A later startup, reindex, config change, or repair first
+recovers an interrupted prepared generation.
+
+Stable `system_key` values, not visible names, decide ownership. This preserves
+same-named user habits and permits user renames without losing protection.
+Garbage collection retains its ordinary seven-day behavior while enabled and
+never becomes an incomplete feature-off purge.
 
 ## Why assignment defaults to the effective actor
 

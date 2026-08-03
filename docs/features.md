@@ -435,6 +435,21 @@ coordinator activates schema version 2, sync switches to immutable
 `task_uuid` identity while `task_id` remains a mutable display label; this
 release still does not activate the migration itself.
 
+Managed triage habits are a portable per-workspace feature, enabled by
+default. Brain identifies its daily and weekly chains with
+`brain.triage.daily` and `brain.triage.weekly`, independent of visible names.
+TUI startup, task reindex, and a successful explicit `brain sync repair`
+restore one open occurrence per enabled chain. Ordinary CLI, TUI, web, and
+skill mutation paths refuse to remove, complete, revive, or skip managed rows;
+the triage skill uses its narrow marker-aware completion helper.
+
+`brain config set enable_triage_habits=false` stages config, both task CSVs,
+and affected derived references as one recoverable transaction. It removes
+open and completed managed history while preserving unmarked similarly named
+habits and unrelated transcripts. The startup modal stays suppressed, but
+manual daily and weekly triage continue without habit mutation. Re-enabling
+creates fresh UUIDs and does not restore history.
+
 ### `brain reindex`
 
 Rebuilds brain's **derived lookup indexes** from their canonical sources.

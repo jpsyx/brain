@@ -668,7 +668,9 @@ transaction/recovery modules), `task` (CSV model, legacy-compatible load, and pu
 assignment defaults/membership/UI visibility), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
 markdown), `shortcuts` (the help/footer catalogue), `complete` (native
-task/habit completion), `doctor` (health check), `plain` (`--no-tui` printer),
+task/habit completion), `triage_habits` (stable managed definitions,
+marker-based mutation policy, complete purge, and durable grouped
+replacement/recovery), `doctor` (health check), `plain` (`--no-tui` printer),
 and `cli` (the tasks clap args, nested under `brain tasks`). Reuses the
 crate-level `session` / `state` / `pty_pane` shared with the brain-search view.
 Native task command runners accept explicit `WorkspaceContext` and
@@ -699,6 +701,11 @@ Its publication result distinguishes local filesystem failures from remote
 transport failures so command diagnostics identify the failing boundary.
 `counters` consumes display-ID floors from the reconciled tables only after
 that operation succeeds. None of these paths activates the migration helper.
+
+App construction reconciles managed triage state before loading its final task
+and habit vectors. Task reindex does the same before generic Python rules and
+retention cleanup. Explicit sync repair reconciles only after a clean repair
+outcome; ordinary sync does not gain a second policy branch.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the

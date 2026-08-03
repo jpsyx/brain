@@ -20,4 +20,5 @@ pub mod selector;
 pub mod shortcuts;
 pub mod skip;
 pub mod task;
+pub mod triage_habits;
 pub mod view;

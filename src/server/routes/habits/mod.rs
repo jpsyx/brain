@@ -18,7 +18,7 @@ use std::path::Path;
 use chrono::Local;
 use serde_json::json;
 
-use crate::tasks::complete::{complete_in_root, normalize_id};
+use crate::tasks::complete::{complete_in_root_protected_with_today, normalize_id};
 
 /// The result of a `POST /habits/done`, ready to become an HTTP response.
 #[derive(Debug, PartialEq, Eq)]
@@ -82,7 +82,8 @@ pub fn done(root: &Path, body: &str) -> DoneOutcome {
         Ok(id) => id,
         Err(e) => return DoneOutcome::BadRequest(e.to_string()),
     };
-    match complete_in_root(root, &id) {
+    let enabled = crate::config::Config::load_from_root(root).enable_triage_habits;
+    match complete_in_root_protected_with_today(root, &id, Local::now().date_naive(), enabled) {
         Ok(result) => DoneOutcome::Done {
             next_due: result.next_due,
         },
@@ -149,5 +150,45 @@ mod tests {
         let (status, body) = DoneOutcome::Failed("boom".to_owned()).response();
         assert_eq!(status, 500);
         assert!(body.contains(r#""error":"boom""#));
+    }
+
+    #[test]
+    fn web_completion_rejects_managed_triage_rows() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join("tasks")).unwrap();
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/habits.csv"),
+            "task_uuid,task_id,task_name,status,due_date,assigned_to,recur_interval,recur_unit,system_key\n\
+             8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Morning Triage,not_started,2026-08-03,member,1,days,brain.triage.daily\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".config/config.json"),
+            "{\"enable_triage_habits\":true}\n",
+        )
+        .unwrap();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            temporary.path(),
+            crate::workspace::WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
+            crate::workspace::WorkspaceName::parse("family").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+
+        let outcome = done(workspace.root(), r#"{"task_id":"H1"}"#);
+
+        assert!(matches!(
+            outcome,
+            DoneOutcome::Failed(message) if message.contains("cannot be completed outside triage")
+        ));
     }
 }

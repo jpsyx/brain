@@ -1262,6 +1262,19 @@ load-bearing ones:
 - **`/todo reindex`** — apply automation rules + cleanup. Mirrors what
   `/second-brain reindex` runs for tasks.
 
+## Managed triage rows
+
+Brain may maintain two protected habit chains, identified by
+`system_key=brain.triage.daily` and `system_key=brain.triage.weekly`. The
+system key is authoritative even when a visible habit name is changed. While
+`brain config get enable_triage_habits` is `true`, managed triage rows cannot be removed, completed, revived, or skipped through ordinary `/todo`, task, or habit mutation paths. Do not work around the guard by editing CSV directly. The `/triage` skill owns its narrow completion helper.
+
+When the setting is `false`, Brain's transactional reconciler removes the
+managed definitions, open occurrences, completed history, and derived
+references. Ordinary similarly named rows without a managed system key remain
+user data. Reindex first reapplies this invariant, then runs generic
+automation and garbage collection.
+
 ## Start work on a task
 
 - **Trigger:** any phrasing that means "begin work on a specific task",
@@ -1316,7 +1329,10 @@ future Monday, not in the past. Math is done by
 — LLMs are bad at calendar arithmetic, always use the script.
 
 Completed habits stay in habits.csv for 7 days then get pruned by
-`cleanup_done_habits.py` during sync. That's your audit trail.
+`cleanup_done_habits.py` during sync. Managed completed occurrences use this
+same retention rule only while managed triage habits are enabled. Cleanup does
+not perform the feature-off purge; the transactional Brain reconciler owns
+that coupled config/data change. That's your audit trail.
 
 ## Skipping a habit
 

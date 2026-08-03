@@ -93,6 +93,12 @@ impl Task {
         self.status == "done"
     }
 
+    /// Whether this row belongs to one of Brain's protected triage chains.
+    #[must_use]
+    pub fn is_managed_triage(&self) -> bool {
+        crate::tasks::triage_habits::is_managed_system_key(&self.system_key)
+    }
+
     /// True iff this row's `status` is `done` AND `completed_date` is
     /// `today`. Used by the startup-triage check to decide whether the
     /// configured daily-triage habit has already been completed for the

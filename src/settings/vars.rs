@@ -74,6 +74,14 @@ pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> 
             known_names()
         );
     }
+    if name == "enable_triage_habits" {
+        let enabled = match value.trim() {
+            "true" => true,
+            "false" => false,
+            _ => bail!("enable_triage_habits must be true or false"),
+        };
+        return crate::tasks::triage_habits::apply_triage_habits_config(workspace, enabled);
+    }
     let mut map = load_map(workspace);
     map.insert(name.to_owned(), parse_value(value));
     save_map(workspace, &map)

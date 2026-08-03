@@ -16,7 +16,12 @@ pub(super) struct VarSpec {
 /// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
 /// or the `~/brain` default and edited by hand, never via `brain config`
 /// (see [`crate::paths`]).
-pub(super) const VARS: [VarSpec; 9] = [
+pub(super) const VARS: [VarSpec; 10] = [
+    VarSpec {
+        name: "enable_triage_habits",
+        description: "When true, Brain maintains protected daily and weekly triage habit chains. Disabling purges their managed rows and derived references.",
+        default: Some("true"),
+    },
     VarSpec {
         name: "response_email",
         description: "Email address for long-form responses requested by SMS and authenticated brain messages.",

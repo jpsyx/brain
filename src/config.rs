@@ -17,6 +17,8 @@ use serde_json::Value;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Whether Brain maintains its daily and weekly triage habit chains.
+    pub enable_triage_habits: bool,
     /// Email address used for long-form responses requested over SMS.
     pub response_email: String,
     /// Comma-separated phone numbers allowed to issue SMS brain messages.
@@ -67,6 +69,7 @@ where
 impl Default for Config {
     fn default() -> Self {
         Self {
+            enable_triage_habits: true,
             response_email: String::new(),
             allowed_sms_senders: String::new(),
             allowed_email_senders: String::new(),
@@ -83,7 +86,13 @@ impl Config {
     /// should never block the tasks shell from opening.
     #[must_use]
     pub fn load(workspace: &crate::workspace::WorkspaceContext) -> Self {
-        serde_json::from_value(Value::Object(crate::settings::load_map(workspace)))
+        Self::load_from_root(workspace.root())
+    }
+
+    #[must_use]
+    pub(crate) fn load_from_root(root: &std::path::Path) -> Self {
+        let path = root.join(".config/config.json");
+        serde_json::from_value(Value::Object(crate::settings::load_map_at(&path)))
             .unwrap_or_default()
     }
 

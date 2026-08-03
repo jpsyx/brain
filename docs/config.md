@@ -376,6 +376,7 @@ the `name=value` form.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `enable_triage_habits` | `true` | Portable managed-triage policy. `brain config set enable_triage_habits=true` reconciles one open daily and weekly chain. Setting `false` uses one durable grouped transaction to purge managed rows and derived references before committing config. Manual `/triage` remains available. |
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
@@ -391,7 +392,7 @@ Every variable is optional; a missing file or missing field falls back to the
 default above. The brain directory is the selected `WorkspaceContext::root()`;
 only one-time legacy migration consults `paths::brain_root_path()` and the old
 pointer/default precedence. The runtime knobs
-(`daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
+(`enable_triage_habits`, `daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
 by `config.rs::Config`; they all read the same `config.json` and ignore fields
 they don't use. Agent launch commands are read by `env::claude_command` and
 `env::codex_command` instead.

@@ -20,6 +20,7 @@ Rules enforced (see ../references/sync-rules.md for the canonical doc):
 Usage:
     apply_sync_rules.py             # dry-run; report only
     apply_sync_rules.py --fix       # write corrections
+    apply_sync_rules.py --complete-managed-triage daily
 """
 import argparse
 import json
@@ -28,9 +29,23 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from _csvlib import brain_root, habits_csv, read_csv, tasks_csv, touch_row, write_csv
+from _csvlib import (
+    brain_root,
+    habits_csv,
+    new_habit_id,
+    new_uuid,
+    read_csv,
+    tasks_csv,
+    touch_row,
+    write_csv,
+)
+from next_habit_occurrence import next_due
 
 CHECKBOX_RE = re.compile(r"^\s*-\s*\[[ x]\]", re.MULTILINE)
+MANAGED_TRIAGE_KEYS = {
+    "daily": "brain.triage.daily",
+    "weekly": "brain.triage.weekly",
+}
 
 
 def load_json(path: Path):
@@ -51,11 +66,71 @@ def project_meta_paths():
     return sorted(projects_dir.glob("*/.METADATA.json"))
 
 
+def triage_habits_enabled() -> bool:
+    path = brain_root() / ".config" / "config.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    return value.get("enable_triage_habits", True) is not False
+
+
+def complete_managed_triage(kind: str) -> int:
+    if not triage_habits_enabled():
+        print("managed triage habits are disabled; workflow completion recorded without habit mutation")
+        return 0
+
+    path = habits_csv()
+    columns, rows = read_csv(path)
+    key = MANAGED_TRIAGE_KEYS[kind]
+    pending = [
+        row
+        for row in rows
+        if (row.get("system_key") or "").strip() == key
+        and (row.get("status") or "").strip() != "done"
+    ]
+    if len(pending) != 1:
+        raise SystemExit(
+            f"expected exactly one pending {kind} managed triage habit; "
+            "run `brain reindex --tasks` to reconcile definitions"
+        )
+
+    today = date.today().isoformat()
+    source = pending[0]
+    source["status"] = "done"
+    source["completed_date"] = today
+    touch_row(source, today)
+    occurrence = dict(source)
+    occurrence["task_uuid"] = new_uuid()
+    occurrence["task_id"] = new_habit_id()
+    occurrence["status"] = "not_started"
+    occurrence["due_date"] = next_due(
+        source["due_date"],
+        int(source["recur_interval"]),
+        source["recur_unit"],
+    )
+    occurrence["created_date"] = today
+    occurrence["completed_date"] = ""
+    occurrence["last_touched"] = today
+    rows.append(occurrence)
+    write_csv(path, columns, rows)
+    print(f"completed managed {kind} triage habit {source.get('task_id')}")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--fix", action="store_true",
                    help="write corrections (default: dry-run, report only)")
+    p.add_argument(
+        "--complete-managed-triage",
+        choices=sorted(MANAGED_TRIAGE_KEYS),
+        help="complete Brain's protected daily or weekly triage occurrence",
+    )
     args = p.parse_args()
+
+    if args.complete_managed_triage:
+        return complete_managed_triage(args.complete_managed_triage)
 
     today = date.today().isoformat()
     issues = []

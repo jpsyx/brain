@@ -26,6 +26,16 @@ today's stays pending) and mislabels everything downstream. Re-run
 and resolve the habit row by *that* date. Shell clock wins over context,
 always. (Mirror of /todo SKILL.md operating principle 5.)
 
+## Check whether managed triage habits are enabled
+
+At the start of every invocation, after resolving today's date, run:
+
+```
+brain config get enable_triage_habits
+```
+
+Keep that result for this invocation. When it is `false`, still run the full manual triage workflow. Only the managed habit routing and mutation steps are skipped. Task cleanup, in-basket processing, summaries, extension steps, and the optional background completion signal remain unchanged.
+
 ## Personal-assistant mode
 
 This is a personal/executive assistant skill. Load who you're assisting:
@@ -46,31 +56,25 @@ This skill has two distinct workflows:
 
 ### Routing when the user runs bare `/triage` (no mode argument)
 
-1. **Look up the Weekly in-basket processing habit** in `<brain>/tasks/habits.csv` (the row whose `task_name` contains "Weekly in-basket processing"). Compare its `due_date` and `status` to today.
-2. **If weekly triage is due today or past-due** AND `status != done` → ASK the user once:
+1. If `enable_triage_habits=false`, default to daily without reading `habits.csv`. Explicit `/triage weekly` still runs the complete weekly workflow.
+2. Otherwise, look up the row whose `system_key=brain.triage.weekly` in `<brain>/tasks/habits.csv`. Compare its `due_date` and `status` to today.
+3. **If weekly triage is due today or past-due** AND `status != done`, ASK the user once:
    > "Weekly triage is due (since [date]). Run weekly or daily?"
    Then run whichever they pick.
-3. **Otherwise** (weekly habit is `done` for this cycle, or its `due_date` is still in the future) → **default to daily, no confirmation.** Just start the daily workflow.
+4. **Otherwise** (weekly habit is `done` for this cycle, or its `due_date` is still in the future), **default to daily, no confirmation.** Just start the daily workflow.
 
 Do NOT ask the user "which mode?" outside of case (2). Saving their time is the priority.
 
 ### "Skip daily triage today" — skip the Morning Triage habit, run nothing else
 
 If the user says we can **skip** daily triage for the day ("skip daily
-triage", "no triage today", "we can skip triage"), do **not** just drop
-it — **skip today's Morning Triage habit** and run nothing else. Morning
-Triage is a **daily** habit, so this is just the general
-[Skipping a habit](../todo/SKILL.md#skipping-a-habit) rule: run
-`brain habits skip "Morning Triage"`,
-which for a daily habit marks today's occurrence `done`. There is no
-daily-triage-specific skip path anymore — it's the same deterministic
-script every habit skip uses. Skipping is an explicit decision that the day
-is handled, so the habit must reflect that: it's what the brain tasks view
-checks to stop nagging (`daily_triage_name_pattern` → `check_daily_triage`)
-and what keeps the agenda's habit state honest. Full rationale in
-[Step 9](#step-9--mark-morning-triage-habit-done). This holds even when
-the skip is mentioned in passing during another flow (agenda build,
-weekly triage) — skip it the moment they say so.
+triage", "no triage today", "we can skip triage"), run nothing else. If
+managed triage habits are enabled, complete the protected daily occurrence
+with `python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py
+--complete-managed-triage daily`. If they are disabled, acknowledge the skip
+without reading or mutating `habits.csv`. In either case, send the optional
+background completion signal as the final action when its two environment
+variables are present.
 
 ---
 
@@ -325,11 +329,15 @@ Omit the at-risk / chronic-ignore lines when those scans were skipped or returne
 
 After the daily triage process completes (user has either resolved every past-due task or explicitly skipped remaining groups):
 
-1. Look up today's Morning Triage habit row in `<brain>/tasks/habits.csv` (search for a row with name like "Morning Triage" and today's `due_date`).
-2. If it exists and is NOT already `done`, mark it done via:
+1. If managed triage habits are enabled, complete the protected daily occurrence via:
    ```
-   brain tasks complete H<id>
+   python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py --complete-managed-triage daily
    ```
+   The helper resolves `system_key=brain.triage.daily`, records completion,
+   and advances the recurring chain. Do not use the ordinary task or habit
+   completion commands for a managed row.
+2. If managed triage habits are disabled, skip all habit lookup and mutation.
+   The manual triage pass is still complete.
    If the habit appears on an already-written agenda, update that agenda as
    part of the same workflow; see /todo SKILL.md operating principle 7.
 
@@ -357,22 +365,13 @@ the user gets nagged even though triage ran.
    signal lands, so anything you still need to show the user must come first.
    When the variables are unset (a normal in-session `/triage`, not a
    background tab), skip this step entirely; there is nothing to close.
+   Always send the background completion signal whether managed habits are enabled or disabled.
 
-**"Skip daily triage today" ⇒ skip the Morning Triage habit anyway
-(explicit user rule).** When the user explicitly says we can **skip**
-daily triage for the day — e.g. "skip daily triage", "we can skip triage
-today", "no daily triage today" — that is *not* "leave the habit
-pending." It is an instruction to **skip today's Morning Triage habit**
-via `brain habits skip "Morning Triage"`,
-with **no triage pass run**. Because Morning Triage is a **daily** habit,
-that script marks today's occurrence `done` (the general
-[Skipping a habit](../todo/SKILL.md#skipping-a-habit) rule) — same end state
-as the completed-pass path above, reached through the one deterministic skip
-script. The user has decided the pass isn't needed today, so the day counts
-as triaged: skipping it stops the tasks-view startup modal nagging and keeps
-the agenda's habit state honest. Do this immediately when they say to skip —
-don't ask, don't run any of Steps 0–8. (This mirrors how a completed pass
-ends: Step 9 is the one step that still runs.)
+**"Skip daily triage today" means the day is handled.** Do not run Steps
+0-8. Follow the feature-gated skip path above, then send the optional
+background completion signal. With managed habits enabled, the protected
+helper records the decision and advances the chain. With them disabled,
+there is deliberately no habit state to update.
 
 ---
 
@@ -445,11 +444,13 @@ of a calendar month**, and its only extra job is reviewing the backlog.
 
 After **all** in-baskets are empty:
 
-1. Look up the Weekly in-basket processing habit in `<brain>/tasks/habits.csv` (current row name: "Weekly in-basket processing").
-2. If it isn't already `done`, mark it done via:
+1. If managed triage habits are enabled, complete the protected weekly occurrence via:
    ```
-   brain tasks complete H<id>
+   python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py --complete-managed-triage weekly
    ```
+   The helper resolves `system_key=brain.triage.weekly`; visible names are not identity.
+2. If managed triage habits are disabled, skip habit lookup and mutation. The
+   weekly workflow remains complete once its in-baskets are empty.
    If the habit appears on an already-written agenda, update that agenda as
    part of the same workflow; see
    [Daily triage Step 9](#step-9--mark-morning-triage-habit-done).

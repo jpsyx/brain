@@ -13,6 +13,8 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 ADD_TASK = SCRIPTS / "add_task.py"
 REASSIGN_TASK = SCRIPTS / "reassign_task.py"
 NEXT_OCCURRENCE = SCRIPTS / "next_habit_occurrence.py"
+APPLY_SYNC_RULES = SCRIPTS / "apply_sync_rules.py"
+CLEANUP_DONE_HABITS = SCRIPTS / "cleanup_done_habits.py"
 WORKSPACE_ID = "e806258e-491a-436d-9db4-a5ca9903e0d4"
 
 
@@ -265,6 +267,132 @@ class WorkspaceContextTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         uuid.UUID(result.stdout.strip())
+
+    def write_managed_habits(self):
+        path = self.root / "tasks" / "habits.csv"
+        path.write_text(
+            "task_uuid,task_id,task_name,status,due_date,assigned_to,"
+            "recur_interval,recur_unit,created_date,completed_date,last_touched,system_key\n"
+            "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Morning Triage,not_started,"
+            "2026-08-03,wife,1,days,2026-08-03,,,brain.triage.daily\n"
+            "7d49b547-1d9f-439b-bd97-b98327ecae20,H2,Morning Triage,not_started,"
+            "2026-08-03,wife,1,days,2026-08-03,,,\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_managed_triage_completion_preserves_marker_assignment_and_fresh_uuid(self):
+        path = self.write_managed_habits()
+        (self.root / ".config" / "config.json").write_text(
+            '{"enable_triage_habits": true}\n', encoding="utf-8"
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(APPLY_SYNC_RULES),
+                "--complete-managed-triage",
+                "daily",
+            ],
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with path.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        managed = [
+            row for row in rows if row["system_key"] == "brain.triage.daily"
+        ]
+        self.assertEqual(len(managed), 2)
+        self.assertEqual(managed[0]["status"], "done")
+        self.assertEqual(managed[1]["status"], "not_started")
+        self.assertNotEqual(managed[1]["task_uuid"], managed[0]["task_uuid"])
+        self.assertEqual(uuid.UUID(managed[1]["task_uuid"]).version, 4)
+        self.assertEqual(managed[1]["assigned_to"], "wife")
+        self.assertEqual(
+            rows[1]["task_uuid"], "7d49b547-1d9f-439b-bd97-b98327ecae20"
+        )
+
+    def test_managed_triage_completion_is_a_noop_when_feature_is_disabled(self):
+        path = self.write_managed_habits()
+        before = path.read_bytes()
+        (self.root / ".config" / "config.json").write_text(
+            '{"enable_triage_habits": false}\n', encoding="utf-8"
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(APPLY_SYNC_RULES),
+                "--complete-managed-triage",
+                "daily",
+            ],
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertIn("disabled", result.stdout)
+
+    def test_cleanup_uses_normal_retention_for_managed_history_when_enabled(self):
+        path = self.root / "tasks" / "habits.csv"
+        path.write_text(
+            "task_uuid,task_id,task_name,status,due_date,assigned_to,"
+            "recur_interval,recur_unit,created_date,completed_date,last_touched,system_key\n"
+            "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Morning Triage,done,"
+            "2000-01-01,wife,1,days,2000-01-01,2000-01-01,2000-01-01,brain.triage.daily\n"
+            "7d49b547-1d9f-439b-bd97-b98327ecae20,H2,Morning Triage,not_started,"
+            "2000-01-02,wife,1,days,2000-01-01,,2000-01-01,brain.triage.daily\n",
+            encoding="utf-8",
+        )
+        (self.root / ".config" / "config.json").write_text(
+            '{"enable_triage_habits": true}\n', encoding="utf-8"
+        )
+
+        result = subprocess.run(
+            [sys.executable, str(CLEANUP_DONE_HABITS)],
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with path.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        self.assertEqual([row["task_id"] for row in rows], ["H2"])
+
+    def test_cleanup_does_not_attempt_partial_managed_purge_when_disabled(self):
+        path = self.root / "tasks" / "habits.csv"
+        path.write_text(
+            "task_uuid,task_id,task_name,status,due_date,assigned_to,"
+            "recur_interval,recur_unit,created_date,completed_date,last_touched,system_key\n"
+            "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Morning Triage,done,"
+            "2000-01-01,wife,1,days,2000-01-01,2000-01-01,2000-01-01,brain.triage.daily\n",
+            encoding="utf-8",
+        )
+        before = path.read_bytes()
+        (self.root / ".config" / "config.json").write_text(
+            '{"enable_triage_habits": false}\n', encoding="utf-8"
+        )
+
+        result = subprocess.run(
+            [sys.executable, str(CLEANUP_DONE_HABITS)],
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertIn("transactional", result.stdout)
 
     def test_bundled_scripts_do_not_embed_a_home_brain_fallback(self):
         offenders = []

@@ -168,21 +168,43 @@ pub fn run(
 ) -> Result<()> {
     let root = workspace.root();
     let today = Local::now().date_naive();
-    match revive_fuzzy_in_root(root, query, today)? {
-        ReviveOutcome::NoMatch => {
+    let enabled = crate::config::Config::load(workspace).enable_triage_habits;
+    let habits = read_csv(&root.join("tasks/habits.csv"))?;
+    let names = matching_names(&habits, query);
+    match names.as_slice() {
+        [] => {
             let theme = Theme::active();
             eprintln!(
                 "{}",
                 theme.warning(&format!("No habit matches \"{query}\"."))
             );
         }
-        ReviveOutcome::Ambiguous(names) => {
-            if let Some(chosen) = prompt_selection(&names)? {
+        [only] => {
+            protect_managed_revival(root, only, enabled)?;
+            print_outcome(&revive_named_in_root(root, only, today)?);
+        }
+        names => {
+            if let Some(chosen) = prompt_selection(names)? {
+                protect_managed_revival(root, &chosen, enabled)?;
                 let outcome = revive_named_in_root(root, &chosen, today)?;
                 print_outcome(&outcome);
             }
         }
-        outcome => print_outcome(&outcome),
+    }
+    Ok(())
+}
+
+fn protect_managed_revival(root: &Path, name: &str, enabled: bool) -> Result<()> {
+    let habits = read_csv(&root.join("tasks/habits.csv"))?;
+    if let Some(row) = habits.rows.iter().find(|row| {
+        field(row, "task_name") == name
+            && crate::tasks::triage_habits::is_managed_system_key(&field(row, "system_key"))
+    }) {
+        crate::tasks::triage_habits::protect_system_key(
+            &field(row, "system_key"),
+            enabled,
+            crate::tasks::triage_habits::ManagedTaskError::ManagedTaskCannotRevive,
+        )?;
     }
     Ok(())
 }

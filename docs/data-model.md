@@ -419,8 +419,16 @@ commands. The rollout coordinator still owns the last legacy semantic sync,
 activation, and backup location. Existing legacy files retain `task_id` as
 their merge key until migration. Schema-v2 files merge by `task_uuid` and
 reconcile mutable display IDs without activating that migration.
-The release also does not implement triage-habit policy,
-access-mode enforcement, the agent-controller/OpenCode facade, or the final
+Managed triage identity lives in the optional `system_key` column. The reserved
+values `brain.triage.daily` and `brain.triage.weekly` identify Brain-owned
+chains even if their display names change. When enabled, reconciliation keeps
+exactly one pending occurrence for each key; recurrence creates a fresh UUID
+and retains its key and assignment. When disabled, one journaled grouped
+replacement removes every keyed task/habit row plus exact derived UUID/display
+references. Name-only matches are never purged.
+
+The release still does not implement access-mode enforcement, the
+agent-controller/OpenCode facade, or the final
 shared receiver lifecycle.
 
 The planned `workspace_only` mode is prompt-based guidance plus light

@@ -44,6 +44,9 @@ helpers and shell-outs live in the tasks modules:
   chunked-task MIT migration stay consistent without a Python completion script.
   Verbose runs log the resolved brain root, normalized id (when applicable),
   CSV files read/written, and completion result.
+  Managed triage rows are rejected at each of those user-facing entry points;
+  `/triage` alone uses `apply_sync_rules.py --complete-managed-triage
+  daily|weekly`, which becomes a no-op when the portable feature is disabled.
 - **`brain tasks doctor`** — prints a progress plan via
   `tasks::doctor::format_doctor_plan` before checking the state DB schema,
   SessionStart hook settings, `rclone version`, and sync env.
@@ -379,6 +382,8 @@ bookkeeping.
   receives a check-access marker failure, it announces and runs the equivalent
   narrow `brain sync repair` flow automatically. These are default user-facing
   progress lines, separate from `--verbose` debug logging.
+  A clean explicit repair also reapplies the selected workspace's managed
+  triage invariant. Failed, aborted, coalesced, and ordinary sync runs do not.
 - **rclone is an external prerequisite.** Brain checks that the executable can
   start before touching the remote. When it is missing, sync stops with an
   install guide with two explicit choices: Homebrew users can run `brew install

@@ -261,10 +261,8 @@ self-hosted environment. The migrated/default workspace remains unrestricted
 unless a later access-policy feature explicitly configures it otherwise.
 Changing the default workspace never changes access mode.
 
-Portable users, inbound sender identity, task `assigned_to`, triage-habit
-policy, access controls, the agent-controller/OpenCode facade, and the final
-shared receiver lease lifecycle are later phases. They are not part of this
-foundation.
+Access controls, the agent-controller/OpenCode facade, and the final shared
+receiver lease lifecycle remain later phases.
 
 ## 3. Configuration
 
@@ -279,6 +277,7 @@ brain env set claude_cmd='claude --dangerously-skip-permissions'
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `enable_triage_habits` | `true` | Maintain protected daily and weekly triage chains. Setting `false` transactionally purges every managed occurrence and derived reference while leaving manual `/triage` available. |
 | `linear_workspace` | *(unset)* | Linear workspace slug; builds `https://linear.app/<slug>/issue/` for the task "open link" action. |
 | `daily_triage_name_pattern` | `Morning Triage` | Regex on habit names that gates the startup triage nudge. Empty disables it. |
 | `day_rollover_hour` | `6` | Hour (0–23) the "logical day" rolls over for the triage re-check. |

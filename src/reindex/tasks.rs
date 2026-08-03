@@ -32,6 +32,11 @@ fn plan(home: &Path) -> Result<PathBuf, TaskOutcome> {
     }
 }
 
+fn reconcile_triage_before_reindex(workspace: &crate::workspace::WorkspaceContext) -> Result<()> {
+    let enabled = crate::config::Config::load(workspace).enable_triage_habits;
+    crate::tasks::triage_habits::apply_triage_habits_config(workspace, enabled)
+}
+
 /// Apply task automation rules + habit cleanup by shelling out to the installed
 /// `/todo` scripts. Their own output is inherited so the user sees what changed.
 pub fn reindex_tasks(
@@ -39,6 +44,7 @@ pub fn reindex_tasks(
     actor: &crate::actor::ActorContext,
     home: &Path,
 ) -> Result<TaskOutcome> {
+    reconcile_triage_before_reindex(workspace)?;
     match plan(home) {
         Ok(scripts) => {
             run_py(
@@ -140,5 +146,36 @@ mod tests {
         run_py(&workspace, &actor, &script, &[output.to_str().unwrap()]).unwrap();
 
         assert_eq!(std::fs::read_to_string(output).unwrap(), "pablo");
+    }
+
+    #[test]
+    fn task_reindex_restores_missing_managed_triage_definitions() {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = legacy_workspace(&temporary);
+        std::fs::create_dir_all(workspace.root().join("tasks")).unwrap();
+        std::fs::create_dir_all(workspace.root().join(".config")).unwrap();
+        std::fs::write(
+            workspace.root().join("tasks/tasks.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.root().join("tasks/habits.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(workspace.root().join(".config/config.json"), "{}\n").unwrap();
+
+        reconcile_triage_before_reindex(&workspace).unwrap();
+
+        let habits =
+            crate::tasks::task::load_habits(&workspace.root().join("tasks/habits.csv")).unwrap();
+        assert_eq!(
+            habits
+                .iter()
+                .filter(|habit| habit.is_managed_triage())
+                .count(),
+            2
+        );
     }
 }

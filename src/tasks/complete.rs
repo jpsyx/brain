@@ -74,13 +74,61 @@ pub fn run(
     crate::logging::log(format!("tasks complete raw_id={raw_id}"));
     crate::logging::log(format!("complete root {}", root.display()));
     let today = Local::now().date_naive();
-    let result = complete_in_root_for_actor_with_today(root, raw_id, today, actor)?;
+    let result = complete_in_workspace_for_actor_with_today(workspace, raw_id, today, actor)?;
     crate::logging::log(format!(
         "complete result kind={:?} id={}",
         result.kind, result.task_id
     ));
     print_result(&result);
     Ok(())
+}
+
+fn protect_managed_completion(
+    workspace: &crate::workspace::WorkspaceContext,
+    raw_id: &str,
+) -> Result<()> {
+    protect_managed_completion_at(
+        workspace.root(),
+        raw_id,
+        crate::config::Config::load(workspace).enable_triage_habits,
+    )
+}
+
+fn protect_managed_completion_at(root: &Path, raw_id: &str, enabled: bool) -> Result<()> {
+    let tasks_dir = root.join("tasks");
+    let tasks = read_csv(&tasks_dir.join("tasks.csv"))?;
+    let habits = read_csv(&tasks_dir.join("habits.csv"))?;
+    let row = match locate(&tasks, &habits, raw_id)? {
+        Located::Task(index) => tasks.rows.get(index),
+        Located::Habit(index) => habits.rows.get(index),
+    }
+    .ok_or_else(|| anyhow!("task row disappeared"))?;
+    crate::tasks::triage_habits::protect_system_key(
+        &field(row, "system_key"),
+        enabled,
+        crate::tasks::triage_habits::ManagedTaskError::ManagedTaskCannotComplete,
+    )?;
+    Ok(())
+}
+
+pub(crate) fn complete_in_workspace_for_actor_with_today(
+    workspace: &crate::workspace::WorkspaceContext,
+    raw_id: &str,
+    today: NaiveDate,
+    actor: &crate::actor::ActorContext,
+) -> Result<CompletionResult> {
+    protect_managed_completion(workspace, raw_id)?;
+    complete_in_root_for_actor_with_today(workspace.root(), raw_id, today, actor)
+}
+
+pub(crate) fn complete_in_root_protected_with_today(
+    root: &Path,
+    raw_id: &str,
+    today: NaiveDate,
+    enabled: bool,
+) -> Result<CompletionResult> {
+    protect_managed_completion_at(root, raw_id, enabled)?;
+    complete_in_root_with_today(root, raw_id, today)
 }
 
 pub fn complete_in_root(root: &Path, raw_id: &str) -> Result<CompletionResult> {

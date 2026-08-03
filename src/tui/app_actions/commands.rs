@@ -9,6 +9,35 @@ use anyhow::Result;
 use crate::tasks::complete;
 use crate::tui::*;
 
+fn task_for_id<'a>(tasks: &'a [Task], habits: &'a [Task], raw_id: &str) -> Option<&'a Task> {
+    tasks
+        .iter()
+        .chain(habits)
+        .find(|task| task.id.eq_ignore_ascii_case(raw_id))
+}
+
+fn protect_completion(
+    tasks: &[Task],
+    habits: &[Task],
+    raw_id: &str,
+    config: &Config,
+) -> Result<(), crate::tasks::triage_habits::ManagedTaskError> {
+    task_for_id(tasks, habits, raw_id).map_or(Ok(()), |task| {
+        crate::tasks::triage_habits::can_complete(task, config)
+    })
+}
+
+fn protect_removal(
+    tasks: &[Task],
+    habits: &[Task],
+    raw_id: &str,
+    config: &Config,
+) -> Result<(), crate::tasks::triage_habits::ManagedTaskError> {
+    task_for_id(tasks, habits, raw_id).map_or(Ok(()), |task| {
+        crate::tasks::triage_habits::can_remove(task, config)
+    })
+}
+
 impl App<'_> {
     pub(crate) fn show_logs_view(&mut self, kind: LogKind) {
         crate::logging::log(format!("open logs view kind={kind:?}"));
@@ -30,6 +59,11 @@ impl App<'_> {
     /// a decision when there are preservable links — keeps the no-impact
     /// case from costing the user a back-and-forth.
     pub(crate) fn run_remove(&mut self, raw_id: &str) {
+        if let Err(error) = protect_removal(&self.all_tasks, &self.all_habits, raw_id, &self.config)
+        {
+            self.flash = Some(FlashKind::Error(format!("⚠ {error}")));
+            return;
+        }
         let message = format!(
             "Remove {raw_id} via the /todo remove path.\n\n\
              If {raw_id} has no links worth preserving (chunked siblings, blockers, project references), delete the row outright and report it in one line.\n\n\
@@ -122,8 +156,9 @@ impl App<'_> {
     /// Complete a task or habit natively, then refresh from disk.
     pub(crate) fn mark_task_complete(&mut self, raw_id: &str) -> Result<()> {
         let id = complete::normalize_id(raw_id)?;
-        complete::complete_in_root_for_actor_with_today(
-            &self.brain_root,
+        protect_completion(&self.all_tasks, &self.all_habits, &id, &self.config)?;
+        complete::complete_in_workspace_for_actor_with_today(
+            &self.command_context.workspace,
             &id,
             chrono::Local::now().date_naive(),
             &self.command_context.actor,
@@ -312,6 +347,26 @@ impl App<'_> {
                 self.send_brain_prompt(&message);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod managed_triage_tests {
+    use super::{protect_completion, protect_removal};
+
+    fn managed() -> crate::tasks::task::Task {
+        let mut task = crate::tasks::task::test_task("H7", "not_started");
+        task.system_key = crate::tasks::triage_habits::DAILY_SYSTEM_KEY.to_owned();
+        task
+    }
+
+    #[test]
+    fn actual_tui_mutation_guards_reject_managed_rows() {
+        let task = managed();
+        let config = crate::config::Config::default();
+
+        assert!(protect_completion(&[], std::slice::from_ref(&task), "H7", &config).is_err());
+        assert!(protect_removal(&[], &[task], "H7", &config).is_err());
     }
 }
 

@@ -32,6 +32,7 @@ impl App<'_> {
     /// blocker. See [`triage_nudge_target`] for the matching logic.
     pub(crate) fn check_daily_triage(&mut self) {
         if let Some(habit) = triage_modal_target(
+            self.config.enable_triage_habits,
             self.skip_daily_triage_check,
             &self.all_habits,
             &self.config.daily_triage_name_pattern,
@@ -146,12 +147,13 @@ fn triage_gate_resolved(seen: Option<i64>, latest: Option<i64>) -> bool {
 /// flag, not a persistent config change. Pure so the opt-out is unit-tested
 /// without constructing an `App`.
 fn triage_modal_target<'h>(
+    enable_triage_habits: bool,
     disabled: bool,
     habits: &'h [Task],
     pattern: &str,
     today: chrono::NaiveDate,
 ) -> Option<&'h Task> {
-    if disabled {
+    if !enable_triage_habits || disabled {
         return None;
     }
     triage_nudge_target(habits, pattern, today)
@@ -462,9 +464,11 @@ mod triage_nudge_tests {
         let today = d(2026, 6, 24);
         // An open occurrence due today would normally fire the modal.
         let habits = vec![triage("H41", d(2026, 6, 24), None)];
-        assert!(triage_modal_target(false, &habits, "Morning Triage", today).is_some());
+        assert!(triage_modal_target(true, false, &habits, "Morning Triage", today).is_some());
         // The process-scoped `--no-daily-triage-check` opt-out suppresses it.
-        assert!(triage_modal_target(true, &habits, "Morning Triage", today).is_none());
+        assert!(triage_modal_target(true, true, &habits, "Morning Triage", today).is_none());
+        // The portable feature flag wins over every process preference.
+        assert!(triage_modal_target(false, false, &habits, "Morning Triage", today).is_none());
     }
 
     #[test]
