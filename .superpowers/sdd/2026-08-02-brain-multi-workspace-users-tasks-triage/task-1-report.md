@@ -166,3 +166,66 @@ check.
 
 Commit: the fix-round branch HEAD created immediately after this report; no push
 or merge was performed.
+
+## Fix round 2 of 5
+
+### Root cause and correction
+
+Rollback restored all live files, then deleted every staged file and backup,
+and only afterward removed the portable journal. A stop or journal-removal
+failure in that window left a pending journal whose recovery sources no longer
+existed. The transaction could therefore block every later portable-user load.
+
+Rollback now removes and syncs the journal first. Only after that durable
+rollback commit point does it cross the injectable cleanup boundary and delete
+staging artifacts. If journal removal fails, every backup remains available for
+the next recovery attempt. If the process stops after journal removal, the live
+old generation is already complete and the next load safely removes the orphan
+artifacts through the no-journal cleanup path.
+
+The legacy migration helper documentation now matches its implementation: a
+prior response address belongs to the named user only when it normalizes to an
+allowlisted email; otherwise it remains unresolved. Brain was bumped from
+`0.18.1` to `0.18.2`.
+
+### RED evidence
+
+The named test is
+`crash_at_rollback_cleanup_boundary_keeps_recovery_possible`.
+
+Its first RED run failed to compile because the wished-for
+`TransactionStep::RollbackCleanup` injection boundary did not exist:
+
+```text
+error[E0599]: no variant or associated item named `RollbackCleanup` found for enum `TransactionStep`
+```
+
+After adding only the injection seam at the vulnerable old ordering, the test
+reproduced the data-loss window. The injected crash left the journal present,
+and the next `recover_pending` failed exactly on both deleted backups:
+
+```text
+called `Result::unwrap()` on an `Err` value: Transaction { message:
+"portable user transaction failed: read user transaction backup at
+.../tasks/.brain-user-...-0.backup: No such file or directory (os error 2);
+portable user transaction failed: read user transaction backup at
+.../.config/.brain-user-...-1.backup: No such file or directory (os error 2)" }
+```
+
+### GREEN evidence
+
+- Exact named crash-boundary test: 1 passed.
+- Isolated `cargo test --release users::store::transaction_tests`: 6 passed.
+- `cargo clippy --release --all-targets -- -D warnings`: passed.
+- Scoped `rustfmt --check` for `transaction.rs`, `store.rs`, and `command.rs`:
+  passed.
+- `git diff --check`: passed.
+
+### Files changed in this fix round
+
+- `Cargo.toml`, `Cargo.lock`
+- `src/users/{command,store,transaction}.rs`
+- `docs/data-model.md`
+
+Commit: the fix-round branch HEAD created immediately after this report; no push
+or merge was performed.

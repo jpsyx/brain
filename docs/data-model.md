@@ -274,7 +274,7 @@ non-default record only.
   "schema_version": 1,
   "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
   "receiver_ingress_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
-  "minimum_brain_version": "0.18.1"
+  "minimum_brain_version": "0.18.2"
 }
 ```
 

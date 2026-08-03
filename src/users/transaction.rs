@@ -39,6 +39,7 @@ pub(super) enum TransactionStep {
     Stage(usize),
     Install(usize),
     Restore(usize),
+    RollbackCleanup,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -310,12 +311,14 @@ fn rollback(
     if !failures.is_empty() {
         return Err(transaction_error(failures.join("; ")));
     }
-    cleanup_prepared(root, prepared);
     let journal = journal_path(root);
     match fs::remove_file(&journal) {
         Ok(()) => sync_parent(&journal),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(io_error("clear user transaction journal", &journal, &error)),
     }
+    hook(TransactionStep::RollbackCleanup)
+        .map_err(|error| io_error("finish rollback cleanup", &journal, &error))?;
+    cleanup_prepared(root, prepared);
     Ok(())
 }

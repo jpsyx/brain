@@ -128,9 +128,9 @@ pub fn proposed_user_id(name: &str) -> String {
 
 /// Build, but do not persist, the first-user conversion from legacy settings.
 ///
-/// The prior response address belongs to the named user. An allowlisted email
-/// is enabled only when it exactly normalizes to that response address. Every
-/// other legacy allowlist entry remains unresolved for an interactive mapping;
+/// The prior response address belongs to the named user only when it exactly
+/// normalizes to an allowlisted email. An unmatched response address and every
+/// other legacy allowlist entry remain unresolved for an interactive mapping;
 /// this helper never invents another person's name.
 pub fn propose_legacy_user_migration(
     personalization_name: &str,

@@ -226,6 +226,36 @@ mod transaction_tests {
     }
 
     #[test]
+    fn crash_at_rollback_cleanup_boundary_keeps_recovery_possible() {
+        let (root, lock, changes) = fixture();
+
+        let interrupted = catch_unwind(AssertUnwindSafe(|| {
+            let _ =
+                replace_group_with_hook(root.path(), &lock, changes.clone(), |step| match step {
+                    TransactionStep::Install(1) => {
+                        Err(io::Error::other("injected replacement failure"))
+                    }
+                    TransactionStep::RollbackCleanup => {
+                        panic!("injected crash at rollback cleanup boundary")
+                    }
+                    _ => Ok(()),
+                });
+        }));
+        assert!(interrupted.is_err());
+
+        recover_pending(root.path(), &lock).unwrap();
+
+        assert_eq!(std::fs::read(&changes[0].path).unwrap(), b"old tasks");
+        assert_eq!(std::fs::read(&changes[1].path).unwrap(), b"old users");
+        assert!(!journal_path(root.path()).exists());
+        assert!(
+            artifact_names(root.path())
+                .iter()
+                .all(|name| !name.contains(".brain-user-"))
+        );
+    }
+
+    #[test]
     fn staging_failure_removes_every_previously_staged_file() {
         let (root, lock, changes) = fixture();
 
