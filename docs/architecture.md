@@ -662,7 +662,8 @@ copies via `resolve`, then runs one ordinary `brain sync`. See
 Everything specific to the **tasks main view**, ported from the old `tasks`
 crate under one namespace: `identity` (immutable UUIDs and deterministic
 legacy identity), `schema` (an explicitly inactive, backup-owning task-schema
-migration helper), `task` (CSV model, legacy-compatible load, and pure
+migration helper split into path validation, pure transformation, and durable
+transaction/recovery modules), `task` (CSV model, legacy-compatible load, and pure
 assignment defaults/membership/UI visibility), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
 markdown), `shortcuts` (the help/footer catalogue), `complete` (native
@@ -676,10 +677,15 @@ New task and habit rows carry UUIDv4 identity; completion and edits preserve
 it, while a spawned habit occurrence gets a new UUID and retains assignment
 and `system_key`. The schema helper requires the rollout coordinator to state
 that the last legacy semantic sync is complete or not configured, and it takes
-an explicit machine-local backup directory. Nothing in startup, readiness,
-sync, or command dispatch invokes it. Legacy CSVs keep `task_id` as their first
-sync key until that coordinated migration runs. Task 5 owns UUID merge and
-display-ID collision reconciliation.
+an explicit machine-local backup directory that must resolve disjoint from the
+workspace tree. Every permanent backup entry and transaction artifact is
+file-synced and parent-directory-synced before live replacement. A durable
+prepared/committed journal makes failure or interruption between replacements
+recoverable; retry rolls a prepared generation back before migrating, or
+finishes committed cleanup. Nothing in startup, readiness, sync, or command
+dispatch invokes it. Legacy CSVs keep `task_id` as their first sync key until
+that coordinated migration runs. Task 5 owns UUID merge and display-ID
+collision reconciliation.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the

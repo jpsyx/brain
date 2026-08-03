@@ -284,9 +284,14 @@ a new UUID while retaining assignment and `system_key`.
 Activation is deliberately separate. The fixture-tested schema helper requires
 an explicit last-legacy-sync state and machine-local backup directory, and no
 runtime path calls it. Existing legacy CSVs keep `task_id` first so the current
-semantic merge remains unchanged. The coordinated rollout owns the final
-legacy sync, backup activation, and migration journal; the following task owns
-UUID merge and deterministic display-ID collision reconciliation.
+semantic merge remains unchanged. The helper rejects canonical or lexical path
+overlap with the workspace, durably syncs each exact backup before replacement,
+and publishes an internal prepared/committed recovery journal. A retry restores
+the complete legacy generation after a prepared interruption or retains the
+complete new generation after commit, so a mixed schema is never accepted as a
+new migration input. The coordinated rollout still owns the final legacy sync,
+backup activation, and rollout journal; the following task owns UUID merge and
+deterministic display-ID collision reconciliation.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 

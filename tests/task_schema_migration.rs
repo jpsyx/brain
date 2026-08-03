@@ -11,7 +11,7 @@ const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 const OTHER_WORKSPACE_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
 
 struct Fixture {
-    _temporary: tempfile::TempDir,
+    temporary: tempfile::TempDir,
     root: PathBuf,
     backup: PathBuf,
     original: BTreeMap<&'static str, Vec<u8>>,
@@ -48,7 +48,7 @@ impl Fixture {
             original.insert(name, bytes.to_vec());
         }
         Self {
-            _temporary: temporary,
+            temporary,
             root,
             backup,
             original,
@@ -56,12 +56,46 @@ impl Fixture {
     }
 
     fn migrate(&self, sync: LegacySemanticSync) -> anyhow::Result<MigrationOutcome> {
+        self.migrate_to(sync, &self.backup)
+    }
+
+    fn migrate_to(
+        &self,
+        sync: LegacySemanticSync,
+        backup_dir: &Path,
+    ) -> anyhow::Result<MigrationOutcome> {
         migrate_inactive(TaskSchemaMigration {
             workspace_id: WorkspaceId::parse(WORKSPACE_ID).unwrap(),
             workspace_root: &self.root,
-            backup_dir: &self.backup,
+            backup_dir,
             legacy_semantic_sync: sync,
         })
+    }
+
+    fn assert_live_inputs_unchanged(&self) {
+        for (name, bytes) in &self.original {
+            assert_eq!(
+                std::fs::read(self.root.join("tasks").join(name)).unwrap(),
+                *bytes,
+                "live input {name} changed"
+            );
+        }
+    }
+
+    fn write_current_like(&self, tasks_header: &str, habits_header: &str, schema: &str) {
+        std::fs::write(
+            self.root.join("tasks/tasks.csv"),
+            format!("{tasks_header}\n8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,T42,First,pablo,\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            self.root.join("tasks/habits.csv"),
+            format!(
+                "{habits_header}\n647a98fc-978b-4ab5-97f4-f291b56747d7,H3,Morning triage,pablo,brain.triage.daily\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(self.root.join("tasks/SCHEMA.json"), schema).unwrap();
     }
 
     fn csv(&self, name: &str) -> (Vec<String>, Vec<BTreeMap<String, String>>) {
@@ -203,6 +237,123 @@ fn fixture_migration_is_byte_idempotent() {
         first_schema
     );
     assert_eq!(count_files(&fixture.backup), backup_entries);
+}
+
+#[test]
+fn backup_destination_must_be_disjoint_from_the_workspace_tree() {
+    for label in ["equal", "nested", "tasks", "lexical tasks", "ancestor"] {
+        let fixture = Fixture::new();
+        let backup = match label {
+            "equal" => fixture.root.clone(),
+            "nested" => fixture.root.join("runtime/task-schema-backup"),
+            "tasks" => fixture.root.join("tasks"),
+            "lexical tasks" => fixture.root.join("runtime/../tasks/task-schema-backup"),
+            "ancestor" => fixture.temporary.path().to_path_buf(),
+            _ => unreachable!(),
+        };
+
+        let error = fixture
+            .migrate_to(LegacySemanticSync::Complete, &backup)
+            .unwrap_err();
+
+        assert!(
+            error.to_string().contains("disjoint"),
+            "{label} overlap should be rejected: {error:#}"
+        );
+        fixture.assert_live_inputs_unchanged();
+    }
+}
+
+#[test]
+fn disjoint_machine_local_backup_path_is_accepted() {
+    let fixture = Fixture::new();
+    let backup = fixture.temporary.path().join("machine-local/task-schema");
+
+    assert_eq!(
+        fixture
+            .migrate_to(LegacySemanticSync::Complete, &backup)
+            .unwrap(),
+        MigrationOutcome::Migrated
+    );
+    assert!(backup.join("tasks/tasks.csv").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_destination_resolves_symlink_aliases_before_overlap_checking() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = Fixture::new();
+    let alias = fixture.temporary.path().join("workspace-alias");
+    symlink(&fixture.root, &alias).unwrap();
+
+    let error = fixture
+        .migrate_to(
+            LegacySemanticSync::Complete,
+            &alias.join("task-schema-backup"),
+        )
+        .unwrap_err();
+
+    assert!(error.to_string().contains("disjoint"));
+    fixture.assert_live_inputs_unchanged();
+}
+
+#[test]
+fn current_detection_requires_complete_identity_metadata_and_columns() {
+    let cases = [
+        (
+            "merge key",
+            "task_uuid,task_id,task_name,assigned_to,system_key",
+            "task_uuid,task_id,task_name,assigned_to,system_key",
+            r#"{"task_schema_version":2,"merge_key":"task_id","display_identity":{"field":"task_id","mutable":true}}"#,
+        ),
+        (
+            "display field",
+            "task_uuid,task_id,task_name,assigned_to,system_key",
+            "task_uuid,task_id,task_name,assigned_to,system_key",
+            r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_uuid","mutable":true}}"#,
+        ),
+        (
+            "display mutability",
+            "task_uuid,task_id,task_name,assigned_to,system_key",
+            "task_uuid,task_id,task_name,assigned_to,system_key",
+            r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":false}}"#,
+        ),
+        (
+            "task system key",
+            "task_uuid,task_id,task_name,assigned_to,notes",
+            "task_uuid,task_id,task_name,assigned_to,system_key",
+            r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#,
+        ),
+        (
+            "habit system key",
+            "task_uuid,task_id,task_name,assigned_to,system_key",
+            "task_uuid,task_id,task_name,assigned_to,notes",
+            r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#,
+        ),
+    ];
+
+    for (label, tasks_header, habits_header, schema) in cases {
+        let fixture = Fixture::new();
+        fixture.write_current_like(tasks_header, habits_header, schema);
+
+        assert_eq!(
+            fixture.migrate(LegacySemanticSync::Complete).unwrap(),
+            MigrationOutcome::Migrated,
+            "incomplete {label} must not count as current"
+        );
+
+        let (task_header, _) = fixture.csv("tasks.csv");
+        let (habit_header, _) = fixture.csv("habits.csv");
+        assert!(task_header.iter().any(|column| column == "system_key"));
+        assert!(habit_header.iter().any(|column| column == "system_key"));
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(fixture.root.join("tasks/SCHEMA.json")).unwrap())
+                .unwrap();
+        assert_eq!(metadata["merge_key"], "task_uuid");
+        assert_eq!(metadata["display_identity"]["field"], "task_id");
+        assert_eq!(metadata["display_identity"]["mutable"], true);
+    }
 }
 
 fn count_files(root: &Path) -> usize {

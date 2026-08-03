@@ -424,8 +424,11 @@ a new UUID while retaining assignment and `system_key`. Deterministic UUIDv5
 conversion for legacy rows exists only behind an inactive helper: it requires
 the rollout-owned last-legacy-sync state and an explicit machine-local backup
 directory. No startup, readiness, sync, or command path invokes it. Existing
-legacy CSV sync remains keyed by `task_id` until coordinated migration; UUID
-merge and display-ID collision reconciliation are later rollout work.
+legacy CSV sync remains keyed by `task_id` until coordinated migration. The
+inactive helper rejects backup/workspace path overlap, durably syncs every
+exact backup, and journals the three-file replacement so a retry recovers from
+failure or interruption at any replacement boundary. UUID merge and display-ID
+collision reconciliation are later rollout work.
 
 ### `brain reindex`
 
