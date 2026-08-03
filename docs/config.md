@@ -83,6 +83,10 @@ personalization, tasks, reindex, sync, receiver setup, and the TUI consume that
 same context and its once-resolved actor. Changing the default or local user
 after bootstrap cannot redirect or reattribute a read or write already in
 progress.
+Without a portable user store, legacy compatibility accepts only an exact
+lower-case kebab `local_user_id`. A malformed nonblank legacy value is rejected
+with `brain workspace repair -b <workspace> --local-user-id <USER_ID>`; Brain
+does not create `users.json` as part of that repair path.
 
 ### The `brain workspace` command
 

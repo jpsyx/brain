@@ -160,8 +160,9 @@ Which session to run is decided by the **lock + recency** model in
 `state.rs` (DB at `<workspace-cache>/state.db`, WAL):
 
 1. At ordinary command bootstrap brain resolves the local actor once. TUI
-   startup then refreshes the selected workspace's Claude and Codex hooks
-   before opening or migrating the state DB, reaps locks held by dead
+   startup first acquires the workspace singleton, then refreshes the selected
+   workspace's Claude and Codex hooks before opening or migrating the state DB,
+   reaps locks held by dead
    PIDs, then walks `sessions_by_recency()` within the exact
    frontend/workspace/actor/channel scope
    and resumes the first whose **transcript actually exists** on disk —
@@ -210,11 +211,19 @@ Which session to run is decided by the **lock + recency** model in
 
 Codex panels use the same hook scripts and state DB. Every TUI startup and
 receiver setup writes equivalent `SessionStart` and `Stop` entries to
-`~/.codex/hooks.json`; current
+`~/.codex/hooks.json`. Shared Codex hook updates take an adjacent machine-wide
+SQLite transaction lock, reload current bytes under that lock, and publish
+synced JSON through a same-directory atomic rename. Concurrent workspace TUIs
+therefore preserve one another's registrations and unrelated settings; a
+failed replacement preserves the prior bytes. Current
 Codex CLI versions may ask you to trust those hooks once in the Codex UI.
 Claude and Codex remain separate session stores, but both frontends now report
 session starts and completed receiver turns through the same brain response
 protocol.
+Brain verifies the exact installed `hooks.json` command shape and executes both
+scripts against Codex-style `thread_id` payloads in tests. Whether Codex emits
+those documented lifecycle events is frontend-owned behavior and is not
+simulated as an external Codex process test.
 
 **One hook namespace, one DB per workspace.** Before the merge, `brain` and `tasks`
 each ran their own SessionStart hook keyed on separate env-var namespaces

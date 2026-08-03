@@ -87,8 +87,14 @@ first move is a failing test that reproduces it, *then* the fix.
   and `BRAIN_ROOT` precedence, project-relative commands, actor-scoped session
   rotation, equal opaque IDs with conflicting immutable attribution, schema-v2
   row preservation, and malformed/ambient no-op behavior. The hook-installer
-  unit test executes the actual configured Codex start and stop commands as one
-  attributed lifecycle and proves stale deployed scripts are refreshed.
+  unit tests live in `src/command/server/receiver/hooks/tests.rs`; they pin the
+  exact installed Codex JSON command schema, execute the
+  actual configured start and stop commands as one attributed lifecycle, and
+  proves stale deployed scripts are refreshed. Further unit tests prove locked
+  concurrent JSON mutations retain both workspace registrations and unrelated
+  settings, always leave parseable JSON, and preserve original bytes when an
+  atomic replacement fails. TUI setup tests prove a held workspace singleton
+  prevents hook refresh.
   `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
   completion contract for a Codex-style `thread_id` payload.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
@@ -185,9 +191,11 @@ first move is a failing test that reproduces it, *then* the fix.
   Finder, the editor tab, or the agent CLI is not a unit. We test the pure builders
   (`finder_target`, `edit_shell_command`, `iterm_new_tab_applescript`,
   `build_llm_command`), not the spawn.
-- **Real agent-provider behavior.** The Rust suite executes the SessionStart
-  hook and installer against temporary roots and SQLite databases, but it does
-  not launch a real Claude or Codex provider session.
+- **Real agent-provider behavior.** The Rust suite executes the exact installed
+  SessionStart and Stop commands against temporary roots and SQLite databases,
+  but it does not launch a real Claude or Codex provider session. Provider event
+  emission remains the frontend's documented contract, not behavior Brain can
+  manufacture or verify in isolation.
 - **Tautological defaults / getters.** `Bucket::Projects.label()` returns
   `"Projects"` — we keep one stability check, not a battery of getter
   tests.

@@ -187,3 +187,74 @@ both frontend launch paths are exercised. Task mutation accepts actor context,
 but intentionally does not read or write `assigned_to`; that remains Task 3.
 The patch version is `0.19.1`. The fix-round commit is created immediately
 after this report; no push or merge is performed.
+
+## Fix round 2 of 5
+
+### Status
+
+Complete. Readiness and actor resolution now accept the same exact legacy user
+IDs, hook refresh cannot run before the workspace singleton is acquired, and
+shared Codex hook updates are serialized and atomically published. No Task 3
+assignment behavior was added.
+
+### Root causes and corrections
+
+- Legacy readiness treated every trimmed nonblank local ID as compatible, while
+  actor resolution parsed the original value through `UserId`. Readiness now
+  uses that exact parser. Uppercase, underscore, and whitespace-padded IDs stop
+  with `brain workspace repair -b <workspace> --local-user-id <USER_ID>`;
+  blank IDs remain incomplete and exact lower-case kebab IDs remain compatible.
+- TUI startup refreshed lifecycle hooks before attempting the workspace
+  singleton. It now acquires the singleton first, so a rejected second process
+  cannot mutate the live process's hook contract.
+- Hook installation performed an unlocked read-modify-write directly to shared
+  `~/.codex/hooks.json`. Updates now take an adjacent SQLite transaction lock,
+  reload under the lock, write and sync a unique same-directory temporary file,
+  atomically rename it, and sync the parent directory. Concurrent mutations
+  retain unrelated settings, and a failed replacement leaves original bytes.
+- Tests pin the exact installed Codex hook schema and invoke its actual start
+  and stop commands with Codex-style `thread_id` payloads. External Codex event
+  emission remains a frontend-owned contract; the suite does not launch or
+  imitate a Codex provider process.
+
+### RED and GREEN evidence
+
+- `cargo test --release --test workspace_readiness
+  legacy_readiness_accepts_exactly_valid_user_ids` first failed with `E0599`
+  because `ReadinessError::InvalidLegacyLocalUser` did not exist. The table now
+  passes for uppercase, underscore, surrounding whitespace, blank, and valid
+  kebab inputs, including the actionable repair message.
+- `cargo test --release held_workspace_singleton_prevents_hook_refresh` first
+  failed with `E0432` because `acquire_singleton_then_refresh` did not exist. It
+  now proves a held singleton returns an error without running the refresh.
+- `cargo test --release
+  concurrent_workspace_registrations_and_unrelated_settings_survive` first
+  failed with `E0432` because the locked update seams did not exist. It now
+  proves concurrent registrations, unrelated settings, and valid final JSON
+  survive.
+- `cargo test --release failed_atomic_hook_replacement_preserves_original_bytes`
+  shared the same RED compile failure and now proves injected replacement
+  failure preserves the original bytes.
+- The actual concurrent installer test passes for two workspace roots sharing
+  one Codex JSON file, while both workspace-local Claude settings remain valid.
+
+### Final verification
+
+- Legacy readiness table: 5 cases passed; full readiness integration: 14
+  passed; actor resolution: 7 passed.
+- Hook unit suite: 8 passed; hook integration: 10 passed; Stop-hook actor
+  contract: 1 passed; singleton ordering: 1 passed.
+- `cargo test --release bundled_skills_carry_no_personal_data`: passed.
+- `PATH="/opt/homebrew/bin:$PATH" cargo test --release --quiet`: 1,150 tests
+  passed.
+- `cargo clippy --release --all-targets -- -D warnings`: passed.
+- `rustfmt --edition 2024 --config skip_children=true --check` over every
+  changed Rust file: passed.
+- `git diff --check`: passed.
+
+Repository-wide formatting retains the previously documented drift in
+untouched files; every changed Rust file passes the scoped formatter check.
+The hook installer is 200 production lines. Its 338-line focused test module
+lives in `src/command/server/receiver/hooks/tests.rs`, keeping both files below
+the repository's module-size smell threshold.
+The patch version is `0.19.2`. This round is committed without push or merge.

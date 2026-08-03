@@ -1,8 +1,11 @@
 //! Workspace-sensitive Claude and Codex hook installation.
 
-use std::path::Path;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 fn replace_entry(
     settings: &mut serde_json::Value,
@@ -46,6 +49,97 @@ fn command(hook_path: &Path, root: &Path) -> String {
     )
 }
 
+fn hook_lock_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("hooks.json");
+    path.with_file_name(format!(".{file_name}.transaction.lock"))
+}
+
+fn hook_temporary_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("hooks.json");
+    path.with_file_name(format!(".{file_name}.tmp-{}", uuid::Uuid::new_v4()))
+}
+
+fn update_json_file(path: &Path, mutation: impl FnOnce(&mut serde_json::Value)) -> Result<()> {
+    update_json_file_with_temporary(path, &hook_temporary_path(path), mutation)
+}
+
+fn update_json_file_with_temporary(
+    path: &Path,
+    temporary: &Path,
+    mutation: impl FnOnce(&mut serde_json::Value),
+) -> Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)
+        .with_context(|| format!("create hook settings directory {}", parent.display()))?;
+    let lock_path = hook_lock_path(path);
+    let connection = rusqlite::Connection::open(&lock_path)
+        .with_context(|| format!("open hook settings lock {}", lock_path.display()))?;
+    connection
+        .busy_timeout(Duration::from_secs(10))
+        .context("configure hook settings lock")?;
+    connection
+        .execute_batch("PRAGMA journal_mode = OFF; BEGIN IMMEDIATE")
+        .with_context(|| format!("acquire hook settings lock {}", lock_path.display()))?;
+
+    let mut settings = match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .with_context(|| format!("parse hook settings {}", path.display()))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(error) => {
+            return Err(error).with_context(|| format!("read hook settings {}", path.display()));
+        }
+    };
+    mutation(&mut settings);
+    let mut bytes = serde_json::to_vec_pretty(&settings)
+        .with_context(|| format!("serialize hook settings {}", path.display()))?;
+    bytes.push(b'\n');
+
+    write_and_replace_json(temporary, path, &bytes)
+}
+
+fn write_and_replace_json(temporary: &Path, destination: &Path, bytes: &[u8]) -> Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(temporary)
+        .with_context(|| format!("create temporary hook settings {}", temporary.display()))?;
+    let result = (|| {
+        file.write_all(bytes)
+            .with_context(|| format!("write temporary hook settings {}", temporary.display()))?;
+        file.sync_all()
+            .with_context(|| format!("sync temporary hook settings {}", temporary.display()))?;
+        drop(file);
+        std::fs::rename(temporary, destination).with_context(|| {
+            format!(
+                "replace hook settings {} from {}",
+                destination.display(),
+                temporary.display()
+            )
+        })?;
+        if let Some(parent) = destination.parent()
+            && let Ok(directory) = std::fs::File::open(parent)
+        {
+            let _ = directory.sync_all();
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
+    }
+    result
+}
+
 pub(super) fn install(root: &Path) -> Result<()> {
     let home = std::path::PathBuf::from(
         std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?,
@@ -81,253 +175,28 @@ fn install_for_home(root: &Path, home: &Path) -> Result<()> {
     let session = command(&session_path, root);
     let stop = command(&stop_path, root);
     let settings_path = root.join(".claude/settings.json");
-    let mut settings = if settings_path.is_file() {
-        serde_json::from_str(&std::fs::read_to_string(&settings_path)?)?
-    } else {
-        serde_json::json!({})
-    };
-    replace_entry(
-        &mut settings,
-        "SessionStart",
-        "claude_session_start_hook.py",
-        &session,
-    );
-    replace_entry(&mut settings, "Stop", "claude_stop_hook.py", &stop);
-    std::fs::write(settings_path, serde_json::to_vec_pretty(&settings)?)?;
+    update_json_file(&settings_path, |settings| {
+        replace_entry(
+            settings,
+            "SessionStart",
+            "claude_session_start_hook.py",
+            &session,
+        );
+        replace_entry(settings, "Stop", "claude_stop_hook.py", &stop);
+    })?;
     let codex_dir = home.join(".codex");
-    std::fs::create_dir_all(&codex_dir)?;
     let codex_hooks_path = codex_dir.join("hooks.json");
-    let mut codex_hooks = if codex_hooks_path.is_file() {
-        serde_json::from_str(&std::fs::read_to_string(&codex_hooks_path)?)?
-    } else {
-        serde_json::json!({})
-    };
-    replace_entry(
-        &mut codex_hooks,
-        "SessionStart",
-        "claude_session_start_hook.py",
-        &session,
-    );
-    replace_entry(&mut codex_hooks, "Stop", "claude_stop_hook.py", &stop);
-    std::fs::write(codex_hooks_path, serde_json::to_vec_pretty(&codex_hooks)?)?;
+    update_json_file(&codex_hooks_path, |codex_hooks| {
+        replace_entry(
+            codex_hooks,
+            "SessionStart",
+            "claude_session_start_hook.py",
+            &session,
+        );
+        replace_entry(codex_hooks, "Stop", "claude_stop_hook.py", &stop);
+    })?;
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::Write;
-    use std::path::Path;
-    use std::process::{Command, Stdio};
-
-    use serde_json::json;
-
-    use super::{command, install_for_home, replace_entry};
-
-    fn configured_command(path: &Path, event: &str) -> String {
-        let settings: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        settings["hooks"][event][0]["hooks"][0]["command"]
-            .as_str()
-            .unwrap()
-            .to_owned()
-    }
-
-    fn run_configured(
-        root: &Path,
-        command: &str,
-        env: &[(&str, &std::ffi::OsStr)],
-        input: &serde_json::Value,
-    ) -> std::process::Output {
-        let mut child = Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(root)
-            .envs(env.iter().copied())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .as_mut()
-            .unwrap()
-            .write_all(input.to_string().as_bytes())
-            .unwrap();
-        drop(child.stdin.take());
-        child.wait_with_output().unwrap()
-    }
-
-    #[test]
-    fn command_is_project_relative_for_paths_under_the_selected_root() {
-        let command = command(
-            Path::new("/Users/pablo/family/.claude/brain-hooks/claude_stop_hook.py"),
-            Path::new("/Users/pablo/family"),
-        );
-        assert_eq!(command, "python3 .claude/brain-hooks/claude_stop_hook.py");
-    }
-
-    #[test]
-    fn command_falls_back_to_absolute_outside_the_selected_root() {
-        assert_eq!(
-            command(
-                Path::new("/opt/hooks/x.py"),
-                Path::new("/Users/pablo/family")
-            ),
-            "python3 /opt/hooks/x.py"
-        );
-    }
-
-    #[test]
-    fn project_relative_command_is_identical_across_workspace_roots() {
-        let mini = command(
-            Path::new("/Users/pablo/family/.claude/brain-hooks/claude_stop_hook.py"),
-            Path::new("/Users/pablo/family"),
-        );
-        let mbp = command(
-            Path::new(
-                "/Users/juanpablosarmiento/fam-brain/.claude/brain-hooks/claude_stop_hook.py",
-            ),
-            Path::new("/Users/juanpablosarmiento/fam-brain"),
-        );
-        assert_eq!(mini, mbp);
-    }
-
-    #[test]
-    fn merge_is_idempotent_and_preserves_other_settings() {
-        let mut settings = json!({"permissions": {"allow": ["Read"]}});
-        replace_entry(
-            &mut settings,
-            "SessionStart",
-            "session.py",
-            "/tmp/session.py",
-        );
-        replace_entry(
-            &mut settings,
-            "SessionStart",
-            "session.py",
-            "/tmp/session.py",
-        );
-        assert_eq!(
-            settings["hooks"]["SessionStart"].as_array().unwrap().len(),
-            1
-        );
-        assert_eq!(settings["permissions"]["allow"][0], "Read");
-    }
-
-    #[test]
-    fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let root = temp.path().join("brain");
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::create_dir_all(&root).unwrap();
-        let stale_dir = root.join(".claude/brain-hooks");
-        std::fs::create_dir_all(&stale_dir).unwrap();
-        std::fs::write(stale_dir.join("claude_session_start_hook.py"), "# stale\n").unwrap();
-        std::fs::write(stale_dir.join("claude_stop_hook.py"), "# stale\n").unwrap();
-        std::fs::create_dir_all(root.join(".claude")).unwrap();
-        std::fs::write(
-            root.join(".claude/settings.json"),
-            serde_json::to_vec(&serde_json::json!({
-                "hooks": {
-                    "SessionStart": [{"hooks": [{"type": "command", "command": "python3 /old/claude_session_start_hook.py"}]}],
-                    "Stop": [{"hooks": [{"type": "command", "command": "python3 /old/claude_stop_hook.py"}] }]
-                }
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        std::fs::create_dir_all(home.join(".codex")).unwrap();
-        std::fs::write(
-            home.join(".codex/hooks.json"),
-            serde_json::to_vec(&serde_json::json!({
-                "hooks": {
-                    "SessionStart": [{"hooks": [{"type": "command", "command": "python3 /old/claude_session_start_hook.py"}]}],
-                    "Stop": [{"hooks": [{"type": "command", "command": "python3 /old/claude_stop_hook.py"}] }]
-                }
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        install_for_home(&root, &home).unwrap();
-        let codex_hooks = home.join(".codex/hooks.json");
-        let start = configured_command(&codex_hooks, "SessionStart");
-        let stop = configured_command(&codex_hooks, "Stop");
-        let db_path = temp.path().join("state.db");
-        drop(crate::state::Db::open_path(&db_path).unwrap());
-        let response_dir = temp.path().join("responses");
-        let common = [
-            (
-                "BRAIN_WORKSPACE_ID",
-                std::ffi::OsStr::new("11111111-1111-4111-8111-111111111111"),
-            ),
-            ("BRAIN_WORKSPACE", std::ffi::OsStr::new("brain")),
-            ("BRAIN_ROOT", root.as_os_str()),
-            ("BRAIN_ACTOR_ID", std::ffi::OsStr::new("pablo")),
-            ("BRAIN_CHANNEL", std::ffi::OsStr::new("interactive")),
-            ("BRAIN_AGENT_KIND", std::ffi::OsStr::new("codex")),
-            ("BRAIN_INSTANCE_ID", std::ffi::OsStr::new("instance-1")),
-            ("BRAIN_PID", std::ffi::OsStr::new("4242")),
-            ("BRAIN_STATE_DB", db_path.as_os_str()),
-            ("BRAIN_RESPONSE_DIR", response_dir.as_os_str()),
-            ("BRAIN_RESPONSE_ID", std::ffi::OsStr::new("response-1")),
-        ];
-
-        let started = run_configured(
-            &root,
-            &start,
-            &common,
-            &serde_json::json!({"thread_id":"codex-thread-1","source":"startup"}),
-        );
-        let stopped = run_configured(
-            &root,
-            &stop,
-            &common,
-            &serde_json::json!({
-                "thread_id":"codex-thread-1",
-                "last_assistant_message":"Finished"
-            }),
-        );
-
-        assert!(
-            started.status.success(),
-            "{}",
-            String::from_utf8_lossy(&started.stderr)
-        );
-        assert!(
-            stopped.status.success(),
-            "{}",
-            String::from_utf8_lossy(&stopped.stderr)
-        );
-        let connection = rusqlite::Connection::open(db_path).unwrap();
-        let attribution = connection
-            .query_row(
-                "SELECT agent_kind, actor_id, channel FROM brain_sessions
-                 WHERE agent_session_id = 'codex-thread-1'",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                },
-            )
-            .unwrap();
-        assert_eq!(
-            attribution,
-            (
-                "codex".to_owned(),
-                "pablo".to_owned(),
-                "interactive".to_owned()
-            )
-        );
-        let response: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(response_dir.join("response-1.json")).unwrap())
-                .unwrap();
-        assert_eq!(response["session_id"], "codex-thread-1");
-        assert_eq!(response["actor_id"], "pablo");
-        assert_eq!(response["channel"], "interactive");
-    }
-}
+mod tests;

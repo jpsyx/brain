@@ -37,6 +37,15 @@ fn disable_mouse_motion_reporting<W: std::io::Write>(w: &mut W) {
     let _ = w.flush();
 }
 
+fn acquire_singleton_then_refresh(
+    workspace: &crate::workspace::WorkspaceContext,
+    refresh: impl FnOnce(&std::path::Path) -> Result<()>,
+) -> Result<crate::tui::singleton::Guard> {
+    let guard = crate::tui::singleton::Guard::acquire(workspace)?;
+    refresh(workspace.root())?;
+    Ok(guard)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_tui(
     command_context: &crate::workspace::CommandContext,
@@ -52,8 +61,10 @@ pub fn run_tui(
     with_receiver: bool,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
-    crate::command::server::refresh_agent_hooks(command_context.workspace.root())?;
-    let _singleton = crate::tui::singleton::Guard::acquire(&command_context.workspace)?;
+    let _singleton = acquire_singleton_then_refresh(
+        &command_context.workspace,
+        crate::command::server::refresh_agent_hooks,
+    )?;
     // First-run onboarding: seed personalization with a short skippable prompt
     // on the normal terminal, *before* we take over the screen. No-op when
     // already personalized or when there is no tty. Never blocks startup.
@@ -221,4 +232,35 @@ pub fn run_tui(
     )?;
     terminal.show_cursor()?;
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::acquire_singleton_then_refresh;
+
+    #[test]
+    fn held_workspace_singleton_prevents_hook_refresh() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("brain");
+        std::fs::create_dir_all(&root).unwrap();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            temp.path(),
+            crate::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+            crate::workspace::WorkspaceName::parse("brain").unwrap(),
+            &root,
+            "pablo",
+            temp.path(),
+        )
+        .unwrap();
+        let _held = crate::tui::singleton::Guard::acquire(&workspace).unwrap();
+        let marker = temp.path().join("refresh-ran");
+
+        let result = acquire_singleton_then_refresh(&workspace, |_| {
+            std::fs::write(&marker, b"ran")?;
+            Ok(())
+        });
+
+        assert!(result.is_err());
+        assert!(!marker.exists());
+    }
 }

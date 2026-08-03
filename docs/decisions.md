@@ -251,7 +251,9 @@ remain outside Brain.
 
 Ordinary command bootstrap now pins one immutable local actor before task,
 reindex, TUI, or local-agent work. A ready legacy workspace with no portable
-user store uses its non-empty local ID as a non-writing compatibility actor.
+user store uses its exact lower-case kebab local ID as a non-writing
+compatibility actor. Readiness rejects malformed nonblank legacy IDs with a
+machine-local repair command, matching the actor parser exactly.
 Inbound actor precedence remains immutable request context after provider
 authentication. Task `assigned_to`, triage-habit policy, the
 agent-controller/OpenCode facade, and shared receiver leases remain later
@@ -389,6 +391,13 @@ and channel. Hook upserts, claims, and dead-lock reaping use that exact
 composite scope, so equal opaque IDs in different scopes never overwrite or
 unlock one another. A separate stable response ID lets the Stop hook signal a
 fresh Codex turn without pretending Brain chose Codex's thread ID.
+
+Hook refresh follows workspace singleton acquisition, so a rejected second TUI
+cannot alter the lifecycle contract of the live process. Different-workspace
+TUIs remain concurrent, so their shared `~/.codex/hooks.json` updates use a
+machine-wide SQLite transaction lock plus same-directory atomic replacement.
+The lock prevents lost read-modify-write updates; the rename prevents readers
+from observing partial JSON and preserves the old bytes on failure.
 
 ## Why we disable alternate scroll (and motion) reporting for the mouse
 

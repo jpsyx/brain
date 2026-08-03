@@ -330,9 +330,12 @@ and continues. Headless invocations never open `/dev/tty`; they stop with exact
 `brain user add` and `brain user local` commands. Create and attach remain
 registry-only setup operations. For compatibility, an existing workspace with
 no `users.json` and a non-empty legacy local ID remains ready and is not
-silently migrated. Brain treats that ID as a compatibility actor for the
-request without writing portable user data. Help, version, and hidden internal
-server execution never prompt.
+silently migrated only when the ID is already exact lower-case kebab case.
+Brain treats that ID as a compatibility actor for the request without writing
+portable user data. A malformed nonblank legacy ID stops with an exact
+`brain workspace repair --local-user-id` command instead of failing later in
+actor bootstrap. Help, version, and hidden internal server execution never
+prompt.
 
 After readiness, the selected workspace and one resolved actor are pinned in
 the command context for the invocation's lifetime.

@@ -387,8 +387,10 @@ SMS/email work resolves an enabled portable identity and takes precedence over
 that machine default. A queued receiver job contains the workspace UUID and
 the resolved actor, never an untrusted sender string as `BRAIN_ACTOR_ID`.
 Follow-ups retain the initiating actor. A ready legacy workspace whose portable
-user store is absent uses its non-empty local ID as an immutable compatibility
-actor and does not create `users.json`. This does not add authentication,
+user store is absent uses its exact lower-case kebab local ID as an immutable
+compatibility actor and does not create `users.json`. Malformed nonblank legacy
+IDs are readiness errors with an explicit machine-local repair command. This
+does not add authentication,
 ownership, creator metadata, audit history, or device identity. The release
 does not yet provide a canonical task `assigned_to` field or the coordinated
 portable task-schema migration. It also does not implement triage-habit policy,

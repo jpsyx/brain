@@ -73,17 +73,25 @@ pub fn readiness_action_with_users(
     let (users, legacy_compatible) = match users {
         Ok(users) if !users.users.is_empty() => (Some(users), false),
         Ok(_) => (None, false),
-        Err(error) if error.is_missing_store() && !record.local_user_id.trim().is_empty() => {
-            (None, true)
+        Err(error) if error.is_missing_store() => {
+            if record.local_user_id.trim().is_empty() {
+                (None, false)
+            } else if UserId::parse(&record.local_user_id).is_ok() {
+                (None, true)
+            } else {
+                return Err(ReadinessError::InvalidLegacyLocalUser {
+                    canonical_name: canonical_name.to_string(),
+                    user_id: record.local_user_id.clone(),
+                });
+            }
         }
-        Err(error) if error.is_missing_store() => (None, false),
         Err(error) => return Err(ReadinessError::Users(error)),
     };
     let mut missing = Vec::new();
     if manifest.is_none() {
         missing.push(ReadinessField::Manifest);
     }
-    let local_user = UserId::parse(record.local_user_id.trim()).ok();
+    let local_user = UserId::parse(&record.local_user_id).ok();
     match users.as_ref() {
         None if !legacy_compatible => missing.push(ReadinessField::PortableUsers),
         None => {}
@@ -162,6 +170,10 @@ pub enum ReadinessError {
         canonical_name: String,
         user_id: String,
     },
+    InvalidLegacyLocalUser {
+        canonical_name: String,
+        user_id: String,
+    },
     Incomplete {
         canonical_name: String,
         missing: Vec<ReadinessField>,
@@ -184,6 +196,13 @@ impl Display for ReadinessError {
             } => write!(
                 formatter,
                 "local user {user_id} is not a portable member\n  brain user local <USER_ID> -b {canonical_name}"
+            ),
+            Self::InvalidLegacyLocalUser {
+                canonical_name,
+                user_id,
+            } => write!(
+                formatter,
+                "legacy local user ID `{user_id}` is invalid\n  brain workspace repair -b {canonical_name} --local-user-id <USER_ID>"
             ),
             Self::Incomplete {
                 canonical_name,
@@ -224,6 +243,7 @@ impl Error for ReadinessError {
             Self::Users(error) => Some(error),
             Self::WorkspaceIdMismatch { .. }
             | Self::InvalidLocalUser { .. }
+            | Self::InvalidLegacyLocalUser { .. }
             | Self::Incomplete { .. } => None,
         }
     }

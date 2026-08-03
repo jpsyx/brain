@@ -154,7 +154,9 @@ tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
 existing handlers. `command/server/` further separates receiver setup, HTTP
 server lifecycle, and habits dispatch. Receiver command ownership is reflected
 on disk: `receiver/mod.rs` owns dispatch and provider setup, while
-`receiver/hooks.rs` owns workspace-sensitive Claude/Codex hook installation.
+`receiver/hooks.rs` owns workspace-sensitive Claude/Codex hook installation;
+its focused installer tests live in the owned `receiver/hooks/tests.rs`
+submodule.
 
 ### `cli/`
 The clap derive surface, split by command family. `mod.rs` keeps the parser
@@ -230,8 +232,10 @@ phone/email identity after provider authentication. `context` carries the
 validated person ID, display name, and initiating channel through queueing,
 session lookup, hooks, task-agent prompts, completion, and response delivery.
 When readiness admits a legacy workspace with no portable user file,
-`local_actor` uses its valid legacy local ID as an interactive compatibility
-actor and writes nothing; the inactive portable migration remains inactive.
+`local_actor` uses its exact lower-case kebab legacy local ID as an interactive
+compatibility actor and writes nothing; the inactive portable migration remains
+inactive. Readiness rejects every nonblank ID that the `UserId` parser would
+reject, so actor bootstrap cannot discover a weaker legacy acceptance rule.
 
 ### `users/`
 

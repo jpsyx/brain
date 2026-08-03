@@ -2,7 +2,7 @@ use brain::cli::try_parse_from;
 use brain::workspace::{
     BootstrapContext, InteractionMode, MachineRegistry, REGISTRY_SCHEMA_VERSION, ReadinessAction,
     ReadinessField, RegistryStore, WorkspaceName, WorkspaceRecord, bootstrap_with_io,
-    readiness_action,
+    readiness_action, readiness_action_with_users,
 };
 use brain::workspace::{BootstrapPolicy, Invocation, bootstrap_policy, invocation_for};
 use brain::workspace::{ManifestError, WorkspaceId, WorkspaceManifest};
@@ -13,6 +13,63 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use brain::users::UsersStore;
+
+#[test]
+fn legacy_readiness_accepts_exactly_valid_user_ids() {
+    enum Expected {
+        Invalid,
+        Incomplete,
+        Ready,
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    let manifest = WorkspaceManifest::new(workspace_id);
+    let name = WorkspaceName::parse("family").unwrap();
+    for (raw, expected) in [
+        ("Pablo", Expected::Invalid),
+        ("local_user", Expected::Invalid),
+        (" pablo ", Expected::Invalid),
+        ("", Expected::Incomplete),
+        ("valid-kebab", Expected::Ready),
+    ] {
+        let record = WorkspaceRecord {
+            workspace_id,
+            root: temp.path().join("family"),
+            aliases: BTreeSet::new(),
+            local_user_id: raw.to_owned(),
+            receiver_enabled: false,
+            env: Map::new(),
+        };
+        let result = readiness_action_with_users(
+            &name,
+            &record,
+            Ok(manifest.clone()),
+            UsersStore::load_from(&temp.path().join(format!("missing-{raw:?}.json"))),
+            InteractionMode::NonInteractive,
+        );
+
+        match expected {
+            Expected::Invalid => {
+                let error = result.unwrap_err();
+                assert!(matches!(
+                    error,
+                    brain::workspace::ReadinessError::InvalidLegacyLocalUser { .. }
+                ));
+                assert!(
+                    error
+                        .to_string()
+                        .contains("brain workspace repair -b family --local-user-id <USER_ID>")
+                );
+            }
+            Expected::Incomplete => assert!(matches!(
+                result,
+                Err(brain::workspace::ReadinessError::Incomplete { .. })
+            )),
+            Expected::Ready => assert!(matches!(result, Ok(ReadinessAction::Ready(_)))),
+        }
+    }
+}
 
 #[test]
 fn every_invocation_has_an_explicit_bootstrap_policy() {
