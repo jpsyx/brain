@@ -96,9 +96,6 @@ fn active_filter_chips(cli: &Cli) -> Vec<String> {
     if let Some(v) = &f.context {
         chips.push(format!("context={v}"));
     }
-    if let Some(v) = &f.assigned_to {
-        chips.push(format!("assigned_to={v}"));
-    }
     if f.past_due {
         chips.push("past-due".into());
     }

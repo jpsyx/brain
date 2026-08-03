@@ -405,7 +405,9 @@ once from the selected workspace's portable registry. Shared task cards show
 their assignment, `Ctrl+P` adds **Add task** and **Filter by assignee**, and a
 task's `Enter` actions add **Reassign this task**. The filter opens a captive
 numbered member picker with an **All assignees** clear row and remains visible
-in its own task-header row while active. Switching members and clearing to
+in its own task-header row while active. That live row is the header's only
+assignment state; static chips retain other CLI filters but never a stale
+startup assignee. Switching members and clearing to
 **All assignees** always work from the complete current-view data. Add and reassign hand the interactive choice
 to the embedded agent's `/todo` flow; the scripts remain the noninteractive
 path. `brain tasks --assigned-to <user-id>` validates the ID against the

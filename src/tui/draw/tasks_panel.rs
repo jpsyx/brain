@@ -14,16 +14,11 @@ use crate::tasks::render::{compact_footer_line, search_bar_line, search_footer_l
 use crate::tui::*;
 
 pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
-    let mut header = app.header.clone();
-    if let Some(user_id) = app.assignment_filter.as_ref() {
-        let name = app
-            .assignment
-            .users()
-            .iter()
-            .find(|user| &user.id == user_id)
-            .map_or_else(|| user_id.as_str(), |user| user.name.as_str());
-        header.push(assignee_filter_line(name, user_id.as_str()));
-    }
+    let mut header = tasks_header_lines(
+        &app.header,
+        app.assignment.users(),
+        app.assignment_filter.as_ref(),
+    );
     let header_h = tasks_header_height(header.len());
     let search_h: u16 = u16::from(app.show_search_bar());
 
@@ -182,6 +177,22 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
 
 pub(crate) fn tasks_header_height(line_count: usize) -> u16 {
     u16::try_from(line_count).unwrap_or(u16::MAX).max(1)
+}
+
+pub(crate) fn tasks_header_lines(
+    static_header: &[Line<'static>],
+    users: &[crate::tasks::task::AssignmentUser],
+    assignment_filter: Option<&crate::users::UserId>,
+) -> Vec<Line<'static>> {
+    let mut header = static_header.to_vec();
+    if let Some(user_id) = assignment_filter {
+        let name = users
+            .iter()
+            .find(|user| &user.id == user_id)
+            .map_or_else(|| user_id.as_str(), |user| user.name.as_str());
+        header.push(assignee_filter_line(name, user_id.as_str()));
+    }
+    header
 }
 
 pub(crate) fn assignee_filter_line(name: &str, user_id: &str) -> Line<'static> {

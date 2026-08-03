@@ -682,7 +682,9 @@ actor, portable-member rows, and the one-person/shared visibility decision.
 picker. Startup validates `--assigned-to` against the assignment context and
 seeds that same field; view materialization retains the complete base set so
 body rebuilding can switch members or clear to all before fuzzy matching. Plain
-output instead applies assignment as a final render filter. The context's
+output instead applies assignment as a final render filter. Header composition
+renders assignment only from that live App field, while non-assignment CLI
+filters remain in the static chip row. The context's
 detail mode controls task-card rendering, and its create, reassign, and filter
 flags independently gate their palette rows. A missing portable registry uses
 a one-actor compatibility context with hidden assignment controls.
