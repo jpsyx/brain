@@ -94,6 +94,9 @@ fn keeps_filters(t: &Task, f: &Filters, today: NaiveDate) -> bool {
         && f.context
             .as_deref()
             .is_none_or(|w| t.context.eq_ignore_ascii_case(w))
+        && f.assigned_to
+            .as_deref()
+            .is_none_or(|wanted| t.assigned_to == wanted)
         && (!f.past_due || t.is_past_due(today))
         && (!f.mit || t.is_mit())
         && (!f.stale || t.is_stale(today))
@@ -198,5 +201,26 @@ mod tests {
         // Normal priority sort: p0 first → reversed: p2 first → T1 first.
         let ids: Vec<String> = view.tasks.iter().map(|t| t.id.clone()).collect();
         assert_eq!(ids, vec!["T1", "T2"]);
+    }
+
+    #[test]
+    fn assigned_to_filter_keeps_only_the_named_portable_user() {
+        let today = d(2026, 8, 3);
+        let mut pablo = test_task("T1", "not_started");
+        pablo.assigned_to = "pablo".to_owned();
+        let mut wife = test_task("T2", "not_started");
+        wife.assigned_to = "wife".to_owned();
+        let mut cli = empty_cli();
+        cli.filters.assigned_to = Some("wife".to_owned());
+
+        let view = build_view(&cli, &Selector::All, None, vec![pablo, wife], today);
+
+        assert_eq!(
+            view.tasks
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["T2"]
+        );
     }
 }

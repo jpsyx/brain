@@ -132,6 +132,38 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertEqual(rows[0]["assigned_to"], "pablo")
         self.assertEqual(rows[1]["assigned_to"], "wife")
 
+    def test_add_task_appends_canonical_assignment_when_legacy_csv_has_no_assignment(self):
+        tasks = self.root / "tasks" / "tasks.csv"
+        tasks.write_text(
+            "task_id,task_name,task_type,status,priority\n"
+            "T1,Existing,personal,not_started,p2\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_add()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tasks.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            rows = list(reader)
+            self.assertIn("assigned_to", reader.fieldnames)
+        self.assertEqual(rows[0]["assigned_to"], "")
+        self.assertEqual(rows[1]["assigned_to"], "wife")
+
+    def test_add_task_uses_the_full_schema_for_an_empty_csv(self):
+        tasks = self.root / "tasks" / "tasks.csv"
+        tasks.write_text("", encoding="utf-8")
+
+        result = self.run_add()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tasks.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            rows = list(reader)
+        self.assertIn("task_id", reader.fieldnames)
+        self.assertIn("assigned_to", reader.fieldnames)
+        self.assertEqual(rows[0]["assigned_to"], "wife")
+
     def test_reassignment_validates_membership_and_preserves_other_fields(self):
         tasks = self.root / "tasks" / "tasks.csv"
         tasks.write_text(

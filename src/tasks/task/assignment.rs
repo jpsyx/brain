@@ -14,6 +14,78 @@ pub struct AssignmentUiMode {
     pub show_filter: bool,
 }
 
+/// One portable member available to assignment controls.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssignmentUser {
+    /// Stable portable person ID persisted in task and habit rows.
+    pub id: UserId,
+    /// Human-facing workspace display name.
+    pub name: String,
+}
+
+/// Immutable assignment state derived once for a tasks-shell run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssignmentContext {
+    mode: AssignmentUiMode,
+    actor_id: UserId,
+    users: Vec<AssignmentUser>,
+}
+
+impl AssignmentContext {
+    /// Build assignment state from the selected workspace's portable users.
+    #[must_use]
+    pub fn from_users(users: &Users, actor: &ActorContext) -> Self {
+        Self {
+            mode: assignment_ui_mode(users),
+            actor_id: actor.user_id().clone(),
+            users: users
+                .users
+                .iter()
+                .map(|user| AssignmentUser {
+                    id: user.id.clone(),
+                    name: user.name.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    /// Build the read-only legacy fallback when no portable registry exists.
+    #[must_use]
+    pub fn legacy(actor: &ActorContext) -> Self {
+        Self {
+            mode: AssignmentUiMode {
+                show_in_detail: false,
+                show_create_control: false,
+                show_reassign_control: false,
+                show_filter: false,
+            },
+            actor_id: actor.user_id().clone(),
+            users: vec![AssignmentUser {
+                id: actor.user_id().clone(),
+                name: actor.display_name().to_owned(),
+            }],
+        }
+    }
+
+    /// Assignment surface visibility for this shell.
+    #[must_use]
+    pub const fn mode(&self) -> AssignmentUiMode {
+        self.mode
+    }
+
+    /// Immutable actor used as the creation default.
+    #[must_use]
+    pub const fn actor_id(&self) -> &UserId {
+        &self.actor_id
+    }
+
+    /// Portable members available to filters and explicit assignment actions.
+    #[must_use]
+    pub fn users(&self) -> &[AssignmentUser] {
+        &self.users
+    }
+}
+
 /// Default a new row to the request's immutable effective actor.
 #[must_use]
 pub fn assignment_for_create(actor: &ActorContext, users: &Users) -> UserId {

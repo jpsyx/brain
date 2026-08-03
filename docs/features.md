@@ -400,7 +400,16 @@ the immutable effective actor for the request. An unrelated edit never changes
 assignment; `--assigned-to` creation overrides and explicit reassignment must
 name a portable workspace member. One-person workspaces keep filling the ID but
 hide assignment detail, controls, and filters. Shared workspaces expose those
-surfaces without changing the actor default.
+surfaces without changing the actor default. The task shell resolves this mode
+once from the selected workspace's portable registry. Shared task cards show
+their assignment, `Ctrl+P` adds **Add task** and **Filter by assignee**, and a
+task's `Enter` actions add **Reassign this task**. The filter opens a captive
+numbered member picker with an **All assignees** clear row and remains visible
+in the task header while active. Add and reassign hand the interactive choice
+to the embedded agent's `/todo` flow; the scripts remain the noninteractive
+path. `brain tasks --assigned-to <user-id>` provides the equivalent startup and
+plain-output filter. A ready legacy workspace with no `users.json` uses its
+compatibility actor and keeps all assignment-specific TUI surfaces hidden.
 
 ### `brain reindex`
 

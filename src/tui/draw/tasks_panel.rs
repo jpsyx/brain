@@ -5,7 +5,8 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 
@@ -13,7 +14,17 @@ use crate::tasks::render::{compact_footer_line, search_bar_line, search_footer_l
 use crate::tui::*;
 
 pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
-    let header_h = u16::try_from(app.header.len().min(3))
+    let mut header = app.header.clone();
+    if let Some(user_id) = app.assignment_filter.as_ref() {
+        let name = app
+            .assignment
+            .users()
+            .iter()
+            .find(|user| &user.id == user_id)
+            .map_or_else(|| user_id.as_str(), |user| user.name.as_str());
+        header.push(assignee_filter_line(name, user_id.as_str()));
+    }
+    let header_h = u16::try_from(header.len().min(3))
         .unwrap_or(u16::MAX)
         .max(1);
     let search_h: u16 = u16::from(app.show_search_bar());
@@ -33,7 +44,6 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     // border together signal "tasks is not the active panel" — Alt+H
     // restores both to color. Mirrors the brain panel title, which grays
     // when it loses focus.
-    let mut header = app.header.clone();
     if app.brain.is_some() && app.focus != Panel::Tasks {
         if let Some(line) = header.first_mut() {
             for span in &mut line.spans {
@@ -172,4 +182,19 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
         compact_footer_line(chunks[3].width, app.pending_count)
     };
     f.render_widget(Paragraph::new(vec![footer]), chunks[3]);
+}
+
+pub(crate) fn assignee_filter_line(name: &str, user_id: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            "  ASSIGNEE  ",
+            Style::default()
+                .fg(Color::Rgb(125, 207, 255))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("{name} ({user_id})"),
+            Style::default().fg(Color::Rgb(192, 202, 245)),
+        ),
+    ])
 }

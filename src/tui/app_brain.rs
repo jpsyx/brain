@@ -140,6 +140,7 @@ impl App<'_> {
                     || self.brain_input.is_some()
                     || self.confirm.is_some()
                     || self.link_picker.is_some()
+                    || self.assignee_filter.is_some()
                     || self.help.is_some();
                 crate::logging::log(format!(
                     "receiver message queued channel={:?} waiting={} queue_depth={} panel_open={} turn_active={} remote_active={} modal_open={}",

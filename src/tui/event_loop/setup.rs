@@ -70,6 +70,16 @@ pub fn run_tui(
     // already personalized or when there is no tty. Never blocks startup.
     crate::personalization::onboarding::maybe_run_first_time(&command_context.workspace);
 
+    let assignment = match crate::users::UsersStore::load(&command_context.workspace) {
+        Ok(users) => {
+            crate::tasks::task::AssignmentContext::from_users(&users, &command_context.actor)
+        }
+        Err(error) if error.is_missing_store() => {
+            crate::tasks::task::AssignmentContext::legacy(&command_context.actor)
+        }
+        Err(error) => return Err(error.into()),
+    };
+
     enable_raw_mode()?;
     // Render to /dev/tty, NOT stdout: the `brain` zsh wrapper captures this
     // binary's stdout (the shell-side plan), so writing the TUI to stdout
@@ -124,6 +134,7 @@ pub fn run_tui(
         csv_path,
         all_tasks,
         all_habits,
+        assignment,
         active_view,
         initial_search,
         Box::new(ZshFunctionRunner::new("agenda")),

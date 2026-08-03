@@ -51,7 +51,7 @@ pub(crate) fn handle_normal_key(app: &mut App<'_>, code: KeyCode, ctrl: bool) ->
         KeyCode::Char('c') if ctrl => return true,
         KeyCode::Esc => {
             if app.has_active_filter() {
-                app.clear_query();
+                app.clear_active_filters();
             } else {
                 return true;
             }
@@ -139,7 +139,8 @@ pub(crate) fn handle_normal_key(app: &mut App<'_>, code: KeyCode, ctrl: bool) ->
                     has_notes,
                     notes_expanded,
                     link_kind,
-                ));
+                )
+                .with_assignment_controls(app.assignment.mode().show_reassign_control));
             }
         }
 

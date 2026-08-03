@@ -225,6 +225,10 @@ def _canonical_assignment(columns, rows):
         columns[columns.index("assignee")] = "assigned_to"
         for row in rows:
             row["assigned_to"] = row.pop("assignee", "")
+    elif columns:
+        columns.append("assigned_to")
+        for row in rows:
+            row.setdefault("assigned_to", "")
     return columns, rows
 
 

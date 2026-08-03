@@ -8,7 +8,8 @@ mod assignment;
 mod load;
 
 pub use assignment::{
-    AssignmentUiMode, assignment_after_edit, assignment_for_create, assignment_ui_mode,
+    AssignmentContext, AssignmentUiMode, AssignmentUser, assignment_after_edit,
+    assignment_for_create, assignment_ui_mode,
 };
 pub use load::{load_habits, load_tasks};
 
@@ -184,7 +185,8 @@ pub fn test_task(id: &str, status: &str) -> Task {
 #[cfg(test)]
 mod tests {
     use super::{
-        Task, assignment_after_edit, assignment_for_create, assignment_ui_mode, test_task,
+        AssignmentContext, Task, assignment_after_edit, assignment_for_create, assignment_ui_mode,
+        test_task,
     };
     use chrono::NaiveDate;
 
@@ -278,6 +280,38 @@ mod tests {
             assignment_for_create(&crate::actor::test_actor("wife"), &workspace_users).as_str(),
             "wife"
         );
+    }
+
+    #[test]
+    fn assignment_context_uses_every_portable_workspace_member() {
+        let workspace_users = users(&["pablo", "wife"]);
+
+        let context =
+            AssignmentContext::from_users(&workspace_users, &crate::actor::test_actor("wife"));
+
+        assert_eq!(context.actor_id().as_str(), "wife");
+        assert!(context.mode().show_in_detail);
+        assert_eq!(
+            context
+                .users()
+                .iter()
+                .map(|user| user.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pablo", "wife"]
+        );
+    }
+
+    #[test]
+    fn legacy_assignment_context_is_one_actor_with_hidden_controls() {
+        let context = AssignmentContext::legacy(&crate::actor::test_actor("pablo"));
+
+        assert_eq!(context.actor_id().as_str(), "pablo");
+        assert_eq!(context.users().len(), 1);
+        assert_eq!(context.users()[0].name, "pablo");
+        assert!(!context.mode().show_in_detail);
+        assert!(!context.mode().show_create_control);
+        assert!(!context.mode().show_reassign_control);
+        assert!(!context.mode().show_filter);
     }
 
     // --- Task predicates ---

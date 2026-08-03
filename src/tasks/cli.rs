@@ -123,6 +123,10 @@ pub struct Filters {
     #[arg(long, value_name = "CTX", global = true)]
     pub context: Option<String>,
 
+    /// Filter by portable workspace user ID.
+    #[arg(long, value_name = "USER_ID", global = true)]
+    pub assigned_to: Option<String>,
+
     /// Only past-due tasks (due_date < today, status != done).
     #[arg(long, global = true)]
     pub past_due: bool,

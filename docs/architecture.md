@@ -675,7 +675,13 @@ normalizes legacy `assignee` headers to `assigned_to` before any write.
 The persistent shell, built from the ported tasks `tui/` and extended with the
 main-view axis. One `App` owns: the tasks-view state, the embedded
 `picker::App` (`search`, the brain-directory view), the app-level `brain`
-panel, `focus` (main panel vs brain panel), `main_view`, and `panel_side`.
+panel, `focus` (main panel vs brain panel), `main_view`, `panel_side`, and one
+startup-resolved task `AssignmentContext`. That context carries the effective
+actor, portable-member rows, and the one-person/shared visibility decision.
+`App` also owns the process-scoped assignee filter and its captive member
+picker; body rebuilding applies the filter before fuzzy matching and passes
+the context's detail mode into task-card rendering. A missing portable registry
+uses a one-actor compatibility context with hidden assignment controls.
 `event_loop` routes keys in the precedence documented in
 [keybindings.md](keybindings.md): app-level accelerators (view switch, help,
 panel focus/scroll, brain open/close/new, quit) → captive modal → brain panel
@@ -685,7 +691,9 @@ panel, the brain panel beside it (`panel_side`), and any modal over the top.
 `search_view.rs` is the brain-directory view's handler (its picker nav, in-place
 open, PDF/delete confirms, and its own `menu` palette). The remaining
 submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
-`app_*`, `shell`) are the tasks view's, unchanged from the port.
+`app_*`, `shell`) are the tasks view's. The assignee picker has its own
+`draw_assignee` module so the shared-workspace overlay stays separate from the
+general confirm, link, and brain-input modal renderer.
 
 The larger submodules are directories split by concern: `handlers/`
 (`overlay`/`tasks_view`/`input`), `event_loop/` (`setup`/`modal_route`/`run`),

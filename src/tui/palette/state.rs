@@ -34,6 +34,7 @@ impl PaletteState {
             triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
+            assignment_controls_visible: false,
         }
     }
 
@@ -65,6 +66,7 @@ impl PaletteState {
             triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
+            assignment_controls_visible: false,
         }
     }
 
@@ -84,7 +86,15 @@ impl PaletteState {
             triage_open: false,
             logs_view: true,
             daily_triage_alert_disabled: false,
+            assignment_controls_visible: false,
         }
+    }
+
+    /// Seed shared-workspace assignment controls when the palette opens.
+    #[must_use]
+    pub(crate) const fn with_assignment_controls(mut self, visible: bool) -> Self {
+        self.assignment_controls_visible = visible;
+        self
     }
 
     pub(crate) const fn task_in_context(&self) -> bool {
@@ -149,12 +159,15 @@ impl PaletteState {
             PaletteAction::MarkTaskComplete => format!("Mark {id} as complete"),
             PaletteAction::DeferTask(days) => format!("Defer {id} +{days}d"),
             PaletteAction::RemoveTask => format!("Remove task {id}"),
+            PaletteAction::ReassignTask => format!("Reassign {id}"),
             PaletteAction::MessageBrainAboutTask => format!("Message brain about {id}"),
             PaletteAction::StartTask => format!("Start {id}"),
             // `OpenLinks` and `ToggleNotes` are resolved above; global
             // actions don't reach this branch (filtered above). Fall
             // through defensively.
             PaletteAction::OpenLinks
+            | PaletteAction::AddTask
+            | PaletteAction::ChooseAssigneeFilter
             | PaletteAction::SendBrainMessage
             | PaletteAction::CloseBrain
             | PaletteAction::OpenHabitsInBrowser

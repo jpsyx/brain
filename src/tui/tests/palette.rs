@@ -236,6 +236,39 @@ fn open_links_advertises_its_ctrl_o_shortcut() {
 }
 
 #[test]
+fn assignment_palette_controls_are_visible_only_for_shared_workspaces() {
+    let personal = PaletteState::new(
+        Some("T1".into()),
+        false,
+        false,
+        false,
+        LinkKind::None,
+        false,
+        false,
+    );
+    let shared = PaletteState::new(
+        Some("T1".into()),
+        false,
+        false,
+        false,
+        LinkKind::None,
+        false,
+        false,
+    )
+    .with_assignment_controls(true);
+
+    for action in [
+        PaletteAction::AddTask,
+        PaletteAction::ReassignTask,
+        PaletteAction::ChooseAssigneeFilter,
+    ] {
+        assert!(!action_order(&personal).contains(&action));
+        assert!(action_order(&shared).contains(&action));
+        assert_eq!(shortcut_for(action), None);
+    }
+}
+
+#[test]
 fn brain_logs_are_always_available() {
     let without_logs = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
     assert!(

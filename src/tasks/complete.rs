@@ -287,7 +287,12 @@ pub(crate) fn read_csv(path: &Path) -> Result<CsvFile> {
             rows: Vec::new(),
         });
     }
-    let mut reader = csv::ReaderBuilder::new().flexible(true).from_path(path)?;
+    let bytes = std::fs::read(path)?;
+    parse_csv_bytes(&bytes)
+}
+
+pub(crate) fn parse_csv_bytes(bytes: &[u8]) -> Result<CsvFile> {
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
     let header: Vec<String> = reader.headers()?.iter().map(str::to_owned).collect();
     let mut rows = Vec::new();
     for record in reader.records() {
@@ -326,7 +331,12 @@ fn normalize_assignment_header(mut csv: CsvFile) -> CsvFile {
 }
 
 pub(crate) fn write_csv(path: &Path, csv: &CsvFile) -> Result<()> {
-    let mut writer = csv::WriterBuilder::new().from_path(path)?;
+    std::fs::write(path, serialize_csv(csv)?)?;
+    Ok(())
+}
+
+pub(crate) fn serialize_csv(csv: &CsvFile) -> Result<Vec<u8>> {
+    let mut writer = csv::WriterBuilder::new().from_writer(Vec::new());
     writer.write_record(&csv.header)?;
     for row in &csv.rows {
         let record: Vec<String> = csv
@@ -336,8 +346,10 @@ pub(crate) fn write_csv(path: &Path, csv: &CsvFile) -> Result<()> {
             .collect();
         writer.write_record(record)?;
     }
-    writer.flush()?;
-    Ok(())
+    writer
+        .into_inner()
+        .map_err(csv::IntoInnerError::into_error)
+        .map_err(Into::into)
 }
 
 fn ensure_column(csv: &mut CsvFile, column: &str) {

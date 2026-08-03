@@ -5,6 +5,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::tasks::complete::{parse_csv_bytes, serialize_csv};
 use crate::users::{FileChange, UserId, UserMutation, UsersStore, apply_mutation, replace_group};
 use crate::workspace::WorkspaceContext;
 
@@ -72,52 +73,23 @@ fn reassigned_csv(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
     };
-    let mut reader = csv::ReaderBuilder::new()
-        .flexible(true)
-        .from_reader(before.as_slice());
-    let headers = reader
-        .headers()
-        .context("read task assignment headers")?
-        .clone();
-    let Some(index) = headers
-        .iter()
-        .position(|header| header == "assigned_to")
-        .or_else(|| headers.iter().position(|header| header == "assignee"))
-    else {
+    let mut csv = parse_csv_bytes(&before).context("read task assignment CSV")?;
+    let Some(_) = csv.header.iter().position(|header| header == "assigned_to") else {
         return Ok(Some((before.clone(), before, 0)));
     };
-    let mut records = Vec::new();
     let mut assigned = 0;
-    for result in reader.records() {
-        let mut record = result.context("read task assignment row")?;
-        if record.get(index) == Some(removed.as_str()) {
+    for row in &mut csv.rows {
+        if row.get("assigned_to").map(String::as_str) == Some(removed.as_str()) {
             assigned += 1;
             if let Some(replacement) = replacement {
-                record = record
-                    .iter()
-                    .enumerate()
-                    .map(|(field_index, value)| {
-                        if field_index == index {
-                            replacement.as_str()
-                        } else {
-                            value
-                        }
-                    })
-                    .collect();
+                row.insert("assigned_to".to_owned(), replacement.to_string());
             }
         }
-        records.push(record);
     }
-    if assigned == 0 || replacement.is_none() {
-        return Ok(Some((before.clone(), before, assigned)));
-    }
-    let mut writer = csv::WriterBuilder::new().from_writer(Vec::new());
-    writer.write_record(&headers)?;
-    for record in records {
-        writer.write_record(&record)?;
-    }
-    let after = writer
-        .into_inner()
-        .map_err(csv::IntoInnerError::into_error)?;
+    let after = if assigned > 0 && replacement.is_none() {
+        before.clone()
+    } else {
+        serialize_csv(&csv).context("write canonical task assignment CSV")?
+    };
     Ok(Some((before, after, assigned)))
 }

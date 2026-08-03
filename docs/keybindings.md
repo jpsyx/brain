@@ -13,7 +13,7 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
    `Ctrl+X` close brain, `Ctrl+N` new session, and (main-panel-focused only)
    the view-switch chords `Ctrl+H/L`, `Ctrl+T`, `Ctrl+B`.
 2. **Modal overlays** — a captive modal (help / palette / confirm / brain-input
-   / link-picker) consumes the key.
+   / link-picker / assignee-filter picker) consumes the key.
 3. **The brain panel** — when focused, keys forward to the selected agent as bytes.
 4. **The active main view** — the tasks handlers, or the brain-search picker.
 
@@ -118,11 +118,18 @@ Shared across the app; a captive modal consumes all input.
   logs**, which asks whether to reveal the timestamped `/tmp` log file. It
   also includes **Sync brain now**, **Show sync status**, and a
   **Disable/Enable daily triage alert** toggle (the session-scoped counterpart
-  to `--no-daily-triage-check`), all with no direct shortcut.
-- **Task actions** (`Enter` on a task) — per-task command list.
+  to `--no-daily-triage-check`), all with no direct shortcut. In a shared
+  workspace it also includes **Add task** and **Filter by assignee**; both are
+  intentionally palette-only.
+- **Task actions** (`Enter` on a task): per-task command list. Shared
+  workspaces add the palette-only **Reassign this task** row.
 - **Confirm** — Yes/No (triage adds Skip). `y`/`n`/`Esc`, `←`/`→`/`Tab` move, `Enter` resolves.
 - **Brain-input** (`Ctrl+Shift+M`) — compose a seeded message. `Alt+Enter` newline, `Enter` send.
 - **Link picker** (`Ctrl+O`, ≥ 2 links) — numbered; digit opens, `Enter` opens highlighted.
+- **Assignee filter** (shared-workspace palette row): numbered portable
+  members plus **All assignees**; digit or `Enter` applies, `Esc` closes. The
+  active member appears below the task-view heading, and task-view `Esc`
+  clears it before quitting.
 
 ## Kitty keyboard protocol
 

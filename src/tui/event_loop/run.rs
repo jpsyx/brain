@@ -100,6 +100,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             && app.brain_input.is_none()
             && app.confirm.is_none()
             && app.link_picker.is_none()
+            && app.assignee_filter.is_none()
             && app.help.is_none()
             && is_count_relevant_key(k.code, ctrl);
         if !preserves_count {
@@ -231,7 +232,8 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                     link_kind,
                     app.brain_panel_open(),
                     app.log_path.is_some(),
-                ))
+                )
+                .with_assignment_controls(app.assignment.mode().show_filter))
             };
             let receiver_server_running = app.receiver_server_running();
             let daily_triage_alert_disabled = app.skip_daily_triage_check;

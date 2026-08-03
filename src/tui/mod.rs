@@ -41,6 +41,7 @@ mod app_state;
 mod app_sync;
 mod app_triage_tab;
 mod draw;
+mod draw_assignee;
 mod draw_help;
 mod draw_modals;
 mod draw_palette;
@@ -75,6 +76,7 @@ pub use event_loop::run_tui;
 #[cfg(test)]
 pub(crate) use app_brain::{advance_submit_countdown, submit_key_for_agent};
 pub(crate) use draw::*;
+pub(crate) use draw_assignee::*;
 pub(crate) use draw_help::*;
 pub(crate) use draw_modals::*;
 pub(crate) use draw_palette::*;
@@ -106,8 +108,9 @@ use crate::pty_pane::PtyPane;
 use crate::session::AgentKind;
 use crate::state::{Db, PanelSide};
 use crate::tasks::cli::Cli;
-use crate::tasks::task::Task;
+use crate::tasks::task::{AssignmentContext, Task};
 use crate::tasks::view::View;
+use crate::users::UserId;
 
 use shell::ShellRunner;
 
@@ -207,6 +210,10 @@ pub(crate) struct App<'a> {
     query: String,
     in_search: bool,
     matcher: SkimMatcherV2,
+    /// Assignment visibility and portable members resolved once at startup.
+    assignment: AssignmentContext,
+    /// Process-scoped assignee filter selected from the native picker.
+    assignment_filter: Option<UserId>,
 
     /// Currently-visible tasks (after fuzzy filter). Indexed by
     /// `selected_task`; consumed by palette actions that need a task ID.
@@ -322,6 +329,7 @@ pub(crate) struct App<'a> {
     brain_input: Option<BrainInputState>,
     confirm: Option<ConfirmState>,
     link_picker: Option<LinkPickerState>,
+    assignee_filter: Option<AssigneeFilterState>,
     /// Keyboard-shortcuts help modal (opened with `?`).
     help: Option<HelpState>,
 
@@ -370,12 +378,19 @@ pub(crate) struct App<'a> {
 
 /// In-shell fuzzy filter: score `tasks` against `query`, keeping matches in
 /// descending score order. An empty query returns every task unchanged.
-fn filter_tasks<'a>(tasks: &'a [Task], query: &str, matcher: &SkimMatcherV2) -> Vec<&'a Task> {
-    if query.trim().is_empty() {
-        return tasks.iter().collect();
-    }
-    let mut scored: Vec<(i64, &Task)> = tasks
+fn filter_tasks<'a>(
+    tasks: &'a [Task],
+    query: &str,
+    assigned_to: Option<&crate::users::UserId>,
+    matcher: &SkimMatcherV2,
+) -> Vec<&'a Task> {
+    let candidates = tasks
         .iter()
+        .filter(|task| assigned_to.is_none_or(|user_id| task.assigned_to == user_id.as_str()));
+    if query.trim().is_empty() {
+        return candidates.collect();
+    }
+    let mut scored: Vec<(i64, &Task)> = candidates
         .filter_map(|t| {
             let haystack = format!("{} {}", t.id, t.name);
             matcher.fuzzy_match(&haystack, query).map(|s| (s, t))
@@ -383,4 +398,34 @@ fn filter_tasks<'a>(tasks: &'a [Task], query: &str, matcher: &SkimMatcherV2) -> 
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     scored.into_iter().map(|(_, t)| t).collect()
+}
+
+#[cfg(test)]
+mod assignment_filter_tests {
+    use super::{SkimMatcherV2, filter_tasks};
+    use crate::tasks::task::test_task;
+    use crate::users::UserId;
+
+    #[test]
+    fn runtime_assignment_filter_narrows_tasks_and_can_be_cleared() {
+        let mut pablo = test_task("T1", "not_started");
+        pablo.assigned_to = "pablo".to_owned();
+        let mut wife = test_task("T2", "not_started");
+        wife.assigned_to = "wife".to_owned();
+        let tasks = vec![pablo, wife];
+        let matcher = SkimMatcherV2::default().ignore_case();
+        let wife_id = UserId::parse("wife").unwrap();
+
+        let filtered = filter_tasks(&tasks, "", Some(&wife_id), &matcher);
+        let cleared = filter_tasks(&tasks, "", None, &matcher);
+
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["T2"]
+        );
+        assert_eq!(cleared.len(), 2);
+    }
 }

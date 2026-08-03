@@ -7,11 +7,11 @@ use crate::tui::*;
 
 impl App<'_> {
     pub(crate) fn has_active_filter(&self) -> bool {
-        !self.query.is_empty()
+        !self.query.is_empty() || self.assignment_filter.is_some()
     }
 
     pub(crate) fn show_search_bar(&self) -> bool {
-        self.in_search || self.has_active_filter()
+        self.in_search || !self.query.is_empty()
     }
 
     pub(crate) const fn max_scroll(&self) -> u16 {
@@ -27,11 +27,26 @@ impl App<'_> {
     }
 
     pub(crate) fn rebuild_body(&mut self) {
-        let visible_refs = filter_tasks(&self.base_tasks, &self.query, &self.matcher);
+        let visible_refs = filter_tasks(
+            &self.base_tasks,
+            &self.query,
+            self.assignment_filter.as_ref(),
+            &self.matcher,
+        );
         let visible: Vec<Task> = visible_refs.into_iter().cloned().collect();
 
         if visible.is_empty() && self.has_active_filter() {
-            self.body_lines = no_matches_lines(&self.query);
+            let description = self.assignment_filter.as_ref().map_or_else(
+                || self.query.clone(),
+                |user_id| {
+                    if self.query.is_empty() {
+                        format!("assigned to {user_id}")
+                    } else {
+                        format!("{} assigned to {user_id}", self.query)
+                    }
+                },
+            );
+            self.body_lines = no_matches_lines(&description);
             self.task_line_ranges.clear();
             self.visible_tasks.clear();
             self.selected_task = None;
@@ -41,10 +56,13 @@ impl App<'_> {
 
         let full = self.full_notes;
         let expanded = &self.expanded_notes;
-        let (lines, ranges) =
-            build_body_lines_with_ranges(&visible, self.today, &self.tag_styles, |t| {
-                full || expanded.contains(&t.id)
-            });
+        let (lines, ranges) = build_body_lines_with_ranges(
+            &visible,
+            self.today,
+            self.assignment.mode().show_in_detail,
+            &self.tag_styles,
+            |t| full || expanded.contains(&t.id),
+        );
         self.body_lines = lines;
         self.task_line_ranges = ranges;
         self.visible_tasks = visible;
@@ -79,6 +97,20 @@ impl App<'_> {
             self.query.clear();
             self.rebuild_body();
         }
+    }
+
+    pub(crate) fn clear_active_filters(&mut self) {
+        let had_filter = self.has_active_filter();
+        self.query.clear();
+        self.assignment_filter = None;
+        if had_filter {
+            self.rebuild_body();
+        }
+    }
+
+    pub(crate) fn set_assignment_filter(&mut self, user_id: Option<UserId>) {
+        self.assignment_filter = user_id;
+        self.rebuild_body();
     }
 
     /// Approximate how many tasks fit in the current visible area, used for

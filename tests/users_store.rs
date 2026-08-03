@@ -381,7 +381,30 @@ fn removing_an_assigned_user_refuses_or_reassigns_tasks_without_partial_changes(
     assert!(
         String::from_utf8(std::fs::read(&tasks_path).unwrap())
             .unwrap()
-            .contains("T001,Plan trip,wife,not_started")
+            .starts_with("task_id,task_name,assigned_to,status\nT001,Plan trip,wife,not_started")
+    );
+}
+
+#[test]
+fn user_removal_collapses_both_assignment_headers_and_prefers_canonical_values() {
+    let fixture = CliFixture::new();
+    let tasks_path = fixture.root.join("tasks/tasks.csv");
+    std::fs::write(
+        &tasks_path,
+        "task_id,task_name,assignee,assigned_to,status\nT001,Plan trip,pablo,wife,not_started\n",
+    )
+    .unwrap();
+
+    let removed = fixture.run(&["user", "remove", "pablo", "-b", "family"]);
+
+    assert!(
+        removed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&removed.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(std::fs::read(tasks_path).unwrap()).unwrap(),
+        "task_id,task_name,assigned_to,status\nT001,Plan trip,wife,not_started\n"
     );
 }
 

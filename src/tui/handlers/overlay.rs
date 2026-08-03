@@ -137,6 +137,55 @@ pub(crate) fn handle_link_picker_key(
     }
 }
 
+/// Handle the shared-workspace assignee filter. The numbered rows mirror the
+/// link picker, but choosing a row changes the in-process task filter instead
+/// of opening a URL.
+pub(crate) fn handle_assignee_filter_key(
+    app: &mut App<'_>,
+    k: &crossterm::event::KeyEvent,
+    ctrl: bool,
+) {
+    let Some(picker) = app.assignee_filter.as_mut() else {
+        return;
+    };
+    let apply = match k.code {
+        KeyCode::Esc => {
+            app.assignee_filter = None;
+            return;
+        }
+        KeyCode::Char('c') if ctrl => {
+            app.assignee_filter = None;
+            return;
+        }
+        KeyCode::Up => {
+            picker.move_up();
+            false
+        }
+        KeyCode::Down => {
+            picker.move_down();
+            false
+        }
+        KeyCode::Char('k' | 'K') if ctrl => {
+            picker.move_up();
+            false
+        }
+        KeyCode::Char('j' | 'J') if ctrl => {
+            picker.move_down();
+            false
+        }
+        KeyCode::Char(c) if !ctrl && c.is_ascii_digit() => c
+            .to_digit(10)
+            .is_some_and(|number| picker.select_number(number as usize)),
+        KeyCode::Enter => true,
+        _ => false,
+    };
+    if apply {
+        let selected = picker.selected_user();
+        app.assignee_filter = None;
+        app.set_assignment_filter(selected);
+    }
+}
+
 pub(crate) fn handle_brain_input_key(
     app: &mut App<'_>,
     k: &crossterm::event::KeyEvent,
