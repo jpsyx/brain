@@ -89,11 +89,9 @@ impl App<'_> {
         &mut self,
         seen_journal_id: Option<i64>,
         now: std::time::Instant,
-        alert_after_refresh: bool,
     ) {
         self.triage_gate = Some(TriageGate {
             seen_journal_id,
-            alert_after_refresh,
             // Allow an immediate first poll (a very fast sync may already be done).
             next_poll: now,
         });
@@ -122,7 +120,6 @@ impl App<'_> {
         .and_then(|j| j.latest_successful_downstream_id().ok())
         .flatten();
         if triage_gate_resolved(gate.seen_journal_id, latest) {
-            let alert_after_refresh = gate.alert_after_refresh;
             self.triage_gate = None;
             match refresh_after_successful_startup_sync(&self.command_context.workspace) {
                 Ok(refreshed) => {
@@ -145,7 +142,11 @@ impl App<'_> {
                         crate::tasks::render::header_lines(&spec, self.cli, self.active_view);
                     self.base_tasks = spec.tasks;
                     self.rebuild_body();
-                    if alert_after_refresh {
+                    if should_check_daily_triage(
+                        TriageAlertEvent::RefreshSucceeded,
+                        false,
+                        self.skip_daily_triage_check,
+                    ) {
                         self.check_daily_triage();
                     }
                 }
@@ -197,6 +198,25 @@ fn triage_gate_resolved(seen: Option<i64>, latest: Option<i64>) -> bool {
         (Some(_), None) => true,
         (None, _) => false,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TriageAlertEvent {
+    PaletteEnabled,
+    RefreshSucceeded,
+}
+
+/// Decide whether an alert check runs now or remains deferred to fresh state.
+pub(super) fn should_check_daily_triage(
+    event: TriageAlertEvent,
+    refresh_gate_active: bool,
+    alert_disabled: bool,
+) -> bool {
+    !alert_disabled
+        && match event {
+            TriageAlertEvent::PaletteEnabled => !refresh_gate_active,
+            TriageAlertEvent::RefreshSucceeded => true,
+        }
 }
 
 /// Gate the daily-triage nudge on the process-scoped `--no-daily-triage-check`
@@ -295,7 +315,29 @@ fn triage_rollover(
 
 #[cfg(test)]
 mod triage_gate_tests {
-    use super::{refresh_after_successful_startup_sync, triage_gate_resolved};
+    use super::{
+        TriageAlertEvent, refresh_after_successful_startup_sync, should_check_daily_triage,
+        triage_gate_resolved,
+    };
+
+    #[test]
+    fn palette_reenable_defers_until_refresh_then_uses_live_alert_state() {
+        assert!(!should_check_daily_triage(
+            TriageAlertEvent::PaletteEnabled,
+            true,
+            false,
+        ));
+        assert!(should_check_daily_triage(
+            TriageAlertEvent::RefreshSucceeded,
+            false,
+            false,
+        ));
+        assert!(!should_check_daily_triage(
+            TriageAlertEvent::RefreshSucceeded,
+            false,
+            true,
+        ));
+    }
 
     #[test]
     fn resolves_when_a_newer_journal_row_appears() {

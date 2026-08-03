@@ -30,7 +30,6 @@ use super::run::event_loop;
 struct StartupSyncPlan {
     launch_sync: bool,
     arm_refresh: bool,
-    alert_after_refresh: bool,
     check_now: bool,
 }
 
@@ -38,7 +37,6 @@ fn startup_sync_plan(sync_configured: bool, suppress_alert: bool) -> StartupSync
     StartupSyncPlan {
         launch_sync: sync_configured,
         arm_refresh: sync_configured,
-        alert_after_refresh: sync_configured && !suppress_alert,
         check_now: !sync_configured && !suppress_alert,
     }
 }
@@ -220,11 +218,7 @@ pub fn run_tui(
         );
     }
     if let Some(seen) = seen {
-        app.arm_triage_gate(
-            seen,
-            std::time::Instant::now(),
-            startup_plan.alert_after_refresh,
-        );
+        app.arm_triage_gate(seen, std::time::Instant::now());
     } else if startup_plan.check_now {
         // No sync coming — the local state is authoritative, so check now. The
         // confirm modal it may set renders on the very first frame.
@@ -275,7 +269,6 @@ mod tests {
 
         assert!(plan.launch_sync);
         assert!(plan.arm_refresh);
-        assert!(!plan.alert_after_refresh);
         assert!(!plan.check_now);
     }
 

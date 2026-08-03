@@ -629,10 +629,12 @@ flag, valid for that invocation only, *not* a persistent config change)
 suppresses only the alert. Brain still arms the post-sync refresh gate, then
 strictly reloads portable config, reconciles managed triage policy, and reloads
 the task tables after a clean startup sync; it skips only the modal check. The
-modal can never open for that invocation, no matter the habit state.
+modal cannot open while that process-scoped suppression remains enabled.
 Mid-session, the command palette's **Disable/Enable daily triage
 alert** toggle flips the same process-scoped state, so a long-running TUI that
-spans several days can suppress or restore the nudge without a restart. To
+spans several days can suppress or restore the nudge without a restart. If the
+palette restores the alert while startup sync is still pending, Brain defers
+the check until synced config, managed policy, and tasks have refreshed. To
 disable the nudge permanently instead, clear the `daily_triage_name_pattern`
 config variable.
 

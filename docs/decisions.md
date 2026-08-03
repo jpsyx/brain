@@ -1530,6 +1530,14 @@ unambiguous successful-downstream signal. Push-only and non-clean rows do not
 open the gate. If the sync is offline or fails,
 the gate remains closed for that shell rather than evaluating stale local data.
 
+The CLI suppression flag and palette toggle share one live process-scoped
+field. The refresh gate deliberately stores no alert-state snapshot. Enabling
+the alert from the palette while startup sync is pending defers the check;
+after a successful refresh, Brain consults the live field against refreshed
+config and task state. Disabling it again before completion therefore remains
+suppressed, while enabling it cannot create a modal from stale pre-sync data.
+Refresh failures still surface as errors and never evaluate the alert.
+
 ## Why all task writers share one workspace-scoped owner
 
 Managed-triage reconciliation changes portable config, task and habit tables,

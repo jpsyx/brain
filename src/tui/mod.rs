@@ -142,9 +142,6 @@ pub(crate) struct TriageGate {
     /// once a strictly-newer row appears (a background sync finished). `None`
     /// when the journal was empty at arm time.
     pub(crate) seen_journal_id: Option<i64>,
-    /// Whether resolving this refresh gate should also evaluate the startup
-    /// daily-triage alert.
-    pub(crate) alert_after_refresh: bool,
     /// Next instant we're allowed to poll the journal, to throttle the DB reads
     /// down from the 50ms event-loop tick.
     pub(crate) next_poll: Instant,
@@ -174,8 +171,8 @@ pub(crate) struct App<'a> {
     triage_day: NaiveDate,
     /// While a startup background sync is still in flight, config and task
     /// refresh are deferred so the shell is usable immediately. `Some` means
-    /// "waiting for that sync to land"; the gate separately records whether
-    /// resolving it should also show the daily-triage alert.
+    /// "waiting for that sync to land". Alert evaluation reads the live
+    /// process-scoped toggle only after the refresh succeeds.
     triage_gate: Option<TriageGate>,
     /// Process-scoped opt-out (via `--no-daily-triage-check`): when true the
     /// daily-triage startup nudge is never evaluated for this run, so the modal

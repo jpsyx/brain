@@ -9,6 +9,8 @@ use anyhow::Result;
 use crate::tasks::complete;
 use crate::tui::*;
 
+use super::triage::{TriageAlertEvent, should_check_daily_triage};
+
 fn task_for_id<'a>(tasks: &'a [Task], habits: &'a [Task], raw_id: &str) -> Option<&'a Task> {
     tasks
         .iter()
@@ -314,10 +316,16 @@ impl App<'_> {
                     self.flash = Some(FlashKind::Info(
                         "daily triage alert enabled for this session".to_owned(),
                     ));
-                    // Re-enabling re-arms the nudge: surface it now if today's
-                    // triage is still outstanding, rather than waiting for the
-                    // next refresh or day rollover.
-                    self.check_daily_triage();
+                    // Re-enabling re-arms the nudge. While startup refresh is
+                    // pending, wait for synced config and habits instead of
+                    // evaluating stale local state.
+                    if should_check_daily_triage(
+                        TriageAlertEvent::PaletteEnabled,
+                        self.triage_gate.is_some(),
+                        self.skip_daily_triage_check,
+                    ) {
+                        self.check_daily_triage();
+                    }
                 }
             }
             PaletteAction::ShowMainBrainSession => {

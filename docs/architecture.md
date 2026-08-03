@@ -771,7 +771,9 @@ clean downstream row ID, kicks the sync, and calls `App::arm_triage_gate`
 (deferral, no modal). Each event-loop tick then calls `App::tick_triage_gate`.
 Once a newer clean pull/both/resync row appears, it strictly reloads portable
 config, reconciles managed policy under the workspace task-store owner, reloads
-both synced CSVs, and runs `check_daily_triage` exactly once. Reload or
+both synced CSVs, and evaluates the live process-scoped alert state. Palette
+re-enable while this gate is armed defers its check to that refreshed state;
+the gate does not cache the launch-time alert value. Reload or
 reconciliation errors are logged and shown in the TUI rather than discarded,
 so the modal reflects post-sync completion state (pure `triage_gate_resolved`
 decides resolution). `--no-daily-triage-check` disables only the final alert;
