@@ -255,6 +255,43 @@ mod transaction_tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn rollback_parent_open_failure_preserves_every_backup_before_cleanup() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (root, lock, changes) = fixture();
+        let config = root.path().join(".config");
+
+        let error =
+            replace_group_with_hook(root.path(), &lock, changes.clone(), |step| match step {
+                TransactionStep::Install(1) => {
+                    Err(io::Error::other("injected replacement failure"))
+                }
+                TransactionStep::RollbackJournalSync => {
+                    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o000))?;
+                    Ok(())
+                }
+                _ => Ok(()),
+            })
+            .unwrap_err();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        assert!(error.to_string().contains("rollback also failed"));
+        assert!(error.to_string().contains("open user transaction parent"));
+        assert_eq!(
+            artifact_names(root.path())
+                .iter()
+                .filter(|name| name.ends_with(".backup"))
+                .count(),
+            2
+        );
+        assert_eq!(std::fs::read(&changes[0].path).unwrap(), b"old tasks");
+        assert_eq!(std::fs::read(&changes[1].path).unwrap(), b"old users");
+
+        recover_pending(root.path(), &lock).unwrap();
+    }
+
     #[test]
     fn staging_failure_removes_every_previously_staged_file() {
         let (root, lock, changes) = fixture();

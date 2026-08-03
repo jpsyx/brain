@@ -39,6 +39,7 @@ pub(super) enum TransactionStep {
     Stage(usize),
     Install(usize),
     Restore(usize),
+    RollbackJournalSync,
     RollbackCleanup,
 }
 
@@ -156,7 +157,7 @@ fn prepare(
             let item = prepared.last().expect("prepared change was just pushed");
             write_new(&root.join(&item.staged), &item.after, item.mode)?;
             write_new(&root.join(&item.backup), &item.before, item.mode)?;
-            sync_parent(&root.join(&item.live));
+            sync_parent(&root.join(&item.live))?;
             Ok(())
         })();
         if let Err(error) = result {
@@ -184,7 +185,7 @@ fn publish_and_install(
                 &error,
             )
         })?;
-        sync_parent(&root.join(&change.live));
+        sync_parent(&root.join(&change.live))?;
     }
     Ok(())
 }
@@ -214,8 +215,7 @@ fn write_journal(root: &Path, prepared: &[PreparedChange]) -> Result<(), UsersEr
     write_new(&temporary, &bytes, 0o600)?;
     fs::rename(&temporary, &path)
         .map_err(|error| io_error("publish user transaction journal", &path, &error))?;
-    sync_parent(&path);
-    Ok(())
+    sync_parent(&path)
 }
 
 fn finish_commit(
@@ -233,7 +233,7 @@ fn finish_commit(
             ))),
         };
     }
-    sync_parent(&journal);
+    sync_parent(&journal)?;
     cleanup_prepared(root, prepared);
     Ok(())
 }
@@ -300,7 +300,7 @@ fn rollback(
             write_new(&restore, &bytes, mode)?;
             fs::rename(&restore, &live)
                 .map_err(|error| io_error("restore user transaction file", &live, &error))?;
-            sync_parent(&live);
+            sync_parent(&live)?;
             Ok::<(), UsersError>(())
         })();
         if let Err(error) = result {
@@ -313,7 +313,11 @@ fn rollback(
     }
     let journal = journal_path(root);
     match fs::remove_file(&journal) {
-        Ok(()) => sync_parent(&journal),
+        Ok(()) => {
+            hook(TransactionStep::RollbackJournalSync)
+                .map_err(|error| io_error("sync rollback journal removal", &journal, &error))?;
+            sync_parent(&journal)?;
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(io_error("clear user transaction journal", &journal, &error)),
     }

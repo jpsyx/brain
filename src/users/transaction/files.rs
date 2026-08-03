@@ -136,12 +136,15 @@ pub(super) fn transaction_nonce() -> String {
     format!("{}-{nanos}", std::process::id())
 }
 
-pub(super) fn sync_parent(path: &Path) {
-    if let Some(parent) = path.parent()
-        && let Ok(directory) = fs::File::open(parent)
-    {
-        let _ = directory.sync_all();
-    }
+pub(super) fn sync_parent(path: &Path) -> Result<(), UsersError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| transaction_error(format!("{} has no parent directory", path.display())))?;
+    let directory = fs::File::open(parent)
+        .map_err(|error| io_error("open user transaction parent", parent, &error))?;
+    directory
+        .sync_all()
+        .map_err(|error| io_error("sync user transaction parent", parent, &error))
 }
 
 pub(super) fn io_error(operation: &str, path: &Path, error: &std::io::Error) -> UsersError {

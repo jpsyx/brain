@@ -229,3 +229,66 @@ portable user transaction failed: read user transaction backup at
 
 Commit: the fix-round branch HEAD created immediately after this report; no push
 or merge was performed.
+
+## Fix round 3 of 5
+
+### Root cause and correction
+
+The rollback ordering from fix round 2 removed the journal before deleting its
+backups, but `sync_parent` silently ignored both parent-directory open failures
+and `sync_all` failures. Rollback therefore treated an unconfirmed journal
+removal as durable and crossed backup cleanup. A crash could then resurrect the
+journal without the sources needed to recover it.
+
+`sync_parent` now returns `Result<(), UsersError>` and reports both directory
+open and sync errors. Every transaction call site propagates that result:
+staging aborts before journal publication; journal publication aborts into
+rollback; live install and restore failures retain recovery state; and forward
+commit or rollback cleanup cannot delete backups until journal removal has been
+durably synced. Brain was bumped from `0.18.2` to `0.18.3`.
+
+### RED evidence
+
+The named test is
+`rollback_parent_open_failure_preserves_every_backup_before_cleanup`. It makes
+the journal parent unreadable after rollback removes the journal but before the
+directory sync, then requires the open failure to propagate and both backup
+files to remain.
+
+Its first RED run failed to compile because the wished-for exact injection
+boundary did not exist:
+
+```text
+error[E0599]: no variant or associated item named `RollbackJournalSync` found for enum `TransactionStep`
+```
+
+After adding only that boundary around the existing best-effort sync, the real
+injected parent-open failure was swallowed and the test failed as expected:
+
+```text
+test users::store::transaction_tests::rollback_parent_open_failure_preserves_every_backup_before_cleanup ... FAILED
+assertion failed: error.to_string().contains("rollback also failed")
+```
+
+The failed assertion proves rollback returned only the original replacement
+error instead of the directory-open durability error and continued toward
+artifact cleanup.
+
+### GREEN evidence
+
+- Exact named parent-open regression: 1 passed.
+- Isolated `cargo test --release users::store::transaction_tests`: 7 passed.
+- `cargo clippy --release --all-targets -- -D warnings`: passed.
+- Scoped `rustfmt --check` for `transaction.rs`, `transaction/files.rs`, and
+  `store.rs`: passed.
+- `git diff --check`: passed.
+
+### Files changed in this fix round
+
+- `Cargo.toml`, `Cargo.lock`
+- `src/users/{store,transaction}.rs`
+- `src/users/transaction/files.rs`
+- `docs/data-model.md`
+
+Commit: the fix-round branch HEAD created immediately after this report; no push
+or merge was performed.
