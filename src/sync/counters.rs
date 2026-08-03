@@ -7,10 +7,12 @@
 //! recently, its value would win and it would then re-hand-out ids the other
 //! machine already assigned, colliding in the id-keyed CSV merge. So the
 //! counters are excluded from bisync (see [`crate::sync::args`]) and reconciled
-//! here by the only rule that can't lose an id: **take the highest**.
+//! here by taking the highest counter, then flooring it beyond every display
+//! ID emitted by semantic CSV reconciliation.
 //!
-//! Max-merge is stateless (no 3-way baseline): `max(local, remote)` is
-//! convergent, idempotent, and monotonic, so it never regresses a counter.
+//! This remains stateless (no 3-way counter baseline):
+//! `max(local, remote, emitted_max + 1)` is convergent, idempotent, and
+//! monotonic, so it never regresses a counter or reissues a reconciled ID.
 
 use std::path::{Path, PathBuf};
 
@@ -39,6 +41,29 @@ pub fn merge_counter(local: Option<u32>, remote: Option<u32>) -> Option<u32> {
     }
 }
 
+/// Next counter value required by display IDs already emitted in either CSV.
+#[must_use]
+pub fn counter_floor_from_csvs(local: &str, remote: &str, prefix: char) -> Option<u32> {
+    [local, remote]
+        .into_iter()
+        .flat_map(|text| {
+            let table = crate::sync::csv_merge::parse(text);
+            let display_index = table.header.iter().position(|column| column == "task_id");
+            table
+                .rows
+                .into_values()
+                .filter_map(move |row| display_index.and_then(|index| row.get(index).cloned()))
+        })
+        .filter_map(|display| {
+            display
+                .trim()
+                .strip_prefix(prefix)
+                .and_then(|number| number.parse::<u32>().ok())
+        })
+        .max()
+        .and_then(|maximum| maximum.checked_add(1))
+}
+
 /// The machine-local path for a counter, given the brain root and repo-relative
 /// name.
 #[must_use]
@@ -54,15 +79,27 @@ pub fn sync_one_counter(
     fetch: impl Fn() -> Option<String>,
     push: impl Fn(&str) -> bool,
 ) -> Option<u32> {
-    sync_one_counter_with_mode(local, fetch, push, true)
+    sync_one_counter_with_mode(local, fetch, push, true, 0)
 }
 
+/// Reconcile one counter while enforcing the next-ID floor required by the
+/// collision-reconciled CSV output.
+pub fn sync_one_counter_at_least(
+    local: &Path,
+    fetch: impl Fn() -> Option<String>,
+    push: impl Fn(&str) -> bool,
+    floor: u32,
+) -> Option<u32> {
+    sync_one_counter_with_mode(local, fetch, push, true, floor)
+}
+
+#[cfg(test)]
 fn sync_one_counter_push_only(
     local: &Path,
     fetch: impl Fn() -> Option<String>,
     push: impl Fn(&str) -> bool,
 ) -> Option<u32> {
-    sync_one_counter_with_mode(local, fetch, push, false)
+    sync_one_counter_with_mode(local, fetch, push, false, 0)
 }
 
 fn sync_one_counter_with_mode(
@@ -70,10 +107,13 @@ fn sync_one_counter_with_mode(
     fetch: impl Fn() -> Option<String>,
     push: impl Fn(&str) -> bool,
     update_local: bool,
+    floor: u32,
 ) -> Option<u32> {
-    let ours = std::fs::read_to_string(local).ok().and_then(|t| parse_counter(&t));
+    let ours = std::fs::read_to_string(local)
+        .ok()
+        .and_then(|t| parse_counter(&t));
     let theirs = fetch().and_then(|t| parse_counter(&t));
-    let merged = merge_counter(ours, theirs);
+    let merged = merge_counter(merge_counter(ours, theirs), (floor > 0).then_some(floor));
     if let Some(value) = merged {
         // Only write when the merged value differs from what each side already
         // holds, so an unchanged counter doesn't churn the file or the remote.
@@ -91,9 +131,11 @@ fn sync_one_counter_with_mode(
     merged
 }
 
-/// Max-merge both id counters against the remote, wiring `fetch`/`push` to
-/// rclone `copyto` through a temp file. Best-effort: a per-counter failure
-/// yields `None` rather than aborting the caller's sync.
+/// Max-merge both id counters against the remote and floor each one beyond the
+/// reconciled local and remote CSV display IDs.
+///
+/// Transport uses rclone `copyto` through a temp file. Best-effort: a
+/// per-counter failure yields `None` rather than aborting the caller's sync.
 #[must_use]
 pub fn sync_counters(
     cfg: &SyncConfig,
@@ -107,11 +149,38 @@ pub fn sync_counters(
         let remote_arg = crate::sync::csv_sync::remote_csv_arg(&remote.arg, rel);
         let tag = rel.replace('/', "_");
 
+        let (csv_rel, prefix) = if rel.ends_with(".tasks_next_id") {
+            ("tasks/tasks.csv", 'T')
+        } else {
+            ("tasks/habits.csv", 'H')
+        };
+        let local_csv = std::fs::read_to_string(root.join(csv_rel)).unwrap_or_default();
+        let remote_csv_arg = crate::sync::csv_sync::remote_csv_arg(&remote.arg, csv_rel);
+        let remote_csv_tmp = std::env::temp_dir().join(format!(
+            "brain-counter-csv-floor-{}-{tag}",
+            std::process::id()
+        ));
+        let csv_args = [
+            "copyto".to_owned(),
+            remote_csv_arg,
+            remote_csv_tmp.to_string_lossy().into_owned(),
+        ];
+        let (csv_ok, _) = run_rclone_capture(&remote.env, &csv_args);
+        let remote_csv = csv_ok
+            .then(|| std::fs::read_to_string(&remote_csv_tmp).ok())
+            .flatten()
+            .unwrap_or_default();
+        let _ = std::fs::remove_file(&remote_csv_tmp);
+        let floor = counter_floor_from_csvs(&local_csv, &remote_csv, prefix).unwrap_or(0);
+
         let fetch = || {
             let tmp = std::env::temp_dir()
                 .join(format!("brain-counter-fetch-{}-{tag}", std::process::id()));
-            let args =
-                ["copyto".to_owned(), remote_arg.clone(), tmp.to_string_lossy().into_owned()];
+            let args = [
+                "copyto".to_owned(),
+                remote_arg.clone(),
+                tmp.to_string_lossy().into_owned(),
+            ];
             let (ok, _) = run_rclone_capture(&remote.env, &args);
             let text = ok.then(|| std::fs::read_to_string(&tmp).ok()).flatten();
             let _ = std::fs::remove_file(&tmp);
@@ -123,17 +192,20 @@ pub fn sync_counters(
             if std::fs::write(&tmp, text).is_err() {
                 return false;
             }
-            let args =
-                ["copyto".to_owned(), tmp.to_string_lossy().into_owned(), remote_arg.clone()];
+            let args = [
+                "copyto".to_owned(),
+                tmp.to_string_lossy().into_owned(),
+                remote_arg.clone(),
+            ];
             let (ok, _) = run_rclone_capture(&remote.env, &args);
             let _ = std::fs::remove_file(&tmp);
             ok
         };
 
         let value = if direction == Direction::Push {
-            sync_one_counter_push_only(&local, fetch, push)
+            sync_one_counter_with_mode(&local, fetch, push, false, floor)
         } else {
-            sync_one_counter(&local, fetch, push)
+            sync_one_counter_at_least(&local, fetch, push, floor)
         };
         out.push((rel.to_owned(), value));
     }
@@ -232,5 +304,48 @@ mod tests {
         assert_eq!(merged, Some(99));
         assert_eq!(std::fs::read_to_string(&local).unwrap(), "40\n");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn emitted_display_ids_advance_counter_past_the_merged_maximum() {
+        use std::cell::RefCell;
+
+        let directory = tempfile::tempdir().unwrap();
+        let local = directory.path().join(".tasks_next_id");
+        std::fs::write(&local, "11\n").unwrap();
+        let pushed = RefCell::new(Vec::new());
+
+        let first = sync_one_counter_at_least(
+            &local,
+            || Some("12\n".to_owned()),
+            |text| {
+                pushed.borrow_mut().push(text.to_owned());
+                true
+            },
+            14,
+        );
+        let second = sync_one_counter_at_least(
+            &local,
+            || Some("14\n".to_owned()),
+            |text| {
+                pushed.borrow_mut().push(text.to_owned());
+                true
+            },
+            14,
+        );
+
+        assert_eq!(first, Some(14));
+        assert_eq!(second, Some(14));
+        assert_eq!(std::fs::read_to_string(local).unwrap(), "14\n");
+        assert_eq!(pushed.into_inner(), vec!["14\n"]);
+    }
+
+    #[test]
+    fn counter_floor_scans_name_aligned_local_and_remote_display_ids() {
+        let local = "task_uuid,task_id,status\na,T13,open\nb,T2,open\n";
+        let remote = "status,task_id,task_uuid\nopen,T21,c\n";
+
+        assert_eq!(counter_floor_from_csvs(local, remote, 'T'), Some(22));
+        assert_eq!(counter_floor_from_csvs(local, remote, 'H'), None);
     }
 }

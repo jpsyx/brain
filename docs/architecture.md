@@ -559,7 +559,8 @@ exposed for a future live file-list). It then runs the CSV lane's read-only
 counterpart: `check::collect_csv_pending_with_fetch` reads the cached
 `csv_sync::baseline_path` text and the local task/habit CSVs, fetches each
 remote CSV through `csv_sync::remote_csv_arg` + rclone `copyto`, and compares
-both sides to the baseline with `csv_merge::parse`-backed row diffs. The pure
+both sides to the baseline with UUID-aware, name-aligned
+`csv_merge::parse`-backed row diffs. The pure
 `check::format_report` receives both the file path lists and the CSV row
 counts for the themed summary. The command prints default progress before the
 rclone dry-run and before the CSV baseline pass. No journal entry, no conflict post-pass, no
@@ -687,8 +688,12 @@ prepared/committed journal makes failure or interruption between replacements
 recoverable; retry rolls a prepared generation back before migrating, or
 finishes committed cleanup. Nothing in startup, readiness, sync, or command
 dispatch invokes it. Legacy CSVs keep `task_id` as their first sync key until
-that coordinated migration runs. Task 5 owns UUID merge and display-ID
-collision reconciliation.
+that coordinated migration runs. After migration, `sync/csv_merge/` owns
+name-aligned UUID merge (`table` + `merge`), deterministic mutable display-ID
+allocation (`reconcile`), and dependency/project reverse-link rewriting
+(`relationships`). `csv_sync` validates schema v2 before any write and stages
+project metadata before publishing it; `counters` floors the next ID beyond
+every emitted label. None of these paths activates the migration helper.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the

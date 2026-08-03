@@ -417,8 +417,8 @@ key, mutable display identity, canonical assignment, `system_key`, and UUIDs,
 not the schema version alone. It is not called by startup, readiness, sync, or
 commands. The rollout coordinator still owns the last legacy semantic sync,
 activation, and backup location. Existing legacy files retain `task_id` as
-their first sync key until migration; UUID merge and collision reconciliation
-remain Task 5.
+their merge key until migration. Schema-v2 files merge by `task_uuid` and
+reconcile mutable display IDs without activating that migration.
 The release also does not implement triage-habit policy,
 access-mode enforcement, the agent-controller/OpenCode facade, or the final
 shared receiver lifecycle.
@@ -820,7 +820,7 @@ No groups at all serializes as `[]`. This is the shape the `/second-brain
 resolve-conflicts` skill parses; see [integrations.md](integrations.md) for
 the resolve side of the contract.
 
-## CSV semantic merge (`src/sync/csv_merge.rs`, `src/sync/csv_sync.rs`)
+## CSV semantic merge (`src/sync/csv_merge/`, `src/sync/csv_sync.rs`)
 
 `tasks/tasks.csv` and `tasks/habits.csv` are excluded from the bisync file
 lane (`args::bisync_args`'s default excludes) and reconciled instead by a
@@ -829,24 +829,24 @@ copy the way a bisync'd file would (see [integrations.md](integrations.md)
 for the transport, [decisions.md](decisions.md) for why).
 
 Their two id counters, `tasks/.tasks_next_id` and `tasks/.habits_next_id`, are
-likewise excluded from bisync and reconciled out-of-band — but by a simpler
-rule: `counters::merge_counter` takes `max(local, remote)` (stateless, no
-baseline), the only rule that never regresses a monotonic counter and so never
-lets a machine reuse an id the other already assigned. `None` on both sides
-leaves the file absent, and id allocation falls back to `max_existing_id + 1`.
+likewise excluded from bisync and reconciled out-of-band. The counter takes
+`max(local, remote, emitted_max + 1)`, so display-ID reconciliation cannot
+leave a counter able to issue an ID that sync just emitted.
 
-`Table` (`csv_merge.rs`) is the parsed shape, keyed by the first column:
+`Table` (`csv_merge/table.rs`) is the parsed shape, keyed by the active merge
+column found by name:
 
 ```rust
 struct Table {
-    header: Vec<String>,                  // legacy order has task_id first
-    rows: BTreeMap<String, Vec<String>>,  // current first-column key -> cells
+    header: Vec<String>,                  // preserved output order
+    rows: BTreeMap<String, Vec<String>>,  // task_uuid, or legacy task_id -> cells
 }
 ```
 
-Until coordinated UUID rollout, `merge(base, ours, theirs) -> (Table, Report)`
-unions the legacy `task_id`s across
-all three tables and resolves each id independently:
+`merge(base, ours, theirs) -> (Table, Report)` uses `task_uuid` whenever that
+column exists, and otherwise preserves the inactive-migration compatibility
+path keyed by legacy `task_id`. Rows are aligned by column name before these
+rules run:
 
 - **Present on one side only, absent from `base`** — added; kept as-is.
 - **Added on both sides under the same id** — field-merged against an empty
@@ -880,10 +880,21 @@ convergence, below). A legacy or malformed table without the column still
 falls back to a deterministic lexicographic tiebreak (the greater cell value
 wins), noted as a soft conflict in the `Report`.
 
-The header is chosen once per merge as whichever non-empty table has the
-most columns (preferring `ours`, then `theirs`, then `base`), so a schema
-superset survives a merge; every row is padded/truncated to that width
-(`norm`) before any comparison runs.
+The output header is the deterministic union of names from local, remote, and
+base. Schema version 2 requires `task_uuid`, `task_id`, `assigned_to`,
+`system_key`, and `last_touched`. Unknown columns survive only when
+`SCHEMA.json` declares `forward_compatible_columns: true`; otherwise sync
+refuses before writing local, remote, or baseline state.
+
+After row merge, `reconcile.rs` groups equal display IDs. The
+lexicographically smallest UUID retains each contested label; loser UUIDs are
+ordered deterministically and assigned numbers after the maximum display
+number across all three inputs. `relationships.rs` first resolves each side's
+pipe/comma-separated `blocked_by` labels through that side's pre-reconciliation
+display-to-UUID map, then emits the final labels. The same final table derives
+each project's `.METADATA.json:tasks[]`; every metadata file is parsed and
+staged before any local rewrite, and matching repo-relative metadata is pushed
+through the configured remote.
 
 `serialize` writes rows in current merge-key order (the `BTreeMap`'s natural
 ordering), so two machines merging the same three inputs — even with
@@ -911,7 +922,8 @@ changed, so a clean run's note isn't cluttered by a no-op CSV pass.
 
 **Read-only pending diff.** `brain check` does not run the full 3-way merge
 or update any CSV state. Instead `check::CsvSideDiff` compares one side
-against the cached baseline by `task_id` and counts whole-row additions,
+against the cached baseline by `task_uuid` when present (legacy `task_id`
+otherwise), aligns cells by column name, and counts whole-row additions,
 changes, and deletions. `check::CsvPending` holds one push diff
 (`baseline` vs. local CSV) and, when the remote fetch succeeds, one pull diff
 (`baseline` vs. remote CSV). This is a preview of pending row movement, not a

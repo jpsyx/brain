@@ -49,6 +49,14 @@ enum CsvDirection {
 pub fn diff_csv_rows(base: &str, side: &str) -> CsvSideDiff {
     let base = parse(base);
     let side = parse(side);
+    let header = base
+        .header
+        .iter()
+        .chain(side.header.iter())
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
     let mut diff = CsvSideDiff::default();
     let ids: BTreeSet<&str> = base
         .rows
@@ -61,7 +69,11 @@ pub fn diff_csv_rows(base: &str, side: &str) -> CsvSideDiff {
         match (base.rows.get(id), side.rows.get(id)) {
             (None, Some(_)) => diff.added += 1,
             (Some(_), None) => diff.deleted += 1,
-            (Some(base_row), Some(side_row)) if base_row != side_row => diff.changed += 1,
+            (Some(base_row), Some(side_row))
+                if base.aligned_row(base_row, &header) != side.aligned_row(side_row, &header) =>
+            {
+                diff.changed += 1;
+            }
             _ => {}
         }
     }
@@ -429,6 +441,16 @@ mod tests {
                 deleted: 1
             }
         );
+    }
+
+    #[test]
+    fn csv_diff_keys_by_uuid_and_aligns_reordered_headers() {
+        let base = "task_uuid,task_id,status,notes\n\
+                    10000000-0000-4000-8000-000000000010,T10,open,same\n";
+        let side = "notes,status,task_id,task_uuid\n\
+                    same,open,T10,10000000-0000-4000-8000-000000000010\n";
+
+        assert_eq!(diff_csv_rows(base, side), CsvSideDiff::default());
     }
 
     #[test]

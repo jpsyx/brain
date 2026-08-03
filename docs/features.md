@@ -430,8 +430,10 @@ inactive helper rejects backup/workspace path overlap, creates a deep backup
 path one component at a time while syncing every actual parent, durably syncs
 every exact backup, and journals the three-file replacement so a retry
 recovers from failure or interruption at any replacement boundary. Journal
-publication errors also remove their temporary file before returning. UUID
-merge and display-ID collision reconciliation are later rollout work.
+publication errors also remove their temporary file before returning. Once a
+coordinator activates schema version 2, sync switches to immutable
+`task_uuid` identity while `task_id` remains a mutable display label; this
+release still does not activate the migration itself.
 
 ### `brain reindex`
 
@@ -738,10 +740,10 @@ for the structured, agent-consumable form); the `/second-brain
 resolve-conflicts` skill reads that JSON, merges each group into its
 canonical file, then clears the copies with `brain sync resolve <original>`.
 
-**Task CSVs merge by id — no conflict copies.** `tasks/tasks.csv` and
+**Task CSVs merge by immutable identity, with no conflict copies.** `tasks/tasks.csv` and
 `tasks/habits.csv` don't go through the keep-both path above at all: brain
 excludes them from the bisync file lane and reconciles them itself with an
-id-keyed 3-way merge (a cached local baseline + your local copy + the remote
+three-way merge (a cached local baseline + your local copy + the remote
 copy), writing the merged result back to both sides. Two machines that each
 add, complete, delete, or edit different fields on the same task converge
 cleanly, so neither file ever produces a `(conflict …)` copy. A side that
@@ -749,14 +751,20 @@ marks a task `status=done` always wins that row's status and completed date;
 a same-field disagreement otherwise resolves by whichever side's
 `last_touched` is more recent. Both `tasks.csv` and `habits.csv` carry that
 column; legacy rows without a parseable timestamp fall back to a deterministic
-tiebreak, journalled as a soft conflict. See [data-model.md](data-model.md)
+tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
+`task_id`; schema-v2 tables are aligned by column name and keyed by immutable
+`task_uuid`. If distinct UUIDs claim the same `T###` or `H###`, the smaller
+UUID keeps it and the other rows receive deterministic IDs above the greatest
+number visible on either side. `blocked_by` chains and project metadata task
+lists are rewritten to the final labels. Unsupported schema versions, missing
+identity columns, or undeclared unknown columns refuse the CSV write. See [data-model.md](data-model.md)
 for the merge rules and
 [integrations.md](integrations.md) for the transport.
 
 The two id counters (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) that say
 which id to hand out next are also excluded from bisync and reconciled
-separately, by the simplest safe rule: **take the highest**. Whichever machine's
-counter is larger wins, both sides are raised to it, and neither machine ever
+separately: take the highest local/remote counter, then raise it beyond the
+greatest emitted CSV display ID. Neither machine ever
 re-hands-out an id the other already used — no id collisions, regardless of
 which machine synced last.
 

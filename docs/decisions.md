@@ -284,9 +284,10 @@ a new UUID while retaining assignment and `system_key`.
 Activation is deliberately separate. The fixture-tested schema helper requires
 an explicit last-legacy-sync state, an existing durable machine-local backup
 base, and a destination beneath that base; no runtime path calls it. Existing
-legacy CSVs keep `task_id` first so the current semantic merge remains
-unchanged. The helper rejects canonical or lexical path overlap with the
-workspace, creates each missing backup-directory component separately, syncs
+legacy CSVs keep `task_id` identity so their semantic merge remains compatible;
+schema-v2 CSVs merge by UUID, but the helper remains inactive. The helper
+rejects canonical or lexical path overlap with the workspace, creates each
+missing backup-directory component separately, syncs
 every actual parent on both first attempt and retry, durably syncs each exact
 backup before replacement, and publishes an internal prepared/committed
 recovery journal. A publication error removes the journal temporary before
@@ -294,8 +295,7 @@ returning. A retry restores
 the complete legacy generation after a prepared interruption or retains the
 complete new generation after commit, so a mixed schema is never accepted as a
 new migration input. The coordinated rollout still owns the final legacy sync,
-backup activation, and rollout journal; the following task owns UUID merge and
-deterministic display-ID collision reconciliation.
+backup activation, and rollout journal.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
@@ -897,6 +897,27 @@ whole scheme's safety — no silent divergence, no human ever needing to
 adjudicate a task-CSV conflict — depends on the merge being a genuine
 mathematical convergence, not just "usually agrees."
 
+**Why immutable UUID wins over mutable display ID.** Two machines can allocate
+the same `T###` or `H###` independently, so display identity cannot safely be
+the permanent row key after schema migration. UUID-distinct rows both survive.
+For a contested label, the lexicographically smaller UUID retains it; loser
+UUIDs are sorted and assigned above the maximum number visible in base, local,
+or remote. This side-independent rule makes mirror-order merges byte-identical.
+
+**Why relationships resolve before display reconciliation.** A remote child's
+`blocked_by=T10` means the remote `T10`, not whichever UUID later wins that
+label globally. Each side therefore resolves dependency labels to UUIDs before
+row merge, then emits final display IDs afterward. Project metadata reverse
+links are regenerated from the authoritative CSV `project` column for the same
+reason. All metadata rewrites are parsed and staged before local publication,
+so one malformed project cannot partially rewrite unrelated projects.
+
+**Why schema-v2 unknown columns are opt-in.** Silently accepting a column Brain
+does not understand can preserve bytes while breaking relationship or identity
+semantics. Current tables require the known identity columns. A manifest may
+explicitly set `forward_compatible_columns: true` when byte preservation is
+safe; otherwise unknown columns refuse before any CSV or baseline write.
+
 **Why `brain check` reports CSV row deltas instead of simulating the full
 merge.** `check` is a read-only "what would move?" report, and its value is
 fast, low-risk visibility before running `brain sync`. For the task CSV lane,
@@ -1434,7 +1455,7 @@ instead of leaving it at rclone's HOME-dependent default. Two payoffs:
   once, which is exactly what heals a machine already wedged by the old
   concurrent-run bug.)
 
-## Why the id counters are max-merged, not bisynced
+## Why the id counters are max-merged and floored by emitted IDs
 
 `tasks/.tasks_next_id` and `tasks/.habits_next_id` hold the next integer id to
 hand out for a new task / habit. They used to ride the normal bisync lane, which
@@ -1443,16 +1464,16 @@ if the machine holding the *lower* value wrote more recently, bisync would pick
 the lower value, and that machine would then re-hand-out ids the other machine
 had already assigned — colliding in the id-keyed CSV merge (two different rows
 sharing one `task_id`). So the counters are now excluded from bisync and
-reconciled out-of-band by `counters::merge_counter` = `max(local, remote)`.
+reconciled out-of-band by the maximum local and remote value.
 
 Max is the whole rule, deliberately. It is stateless (needs no 3-way baseline
 like the CSVs), convergent, idempotent, and monotonic, so it can never regress a
-counter and never lets an id be reused. We explicitly did *not* add smarter
-rules (e.g. reconciling against the merged CSV's `max_existing_id`): "always take
-the highest next-id" is sufficient to avoid every collision, and the simpler
-rule is the more robust one. A missing/garbage counter on a side is treated as
-absent; if both are absent the file stays absent and allocation falls back to
-`max_existing_id + 1` at hand-out time.
+counter and never lets an id be reused. UUID collision reconciliation adds one
+necessary floor: after CSV merge, the counter is also raised to one beyond the
+maximum emitted display number across the updated local and remote CSV. This
+keeps the next ordinary writer from reissuing a label that reconciliation just
+created. A missing or garbage counter is treated as absent; absent counters
+still derive their first safe value from the CSV floor.
 
 ## Why the daily-triage nudge waits for the startup sync
 

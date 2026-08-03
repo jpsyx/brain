@@ -532,10 +532,15 @@ bookkeeping.
   `<workspace-cache>/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
   never synced), the local file, and the remote copy (fetched with `rclone
   copyto <remote> <tmp>`, over the same env-var `BRAIN:` remote bisync uses);
-  merges the three with the pure id-keyed 3-way merge in
-  `crate::sync::csv_merge` (`merge(base, ours, theirs)`, keyed by legacy
-  `task_id` until coordinated UUID rollout; the inactive task-schema helper is
-  never called by sync; see [data-model.md](data-model.md) for the rules);
+  validates `tasks/SCHEMA.json`, then merges the three with the pure 3-way
+  merge in `crate::sync::csv_merge`. Legacy input remains keyed by `task_id`;
+  schema-v2 input is name-aligned and keyed by immutable `task_uuid`. The
+  inactive task-schema helper is never called by sync; see
+  [data-model.md](data-model.md) for the rules. Distinct UUIDs that claim one
+  display ID are renumbered deterministically, side-specific `blocked_by`
+  references are resolved through UUIDs, and final project reverse links are
+  staged from CSV `project` fields before repo-relative `.METADATA.json` paths
+  are copied to the configured remote;
   writes the merged CSV
   back to the local file, pushes it to the remote with another `rclone
   copyto`, then overwrites the baseline with the same merged text. A missing
@@ -549,18 +554,17 @@ bookkeeping.
   bisync run's own outcome, and the step is skipped entirely when that run
   aborted. See [decisions.md](decisions.md) for why this file pair gets a
   semantic merge instead of keep-both.
-- **The two id counters are max-merged out-of-band, right after the CSVs.**
+- **The two id counters are max-merged and floored out-of-band, right after the CSVs.**
   `tasks/.tasks_next_id` and `tasks/.habits_next_id` hold the next integer id to
   hand out. They're excluded from bisync too, because bisync's newer-mtime rule
   would let a machine with a *lower* counter that wrote more recently win, and it
   would then re-hand-out ids the other machine already assigned. Instead
   `command::sync_once` calls `crate::sync::counters::sync_counters`: for each
   counter it fetches the remote value (same `rclone copyto` transport), reads the
-  local value, and writes/pushes `max(local, remote)` — the only rule that can't
-  lose an id. Max-merge is stateless (no baseline): `max` is convergent,
-  idempotent, and monotonic. Missing/garbage on a side is treated as absent; if
-  both sides are absent the file stays absent and id allocation falls back to
-  `max_existing_id + 1`. Best-effort and skipped after an abort, like the CSVs.
+  local value, scans the name-aligned local and remote CSV display IDs, and
+  writes/pushes `max(local, remote, emitted_max + 1)`. The floor prevents a
+  normal writer from reissuing a display label created by collision
+  reconciliation. Missing or garbage counter values are treated as absent.
 - **`brain check` has a read-only CSV lane too.** Since those two CSVs are
   excluded from dry-run bisync, `src/sync/check.rs` reads the same cached
   baselines, reads the local CSVs, fetches each remote CSV with `rclone copyto`
@@ -571,7 +575,8 @@ bookkeeping.
   double-counting: identical local/remote CSVs are clean, and when both sides
   are non-empty and differ, the remote CSV is used as a provisional snapshot
   for local row deltas. The report explicitly says CSV rows are baseline diffs,
-  not provenance, and that `brain sync` will merge by id.
+  not provenance, and that `brain sync` will merge by immutable identity after
+  schema migration.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.
