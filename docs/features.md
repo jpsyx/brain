@@ -111,12 +111,17 @@ queue key; Claude still receives `Enter`.
 
 Workspace-only launches also resolve portable logical MCP and skill allowlists
 against only the selected workspace's machine record. Claude receives selected
-MCPs through a cache-local strict runtime config while preserving the shared
-login. Codex receives documented per-call config overrides, but its inherited
+MCPs through a cache-local runtime config while preserving the shared login.
+Brain reports this selection as strict only when `claude_cmd` is a safely parsed
+direct Claude invocation with no conflicting Brain-owned flags; indirect or
+shell-ambiguous commands are reported as advisory. Codex receives documented
+per-call config overrides, but its inherited
 global MCP and skill sources cannot currently be proven excluded. Selected
 skill names are trusted guidance for both frontends. `brain skills status`
 labels each requested capability as `strictly-selected`, `advisory-only`, or
 `unavailable`, rather than claiming isolation the frontend does not provide.
+Unrestricted launches skip capability parsing and remove stale workspace-only
+artifacts before using the frontend's ordinary global configuration.
 
 **Swap the layout.** The palette's "Move brain panel to the left/right"
 command flips which side the brain panel sits on; the choice is persisted

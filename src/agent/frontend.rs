@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// All frontend-neutral inputs required to launch an agent.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LaunchRequest {
     workspace: Arc<WorkspaceContext>,
     actor: ActorContext,
@@ -22,6 +22,24 @@ pub struct LaunchRequest {
     access_policy: AccessPolicy,
     channel: Channel,
     hook_metadata: HookMetadata,
+}
+
+impl std::fmt::Debug for LaunchRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LaunchRequest")
+            .field("workspace_id", &self.workspace.id())
+            .field("actor_id", &self.actor.user_id())
+            .field("session_plan", &self.session_plan)
+            .field(
+                "initial_prompt",
+                &self.initial_prompt.as_ref().map(|_| "<redacted>"),
+            )
+            .field("access_policy", &self.access_policy)
+            .field("channel", &self.channel)
+            .field("hook_metadata", &self.hook_metadata)
+            .finish()
+    }
 }
 
 impl LaunchRequest {
@@ -123,7 +141,7 @@ impl LaunchRequest {
 }
 
 /// A complete, frontend-specific launch description for a transport.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct LaunchSpec {
     /// Executable shell command, including frontend-specific arguments.
     pub command: String,
@@ -135,6 +153,26 @@ pub struct LaunchSpec {
     pub hooks: HookMetadata,
     /// Honest per-capability enforcement derived from concrete launch flags.
     pub capabilities: crate::access::CapabilityEnforcementReport,
+}
+
+impl std::fmt::Debug for LaunchSpec {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LaunchSpec")
+            .field("command", &"<redacted>")
+            .field("cwd", &self.cwd)
+            .field(
+                "environment_keys",
+                &self
+                    .environment
+                    .iter()
+                    .map(|(name, _)| name)
+                    .collect::<Vec<_>>(),
+            )
+            .field("hooks", &self.hooks)
+            .field("capabilities", &self.capabilities)
+            .finish()
+    }
 }
 
 impl LaunchSpec {

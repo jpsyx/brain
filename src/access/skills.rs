@@ -26,7 +26,7 @@ pub enum CapabilityError {
         /// Repeated logical name.
         name: String,
     },
-    /// A logical name was blank.
+    /// A logical name did not use the portable capability-name grammar.
     InvalidLogicalName {
         /// Field containing the invalid value.
         field: &'static str,
@@ -48,7 +48,10 @@ impl Display for CapabilityError {
                 write!(formatter, "duplicate {field} name `{name}`")
             }
             Self::InvalidLogicalName { field } => {
-                write!(formatter, "{field} names cannot be blank")
+                write!(
+                    formatter,
+                    "{field} names must use ASCII letters or digits with internal `.`, `_`, or `-`"
+                )
             }
             Self::RuntimeArtifact(message) => {
                 write!(formatter, "write workspace capability artifact: {message}")
@@ -74,10 +77,21 @@ impl CredentialProvenance {
 }
 
 /// Requested MCP capabilities and their selected machine material.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct McpCapabilityPlan {
     entries: Vec<(String, CapabilityResolution<MachineMcp>)>,
     global_configuration: bool,
+}
+
+impl std::fmt::Debug for McpCapabilityPlan {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("McpCapabilityPlan")
+            .field("names", &self.names())
+            .field("available_names", &self.available_names())
+            .field("global_configuration", &self.global_configuration)
+            .finish_non_exhaustive()
+    }
 }
 
 impl McpCapabilityPlan {
@@ -133,10 +147,21 @@ enum CapabilityResolution<T> {
 }
 
 /// Requested skill capabilities and their selected sources.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SkillCapabilityPlan {
     entries: Vec<(String, CapabilityResolution<SkillSelection>)>,
     global_configuration: bool,
+}
+
+impl std::fmt::Debug for SkillCapabilityPlan {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SkillCapabilityPlan")
+            .field("names", &self.names())
+            .field("available_names", &self.available_names())
+            .field("global_configuration", &self.global_configuration)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SkillCapabilityPlan {
@@ -211,14 +236,33 @@ enum SkillSelection {
 }
 
 /// Frontend-independent capability selection for one launch.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct CapabilityPlan {
+    access_mode: AccessMode,
     pub mcps: McpCapabilityPlan,
     pub skills: SkillCapabilityPlan,
     pub credentials: CredentialProvenance,
 }
 
+impl std::fmt::Debug for CapabilityPlan {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CapabilityPlan")
+            .field("access_mode", &self.access_mode)
+            .field("mcps", &self.mcps)
+            .field("skills", &self.skills)
+            .field("credentials", &self.credentials)
+            .finish()
+    }
+}
+
 impl CapabilityPlan {
+    /// Portable access mode this plan was resolved for.
+    #[must_use]
+    pub const fn access_mode(&self) -> AccessMode {
+        self.access_mode
+    }
+
     /// Map selected availability through facts proven by actual launch flags.
     #[must_use]
     pub fn enforcement_report(&self, evidence: EnforcementEvidence) -> CapabilityEnforcementReport {
@@ -243,9 +287,9 @@ pub fn capability_plan(
     config: &Config,
     machine: &MachineCapabilityEnvironment,
 ) -> Result<CapabilityPlan, CapabilityError> {
-    validate_names("allowed_mcps", &config.allowed_mcps)?;
-    validate_names("allowed_skills", &config.allowed_skills)?;
-    validate_names(
+    let allowed_mcps = normalize_names("allowed_mcps", &config.allowed_mcps)?;
+    let allowed_skills = normalize_names("allowed_skills", &config.allowed_skills)?;
+    let machine_mcp_names = normalize_names(
         "machine MCP",
         &machine
             .mcps
@@ -253,7 +297,7 @@ pub fn capability_plan(
             .map(|mcp| mcp.name.clone())
             .collect::<Vec<_>>(),
     )?;
-    validate_names(
+    let machine_skill_names = normalize_names(
         "machine skill",
         &machine
             .skills
@@ -261,15 +305,34 @@ pub fn capability_plan(
             .map(|skill| skill.name.clone())
             .collect::<Vec<_>>(),
     )?;
+    let machine_mcps = machine
+        .mcps
+        .iter()
+        .cloned()
+        .zip(machine_mcp_names)
+        .map(|(mut mcp, name)| {
+            mcp.name = name;
+            mcp
+        })
+        .collect::<Vec<_>>();
+    let machine_skills = machine
+        .skills
+        .iter()
+        .cloned()
+        .zip(machine_skill_names)
+        .map(|(mut skill, name)| {
+            skill.name = name;
+            skill
+        })
+        .collect::<Vec<_>>();
     let global_configuration = config.access_mode == AccessMode::Unrestricted;
     let mcps = if global_configuration {
         Vec::new()
     } else {
-        config
-            .allowed_mcps
+        allowed_mcps
             .iter()
             .map(|name| {
-                let selected = machine.mcps.iter().find(|mcp| mcp.name == *name).cloned();
+                let selected = machine_mcps.iter().find(|mcp| mcp.name == *name).cloned();
                 let resolution = selected.map_or_else(
                     || {
                         CapabilityResolution::Unavailable(
@@ -294,23 +357,22 @@ pub fn capability_plan(
             .into_iter()
             .map(|skill| skill.name)
             .collect::<HashSet<_>>();
-        config
-            .allowed_skills
+        allowed_skills
             .iter()
             .map(|name| {
                 let resolution = if bundled.contains(name) {
                     CapabilityResolution::Available(SkillSelection::Bundled)
-                } else if let Some(skill) = machine
-                    .skills
+                } else if let Some(skill) = machine_skills
                     .iter()
                     .find(|skill| skill.name == *name)
                     .cloned()
                 {
-                    if skill.path.join("SKILL.md").is_file() {
+                    if crate::skills::plugin::validate_exact(&skill.path).is_ok() {
                         CapabilityResolution::Available(SkillSelection::Machine(skill))
                     } else {
                         CapabilityResolution::Unavailable(
-                            "machine skill path does not contain SKILL.md".to_owned(),
+                            "machine skill path must be an absolute symlink-free directory containing a regular SKILL.md"
+                                .to_owned(),
                         )
                     }
                 } else {
@@ -323,6 +385,7 @@ pub fn capability_plan(
             .collect()
     };
     Ok(CapabilityPlan {
+        access_mode: config.access_mode,
         mcps: McpCapabilityPlan {
             entries: mcps,
             global_configuration,
@@ -371,18 +434,24 @@ fn enforcement_entries<T>(
         .collect()
 }
 
-fn validate_names(field: &'static str, names: &[String]) -> Result<(), CapabilityError> {
+fn normalize_names(field: &'static str, names: &[String]) -> Result<Vec<String>, CapabilityError> {
     let mut seen = HashSet::with_capacity(names.len());
+    let mut normalized = Vec::with_capacity(names.len());
     for name in names {
-        if name.trim().is_empty() {
+        let mut bytes = name.bytes();
+        let valid = name.len() <= 128
+            && bytes
+                .next()
+                .is_some_and(|first| first.is_ascii_alphanumeric())
+            && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'));
+        if !valid {
             return Err(CapabilityError::InvalidLogicalName { field });
         }
-        if !seen.insert(name.as_str()) {
-            return Err(CapabilityError::DuplicateLogicalName {
-                field,
-                name: name.clone(),
-            });
+        let name = name.to_ascii_lowercase();
+        if !seen.insert(name.clone()) {
+            return Err(CapabilityError::DuplicateLogicalName { field, name });
         }
+        normalized.push(name);
     }
-    Ok(())
+    Ok(normalized)
 }

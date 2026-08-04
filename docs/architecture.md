@@ -142,7 +142,9 @@ and advisory portable access modes now exist. OpenCode, coordinated task-schema
 activation, and the final shared receiver lease lifecycle remain later phases.
 `workspace_only` is prompt guidance plus capability filtering, not a filesystem
 sandbox or authentication boundary. Changing the machine default never changes
-portable access mode.
+portable access mode. The controller accepts a workspace-only launch only when
+its capability plan has the same access mode and selected workspace UUID;
+unrestricted launches carry no plan and do not parse capability configuration.
 
 ## Modules
 
@@ -273,6 +275,10 @@ before publication, and every record when listing or explicitly migrating the
 whole registry. Main, receiver, resumed, fresh, and triage launches all construct policy
 from the selected workspace, resolved actor, and already-loaded portable
 `Config`. Main and triage launch paths attach the same resolved capability plan.
+The controller validates the plan's mode and credential provenance before a
+frontend can render artifacts or reach the transport. Unrestricted launch
+assembly bypasses portable and machine capability parsing, preserving normal
+frontend pass-through even when unused capability data is malformed.
 Inbound prompt text is not an input to policy construction.
 
 ### `users/`
@@ -432,7 +438,9 @@ dir, registry, frontend count, and extension/plugin sources before the FS shell
 runs; `brain skills status` reports capability selection and enforcement).
 For workspace-only launches, `layout` and `install` also render selected skills
 under the workspace UUID and actor cache without creating registry or frontend
-links. `resync_skills()` (the A seam) runs the pipeline, gated by
+links. A machine skill is read only from its exact configured absolute
+directory; the source directory, `SKILL.md`, and every descendant must be real
+files or directories rather than symlinks. `resync_skills()` (the A seam) runs the pipeline, gated by
 `skills_auto_sync` (**default `true`** since the B4 cutover) so a mutation
 re-renders the live registry; set the flag `false` to manage skills only via
 explicit `brain skills sync`. jpsyx delegates to `brain skills sync` and never

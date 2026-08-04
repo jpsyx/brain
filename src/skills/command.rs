@@ -18,9 +18,10 @@ use super::layout::Layout;
 pub fn run_status(context: &crate::workspace::CommandContext) -> Result<()> {
     let config = crate::config::Config::try_load(&context.workspace)?;
     let plan = crate::access::capability_plan_for(&config, context)?;
+    let claude_command = crate::agent::configured_command(context, crate::agent::AgentKind::Claude);
     println!(
         "{}",
-        format_capability_status(&plan, crate::theme::Theme::active())
+        format_capability_status(&plan, &claude_command, crate::theme::Theme::active())
     );
     Ok(())
 }
@@ -29,6 +30,7 @@ pub fn run_status(context: &crate::workspace::CommandContext) -> Result<()> {
 #[must_use]
 pub fn format_capability_status(
     plan: &crate::access::CapabilityPlan,
+    claude_command: &str,
     theme: crate::theme::Theme,
 ) -> String {
     let mut output = theme.heading("Workspace agent capabilities");
@@ -39,7 +41,7 @@ pub fn format_capability_status(
         theme.value(&plan.credentials.source_workspace().to_string())
     )
     .expect("writing to a String cannot fail");
-    append_mcp_status(&mut output, plan, theme);
+    append_mcp_status(&mut output, plan, claude_command, theme);
     append_skill_status(&mut output, plan, theme);
     output
 }
@@ -47,6 +49,7 @@ pub fn format_capability_status(
 fn append_mcp_status(
     output: &mut String,
     plan: &crate::access::CapabilityPlan,
+    claude_command: &str,
     theme: crate::theme::Theme,
 ) {
     write!(output, "\n\n{}", theme.accent("MCP capabilities"))
@@ -60,7 +63,9 @@ fn append_mcp_status(
         .expect("writing to a String cannot fail");
         return;
     }
-    let claude = plan.enforcement_report(crate::access::EnforcementEvidence::strict_mcps_only());
+    let claude = plan.enforcement_report(crate::agent::ClaudeFrontend::mcp_enforcement_evidence(
+        claude_command,
+    ));
     let codex = plan.enforcement_report(crate::access::EnforcementEvidence::advisory_only());
     for name in plan.mcps.names() {
         append_capability_row(

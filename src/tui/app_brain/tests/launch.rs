@@ -101,6 +101,38 @@ fn app_main_refuses_malformed_portable_capability_configuration() {
 }
 
 #[test]
+fn app_main_unrestricted_launch_does_not_parse_malformed_capability_configuration() {
+    let cli = Cli::parse_from(["tasks"]);
+
+    for kind in [AgentKind::Claude, AgentKind::Codex] {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let mut app = test_app(&temporary, &cli, kind);
+        app.config.access_mode = crate::access::AccessMode::Unrestricted;
+        std::fs::write(
+            app.command_context
+                .workspace
+                .root()
+                .join(".config/config.json"),
+            r#"{"access_mode":"unrestricted","allowed_skills":"malformed"}"#,
+        )
+        .expect("malformed unused capability config");
+        let recording = LaunchRecording::default();
+        app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
+            recording: recording.clone(),
+            alive: false,
+        }));
+
+        assert!(app.open_or_focus_brain(None));
+
+        let specs = recording.0.lock().expect("launch recording");
+        assert_eq!(specs.len(), 1);
+        assert!(!specs[0].command.contains("--mcp-config"));
+        assert!(!specs[0].command.contains("developer_instructions"));
+        drop(specs);
+    }
+}
+
+#[test]
 fn app_main_claude_resume_keeps_trusted_policy_before_the_user_prompt() {
     let cli = Cli::parse_from(["tasks"]);
     let temporary = tempfile::tempdir().expect("temporary directory");

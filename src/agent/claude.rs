@@ -78,6 +78,14 @@ impl ClaudeFrontend {
         parts.join(" ")
     }
 
+    pub(crate) fn mcp_enforcement_evidence(command: &str) -> crate::access::EnforcementEvidence {
+        if is_direct_claude_invocation(command) {
+            crate::access::EnforcementEvidence::strict_mcps_only()
+        } else {
+            crate::access::EnforcementEvidence::advisory_only()
+        }
+    }
+
     fn transcript_path(&self, session: &AgentSession) -> Option<PathBuf> {
         let project = project_dir_name(&self.workspace_root);
         Some(
@@ -115,6 +123,14 @@ impl AgentFrontend for ClaudeFrontend {
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
         let capability_plan = request.access_policy().capability_plan();
+        if request.access_policy().mode() == crate::access::AccessMode::Unrestricted {
+            crate::access::cleanup_workspace_capabilities(request.workspace())
+                .map_err(|error| AgentError::Frontend(error.to_string()))?;
+        } else if capability_plan.is_some() {
+            crate::access::prepare_workspace_capabilities(request.workspace())
+                .and_then(|()| crate::access::cleanup_codex_runtime_artifacts(request.workspace()))
+                .map_err(|error| AgentError::Frontend(error.to_string()))?;
+        }
         if let Some(plan) = capability_plan.filter(|plan| !plan.skills.uses_global_configuration())
         {
             crate::skills::render_workspace_capabilities(
@@ -135,7 +151,7 @@ impl AgentFrontend for ClaudeFrontend {
             .transpose()?;
         let report = capability_plan.map_or_else(Default::default, |plan| {
             let evidence = if mcp_config.is_some() {
-                crate::access::EnforcementEvidence::strict_mcps_only()
+                Self::mcp_enforcement_evidence(&self.command)
             } else {
                 crate::access::EnforcementEvidence::advisory_only()
             };
@@ -188,6 +204,114 @@ impl AgentFrontend for ClaudeFrontend {
     fn can_resume_response_session(&self) -> bool {
         true
     }
+}
+
+fn is_direct_claude_invocation(command: &str) -> bool {
+    let Some(arguments) = parse_direct_command(command) else {
+        return false;
+    };
+    let Some(executable) = arguments.first() else {
+        return false;
+    };
+    if std::path::Path::new(executable)
+        .file_name()
+        .and_then(|name| name.to_str())
+        != Some("claude")
+    {
+        return false;
+    }
+    !arguments.iter().skip(1).any(|argument| {
+        const OWNED_FLAGS: [&str; 7] = [
+            "--",
+            "--mcp-config",
+            "--strict-mcp-config",
+            "--append-system-prompt",
+            "--session-id",
+            "--resume",
+            "--bare",
+        ];
+        OWNED_FLAGS.iter().any(|flag| {
+            argument == flag || (*flag != "--" && argument.starts_with(&format!("{flag}=")))
+        })
+    })
+}
+
+fn parse_direct_command(command: &str) -> Option<Vec<String>> {
+    #[derive(Clone, Copy)]
+    enum Quote {
+        None,
+        Single,
+        Double,
+    }
+
+    let mut arguments = Vec::new();
+    let mut argument = String::new();
+    let mut quote = Quote::None;
+    let mut escaped = false;
+    let mut started = false;
+    for character in command.trim().chars() {
+        if character.is_control() && character != '\t' {
+            return None;
+        }
+        if escaped {
+            argument.push(character);
+            escaped = false;
+            started = true;
+            continue;
+        }
+        match quote {
+            Quote::Single => {
+                if character == '\'' {
+                    quote = Quote::None;
+                } else {
+                    argument.push(character);
+                }
+                started = true;
+            }
+            Quote::Double => match character {
+                '"' => quote = Quote::None,
+                '\\' => escaped = true,
+                '$' | '`' => return None,
+                _ => {
+                    argument.push(character);
+                    started = true;
+                }
+            },
+            Quote::None => match character {
+                '\'' => {
+                    quote = Quote::Single;
+                    started = true;
+                }
+                '"' => {
+                    quote = Quote::Double;
+                    started = true;
+                }
+                '\\' => {
+                    escaped = true;
+                    started = true;
+                }
+                ' ' | '\t' => {
+                    if started {
+                        arguments.push(std::mem::take(&mut argument));
+                        started = false;
+                    }
+                }
+                ';' | '|' | '&' | '<' | '>' | '(' | ')' | '#' | '$' | '`' | '*' | '?' | '['
+                | ']' | '{' | '}' => return None,
+                _ => {
+                    argument.push(character);
+                    started = true;
+                }
+            },
+        }
+    }
+    if escaped || !matches!(quote, Quote::None) {
+        return None;
+    }
+    if started {
+        arguments.push(argument);
+    }
+    Some(arguments)
 }
 
 fn append_prompt(parts: &mut Vec<String>, prompt: Option<&str>) {

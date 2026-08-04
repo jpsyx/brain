@@ -4,11 +4,25 @@ use crate::theme::Theme;
 use crate::workspace::WorkspaceContext;
 
 /// One immutable advisory access-policy snapshot for an agent launch.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct AccessPolicy {
     mode: AccessMode,
     boundary_prompt: Option<String>,
     capability_plan: Option<super::CapabilityPlan>,
+}
+
+impl std::fmt::Debug for AccessPolicy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AccessPolicy")
+            .field("mode", &self.mode)
+            .field(
+                "boundary_prompt",
+                &self.boundary_prompt.as_ref().map(|_| "<redacted>"),
+            )
+            .field("capability_plan", &self.capability_plan)
+            .finish()
+    }
 }
 
 /// Render an honest user-facing summary of the effective enforcement.
@@ -80,6 +94,18 @@ impl AccessPolicy {
     #[must_use]
     pub const fn capability_plan(&self) -> Option<&super::CapabilityPlan> {
         self.capability_plan.as_ref()
+    }
+
+    pub(crate) fn matches_capability_context(
+        &self,
+        workspace: crate::workspace::WorkspaceId,
+    ) -> bool {
+        self.capability_plan.as_ref().map_or_else(
+            || self.mode == AccessMode::Unrestricted,
+            |plan| {
+                plan.access_mode() == self.mode && plan.credentials.source_workspace() == workspace
+            },
+        )
     }
 }
 

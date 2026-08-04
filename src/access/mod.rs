@@ -15,7 +15,11 @@ pub use mode::AccessMode;
 pub use prompt::{boundary_prompt, classify_obvious_outside_path};
 pub use skills::{CapabilityError, CapabilityPlan, capability_plan, capability_plan_for};
 
-pub(crate) use mcp::{codex_mcp_launch, write_claude_runtime_config};
+pub(crate) use mcp::{
+    cleanup_claude_runtime_artifacts, cleanup_codex_runtime_artifacts,
+    cleanup_workspace_capabilities, codex_mcp_launch, prepare_workspace_capabilities,
+    write_claude_runtime_config,
+};
 pub(crate) use skills::ResolvedSkillSource;
 pub(crate) use store::{
     ensure_portable_access_mode, ensure_registry_access_modes, load_portable_access_mode,

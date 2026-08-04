@@ -142,24 +142,46 @@ available MCPs atomically to
 `~/.cache/brain/workspaces/<uuid>/capabilities/claude-mcp.json`, keeps the
 directory owner-only and the file mode `0600`, and launches with
 `--mcp-config` plus `--strict-mcp-config`. It does not use `--bare`, so the
-user's shared Claude authentication remains in effect. The installed Claude
-CLI has no verified select-some skill flag, so skills remain advisory.
+user's shared Claude authentication remains in effect. Strict selection is
+claimed only when the configured command can be parsed as a direct `claude`
+invocation without shell operators, comments, option terminators, or
+Brain-owned MCP/session/prompt flags. Other configured commands still receive
+the generated flags but are honestly reported as advisory because Brain cannot
+prove that the shell executes them. The installed Claude CLI has no verified
+select-some skill flag, so skills remain advisory.
 
 Codex receives only documented per-call `-c mcp_servers.*` overrides. Server
 keys use the full workspace UUID plus a byte-hex logical name, avoiding both
 global-name collisions and punctuation collisions. Credential values travel in
 the child environment and the overrides name their environment variables, so
-secrets do not appear in argv. Because dotted overrides merge with Codex's base
+secrets do not appear in argv. For stdio servers, each selected server receives
+collision-free generated environment names through an owner-only wrapper; the
+wrapper remaps them to the server's requested child names immediately before
+`exec`. Frontend/auth/lifecycle names such as `HOME`, `PATH`, `CODEX_HOME`,
+provider API keys, and `BRAIN_*` are rejected as MCP credential targets.
+Because dotted overrides merge with Codex's base
 configuration and do not prove exclusion of unrelated global servers, Codex
 MCP and skill enforcement remains advisory. Brain does not set `CODEX_HOME` or
 select a separate profile.
 
 The selected skill view is rendered per workspace UUID and actor below the
 capability cache. It incorporates that root's extensions and contains only
-available selected sources. It creates no links into the shared skill registry,
+available selected sources. Machine sources are loaded from exactly their
+configured absolute directory, with symlinks rejected at the root and anywhere
+below it. Brain never searches a sibling directory by logical name. It creates
+no links into the shared skill registry,
 so switching workspaces cannot prune or rewrite global skill state. Run
 `brain skills status` for requested, available, and frontend enforcement rows;
 the formatter never receives connection values or credentials.
+
+Capability artifacts are frontend-lifecycle state. A Claude launch removes
+stale Codex wrappers and abandoned Claude temporary files; a Codex launch
+removes stale Claude JSON and temporary files. Unrestricted launches remove the
+whole workspace capability cache. Cleanup treats symlinks as links rather than
+following them, and successful atomic publications sync their parent directory.
+Debug formatting exposes names and enforcement metadata only; connection
+material, credential values, prompts, hook values, commands, and launch
+environment values are redacted.
 
 The PTY clears inherited environment before launch. The explicit replacement
 contains only a narrow set of frontend runtime necessities (`HOME`, `PATH`,

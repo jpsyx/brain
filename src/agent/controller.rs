@@ -97,6 +97,12 @@ impl AgentController {
         if request.workspace().id() != self.workspace.id() || request.actor() != &self.actor {
             return Err(AgentError::ContextMismatch);
         }
+        if !request
+            .access_policy()
+            .matches_capability_context(self.workspace.id())
+        {
+            return Err(AgentError::ContextMismatch);
+        }
         let spec = self.frontend.launch_spec(request)?;
         self.transport.spawn(&spec)
     }
@@ -277,12 +283,14 @@ mod tests {
     };
 
     use crate::{
+        access::{AccessMode, MachineCapabilityEnvironment, capability_plan},
         actor::ActorContext,
         agent::{
             AccessPolicy, AgentController, AgentError, AgentFrontend, AgentKind, AgentSession,
             AgentTransport, CompletionStrategy, HookMetadata, InputSequence, LaunchRequest,
             LaunchSpec, SessionPlan,
         },
+        config::Config,
         workspace::{WorkspaceContext, WorkspaceId, WorkspaceName},
     };
 
@@ -464,6 +472,35 @@ mod tests {
         LaunchRequest::new(workspace, actor, plan, None, AccessPolicy::default())
     }
 
+    fn trusted_request(
+        workspace: Arc<WorkspaceContext>,
+        actor: ActorContext,
+        access_mode: AccessMode,
+    ) -> LaunchRequest {
+        LaunchRequest::from_trusted_context(
+            workspace,
+            actor,
+            SessionPlan::fresh(AgentSession::new("capability-session").expect("session")),
+            None,
+            access_mode,
+        )
+    }
+
+    fn capabilities(
+        source_workspace: WorkspaceId,
+        access_mode: AccessMode,
+    ) -> crate::access::CapabilityPlan {
+        let config = Config {
+            access_mode,
+            allowed_skills: Vec::new(),
+            ..Config::default()
+        };
+        let machine =
+            MachineCapabilityEnvironment::from_value(source_workspace, serde_json::json!({}))
+                .expect("machine capabilities");
+        capability_plan(&config, &machine).expect("capability plan")
+    }
+
     #[test]
     fn semantic_operations_are_forwarded_without_callers_constructing_keystrokes() {
         let (mut controller, recording, _, _) = controller();
@@ -523,6 +560,52 @@ mod tests {
                 Event::Spawn,
             ]
         );
+    }
+
+    #[test]
+    fn workspace_only_launch_rejects_a_missing_capability_plan_before_frontend_or_transport() {
+        let (mut controller, recording, workspace, actor) = controller();
+        let request = trusted_request(workspace, actor, AccessMode::WorkspaceOnly);
+
+        assert!(controller.launch(&request).is_err());
+        assert!(recording.events().is_empty());
+    }
+
+    #[test]
+    fn workspace_only_launch_rejects_a_plan_for_another_access_mode() {
+        let (mut controller, recording, workspace, actor) = controller();
+        let plan = capabilities(workspace.id(), AccessMode::Unrestricted);
+        let request = trusted_request(Arc::clone(&workspace), actor, AccessMode::WorkspaceOnly)
+            .with_capability_plan(plan);
+
+        assert!(controller.launch(&request).is_err());
+        assert!(recording.events().is_empty());
+    }
+
+    #[test]
+    fn workspace_only_launch_rejects_a_plan_from_another_workspace_record() {
+        let (mut controller, recording, workspace, actor) = controller();
+        let foreign = WorkspaceId::parse("6fd873b7-f05a-4eb1-b92e-4b8ae3df8e11")
+            .expect("foreign workspace id");
+        let plan = capabilities(foreign, AccessMode::WorkspaceOnly);
+        let request =
+            trusted_request(workspace, actor, AccessMode::WorkspaceOnly).with_capability_plan(plan);
+
+        assert!(controller.launch(&request).is_err());
+        assert!(recording.events().is_empty());
+    }
+
+    #[test]
+    fn unrestricted_launch_needs_no_capability_plan() {
+        let (mut controller, recording, workspace, actor) = controller();
+        let request = trusted_request(workspace, actor, AccessMode::Unrestricted);
+
+        controller.launch(&request).expect("unrestricted launch");
+
+        assert!(matches!(
+            recording.events().as_slice(),
+            [Event::Launch(_), Event::Spawn]
+        ));
     }
 
     #[test]

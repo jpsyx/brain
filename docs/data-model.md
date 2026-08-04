@@ -471,10 +471,18 @@ only ordered logical `allowed_mcps` and `allowed_skills` names. Resolution reads
 only `agent_capabilities` from the already-selected machine registry record and
 retains that record's workspace UUID as credential provenance. Missing MCP
 connection data, incomplete credentials, and missing custom skill paths become
-`Unavailable`; duplicate or blank logical names are configuration errors.
+`Unavailable`. Logical names use a lower-case canonical form derived from an
+ASCII letter/digit plus ASCII letters, digits, `.`, `_`, or `-`; whitespace,
+controls, Unicode, other punctuation, and duplicates after case normalization
+are configuration errors. MCP commands are exact non-whitespace executables
+with control-free argument strings. HTTP transports require exact `http` or
+`https` URLs with a host and control-free header data. Credential kinds must
+match their transport, and protected frontend environment names are rejected.
 Unrestricted plans delegate to frontend global configuration. Workspace-only
 plans preserve an explicit empty list, while a missing skill list receives the
-four core defaults.
+four core defaults. The controller requires one workspace-only plan and rejects
+a mode mismatch or credential provenance UUID from another workspace before
+frontend translation.
 
 `classify_obvious_outside_path` is a pure defense-in-depth warning for literal
 absolute and `~/` paths. It does not resolve symlinks or aliases and does not

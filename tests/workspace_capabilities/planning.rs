@@ -94,28 +94,6 @@ fn requested_mcp_with_missing_machine_credential_is_unavailable() {
 }
 
 #[test]
-fn duplicate_portable_logical_names_are_configuration_errors() {
-    let config = Config {
-        access_mode: AccessMode::WorkspaceOnly,
-        allowed_mcps: vec!["notion".to_owned(), "notion".to_owned()],
-        ..Config::default()
-    };
-    let machine = MachineCapabilityEnvironment::from_value(
-        family_id(),
-        serde_json::json!({"mcps": [{"name": "notion", "url": "https://example.test/mcp"}]}),
-    )
-    .expect("machine capability environment");
-
-    let error = capability_plan(&config, &machine).expect_err("duplicate must fail");
-
-    assert!(
-        error
-            .to_string()
-            .contains("duplicate allowed_mcps name `notion`")
-    );
-}
-
-#[test]
 fn unrestricted_mode_uses_normal_frontend_global_configuration() {
     let config = Config {
         access_mode: AccessMode::Unrestricted,

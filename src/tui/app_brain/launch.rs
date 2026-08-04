@@ -25,10 +25,14 @@ fn brain_transport(app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
 impl App<'_> {
     pub(in crate::tui) fn launch_capability_plan(
         &self,
-    ) -> anyhow::Result<crate::access::CapabilityPlan> {
+    ) -> anyhow::Result<Option<crate::access::CapabilityPlan>> {
+        if self.config.access_mode == crate::access::AccessMode::Unrestricted {
+            return Ok(None);
+        }
         let mut config = crate::config::Config::try_load(&self.command_context.workspace)?;
         config.access_mode = self.config.access_mode;
         crate::access::capability_plan_for(&config, &self.command_context)
+            .map(Some)
             .map_err(anyhow::Error::from)
     }
 
@@ -223,15 +227,17 @@ impl App<'_> {
                 return false;
             }
         };
-        let request = LaunchRequest::from_trusted_context(
+        let mut request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.command_context.workspace),
             actor.clone(),
             session_plan,
             prompt.map(str::to_owned),
             self.config.access_mode,
-        )
-        .with_capability_plan(capability_plan)
-        .with_hook_metadata(hooks);
+        );
+        if let Some(plan) = capability_plan {
+            request = request.with_capability_plan(plan);
+        }
+        request = request.with_hook_metadata(hooks);
         let transport = brain_transport(self);
         let mut controller = AgentController::new(
             Arc::clone(&self.command_context.workspace),

@@ -170,13 +170,18 @@ first move is a failing test that reproduces it, *then* the fix.
   regression proves the non-profile shell cannot recreate a filtered secret.
 - **Workspace capabilities.** `tests/workspace_capabilities.rs` separates
   portable logical selection from selected-record machine material, pins the
-  missing-versus-empty skill defaults, rejects duplicate names, and tests
-  unavailable credentials and skill sources. It verifies Claude's owner-only
-  strict MCP JSON, Codex's secret-free documented per-call overrides against
-  the installed parser, honest enforcement reports, actor/root-local skill
-  rendering without global-registry mutation, and status output without URLs
-  or credential values. App-level tests prove both main and triage requests
-  attach the same plan.
+  missing-versus-empty skill defaults, normalized/invalid logical names,
+  malformed transport data, unavailable credentials, and skill sources. It
+  verifies Claude's owner-only strict MCP JSON and conservative direct-command
+  evidence, Codex's secret-free documented per-call overrides against the
+  installed parser, collision-free stdio secret remapping, honest enforcement
+  reports, exact symlink-free actor/root-local skill rendering without
+  global-registry mutation, lifecycle cleanup, safe symlink unlinking, and
+  redacted status/Debug output. App-level tests prove unrestricted launch
+  assembly does not parse unused malformed capability data and both
+  workspace-only main and triage requests attach the same plan. Controller unit
+  tests reject missing, wrong-mode, and foreign-provenance plans before
+  transport launch.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).

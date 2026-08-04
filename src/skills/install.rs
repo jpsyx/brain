@@ -121,13 +121,8 @@ pub fn render_workspace_capabilities(
                 bundled.swap_remove(index)
             }
             crate::access::ResolvedSkillSource::Machine { name, path } => {
-                let parent = path
-                    .parent()
-                    .ok_or_else(|| anyhow::anyhow!("machine skill `{name}` has no parent"))?;
-                plugin::discover(parent)
-                    .into_iter()
-                    .find(|skill| skill.name == name)
-                    .ok_or_else(|| anyhow::anyhow!("machine skill `{name}` is unavailable"))?
+                plugin::load_exact(&name, &path)
+                    .with_context(|| format!("loading exact machine skill `{name}`"))?
             }
         };
         let ext = sources

@@ -74,6 +74,14 @@ impl AgentFrontend for CodexFrontend {
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
         let capability_plan = request.access_policy().capability_plan();
+        if request.access_policy().mode() == crate::access::AccessMode::Unrestricted {
+            crate::access::cleanup_workspace_capabilities(request.workspace())
+                .map_err(|error| AgentError::Frontend(error.to_string()))?;
+        } else if capability_plan.is_some() {
+            crate::access::prepare_workspace_capabilities(request.workspace())
+                .and_then(|()| crate::access::cleanup_claude_runtime_artifacts(request.workspace()))
+                .map_err(|error| AgentError::Frontend(error.to_string()))?;
+        }
         if let Some(plan) = capability_plan.filter(|plan| !plan.skills.uses_global_configuration())
         {
             crate::skills::render_workspace_capabilities(
@@ -85,7 +93,9 @@ impl AgentFrontend for CodexFrontend {
         }
         let capability_launch = capability_plan
             .filter(|plan| !plan.mcps.uses_global_configuration())
-            .map(crate::access::codex_mcp_launch);
+            .map(|plan| crate::access::codex_mcp_launch(request.workspace(), plan))
+            .transpose()
+            .map_err(|error| AgentError::Frontend(error.to_string()))?;
         let overrides = capability_launch
             .as_ref()
             .map_or(&[][..], |launch| launch.overrides.as_slice());

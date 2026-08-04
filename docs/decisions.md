@@ -502,20 +502,37 @@ therefore keeps portable logical allowlists in the root while commands, URLs,
 paths, and credentials stay in that workspace's selected machine record. It
 does not create Claude or Codex auth profiles.
 
-Claude has a verified strict MCP boundary: a cache-local generated JSON plus
-`--mcp-config --strict-mcp-config`. `--bare` is intentionally excluded because
-it changes authentication behavior. Claude's installed skill controls cannot
+Claude has a conditionally verified strict MCP boundary: a cache-local
+generated JSON plus `--mcp-config --strict-mcp-config`, when Brain can safely
+parse the configured command as a direct Claude invocation. Shell-indirect,
+ambiguous, or conflicting commands remain supported but report advisory
+enforcement because appended flags are not proof that Claude receives them.
+`--bare` is intentionally excluded because it changes authentication behavior.
+Claude's installed skill controls cannot
 strictly select an arbitrary subset, so skill names remain advisory. Codex's
 documented `-c` overrides merge with base config. Namespacing generated server
-keys prevents collision with known global names, but cannot prove that other
-global servers are excluded, so Codex remains advisory. Enforcement status is
-derived from those concrete launch facts and never upgraded from advisory by
-logical selection alone.
+keys prevents collision with known global names, while per-server wrappers
+prevent same-named stdio secrets from colliding with frontend environment.
+Neither mechanism can prove that other global servers are excluded, so Codex
+remains advisory. Enforcement status is derived from the concrete command and
+launch flags and never upgraded from advisory by logical selection alone.
+
+Capability selection is mandatory controller context in workspace-only mode,
+not optional adapter decoration. A plan records its access mode and selected
+workspace credential provenance; the controller checks both before launch.
+Unrestricted launch construction deliberately skips capability parsing and
+clears stale capability artifacts, so malformed unused configuration cannot
+break or influence ordinary frontend behavior.
 
 Selected skill copies live under the workspace UUID and actor cache. They do
 not link to, prune, or rewrite the shared registry. This preserves the user's
 ordinary unrestricted environment and avoids one workspace launch changing
 another workspace's frontend state.
+Exact configured source loading and symlink rejection keep a logical name from
+redirecting rendering to a sibling or later-retargeted tree. Runtime MCP files
+and wrappers are short-lived frontend artifacts: frontend switches remove the
+other frontend's files, retries remove abandoned temporary files, and durable
+renames sync the containing directory.
 
 ## Why we disable alternate scroll (and motion) reporting for the mouse
 

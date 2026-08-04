@@ -156,15 +156,17 @@ impl App<'_> {
                 return;
             }
         };
-        let request = LaunchRequest::from_trusted_context(
+        let mut request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.command_context.workspace),
             self.interactive_actor.clone(),
             SessionPlan::fresh(session),
             Some("/triage".to_owned()),
             self.config.access_mode,
-        )
-        .with_capability_plan(capability_plan)
-        .with_hook_metadata(HookMetadata::new(vec![
+        );
+        if let Some(plan) = capability_plan {
+            request = request.with_capability_plan(plan);
+        }
+        request = request.with_hook_metadata(HookMetadata::new(vec![
             ("BRAIN_TRIAGE_DONE_URL".to_owned(), done_url),
             ("BRAIN_TRIAGE_TOKEN".to_owned(), token.clone()),
         ]));

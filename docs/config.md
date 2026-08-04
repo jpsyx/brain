@@ -174,7 +174,9 @@ mode the frontends use their ordinary global MCP and skill configuration. In
 workspace-only mode Brain resolves the logical names against only the selected
 workspace record's `agent_capabilities` environment object. Run
 `brain skills status` to see requested names, availability, and the honest
-Claude/Codex enforcement level without printing connection material.
+Claude/Codex enforcement level without printing connection material. Names are
+ASCII case-normalized and must begin with a letter or digit; remaining
+characters may be letters, digits, `.`, `_`, or `-`.
 
 Inbound request actor selection now reads `users.json`: provider signatures are
 verified first, then the normalized sender must match an enabled phone or email
@@ -201,7 +203,12 @@ record fields are managed by `brain workspace`, not exposed as free-form env.
 
 `agent_capabilities` has this selected-record shape. Each MCP defines exactly
 one of `command` or `url`; every credentials field is machine-local. A custom
-skill names a directory containing `SKILL.md`.
+skill names an exact absolute, symlink-free directory containing a regular
+`SKILL.md`. A command is one non-whitespace executable string with separate
+control-free arguments. URLs must be exact `http` or `https` URLs with a host.
+Environment credentials belong only to stdio MCPs; headers and bearer tokens
+belong only to HTTP MCPs. Frontend/auth/lifecycle environment names are
+reserved and cannot be MCP credential targets.
 
 ```json
 {
