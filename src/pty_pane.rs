@@ -274,6 +274,9 @@ impl AgentTransport for PtyPane {
     }
 
     fn send(&mut self, input: InputSequence) -> Result<(), AgentError> {
+        if !self.is_alive() {
+            return Err(AgentError::Transport("PTY child is not running".to_owned()));
+        }
         let writer_tx = self
             .writer_tx
             .as_ref()
@@ -313,6 +316,30 @@ mod tests {
     use super::*;
     use crate::agent::{AgentTransport, HookMetadata, LaunchSpec};
     use std::time::Duration;
+
+    fn spec(command: &str, cwd: &Path) -> LaunchSpec {
+        LaunchSpec::new(command, cwd.to_path_buf(), Vec::new(), HookMetadata::none())
+    }
+
+    fn wait_until_stopped(pty: &PtyPane) {
+        for _ in 0..300 {
+            if !AgentTransport::is_alive(pty) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("PTY child did not stop");
+    }
+
+    fn wait_for_file(path: &Path) {
+        for _ in 0..300 {
+            if path.is_file() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("PTY child did not create {}", path.display());
+    }
 
     /// Run a command in a small PTY and block until the child exits and its
     /// output has been parsed into the vt100 screen + scrollback.
@@ -356,6 +383,107 @@ mod tests {
         let output = AgentTransport::snapshot(&pty);
         assert!(output.contains(&directory.path().display().to_string()));
         assert!(output.contains("launch-spec-env"));
+    }
+
+    #[test]
+    fn dormant_transport_has_inert_lifecycle_and_rejects_input() {
+        let mut pty = PtyPane::new(5, 80);
+
+        assert!(!AgentTransport::is_alive(&pty));
+        assert_eq!(AgentTransport::snapshot(&pty), "");
+        assert_eq!(
+            AgentTransport::send(&mut pty, InputSequence::bytes(b"ignored")),
+            Err(AgentError::Transport("PTY child is not running".to_owned()))
+        );
+        AgentTransport::shutdown(&mut pty);
+        AgentTransport::shutdown(&mut pty);
+        assert!(!AgentTransport::is_alive(&pty));
+    }
+
+    #[test]
+    fn transport_rejects_input_after_the_child_exits() {
+        let mut pty = PtyPane::new(5, 80);
+        AgentTransport::spawn(&mut pty, &spec("true", Path::new("."))).expect("spawn child");
+        wait_until_stopped(&pty);
+
+        assert_eq!(
+            AgentTransport::send(&mut pty, InputSequence::bytes(b"too late")),
+            Err(AgentError::Transport("PTY child is not running".to_owned()))
+        );
+    }
+
+    #[test]
+    fn transport_rejects_a_second_spawn_while_the_child_is_alive() {
+        let mut pty = PtyPane::new(5, 80);
+        let running = spec("sleep 30", Path::new("."));
+        AgentTransport::spawn(&mut pty, &running).expect("spawn child");
+
+        assert_eq!(
+            AgentTransport::spawn(&mut pty, &spec("true", Path::new("."))),
+            Err(AgentError::Transport(
+                "cannot replace a running PTY child".to_owned()
+            ))
+        );
+        AgentTransport::shutdown(&mut pty);
+        wait_until_stopped(&pty);
+    }
+
+    #[test]
+    fn spawn_failure_leaves_the_transport_dormant_and_reusable() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let mut pty = PtyPane::new(5, 80);
+        let missing_shell = temporary.path().join("missing-shell");
+
+        assert!(pty.start(CommandBuilder::new(missing_shell)).is_err());
+        assert!(!AgentTransport::is_alive(&pty));
+        assert_eq!(
+            AgentTransport::send(&mut pty, InputSequence::bytes(b"ignored")),
+            Err(AgentError::Transport("PTY child is not running".to_owned()))
+        );
+
+        AgentTransport::spawn(&mut pty, &spec("true", temporary.path()))
+            .expect("spawn after failure");
+        wait_until_stopped(&pty);
+    }
+
+    #[test]
+    fn shutdown_stops_the_child_and_rejects_later_input() {
+        let mut pty = PtyPane::new(5, 80);
+        AgentTransport::spawn(&mut pty, &spec("sleep 30", Path::new("."))).expect("spawn child");
+
+        AgentTransport::shutdown(&mut pty);
+        wait_until_stopped(&pty);
+        assert_eq!(
+            AgentTransport::send(&mut pty, InputSequence::bytes(b"too late")),
+            Err(AgentError::Transport("PTY child is not running".to_owned()))
+        );
+    }
+
+    #[test]
+    fn dropping_the_transport_stops_its_child() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let heartbeat = temporary.path().join("heartbeat");
+        let command = format!(
+            "while :; do printf x >> {}; sleep 0.02; done",
+            crate::agent::frontend::shell_quote(&heartbeat.display().to_string())
+        );
+        let mut pty = PtyPane::new(5, 80);
+        AgentTransport::spawn(&mut pty, &spec(&command, temporary.path())).expect("spawn child");
+        wait_for_file(&heartbeat);
+
+        drop(pty);
+        thread::sleep(Duration::from_millis(100));
+        let settled_size = std::fs::metadata(&heartbeat)
+            .expect("heartbeat metadata")
+            .len();
+        thread::sleep(Duration::from_millis(200));
+        let final_size = std::fs::metadata(&heartbeat)
+            .expect("heartbeat metadata")
+            .len();
+        assert_eq!(
+            final_size, settled_size,
+            "PTY child remained active after drop"
+        );
     }
 
     #[test]

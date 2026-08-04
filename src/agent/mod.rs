@@ -324,11 +324,66 @@ mod adapter_tests {
         let session = AgentSession::new("sess-9").expect("session");
 
         assert_eq!(claude.response_id(&session), "sess-9");
-        assert_ne!(codex.response_id(&session), "sess-9");
+        let codex_response_id = codex.response_id(&session);
+        assert_ne!(codex_response_id, "sess-9");
+        assert_eq!(codex.response_id(&session), codex_response_id);
+        assert!(uuid::Uuid::parse_str(&codex_response_id).is_ok());
         assert!(claude.registers_fresh_session());
         assert!(!codex.registers_fresh_session());
         assert!(claude.can_resume_response_session());
         assert!(!codex.can_resume_response_session());
+    }
+
+    #[test]
+    fn adapters_produce_complete_workspace_and_actor_launch_specs() {
+        let claude = ClaudeFrontend::new(
+            "claude",
+            PathBuf::from("/workspaces/family brain"),
+            PathBuf::from("/home/tester/.claude/projects"),
+        );
+        let codex = CodexFrontend::new("codex");
+
+        let claude_spec = claude
+            .launch_spec(&fresh("fresh-1"))
+            .expect("Claude launch");
+        assert_eq!(claude_spec.cwd, PathBuf::from("/workspaces/family brain"));
+        assert_eq!(
+            claude_spec.environment,
+            vec![
+                (
+                    "BRAIN_WORKSPACE_ID".to_owned(),
+                    "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b".to_owned(),
+                ),
+                ("BRAIN_WORKSPACE".to_owned(), "family".to_owned()),
+                (
+                    "BRAIN_ROOT".to_owned(),
+                    "/workspaces/family brain".to_owned(),
+                ),
+                ("BRAIN_ACTOR_ID".to_owned(), "pablo".to_owned()),
+                ("BRAIN_CHANNEL".to_owned(), "interactive".to_owned()),
+                ("BRAIN_AGENT_KIND".to_owned(), "claude".to_owned()),
+            ]
+        );
+
+        let codex_spec = codex.launch_spec(&fresh("fresh-1")).expect("Codex launch");
+        assert_eq!(codex_spec.cwd, PathBuf::from("/workspaces/family brain"));
+        assert_eq!(
+            codex_spec.environment,
+            vec![
+                (
+                    "BRAIN_WORKSPACE_ID".to_owned(),
+                    "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b".to_owned(),
+                ),
+                ("BRAIN_WORKSPACE".to_owned(), "family".to_owned()),
+                (
+                    "BRAIN_ROOT".to_owned(),
+                    "/workspaces/family brain".to_owned(),
+                ),
+                ("BRAIN_ACTOR_ID".to_owned(), "pablo".to_owned()),
+                ("BRAIN_CHANNEL".to_owned(), "interactive".to_owned()),
+                ("BRAIN_AGENT_KIND".to_owned(), "codex".to_owned()),
+            ]
+        );
     }
 
     #[test]

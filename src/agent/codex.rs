@@ -88,8 +88,9 @@ impl AgentFrontend for CodexFrontend {
         true
     }
 
-    fn response_id(&self, _session: &AgentSession) -> String {
-        uuid::Uuid::new_v4().to_string()
+    fn response_id(&self, session: &AgentSession) -> String {
+        let identity = format!("brain://codex/response/{}", session.as_str());
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, identity.as_bytes()).to_string()
     }
 
     fn registers_fresh_session(&self) -> bool {
