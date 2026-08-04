@@ -183,8 +183,9 @@ verified first, then the normalized sender must match an enabled phone or email
 identity. Legacy receiver allowlists and response settings remain compatibility
 inputs while the coordinated portable schema migration stays deferred. Task
 `assigned_to` and managed triage-habit policy are active in this phase. The
-agent-controller/OpenCode facade, access-mode enforcement, final shared
-receiver lifecycle, and task-schema migration activation remain later phases.
+functional OpenCode sessions, the final shared receiver lifecycle, and
+task-schema migration activation remain later phases. The agent-controller
+facade and advisory access modes are active; OpenCode is a fail-fast stub.
 
 ### Selected workspace env
 
@@ -198,6 +199,7 @@ record fields are managed by `brain workspace`, not exposed as free-form env.
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
 | `codex_cmd` | `codex` | Command that launches the brain panel's Codex frontend on **this machine**. brain appends `resume <id>` only when it has a Codex session id to resume; fresh Codex panels launch without Claude-only `--session-id` / `--resume` flags. Blank falls back to `codex`. |
+| `opencode_cmd` | `opencode` | Reserved command for the selectable OpenCode stub on **this machine**. Blank falls back to `opencode`; the current stub never executes it. |
 | `agent_capabilities` | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
 | `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus the mandatory startup pull and change-triggered pushes; there is no periodic idle pull. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
 
@@ -453,10 +455,11 @@ the `name=value` form.
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
 | `skills_auto_sync` | `true` | When `true`, the bundled skills are auto-rendered into the agent registry on two triggers: a `config`/`personalize` mutation (`skills::resync_skills`), and the first ready-workspace invocation after the brain binary's version changes (`skills::resync_on_version_change`, so a version bump ships its skill changes without a manual sync). Default `true` since the B4 cutover; set `false` to manage the registry only via explicit `brain skills sync`. Read by `src/skills/`. |
 
-`markdown_to_pdf_path`, `claude_cmd`, and `codex_cmd` are **not** in this table
+`markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, and `opencode_cmd` are **not** in this table
 — they live in [brain env](#brain-env-configbrainenvjson)
 (`brain env set markdown_to_pdf_path=…`,
-`brain env set claude_cmd=…`, `brain env set codex_cmd=…`), since they are
+`brain env set claude_cmd=…`, `brain env set codex_cmd=…`,
+`brain env set opencode_cmd=…`), since they are
 machine-specific values.
 
 Every variable is optional; a missing file or missing field falls back to the
@@ -496,7 +499,7 @@ The IO-touching wrappers are thin; the decisions worth testing are pure:
 - `settings/` units — schema resolution, the `config list` table layout, the
   prerequisite message wording, shell-output path extraction, value coercion.
 - `env/` units — the writable env schema/vars (`markdown_to_pdf_path`,
-  `claude_cmd`, `codex_cmd`), structural-name rejection, and the
+  `claude_cmd`, `codex_cmd`, `opencode_cmd`), structural-name rejection, and the
   migration `plan` (legacy pointer→record `root`, config→env `markdown_to_pdf_path`
   relocation), and the store round-trip.
 - `sync::config` units — `SyncConfig` field defaults, `is_configured`,

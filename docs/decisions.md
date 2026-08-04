@@ -282,9 +282,10 @@ Inbound actor precedence remains immutable request context after provider
 authentication. Task `assigned_to` now defaults to that actor, while unrelated
 mutations preserve the existing assignment and explicit changes validate
 portable membership. This deliberately adds no owner, creator, audit, or device
-semantics. The agent-controller/OpenCode facade and shared receiver leases
-remain later phases. Actor context is attribution and routing,
-not a new authentication or access-control boundary.
+semantics. The agent-controller facade and fail-fast OpenCode selection stub
+are active; functional OpenCode behavior and shared receiver leases remain
+later phases. Actor context is attribution and routing, not a new
+authentication or access-control boundary.
 
 The same portable user ID may be selected on multiple computers because it
 names the person, not their machine. We intentionally add no cross-machine

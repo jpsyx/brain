@@ -135,7 +135,7 @@ fn fresh_and_resumed_launches_preserve_cwd_prefix_and_initial_prompt_quoting() {
     for (agent, configured_command, plan, expected) in cases {
         assert_eq!(
             build_llm_command(root, agent, configured_command, &plan, prompt),
-            expected
+            Ok(expected.to_owned())
         );
     }
 }

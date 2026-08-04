@@ -138,8 +138,9 @@ not use that UUID-scoped path.
 
 The frontend-neutral `agent` facade, concrete Claude/Codex adapters, PTY
 transport, main and triage controller ownership, receiver controller dispatch,
-and advisory portable access modes now exist. OpenCode, coordinated task-schema
-activation, and the final shared receiver lease lifecycle remain later phases.
+advisory portable access modes, and a fail-fast OpenCode selection stub now
+exist. Functional OpenCode sessions, coordinated task-schema activation, and
+the final shared receiver lease lifecycle remain later phases.
 `workspace_only` is prompt guidance plus capability filtering, not a filesystem
 sandbox or authentication boundary. Changing the machine default never changes
 portable access mode. The controller accepts a workspace-only launch only when
@@ -259,6 +260,9 @@ are both stored as `Option<AgentController>`; keyboard, receiver, draw, scroll,
 close, and event-loop code call controller semantics and never construct
 frontend keystrokes. The controller also owns the short delayed queue action
 that keeps injected text separate from its final frontend input.
+`opencode` supplies a constructible frontend whose lifecycle, input, session,
+completion, and response operations all return typed unsupported errors before
+transport access.
 
 ### `access/`
 
@@ -891,8 +895,9 @@ as compatibility helpers for pure callers and tests. Live TUI panels build
 complete `LaunchRequest` values: the adapter supplies common workspace identity
 and `BRAIN_AGENT_KIND`; the main panel's `HookMetadata` adds instance, PID,
 state DB, and response attribution, while the triage panel adds only
-`BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. `claude_cmd` and `codex_cmd`
-are machine-local brain env values. Both configured commands are spliced in
+`BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. `claude_cmd`, `codex_cmd`,
+and the reserved `opencode_cmd` are machine-local brain env values. The two
+functional configured commands are spliced in
 verbatim so they may carry their own flags, and brain never depends on a shell
 alias.
 

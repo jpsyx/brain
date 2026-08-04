@@ -10,6 +10,7 @@ mod controller;
 pub mod frontend;
 pub mod hooks;
 pub mod input;
+mod opencode;
 pub mod session;
 
 use std::{
@@ -24,6 +25,7 @@ pub use controller::{AgentController, AgentTransport};
 pub use frontend::{AgentFrontend, LaunchRequest, LaunchSpec};
 pub use hooks::HookMetadata;
 pub use input::InputSequence;
+pub use opencode::OpenCodeFrontend;
 pub use session::{
     AgentKind, AgentSession, CompletionStatus, CompletionStrategy, SessionPlan, SessionScope,
     SessionStore,
@@ -32,6 +34,7 @@ pub use session::{
 pub(crate) use claude::DEFAULT_COMMAND as DEFAULT_CLAUDE_COMMAND;
 pub(crate) use claude::project_dir_name as claude_project_dir_name;
 pub(crate) use codex::DEFAULT_COMMAND as DEFAULT_CODEX_COMMAND;
+pub(crate) use opencode::DEFAULT_COMMAND as DEFAULT_OPENCODE_COMMAND;
 
 pub(crate) fn configured_command(
     command: &crate::workspace::CommandContext,
@@ -42,6 +45,8 @@ pub(crate) fn configured_command(
             .unwrap_or_else(|| DEFAULT_CLAUDE_COMMAND.to_owned()),
         AgentKind::Codex => crate::env::resolve_one(command, "codex_cmd")
             .unwrap_or_else(|| DEFAULT_CODEX_COMMAND.to_owned()),
+        AgentKind::OpenCode => crate::env::resolve_one(command, "opencode_cmd")
+            .unwrap_or_else(|| DEFAULT_OPENCODE_COMMAND.to_owned()),
     }
 }
 
@@ -69,6 +74,7 @@ pub(crate) fn configured_frontend(
             }
         }
         AgentKind::Codex => Box::new(CodexFrontend::new(configured)),
+        AgentKind::OpenCode => Box::new(OpenCodeFrontend::new(configured)),
     }
 }
 
@@ -77,10 +83,15 @@ pub(crate) fn build_command(
     configured_command: &str,
     plan: &SessionPlan,
     prompt: Option<&str>,
-) -> String {
+) -> Result<String, AgentError> {
     match kind {
-        AgentKind::Claude => ClaudeFrontend::command_for(configured_command, plan, prompt),
-        AgentKind::Codex => CodexFrontend::command_for(configured_command, plan, prompt),
+        AgentKind::Claude => Ok(ClaudeFrontend::command_for(
+            configured_command,
+            plan,
+            prompt,
+        )),
+        AgentKind::Codex => Ok(CodexFrontend::command_for(configured_command, plan, prompt)),
+        AgentKind::OpenCode => Err(AgentError::UnsupportedFrontend(AgentKind::OpenCode)),
     }
 }
 
@@ -278,12 +289,18 @@ mod adapter_tests {
         );
         let codex = CodexFrontend::new("codex");
 
-        assert_eq!(claude.submit_input(), InputSequence::bytes(b"\r"));
-        assert_eq!(codex.submit_input(), InputSequence::bytes(b"\r"));
-        assert_eq!(claude.queue_input(), InputSequence::bytes(b"\r"));
-        assert_eq!(codex.queue_input(), InputSequence::bytes(b"\t"));
-        assert_eq!(claude.new_session_input(), InputSequence::bytes(b"/new\r"));
-        assert_eq!(codex.new_session_input(), InputSequence::bytes(b"/new\t"));
+        assert_eq!(claude.submit_input(), Ok(InputSequence::bytes(b"\r")));
+        assert_eq!(codex.submit_input(), Ok(InputSequence::bytes(b"\r")));
+        assert_eq!(claude.queue_input(), Ok(InputSequence::bytes(b"\r")));
+        assert_eq!(codex.queue_input(), Ok(InputSequence::bytes(b"\t")));
+        assert_eq!(
+            claude.new_session_input(),
+            Ok(InputSequence::bytes(b"/new\r"))
+        );
+        assert_eq!(
+            codex.new_session_input(),
+            Ok(InputSequence::bytes(b"/new\t"))
+        );
     }
 
     #[test]
@@ -296,15 +313,15 @@ mod adapter_tests {
         let codex = CodexFrontend::new("codex");
         let session = AgentSession::new("sess-9").expect("session");
 
-        assert_eq!(claude.completion_strategy(), CompletionStrategy::Hook);
-        assert_eq!(codex.completion_strategy(), CompletionStrategy::Hook);
+        assert_eq!(claude.completion_strategy(), Ok(CompletionStrategy::Hook));
+        assert_eq!(codex.completion_strategy(), Ok(CompletionStrategy::Hook));
         assert_eq!(
             claude.transcript(&session),
-            Some(PathBuf::from(
+            Ok(Some(PathBuf::from(
                 "/home/tester/.claude/projects/-workspaces-family brain/sess-9.jsonl"
-            ))
+            )))
         );
-        assert_eq!(codex.transcript(&session), None);
+        assert_eq!(codex.transcript(&session), Ok(None));
     }
 
     #[test]
@@ -317,13 +334,16 @@ mod adapter_tests {
         let codex = CodexFrontend::new("codex");
         let session = AgentSession::new("sess-9").expect("session");
 
-        assert_eq!(claude.response_id(&session), "sess-9");
-        let codex_response_id = codex.response_id(&session);
+        assert_eq!(claude.response_id(&session).as_deref(), Ok("sess-9"));
+        let codex_response_id = codex.response_id(&session).expect("Codex response ID");
         assert_ne!(codex_response_id, "sess-9");
-        assert_eq!(codex.response_id(&session), codex_response_id);
+        assert_eq!(
+            codex.response_id(&session).as_deref(),
+            Ok(codex_response_id.as_str())
+        );
         assert!(uuid::Uuid::parse_str(&codex_response_id).is_ok());
-        assert!(claude.can_resume_response_session());
-        assert!(!codex.can_resume_response_session());
+        assert_eq!(claude.can_resume_response_session(), Ok(true));
+        assert_eq!(codex.can_resume_response_session(), Ok(false));
     }
 
     #[test]
@@ -389,16 +409,18 @@ mod adapter_tests {
         );
         let codex = CodexFrontend::new("codex");
 
-        assert!(
-            claude.resume_candidate_exists(&AgentSession::new("valid").expect("valid session"))
+        assert_eq!(
+            claude.resume_candidate_exists(&AgentSession::new("valid").expect("valid session")),
+            Ok(true)
         );
-        assert!(
-            !claude
-                .resume_candidate_exists(&AgentSession::new("missing").expect("missing session"))
+        assert_eq!(
+            claude.resume_candidate_exists(&AgentSession::new("missing").expect("missing session")),
+            Ok(false)
         );
-        assert!(
-            !codex
-                .resume_candidate_exists(&AgentSession::new("unvalidated").expect("Codex session"))
+        assert_eq!(
+            codex
+                .resume_candidate_exists(&AgentSession::new("unvalidated").expect("Codex session")),
+            Ok(false)
         );
     }
 }

@@ -129,11 +129,11 @@ impl App<'_> {
         match self.focus {
             Panel::Brain => {
                 if let Some(pty) = self.brain.as_mut() {
-                    let step = half_page_step(pty.terminal_rows());
+                    let step = half_page_step(pty.terminal_rows().unwrap_or_default());
                     if up {
-                        pty.scroll_up(step);
+                        let _ = pty.scroll_up(step);
                     } else {
-                        pty.scroll_down(step);
+                        let _ = pty.scroll_down(step);
                     }
                 }
             }

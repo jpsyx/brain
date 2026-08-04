@@ -36,15 +36,15 @@ impl Theme {
     pub const fn dark(color: bool) -> Self {
         Self {
             color,
-            heading_code: "1;95",  // bold bright magenta
-            accent_code: "96",     // bright cyan — keys, commands, labels
-            value_code: "97",      // bright white — values / emphasis
-            muted_code: "90",      // gray — hints, secondary text
-            success_code: "92",    // bright green
-            warning_code: "93",    // bright yellow
-            error_code: "91",      // bright red
-            info_code: "94",       // bright blue (never plain "34" — too dark on dark)
-            prompt_code: "1;96",   // bold bright cyan — interactive prompts
+            heading_code: "1;95", // bold bright magenta
+            accent_code: "96",    // bright cyan: keys, commands, labels
+            value_code: "97",     // bright white: values / emphasis
+            muted_code: "90",     // gray: hints, secondary text
+            success_code: "92",   // bright green
+            warning_code: "93",   // bright yellow
+            error_code: "91",     // bright red
+            info_code: "94",      // bright blue (plain "34" is too dark on dark)
+            prompt_code: "1;96",  // bold bright cyan: interactive prompts
         }
     }
 
@@ -91,6 +91,11 @@ impl Theme {
     pub fn error(self, s: &str) -> String {
         self.paint(self.error_code, s)
     }
+    /// Render one error icon and message with the error semantic token.
+    #[must_use]
+    pub fn error_line(self, icon: &str, message: &str) -> String {
+        format!("{} {}", self.error(icon), self.error(message))
+    }
     #[must_use]
     pub fn info(self, s: &str) -> String {
         self.paint(self.info_code, s)
@@ -129,6 +134,7 @@ mod tests {
         assert_eq!(t.success("ok"), "ok");
         assert_eq!(t.heading("Title"), "Title");
         assert!(!t.warning("hmm").contains('\x1b'));
+        assert_eq!(t.error_line("🔴", "problem"), "🔴 problem");
     }
 
     #[test]
@@ -137,8 +143,14 @@ mod tests {
         // bold variant, never a dim 30-37 foreground that would vanish on dark.
         let t = Theme::dark(true);
         for token in [
-            t.accent("x"), t.value("x"), t.success("x"), t.warning("x"),
-            t.error("x"), t.info("x"), t.prompt("x"), t.heading("x"),
+            t.accent("x"),
+            t.value("x"),
+            t.success("x"),
+            t.warning("x"),
+            t.error("x"),
+            t.info("x"),
+            t.prompt("x"),
+            t.heading("x"),
         ] {
             let uses_bright = token.contains("[9") || token.contains(";9");
             assert!(uses_bright, "token should use a bright color: {token:?}");

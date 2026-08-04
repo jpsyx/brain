@@ -205,6 +205,7 @@ management and reporting commands stay outside the persistent shell.
 | --- | --- |
 | `brain` | Open the persistent shell on the tasks view (the startup default) with the default Claude brain panel. |
 | `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. Claude remains the default. |
+| `brain --open-code` / `brain -oc` | Select the constructible OpenCode stub. It exits with a themed unsupported error before workspace bootstrap, TUI, PTY, hook, or server startup. `--codex --open-code` exits with `🔴 Choose one agent frontend: --codex or --open-code.` |
 | `brain --brain <workspace>` / `brain -b <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--brain=<workspace>` is equivalent; `--` ends option extraction. |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` may be passed before or after `tasks` to use Codex in the brain panel. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
@@ -263,7 +264,8 @@ Reads and writes your **machine-local** brain env inside the selected workspace
 record in the schema-v2 registry (`$XDG_CONFIG_HOME/brain/env.json`, falling
 back to `~/.config/brain/env.json`). These are values that would be *wrong* if
 copied to another machine: `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
-self-healing), `claude_cmd`/`codex_cmd` (this machine's agent launch commands), and the
+self-healing), `claude_cmd`/`codex_cmd` (this machine's functional agent launch commands),
+`opencode_cmd` (reserved for the nonfunctional stub), and the
 Backblaze `sync` block (written by `brain sync setup`, below — see
 [config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:

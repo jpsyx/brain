@@ -94,6 +94,7 @@ impl AgentController {
     /// Returns an error when the request context differs from this controller,
     /// the frontend rejects the request, or the transport cannot spawn it.
     pub fn launch(&mut self, request: &LaunchRequest) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         if request.workspace().id() != self.workspace.id() || request.actor() != &self.actor {
             return Err(AgentError::ContextMismatch);
         }
@@ -113,6 +114,7 @@ impl AgentController {
     ///
     /// Returns an error when the transport cannot deliver the text.
     pub fn type_text(&mut self, text: &str) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         self.transport.send(InputSequence::text(text))
     }
 
@@ -122,6 +124,7 @@ impl AgentController {
     ///
     /// Returns an error when the transport cannot deliver the bytes.
     pub fn forward_terminal_input(&mut self, bytes: Vec<u8>) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         self.transport.send(InputSequence::bytes(bytes))
     }
 
@@ -131,7 +134,8 @@ impl AgentController {
     ///
     /// Returns an error when the transport cannot deliver the frontend input.
     pub fn submit_now(&mut self) -> Result<(), AgentError> {
-        self.transport.send(self.frontend.submit_input())
+        self.frontend.ensure_available()?;
+        self.transport.send(self.frontend.submit_input()?)
     }
 
     /// Queue non-blank text after the frontend's active turn.
@@ -141,13 +145,14 @@ impl AgentController {
     /// Returns [`AgentError::EmptyInput`] for blank text or an error when the
     /// transport cannot deliver the frontend input.
     pub fn queue_after_active_turn(&mut self, text: &str) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         if text.trim().is_empty() {
             return Err(AgentError::EmptyInput);
         }
         self.transport.send(InputSequence::text(text))?;
         self.pending_input = Some(PendingInput {
             ticks: QUEUED_INPUT_DELAY_TICKS,
-            input: self.frontend.queue_input(),
+            input: self.frontend.queue_input()?,
         });
         Ok(())
     }
@@ -159,6 +164,7 @@ impl AgentController {
     /// Returns an error when a pending frontend input becomes due and the
     /// transport cannot deliver it.
     pub fn tick(&mut self) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         let Some(pending) = self.pending_input.as_mut() else {
             return Ok(());
         };
@@ -176,40 +182,46 @@ impl AgentController {
     ///
     /// Returns an error when the transport cannot deliver the frontend input.
     pub fn start_new_session(&mut self) -> Result<(), AgentError> {
-        self.transport.send(self.frontend.new_session_input())
+        self.frontend.ensure_available()?;
+        self.transport.send(self.frontend.new_session_input()?)
     }
 
     /// The selected frontend's completion mechanism.
-    #[must_use]
-    pub fn completion_strategy(&self) -> CompletionStrategy {
+    pub fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
+        self.frontend.ensure_available()?;
         self.frontend.completion_strategy()
     }
 
     /// Look up a transcript through the selected frontend.
-    #[must_use]
-    pub fn transcript(&self, session: &AgentSession) -> Option<std::path::PathBuf> {
+    pub fn transcript(
+        &self,
+        session: &AgentSession,
+    ) -> Result<Option<std::path::PathBuf>, AgentError> {
+        self.frontend.ensure_available()?;
         self.frontend.transcript(session)
     }
 
     /// Snapshot the transport's visible output.
-    #[must_use]
-    pub fn snapshot(&self) -> String {
-        self.transport.snapshot()
+    pub fn snapshot(&self) -> Result<String, AgentError> {
+        self.frontend.ensure_available()?;
+        Ok(self.transport.snapshot())
     }
 
     /// Whether the selected frontend child is still running.
-    #[must_use]
-    pub fn is_alive(&self) -> bool {
-        self.transport.is_alive()
+    pub fn is_alive(&self) -> Result<bool, AgentError> {
+        self.frontend.ensure_available()?;
+        Ok(self.transport.is_alive())
     }
 
     /// Shut down the active child through its transport.
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(&mut self) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         if !self.shutdown {
             self.pending_input = None;
             self.transport.shutdown();
             self.shutdown = true;
         }
+        Ok(())
     }
 
     /// The selected frontend kind.
@@ -225,53 +237,61 @@ impl AgentController {
     }
 
     /// Whether a known frontend session can be resumed.
-    #[must_use]
-    pub fn resume_candidate_exists(&self, session: &AgentSession) -> bool {
+    pub fn resume_candidate_exists(&self, session: &AgentSession) -> Result<bool, AgentError> {
+        self.frontend.ensure_available()?;
         self.frontend.resume_candidate_exists(session)
     }
 
     /// Stable response artifact identity for a frontend session.
-    #[must_use]
-    pub fn response_id(&self, session: &AgentSession) -> String {
+    pub fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {
+        self.frontend.ensure_available()?;
         self.frontend.response_id(session)
     }
 
     /// Whether the selected frontend can resume a completed receiver session.
-    #[must_use]
-    pub fn can_resume_response_session(&self) -> bool {
+    pub fn can_resume_response_session(&self) -> Result<bool, AgentError> {
+        self.frontend.ensure_available()?;
         self.frontend.can_resume_response_session()
     }
 
     /// Terminal screen for rendering an interactive transport.
-    #[must_use]
-    pub fn terminal_screen(&self) -> Option<Arc<RwLock<vt100::Parser>>> {
-        self.transport.terminal_screen()
+    pub fn terminal_screen(&self) -> Result<Option<Arc<RwLock<vt100::Parser>>>, AgentError> {
+        self.frontend.ensure_available()?;
+        Ok(self.transport.terminal_screen())
     }
 
     /// Resize the interactive transport.
-    pub fn resize(&mut self, rows: u16, cols: u16) {
+    pub fn resize(&mut self, rows: u16, cols: u16) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         self.transport.resize(rows, cols);
+        Ok(())
     }
 
     /// Scroll the interactive transport up.
-    pub fn scroll_up(&mut self, rows: usize) {
+    pub fn scroll_up(&mut self, rows: usize) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         self.transport.scroll_up(rows);
+        Ok(())
     }
 
     /// Scroll the interactive transport down.
-    pub fn scroll_down(&mut self, rows: usize) {
+    pub fn scroll_down(&mut self, rows: usize) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         self.transport.scroll_down(rows);
+        Ok(())
     }
 
     /// Snap the interactive transport to live output.
-    pub fn scroll_to_bottom(&mut self) {
+    pub fn scroll_to_bottom(&mut self) -> Result<(), AgentError> {
+        self.frontend.ensure_available()?;
         self.transport.scroll_to_bottom();
+        Ok(())
     }
 
     /// Current interactive terminal row count.
-    #[must_use]
-    pub fn terminal_rows(&self) -> u16 {
-        self.transport.terminal_rows()
+    pub fn terminal_rows(&self) -> Result<u16, AgentError> {
+        self.frontend.ensure_available()?;
+        Ok(self.transport.terminal_rows())
     }
 }
 
@@ -345,39 +365,39 @@ mod tests {
             ))
         }
 
-        fn submit_input(&self) -> InputSequence {
+        fn submit_input(&self) -> Result<InputSequence, AgentError> {
             self.recording.record(Event::Submit);
-            InputSequence::bytes(b"\x1dsubmit")
+            Ok(InputSequence::bytes(b"\x1dsubmit"))
         }
 
-        fn queue_input(&self) -> InputSequence {
-            InputSequence::bytes(QUEUE_MARKER)
+        fn queue_input(&self) -> Result<InputSequence, AgentError> {
+            Ok(InputSequence::bytes(QUEUE_MARKER))
         }
 
-        fn new_session_input(&self) -> InputSequence {
+        fn new_session_input(&self) -> Result<InputSequence, AgentError> {
             self.recording.record(Event::FrontendNewSession);
-            InputSequence::bytes(NEW_SESSION_MARKER)
+            Ok(InputSequence::bytes(NEW_SESSION_MARKER))
         }
 
-        fn completion_strategy(&self) -> CompletionStrategy {
-            CompletionStrategy::Hook
+        fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
+            Ok(CompletionStrategy::Hook)
         }
 
-        fn transcript(&self, session: &AgentSession) -> Option<PathBuf> {
+        fn transcript(&self, session: &AgentSession) -> Result<Option<PathBuf>, AgentError> {
             self.recording.record(Event::Transcript(session.clone()));
-            Some(PathBuf::from("/transcripts").join(session.as_str()))
+            Ok(Some(PathBuf::from("/transcripts").join(session.as_str())))
         }
 
-        fn resume_candidate_exists(&self, _session: &AgentSession) -> bool {
-            true
+        fn resume_candidate_exists(&self, _session: &AgentSession) -> Result<bool, AgentError> {
+            Ok(true)
         }
 
-        fn response_id(&self, session: &AgentSession) -> String {
-            session.as_str().to_owned()
+        fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {
+            Ok(session.as_str().to_owned())
         }
 
-        fn can_resume_response_session(&self) -> bool {
-            true
+        fn can_resume_response_session(&self) -> Result<bool, AgentError> {
+            Ok(true)
         }
     }
 
@@ -613,10 +633,13 @@ mod tests {
         let (controller, recording, _, _) = controller();
         let session = AgentSession::new("session-1").expect("session");
 
-        assert_eq!(controller.completion_strategy(), CompletionStrategy::Hook);
+        assert_eq!(
+            controller.completion_strategy(),
+            Ok(CompletionStrategy::Hook)
+        );
         assert_eq!(
             controller.transcript(&session),
-            Some(PathBuf::from("/transcripts/session-1"))
+            Ok(Some(PathBuf::from("/transcripts/session-1")))
         );
         assert_eq!(recording.events(), vec![Event::Transcript(session)]);
     }
@@ -625,7 +648,7 @@ mod tests {
     fn shutdown_delegates_once_to_the_transport() {
         let (mut controller, recording, _, _) = controller();
 
-        controller.shutdown();
+        controller.shutdown().expect("shutdown");
 
         assert_eq!(recording.events(), vec![Event::Shutdown]);
     }

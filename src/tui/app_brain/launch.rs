@@ -103,7 +103,11 @@ impl App<'_> {
         // Already open with a live agent: reuse the existing session, focus
         // it and, if a prompt was supplied, type it into the running
         // conversation. We never spawn a second session while one is up.
-        if self.brain.as_ref().is_some_and(AgentController::is_alive) {
+        if self
+            .brain
+            .as_ref()
+            .is_some_and(|controller| controller.is_alive().unwrap_or(false))
+        {
             self.focus = Panel::Brain;
             self.alert = None;
             if let Some(p) = prompt {
@@ -136,6 +140,11 @@ impl App<'_> {
         );
         let resume_override = self.receiver_resume_session.take();
         let frontend = crate::agent::configured_frontend(&self.command_context, self.agent_kind);
+        if let Err(error) = frontend.ensure_available() {
+            crate::logging::log(format!("brain panel frontend unavailable: {error}"));
+            self.flash = Some(FlashKind::Error(error.to_string()));
+            return false;
+        }
         let mut resume = None;
         let mut skipped_missing = false;
         {
@@ -147,7 +156,10 @@ impl App<'_> {
                 let Ok(candidate) = crate::agent::AgentSession::new(&id) else {
                     continue;
                 };
-                if !frontend.resume_candidate_exists(&candidate) {
+                if !frontend
+                    .resume_candidate_exists(&candidate)
+                    .unwrap_or(false)
+                {
                     skipped_missing = true;
                     continue;
                 }
@@ -167,7 +179,14 @@ impl App<'_> {
         };
         let agent_session = crate::agent::AgentSession::new(&session_id)
             .expect("selected session IDs are non-blank");
-        let response_id = frontend.response_id(&agent_session);
+        let response_id = match frontend.response_id(&agent_session) {
+            Ok(response_id) => response_id,
+            Err(error) => {
+                crate::logging::log(format!("brain panel response identity failed: {error}"));
+                self.flash = Some(FlashKind::Error(error.to_string()));
+                return false;
+            }
+        };
         if receiver_request {
             self.receiver_session_id = Some(response_id.clone());
             let response_path =

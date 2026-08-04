@@ -18,7 +18,7 @@ impl CompletionDelivery {
             crate::actor::Channel::Interactive => return None,
         };
         Some(Self {
-            snapshot: controller.snapshot(),
+            snapshot: controller.snapshot().ok()?,
             actor: controller.actor().clone(),
             channel,
         })

@@ -172,37 +172,38 @@ impl AgentFrontend for ClaudeFrontend {
         .with_capabilities(report))
     }
 
-    fn submit_input(&self) -> InputSequence {
-        InputSequence::bytes(b"\r")
+    fn submit_input(&self) -> Result<InputSequence, AgentError> {
+        Ok(InputSequence::bytes(b"\r"))
     }
 
-    fn queue_input(&self) -> InputSequence {
-        InputSequence::bytes(b"\r")
+    fn queue_input(&self) -> Result<InputSequence, AgentError> {
+        Ok(InputSequence::bytes(b"\r"))
     }
 
-    fn new_session_input(&self) -> InputSequence {
-        InputSequence::bytes(b"/new\r")
+    fn new_session_input(&self) -> Result<InputSequence, AgentError> {
+        Ok(InputSequence::bytes(b"/new\r"))
     }
 
-    fn completion_strategy(&self) -> CompletionStrategy {
-        CompletionStrategy::Hook
+    fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
+        Ok(CompletionStrategy::Hook)
     }
 
-    fn transcript(&self, session: &AgentSession) -> Option<PathBuf> {
-        self.existing_transcript(session)
-            .or_else(|| self.transcript_path(session))
+    fn transcript(&self, session: &AgentSession) -> Result<Option<PathBuf>, AgentError> {
+        Ok(self
+            .existing_transcript(session)
+            .or_else(|| self.transcript_path(session)))
     }
 
-    fn resume_candidate_exists(&self, session: &AgentSession) -> bool {
-        self.existing_transcript(session).is_some()
+    fn resume_candidate_exists(&self, session: &AgentSession) -> Result<bool, AgentError> {
+        Ok(self.existing_transcript(session).is_some())
     }
 
-    fn response_id(&self, session: &AgentSession) -> String {
-        session.as_str().to_owned()
+    fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {
+        Ok(session.as_str().to_owned())
     }
 
-    fn can_resume_response_session(&self) -> bool {
-        true
+    fn can_resume_response_session(&self) -> Result<bool, AgentError> {
+        Ok(true)
     }
 }
 

@@ -122,7 +122,7 @@ impl App<'_> {
         if self
             .triage_brain
             .as_ref()
-            .is_some_and(AgentController::is_alive)
+            .is_some_and(|controller| controller.is_alive().unwrap_or(false))
         {
             self.select_brain_tab(BrainTab::Triage);
             return;
@@ -203,7 +203,7 @@ impl App<'_> {
     /// the main session when it's open, else to the tasks panel.
     pub(crate) fn close_triage_tab(&mut self) {
         if let Some(mut controller) = self.triage_brain.take() {
-            controller.shutdown();
+            let _ = controller.shutdown();
         }
         self.triage_token = None;
         self.active_brain_tab = BrainTab::Main;
@@ -228,7 +228,7 @@ impl App<'_> {
         if self
             .triage_brain
             .as_ref()
-            .is_some_and(|controller| !controller.is_alive())
+            .is_some_and(|controller| controller.is_alive().is_ok_and(|alive| !alive))
         {
             crate::logging::log("triage tab: session exited; closing");
             self.close_triage_tab();

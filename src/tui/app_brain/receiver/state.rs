@@ -2,7 +2,7 @@
 
 use crate::tui::*;
 
-use crate::agent::{AgentController, SessionStore};
+use crate::agent::SessionStore;
 
 impl App<'_> {
     pub(crate) fn receiver_server_running(&self) -> bool {
@@ -15,9 +15,9 @@ impl App<'_> {
         let can_resume = self
             .brain
             .as_ref()
-            .is_some_and(AgentController::can_resume_response_session);
+            .is_some_and(|controller| controller.can_resume_response_session().unwrap_or(false));
         if let Some(mut controller) = self.brain.take() {
-            controller.shutdown();
+            let _ = controller.shutdown();
         }
         self.session_actor = None;
         self.brain_turn_active = false;

@@ -66,6 +66,7 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_both_fro
             AgentKind::Codex => {
                 assert!(!spec.command.contains(" resume "));
             }
+            AgentKind::OpenCode => unreachable!("OpenCode stub never launches"),
         }
     }
 }
@@ -253,6 +254,7 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
         let expected_bytes = match agent_kind {
             AgentKind::Claude => "2f 6e 65 77 0d",
             AgentKind::Codex => "2f 6e 65 77 09",
+            AgentKind::OpenCode => unreachable!("OpenCode stub never launches"),
         };
         let panel = app
             .brain
@@ -261,7 +263,7 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
         assert!(
             wait_for_panel_contents(panel, expected_bytes),
             "capture panel did not receive deferred /new bytes: {}",
-            panel.snapshot()
+            panel.snapshot().expect("supported capture panel snapshot")
         );
     }
 }

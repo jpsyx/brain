@@ -42,39 +42,39 @@ impl AgentFrontend for RecordingFrontend {
         ))
     }
 
-    fn submit_input(&self) -> InputSequence {
+    fn submit_input(&self) -> Result<InputSequence, AgentError> {
         self.recording.record(ControllerEvent::SubmitNow);
-        InputSequence::bytes(b"\r")
+        Ok(InputSequence::bytes(b"\r"))
     }
 
-    fn queue_input(&self) -> InputSequence {
+    fn queue_input(&self) -> Result<InputSequence, AgentError> {
         self.recording.record(ControllerEvent::QueueAfterActiveTurn);
-        InputSequence::bytes(b"\x1dqueue")
+        Ok(InputSequence::bytes(b"\x1dqueue"))
     }
 
-    fn new_session_input(&self) -> InputSequence {
+    fn new_session_input(&self) -> Result<InputSequence, AgentError> {
         self.recording.record(ControllerEvent::StartNewSession);
-        InputSequence::bytes(b"/new\r")
+        Ok(InputSequence::bytes(b"/new\r"))
     }
 
-    fn completion_strategy(&self) -> CompletionStrategy {
-        CompletionStrategy::Hook
+    fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
+        Ok(CompletionStrategy::Hook)
     }
 
-    fn transcript(&self, _session: &AgentSession) -> Option<PathBuf> {
-        None
+    fn transcript(&self, _session: &AgentSession) -> Result<Option<PathBuf>, AgentError> {
+        Ok(None)
     }
 
-    fn resume_candidate_exists(&self, _session: &AgentSession) -> bool {
-        true
+    fn resume_candidate_exists(&self, _session: &AgentSession) -> Result<bool, AgentError> {
+        Ok(true)
     }
 
-    fn response_id(&self, session: &AgentSession) -> String {
-        session.as_str().to_owned()
+    fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {
+        Ok(session.as_str().to_owned())
     }
 
-    fn can_resume_response_session(&self) -> bool {
-        true
+    fn can_resume_response_session(&self) -> Result<bool, AgentError> {
+        Ok(true)
     }
 }
 
@@ -332,6 +332,7 @@ pub(super) fn assert_workspace_only_launch_spec(
                 crate::session::shell_quote(&format!("developer_instructions={serialized}"))
             )
         }
+        AgentKind::OpenCode => unreachable!("OpenCode stub never launches"),
     };
     let prompt_argument = format!("-- {}", crate::session::shell_quote(prompt));
 
@@ -455,6 +456,7 @@ pub(super) fn wait_for_panel_contents(panel: &AgentController, expected: &str) -
     loop {
         let normalized = panel
             .snapshot()
+            .expect("supported test panel snapshot")
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");

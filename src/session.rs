@@ -46,14 +46,18 @@ pub fn shell_quote(s: &str) -> String {
 /// Defer / Start / Remove / agenda / triage / message-about-task actions).
 /// The brain-search view always passes `None` — its panel is typed into by
 /// hand.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns [`crate::agent::AgentError::UnsupportedFrontend`] for the OpenCode
+/// selection stub.
 pub fn build_llm_command(
     brain_root: &Path,
     agent_kind: AgentKind,
     llm_cmd: &str,
     plan: &Plan,
     prompt: Option<&str>,
-) -> String {
+) -> Result<String, crate::agent::AgentError> {
     let session_plan = match plan {
         Plan::Resume(id) => crate::agent::SessionPlan::resume(
             crate::agent::AgentSession::new(id).expect("legacy session IDs are non-blank"),
@@ -62,11 +66,11 @@ pub fn build_llm_command(
             crate::agent::AgentSession::new(id).expect("legacy session IDs are non-blank"),
         ),
     };
-    let command = crate::agent::build_command(agent_kind, llm_cmd, &session_plan, prompt);
-    format!(
+    let command = crate::agent::build_command(agent_kind, llm_cmd, &session_plan, prompt)?;
+    Ok(format!(
         "cd {} && {command}",
         shell_quote(&brain_root.display().to_string())
-    )
+    ))
 }
 
 /// Claude's project-dir name for a working directory.
@@ -209,7 +213,8 @@ mod tests {
             "claude",
             &Plan::Fresh("uuid-1".to_owned()),
             None,
-        );
+        )
+        .expect("Claude fresh command");
         assert!(cmd.starts_with("cd '/Users/x/brain' && claude"));
         assert!(cmd.contains("--session-id 'uuid-1'"));
         assert!(!cmd.contains("--resume"));
@@ -223,7 +228,8 @@ mod tests {
             "claude",
             &Plan::Resume("sess-9".to_owned()),
             None,
-        );
+        )
+        .expect("Claude resume command");
         assert!(cmd.contains("--resume 'sess-9'"));
         assert!(!cmd.contains("--session-id"));
     }
@@ -239,7 +245,8 @@ mod tests {
             "claude --dangerously-skip-permissions",
             &Plan::Resume("sess-9".to_owned()),
             None,
-        );
+        )
+        .expect("configured Claude command");
         assert_eq!(
             cmd,
             "cd '/Users/x/brain' && claude --dangerously-skip-permissions --resume 'sess-9'"
@@ -254,7 +261,8 @@ mod tests {
             "claude",
             &Plan::Fresh("uuid-1".to_owned()),
             Some("Defer T123 by 7 days"),
-        );
+        )
+        .expect("Claude prompt command");
         assert!(cmd.ends_with("'Defer T123 by 7 days'"));
     }
 
@@ -266,7 +274,8 @@ mod tests {
             "claude",
             &Plan::Resume("sess-9".to_owned()),
             Some("   "),
-        );
+        )
+        .expect("Claude empty-prompt command");
         assert!(cmd.ends_with("--resume 'sess-9'"));
         assert!(!cmd.contains("''"));
     }
@@ -279,7 +288,8 @@ mod tests {
             "claude",
             &Plan::Fresh("u".to_owned()),
             Some("don't break"),
-        );
+        )
+        .expect("Claude quoted-prompt command");
         assert!(cmd.contains(r"'don'\''t break'"));
     }
 
@@ -291,7 +301,8 @@ mod tests {
             "codex",
             &Plan::Resume("sess-9".to_owned()),
             None,
-        );
+        )
+        .expect("Codex resume command");
         assert_eq!(cmd, "cd '/Users/x/brain' && codex resume 'sess-9'");
     }
 
@@ -303,7 +314,8 @@ mod tests {
             "codex --model gpt-5",
             &Plan::Fresh("uuid-1".to_owned()),
             Some("Start here"),
-        );
+        )
+        .expect("Codex fresh command");
         assert_eq!(
             cmd,
             "cd '/Users/x/brain' && codex --model gpt-5 -- 'Start here'"
@@ -347,7 +359,7 @@ mod tests {
         for (agent, configured_command, plan, expected) in cases {
             assert_eq!(
                 build_llm_command(&root, agent, configured_command, &plan, prompt),
-                expected
+                Ok(expected.to_owned())
             );
         }
     }

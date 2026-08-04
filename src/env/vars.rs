@@ -247,7 +247,9 @@ fn flatten_value(path: &str, value: &Value, rows: &mut Vec<(String, Value)>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::env::schema::{DEFAULT_CLAUDE_CMD, DEFAULT_CODEX_CMD, default_of};
+    use crate::env::schema::{
+        DEFAULT_CLAUDE_CMD, DEFAULT_CODEX_CMD, DEFAULT_OPENCODE_CMD, default_of,
+    };
 
     fn command() -> CommandContext {
         CommandContext::for_test(
@@ -272,11 +274,12 @@ mod tests {
     #[test]
     fn resolve_all_lists_root_markdown_to_pdf_path_and_agent_cmds() {
         let rows = resolve_all(&command());
-        assert!(rows.len() >= 4);
+        assert!(rows.len() >= 5);
         assert!(rows.iter().any(|r| r.name == "root"));
         assert!(rows.iter().any(|r| r.name == "markdown_to_pdf_path"));
         assert!(rows.iter().any(|r| r.name == "claude_cmd"));
         assert!(rows.iter().any(|r| r.name == "codex_cmd"));
+        assert!(rows.iter().any(|r| r.name == "opencode_cmd"));
         assert!(
             rows.iter()
                 .find(|r| r.name == "root")
@@ -314,6 +317,11 @@ mod tests {
     }
 
     #[test]
+    fn blank_opencode_command_defaults_to_opencode() {
+        assert_eq!(trim_or_default("", DEFAULT_OPENCODE_CMD), "opencode");
+    }
+
+    #[test]
     fn blank_claude_command_defaults_to_permissionless_claude() {
         assert_eq!(
             trim_or_default("", DEFAULT_CLAUDE_CMD),
@@ -328,6 +336,7 @@ mod tests {
             Some("claude --dangerously-skip-permissions")
         );
         assert_eq!(default_of("codex_cmd"), Some("codex"));
+        assert_eq!(default_of("opencode_cmd"), Some("opencode"));
     }
 
     #[test]

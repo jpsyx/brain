@@ -5,8 +5,6 @@ use crate::tui::*;
 
 use crossterm::event::KeyCode;
 
-use crate::agent::AgentController;
-
 /// Number of tasks a single wheel notch moves the selection in the tasks
 /// panel, and the rows it scrolls the brain panel's history. Kept modest so
 /// trackpad inertia (many events) stays controllable.
@@ -51,9 +49,9 @@ pub(crate) fn handle_mouse(app: &mut App<'_>, me: crossterm::event::MouseEvent) 
         Panel::Brain => {
             if let Some(controller) = app.active_brain_controller_mut() {
                 if up {
-                    controller.scroll_up(WHEEL_ROWS);
+                    let _ = controller.scroll_up(WHEEL_ROWS);
                 } else {
-                    controller.scroll_down(WHEEL_ROWS);
+                    let _ = controller.scroll_down(WHEEL_ROWS);
                 }
             }
         }
@@ -76,7 +74,10 @@ pub(crate) fn handle_brain_key(
     k: &crossterm::event::KeyEvent,
     ctrl: bool,
 ) -> bool {
-    let mut alive = app.brain.as_ref().is_some_and(AgentController::is_alive);
+    let mut alive = app
+        .brain
+        .as_ref()
+        .is_some_and(|controller| controller.is_alive().unwrap_or(false));
     if !alive {
         // Child gone: close the panel on Ctrl-C / Esc / q so the user can
         // get back to a full-width tasks view without re-spawning.
@@ -97,7 +98,10 @@ pub(crate) fn handle_brain_key(
         return false;
     };
     app.leave_warm_receiver_for_interactive_input();
-    alive = app.brain.as_ref().is_some_and(AgentController::is_alive);
+    alive = app
+        .brain
+        .as_ref()
+        .is_some_and(|controller| controller.is_alive().unwrap_or(false));
     if !alive {
         return false;
     }
@@ -105,7 +109,7 @@ pub(crate) fn handle_brain_key(
     if let Some(controller) = app.brain.as_mut() {
         // Typing snaps back to the live tail so the prompt is always in
         // view, even if the user had scrolled up through history.
-        controller.scroll_to_bottom();
+        let _ = controller.scroll_to_bottom();
         let result = if starts_turn {
             controller.submit_now()
         } else {
@@ -133,7 +137,7 @@ pub(crate) fn handle_triage_key(
     let alive = app
         .triage_brain
         .as_ref()
-        .is_some_and(AgentController::is_alive);
+        .is_some_and(|controller| controller.is_alive().unwrap_or(false));
     if !alive {
         match k.code {
             KeyCode::Char('c') if ctrl => app.close_triage_tab(),
@@ -144,7 +148,7 @@ pub(crate) fn handle_triage_key(
     }
     if let Some(bytes) = key_to_bytes(k) {
         if let Some(controller) = app.triage_brain.as_mut() {
-            controller.scroll_to_bottom();
+            let _ = controller.scroll_to_bottom();
             let result = if brain_key_starts_turn(k.code) {
                 controller.submit_now()
             } else {

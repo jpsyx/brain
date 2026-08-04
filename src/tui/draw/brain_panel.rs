@@ -11,7 +11,6 @@ use ratatui::{
 };
 use tui_term::widget::PseudoTerminal;
 
-use crate::agent::AgentController;
 use crate::tui::*;
 
 pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
@@ -20,7 +19,7 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     let active_tab = app.effective_brain_tab();
     let alive = app
         .active_brain_controller()
-        .is_some_and(AgentController::is_alive);
+        .is_some_and(|controller| controller.is_alive().unwrap_or(false));
 
     let border_color = if focused {
         Color::Rgb(125, 207, 255) // cyan accent — matches the rest of the palette
@@ -88,13 +87,13 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     // when dimensions match, so this is safe to call every frame.
     if let Some(controller) = app.active_brain_controller_mut() {
         if term_area.height > 0 && term_area.width > 0 {
-            controller.resize(term_area.height, term_area.width);
+            let _ = controller.resize(term_area.height, term_area.width);
         }
     }
 
     if let Some(screen) = app
         .active_brain_controller()
-        .and_then(AgentController::terminal_screen)
+        .and_then(|controller| controller.terminal_screen().ok().flatten())
     {
         if let Ok(parser) = screen.read() {
             let screen = parser.screen();

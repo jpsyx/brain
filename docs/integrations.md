@@ -100,19 +100,29 @@ and each capability is either an in-process main view (tasks, brain-directory
 search) or a spawned process it drives (Claude or Codex for conversational work,
 Finder/editor for files, `markdown-to-pdf` for conversions).
 
-## The Brain Panel: Claude Or Codex
+## The Brain Panel: Claude, Codex, Or The OpenCode Stub
 
 The persistent shell's brain panel spawns the selected agent frontend itself,
 inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex`,
 `brain -cx`, `brain tasks --codex`, or `brain tasks -cx` to run Codex instead.
+`brain --open-code` and `brain -oc` select a constructible OpenCode adapter that
+always returns `UnsupportedFrontend(OpenCode)`. Selection exits before workspace
+bootstrap, the TUI, a PTY, hook installation, or server startup. Brain never
+executes `opencode`, looks up OpenCode sessions, installs OpenCode hooks, or
+delivers receiver work through it. Selecting both non-default frontends exits
+with `🔴 Choose one agent frontend: --codex or --open-code.`
 
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
 | Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> [--mcp-config <cache-json> --strict-mcp-config] --resume <id>` or `--session-id <id>` |
 | Codex | `codex_cmd` in brain env, default `codex` | Current panels launch fresh as `cd <root> && <codex_cmd> [-c <capability-override>...]`; the adapter retains `resume <id>` for a future validated resume source |
+| OpenCode stub | `opencode_cmd` in brain env, default `opencode` | No launch shape. The value is represented but never executed. |
 
 `agent::ClaudeFrontend` and `agent::CodexFrontend` own these command shapes and
 splice the configured base command in verbatim so it may carry its own flags.
+`agent::OpenCodeFrontend` owns only stable identity and typed unsupported
+results. All frontend operations are fallible so the controller can reject the
+stub before a transport side effect.
 The TUI owns an `AgentController` for each live main or triage panel and calls
 semantic submit, queue, new-session, snapshot, and shutdown operations. The
 crate-level `session::build_llm_command` remains a compatibility wrapper for

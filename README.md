@@ -66,6 +66,8 @@ means adding a palette row or a keybinding, not another command to memorize.
 brain                 # persistent shell, tasks view (Claude brain panel)
 brain --codex         # same shell, with Codex in the brain panel
 brain -cx            # short alias for --codex
+brain --open-code     # select the OpenCode stub; exits unsupported before startup
+brain -oc             # short alias for --open-code
 brain tasks           # same shell, launched on the tasks view explicitly
 brain tasks today --no-tui        # print today's tasks, no TUI
 brain tasks complete t123         # mark a task complete
@@ -112,6 +114,10 @@ work and how to make them yours without forking the repo.
   uses it to turn notes/agendas into PDFs. Auto-discovered on first run.
 - The `claude` CLI for the default brain panel, or the `codex` CLI if you run
   `brain --codex` / `brain -cx`.
+
+OpenCode is selectable with `--open-code` / `-oc`, but it is currently a
+fail-fast stub. Brain does not run an `opencode` process, inspect OpenCode
+sessions, install OpenCode hooks, or deliver OpenCode receiver responses.
 
 **Register a workspace**
 
@@ -265,17 +271,17 @@ code does not reopen the registry or consult a global root. Detached Brain
 children carry the canonical `--brain` name, and child integrations receive
 `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and `BRAIN_ACTOR_ID`.
 
-This release does not implement access-mode enforcement. A later
-`workspace_only` mode will use prompt-based guidance and light guardrails. It
+`workspace_only` mode uses prompt-based guidance and capability filtering. It
 is not a filesystem sandbox, authentication boundary, container, OS-account
 boundary, or protection from a malicious trusted user. Its limited purpose is
 to reduce accidental and naive cross-workspace leakage in a high-trust,
 self-hosted environment. The migrated/default workspace remains unrestricted
-unless a later access-policy feature explicitly configures it otherwise.
+unless its portable access policy explicitly configures it otherwise.
 Changing the default workspace never changes access mode.
 
-Access controls, the agent-controller/OpenCode facade, and the final shared
-receiver lease lifecycle remain later phases.
+The agent-controller facade and advisory access controls are active. OpenCode
+is represented only by the fail-fast selection stub; functional OpenCode
+sessions and the final shared receiver lease lifecycle remain later phases.
 
 The task-schema migrator also remains inactive. Phase 5 owns the final legacy
 sync, coordinated backup, activation, and real-workspace rollout. Phase 2
@@ -317,6 +323,7 @@ brain env get root             # selected workspace root (read-only)
 brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf
 brain env set claude_cmd='claude --dangerously-skip-permissions'
 brain env set codex_cmd='codex --model gpt-5'
+brain env set opencode_cmd='opencode' # reserved; the stub never executes it
 brain env get root -b family
 ```
 
@@ -326,6 +333,7 @@ brain env get root -b family
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on this machine. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command the Claude brain panel launches on this machine. |
 | `codex_cmd` | `codex` | Command the Codex brain panel launches on this machine. |
+| `opencode_cmd` | `opencode` | Reserved OpenCode command value. The selectable stub never executes it. |
 
 ### The `markdown-to-pdf` prerequisite
 

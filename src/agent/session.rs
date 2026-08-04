@@ -11,6 +11,8 @@ pub enum AgentKind {
     Claude,
     /// OpenAI Codex.
     Codex,
+    /// OpenCode (selection stub only).
+    OpenCode,
 }
 
 impl AgentKind {
@@ -20,6 +22,7 @@ impl AgentKind {
         match self {
             Self::Claude => "Claude",
             Self::Codex => "Codex",
+            Self::OpenCode => "OpenCode",
         }
     }
 
@@ -29,6 +32,7 @@ impl AgentKind {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::OpenCode => "opencode",
         }
     }
 }

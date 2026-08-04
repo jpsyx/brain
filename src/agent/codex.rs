@@ -121,36 +121,36 @@ impl AgentFrontend for CodexFrontend {
         .with_capabilities(report))
     }
 
-    fn submit_input(&self) -> InputSequence {
-        InputSequence::bytes(b"\r")
+    fn submit_input(&self) -> Result<InputSequence, AgentError> {
+        Ok(InputSequence::bytes(b"\r"))
     }
 
-    fn queue_input(&self) -> InputSequence {
-        InputSequence::bytes(b"\t")
+    fn queue_input(&self) -> Result<InputSequence, AgentError> {
+        Ok(InputSequence::bytes(b"\t"))
     }
 
-    fn new_session_input(&self) -> InputSequence {
-        InputSequence::bytes(b"/new\t")
+    fn new_session_input(&self) -> Result<InputSequence, AgentError> {
+        Ok(InputSequence::bytes(b"/new\t"))
     }
 
-    fn completion_strategy(&self) -> CompletionStrategy {
-        CompletionStrategy::Hook
+    fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
+        Ok(CompletionStrategy::Hook)
     }
 
-    fn transcript(&self, _session: &AgentSession) -> Option<PathBuf> {
-        None
+    fn transcript(&self, _session: &AgentSession) -> Result<Option<PathBuf>, AgentError> {
+        Ok(None)
     }
 
-    fn resume_candidate_exists(&self, _session: &AgentSession) -> bool {
-        false
+    fn resume_candidate_exists(&self, _session: &AgentSession) -> Result<bool, AgentError> {
+        Ok(false)
     }
 
-    fn response_id(&self, session: &AgentSession) -> String {
+    fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {
         let identity = format!("brain://codex/response/{}", session.as_str());
-        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, identity.as_bytes()).to_string()
+        Ok(uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, identity.as_bytes()).to_string())
     }
 
-    fn can_resume_response_session(&self) -> bool {
-        false
+    fn can_resume_response_session(&self) -> Result<bool, AgentError> {
+        Ok(false)
     }
 }

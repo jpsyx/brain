@@ -19,7 +19,10 @@ impl App<'_> {
         deliver: impl FnOnce(&mut Self, crate::server::delivery::CompletionDelivery),
     ) {
         let receiver_panel = self.receiver_session_id.is_some();
-        let completed_remote = self.brain.as_ref().is_some_and(|panel| !panel.is_alive())
+        let completed_remote = self
+            .brain
+            .as_ref()
+            .is_some_and(|panel| panel.is_alive().is_ok_and(|alive| !alive))
             && receiver_panel
             && self.receiver_started.is_some();
         let completion = completed_remote
@@ -30,7 +33,7 @@ impl App<'_> {
             deliver(self, completion);
         }
         if let Some(mut controller) = self.brain.take() {
-            controller.shutdown();
+            let _ = controller.shutdown();
         }
         self.session_actor = None;
         self.brain_turn_active = false;
@@ -83,7 +86,7 @@ impl App<'_> {
         if self
             .brain
             .as_ref()
-            .is_some_and(|controller| !controller.is_alive())
+            .is_some_and(|controller| controller.is_alive().is_ok_and(|alive| !alive))
         {
             self.close_brain();
             return true;

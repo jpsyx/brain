@@ -11,11 +11,12 @@ pub(super) struct VarSpec {
 
 pub(super) use crate::agent::{
     DEFAULT_CLAUDE_COMMAND as DEFAULT_CLAUDE_CMD, DEFAULT_CODEX_COMMAND as DEFAULT_CODEX_CMD,
+    DEFAULT_OPENCODE_COMMAND as DEFAULT_OPENCODE_CMD,
 };
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 12] = [
+pub(super) const VARS: [VarSpec; 13] = [
     VarSpec {
         name: "root",
         description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",
@@ -38,6 +39,12 @@ pub(super) const VARS: [VarSpec; 12] = [
         name: "codex_cmd",
         description: "Command used to launch Codex for the brain panel on THIS machine. Defaults to codex; brain appends Codex resume args when resuming.",
         default: Some(DEFAULT_CODEX_CMD),
+        legacy_config_fallback: false,
+    },
+    VarSpec {
+        name: "opencode_cmd",
+        description: "Command reserved for the OpenCode brain-panel stub on THIS machine. Defaults to opencode; Brain does not execute it yet.",
+        default: Some(DEFAULT_OPENCODE_CMD),
         legacy_config_fallback: false,
     },
     VarSpec {

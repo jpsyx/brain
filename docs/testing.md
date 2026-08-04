@@ -151,6 +151,12 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Launch builders** (`session.rs`). `AgentKind`, `Plan::decide` (resume vs
   fresh), `build_llm_command` (Claude `--resume`/`--session-id`, Codex `resume`
   and no Claude flags for fresh launches, shell-quoting), and `env_for`.
+- **OpenCode fail-fast smoke boundary.** `tests/opencode_smoke.rs` covers
+  `--open-code`, normalized `-oc`, the typed mutually exclusive selection
+  error and exact plain rendering, early process rejection, direct adapter
+  rejection, and every controller lifecycle/input/terminal-control rejection
+  against an instrumented transport with no side effects. Env units cover the
+  reserved command value. No test launches OpenCode.
 - **Portable advisory access policy.** `tests/workspace_access_policy.rs`
   proves first/later create and attach defaults, valid-v2 upgrade seeding,
   strict typed status, trusted config mutation, and default-switch byte
@@ -293,7 +299,7 @@ No test reads or writes a real user workspace.
 
 The suite does not claim a filesystem sandbox, a general prompt-injection
 detector, coordinated task migration activation against a real workspace,
-OpenCode behavior, or the final shared-server lease lifecycle.
+functional OpenCode behavior, or the final shared-server lease lifecycle.
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to

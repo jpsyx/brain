@@ -13,7 +13,7 @@ mod users;
 mod workspace;
 
 pub use configuration::*;
-pub use global::Cli;
+pub use global::{AgentSelectionError, Cli};
 pub use server::*;
 pub use sync::*;
 pub use tasks::*;

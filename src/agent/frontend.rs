@@ -209,32 +209,37 @@ pub trait AgentFrontend: Send {
     /// This frontend's stable kind.
     fn kind(&self) -> AgentKind;
 
+    /// Reject operations for a constructible but unavailable frontend.
+    fn ensure_available(&self) -> Result<(), AgentError> {
+        Ok(())
+    }
+
     /// Translate a neutral launch request into a complete launch spec.
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError>;
 
     /// Input sequence that immediately submits the current turn.
-    fn submit_input(&self) -> InputSequence;
+    fn submit_input(&self) -> Result<InputSequence, AgentError>;
 
     /// Input sequence that queues text after the active turn.
-    fn queue_input(&self) -> InputSequence;
+    fn queue_input(&self) -> Result<InputSequence, AgentError>;
 
     /// Input sequence that begins a fresh in-frontend session.
-    fn new_session_input(&self) -> InputSequence;
+    fn new_session_input(&self) -> Result<InputSequence, AgentError>;
 
     /// Completion mechanism used by this frontend.
-    fn completion_strategy(&self) -> CompletionStrategy;
+    fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError>;
 
     /// Location of the frontend's transcript for a known session.
-    fn transcript(&self, session: &AgentSession) -> Option<PathBuf>;
+    fn transcript(&self, session: &AgentSession) -> Result<Option<PathBuf>, AgentError>;
 
     /// Whether this known session is safe to offer as a resume candidate.
-    fn resume_candidate_exists(&self, session: &AgentSession) -> bool;
+    fn resume_candidate_exists(&self, session: &AgentSession) -> Result<bool, AgentError>;
 
     /// Stable response artifact identity for a launched session.
-    fn response_id(&self, session: &AgentSession) -> String;
+    fn response_id(&self, session: &AgentSession) -> Result<String, AgentError>;
 
     /// Whether a completed receiver session ID can restore interactive work.
-    fn can_resume_response_session(&self) -> bool;
+    fn can_resume_response_session(&self) -> Result<bool, AgentError>;
 }
 
 pub(crate) fn shell_quote(value: &str) -> String {
