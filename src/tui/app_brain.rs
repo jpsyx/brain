@@ -1,17 +1,15 @@
 //! `App` brain-panel lifecycle: open/resume, close, focus, and seeding the
 //! session with a prefilled prompt.
 //!
-//! The brain panel is a persistent, resumable `claude` session (the same
-//! model as the `brain` sibling shell): opening it resumes the
+//! The brain panel is a persistent, resumable agent session (the same model as
+//! the `brain` sibling shell): opening it resumes the
 //! most-recently-active free session for this shell (lock + recency), or
-//! starts a fresh one; closing it ends that claude process but leaves the
+//! starts a fresh one; closing it ends that agent process but leaves the
 //! conversation resumable next time. There is no completion view and no
 //! queue — the panel simply stays open until the user closes it (Ctrl+X /
-//! "Close brain") or claude exits.
+//! "Close brain") or the agent exits.
 
 use super::*;
-
-use std::path::{Path, PathBuf};
 
 use crossterm::event::KeyCode;
 
@@ -539,7 +537,7 @@ impl App<'_> {
     /// most-recently-active free session whose transcript still exists on
     /// disk and lock it; otherwise start a fresh session with a tasks-chosen
     /// id. When `prompt` is `Some`, the session is seeded with it: a fresh /
-    /// resumed launch passes it as claude's initial argument, and an
+    /// resumed launch passes it as the agent's initial argument, and an
     /// already-open panel has it typed into the running conversation. Opening
     /// the panel never quits the shell.
     pub(crate) fn open_or_focus_brain(&mut self, prompt: Option<&str>) -> bool {
@@ -579,15 +577,17 @@ impl App<'_> {
             actor.clone(),
         );
         let resume_override = self.receiver_resume_session.take();
+        let frontend = crate::agent::configured_frontend(&self.command_context, self.agent_kind);
         let mut resume = None;
         let mut skipped_missing = false;
         {
             let candidates =
                 resume_override.map_or_else(|| self.db.sessions_by_recency(&scope), |id| vec![id]);
             for id in candidates {
-                if self.agent_kind == AgentKind::Claude
-                    && !session_transcript_exists(&self.brain_root, &id)
-                {
+                let Ok(candidate) = crate::agent::AgentSession::new(&id) else {
+                    continue;
+                };
+                if !frontend.resume_candidate_exists(&candidate) {
                     skipped_missing = true;
                     continue;
                 }
@@ -607,11 +607,9 @@ impl App<'_> {
         let session_id = match &plan {
             Plan::Resume(id) | Plan::Fresh(id) => id.clone(),
         };
-        let response_id = if self.agent_kind == AgentKind::Claude {
-            session_id
-        } else {
-            uuid::Uuid::new_v4().to_string()
-        };
+        let agent_session = crate::agent::AgentSession::new(&session_id)
+            .expect("selected session IDs are non-blank");
+        let response_id = frontend.response_id(&agent_session);
         if receiver_request {
             self.receiver_session_id = Some(response_id.clone());
             let response_path =
@@ -629,7 +627,7 @@ impl App<'_> {
             self.interactive_session_id = Some(response_id.clone());
         }
         self.alert = if matches!(plan, Plan::Fresh(_)) {
-            if self.agent_kind == AgentKind::Claude {
+            if frontend.registers_fresh_session() {
                 let _ = self
                     .db
                     .register_scoped_fresh(&new_id, &self.instance, pid, &scope);
@@ -641,10 +639,7 @@ impl App<'_> {
             None
         };
 
-        let llm_cmd = match self.agent_kind {
-            AgentKind::Claude => crate::env::claude_command(&self.command_context),
-            AgentKind::Codex => crate::env::codex_command(&self.command_context),
-        };
+        let llm_cmd = crate::agent::configured_command(&self.command_context, self.agent_kind);
         let command =
             session::build_llm_command(&self.brain_root, self.agent_kind, &llm_cmd, &plan, prompt);
         let env = session::env_for(
@@ -845,7 +840,10 @@ impl App<'_> {
         self.clear_receiver_panel_state();
         self.reload_after_brain();
         if restore_interactive {
-            self.receiver_resume_session = (self.agent_kind == AgentKind::Claude)
+            let frontend =
+                crate::agent::configured_frontend(&self.command_context, self.agent_kind);
+            self.receiver_resume_session = frontend
+                .can_resume_response_session()
                 .then(|| self.interactive_session_id.take())
                 .flatten();
             self.open_or_focus_brain(None);
@@ -874,30 +872,6 @@ impl App<'_> {
         self.receiver_delay_sent = false;
         self.requested_receiver_actor = None;
     }
-}
-
-/// True if `claude --resume <id>` would actually find this session: a
-/// transcript `<id>.jsonl` exists on disk. We check the brain project dir
-/// first (where the tasks panel's sessions live, since it always runs claude
-/// in `<brain_root>`), then fall back to scanning every project dir in case
-/// claude's dir-mangling differs across versions.
-pub(crate) fn session_transcript_exists(brain_root: &Path, id: &str) -> bool {
-    let Some(home) = std::env::var_os("HOME") else {
-        return false;
-    };
-    let base = PathBuf::from(home).join(".claude").join("projects");
-    let file = format!("{id}.jsonl");
-    if base
-        .join(session::project_dir_name(brain_root))
-        .join(&file)
-        .is_file()
-    {
-        return true;
-    }
-    let Ok(entries) = std::fs::read_dir(&base) else {
-        return false;
-    };
-    entries.flatten().any(|e| e.path().join(&file).is_file())
 }
 
 /// Type a prefilled prompt into an already-running agent PTY. Internal
@@ -929,10 +903,9 @@ pub(crate) fn send_prompt_to_pty(pty: &PtyPane, prompt: &str) {
 /// Keystroke that submits or queues an injected prompt for the active frontend.
 #[must_use]
 pub(crate) fn submit_key_for_agent(agent_kind: AgentKind) -> Vec<u8> {
-    match agent_kind {
-        AgentKind::Claude => vec![b'\r'],
-        AgentKind::Codex => vec![b'\t'],
-    }
+    crate::agent::input_frontend(agent_kind)
+        .queue_input()
+        .into_bytes()
 }
 
 /// Event-loop ticks to wait after seeding a prompt before sending the
@@ -953,7 +926,7 @@ pub(crate) const fn advance_submit_countdown(pending: u8) -> (u8, bool) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     use chrono::NaiveDate;
@@ -1093,15 +1066,6 @@ mod tests {
             let _ = std::fs::remove_file(&self.path);
             let _ = std::fs::remove_dir(&self.project_dir);
         }
-    }
-
-    #[test]
-    fn missing_transcript_is_not_a_resumable_claude_session() {
-        let id = format!("missing-{}", uuid::Uuid::new_v4());
-        assert!(
-            !session_transcript_exists(Path::new("/nonexistent/brain-root"), &id),
-            "a Claude resume candidate without a transcript must be skipped"
-        );
     }
 
     #[test]

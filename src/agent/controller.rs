@@ -229,6 +229,22 @@ mod tests {
             self.recording.record(Event::Transcript(session.clone()));
             Some(PathBuf::from("/transcripts").join(session.as_str()))
         }
+
+        fn resume_candidate_exists(&self, _session: &AgentSession) -> bool {
+            true
+        }
+
+        fn response_id(&self, session: &AgentSession) -> String {
+            session.as_str().to_owned()
+        }
+
+        fn registers_fresh_session(&self) -> bool {
+            true
+        }
+
+        fn can_resume_response_session(&self) -> bool {
+            true
+        }
     }
 
     struct RecordingTransport {

@@ -111,11 +111,14 @@ inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex`,
 | Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> --resume <id>` or `--session-id <id>` |
 | Codex | `codex_cmd` in brain env, default `codex` | `cd <root> && <codex_cmd> resume <id>` when resuming a known Codex id; fresh launches are `cd <root> && <codex_cmd>` with no Claude-only flags |
 
-Both commands are built by `session::build_llm_command`, which splices the
-configured base command in verbatim so it may carry its own flags. brain never
-depends on a shell alias. The PTY's working directory is **also** set to the
-already-selected `WorkspaceContext::root()`, so the agent starts in that
-workspace from the first instant without consulting the default workspace.
+`agent::ClaudeFrontend` and `agent::CodexFrontend` own these command shapes and
+splice the configured base command in verbatim so it may carry its own flags.
+The current TUI reaches them through the `session::build_llm_command`
+compatibility wrapper. `PtyPane` implements the frontend-neutral transport and
+applies a complete launch spec; its working directory is set to the
+already-selected `WorkspaceContext::root()` before the child starts, so the
+agent begins in that workspace from the first instant without consulting the
+default workspace. brain never depends on a shell alias.
 
 When brain injects a prompt into an already-open panel, it sends the text first
 and the final submit key a couple of event-loop ticks later so the frontend
@@ -137,8 +140,8 @@ retry.
 Answering **Yes** to the startup daily-triage nudge spawns a *second*,
 ephemeral agent session as a brain-panel tab (`App::triage_brain`,
 `app_triage_tab.rs`) rather than typing `/triage` into the main session. It is
-launched through the same `session::build_llm_command` seeded with `/triage`,
-but with two deliberate differences from the main panel:
+launched through the same adapter-backed compatibility wrapper seeded with
+`/triage`, but with two deliberate differences from the main panel:
 
 - **It is never tracked.** `session::env_for_triage` injects the five common
   workspace/actor variables plus `BRAIN_TRIAGE_DONE_URL` and
@@ -185,7 +188,7 @@ Which session to run is decided by the **lock + recency** model in
    frontend/workspace/actor/channel scope
    and resumes the first whose **transcript actually exists** on disk —
    `~/.claude/projects/<mangled selected-root>/<id>.jsonl`
-   (`session::project_dir_name` + a fallback scan). A session opened but
+   (the Claude adapter's project-dir rule plus a fallback scan). A session opened but
    never chatted in leaves a DB row with **no** transcript, which `claude
    --resume` can't find (the "couldn't find session with ID …" error); brain
    skips those. If it claims a valid candidate it `--resume`s it; otherwise

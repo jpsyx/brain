@@ -7,42 +7,14 @@
 
 use std::path::Path;
 
-/// Which agent frontend the brain panel is running.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentKind {
-    /// Claude Code.
-    Claude,
-    /// OpenAI Codex.
-    Codex,
-}
-
-impl AgentKind {
-    /// Human label for UI copy.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Claude => "Claude",
-            Self::Codex => "Codex",
-        }
-    }
-
-    /// Stable state-database representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-        }
-    }
-}
+pub use crate::agent::AgentKind;
 
 /// What the brain panel should launch this run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Plan {
-    /// Resume an existing Claude session by id (`claude --resume <id>`).
+    /// Resume an existing frontend session by ID.
     Resume(String),
-    /// Start a new Claude session with a brain-chosen id
-    /// (`claude --session-id <uuid>`).
+    /// Start a new frontend session with a brain-chosen ID.
     Fresh(String),
 }
 
@@ -58,8 +30,7 @@ impl Plan {
 /// Single-quote a string for safe inclusion in a `sh -c` command line.
 #[must_use]
 pub fn shell_quote(s: &str) -> String {
-    let escaped = s.replace('\'', "'\\''");
-    format!("'{escaped}'")
+    crate::agent::frontend::shell_quote(s)
 }
 
 /// Build the shell command handed to the PTY.
@@ -83,34 +54,19 @@ pub fn build_llm_command(
     plan: &Plan,
     prompt: Option<&str>,
 ) -> String {
-    let mut parts = vec![
-        "cd".to_owned(),
-        shell_quote(&brain_root.display().to_string()),
-        "&&".to_owned(),
-        llm_cmd.trim().to_owned(),
-    ];
-    match (agent_kind, plan) {
-        (AgentKind::Claude, Plan::Resume(id)) => {
-            parts.push("--resume".to_owned());
-            parts.push(shell_quote(id));
-        }
-        (AgentKind::Claude, Plan::Fresh(id)) => {
-            parts.push("--session-id".to_owned());
-            parts.push(shell_quote(id));
-        }
-        (AgentKind::Codex, Plan::Resume(id)) => {
-            parts.push("resume".to_owned());
-            parts.push(shell_quote(id));
-        }
-        (AgentKind::Codex, Plan::Fresh(_)) => {}
-    }
-    if let Some(p) = prompt {
-        let trimmed = p.trim();
-        if !trimmed.is_empty() {
-            parts.push(shell_quote(trimmed));
-        }
-    }
-    parts.join(" ")
+    let session_plan = match plan {
+        Plan::Resume(id) => crate::agent::SessionPlan::resume(
+            crate::agent::AgentSession::new(id).expect("legacy session IDs are non-blank"),
+        ),
+        Plan::Fresh(id) => crate::agent::SessionPlan::fresh(
+            crate::agent::AgentSession::new(id).expect("legacy session IDs are non-blank"),
+        ),
+    };
+    let command = crate::agent::build_command(agent_kind, llm_cmd, &session_plan, prompt);
+    format!(
+        "cd {} && {command}",
+        shell_quote(&brain_root.display().to_string())
+    )
 }
 
 /// Claude's project-dir name for a working directory.
@@ -123,10 +79,10 @@ pub fn build_llm_command(
 /// persisted a transcript before we hand its id to `claude --resume`.
 #[must_use]
 pub fn project_dir_name(brain_root: &Path) -> String {
-    brain_root.to_string_lossy().replace(['/', '.'], "-")
+    crate::agent::claude_project_dir_name(brain_root)
 }
 
-/// Selected workspace/actor identity plus session vars injected into Claude.
+/// Selected workspace/actor identity plus session vars injected into the agent.
 ///
 /// The SessionStart and Stop hooks use the matching UUID-scoped DB/response
 /// paths, including after `/new` / `/clear` re-sessions.

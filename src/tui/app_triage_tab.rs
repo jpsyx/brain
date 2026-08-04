@@ -13,7 +13,7 @@
 use super::*;
 
 use crate::pty_pane::PtyPane;
-use crate::session::{self, AgentKind, Plan};
+use crate::session::{self, Plan};
 
 impl App<'_> {
     /// Whether the brain panel is on screen with *either* the main or the
@@ -110,10 +110,7 @@ impl App<'_> {
         crate::triage_signal::clear();
 
         let token = uuid::Uuid::new_v4().to_string();
-        let llm_cmd = match self.agent_kind {
-            AgentKind::Claude => crate::env::claude_command(&self.command_context),
-            AgentKind::Codex => crate::env::codex_command(&self.command_context),
-        };
+        let llm_cmd = crate::agent::configured_command(&self.command_context, self.agent_kind);
         // A fresh, throwaway session id: never claimed, never registered in the
         // DB, so the SessionStart hook (which keys off the absent
         // BRAIN_INSTANCE_ID / BRAIN_STATE_DB) leaves it untracked.

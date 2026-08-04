@@ -2,7 +2,34 @@
 
 use crate::agent::AgentError;
 
-pub use crate::session::AgentKind;
+/// Which agent frontend the brain panel is running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentKind {
+    /// Claude Code.
+    Claude,
+    /// OpenAI Codex.
+    Codex,
+}
+
+impl AgentKind {
+    /// Human label for UI copy.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude",
+            Self::Codex => "Codex",
+        }
+    }
+
+    /// Stable state-database representation.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+}
 
 /// A non-blank session identifier assigned by an agent frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

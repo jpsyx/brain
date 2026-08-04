@@ -96,8 +96,8 @@ tui::run_tui(command_context, view, cli, …) (the persistent shell)
  ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)
  └─→ App event loop (tasks view + search view + agent PTY)
        ├─ state::Db: reap dead locks, scoped resume / claim or register
-       ├─ session::build_llm_command(root, agent_kind, command, …) + env_for
-       │    → PtyPane spawns configured Claude (default) or Codex (`--codex` / `-cx`)
+       ├─ agent::{ClaudeFrontend,CodexFrontend} own command/input/session rules
+       │    + session compatibility env → PtyPane `AgentTransport` spawns the complete spec
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
        ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; status and log actions open the logs view)
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
@@ -134,13 +134,14 @@ Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
 not use that UUID-scoped path.
 
-This is the current Phase 2 boundary plus the first Phase 3 agent facade
+This is the current Phase 2 boundary plus the Phase 3 agent facade and adapter
 boundary, not the complete approved roadmap. Task assignment and managed
-triage-habit policy are active. The frontend-neutral `agent` facade and its
-launch, input, session, hook, and transport types now exist, but concrete
-Claude/Codex adapters and TUI or receiver migration to that facade remain
-later Phase 3 tasks. Advisory access modes, OpenCode, coordinated task-schema
-activation, and the shared receiver lease lifecycle also remain later phases.
+triage-habit policy are active. The frontend-neutral `agent` facade, concrete
+Claude/Codex adapters, and PTY transport implementation now exist. Current TUI
+callers use adapter-backed compatibility seams; controller ownership and full
+receiver migration remain later Phase 3 tasks. Advisory access modes, OpenCode,
+coordinated task-schema activation, and the shared receiver lease lifecycle
+also remain later phases.
 In particular, `workspace_only` is planned prompt-based guidance and light
 guardrails. It is not a filesystem sandbox or an authentication boundary, and
 no access-mode enforcement ships in this foundation. Changing the default
@@ -248,10 +249,12 @@ queue, start sessions, launch, inspect completion and transcripts, snapshot,
 and shut down without constructing frontend keystrokes. `frontend` defines the
 frontend trait plus complete launch request and launch spec types; `input`,
 `session`, and `hooks` own the shared input, validated session-plan, completion,
-and hook metadata values. `AgentKind` currently re-exports the existing
-`session::AgentKind`, and the pre-facade `session.rs` command builders remain
-in place for compatibility. Concrete Claude/Codex adapters, the PTY transport
-implementation, and TUI or receiver migration remain later Phase 3 work.
+and hook metadata values. `session` owns the canonical `AgentKind` identity;
+the crate-level `session.rs` re-exports it and keeps adapter-backed command/env
+wrappers for compatibility until callers move. `claude` and `codex` own launch
+syntax, input sequences, completion, transcript, and session-lifecycle rules.
+`PtyPane` implements `AgentTransport`; controller ownership in TUI and receiver
+callers remains later Phase 3 work.
 
 ### `users/`
 
@@ -827,16 +830,19 @@ there is no `Exit` enum — the shell just returns from the event loop on quit
 in-process rather than exiting.
 
 ### `pty_pane.rs`
-`PtyPane` spawns a shell command under a pseudoterminal (`portable-pty`),
+`PtyPane` is a dormant-capable `AgentTransport` that spawns a complete
+`LaunchSpec` under a pseudoterminal (`portable-pty`),
 streams its bytes through a `vt100` parser, and exposes the screen for
 rendering. Reader / writer / waiter threads; `send` / `resize` /
-`scroll_*` / `is_alive`. A near-verbatim port of `tasks/src/pty_pane.rs`.
+`scroll_*` / `is_alive`. It applies the spec's selected workspace cwd before
+the child starts and has no frontend-specific command or input knowledge.
 
 ### `session.rs`
-Pure launch planning: `AgentKind::{Claude,Codex}`, `Plan::{Resume,Fresh}`
-(chosen from actor-scoped DB resume candidates), `build_llm_command` (`cd <root> && <claude_cmd> --resume
-<id>` / `--session-id <id>` for Claude; `cd <root> && <codex_cmd> resume <id>`
-for a known Codex resume id; no Claude flags for fresh Codex), and `env_for`.
+Compatibility launch planning: re-exported `agent::AgentKind`,
+`Plan::{Resume,Fresh}` (chosen from actor-scoped DB resume candidates), and
+`build_llm_command`, which adds the legacy shell `cd` prefix around the command
+translated by the selected adapter. `env_for` retains the current tracked-panel
+environment until controller-owned callers supply the complete launch request.
 Agent env starts with `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
 `BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and `BRAIN_AGENT_KIND`, then adds
 `BRAIN_INSTANCE_ID`, `BRAIN_PID`, the selected `BRAIN_STATE_DB`, and selected

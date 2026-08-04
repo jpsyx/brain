@@ -125,8 +125,8 @@ pub fn run_tui(
     let mut terminal = Terminal::new(backend)?;
 
     // Persistent state: open the session DB. Each tasks-shell invocation gets
-    // a fresh instance id; the Claude SessionStart hook reads BRAIN_* env vars
-    // to attribute brain-panel Claude sessions to this shell.
+    // a fresh instance id; the SessionStart integration reads BRAIN_* env vars
+    // to attribute brain-panel sessions to this shell.
     let db = Db::open(&command_context.workspace)?;
     let config = Config::load(&command_context.workspace);
     // Best-effort maintenance before this shell touches anything: free

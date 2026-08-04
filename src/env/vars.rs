@@ -6,9 +6,7 @@
 use anyhow::{Result, bail};
 use serde_json::{Map, Value};
 
-use super::schema::{
-    DEFAULT_CLAUDE_CMD, DEFAULT_CODEX_CMD, VARS, default_of, is_known, known_names,
-};
+use super::schema::{VARS, is_known, known_names};
 use super::store::{load_map, save_map};
 use crate::settings::Resolved;
 use crate::workspace::CommandContext;
@@ -46,38 +44,18 @@ pub fn resolve_one(command: &CommandContext, name: &str) -> Option<String> {
     if !is_known(name) {
         return None;
     }
-    if name == "claude_cmd" {
-        return Some(claude_command(command));
+    let spec = VARS.iter().find(|spec| spec.name == name)?;
+    let value = get(command, name).or_else(|| {
+        spec.legacy_config_fallback
+            .then(|| legacy_config_value(command.workspace.as_ref(), name))
+            .flatten()
+    });
+    match (value, spec.default) {
+        (Some(value), Some(default)) => Some(trim_or_default(&value, default)),
+        (Some(value), None) => Some(value),
+        (None, Some(default)) => Some(default.to_owned()),
+        (None, None) => None,
     }
-    if name == "codex_cmd" {
-        return Some(codex_command(command));
-    }
-    get(command, name).or_else(|| default_of(name).map(str::to_owned))
-}
-
-/// The configured Codex launch command, or the built-in default when unset or
-/// blank. brain appends any frontend-specific resume arguments after this.
-#[must_use]
-pub fn codex_command(command: &CommandContext) -> String {
-    agent_command(command, "codex_cmd", DEFAULT_CODEX_CMD)
-}
-
-/// The configured Claude launch command, or the built-in default when unset or
-/// blank.
-///
-/// A legacy `brain config claude_cmd` value is honored only when the env value
-/// has not been set yet, so existing users keep their launch command.
-#[must_use]
-pub fn claude_command(command: &CommandContext) -> String {
-    let cmd = get(command, "claude_cmd")
-        .or_else(|| legacy_claude_command(command.workspace.as_ref()))
-        .unwrap_or_else(|| DEFAULT_CLAUDE_CMD.to_owned());
-    trim_or_default(&cmd, DEFAULT_CLAUDE_CMD)
-}
-
-fn agent_command(command: &CommandContext, name: &str, default: &str) -> String {
-    let cmd = get(command, name).unwrap_or_else(|| default.to_owned());
-    trim_or_default(&cmd, default)
 }
 
 fn trim_or_default(cmd: &str, default: &str) -> String {
@@ -89,9 +67,12 @@ fn trim_or_default(cmd: &str, default: &str) -> String {
     }
 }
 
-fn legacy_claude_command(workspace: &crate::workspace::WorkspaceContext) -> Option<String> {
+fn legacy_config_value(
+    workspace: &crate::workspace::WorkspaceContext,
+    name: &str,
+) -> Option<String> {
     crate::settings::load_map(workspace)
-        .get("claude_cmd")
+        .get(name)
         .and_then(value_to_string)
         .and_then(|cmd| {
             let trimmed = cmd.trim();
@@ -173,22 +154,25 @@ fn resolve_one_from_map(
     if name == "root" {
         return Some(command.workspace.root().display().to_string());
     }
-    if name == "claude_cmd" {
-        return Some(claude_command(command));
-    }
-    if name == "codex_cmd" {
-        return Some(codex_command(command));
-    }
+    let spec = VARS.iter().find(|spec| spec.name == name)?;
     map.get(name)
         .and_then(value_to_string)
+        .or_else(|| {
+            spec.legacy_config_fallback
+                .then(|| legacy_config_value(command.workspace.as_ref(), name))
+                .flatten()
+        })
         .map(|value| {
+            let value = spec
+                .default
+                .map_or_else(|| value.clone(), |default| trim_or_default(&value, default));
             if super::schema::is_sensitive(name) && !value.trim().is_empty() {
                 "(set)".to_owned()
             } else {
                 value
             }
         })
-        .or_else(|| default_of(name).map(str::to_owned))
+        .or_else(|| spec.default.map(str::to_owned))
 }
 
 fn parse_value(raw: &str) -> Value {
@@ -259,6 +243,7 @@ fn flatten_value(path: &str, value: &Value, rows: &mut Vec<(String, Value)>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::env::schema::{DEFAULT_CLAUDE_CMD, DEFAULT_CODEX_CMD, default_of};
 
     fn command() -> CommandContext {
         CommandContext::for_test(

@@ -143,4 +143,35 @@ pub trait AgentFrontend: Send {
 
     /// Location of the frontend's transcript for a known session.
     fn transcript(&self, session: &AgentSession) -> Option<PathBuf>;
+
+    /// Whether this known session is safe to offer as a resume candidate.
+    fn resume_candidate_exists(&self, session: &AgentSession) -> bool;
+
+    /// Stable response artifact identity for a launched session.
+    fn response_id(&self, session: &AgentSession) -> String;
+
+    /// Whether Brain must register a fresh placeholder before hooks run.
+    fn registers_fresh_session(&self) -> bool;
+
+    /// Whether a completed receiver session ID can restore interactive work.
+    fn can_resume_response_session(&self) -> bool;
+}
+
+pub(crate) fn shell_quote(value: &str) -> String {
+    let escaped = value.replace('\'', "'\\''");
+    format!("'{escaped}'")
+}
+
+pub(super) fn launch_environment(
+    request: &LaunchRequest,
+    kind: AgentKind,
+) -> Vec<(String, String)> {
+    let mut environment = request
+        .workspace()
+        .integration_env(request.actor())
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect::<Vec<_>>();
+    environment.push(("BRAIN_AGENT_KIND".to_owned(), kind.as_str().to_owned()));
+    environment
 }

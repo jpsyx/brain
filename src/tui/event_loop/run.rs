@@ -19,17 +19,17 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
     // CPU when idle. 50ms feels live to a typing user.
     let poll_interval = StdDuration::from_millis(50);
     loop {
-        // claude exiting (e.g. the user's Ctrl-C, Ctrl-C inside it) closes the
+        // An agent exiting (e.g. the user's Ctrl-C, Ctrl-C inside it) closes the
         // brain panel — it does NOT quit the shell. Detected here so no extra
         // keystroke is needed and the closing Ctrl-C is never seen as a quit:
-        // the two presses that quit claude now auto-close the panel.
+        // the two presses that quit the agent now auto-close the panel.
         if app.brain.as_ref().is_some_and(|p| !p.is_alive()) {
             app.close_brain();
         }
 
         // Fire any deferred submitting Return for a freshly-seeded prompt. Runs
         // every iteration (including idle 50ms polls) so the Enter lands a
-        // couple of ticks after the text, letting claude submit it.
+        // couple of ticks after the text, letting the agent submit it.
         app.tick_brain_submit();
         // Auto-close the ephemeral daily-triage tab when its session exits or
         // the `/triage` skill signals completion (matching one-time token).
@@ -78,7 +78,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // swallow it: it quits from either panel and even while a modal is
         // open. (Bare `q` / `Ctrl+C` stay contextual — they dismiss modals,
         // quit only from the tasks panel's normal mode, and are forwarded to
-        // claude in the brain panel.) 0x11, so no kitty-protocol dependency;
+        // the agent in the brain panel.) 0x11, so no kitty-protocol dependency;
         // the caller releases the session lock and tears down the terminal on
         // this return.
         if ctrl_quits(k.code, ctrl) {
@@ -127,9 +127,9 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             continue;
         }
 
-        // Ctrl+N starts a new Claude session in the brain panel: type `/new`
-        // into the running conversation and submit it (via the same deferred-
-        // Return path as a seeded prompt, so claude doesn't paste the `\r`).
+        // Ctrl+N starts a new agent session in the brain panel: type `/new`
+        // into the running conversation and submit it through the adapter's
+        // deferred queue sequence.
         // Intercepted before forwarding so it fires from either panel; only
         // while the panel is open (nothing to send to otherwise). 0x0E, so no
         // kitty-protocol dependency.
@@ -139,10 +139,10 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
 
         // Alt+H / Alt+L cycle panel focus. Alt+H always returns focus to the
         // tasks panel — the reliable way back from the brain panel, where
-        // every other key (Space, arrows) is forwarded to Claude's input.
+        // every other key (Space, arrows) is forwarded to the agent's input.
         // Alt+L focuses the brain panel when one is open (no-op otherwise).
         // We use Alt+letter rather than a Space leader or Alt+arrow because
-        // both of those collide with editing inside Claude's prompt.
+        // both of those collide with editing inside the agent's prompt.
         // Alt+S opens the keyboard-shortcuts help modal. Bound to Alt+S (not a
         // bare key) so a literal `s` still types into the always-filtering
         // brain-search view; the Meta sequence is distinct on every terminal,
@@ -194,7 +194,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         }
 
         // App-level main-view switching (main panel only, so the brain panel
-        // keeps Claude's readline chords when it has focus): Ctrl+H / Ctrl+L
+        // keeps the agent's readline chords when it has focus): Ctrl+H / Ctrl+L
         // cycle left / right, Ctrl+T jumps to the tasks view, Ctrl+B jumps to
         // the brain-directory view. The brain panel stays open across a switch.
         if app.focus == Panel::Tasks {
