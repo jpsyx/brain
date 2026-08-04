@@ -157,6 +157,7 @@ mod tests {
     };
 
     const QUEUE_MARKER: &[u8] = b"\x1dqueue";
+    const NEW_SESSION_MARKER: &[u8] = b"\x1dnew";
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum Event {
@@ -165,7 +166,8 @@ mod tests {
         Queue(String),
         Launch(SessionPlan),
         Spawn,
-        NewSession,
+        FrontendNewSession,
+        TransportNewSession(InputSequence),
         Transcript(AgentSession),
         Shutdown,
     }
@@ -215,8 +217,8 @@ mod tests {
         }
 
         fn new_session_input(&self) -> InputSequence {
-            self.recording.record(Event::NewSession);
-            InputSequence::bytes(b"\x1dnew")
+            self.recording.record(Event::FrontendNewSession);
+            InputSequence::bytes(NEW_SESSION_MARKER)
         }
 
         fn completion_strategy(&self) -> CompletionStrategy {
@@ -240,11 +242,16 @@ mod tests {
         }
 
         fn send(&mut self, input: InputSequence) -> Result<(), AgentError> {
+            if input == InputSequence::bytes(NEW_SESSION_MARKER) {
+                self.recording.record(Event::TransportNewSession(input));
+                return Ok(());
+            }
+
             let bytes = input.into_bytes();
             if let Some(text) = bytes.strip_suffix(QUEUE_MARKER) {
                 self.recording
                     .record(Event::Queue(String::from_utf8_lossy(text).into_owned()));
-            } else if bytes != b"\x1dsubmit" && bytes != b"\x1dnew" {
+            } else if bytes != b"\x1dsubmit" {
                 self.recording
                     .record(Event::Type(String::from_utf8_lossy(&bytes).into_owned()));
             }
@@ -396,6 +403,12 @@ mod tests {
 
         controller.start_new_session().expect("new session");
 
-        assert_eq!(recording.events(), vec![Event::NewSession]);
+        assert_eq!(
+            recording.events(),
+            vec![
+                Event::FrontendNewSession,
+                Event::TransportNewSession(InputSequence::bytes(NEW_SESSION_MARKER)),
+            ]
+        );
     }
 }
