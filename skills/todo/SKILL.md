@@ -264,37 +264,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    PDF with `rm -f` between attempts so the versioned-collision
    fallback doesn't kick in.
 
-   **Then bake in the triage appendix (if staged).** `/triage` runs
-   `/email-triage`, which stages an appendix markdown at
-   `/tmp/agenda-appendix-<TARGET_DATE>.md` (the email-triage action
-   items + newsletter digest). After the agenda BODY fits the 2-page
-   cap, bake that appendix INTO the agenda markdown, then rebuild the
-   PDF from the combined markdown:
-
-       python3 ~/.agents/skills/todo/scripts/bake_triage_appendix.py --date <TARGET_DATE>
-       rm -f $AGENDA_DIR/agenda-<TARGET_DATE>.pdf
-       markdown-to-pdf /tmp/<TARGET_DATE>.md --out $AGENDA_DIR/agenda-<TARGET_DATE>.pdf --agenda
-
-   The bake step appends two markdown sections (`## 📧 Email triage`
-   with GFM `- [ ]` checkboxes, and `## 📰 Newsletter triage` with the
-   full digest text) to the END of `/tmp/<TARGET_DATE>.md`. It's a
-   no-op when nothing is staged (most non-triage days), and idempotent
-   (re-running replaces the appendix, never duplicates it).
-
-   **Bake into the MARKDOWN, never staple a separate PDF.** The agenda
-   PDF is regenerated from `/tmp/<TARGET_DATE>.md` by three paths — this
-   build step, `update_agenda_on_mutation.py` on every task mutation,
-   and the `agenda` zsh function when the Downloads PDF is missing.
-   Only content that lives in the markdown is rendered by all three, so
-   the triage MUST be in the markdown. Because it is, you do NOT re-run
-   the bake after a task mutation — the mutation regen re-renders the
-   already-baked appendix automatically.
-
-   **The 2-page cap is the agenda BODY only.** The appendix flows after
-   it and does NOT count. So run the page-count check / `--font-shrink`
-   loop on the body *before* baking (i.e. build + verify + shrink the
-   agenda body first, then bake the appendix, then rebuild). Never
-   count the appendix pages against the cap.
+<!-- brain:ext todo:agenda-after-build -->
 
    When the user does ask to open it, run:
 

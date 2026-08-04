@@ -414,6 +414,12 @@ A bundled skill marks its extension points with HTML-comment markers:
 <!-- brain:ext todo:calendar -->
 ```
 
+The bundled `todo` skill also exposes `todo:agenda-after-build`. It is a
+generic, no-op-by-default seam for caller-supplied post-build steps. An
+extension that uses it must supply its own content and paths at runtime; the
+bundled skill does not discover private artifacts or assume a particular
+external service.
+
 You supply the content in `<brain-root>/.config/extensions/<skill>.md`, as
 `[hook-name]` sections:
 

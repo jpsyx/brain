@@ -1205,6 +1205,15 @@ substituted in place. Content with no matching marker still lands in a trailing
 "Personal extensions" section, so nothing the user wrote is silently dropped. A
 skill with no extension renders unchanged (markers are stripped).
 
+## Why optional agenda content is caller-supplied at a generic hook
+
+The bundled todo workflow must remain useful with no personal extension and
+must not encode a particular inbox, service, or staging layout. It therefore
+declares `todo:agenda-after-build` as a no-op-by-default hook. An installed
+extension may invoke the generic optional-content helper, but the caller must
+provide the agenda and content paths explicitly. Core performs no source
+discovery and attaches no provider-specific meaning to that content.
+
 ## Why extensions render a new built copy, never the repo/plugin source
 
 The repo must stay 100% generic and a plugin is the user's own artifact; neither

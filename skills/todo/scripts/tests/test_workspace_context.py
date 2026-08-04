@@ -18,6 +18,7 @@ NEXT_OCCURRENCE = SCRIPTS / "next_habit_occurrence.py"
 APPLY_SYNC_RULES = SCRIPTS / "apply_sync_rules.py"
 CLEANUP_DONE_HABITS = SCRIPTS / "cleanup_done_habits.py"
 NEXT_ID = SCRIPTS / "next_id.py"
+BAKE_APPENDIX = SCRIPTS / "bake_triage_appendix.py"
 WORKSPACE_ID = "e806258e-491a-436d-9db4-a5ca9903e0d4"
 
 
@@ -601,13 +602,88 @@ class WorkspaceContextTests(unittest.TestCase):
             '~/brain',
             'Path.home() / "brain"',
             "Path.home() / 'brain'",
-            '/email-triage',
+            'email-triage',
+            'newsletter',
+            'agenda-appendix',
+            '## 📧',
+            '## 📰',
         )
-        for script in SCRIPTS.glob("*.py"):
-            source = script.read_text(encoding="utf-8")
-            if any(value in source for value in forbidden):
-                offenders.append(script.name)
+        targets = [SCRIPTS.parent / "SKILL.md", *SCRIPTS.glob("*.py")]
+        for target in targets:
+            source = target.read_text(encoding="utf-8").lower()
+            if any(value.lower() in source for value in forbidden):
+                offenders.append(target.name)
         self.assertEqual(offenders, [])
+
+    def test_appendix_baker_uses_only_caller_supplied_content_and_paths(self):
+        agenda = self.base / "agenda.md"
+        content = self.base / "optional.md"
+        agenda.write_text("# Agenda\n\n## Suggested order\n\n1. Work\n", encoding="utf-8")
+        content.write_text("# Optional title\n\nCaller content\n", encoding="utf-8")
+
+        first = subprocess.run(
+            [
+                sys.executable,
+                str(BAKE_APPENDIX),
+                "--agenda",
+                str(agenda),
+                "--content",
+                str(content),
+            ],
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn("## Appendix <!-- brain:optional-content -->", agenda.read_text())
+        self.assertIn("Caller content", agenda.read_text())
+        content.write_text("Replacement content\n", encoding="utf-8")
+        second = subprocess.run(
+            [
+                sys.executable,
+                str(BAKE_APPENDIX),
+                "--agenda",
+                str(agenda),
+                "--content",
+                str(content),
+            ],
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        rendered = agenda.read_text(encoding="utf-8")
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(rendered.count("<!-- brain:optional-content -->"), 1)
+        self.assertNotIn("Caller content", rendered)
+        self.assertIn("Replacement content", rendered)
+
+    def test_agenda_mutation_inserts_core_sections_before_generic_optional_content(self):
+        program = (
+            "from update_agenda_on_mutation import "
+            "H_APPENDIX_PREFIX, _replace_or_set_section, _split_sections\n"
+            "_, sections = _split_sections("
+            "'## Suggested order\\n\\n1. Work\\n\\n' + H_APPENDIX_PREFIX + '\\n\\nOptional\\n')\n"
+            "_replace_or_set_section(sections, '## ✅', ['## ✅ Completed today', ['', 'Done']])\n"
+            "print('\\n'.join(section[0] for section in sections))\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", program],
+            cwd=SCRIPTS,
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.splitlines(),
+            ["## Suggested order", "## ✅ Completed today", "## Appendix <!-- brain:optional-content -->"],
+        )
 
 
 if __name__ == "__main__":

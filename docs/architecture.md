@@ -398,6 +398,12 @@ explicit `brain skills sync`. jpsyx delegates to `brain skills sync` and never
 prunes brain-owned links (they resolve into brain's built dir, outside jpsyx's
 sources). See the B spec under `docs/superpowers/specs/`.
 
+The bundled `todo` workflow declares `todo:agenda-after-build` as a generic
+no-op hook. If an installed extension adds a post-build step, that runtime step
+owns every input and output path and passes optional markdown to the generic
+helper explicitly. Core does not discover extension artifacts or external
+service state.
+
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =
 display order, Archive last) and `Entry` (absolute selected-workspace `path`,

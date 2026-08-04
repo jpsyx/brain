@@ -350,6 +350,42 @@ fn readme_examples_use_only_neutral_user_identifiers() {
 }
 
 #[test]
+fn phase_two_matrix_requires_two_machine_same_person_acceptance_fixture() {
+    let fixture = std::fs::read_to_string("tests/phase2_acceptance.rs").unwrap_or_default();
+    let testing = std::fs::read_to_string("docs/testing.md").unwrap();
+    let name = "two_machine_registries_select_the_same_portable_person";
+
+    assert!(fixture.contains(name), "missing executable fixture {name}");
+    assert!(testing.contains(name), "test matrix must cite {name}");
+}
+
+#[test]
+fn phase_two_matrix_requires_inbound_actor_to_task_acceptance_fixture() {
+    let fixture = std::fs::read_to_string("tests/phase2_acceptance.rs").unwrap_or_default();
+    let testing = std::fs::read_to_string("docs/testing.md").unwrap();
+    let name = "authenticated_inbound_actor_drives_default_task_assignment";
+
+    assert!(fixture.contains(name), "missing executable fixture {name}");
+    assert!(testing.contains(name), "test matrix must cite {name}");
+}
+
+#[test]
+fn generic_agenda_after_build_hook_is_documented() {
+    for path in [
+        "README.md",
+        "docs/architecture.md",
+        "docs/features.md",
+        "docs/decisions.md",
+    ] {
+        let doc = std::fs::read_to_string(path).unwrap();
+        assert!(
+            doc.contains("todo:agenda-after-build"),
+            "{path} must document the generic agenda-after-build hook"
+        );
+    }
+}
+
+#[test]
 fn readme_scopes_workspace_silos_to_persisted_artifacts() {
     let readme = read_doc_normalized("README.md");
     assert!(readme.contains("persisted state, configuration, and runtime artifacts"));

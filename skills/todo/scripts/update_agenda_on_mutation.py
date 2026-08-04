@@ -70,10 +70,9 @@ H_SUGGESTED = "## Suggested order"
 H_CUT = "## Cut order"
 H_HABITS = "## 🔁"
 H_COMPLETED = "## ✅"
-# The triage appendix baked in by bake_triage_appendix.py. These sections must
-# stay at the very bottom of the agenda; a re-derived "Today's habits" /
-# "Completed today" that has to be *appended* goes BEFORE them, never after.
-H_APPENDIX_PREFIXES = ("## 📧", "## 📰")
+# Caller-supplied optional content stays at the bottom of the agenda. A
+# re-derived core section that must be appended goes before this boundary.
+H_APPENDIX_PREFIX = "## Appendix <!-- brain:optional-content -->"
 
 # Suggested-order line: "<n>. [ ] <time> | <body>". We preserve the
 # numbered prefix and time slot when swapping a chunked task's body.
@@ -313,17 +312,17 @@ def _render_completed_today_section():
 
 
 def _first_appendix_index(sections):
-    """Index of the first triage-appendix section (## 📧 / ## 📰), or None."""
+    """Index of the generic caller-content boundary, or None."""
     for i, sec in enumerate(sections):
-        if sec[0].startswith(H_APPENDIX_PREFIXES):
+        if sec[0] == H_APPENDIX_PREFIX:
             return i
     return None
 
 
 def _replace_or_set_section(sections, prefix: str, new_section):
     """Replace the section matched by `prefix` with `new_section`. If no
-    section matches and `new_section` isn't None, insert it — before the triage
-    appendix if one is present, else append at the end. If a section matches and
+    section matches and `new_section` isn't None, insert it before optional
+    caller content if present, else append at the end. If a section matches and
     `new_section` is None, remove it.
     """
     idx = _find_section(sections, prefix)
@@ -349,8 +348,7 @@ def _regen_pdf():
     if shutil.which(MD2PDF) is None and not Path(MD2PDF).exists():
         log(f"markdown-to-pdf command not found ({MD2PDF}); skipping PDF regen")
         return
-    # Any appended sections baked into AGENDA_MD (e.g. a personal triage
-    # appendix) are re-rendered automatically by rebuilding from the markdown.
+    # Any optional content already in AGENDA_MD is re-rendered automatically.
     try:
         AGENDA_PDF.unlink()
         subprocess.run(
