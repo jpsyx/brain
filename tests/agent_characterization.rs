@@ -145,7 +145,7 @@ fn triage_launch_environment_is_untracked_for_both_frontends() {
 }
 
 #[test]
-fn new_session_hook_releases_the_prior_session_for_resume() {
+fn session_start_hook_rotates_the_prior_session_for_resume() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let db_path = temporary.path().join("state.db");
     drop(Db::open_path(&db_path).expect("state db"));

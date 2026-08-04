@@ -13,6 +13,8 @@ use super::*;
 
 use std::path::{Path, PathBuf};
 
+use crossterm::event::KeyCode;
+
 use crate::pty_pane::PtyPane;
 use crate::session::{self, AgentKind, Plan};
 
@@ -483,6 +485,16 @@ impl App<'_> {
         self.brain.is_some()
     }
 
+    /// Handle the Ctrl-N shortcut before normal key forwarding. Returning
+    /// `true` tells the event loop that the chord was consumed.
+    pub(crate) fn handle_new_session_shortcut(&mut self, code: KeyCode, ctrl: bool) -> bool {
+        if ctrl && matches!(code, KeyCode::Char('n' | 'N')) && self.brain_panel_open() {
+            self.send_brain_prompt("/new");
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn receiver_server_running(&self) -> bool {
         self.receiver_server
             .as_ref()
@@ -942,39 +954,114 @@ pub(crate) const fn advance_submit_countdown(pending: u8) -> (u8, bool) {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::Arc;
 
-    use super::session_transcript_exists;
-    use crate::actor::{RequestIdentity, resolve_actor};
+    use chrono::NaiveDate;
+    use clap::Parser;
+
+    use super::*;
+    use crate::config::Config;
+    use crate::pty_pane::PtyPane;
+    use crate::server::receiver::{Channel, InboundMessage};
     use crate::session::AgentKind;
     use crate::state::{Db, SessionScope};
-    use crate::tui::receiver_state::{
-        DispatchAction, commit_dispatch, dispatch_action_for_channel,
+    use crate::tasks::cli::Cli;
+    use crate::tasks::selector::Selector;
+    use crate::tasks::task::AssignmentContext;
+    use crate::tasks::view::{View, build_view};
+    use crate::tui::{Panel, PanelSide, ZshFunctionRunner};
+    use crate::workspace::{
+        CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
     };
-    use crate::users::{USERS_SCHEMA_VERSION, User, UserId, Users};
-    use crate::workspace::WorkspaceId;
 
-    fn scope() -> SessionScope {
-        let users = Users {
-            schema_version: USERS_SCHEMA_VERSION,
-            users: vec![User {
-                id: UserId::parse("pablo").expect("valid user id"),
-                name: "Pablo".to_owned(),
-                phones: Vec::new(),
-                emails: Vec::new(),
-                response_email: None,
-            }],
-        };
-        let actor = resolve_actor(
-            &UserId::parse("pablo").expect("valid user id"),
-            RequestIdentity::Local,
-            &users,
+    const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
+
+    fn test_app<'a>(temporary: &tempfile::TempDir, cli: &'a Cli, agent_kind: AgentKind) -> App<'a> {
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join("tasks")).expect("create task directory");
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
         )
-        .expect("local actor");
-        SessionScope::new(
-            AgentKind::Claude,
-            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").expect("valid id"),
-            actor,
+        .expect("write tasks");
+        std::fs::write(
+            root.join("tasks/habits.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
         )
+        .expect("write habits");
+        let workspace = WorkspaceContext::new(
+            temporary.path(),
+            WorkspaceId::parse(WORKSPACE_ID).expect("valid workspace id"),
+            WorkspaceName::parse("family").expect("valid workspace name"),
+            &root,
+            "pablo",
+            temporary.path(),
+        )
+        .expect("workspace context");
+        let context = CommandContext::for_test(
+            Arc::new(workspace),
+            RegistryStore::from_path(temporary.path().join("env.json")),
+            "pablo",
+        );
+        let today = NaiveDate::from_ymd_opt(2026, 8, 4).expect("valid date");
+        let view = build_view(cli, &Selector::All, Some(View::All), Vec::new(), today);
+        let assignment = AssignmentContext::legacy(&context.actor);
+        let db = Db::open(&context.workspace).expect("state db");
+        App::new(
+            context,
+            &view,
+            cli,
+            today,
+            root.join("tasks/tasks.csv"),
+            Vec::new(),
+            Vec::new(),
+            assignment,
+            None,
+            Some(View::All),
+            None,
+            Box::new(ZshFunctionRunner::new("")),
+            Box::new(ZshFunctionRunner::new("")),
+            Config {
+                enable_triage_habits: false,
+                ..Config::default()
+            },
+            agent_kind,
+            "shell-under-test".to_owned(),
+            db,
+            crate::picker::App::new(&[], ""),
+            PanelSide::Right,
+            true,
+        )
+    }
+
+    fn live_panel(root: &Path) -> PtyPane {
+        PtyPane::spawn_shell_command_with_env("cat", &[], root, 24, 80).expect("spawn panel")
+    }
+
+    fn capture_panel(root: &Path) -> PtyPane {
+        PtyPane::spawn_shell_command_with_env(
+            "stty raw -echo; printf READY; dd bs=1 count=5 2>/dev/null | od -An -t x1",
+            &[],
+            root,
+            24,
+            80,
+        )
+        .expect("spawn capture panel")
+    }
+
+    fn wait_for_panel_contents(panel: &PtyPane, expected: &str) -> bool {
+        for _ in 0..100 {
+            let normalized = panel
+                .contents()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if normalized.contains(expected) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        false
     }
 
     #[test]
@@ -987,35 +1074,107 @@ mod tests {
     }
 
     #[test]
-    fn remote_queue_waits_for_active_work_and_only_dequeues_after_launch() {
-        use crate::server::receiver::Channel;
+    fn ctrl_n_queues_a_frontend_specific_deferred_new_session_submit() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
 
-        assert_eq!(
-            dispatch_action_for_channel(Some(Channel::Sms), true, None, true, false),
-            DispatchAction::WaitForTurn
-        );
-        assert_eq!(
-            dispatch_action_for_channel(Some(Channel::Sms), false, None, false, false),
-            DispatchAction::StartNext
-        );
+        for (agent_kind, expected_submit) in [
+            (AgentKind::Claude, vec![b'\r']),
+            (AgentKind::Codex, vec![b'\t']),
+        ] {
+            let mut app = test_app(&temporary, &cli, agent_kind);
+            app.brain = Some(capture_panel(app.command_context.workspace.root()));
+            assert!(
+                wait_for_panel_contents(app.brain.as_ref().expect("panel"), "READY"),
+                "capture panel did not become ready"
+            );
 
-        let mut queue = vec!["first", "second"];
-        assert_eq!(commit_dispatch(&mut queue, false), None);
-        assert_eq!(queue, ["first", "second"]);
-        assert_eq!(commit_dispatch(&mut queue, true), Some("first"));
-        assert_eq!(queue, ["second"]);
+            assert!(!app.handle_new_session_shortcut(KeyCode::Char('n'), false));
+            assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
+            assert_eq!(app.focus, Panel::Brain);
+            assert!(app.brain_turn_active);
+            assert_eq!(app.pending_brain_submit, BRAIN_SUBMIT_DELAY_TICKS);
+
+            app.tick_brain_submit();
+            assert_eq!(app.pending_brain_submit, 1);
+            app.tick_brain_submit();
+            assert_eq!(app.pending_brain_submit, 0);
+            assert_eq!(submit_key_for_agent(agent_kind), expected_submit);
+            let expected_bytes = match agent_kind {
+                AgentKind::Claude => "2f 6e 65 77 0d",
+                AgentKind::Codex => "2f 6e 65 77 09",
+            };
+            let panel = app
+                .brain
+                .as_ref()
+                .expect("panel remains open until capture exits");
+            assert!(
+                wait_for_panel_contents(panel, expected_bytes),
+                "capture panel did not receive deferred /new bytes: {}",
+                panel.contents()
+            );
+        }
     }
 
     #[test]
-    fn clean_shutdown_releases_the_session_for_the_next_shell() {
-        let db = Db::open_in_memory().expect("state db");
-        let scope = scope();
-        db.register_scoped_fresh("session-1", "shell-1", 42, &scope)
-            .expect("register fresh session");
-        assert!(db.sessions_by_recency(&scope).is_empty());
+    fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+        let actor = app.interactive_actor.clone();
+        app.brain = Some(live_panel(app.command_context.workspace.root()));
+        app.session_actor = Some(actor.clone());
+        app.receiver_session_id = Some("receiver-session".to_owned());
+        app.receiver_lease = Some(crate::tui::receiver_state::renew(
+            Channel::Sms,
+            0,
+            std::time::Instant::now(),
+        ));
+        app.receiver_queue.push(InboundMessage {
+            workspace_id: app.command_context.workspace.id(),
+            actor: actor.clone(),
+            channel: Channel::Sms,
+            body: "continue this conversation".to_owned(),
+            sender: "+15551234567".to_owned(),
+            participants: vec!["+15551234567".to_owned()],
+            provider_id: Some("provider-message-1".to_owned()),
+            attachments: Vec::new(),
+        });
 
-        db.release("shell-1").expect("release session lock");
+        app.tick_receiver();
 
-        assert_eq!(db.sessions_by_recency(&scope), ["session-1"]);
+        assert!(app.receiver_queue.is_empty());
+        assert_eq!(app.receiver_session_id.as_deref(), Some("receiver-session"));
+        assert_eq!(app.session_actor.as_ref(), Some(&actor));
+        assert!(app.receiver_started.is_some());
+        assert!(app.brain_turn_active);
+        assert_eq!(app.pending_brain_submit, BRAIN_SUBMIT_DELAY_TICKS);
+    }
+
+    #[test]
+    fn close_brain_releases_each_frontend_session_for_the_next_shell() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+
+        for agent_kind in [AgentKind::Claude, AgentKind::Codex] {
+            let mut app = test_app(&temporary, &cli, agent_kind);
+            let scope = SessionScope::new(
+                agent_kind,
+                app.command_context.workspace.id(),
+                app.interactive_actor.clone(),
+            );
+            let session_id = format!("{agent_kind:?}-session");
+            app.db
+                .register_scoped_fresh(&session_id, &app.instance, 42, &scope)
+                .expect("register locked session");
+            app.brain = Some(live_panel(app.command_context.workspace.root()));
+            app.focus = Panel::Brain;
+
+            app.close_brain();
+
+            assert!(app.brain.is_none());
+            assert_eq!(app.focus, Panel::Tasks);
+            assert_eq!(app.db.sessions_by_recency(&scope), [session_id]);
+        }
     }
 }

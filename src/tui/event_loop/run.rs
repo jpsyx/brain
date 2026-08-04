@@ -133,8 +133,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // Intercepted before forwarding so it fires from either panel; only
         // while the panel is open (nothing to send to otherwise). 0x0E, so no
         // kitty-protocol dependency.
-        if ctrl && matches!(k.code, KeyCode::Char('n' | 'N')) && app.brain_panel_open() {
-            app.send_brain_prompt("/new");
+        if app.handle_new_session_shortcut(k.code, ctrl) {
             continue;
         }
 
