@@ -134,10 +134,10 @@ Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
 not use that UUID-scoped path.
 
-This is the current isolation foundation, not the complete approved roadmap.
-Task assignment, triage-habit
-policy, advisory access modes, the agent-controller/OpenCode facade, and the
-shared receiver lease lifecycle remain later phases. In particular,
+This is the current Phase 2 boundary, not the complete approved roadmap. Task
+assignment and managed triage-habit policy are active. Advisory access modes,
+the agent-controller/OpenCode facade, coordinated task-schema activation, and
+the shared receiver lease lifecycle remain later phases. In particular,
 `workspace_only` is planned prompt-based guidance and light guardrails. It is
 not a filesystem sandbox or an authentication boundary, and no access-mode
 enforcement ships in this foundation. Changing the default workspace never
@@ -252,6 +252,8 @@ conversion proposal. A pending grouped transaction restores the old generation
 before the next portable-user load. The selected machine record's
 `local_user_id` must name one member when this portable file exists. It
 identifies a person, not a device, owner, creator, or authorization principal.
+The same ID may be selected on multiple machines for that same person; there is
+no cross-machine identity split or audit identity.
 
 `command/` owns the workspace CLI: `mutate` turns collected values into pure,
 validated registry-only decisions and owns registry-only mutations;

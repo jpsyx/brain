@@ -145,7 +145,7 @@ server execution perform no workspace IO or prompt.
 
 ### Access policy status
 
-Access-mode enforcement is not part of the current foundation. The migrated
+Access-mode enforcement is not part of the current Phase 2 boundary. The migrated
 or default workspace remains unrestricted unless a later access-policy phase
 explicitly configures it otherwise. Planned `workspace_only` behavior uses
 prompt-based guidance and light guardrails. It is not a filesystem sandbox,
@@ -157,8 +157,9 @@ Inbound request actor selection now reads `users.json`: provider signatures are
 verified first, then the normalized sender must match an enabled phone or email
 identity. Legacy receiver allowlists and response settings remain compatibility
 inputs while the coordinated portable schema migration stays deferred. Task
-`assigned_to`, triage-habit policy, the agent-controller/OpenCode facade, and
-the final shared receiver lifecycle remain later phases.
+`assigned_to` and managed triage-habit policy are active in this phase. The
+agent-controller/OpenCode facade, access-mode enforcement, final shared
+receiver lifecycle, and task-schema migration activation remain later phases.
 
 ### Selected workspace env
 

@@ -241,9 +241,9 @@ rewriting either workspace record or portable files. Consequently, changing
 the default workspace never changes access mode, UUID, root, local user,
 receiver switch, aliases, or env.
 
-The current foundation stops at selection and siloed paths. It intentionally
-does not pretend that path separation is access control. A later
-`workspace_only` mode will use prompt-based guidance and light guardrails to
+The current multi-workspace boundary stops short of access-policy enforcement.
+It intentionally does not pretend that path separation is access control. A
+later `workspace_only` mode will use prompt-based guidance and light guardrails to
 reduce accidental and naive leakage in a high-trust installation. It is not a
 filesystem sandbox, authentication boundary, container, OS-account boundary,
 or defense against a malicious trusted user. Real adversarial isolation must
@@ -261,6 +261,10 @@ portable membership. This deliberately adds no owner, creator, audit, or device
 semantics. The agent-controller/OpenCode facade and shared receiver leases
 remain later phases. Actor context is attribution and routing,
 not a new authentication or access-control boundary.
+
+The same portable user ID may be selected on multiple computers because it
+names the person, not their machine. We intentionally add no cross-machine
+identity split, owner, creator, or audit-history concept.
 
 ## Why triage enable/disable is one durable grouped replacement
 

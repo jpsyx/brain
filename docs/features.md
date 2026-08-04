@@ -353,19 +353,21 @@ it. Rename updates the default's canonical name when needed. Changing the
 default workspace never changes access mode, UUID, root, local user, receiver
 switch, or env. Removing a workspace detaches the machine record only.
 
-The current foundation does not enforce access modes. The planned
+The current Phase 2 boundary does not enforce access modes. The planned
 `workspace_only` mode is prompt-based guidance with light guardrails, not a
 filesystem sandbox, authentication boundary, container, or OS-user boundary.
 It aims only to reduce accidental and naive leakage between highly trusted,
-self-hosted workspaces. A canonical task `assigned_to` field is now active;
-triage-habit policy, the agent-controller/OpenCode facade, and the shared
-receiver lease lifecycle remain later phases.
+self-hosted workspaces. Canonical task `assigned_to` and managed triage-habit
+policy are now active. The agent-controller/OpenCode facade and shared receiver
+lease lifecycle remain later phases.
 
 ### `brain user`
 
 Portable members live in `<brain-root>/.config/users.json` and travel with the
 workspace. IDs use exact lower-case kebab case and identify people, not devices
-or authorization roles. `brain user list` shows every member.
+or authorization roles. The same person may use the same ID on multiple
+computers; machines do not create distinct identities for that person.
+`brain user list` shows every member.
 `brain user add` and `brain user update` accept a
 display name, repeatable `--phone`/`--email` or
 `--add-phone`/`--add-email` values, and an optional `--response-email`.
@@ -767,7 +769,7 @@ for the structured, agent-consumable form); the `/second-brain
 resolve-conflicts` skill reads that JSON, merges each group into its
 canonical file, then clears the copies with `brain sync resolve <original>`.
 
-**Task CSVs merge by immutable identity, with no conflict copies.** `tasks/tasks.csv` and
+**Task CSVs merge by their active schema identity, with no conflict copies.** `tasks/tasks.csv` and
 `tasks/habits.csv` don't go through the keep-both path above at all: brain
 excludes them from the bisync file lane and reconciles them itself with a
 three-way merge (a cached local baseline + your local copy + the remote

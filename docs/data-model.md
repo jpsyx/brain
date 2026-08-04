@@ -346,9 +346,11 @@ portable-user load, Brain rolls any journaled group back to its complete old
 generation. Removing the journal commits the new generation.
 
 `local_user_id` stays in the machine registry because different machines may
-be used by different people in the same portable workspace. It denotes the
-person acting locally, not a device identity, workspace owner, creator,
-authentication claim, or audit principal.
+be used by different people in the same portable workspace. Two machines may
+also select the same portable ID for the same person; Brain does not create a
+machine-specific version of that person. The field denotes the person acting
+locally, not a device identity, workspace owner, creator, authentication claim,
+or audit principal.
 
 ### Legacy flat-env migration
 
@@ -440,8 +442,9 @@ transaction before publication. A display reference shared with an unmanaged
 row is preserved because the surviving row remains its possible target.
 
 The release still does not implement access-mode enforcement, the
-agent-controller/OpenCode facade, or the final
-shared receiver lifecycle.
+agent-controller/OpenCode facade, or the final shared receiver lifecycle. It
+also does not activate the task-schema migrator or mutate a real legacy
+workspace; Phase 5 owns coordinated activation after the last legacy sync.
 
 The planned `workspace_only` mode is prompt-based guidance plus light
 guardrails. It is not a filesystem sandbox, authentication boundary,

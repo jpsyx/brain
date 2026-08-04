@@ -225,6 +225,25 @@ first move is a failing test that reproduces it, *then* the fix.
 | `skills/todo/scripts/tests/test_workspace_context.py` | Standalone Python subprocess coverage for selected-root-only writes, effective-actor assignment, explicit portable-membership validation, legacy and absent assignment-header migration, empty-CSV schema initialization, missing-context failure, UUIDv4 creation, UUID-preserving edits, fresh habit-occurrence identity with assignment/system-key retention, feature-gated managed triage completion, stale-snapshot refusal for CSV and project metadata, shared-owner serialization, protected removal, concurrent counter allocation, and managed-history garbage collection. |
 | `tests/verbose_cli.rs` | End-to-end `--verbose` contract for the compiled binary: stdout mirroring, `/tmp` log-file creation, command/action breadcrumbs, and task CSV load/write logging. |
 
+### Phase 2 migration and convergence matrix
+
+Every row below uses temporary roots, registries, caches, databases, and CSVs.
+No test reads or writes a real user workspace.
+
+| Scenario | Evidence |
+| --- | --- |
+| The same portable person is selected on two simulated machines | Portable-user and workspace-context fixtures reuse one validated user ID in independent machine-local selections; actor tests prove local selection is machine-local while the portable person remains the same. No device-specific identity is generated. |
+| Two machines independently create the same display ID | `tests/task_id_collision_merge.rs` gives distinct UUID rows the same display ID, swaps local/remote order, and repeats the merge to prove deterministic convergence. |
+| Relationships survive display-ID reconciliation | `tests/task_id_collision_merge.rs` covers composite `blocked_by`, bounded free-text `see_also`, deleted-target fallback, and project metadata reverse links. |
+| Legacy rows receive stable migration identity | `tests/task_schema_migration.rs` derives UUIDv5 from workspace UUID, CSV kind, and legacy display ID, then proves byte-idempotent fixture migration with exact backups. The migration interface remains inactive. |
+| Disable purges managed history without false-positive loss | `tests/triage_habits_config.rs` removes managed definitions, open rows, completed history, and derived references while preserving same-named unmarked rows and unrelated transcripts. `tasks::triage_habits::purge` limits JSON edits to top-level `tasks[]`, preserves unrelated JSON/text bytes and ambiguous display references, and aborts on malformed JSON, invalid UTF-8, or traversal failures. |
+| Re-enable starts fresh | `disabling_purges_every_managed_row_and_derived_reference_then_reenables_fresh` proves exactly two new open managed rows, new UUIDs, and no restored history. |
+
+Phase 2 does not test or claim coordinated migration activation against a real
+workspace, advisory access enforcement, agent-controller/OpenCode behavior, or
+the final shared-server lease and receiver-routing lifecycle. Those belong to
+later roadmap phases.
+
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to
 link integration tests against, so `lib.rs` exists purely for that.

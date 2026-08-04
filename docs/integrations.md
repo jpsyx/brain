@@ -193,6 +193,8 @@ Which session to run is decided by the **lock + recency** model in
    Receiver work first authenticates the provider request, then resolves an
    enabled portable sender; the queued workspace UUID and actor override the
    machine default for that complete request lineage.
+   Multiple machines may select the same portable person ID. That ID represents
+   one person, not one device, owner, creator, or audit principal.
    Bundled task mutators resolve their selected root and actor only from this
    contract. A missing `BRAIN_ROOT` or `BRAIN_ACTOR_ID` fails directly; scripts
    never fall back to a home-directory brain. New rows use `BRAIN_ACTOR_ID` for
@@ -600,6 +602,11 @@ bookkeeping.
   for local row deltas. The report explicitly says CSV rows are baseline diffs,
   not provenance, and that `brain sync` will merge by immutable identity after
   schema migration.
+- **Phase 2 does not activate migration or the final receiver architecture.**
+  The task-schema migrator remains an inactive fixture-tested interface; Phase
+  5 owns its last legacy sync, backups, activation, and real-workspace rollout.
+  The final shared-server lease and receiver-routing lifecycle remain Phase 4
+  work. Current actor propagation does not imply that later lifecycle is done.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.

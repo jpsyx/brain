@@ -173,7 +173,7 @@ is not a filesystem sandbox; `workspace_only` access remains prompt-based.
 
 | Boundary | Location | What belongs there | Portable? |
 | --- | --- | --- | --- |
-| Workspace-owned data | `<workspace-root>/` | Notes, tasks, skills customizations, and `.config/{workspace.json,config.json,personalization.json,extensions/,plugins/}` | Yes, it travels with that workspace |
+| Workspace-owned data | `<workspace-root>/` | Notes, tasks, skills customizations, and `.config/{workspace.json,users.json,config.json,personalization.json,extensions/,plugins/}` | Yes, it travels with that workspace |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema, canonical default, and each workspace's UUID, machine-local root, aliases, `local_user_id`, `receiver_enabled`, and siloed free-form `env` | No |
 | Workspace runtime/cache | `~/.cache/brain/workspaces/<workspace-uuid>/` | `state.db`, `tui.lock`, `inbox/`, `responses/`, and `sync/` locks, journal, current state, workdir, and CSV baselines | No |
 | Shared infrastructure | Machine server PID/control files and the current shared triage signal | Narrow process coordination only; habits payloads are selected by request UUID | No |
@@ -208,6 +208,19 @@ The sole registry has this strict schema-v2 shape:
   }
 }
 ```
+
+Portable people live separately in `<workspace-root>/.config/users.json`.
+Their lower-case kebab IDs identify people, so the same person may select the
+same ID on multiple computers. `local_user_id` selects that person only for
+local work on the current machine; an authenticated inbound phone or email
+mapping overrides it for that request. There is no separate device, owner,
+creator, or audit-history identity.
+
+Task and habit rows use `assigned_to` for that portable person and immutable
+`task_uuid` values for merge identity. Readers temporarily accept the legacy
+`assignee` heading, but every write emits `assigned_to`. `T###` and `H###`
+remain mutable display IDs: UUID-distinct rows survive a two-machine collision,
+then reconcile labels and relationships deterministically.
 
 Records never inherit or merge env values. The rule of thumb is: **wrong if
 synced means brain env; right everywhere means brain config.** `root` is
@@ -263,6 +276,10 @@ Changing the default workspace never changes access mode.
 
 Access controls, the agent-controller/OpenCode facade, and the final shared
 receiver lease lifecycle remain later phases.
+
+The task-schema migrator also remains inactive. Phase 5 owns the final legacy
+sync, coordinated backup, activation, and real-workspace rollout. Phase 2
+proves the new readers, writers, merge behavior, and migration fixtures only.
 
 ## 3. Configuration
 

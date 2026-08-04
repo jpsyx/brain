@@ -595,11 +595,17 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), before)
         self.assertIn("transactional", result.stdout)
 
-    def test_bundled_scripts_do_not_embed_a_home_brain_fallback(self):
+    def test_bundled_scripts_do_not_embed_home_brain_or_extension_sources(self):
         offenders = []
+        forbidden = (
+            '~/brain',
+            'Path.home() / "brain"',
+            "Path.home() / 'brain'",
+            '/email-triage',
+        )
         for script in SCRIPTS.glob("*.py"):
             source = script.read_text(encoding="utf-8")
-            if 'Path.home() / "brain"' in source or "Path.home() / 'brain'" in source:
+            if any(value in source for value in forbidden):
                 offenders.append(script.name)
         self.assertEqual(offenders, [])
 
