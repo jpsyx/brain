@@ -5,7 +5,7 @@ use crate::tui::*;
 
 use crossterm::event::KeyCode;
 
-use crate::pty_pane::PtyPane;
+use crate::agent::AgentController;
 
 /// Number of tasks a single wheel notch moves the selection in the tasks
 /// panel, and the rows it scrolls the brain panel's history. Kept modest so
@@ -49,11 +49,11 @@ pub(crate) fn handle_mouse(app: &mut App<'_>, me: crossterm::event::MouseEvent) 
 
     match panel_at(app.brain_rect, me.column, me.row) {
         Panel::Brain => {
-            if let Some(pty) = app.active_brain_pty() {
+            if let Some(controller) = app.active_brain_controller_mut() {
                 if up {
-                    pty.scroll_up(WHEEL_ROWS);
+                    controller.scroll_up(WHEEL_ROWS);
                 } else {
-                    pty.scroll_down(WHEEL_ROWS);
+                    controller.scroll_down(WHEEL_ROWS);
                 }
             }
         }
@@ -71,8 +71,12 @@ pub(crate) fn handle_mouse(app: &mut App<'_>, me: crossterm::event::MouseEvent) 
 /// upstream in `event_loop` and never reach here. When the child has
 /// exited, a Ctrl-C / q / Esc closes the panel instead of being forwarded
 /// (there's no process to receive it).
-pub(crate) fn handle_brain_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent, ctrl: bool) -> bool {
-    let mut alive = app.brain.as_ref().is_some_and(PtyPane::is_alive);
+pub(crate) fn handle_brain_key(
+    app: &mut App<'_>,
+    k: &crossterm::event::KeyEvent,
+    ctrl: bool,
+) -> bool {
+    let mut alive = app.brain.as_ref().is_some_and(AgentController::is_alive);
     if !alive {
         // Child gone: close the panel on Ctrl-C / Esc / q so the user can
         // get back to a full-width tasks view without re-spawning.
@@ -93,18 +97,25 @@ pub(crate) fn handle_brain_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent
         return false;
     };
     app.leave_warm_receiver_for_interactive_input();
-    alive = app.brain.as_ref().is_some_and(PtyPane::is_alive);
+    alive = app.brain.as_ref().is_some_and(AgentController::is_alive);
     if !alive {
         return false;
     }
     if brain_key_starts_turn(k.code) {
         app.mark_brain_turn_started();
     }
-    if let Some(pty) = app.brain.as_ref() {
+    if let Some(controller) = app.brain.as_mut() {
         // Typing snaps back to the live tail so the prompt is always in
         // view, even if the user had scrolled up through history.
-        pty.scroll_to_bottom();
-        pty.send(bytes);
+        controller.scroll_to_bottom();
+        let result = if brain_key_starts_turn(k.code) {
+            controller.submit_now()
+        } else {
+            controller.forward_terminal_input(bytes)
+        };
+        if let Err(error) = result {
+            crate::logging::log(format!("brain input failed: {error}"));
+        }
     }
     false
 }
@@ -119,7 +130,10 @@ pub(crate) fn handle_triage_key(
     k: &crossterm::event::KeyEvent,
     ctrl: bool,
 ) -> bool {
-    let alive = app.triage_brain.as_ref().is_some_and(PtyPane::is_alive);
+    let alive = app
+        .triage_brain
+        .as_ref()
+        .is_some_and(AgentController::is_alive);
     if !alive {
         match k.code {
             KeyCode::Char('c') if ctrl => app.close_triage_tab(),
@@ -129,9 +143,16 @@ pub(crate) fn handle_triage_key(
         return false;
     }
     if let Some(bytes) = key_to_bytes(k) {
-        if let Some(pty) = app.triage_brain.as_ref() {
-            pty.scroll_to_bottom();
-            pty.send(bytes);
+        if let Some(controller) = app.triage_brain.as_mut() {
+            controller.scroll_to_bottom();
+            let result = if brain_key_starts_turn(k.code) {
+                controller.submit_now()
+            } else {
+                controller.forward_terminal_input(bytes)
+            };
+            if let Err(error) = result {
+                crate::logging::log(format!("triage input failed: {error}"));
+            }
         }
     }
     false

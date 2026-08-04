@@ -73,8 +73,6 @@ pub use event_loop::run_tui;
 // The modal-routing types are referenced within `event_loop` directly; the
 // only out-of-module consumer is the unit-test module, so the re-export is
 // test-only.
-#[cfg(test)]
-pub(crate) use app_brain::{advance_submit_countdown, submit_key_for_agent};
 pub(crate) use draw::*;
 pub(crate) use draw_assignee::*;
 pub(crate) use draw_help::*;
@@ -102,9 +100,9 @@ use chrono::NaiveDate;
 use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 use ratatui::{layout::Rect, style::Color, text::Line};
 
+use crate::agent::AgentController;
 use crate::config::Config;
 use crate::main_view::MainView;
-use crate::pty_pane::PtyPane;
 use crate::session::AgentKind;
 use crate::state::{Db, PanelSide};
 use crate::tasks::cli::Cli;
@@ -248,7 +246,7 @@ pub(crate) struct App<'a> {
     /// "Close brain") or the agent exits. Opening it resumes the
     /// most-recently-active free session for the selected frontend, workspace,
     /// actor, and channel (lock + recency, see `state`).
-    brain: Option<PtyPane>,
+    brain: Option<AgentController>,
     /// Whether the panel has a submitted prompt whose Stop hook has not
     /// completed. Receiver dispatch waits for active work, but can replace an
     /// idle startup panel even while another modal is visible.
@@ -262,7 +260,7 @@ pub(crate) struct App<'a> {
     /// simply lost, and the daily-triage nudge fires again next launch. It is
     /// auto-closed when the `/triage` skill signals completion (see
     /// `crate::triage_signal` + `tick_triage_done`).
-    triage_brain: Option<PtyPane>,
+    triage_brain: Option<AgentController>,
     /// Which brain-panel tab is showing. Only ever `BrainTab::Triage` while
     /// `triage_brain` is `Some`.
     active_brain_tab: BrainTab,
@@ -315,12 +313,6 @@ pub(crate) struct App<'a> {
     /// session to resume — starting a new chat"). Cleared on the first focus
     /// switch.
     alert: Option<String>,
-    /// Event-loop ticks left before the deferred submitting `Return` is sent
-    /// to the brain PTY. Set when a prompt is seeded into an already-open panel
-    /// (Ctrl+Shift+M, Defer/Start/Remove while the panel is up, …); counted
-    /// down each tick by `tick_brain_submit`. `0` means nothing is pending.
-    pending_brain_submit: u8,
-
     /// Active modal overlay. At most one is open at a time; the event
     /// loop short-circuits to its handler when any is `Some`.
     palette: Option<PaletteState>,

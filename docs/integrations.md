@@ -109,19 +109,22 @@ inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex`,
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
 | Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> --resume <id>` or `--session-id <id>` |
-| Codex | `codex_cmd` in brain env, default `codex` | `cd <root> && <codex_cmd> resume <id>` when resuming a known Codex id; fresh launches are `cd <root> && <codex_cmd>` with no Claude-only flags |
+| Codex | `codex_cmd` in brain env, default `codex` | Current panels always launch fresh as `cd <root> && <codex_cmd>` with no Claude-only flags; the adapter retains the compatible `resume <id>` translation for a future validated resume source |
 
 `agent::ClaudeFrontend` and `agent::CodexFrontend` own these command shapes and
 splice the configured base command in verbatim so it may carry its own flags.
-The current TUI reaches them through the `session::build_llm_command`
-compatibility wrapper. `PtyPane` implements the frontend-neutral transport and
+The TUI owns an `AgentController` for each live main or triage panel and calls
+semantic submit, queue, new-session, snapshot, and shutdown operations. The
+crate-level `session::build_llm_command` remains a compatibility wrapper for
+pure callers. `PtyPane` implements the frontend-neutral transport and
 applies a complete launch spec; its working directory is set to the
 already-selected `WorkspaceContext::root()` before the child starts, so the
 agent begins in that workspace from the first instant without consulting the
 default workspace. brain never depends on a shell alias.
 
-When brain injects a prompt into an already-open panel, it sends the text first
-and the final submit key a couple of event-loop ticks later so the frontend
+When brain injects a prompt into an already-open panel, the controller sends
+the text first and owns the final semantic queue action a couple of event-loop
+ticks later so the frontend
 doesn't treat the submit key as part of a paste. Claude receives `Enter`.
 Codex receives `Tab`, because Codex uses `Tab` to queue a message behind active
 work and treats `Enter` as immediate steering.
@@ -215,17 +218,24 @@ Which session to run is decided by the **lock + recency** model in
    `scripts/claude_session_start_hook.py`, wired into
    `<brain-root>/.claude/settings.json` under `hooks.SessionStart` — fires on
    every session start / resume / `/clear` / compact. Reading those env
-   vars, it upserts the actual frontend session id plus immutable attribution
-   (locked to `BRAIN_PID`) and frees
+   vars, it accepts only an exact registered frontend/workspace/session/actor/
+   channel tuple or a new frontend ID rotating an already registered active
+   shell lineage. Unregistered events are ignored. An accepted event records
+   the actual frontend session ID plus immutable attribution (locked to
+   `BRAIN_PID`), resets completion status to `active`, and frees
    the instance's other sessions, so a `/new` mid-run becomes the session
    brain resumes next time and the prior conversation stays resumable. With
    any common workspace identity or required session attribution variable
    absent, the hook is a no-op.
 4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
    `last_assistant_message` under
-   `<workspace-cache>/responses/<response-id>.json`. The stable response ID is
+   `<workspace-cache>/responses/<response-id>.json` only after the exact
+   frontend/workspace/session/actor/channel/instance tuple is found in the
+   session store; an unregistered completion is ignored. The stable response ID is
    independent of the frontend session ID, which gives fresh Codex turns the
-   same completion path as Claude. The artifact repeats actor and channel; the
+   same completion path as Claude. The hook marks the session `completed`; the
+   artifact includes frontend, workspace, session, response, actor, channel,
+   and completion status. The
    TUI discards it unless both match the launched session context.
    For an interactive turn, the TUI consumes it as the completion signal that
    allows queued receiver work to switch sessions. For an active SMS/email
@@ -233,7 +243,12 @@ Which session to run is decided by the **lock + recency** model in
    and renews the three-minute channel lease. The PTY stays visible and can be
    reused by another message on the same channel. A different channel or local
    input switches only after active work has finished.
-5. When the panel closes (Claude exits) or the shell quits, brain `release`s
+   If the agent process exits during remote work before the artifact is
+   consumed, `App::close_brain` captures the transport snapshot plus the
+   controller's immutable initiating actor/channel before shutdown and hands
+   that captured value to the fallback delivery path. Mutable lease or local
+   actor state cannot retarget the completion.
+5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
 
@@ -245,7 +260,7 @@ synced JSON through a same-directory atomic rename. Concurrent workspace TUIs
 therefore preserve one another's registrations and unrelated settings; a
 failed replacement preserves the prior bytes. Current
 Codex CLI versions may ask you to trust those hooks once in the Codex UI.
-Claude and Codex remain separate session stores, but both frontends now report
+Claude and Codex remain separate scopes in one session store, and both report
 session starts and completed receiver turns through the same brain response
 protocol.
 Brain verifies the exact installed `hooks.json` command shape and executes both

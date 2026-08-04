@@ -30,6 +30,7 @@ pub struct LaunchRequest {
     initial_prompt: Option<String>,
     access_policy: AccessPolicy,
     channel: Channel,
+    hook_metadata: HookMetadata,
 }
 
 impl LaunchRequest {
@@ -50,7 +51,15 @@ impl LaunchRequest {
             initial_prompt,
             access_policy,
             channel,
+            hook_metadata: HookMetadata::none(),
         }
+    }
+
+    /// Add trusted launch metadata consumed by lifecycle hooks.
+    #[must_use]
+    pub fn with_hook_metadata(mut self, hook_metadata: HookMetadata) -> Self {
+        self.hook_metadata = hook_metadata;
+        self
     }
 
     /// The selected workspace for this launch.
@@ -87,6 +96,12 @@ impl LaunchRequest {
     #[must_use]
     pub const fn channel(&self) -> Channel {
         self.channel
+    }
+
+    /// Trusted lifecycle-hook metadata for this launch.
+    #[must_use]
+    pub const fn hook_metadata(&self) -> &HookMetadata {
+        &self.hook_metadata
     }
 }
 
@@ -150,9 +165,6 @@ pub trait AgentFrontend: Send {
     /// Stable response artifact identity for a launched session.
     fn response_id(&self, session: &AgentSession) -> String;
 
-    /// Whether Brain must register a fresh placeholder before hooks run.
-    fn registers_fresh_session(&self) -> bool;
-
     /// Whether a completed receiver session ID can restore interactive work.
     fn can_resume_response_session(&self) -> bool;
 }
@@ -173,5 +185,6 @@ pub(super) fn launch_environment(
         .map(|(name, value)| (name.to_owned(), value))
         .collect::<Vec<_>>();
     environment.push(("BRAIN_AGENT_KIND".to_owned(), kind.as_str().to_owned()));
+    environment.extend(request.hook_metadata().values().iter().cloned());
     environment
 }

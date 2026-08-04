@@ -23,14 +23,9 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // brain panel — it does NOT quit the shell. Detected here so no extra
         // keystroke is needed and the closing Ctrl-C is never seen as a quit:
         // the two presses that quit the agent now auto-close the panel.
-        if app.brain.as_ref().is_some_and(|p| !p.is_alive()) {
-            app.close_brain();
-        }
+        app.close_exited_brain_panel();
+        app.tick_agent_controllers();
 
-        // Fire any deferred submitting Return for a freshly-seeded prompt. Runs
-        // every iteration (including idle 50ms polls) so the Enter lands a
-        // couple of ticks after the text, letting the agent submit it.
-        app.tick_brain_submit();
         // Auto-close the ephemeral daily-triage tab when its session exits or
         // the `/triage` skill signals completion (matching one-time token).
         app.tick_triage_done();
@@ -127,9 +122,8 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             continue;
         }
 
-        // Ctrl+N starts a new agent session in the brain panel: type `/new`
-        // into the running conversation and submit it through the adapter's
-        // deferred queue sequence.
+        // Ctrl+N starts a new agent session in the brain panel through the
+        // selected adapter's semantic new-session sequence.
         // Intercepted before forwarding so it fires from either panel; only
         // while the panel is open (nothing to send to otherwise). 0x0E, so no
         // kitty-protocol dependency.

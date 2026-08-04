@@ -23,7 +23,10 @@ pub use controller::{AgentController, AgentTransport};
 pub use frontend::{AccessPolicy, AgentFrontend, LaunchRequest, LaunchSpec};
 pub use hooks::HookMetadata;
 pub use input::InputSequence;
-pub use session::{AgentKind, AgentSession, CompletionStrategy, SessionPlan};
+pub use session::{
+    AgentKind, AgentSession, CompletionStatus, CompletionStrategy, SessionPlan, SessionScope,
+    SessionStore,
+};
 
 pub(crate) use claude::DEFAULT_COMMAND as DEFAULT_CLAUDE_COMMAND;
 pub(crate) use claude::project_dir_name as claude_project_dir_name;
@@ -65,16 +68,6 @@ pub(crate) fn configured_frontend(
             }
         }
         AgentKind::Codex => Box::new(CodexFrontend::new(configured)),
-    }
-}
-
-pub(crate) fn input_frontend(kind: AgentKind) -> Box<dyn AgentFrontend> {
-    match kind {
-        AgentKind::Claude => Box::new(ClaudeFrontend::without_projects_dir(
-            DEFAULT_CLAUDE_COMMAND,
-            std::path::PathBuf::new(),
-        )),
-        AgentKind::Codex => Box::new(CodexFrontend::new(DEFAULT_CODEX_COMMAND)),
     }
 }
 
@@ -328,8 +321,6 @@ mod adapter_tests {
         assert_ne!(codex_response_id, "sess-9");
         assert_eq!(codex.response_id(&session), codex_response_id);
         assert!(uuid::Uuid::parse_str(&codex_response_id).is_ok());
-        assert!(claude.registers_fresh_session());
-        assert!(!codex.registers_fresh_session());
         assert!(claude.can_resume_response_session());
         assert!(!codex.can_resume_response_session());
     }
@@ -407,7 +398,7 @@ mod adapter_tests {
                 .resume_candidate_exists(&AgentSession::new("missing").expect("missing session"))
         );
         assert!(
-            codex
+            !codex
                 .resume_candidate_exists(&AgentSession::new("unvalidated").expect("Codex session"))
         );
     }

@@ -1,10 +1,8 @@
 //! Tests for shell_quote, BrainInputState::finalize, the ConfirmState
 //! constructors / choices / intents, mouse hit-testing, and the submit countdown.
 
-use crate::session::AgentKind;
 use crate::session::shell_quote;
 use crate::tui::*;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 // --- shell_quote ---
 
@@ -236,40 +234,4 @@ fn half_page_step_never_falls_below_one_on_tiny_panes() {
     // A 0- or 1-row pane must still advance by a full row, never freeze.
     assert_eq!(half_page_step(0), 1);
     assert_eq!(half_page_step(1), 1);
-}
-
-// --- deferred brain-submit countdown ---
-
-#[test]
-fn submit_countdown_is_quiet_when_nothing_is_pending() {
-    assert_eq!(advance_submit_countdown(0), (0, false));
-}
-
-#[test]
-fn submit_countdown_fires_the_return_exactly_once() {
-    // A two-tick delay: the first tick just decrements…
-    let (after_first, fire_first) = advance_submit_countdown(2);
-    assert_eq!((after_first, fire_first), (1, false));
-    // …the second tick lands at zero and fires the submitting Return…
-    let (after_second, fire_second) = advance_submit_countdown(after_first);
-    assert_eq!((after_second, fire_second), (0, true));
-    // …and once at zero it stays quiet, so the Enter is sent only once.
-    assert_eq!(advance_submit_countdown(after_second), (0, false));
-}
-
-fn existing_submit_key(_agent_kind: AgentKind) -> Vec<u8> {
-    key_to_bytes(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
-        .expect("Enter has a terminal encoding")
-}
-
-fn existing_queue_key(agent_kind: AgentKind) -> Vec<u8> {
-    submit_key_for_agent(agent_kind)
-}
-
-#[test]
-fn semantic_input_differs_only_in_frontend_translation() {
-    assert_eq!(existing_submit_key(AgentKind::Claude), vec![b'\r']);
-    assert_eq!(existing_queue_key(AgentKind::Claude), vec![b'\r']);
-    assert_eq!(existing_submit_key(AgentKind::Codex), vec![b'\r']);
-    assert_eq!(existing_queue_key(AgentKind::Codex), vec![b'\t']);
 }

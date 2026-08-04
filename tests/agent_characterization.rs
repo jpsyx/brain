@@ -86,6 +86,21 @@ fn run_session_start_hook(db_path: &Path, session_id: &str) -> std::process::Out
     run_hook(command, &input)
 }
 
+fn register_hook_session(db_path: &Path, agent_kind: &str, session_id: &str) {
+    let connection = rusqlite::Connection::open(db_path).expect("open state database");
+    connection
+        .execute(
+            "INSERT INTO brain_sessions
+               (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+                workspace_id, actor_id, channel, created_at, last_active_at)
+             VALUES (?1, ?2, 'shell-1', 4242, 'test-launch',
+                     '8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b',
+                     'pablo', 'interactive', 1, 1)",
+            rusqlite::params![agent_kind, session_id],
+        )
+        .expect("register hook session");
+}
+
 #[test]
 fn fresh_and_resumed_launches_preserve_cwd_prefix_and_initial_prompt_quoting() {
     let root = Path::new("/workspaces/family brain");
@@ -149,6 +164,7 @@ fn session_start_hook_rotates_the_prior_session_for_resume() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let db_path = temporary.path().join("state.db");
     drop(Db::open_path(&db_path).expect("state db"));
+    register_hook_session(&db_path, "claude", "session-before-new");
 
     let first = run_session_start_hook(&db_path, "session-before-new");
     assert!(
@@ -191,16 +207,23 @@ fn session_start_hook_rotates_the_prior_session_for_resume() {
 fn completion_hook_keeps_job_identity_and_actor_context_for_each_frontend() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let response_dir = temporary.path().join("responses");
+    let db_path = temporary.path().join("state.db");
+    drop(Db::open_path(&db_path).expect("state db"));
     let cases = [
-        ("session_id", "claude-session-9"),
-        ("thread_id", "codex-thread-9"),
+        ("session_id", "claude-session-9", "claude"),
+        ("thread_id", "codex-thread-9", "codex"),
     ];
 
-    for (field, session_id) in cases {
+    for (field, session_id, frontend) in cases {
+        register_hook_session(&db_path, frontend, session_id);
         let mut command = Command::new("python3");
         command.arg(hook_path("claude_stop_hook.py"));
         command.env("BRAIN_RESPONSE_DIR", &response_dir);
         command.env("BRAIN_RESPONSE_ID", format!("job-{field}"));
+        command.env("BRAIN_STATE_DB", &db_path);
+        command.env("BRAIN_WORKSPACE_ID", "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b");
+        command.env("BRAIN_AGENT_KIND", frontend);
+        command.env("BRAIN_INSTANCE_ID", "shell-1");
         command.env("BRAIN_ACTOR_ID", "pablo");
         command.env("BRAIN_CHANNEL", "interactive");
         let input = serde_json::json!({field: session_id, "last_assistant_message": "Done"});
@@ -218,8 +241,14 @@ fn completion_hook_keeps_job_identity_and_actor_context_for_each_frontend() {
         .expect("completion JSON");
         assert_eq!(value["session_id"], session_id);
         assert_eq!(value["response_id"], format!("job-{field}"));
+        assert_eq!(value["frontend"], frontend);
+        assert_eq!(
+            value["workspace_id"],
+            "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b"
+        );
         assert_eq!(value["actor_id"], "pablo");
         assert_eq!(value["channel"], "interactive");
         assert_eq!(value["message"], "Done");
+        assert_eq!(value["completion_status"], "completed");
     }
 }

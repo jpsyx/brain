@@ -299,6 +299,30 @@ impl AgentTransport for PtyPane {
             let _ = killer.kill();
         }
     }
+
+    fn terminal_screen(&self) -> Option<Arc<RwLock<vt100::Parser>>> {
+        Some(Arc::clone(&self.parser))
+    }
+
+    fn resize(&mut self, rows: u16, cols: u16) {
+        Self::resize(self, rows, cols);
+    }
+
+    fn scroll_up(&mut self, rows: usize) {
+        Self::scroll_up(self, rows);
+    }
+
+    fn scroll_down(&mut self, rows: usize) {
+        Self::scroll_down(self, rows);
+    }
+
+    fn scroll_to_bottom(&mut self) {
+        Self::scroll_to_bottom(self);
+    }
+
+    fn terminal_rows(&self) -> u16 {
+        self.rows
+    }
 }
 
 impl Drop for PtyPane {

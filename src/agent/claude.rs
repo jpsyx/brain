@@ -136,10 +136,6 @@ impl AgentFrontend for ClaudeFrontend {
         session.as_str().to_owned()
     }
 
-    fn registers_fresh_session(&self) -> bool {
-        true
-    }
-
     fn can_resume_response_session(&self) -> bool {
         true
     }

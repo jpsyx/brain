@@ -1,5 +1,7 @@
 //! Frontend-neutral session identity and lifecycle choices.
 
+use anyhow::Result;
+
 use crate::agent::AgentError;
 
 /// Which agent frontend the brain panel is running.
@@ -56,6 +58,116 @@ impl AgentSession {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// Immutable lookup scope for one actor's sessions in one workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionScope {
+    agent_kind: AgentKind,
+    workspace_id: crate::workspace::WorkspaceId,
+    actor: crate::actor::ActorContext,
+}
+
+impl SessionScope {
+    /// Bind persistence operations to one frontend, workspace, and actor lineage.
+    #[must_use]
+    pub const fn new(
+        agent_kind: AgentKind,
+        workspace_id: crate::workspace::WorkspaceId,
+        actor: crate::actor::ActorContext,
+    ) -> Self {
+        Self {
+            agent_kind,
+            workspace_id,
+            actor,
+        }
+    }
+
+    /// Frontend whose opaque session namespace this scope uses.
+    #[must_use]
+    pub const fn agent_kind(&self) -> AgentKind {
+        self.agent_kind
+    }
+
+    /// Workspace that owns the session.
+    #[must_use]
+    pub const fn workspace_id(&self) -> crate::workspace::WorkspaceId {
+        self.workspace_id
+    }
+
+    /// Actor and initiating channel attributed to the session.
+    #[must_use]
+    pub const fn actor(&self) -> &crate::actor::ActorContext {
+        &self.actor
+    }
+}
+
+/// Durable completion lifecycle for a registered frontend session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompletionStatus {
+    /// The session may still produce a turn completion.
+    Active,
+    /// A registered completion event has finished the current turn.
+    Completed,
+}
+
+impl CompletionStatus {
+    /// Stable state-database representation.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Completed => "completed",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "completed" => Some(Self::Completed),
+            _ => None,
+        }
+    }
+}
+
+/// Frontend-neutral persistence used by every live agent controller.
+pub trait SessionStore {
+    /// Reap locks whose owning shell has exited.
+    fn reap_dead_locks(&self) -> Result<()>;
+
+    /// List free sessions newest first within an immutable scope.
+    fn sessions_by_recency(&self, scope: &SessionScope) -> Vec<String>;
+
+    /// Claim one free session for a shell.
+    fn claim(
+        &self,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> Result<bool>;
+
+    /// Register a fresh, active session with complete attribution.
+    fn register(
+        &self,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> Result<()>;
+
+    /// Release every session held by a shell instance.
+    fn release(&self, instance: &str) -> Result<()>;
+
+    /// Mark an exactly scoped session completed.
+    fn mark_completed(&self, session: &AgentSession, scope: &SessionScope) -> Result<bool>;
+
+    /// Read the completion status for an exactly scoped session.
+    fn completion_status(
+        &self,
+        session: &AgentSession,
+        scope: &SessionScope,
+    ) -> Option<CompletionStatus>;
 }
 
 #[cfg(test)]

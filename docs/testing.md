@@ -153,9 +153,13 @@ first move is a failing test that reproduces it, *then* the fix.
 - **The brain shell's pure bits** (`tui.rs`). `startup_focus` (the shell
   lands in the search panel at startup), `focus_left`/`focus_right`
   (focus follows the layout swap), `panel_borders` (the right panel owns the
-  divider), `key_to_bytes` (key → PTY byte encoding), `new_session_bytes`
-  (`Ctrl-N` types `/new`, no trailing return), and `advance_submit_countdown`
-  (the deferred-Return countdown fires exactly once at zero).
+  divider), and `key_to_bytes` (non-semantic key → terminal byte encoding).
+  Recording frontend/transport tests cover `AgentController` and its App
+  consumers: Enter calls semantic submit, injected work queues after a
+  controller-owned two-tick delay, shutdown fires once, agent exit closes only
+  the panel, normal and triage panels use the selected adapter, and fallback
+  completion captures the transport snapshot with the controller's initiating
+  actor/channel before teardown.
 - **Receiver dispatch state.** `tui/receiver_state.rs` proves that an idle
   open panel switches to queued receiver work, an active submitted turn waits,
   a same-channel warm panel is reused, a different channel replaces it, and a

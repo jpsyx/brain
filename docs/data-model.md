@@ -473,6 +473,7 @@ brain_sessions(
   channel            TEXT NOT NULL,  -- interactive | sms | email
   created_at         INTEGER NOT NULL,
   last_active_at     INTEGER NOT NULL,
+  completion_status  TEXT NOT NULL,  -- active | completed
   PRIMARY KEY(agent_kind, agent_session_id, workspace_id, actor_id, channel)
 )
 meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)
@@ -490,31 +491,39 @@ without a manual `brain skills sync`.
 
 **The lock + recency model.** A session is "free" when `locked_pid IS NULL`.
 
-- `sessions_by_recency` selects free sessions only within the exact
+- `SessionStore::sessions_by_recency` selects free sessions only within the exact
   agent/workspace/actor/channel scope, newest (`last_active_at DESC`)
-  first. The caller walks them and resumes the first whose **transcript
-  exists** on disk (`tui::session_transcript_exists` +
-  `session::project_dir_name`) — a session opened but never chatted in has a
+  first. Claude walks them and resumes the first whose **transcript
+  exists** on disk (`ClaudeFrontend::resume_candidate_exists` +
+  `agent::claude::project_dir_name`); a session opened but never chatted in has a
   DB row but no `<id>.jsonl`, and `claude --resume` can't find it, so it's
   skipped (and the user gets a status-line alert when that forces a fresh
-  chat).
-- `claim` → lock a free session in the exact composite scope to this
+  chat). Codex participates in the same store but currently rejects resume
+  candidates and starts fresh.
+- `SessionStore::claim` → lock a free session in the exact composite scope to this
   shell's PID (loses cleanly if another shell grabbed that scoped row first).
-- `register_scoped_fresh` inserts a new Claude session with complete immutable
-  attribution. Hooks record actual Claude or Codex session IDs.
-- Legacy schema-v2 rows migrate transactionally as Claude, interactive rows
+- `SessionStore::register` inserts a fresh placeholder for either frontend with
+  complete immutable attribution and `active` status. SessionStart records the
+  actual Claude or Codex session ID only when the exact tuple is registered or
+  the ID rotates an already registered active shell lineage; every other hook
+  event is rejected.
+- `SessionStore::mark_completed` and the Stop hook transition the exact scoped
+  row to `completed`; an accepted SessionStart returns it to `active`.
+- Legacy schema-v2 through schema-v4 rows migrate transactionally as Claude,
+  interactive rows
   for the selected workspace and its machine-local user; existing locks,
-  source, and timestamps are preserved.
+  source, and timestamps are preserved. Schema v5 adds
+  `completion_status`, defaulting every existing row to `active`.
 - Receiver runtime state distinguishes an active remote job
   (`receiver_started` is set) from a warm channel panel (`receiver_session_id`
   plus a three-minute `receiver_lease`). A warm lease never counts as active
   LLM work. This lets Stop-hook completion release queued work while keeping
   the completed SMS/email conversation visible and reusable.
-- `release` → when the panel closes (claude exits) or the shell quits, clear
+- `SessionStore::release` → when the panel closes (the agent exits) or the shell quits, clear
   this instance's locks and stamp `last_active` (floats it to the top of the
   next resume — so re-opening with "Message brain" picks it back up, and a
   second terminal could too).
-- `reap_dead_locks` → on startup, free exact scoped rows whose PID is no
+- `SessionStore::reap_dead_locks` → on startup, free exact scoped rows whose PID is no
   longer alive (`kill -0`), so a crashed shell doesn't strand its session.
   Equal opaque IDs in other frontend/workspace/actor/channel scopes remain
   independent.

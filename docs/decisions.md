@@ -1104,22 +1104,24 @@ above), which is the right audience for it.
 
 Starting a fresh conversation is a frequent gesture, and typing `/new` by hand
 each time is friction. `Ctrl-N` is intercepted before the brain-panel key
-forwarding (like `Alt+U`/`Alt+D`) and types `/new` into the PTY, so it works
+forwarding (like `Alt+U`/`Alt+D`) and calls the selected controller's
+`start_new_session`, so it works
 from either panel without first focusing the brain panel. We only intercept it
 **while the panel is open** — there's nothing to send to otherwise — which
 conveniently leaves `Ctrl-N`'s search meaning (move-down) intact when the panel
 is closed and search is full-width. A brand-new `--session-id` isn't used
-because `/new` is what makes Claude rotate its own id, which the SessionStart
-hook then records as the session to resume next time (the same path
-`/new`-typed-by-hand already takes).
+because `/new` is what makes Claude rotate its own id, which the authorized
+SessionStart lineage then records as the session to resume next time (the same
+path `/new`-typed-by-hand already takes). The frontend adapter owns the complete
+new-session input sequence, so App contains no agent-kind key switch.
 
-The submitting key is **deferred a couple of event-loop ticks**
-(`advance_submit_countdown` / `App::tick_brain_submit`), not appended to the
-`/new` burst: agent frontends can coalesce a chunk of bytes ending in a submit
-key into a single paste, leaving `/new` sitting unsent. Sending the final key as
-a distinct keystroke a beat later makes the frontend actually submit or queue
-it. Claude gets `Enter`; Codex gets `Tab`, because Codex treats `Enter` as an
-immediate steer/action key and uses `Tab` to queue a message behind active work.
+Injected work for an already active turn still needs a small timing gap between
+text and the final queue action: frontends can coalesce a byte burst ending in
+a submit key into one paste. `AgentController::queue_after_active_turn` types
+the text and owns a two-event-loop-tick pending semantic action. Claude's
+adapter translates that action to `Enter`; Codex translates it to `Tab`.
+Shutdown cancels pending controller input, so a closed panel cannot receive a
+late submit.
 
 ## Why personalization is just another brain config (in the brain root)
 

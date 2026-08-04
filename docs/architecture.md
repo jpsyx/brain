@@ -95,9 +95,10 @@ tui::run_tui(command_context, view, cli, …) (the persistent shell)
  ├─→ command_context.workspace.root()       (immutable selected root snapshot)
  ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)
  └─→ App event loop (tasks view + search view + agent PTY)
-       ├─ state::Db: reap dead locks, scoped resume / claim or register
-       ├─ agent::{ClaudeFrontend,CodexFrontend} own command/input/session rules
-       │    + session compatibility env → PtyPane `AgentTransport` spawns the complete spec
+       ├─ agent::SessionStore: reap dead locks, scoped resume / claim or register
+       ├─ App owns one AgentController per live main/triage panel
+       │    ├─ agent::{ClaudeFrontend,CodexFrontend} translate semantic operations
+       │    └─ PtyPane `AgentTransport` spawns the complete spec and carries bytes
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
        ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; status and log actions open the logs view)
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
@@ -249,12 +250,17 @@ queue, start sessions, launch, inspect completion and transcripts, snapshot,
 and shut down without constructing frontend keystrokes. `frontend` defines the
 frontend trait plus complete launch request and launch spec types; `input`,
 `session`, and `hooks` own the shared input, validated session-plan, completion,
-and hook metadata values. `session` owns the canonical `AgentKind` identity;
+and hook metadata values. `session` owns the canonical `AgentKind` identity,
+frontend-neutral `SessionStore`, immutable `SessionScope`, and durable
+`CompletionStatus`;
 the crate-level `session.rs` re-exports it and keeps adapter-backed command/env
 wrappers for compatibility until callers move. `claude` and `codex` own launch
 syntax, input sequences, completion, transcript, and session-lifecycle rules.
-`PtyPane` implements `AgentTransport`; controller ownership in TUI and receiver
-callers remains later Phase 3 work.
+`PtyPane` implements `AgentTransport`. The main panel and ephemeral triage tab
+are both stored as `Option<AgentController>`; keyboard, receiver, draw, scroll,
+close, and event-loop code call controller semantics and never construct
+frontend keystrokes. The controller also owns the short delayed queue action
+that keeps injected text separate from its final frontend input.
 
 ### `users/`
 
@@ -785,8 +791,9 @@ The larger submodules are directories split by concern: `handlers/`
 `draw/mod.rs`), `palette/` (`command`/`state`), `app_state/`
 (`construct`/`nav`/`view`/`selection_query`), `app_actions/`
 (`commands`/`triage`), and `tests/` (split by area). `app_brain.rs` owns the
-main persistent session; `app_triage_tab.rs` owns the ephemeral daily-triage
-tab (open/close/select, the `BrainTab` resolution, and the `tick_triage_done`
+main persistent controller, receiver dispatch, and completion delivery;
+`app_triage_tab.rs` owns the ephemeral daily-triage controller and tab
+(open/close/select, the `BrainTab` resolution, and the `tick_triage_done`
 auto-close). The overlay-modal state
 structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `LinkPickerState`, and the confirm enums) live in `modal_state.rs` with
@@ -800,7 +807,8 @@ the transient palette flash.
 (`build_search`), and constructs the `App` from the selected `CommandContext`.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
-then spawns the initial `claude` PTY (resume-vs-fresh) and `focus_tasks()`
+then launches the selected frontend through an `AgentController`
+(Claude resume-vs-fresh; Codex fresh) and `focus_tasks()`
 returns focus to the tasks main view so `j`/`k` work at once. It then wires the auto-sync
 triggers (a mandatory detached pull-biased startup sync and, when
 `watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
@@ -821,7 +829,7 @@ decides resolution). `--no-daily-triage-check` disables only the final alert;
 the same gate still performs the strict config, managed-policy, and task-table
 refresh. With no startup sync, the check runs immediately as before. The
 brain
-panel is **closeable** (claude exit → `close_brain` drops the PTY and the main
+panel is **closeable** (agent exit → `close_brain` shuts down its controller and the main
 view goes full-width); `open_or_focus_brain` (`Ctrl+M`) re-opens it. The
 brain-directory view keeps its own `scope`/`rescope`/`search_refresh` for
 bucket rescoping (`Ctrl+R` / palette search rows). Unlike the pre-merge shell
@@ -871,13 +879,14 @@ replacement belong to the approved shared-server phase.
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
 `brain_sessions` tracks Claude and Codex sessions by a composite agent-kind,
-session-ID, workspace-UUID, actor-ID, and channel key with a `locked_pid` lock;
+session-ID, workspace-UUID, actor-ID, and channel key with a `locked_pid` lock
+and `active`/`completed` completion status;
 `meta` stores the `panel_side` layout preference and the
 `skills_synced_version` render stamp (the brain version that last rendered this
 workspace's skills, read by `skills::resync_on_version_change`). The resume
-model is scoped lock + recency
-(`reap_dead_locks`, `sessions_by_recency`, `claim`, `register_scoped_fresh`,
-`release`). The `PanelSide` enum lives here since
+model is scoped lock + recency behind `agent::session::SessionStore`
+(`reap_dead_locks`, `sessions_by_recency`, `claim`, `register`, `release`,
+`mark_completed`, `completion_status`). The `PanelSide` enum lives here since
 it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
@@ -952,12 +961,14 @@ rebuild:
   stderr. The TUI renders to `/dev/tty`.
 - **Every `Choice` has exactly one palette row** (guarded by a test on
   `items(side, …)`) so the menu can't silently drop an action.
-- **The brain panel is open at startup but closeable.** `tui` spawns the
-  `claude` PTY at startup (resumed or fresh) and is two-panel; when claude
+- **The brain panel is open at startup but closeable.** `tui` launches the
+  selected controller at startup and is two-panel; when its agent
   exits the panel **closes** (search goes full-width) — it does not quit the
   shell. `open_or_focus_brain` ("Message brain" / `Ctrl-M`) re-opens it.
-- **Exactly one Claude session per brain instance is locked at a time.**
-  The SessionStart hook frees the instance's other sessions on every start
+- **Exactly one frontend session per brain instance is locked at a time.**
+  A SessionStart hook may update an exact registered tuple or rotate an
+  already registered active lineage; it rejects unregistered events and frees
+  the instance's other sessions on every accepted start
   (so `/new` leaves the prior conversation resumable); `release` clears the
   lock on exit; dead-PID locks are reaped on the next startup.
 

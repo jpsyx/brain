@@ -259,6 +259,18 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
     let stop = configured_command(&codex_hooks, "Stop");
     let db_path = temp.path().join("state.db");
     drop(crate::state::Db::open_path(&db_path).unwrap());
+    let connection = rusqlite::Connection::open(&db_path).unwrap();
+    connection
+        .execute(
+            "INSERT INTO brain_sessions
+               (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+                workspace_id, actor_id, channel, created_at, last_active_at)
+             VALUES ('codex', 'pending-codex-launch', 'instance-1', 4242, 'test-launch',
+                     '11111111-1111-4111-8111-111111111111',
+                     'pablo', 'interactive', 1, 1)",
+            [],
+        )
+        .unwrap();
     let response_dir = temp.path().join("responses");
     let common = [
         (
@@ -306,7 +318,7 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
     let connection = rusqlite::Connection::open(db_path).unwrap();
     let attribution = connection
         .query_row(
-            "SELECT agent_kind, actor_id, channel FROM brain_sessions
+            "SELECT agent_kind, actor_id, channel, completion_status FROM brain_sessions
              WHERE agent_session_id = 'codex-thread-1'",
             [],
             |row| {
@@ -314,6 +326,7 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             },
         )
@@ -323,13 +336,19 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
         (
             "codex".to_owned(),
             "pablo".to_owned(),
-            "interactive".to_owned()
+            "interactive".to_owned(),
+            "completed".to_owned()
         )
     );
     let response: serde_json::Value =
         serde_json::from_slice(&std::fs::read(response_dir.join("response-1.json")).unwrap())
             .unwrap();
     assert_eq!(response["session_id"], "codex-thread-1");
+    assert_eq!(response["frontend"], "codex");
+    assert_eq!(
+        response["workspace_id"],
+        "11111111-1111-4111-8111-111111111111"
+    );
     assert_eq!(response["actor_id"], "pablo");
     assert_eq!(response["channel"], "interactive");
 }

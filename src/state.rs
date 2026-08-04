@@ -24,36 +24,10 @@
 
 use std::path::Path;
 
+pub use crate::agent::SessionScope;
+use crate::agent::{AgentSession, CompletionStatus, SessionStore};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
-
-/// Immutable lookup scope for one actor's sessions in one workspace.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionScope {
-    agent_kind: crate::session::AgentKind,
-    workspace_id: crate::workspace::WorkspaceId,
-    actor: crate::actor::ActorContext,
-}
-
-impl SessionScope {
-    #[must_use]
-    pub const fn new(
-        agent_kind: crate::session::AgentKind,
-        workspace_id: crate::workspace::WorkspaceId,
-        actor: crate::actor::ActorContext,
-    ) -> Self {
-        Self {
-            agent_kind,
-            workspace_id,
-            actor,
-        }
-    }
-
-    #[must_use]
-    pub const fn actor(&self) -> &crate::actor::ActorContext {
-        &self.actor
-    }
-}
 
 /// Wall-clock provider (unix seconds). Production uses [`system_clock`];
 /// tests inject a deterministic value.
@@ -297,6 +271,13 @@ impl Db {
             )?;
             transaction.commit()?;
         }
+        if version < 5 {
+            self.conn.execute_batch(
+                "ALTER TABLE brain_sessions
+                   ADD COLUMN completion_status TEXT NOT NULL DEFAULT 'active';
+                 PRAGMA user_version = 5;",
+            )?;
+        }
         Ok(())
     }
 
@@ -353,10 +334,10 @@ impl Db {
         };
         let Ok(rows) = statement.query_map(
             rusqlite::params![
-                scope.agent_kind.as_str(),
-                scope.workspace_id.to_string(),
-                scope.actor.user_id().as_str(),
-                scope.actor.channel().as_str(),
+                scope.agent_kind().as_str(),
+                scope.workspace_id().to_string(),
+                scope.actor().user_id().as_str(),
+                scope.actor().channel().as_str(),
             ],
             |row| row.get::<_, String>(0),
         ) else {
@@ -387,10 +368,10 @@ impl Db {
                 pid,
                 instance,
                 now,
-                scope.agent_kind.as_str(),
-                scope.workspace_id.to_string(),
-                scope.actor.user_id().as_str(),
-                scope.actor.channel().as_str(),
+                scope.agent_kind().as_str(),
+                scope.workspace_id().to_string(),
+                scope.actor().user_id().as_str(),
+                scope.actor().channel().as_str(),
             ],
         )?;
         Ok(n == 1)
@@ -411,13 +392,13 @@ impl Db {
                 workspace_id, actor_id, channel, created_at, last_active_at)
              VALUES (?1, ?2, ?3, ?4, 'fresh', ?5, ?6, ?7, ?8, ?8)",
             rusqlite::params![
-                scope.agent_kind.as_str(),
+                scope.agent_kind().as_str(),
                 agent_session_id,
                 instance,
                 pid,
-                scope.workspace_id.to_string(),
-                scope.actor.user_id().as_str(),
-                scope.actor.channel().as_str(),
+                scope.workspace_id().to_string(),
+                scope.actor().user_id().as_str(),
+                scope.actor().channel().as_str(),
                 now,
             ],
         )?;
@@ -486,9 +467,84 @@ impl Db {
     }
 }
 
+impl SessionStore for Db {
+    fn reap_dead_locks(&self) -> Result<()> {
+        Self::reap_dead_locks(self)
+    }
+
+    fn sessions_by_recency(&self, scope: &SessionScope) -> Vec<String> {
+        Self::sessions_by_recency(self, scope)
+    }
+
+    fn claim(
+        &self,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> Result<bool> {
+        Self::claim(self, session.as_str(), instance, pid, scope)
+    }
+
+    fn register(
+        &self,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> Result<()> {
+        Self::register_scoped_fresh(self, session.as_str(), instance, pid, scope)
+    }
+
+    fn release(&self, instance: &str) -> Result<()> {
+        Self::release(self, instance)
+    }
+
+    fn mark_completed(&self, session: &AgentSession, scope: &SessionScope) -> Result<bool> {
+        let changed = self.conn.execute(
+            "UPDATE brain_sessions SET completion_status = ?1
+             WHERE agent_kind = ?2 AND agent_session_id = ?3
+               AND workspace_id = ?4 AND actor_id = ?5 AND channel = ?6",
+            rusqlite::params![
+                CompletionStatus::Completed.as_str(),
+                scope.agent_kind().as_str(),
+                session.as_str(),
+                scope.workspace_id().to_string(),
+                scope.actor().user_id().as_str(),
+                scope.actor().channel().as_str(),
+            ],
+        )?;
+        Ok(changed == 1)
+    }
+
+    fn completion_status(
+        &self,
+        session: &AgentSession,
+        scope: &SessionScope,
+    ) -> Option<CompletionStatus> {
+        self.conn
+            .query_row(
+                "SELECT completion_status FROM brain_sessions
+                 WHERE agent_kind = ?1 AND agent_session_id = ?2
+                   AND workspace_id = ?3 AND actor_id = ?4 AND channel = ?5",
+                rusqlite::params![
+                    scope.agent_kind().as_str(),
+                    session.as_str(),
+                    scope.workspace_id().to_string(),
+                    scope.actor().user_id().as_str(),
+                    scope.actor().channel().as_str(),
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|status| CompletionStatus::parse(&status))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::{AgentSession, CompletionStatus, SessionStore};
 
     fn scope() -> SessionScope {
         let users = crate::users::Users {
@@ -512,6 +568,33 @@ mod tests {
             crate::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
             actor,
         )
+    }
+
+    #[test]
+    fn session_store_tracks_attribution_and_completion_for_each_frontend() {
+        let db = Db::open_in_memory().unwrap();
+
+        for kind in [
+            crate::session::AgentKind::Claude,
+            crate::session::AgentKind::Codex,
+        ] {
+            let base_scope = scope();
+            let scope =
+                SessionScope::new(kind, base_scope.workspace_id(), base_scope.actor().clone());
+            let session = AgentSession::new(format!("{}-session", kind.as_str())).unwrap();
+
+            SessionStore::register(&db, &session, "shell", 42, &scope).unwrap();
+
+            assert_eq!(
+                SessionStore::completion_status(&db, &session, &scope),
+                Some(CompletionStatus::Active)
+            );
+            assert!(SessionStore::mark_completed(&db, &session, &scope).unwrap());
+            assert_eq!(
+                SessionStore::completion_status(&db, &session, &scope),
+                Some(CompletionStatus::Completed)
+            );
+        }
     }
 
     /// Insert a session row directly with an explicit `last_active`,

@@ -85,16 +85,12 @@ impl AgentFrontend for CodexFrontend {
     }
 
     fn resume_candidate_exists(&self, _session: &AgentSession) -> bool {
-        true
+        false
     }
 
     fn response_id(&self, session: &AgentSession) -> String {
         let identity = format!("brain://codex/response/{}", session.as_str());
         uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, identity.as_bytes()).to_string()
-    }
-
-    fn registers_fresh_session(&self) -> bool {
-        false
     }
 
     fn can_resume_response_session(&self) -> bool {

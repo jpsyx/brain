@@ -18,15 +18,15 @@ impl InputSequence {
     /// Construct the sequence for literal typed text.
     #[must_use]
     pub(crate) fn text(text: &str) -> Self {
-        Self(text.as_bytes().to_vec())
-    }
-
-    /// Prefix a frontend input sequence with semantic text.
-    #[must_use]
-    pub(crate) fn prefixed_with(self, text: &str) -> Self {
-        let mut bytes = Vec::with_capacity(text.len() + self.0.len());
-        bytes.extend_from_slice(text.as_bytes());
-        bytes.extend_from_slice(&self.0);
+        let mut bytes = Vec::with_capacity(text.len());
+        for character in text.chars() {
+            if character == '\n' {
+                bytes.extend_from_slice(&[0x1b, b'\r']);
+            } else {
+                let mut buffer = [0; 4];
+                bytes.extend_from_slice(character.encode_utf8(&mut buffer).as_bytes());
+            }
+        }
         Self(bytes)
     }
 

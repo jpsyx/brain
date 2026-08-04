@@ -132,7 +132,7 @@ pub fn run_tui(
     // Best-effort maintenance before this shell touches anything: free
     // session locks held by tasks shells that have since died, so their
     // sessions become resumable. A failure here must never block startup.
-    let _ = db.reap_dead_locks();
+    let _ = crate::agent::SessionStore::reap_dead_locks(&db);
     let instance = uuid::Uuid::new_v4().to_string();
     // Retain the root chosen once at workspace bootstrap; a later default
     // change cannot redirect this TUI.

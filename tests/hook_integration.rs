@@ -30,6 +30,27 @@ fn fresh_db() -> (tempfile::TempDir, PathBuf) {
     (tmp, db_path)
 }
 
+fn register_session(
+    db_path: &Path,
+    agent_kind: &str,
+    actor_id: &str,
+    session_id: &str,
+    instance: &str,
+    pid: i32,
+) {
+    let connection = Connection::open(db_path).unwrap();
+    connection
+        .execute(
+            "INSERT INTO brain_sessions
+               (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+                workspace_id, actor_id, channel, created_at, last_active_at)
+             VALUES (?1, ?2, ?3, ?4, 'test-launch',
+                     '11111111-1111-4111-8111-111111111111', ?5, 'interactive', 1, 1)",
+            rusqlite::params![agent_kind, session_id, instance, pid, actor_id],
+        )
+        .unwrap();
+}
+
 /// Run the hook with the given attribution env (None → ambient, no env set)
 /// and stdin payload.
 fn run_hook(db_path: &Path, attribution: Option<(&str, i32)>, input: &str) -> std::process::Output {
@@ -166,8 +187,26 @@ fn hook_without_instance_env_is_noop() {
 }
 
 #[test]
+fn hook_rejects_an_unregistered_workspace_session_tuple() {
+    let (_tmp, db) = fresh_db();
+
+    let out = run_hook(
+        &db,
+        Some(("unregistered-shell", 4242)),
+        &start_input("unregistered-session"),
+    );
+
+    assert!(out.status.success(), "hook exited non-zero: {out:?}");
+    assert!(
+        read_session(&db, "unregistered-session").is_none(),
+        "hook events cannot create an unregistered workspace/session tuple"
+    );
+}
+
+#[test]
 fn hook_records_session_locked_to_instance_and_pid() {
     let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "claude-abc", "inst-1", 4242);
     let out = run_hook(&db, Some(("inst-1", 4242)), &start_input("claude-abc"));
     assert!(
         out.status.success(),
@@ -210,6 +249,7 @@ fn hook_without_complete_workspace_identity_is_noop() {
 #[test]
 fn new_rotation_frees_the_prior_session_for_the_same_instance() {
     let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "sess-A", "inst-1", 4242);
     // First session for the instance.
     run_hook(&db, Some(("inst-1", 4242)), &start_input("sess-A"));
     // `/new` rotates to a fresh session id; the hook fires again.
@@ -224,6 +264,7 @@ fn new_rotation_frees_the_prior_session_for_the_same_instance() {
 #[test]
 fn re_firing_the_same_session_keeps_it_locked() {
     let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "sess-A", "inst-1", 4242);
     run_hook(&db, Some(("inst-1", 4242)), &start_input("sess-A"));
     // Resume / compact fires SessionStart again for the same id.
     run_hook(&db, Some(("inst-1", 4242)), &start_input("sess-A"));
@@ -243,6 +284,8 @@ fn distinct_instances_get_distinct_locked_sessions() {
     // Two tasks shells each record their own session; neither frees the
     // other's (the /new free pass is scoped to the firing instance).
     let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "sess-1", "inst-1", 10);
+    register_session(&db, "claude", "pablo", "sess-2", "inst-2", 20);
     run_hook(&db, Some(("inst-1", 10)), &start_input("sess-1"));
     run_hook(&db, Some(("inst-2", 20)), &start_input("sess-2"));
     assert_eq!(read_session(&db, "sess-1").unwrap().1, Some(10));
@@ -252,6 +295,22 @@ fn distinct_instances_get_distinct_locked_sessions() {
 #[test]
 fn hook_preserves_equal_opaque_ids_with_conflicting_immutable_attribution() {
     let (_tmp, db) = fresh_db();
+    register_session(
+        &db,
+        "claude",
+        "pablo",
+        "same-opaque-id",
+        "claude-instance",
+        4242,
+    );
+    register_session(
+        &db,
+        "codex",
+        "partner",
+        "same-opaque-id",
+        "codex-instance",
+        4242,
+    );
     let first = run_scoped_hook(
         &db,
         "claude",

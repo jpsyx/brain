@@ -1,6 +1,6 @@
 //! The semantic facade shared by TUI and receiver agent callers.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::{
     actor::ActorContext,
@@ -27,6 +27,28 @@ pub trait AgentTransport: Send {
 
     /// End the active frontend child.
     fn shutdown(&mut self);
+
+    /// Terminal screen exposed by transports that render an interactive pane.
+    fn terminal_screen(&self) -> Option<Arc<RwLock<vt100::Parser>>> {
+        None
+    }
+
+    /// Resize an interactive terminal transport.
+    fn resize(&mut self, _rows: u16, _cols: u16) {}
+
+    /// Scroll an interactive terminal transport up through retained output.
+    fn scroll_up(&mut self, _rows: usize) {}
+
+    /// Scroll an interactive terminal transport down toward live output.
+    fn scroll_down(&mut self, _rows: usize) {}
+
+    /// Snap an interactive terminal transport to its live output.
+    fn scroll_to_bottom(&mut self) {}
+
+    /// Current interactive terminal row count.
+    fn terminal_rows(&self) -> u16 {
+        0
+    }
 }
 
 /// Frontend-neutral semantic control of one live agent.
@@ -35,7 +57,16 @@ pub struct AgentController {
     actor: ActorContext,
     frontend: Box<dyn AgentFrontend>,
     transport: Box<dyn AgentTransport>,
+    pending_input: Option<PendingInput>,
+    shutdown: bool,
 }
+
+struct PendingInput {
+    ticks: u8,
+    input: InputSequence,
+}
+
+const QUEUED_INPUT_DELAY_TICKS: u8 = 2;
 
 impl AgentController {
     /// Construct a controller bound to one workspace, actor, frontend, and transport.
@@ -51,6 +82,8 @@ impl AgentController {
             actor,
             frontend,
             transport,
+            pending_input: None,
+            shutdown: false,
         }
     }
 
@@ -77,6 +110,15 @@ impl AgentController {
         self.transport.send(InputSequence::text(text))
     }
 
+    /// Forward frontend-neutral terminal bytes that are not a semantic submit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transport cannot deliver the bytes.
+    pub fn forward_terminal_input(&mut self, bytes: Vec<u8>) -> Result<(), AgentError> {
+        self.transport.send(InputSequence::bytes(bytes))
+    }
+
     /// Immediately submit the active agent input.
     ///
     /// # Errors
@@ -96,8 +138,30 @@ impl AgentController {
         if text.trim().is_empty() {
             return Err(AgentError::EmptyInput);
         }
-        self.transport
-            .send(self.frontend.queue_input().prefixed_with(text))
+        self.transport.send(InputSequence::text(text))?;
+        self.pending_input = Some(PendingInput {
+            ticks: QUEUED_INPUT_DELAY_TICKS,
+            input: self.frontend.queue_input(),
+        });
+        Ok(())
+    }
+
+    /// Advance controller-owned delayed input by one event-loop tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a pending frontend input becomes due and the
+    /// transport cannot deliver it.
+    pub fn tick(&mut self) -> Result<(), AgentError> {
+        let Some(pending) = self.pending_input.as_mut() else {
+            return Ok(());
+        };
+        pending.ticks = pending.ticks.saturating_sub(1);
+        if pending.ticks > 0 {
+            return Ok(());
+        }
+        let pending = self.pending_input.take().expect("pending input exists");
+        self.transport.send(pending.input)
     }
 
     /// Request a new session through the selected frontend.
@@ -135,7 +199,73 @@ impl AgentController {
 
     /// Shut down the active child through its transport.
     pub fn shutdown(&mut self) {
-        self.transport.shutdown();
+        if !self.shutdown {
+            self.pending_input = None;
+            self.transport.shutdown();
+            self.shutdown = true;
+        }
+    }
+
+    /// The selected frontend kind.
+    #[must_use]
+    pub fn kind(&self) -> crate::agent::AgentKind {
+        self.frontend.kind()
+    }
+
+    /// Immutable initiating actor and channel bound to this controller.
+    #[must_use]
+    pub const fn actor(&self) -> &ActorContext {
+        &self.actor
+    }
+
+    /// Whether a known frontend session can be resumed.
+    #[must_use]
+    pub fn resume_candidate_exists(&self, session: &AgentSession) -> bool {
+        self.frontend.resume_candidate_exists(session)
+    }
+
+    /// Stable response artifact identity for a frontend session.
+    #[must_use]
+    pub fn response_id(&self, session: &AgentSession) -> String {
+        self.frontend.response_id(session)
+    }
+
+    /// Whether the selected frontend can resume a completed receiver session.
+    #[must_use]
+    pub fn can_resume_response_session(&self) -> bool {
+        self.frontend.can_resume_response_session()
+    }
+
+    /// Terminal screen for rendering an interactive transport.
+    #[must_use]
+    pub fn terminal_screen(&self) -> Option<Arc<RwLock<vt100::Parser>>> {
+        self.transport.terminal_screen()
+    }
+
+    /// Resize the interactive transport.
+    pub fn resize(&mut self, rows: u16, cols: u16) {
+        self.transport.resize(rows, cols);
+    }
+
+    /// Scroll the interactive transport up.
+    pub fn scroll_up(&mut self, rows: usize) {
+        self.transport.scroll_up(rows);
+    }
+
+    /// Scroll the interactive transport down.
+    pub fn scroll_down(&mut self, rows: usize) {
+        self.transport.scroll_down(rows);
+    }
+
+    /// Snap the interactive transport to live output.
+    pub fn scroll_to_bottom(&mut self) {
+        self.transport.scroll_to_bottom();
+    }
+
+    /// Current interactive terminal row count.
+    #[must_use]
+    pub fn terminal_rows(&self) -> u16 {
+        self.transport.terminal_rows()
     }
 }
 
@@ -238,10 +368,6 @@ mod tests {
             session.as_str().to_owned()
         }
 
-        fn registers_fresh_session(&self) -> bool {
-            true
-        }
-
         fn can_resume_response_session(&self) -> bool {
             true
         }
@@ -249,6 +375,7 @@ mod tests {
 
     struct RecordingTransport {
         recording: Recording,
+        pending_text: Option<String>,
     }
 
     impl AgentTransport for RecordingTransport {
@@ -265,11 +392,16 @@ mod tests {
 
             let bytes = input.into_bytes();
             if let Some(text) = bytes.strip_suffix(QUEUE_MARKER) {
-                self.recording
-                    .record(Event::Queue(String::from_utf8_lossy(text).into_owned()));
+                let text = if text.is_empty() {
+                    self.pending_text.take().unwrap_or_default()
+                } else {
+                    String::from_utf8_lossy(text).into_owned()
+                };
+                self.recording.record(Event::Queue(text));
             } else if bytes != b"\x1dsubmit" {
-                self.recording
-                    .record(Event::Type(String::from_utf8_lossy(&bytes).into_owned()));
+                let text = String::from_utf8_lossy(&bytes).into_owned();
+                self.pending_text = Some(text.clone());
+                self.recording.record(Event::Type(text));
             }
             Ok(())
         }
@@ -318,6 +450,7 @@ mod tests {
             }),
             Box::new(RecordingTransport {
                 recording: recording.clone(),
+                pending_text: None,
             }),
         );
         (controller, recording, workspace, actor)
@@ -346,6 +479,19 @@ mod tests {
             vec![
                 Event::Type("hello".to_owned()),
                 Event::Submit,
+                Event::Type("next".to_owned()),
+            ]
+        );
+
+        controller.tick().expect("first delayed-input tick");
+        controller.tick().expect("second delayed-input tick");
+
+        assert_eq!(
+            recording.events(),
+            vec![
+                Event::Type("hello".to_owned()),
+                Event::Submit,
+                Event::Type("next".to_owned()),
                 Event::Queue("next".to_owned()),
             ]
         );

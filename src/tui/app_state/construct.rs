@@ -114,7 +114,6 @@ impl<'a> App<'a> {
             db_path,
             log_path: crate::logging::path(),
             alert: None,
-            pending_brain_submit: 0,
             palette: None,
             brain_input: None,
             confirm: None,

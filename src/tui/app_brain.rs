@@ -11,12 +11,28 @@
 
 use super::*;
 
+use std::sync::Arc;
+
 use crossterm::event::KeyCode;
 
+use crate::agent::{AccessPolicy, AgentController, HookMetadata, LaunchRequest, SessionStore};
 use crate::pty_pane::PtyPane;
-use crate::session::{self, AgentKind, Plan};
+use crate::session::Plan;
 
 impl App<'_> {
+    pub(super) fn controller_for_transport(
+        &self,
+        actor: crate::actor::ActorContext,
+        transport: Box<dyn crate::agent::AgentTransport>,
+    ) -> AgentController {
+        AgentController::new(
+            Arc::clone(&self.command_context.workspace),
+            actor,
+            crate::agent::configured_frontend(&self.command_context, self.agent_kind),
+            transport,
+        )
+    }
+
     /// Start the receiver listener only when explicitly requested at TUI
     /// startup. The listener is stored on `App`, so dropping the shell stops
     /// it automatically.
@@ -464,7 +480,6 @@ impl App<'_> {
             }
         }
         self.brain_turn_active = false;
-        self.pending_brain_submit = 0;
         self.receiver_sender = None;
         self.receiver_recipients.clear();
         self.receiver_started = None;
@@ -487,7 +502,12 @@ impl App<'_> {
     /// `true` tells the event loop that the chord was consumed.
     pub(crate) fn handle_new_session_shortcut(&mut self, code: KeyCode, ctrl: bool) -> bool {
         if ctrl && matches!(code, KeyCode::Char('n' | 'N')) && self.brain_panel_open() {
-            self.send_brain_prompt("/new");
+            self.focus_brain();
+            if let Some(controller) = self.brain.as_mut()
+                && controller.start_new_session().is_ok()
+            {
+                self.mark_brain_turn_started();
+            }
             return true;
         }
         false
@@ -544,18 +564,17 @@ impl App<'_> {
         // Already open with a live agent: reuse the existing session — focus
         // it and, if a prompt was supplied, type it into the running
         // conversation. We never spawn a second session while one is up.
-        if self.brain.as_ref().is_some_and(PtyPane::is_alive) {
+        if self.brain.as_ref().is_some_and(AgentController::is_alive) {
             self.focus = Panel::Brain;
             self.alert = None;
             if let Some(p) = prompt {
-                if let Some(pty) = self.brain.as_ref() {
-                    send_prompt_to_pty(pty, p);
+                if let Some(controller) = self.brain.as_mut()
+                    && let Err(error) = controller.queue_after_active_turn(p)
+                {
+                    crate::logging::log(format!("brain prompt queue failed: {error}"));
+                    return false;
                 }
                 self.mark_brain_turn_started();
-                // The frontend-specific submit key is deferred a couple of
-                // event-loop ticks (see `advance_submit_countdown`) so the
-                // agent doesn't coalesce it into the pasted text.
-                self.pending_brain_submit = BRAIN_SUBMIT_DELAY_TICKS;
             }
             return true;
         }
@@ -581,8 +600,10 @@ impl App<'_> {
         let mut resume = None;
         let mut skipped_missing = false;
         {
-            let candidates =
-                resume_override.map_or_else(|| self.db.sessions_by_recency(&scope), |id| vec![id]);
+            let candidates = resume_override.map_or_else(
+                || SessionStore::sessions_by_recency(&self.db, &scope),
+                |id| vec![id],
+            );
             for id in candidates {
                 let Ok(candidate) = crate::agent::AgentSession::new(&id) else {
                     continue;
@@ -591,9 +612,7 @@ impl App<'_> {
                     skipped_missing = true;
                     continue;
                 }
-                if self
-                    .db
-                    .claim(&id, &self.instance, pid, &scope)
+                if SessionStore::claim(&self.db, &candidate, &self.instance, pid, &scope)
                     .unwrap_or(false)
                 {
                     resume = Some(id);
@@ -603,7 +622,7 @@ impl App<'_> {
         }
 
         let new_id = uuid::Uuid::new_v4().to_string();
-        let plan = Plan::decide(resume, new_id.clone());
+        let plan = Plan::decide(resume, new_id);
         let session_id = match &plan {
             Plan::Resume(id) | Plan::Fresh(id) => id.clone(),
         };
@@ -627,11 +646,7 @@ impl App<'_> {
             self.interactive_session_id = Some(response_id.clone());
         }
         self.alert = if matches!(plan, Plan::Fresh(_)) {
-            if frontend.registers_fresh_session() {
-                let _ = self
-                    .db
-                    .register_scoped_fresh(&new_id, &self.instance, pid, &scope);
-            }
+            let _ = SessionStore::register(&self.db, &agent_session, &self.instance, pid, &scope);
             skipped_missing.then(|| {
                 "⚠ couldn't find a session to resume — starting a new brain chat".to_owned()
             })
@@ -639,22 +654,46 @@ impl App<'_> {
             None
         };
 
-        let llm_cmd = crate::agent::configured_command(&self.command_context, self.agent_kind);
-        let command =
-            session::build_llm_command(&self.brain_root, self.agent_kind, &llm_cmd, &plan, prompt);
-        let env = session::env_for(
-            &self.command_context.workspace,
-            &actor,
-            self.agent_kind,
-            &self.instance,
-            pid,
-            &self.db_path,
-            &response_id,
+        let session_plan = match plan {
+            Plan::Resume(_) => crate::agent::SessionPlan::resume(agent_session),
+            Plan::Fresh(_) => crate::agent::SessionPlan::fresh(agent_session),
+        };
+        let hooks = HookMetadata::new(vec![
+            ("BRAIN_INSTANCE_ID".to_owned(), self.instance.clone()),
+            ("BRAIN_PID".to_owned(), pid.to_string()),
+            (
+                "BRAIN_STATE_DB".to_owned(),
+                self.db_path.display().to_string(),
+            ),
+            ("BRAIN_RESPONSE_ID".to_owned(), response_id),
+            (
+                "BRAIN_RESPONSE_DIR".to_owned(),
+                self.command_context
+                    .workspace
+                    .paths()
+                    .responses_dir()
+                    .display()
+                    .to_string(),
+            ),
+        ]);
+        let request = LaunchRequest::new(
+            Arc::clone(&self.command_context.workspace),
+            actor.clone(),
+            session_plan,
+            prompt.map(str::to_owned),
+            AccessPolicy::default(),
+        )
+        .with_hook_metadata(hooks);
+        let mut controller = AgentController::new(
+            Arc::clone(&self.command_context.workspace),
+            actor.clone(),
+            frontend,
+            Box::new(PtyPane::new(24, 80)),
         );
         // Placeholder size; the first draw resizes the PTY to the real panel.
-        match PtyPane::spawn_shell_command_with_env(&command, &env, &self.brain_root, 24, 80) {
-            Ok(panel) => {
-                self.brain = Some(panel);
+        match controller.launch(&request) {
+            Ok(()) => {
+                self.brain = Some(controller);
                 self.session_actor = Some(actor);
                 self.brain_turn_active = false;
                 if prompt.is_some_and(|value| !value.trim().is_empty()) {
@@ -677,7 +716,7 @@ impl App<'_> {
                 self.brain_turn_active = false;
                 self.receiver_session_id = None;
                 self.session_actor = None;
-                let _ = self.db.release(&self.instance);
+                let _ = SessionStore::release(&self.db, &self.instance);
                 self.flash = Some(FlashKind::Error(format!(
                     "{} could not start: {error}",
                     self.agent_kind.label()
@@ -711,59 +750,96 @@ impl App<'_> {
     /// screen back to full-width tasks, and reload so a brain action whose
     /// effect landed right before the close shows up immediately.
     pub(crate) fn close_brain(&mut self) {
+        self.close_brain_with(Self::deliver_completed_remote_turn);
+    }
+
+    fn close_brain_with(
+        &mut self,
+        deliver: impl FnOnce(&mut Self, crate::server::delivery::CompletionDelivery),
+    ) {
         let receiver_panel = self.receiver_session_id.is_some();
         let completed_remote = self.brain.as_ref().is_some_and(|panel| !panel.is_alive())
             && receiver_panel
             && self.receiver_started.is_some();
-        if completed_remote {
-            if let (Some(panel), Some(channel), Some(sender)) = (
-                self.brain.as_ref(),
-                self.receiver_lease.map(|lease| lease.channel),
-                self.receiver_sender.clone(),
-            ) {
-                let final_text = panel.contents();
-                match channel {
-                    crate::server::receiver::Channel::Sms => {
-                        let reply = crate::server::reply::sms(&final_text);
-                        crate::server::delivery::send_sms_background(
-                            self.command_context.clone(),
-                            "fallback final SMS response",
-                            sender,
-                            reply.text,
-                        );
-                    }
-                    crate::server::receiver::Channel::Email => {
-                        let recipients =
-                            self.session_actor.as_ref().map_or_else(Vec::new, |actor| {
-                                self.receiver_email_recipients(&self.receiver_recipients, actor)
-                            });
-                        if !recipients.is_empty() {
-                            let reply = crate::server::reply::email(&final_text);
-                            let html = crate::server::reply::email_html(&reply.text);
-                            crate::server::delivery::send_email_background(
-                                self.command_context.clone(),
-                                "fallback final email response",
-                                recipients,
-                                "Brain response".to_owned(),
-                                reply.text,
-                                html,
-                            );
-                        }
-                    }
-                }
-            }
+        let completion = completed_remote
+            .then_some(self.brain.as_ref())
+            .flatten()
+            .and_then(crate::server::delivery::CompletionDelivery::capture);
+        if let Some(completion) = completion {
+            deliver(self, completion);
         }
-        self.brain = None;
+        if let Some(mut controller) = self.brain.take() {
+            controller.shutdown();
+        }
         self.session_actor = None;
         self.brain_turn_active = false;
-        self.pending_brain_submit = 0;
         self.alert = None;
         self.focus = Panel::Tasks;
-        let _ = self.db.release(&self.instance);
+        let _ = SessionStore::release(&self.db, &self.instance);
         if receiver_panel {
             self.clear_receiver_panel_state();
         }
         self.reload_after_brain();
+    }
+
+    fn deliver_completed_remote_turn(
+        &mut self,
+        completion: crate::server::delivery::CompletionDelivery,
+    ) {
+        let (snapshot, actor, channel) = completion.into_parts();
+        let Some(sender) = self.receiver_sender.clone() else {
+            return;
+        };
+        match channel {
+            crate::server::receiver::Channel::Sms => {
+                let reply = crate::server::reply::sms(&snapshot);
+                crate::server::delivery::send_sms_background(
+                    self.command_context.clone(),
+                    "fallback final SMS response",
+                    sender,
+                    reply.text,
+                );
+            }
+            crate::server::receiver::Channel::Email => {
+                let recipients = self.receiver_email_recipients(&self.receiver_recipients, &actor);
+                if !recipients.is_empty() {
+                    let reply = crate::server::reply::email(&snapshot);
+                    let html = crate::server::reply::email_html(&reply.text);
+                    crate::server::delivery::send_email_background(
+                        self.command_context.clone(),
+                        "fallback final email response",
+                        recipients,
+                        "Brain response".to_owned(),
+                        reply.text,
+                        html,
+                    );
+                }
+            }
+        }
+    }
+
+    pub(crate) fn close_exited_brain_panel(&mut self) -> bool {
+        if self
+            .brain
+            .as_ref()
+            .is_some_and(|controller| !controller.is_alive())
+        {
+            self.close_brain();
+            return true;
+        }
+        false
+    }
+
+    /// Advance frontend-neutral delayed controller input for live panels.
+    pub(crate) fn tick_agent_controllers(&mut self) {
+        for controller in [&mut self.brain, &mut self.triage_brain]
+            .into_iter()
+            .flatten()
+        {
+            if let Err(error) = controller.tick() {
+                crate::logging::log(format!("agent input delivery failed: {error}"));
+            }
+        }
     }
 
     /// Re-read the CSVs after a brain interaction; route any error to
@@ -794,23 +870,6 @@ impl App<'_> {
         });
     }
 
-    /// Advance the deferred-submit countdown one event-loop tick. When it
-    /// reaches zero, send the frontend-specific submit key to the brain PTY for
-    /// the prompt seeded a few ticks earlier. No-op when nothing is pending or
-    /// the panel has since closed. Called once per event-loop iteration.
-    pub(crate) fn tick_brain_submit(&mut self) {
-        let (next, fire) = advance_submit_countdown(self.pending_brain_submit);
-        self.pending_brain_submit = next;
-        if fire {
-            if let Some(pty) = self.brain.as_ref() {
-                if pty.is_alive() {
-                    pty.scroll_to_bottom();
-                    pty.send(submit_key_for_agent(self.agent_kind));
-                }
-            }
-        }
-    }
-
     /// Send a prefilled prompt to the brain panel. Convenience wrapper that
     /// opens / focuses the panel (resuming the session) and seeds it with the
     /// prompt — used by palette actions like Defer, Start, Remove, and the
@@ -830,20 +889,22 @@ impl App<'_> {
     }
 
     fn close_receiver_panel(&mut self, restore_interactive: bool) {
-        self.brain = None;
+        let can_resume = self
+            .brain
+            .as_ref()
+            .is_some_and(AgentController::can_resume_response_session);
+        if let Some(mut controller) = self.brain.take() {
+            controller.shutdown();
+        }
         self.session_actor = None;
         self.brain_turn_active = false;
-        self.pending_brain_submit = 0;
         self.alert = None;
         self.focus = Panel::Tasks;
-        let _ = self.db.release(&self.instance);
+        let _ = SessionStore::release(&self.db, &self.instance);
         self.clear_receiver_panel_state();
         self.reload_after_brain();
         if restore_interactive {
-            let frontend =
-                crate::agent::configured_frontend(&self.command_context, self.agent_kind);
-            self.receiver_resume_session = frontend
-                .can_resume_response_session()
+            self.receiver_resume_session = can_resume
                 .then(|| self.interactive_session_id.take())
                 .flatten();
             self.open_or_focus_brain(None);
@@ -874,68 +935,23 @@ impl App<'_> {
     }
 }
 
-/// Type a prefilled prompt into an already-running agent PTY. Internal
-/// newlines are sent as `Alt+Enter` (`ESC` + `CR`) — agent frontends treat
-/// that as "insert newline", not "submit" — so a multi-line prompt arrives
-/// intact. The submitting key is deliberately NOT appended here: frontends can
-/// coalesce a burst of bytes ending in a submit key into a single paste, leaving
-/// the message sitting unsent in the input. The caller defers the submit key a
-/// couple of event-loop ticks (`App::pending_brain_submit` / `tick_brain_submit`)
-/// so it arrives as a distinct keystroke and actually submits or queues.
-pub(crate) fn send_prompt_to_pty(pty: &PtyPane, prompt: &str) {
-    let trimmed = prompt.trim();
-    if trimmed.is_empty() {
-        return;
-    }
-    pty.scroll_to_bottom();
-    let mut bytes: Vec<u8> = Vec::with_capacity(trimmed.len());
-    for ch in trimmed.chars() {
-        if ch == '\n' {
-            bytes.extend_from_slice(&[0x1B, b'\r']);
-        } else {
-            let mut buf = [0u8; 4];
-            bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-        }
-    }
-    pty.send(bytes);
-}
-
-/// Keystroke that submits or queues an injected prompt for the active frontend.
-#[must_use]
-pub(crate) fn submit_key_for_agent(agent_kind: AgentKind) -> Vec<u8> {
-    crate::agent::input_frontend(agent_kind)
-        .queue_input()
-        .into_bytes()
-}
-
-/// Event-loop ticks to wait after seeding a prompt before sending the
-/// frontend-specific submit key. Each tick is ~one poll interval (~50ms), so
-/// two ticks puts a comfortable gap between the pasted text and the submit key.
-const BRAIN_SUBMIT_DELAY_TICKS: u8 = 2;
-
-/// Advance the deferred-submit countdown by one tick. Returns the new count
-/// and whether the submitting key should be sent now — true only on the tick
-/// the count reaches zero, so the key fires exactly once.
-pub(crate) const fn advance_submit_countdown(pending: u8) -> (u8, bool) {
-    match pending {
-        0 => (0, false),
-        1 => (0, true),
-        n => (n - 1, false),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use chrono::NaiveDate;
     use clap::Parser;
 
     use super::*;
+    use crate::agent::{
+        AgentController, AgentError, AgentFrontend, AgentSession, AgentTransport,
+        CompletionStrategy, HookMetadata, InputSequence, LaunchRequest, LaunchSpec,
+    };
     use crate::config::Config;
     use crate::pty_pane::PtyPane;
     use crate::server::receiver::{Channel, InboundMessage};
+    use crate::session;
     use crate::session::AgentKind;
     use crate::state::{Db, SessionScope};
     use crate::tasks::cli::Cli;
@@ -948,6 +964,143 @@ mod tests {
     };
 
     const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum ControllerEvent {
+        SubmitNow,
+        QueueAfterActiveTurn,
+        QueueDelivered,
+        Shutdown,
+    }
+
+    #[derive(Clone, Default)]
+    struct ControllerRecording(Arc<Mutex<Vec<ControllerEvent>>>);
+
+    impl ControllerRecording {
+        fn record(&self, event: ControllerEvent) {
+            self.0.lock().expect("controller recording").push(event);
+        }
+
+        fn events(&self) -> Vec<ControllerEvent> {
+            self.0.lock().expect("controller recording").clone()
+        }
+    }
+
+    struct RecordingFrontend {
+        recording: ControllerRecording,
+    }
+
+    impl AgentFrontend for RecordingFrontend {
+        fn kind(&self) -> AgentKind {
+            AgentKind::Claude
+        }
+
+        fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
+            Ok(LaunchSpec::new(
+                "recording-agent",
+                request.workspace().root().to_path_buf(),
+                Vec::new(),
+                HookMetadata::none(),
+            ))
+        }
+
+        fn submit_input(&self) -> InputSequence {
+            self.recording.record(ControllerEvent::SubmitNow);
+            InputSequence::bytes(b"\r")
+        }
+
+        fn queue_input(&self) -> InputSequence {
+            self.recording.record(ControllerEvent::QueueAfterActiveTurn);
+            InputSequence::bytes(b"\x1dqueue")
+        }
+
+        fn new_session_input(&self) -> InputSequence {
+            InputSequence::bytes(b"/new\r")
+        }
+
+        fn completion_strategy(&self) -> CompletionStrategy {
+            CompletionStrategy::Hook
+        }
+
+        fn transcript(&self, _session: &AgentSession) -> Option<PathBuf> {
+            None
+        }
+
+        fn resume_candidate_exists(&self, _session: &AgentSession) -> bool {
+            true
+        }
+
+        fn response_id(&self, session: &AgentSession) -> String {
+            session.as_str().to_owned()
+        }
+
+        fn can_resume_response_session(&self) -> bool {
+            true
+        }
+    }
+
+    struct RecordingTransport {
+        recording: ControllerRecording,
+        alive: bool,
+        snapshot: String,
+    }
+
+    impl AgentTransport for RecordingTransport {
+        fn spawn(&mut self, _spec: &LaunchSpec) -> Result<(), AgentError> {
+            self.alive = true;
+            Ok(())
+        }
+
+        fn send(&mut self, input: InputSequence) -> Result<(), AgentError> {
+            if input.into_bytes().ends_with(b"\x1dqueue") {
+                self.recording.record(ControllerEvent::QueueDelivered);
+            }
+            Ok(())
+        }
+
+        fn snapshot(&self) -> String {
+            self.snapshot.clone()
+        }
+
+        fn is_alive(&self) -> bool {
+            self.alive
+        }
+
+        fn shutdown(&mut self) {
+            self.recording.record(ControllerEvent::Shutdown);
+            self.alive = false;
+        }
+    }
+
+    fn recording_controller(
+        app: &App<'_>,
+        alive: bool,
+        snapshot: &str,
+    ) -> (AgentController, ControllerRecording) {
+        recording_controller_for_actor(app, app.interactive_actor.clone(), alive, snapshot)
+    }
+
+    fn recording_controller_for_actor(
+        app: &App<'_>,
+        actor: crate::actor::ActorContext,
+        alive: bool,
+        snapshot: &str,
+    ) -> (AgentController, ControllerRecording) {
+        let recording = ControllerRecording::default();
+        let controller = AgentController::new(
+            Arc::clone(&app.command_context.workspace),
+            actor,
+            Box::new(RecordingFrontend {
+                recording: recording.clone(),
+            }),
+            Box::new(RecordingTransport {
+                recording: recording.clone(),
+                alive,
+                snapshot: snapshot.to_owned(),
+            }),
+        );
+        (controller, recording)
+    }
 
     fn test_app<'a>(temporary: &tempfile::TempDir, cli: &'a Cli, agent_kind: AgentKind) -> App<'a> {
         let root = temporary.path().join("family");
@@ -1013,8 +1166,159 @@ mod tests {
         )
     }
 
+    fn sms_actor() -> crate::actor::ActorContext {
+        let users = crate::users::Users {
+            schema_version: crate::users::USERS_SCHEMA_VERSION,
+            users: vec![crate::users::User {
+                id: crate::users::UserId::parse("remote-member").unwrap(),
+                name: "Remote member".to_owned(),
+                phones: vec![crate::users::PhoneIdentity {
+                    value: "+15551234567".to_owned(),
+                    inbound_allowed: true,
+                }],
+                emails: Vec::new(),
+                response_email: None,
+            }],
+        };
+        crate::actor::resolve_actor(
+            &crate::users::UserId::parse("remote-member").unwrap(),
+            crate::actor::RequestIdentity::Sms {
+                from: "+15551234567",
+            },
+            &users,
+        )
+        .unwrap()
+    }
+
     fn live_panel(root: &Path) -> PtyPane {
         PtyPane::spawn_shell_command_with_env("cat", &[], root, 24, 80).expect("spawn panel")
+    }
+
+    fn panel_controller(app: &App<'_>, panel: PtyPane) -> AgentController {
+        AgentController::new(
+            Arc::clone(&app.command_context.workspace),
+            app.interactive_actor.clone(),
+            crate::agent::configured_frontend(&app.command_context, app.agent_kind),
+            Box::new(panel),
+        )
+    }
+
+    #[test]
+    fn controller_drives_interactive_submit_queued_work_and_single_shutdown() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+        let (controller, recording) = recording_controller(&app, true, "final snapshot");
+        app.brain = Some(controller);
+        app.focus = Panel::Brain;
+
+        let enter =
+            crossterm::event::KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+        handle_brain_key(&mut app, &enter, false);
+        app.send_brain_prompt("queued inbound work");
+
+        assert_eq!(
+            recording.events(),
+            vec![
+                ControllerEvent::SubmitNow,
+                ControllerEvent::QueueAfterActiveTurn,
+            ]
+        );
+
+        app.tick_agent_controllers();
+        app.tick_agent_controllers();
+        app.close_brain();
+        app.close_brain();
+
+        assert_eq!(
+            recording.events(),
+            vec![
+                ControllerEvent::SubmitNow,
+                ControllerEvent::QueueAfterActiveTurn,
+                ControllerEvent::QueueDelivered,
+                ControllerEvent::Shutdown,
+            ]
+        );
+    }
+
+    #[test]
+    fn agent_exit_closes_only_the_panel_and_returns_to_the_live_tui() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+        let (controller, recording) = recording_controller(&app, false, "final snapshot");
+        app.brain = Some(controller);
+        app.focus = Panel::Brain;
+
+        assert!(app.close_exited_brain_panel());
+
+        assert!(app.brain.is_none());
+        assert_eq!(app.focus, Panel::Tasks);
+        assert_eq!(recording.events(), vec![ControllerEvent::Shutdown]);
+    }
+
+    #[test]
+    fn close_delivers_transport_snapshot_with_the_initiating_actor_and_channel() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+        let initiating_actor = sms_actor();
+        let (controller, _) = recording_controller_for_actor(
+            &app,
+            initiating_actor.clone(),
+            false,
+            "remote transport snapshot",
+        );
+        app.brain = Some(controller);
+        app.session_actor = Some(app.interactive_actor.clone());
+        app.receiver_session_id = Some("receiver-session".to_owned());
+        app.receiver_started = Some(std::time::Instant::now());
+        app.receiver_sender = Some("+15551234567".to_owned());
+        app.receiver_lease = Some(crate::tui::receiver_state::renew(
+            Channel::Email,
+            0,
+            std::time::Instant::now(),
+        ));
+        let mut delivered = None;
+
+        app.close_brain_with(|_, completion| delivered = Some(completion));
+
+        let delivered = delivered.expect("completion delivered before teardown");
+        let (snapshot, actor, channel) = delivered.into_parts();
+        assert_eq!(snapshot, "remote transport snapshot");
+        assert_eq!(actor, initiating_actor);
+        assert_eq!(channel, Channel::Sms);
+        assert!(app.brain.is_none());
+        assert_eq!(app.focus, Panel::Tasks);
+    }
+
+    #[test]
+    fn normal_and_triage_controllers_use_the_same_selected_adapter() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+
+        for kind in [AgentKind::Claude, AgentKind::Codex] {
+            let app = test_app(&temporary, &cli, kind);
+            let normal = app.controller_for_transport(
+                app.interactive_actor.clone(),
+                Box::new(RecordingTransport {
+                    recording: ControllerRecording::default(),
+                    alive: false,
+                    snapshot: String::new(),
+                }),
+            );
+            let triage = app.controller_for_transport(
+                app.interactive_actor.clone(),
+                Box::new(RecordingTransport {
+                    recording: ControllerRecording::default(),
+                    alive: false,
+                    snapshot: String::new(),
+                }),
+            );
+
+            assert_eq!(normal.kind(), kind);
+            assert_eq!(triage.kind(), kind);
+        }
     }
 
     fn capture_panel(root: &Path) -> PtyPane {
@@ -1028,19 +1332,22 @@ mod tests {
         .expect("spawn capture panel")
     }
 
-    fn wait_for_panel_contents(panel: &PtyPane, expected: &str) -> bool {
-        for _ in 0..100 {
+    fn wait_for_panel_contents(panel: &AgentController, expected: &str) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
             let normalized = panel
-                .contents()
+                .snapshot()
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" ");
             if normalized.contains(expected) {
                 return true;
             }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        false
     }
 
     struct ClaudeTranscript {
@@ -1134,16 +1441,14 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_n_queues_a_frontend_specific_deferred_new_session_submit() {
+    fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let cli = Cli::parse_from(["tasks"]);
 
-        for (agent_kind, expected_submit) in [
-            (AgentKind::Claude, vec![b'\r']),
-            (AgentKind::Codex, vec![b'\t']),
-        ] {
+        for agent_kind in [AgentKind::Claude, AgentKind::Codex] {
             let mut app = test_app(&temporary, &cli, agent_kind);
-            app.brain = Some(capture_panel(app.command_context.workspace.root()));
+            let capture = capture_panel(app.command_context.workspace.root());
+            app.brain = Some(panel_controller(&app, capture));
             assert!(
                 wait_for_panel_contents(app.brain.as_ref().expect("panel"), "READY"),
                 "capture panel did not become ready"
@@ -1153,13 +1458,6 @@ mod tests {
             assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
             assert_eq!(app.focus, Panel::Brain);
             assert!(app.brain_turn_active);
-            assert_eq!(app.pending_brain_submit, BRAIN_SUBMIT_DELAY_TICKS);
-
-            app.tick_brain_submit();
-            assert_eq!(app.pending_brain_submit, 1);
-            app.tick_brain_submit();
-            assert_eq!(app.pending_brain_submit, 0);
-            assert_eq!(submit_key_for_agent(agent_kind), expected_submit);
             let expected_bytes = match agent_kind {
                 AgentKind::Claude => "2f 6e 65 77 0d",
                 AgentKind::Codex => "2f 6e 65 77 09",
@@ -1171,7 +1469,7 @@ mod tests {
             assert!(
                 wait_for_panel_contents(panel, expected_bytes),
                 "capture panel did not receive deferred /new bytes: {}",
-                panel.contents()
+                panel.snapshot()
             );
         }
     }
@@ -1182,7 +1480,8 @@ mod tests {
         let cli = Cli::parse_from(["tasks"]);
         let mut app = test_app(&temporary, &cli, AgentKind::Claude);
         let actor = app.interactive_actor.clone();
-        app.brain = Some(live_panel(app.command_context.workspace.root()));
+        let live = live_panel(app.command_context.workspace.root());
+        app.brain = Some(panel_controller(&app, live));
         app.session_actor = Some(actor.clone());
         app.receiver_session_id = Some("receiver-session".to_owned());
         app.receiver_lease = Some(crate::tui::receiver_state::renew(
@@ -1208,7 +1507,6 @@ mod tests {
         assert_eq!(app.session_actor.as_ref(), Some(&actor));
         assert!(app.receiver_started.is_some());
         assert!(app.brain_turn_active);
-        assert_eq!(app.pending_brain_submit, BRAIN_SUBMIT_DELAY_TICKS);
     }
 
     #[test]
@@ -1227,7 +1525,8 @@ mod tests {
             app.db
                 .register_scoped_fresh(&session_id, &app.instance, 42, &scope)
                 .expect("register locked session");
-            app.brain = Some(live_panel(app.command_context.workspace.root()));
+            let live = live_panel(app.command_context.workspace.root());
+            app.brain = Some(panel_controller(&app, live));
             app.focus = Panel::Brain;
 
             app.close_brain();
