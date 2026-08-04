@@ -10,14 +10,14 @@ use crate::workspace::{WorkspaceContext, WorkspaceId};
 pub(crate) fn prepare_workspace_capabilities(
     workspace: &WorkspaceContext,
 ) -> Result<(), CapabilityError> {
-    ensure_private_directory(&workspace.paths().capabilities_dir())
+    crate::access::ensure_capability_directory(workspace, &workspace.paths().capabilities_dir())
 }
 
 pub(crate) fn cleanup_workspace_capabilities(
     workspace: &WorkspaceContext,
 ) -> Result<(), CapabilityError> {
     let path = workspace.paths().capabilities_dir();
-    if remove_path(&path)? {
+    if crate::access::remove_capability_path(workspace, &path)? {
         sync_parent(&path)?;
     }
     Ok(())
@@ -27,28 +27,33 @@ pub(crate) fn cleanup_claude_runtime_artifacts(
     workspace: &WorkspaceContext,
 ) -> Result<(), CapabilityError> {
     let directory = workspace.paths().capabilities_dir();
-    cleanup_claude_artifacts_in(&directory, Some(&workspace.paths().capability_mcp_config()))
+    cleanup_claude_artifacts_in(
+        workspace,
+        &directory,
+        Some(&workspace.paths().capability_mcp_config()),
+    )
 }
 
 pub(crate) fn cleanup_codex_runtime_artifacts(
     workspace: &WorkspaceContext,
 ) -> Result<(), CapabilityError> {
     let path = workspace.paths().capabilities_dir().join("codex-mcp");
-    if remove_path(&path)? {
+    if crate::access::remove_capability_path(workspace, &path)? {
         sync_parent(&path)?;
     }
     Ok(())
 }
 
 pub(crate) fn write_claude_runtime_config(
-    path: &Path,
+    workspace: &WorkspaceContext,
     plan: &CapabilityPlan,
 ) -> Result<(), CapabilityError> {
+    let path = workspace.paths().capability_mcp_config();
     let parent = path.parent().ok_or_else(|| {
         CapabilityError::RuntimeArtifact("runtime MCP path has no parent".to_owned())
     })?;
-    ensure_private_directory(parent)?;
-    cleanup_claude_artifacts_in(parent, None)?;
+    crate::access::ensure_capability_directory(workspace, parent)?;
+    cleanup_claude_artifacts_in(workspace, parent, None)?;
     let servers = plan
         .mcps
         .available_connections()
@@ -65,8 +70,8 @@ pub(crate) fn write_claude_runtime_config(
             .open(&temporary)?;
         file.write_all(&bytes)?;
         file.sync_all()?;
-        fs::rename(&temporary, path)?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        fs::rename(&temporary, &path)?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
         fs::File::open(parent)?.sync_all()?;
         Ok(())
     })();
@@ -91,7 +96,7 @@ pub(crate) fn codex_mcp_launch(
     prepare_workspace_capabilities(workspace)?;
     let wrappers_dir = workspace.paths().capabilities_dir().join("codex-mcp");
     cleanup_codex_runtime_artifacts(workspace)?;
-    ensure_private_directory(&wrappers_dir)?;
+    crate::access::ensure_capability_directory(workspace, &wrappers_dir)?;
     let result = (|| -> Result<(), CapabilityError> {
         for connection in plan.mcps.available_connections() {
             let server_name =
@@ -164,7 +169,7 @@ pub(crate) fn codex_mcp_launch(
         Ok(())
     })();
     if let Err(error) = result {
-        let _ = remove_path(&wrappers_dir);
+        let _ = crate::access::remove_capability_path(workspace, &wrappers_dir);
         let _ = sync_parent(&wrappers_dir);
         return Err(error);
     }
@@ -175,22 +180,16 @@ pub(crate) fn codex_mcp_launch(
 }
 
 fn cleanup_claude_artifacts_in(
+    workspace: &WorkspaceContext,
     directory: &Path,
     live_config: Option<&Path>,
 ) -> Result<(), CapabilityError> {
-    match fs::symlink_metadata(directory) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(CapabilityError::RuntimeArtifact(error.to_string())),
-        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
-            return Err(CapabilityError::RuntimeArtifact(
-                "workspace capability directory must be a real directory".to_owned(),
-            ));
-        }
-        Ok(_) => {}
+    if !crate::access::existing_capability_directory(workspace, directory)? {
+        return Ok(());
     }
     let mut removed = false;
     if let Some(path) = live_config {
-        removed |= remove_path(path)?;
+        removed |= crate::access::remove_capability_path(workspace, path)?;
     }
     for entry in fs::read_dir(directory)
         .map_err(|error| CapabilityError::RuntimeArtifact(error.to_string()))?
@@ -199,54 +198,13 @@ fn cleanup_claude_artifacts_in(
         let name = entry.file_name();
         let name = name.to_string_lossy();
         if name.starts_with(".claude-mcp-") && name.ends_with(".tmp") {
-            removed |= remove_path(&entry.path())?;
+            removed |= crate::access::remove_capability_path(workspace, &entry.path())?;
         }
     }
     if removed {
         sync_directory(directory)?;
     }
     Ok(())
-}
-
-fn ensure_private_directory(path: &Path) -> Result<(), CapabilityError> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
-            return Err(CapabilityError::RuntimeArtifact(format!(
-                "{} must be a real directory",
-                path.display()
-            )));
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::create_dir_all(path)
-                .map_err(|error| CapabilityError::RuntimeArtifact(error.to_string()))?;
-            sync_parent(path)?;
-        }
-        Err(error) => return Err(CapabilityError::RuntimeArtifact(error.to_string())),
-    }
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-        .map_err(|error| CapabilityError::RuntimeArtifact(error.to_string()))
-}
-
-fn remove_path(path: &Path) -> Result<bool, CapabilityError> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() || metadata.is_file() => {
-            fs::remove_file(path)
-                .map_err(|error| CapabilityError::RuntimeArtifact(error.to_string()))?;
-            Ok(true)
-        }
-        Ok(metadata) if metadata.is_dir() => {
-            fs::remove_dir_all(path)
-                .map_err(|error| CapabilityError::RuntimeArtifact(error.to_string()))?;
-            Ok(true)
-        }
-        Ok(_) => Err(CapabilityError::RuntimeArtifact(format!(
-            "unsupported capability artifact at {}",
-            path.display()
-        ))),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(CapabilityError::RuntimeArtifact(error.to_string())),
-    }
 }
 
 fn sync_parent(path: &Path) -> Result<(), CapabilityError> {

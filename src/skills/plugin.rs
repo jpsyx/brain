@@ -4,7 +4,7 @@
 //! committed to the public repo) and are installed by the same pipeline.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
@@ -35,13 +35,20 @@ pub fn discover(dir: &Path) -> Vec<Skill> {
     plugins
 }
 
-/// Validate one exact machine skill directory without following symlinks.
-pub(crate) fn validate_exact(path: &Path) -> Result<()> {
-    load_exact("validation", path).map(drop)
+/// Validate one exact machine skill directory and return its stable canonical path.
+pub(crate) fn validate_exact_path(path: &Path) -> Result<PathBuf> {
+    let canonical = canonical_path_below_trusted_root(path)?;
+    load_exact_from("validation", &canonical)?;
+    Ok(canonical)
 }
 
 /// Load only the configured machine skill directory without inspecting siblings.
 pub(crate) fn load_exact(name: &str, path: &Path) -> Result<Skill> {
+    let canonical = canonical_path_below_trusted_root(path)?;
+    load_exact_from(name, &canonical)
+}
+
+fn load_exact_from(name: &str, path: &Path) -> Result<Skill> {
     validate_path_components(path)?;
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("reading machine skill directory {}", path.display()))?;
@@ -63,6 +70,68 @@ pub(crate) fn load_exact(name: &str, path: &Path) -> Result<Skill> {
         name: name.to_owned(),
         files,
     })
+}
+
+fn canonical_path_below_trusted_root(path: &Path) -> Result<PathBuf> {
+    validate_path_components(path)?;
+    // The root-owned first component is the trust anchor. This permits
+    // platform aliases such as `/var` while every caller-controlled component
+    // below it must be a real directory. The canonical containment check keeps
+    // the anchor alias from resolving into an unrelated top-level tree.
+    let trusted_root = trusted_top_level(path)?;
+    let canonical_root = fs::canonicalize(&trusted_root).with_context(|| {
+        format!(
+            "canonicalizing trusted machine skill root {}",
+            trusted_root.display()
+        )
+    })?;
+    validate_ancestors_below(path, &trusted_root)?;
+    let canonical = fs::canonicalize(path)
+        .with_context(|| format!("canonicalizing machine skill directory {}", path.display()))?;
+    if !canonical.starts_with(&canonical_root) {
+        bail!(
+            "machine skill path resolves outside trusted root {}",
+            canonical_root.display()
+        );
+    }
+    validate_ancestors_below(&canonical, &trusted_top_level(&canonical)?)?;
+    Ok(canonical)
+}
+
+fn trusted_top_level(path: &Path) -> Result<PathBuf> {
+    let mut components = path.components();
+    if !matches!(components.next(), Some(Component::RootDir)) {
+        bail!("machine skill path must be absolute");
+    }
+    let Some(Component::Normal(first)) = components.next() else {
+        bail!("machine skill path must name a directory below a trusted top-level root");
+    };
+    Ok(Path::new("/").join(first))
+}
+
+fn validate_ancestors_below(path: &Path, trusted_root: &Path) -> Result<()> {
+    let relative = path.strip_prefix(trusted_root).with_context(|| {
+        format!(
+            "machine skill path {} left its trusted root",
+            path.display()
+        )
+    })?;
+    let mut current = trusted_root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            bail!("machine skill path cannot contain traversal components");
+        };
+        current.push(component);
+        let metadata = fs::symlink_metadata(&current)
+            .with_context(|| format!("reading machine skill ancestor {}", current.display()))?;
+        if metadata.file_type().is_symlink() {
+            bail!("machine skill path ancestor cannot be a symlink");
+        }
+        if !metadata.is_dir() {
+            bail!("machine skill path ancestor is not a directory");
+        }
+    }
+    Ok(())
 }
 
 fn validate_path_components(path: &Path) -> Result<()> {

@@ -384,8 +384,12 @@ existing file strictly, preserve unrelated object fields, and replace the file
 from a synced same-directory temporary. Malformed JSON, a non-object value, or
 an invalid stored mode is reported without changing the live bytes. A failed
 replacement removes its temporary and leaves the prior file available for a
-safe retry. TUI startup uses the same strict typed config path, so an invalid
-mode cannot silently fall back to unrestricted behavior.
+safe retry. TUI startup always parses `access_mode` and live TUI settings
+strictly, so an invalid mode cannot silently fall back to unrestricted
+behavior. When that validated mode is `unrestricted`, startup deliberately
+does not deserialize `allowed_mcps` or `allowed_skills`, because neither field
+is used by an unrestricted launch. `workspace_only` continues to parse both
+lists strictly and fails closed when either is malformed.
 
 ### Receiver response configuration
 

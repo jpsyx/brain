@@ -153,3 +153,83 @@ fn unrestricted_cleanup_unlinks_a_capability_symlink_without_touching_its_target
     assert!(sentinel.is_file());
     assert!(std::fs::symlink_metadata(&capabilities).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn unrestricted_cleanup_rejects_a_symlinked_workspace_cache_root() {
+    let (_home, workspace) = temporary_workspace();
+    let outside = tempfile::tempdir().expect("outside directory");
+    let external_capabilities = outside.path().join("capabilities");
+    std::fs::create_dir_all(&external_capabilities).expect("external capability directory");
+    let sentinel = external_capabilities.join("sentinel");
+    std::fs::write(&sentinel, "keep").expect("outside sentinel");
+    let cache_root = workspace.paths().cache_dir();
+    std::fs::create_dir_all(cache_root.parent().expect("cache parent"))
+        .expect("workspace cache parent");
+    std::os::unix::fs::symlink(outside.path(), cache_root).expect("workspace cache symlink");
+    let request = LaunchRequest::from_trusted_context(
+        Arc::clone(&workspace),
+        actor(),
+        SessionPlan::fresh(AgentSession::new("session-1").expect("session")),
+        None,
+        AccessMode::Unrestricted,
+    );
+
+    let result = CodexFrontend::new("codex").launch_spec(&request);
+
+    assert!(
+        sentinel.is_file(),
+        "cleanup followed the cache-root symlink"
+    );
+    assert!(result.is_err(), "symlinked cache root must fail closed");
+}
+
+#[cfg(unix)]
+#[test]
+fn skill_cleanup_rejects_a_symlinked_actor_ancestor() {
+    let (_home, workspace) = temporary_workspace();
+    let outside = tempfile::tempdir().expect("outside directory");
+    let external_skills = outside
+        .path()
+        .join(actor().user_id().as_str())
+        .join("skills");
+    std::fs::create_dir_all(&external_skills).expect("external skill directory");
+    let sentinel = external_skills.join("sentinel");
+    std::fs::write(&sentinel, "keep").expect("outside sentinel");
+    let capabilities = workspace.paths().capabilities_dir();
+    std::fs::create_dir_all(&capabilities).expect("capability directory");
+    std::os::unix::fs::symlink(outside.path(), capabilities.join("actors"))
+        .expect("actor ancestor symlink");
+    let plan = capability_plan(
+        &Config {
+            access_mode: AccessMode::WorkspaceOnly,
+            allowed_mcps: Vec::new(),
+            allowed_skills: vec!["todo".to_owned()],
+            ..Config::default()
+        },
+        &MachineCapabilityEnvironment::from_value(family_id(), serde_json::json!({}))
+            .expect("machine capability environment"),
+    )
+    .expect("capability plan");
+    let request = LaunchRequest::from_trusted_context(
+        Arc::clone(&workspace),
+        actor(),
+        SessionPlan::fresh(AgentSession::new("session-1").expect("session")),
+        None,
+        AccessMode::WorkspaceOnly,
+    )
+    .with_capability_plan(plan);
+
+    let result = ClaudeFrontend::new(
+        "claude",
+        workspace.root().to_path_buf(),
+        PathBuf::from("/unused/projects"),
+    )
+    .launch_spec(&request);
+
+    assert!(
+        sentinel.is_file(),
+        "skill cleanup followed an ancestor symlink"
+    );
+    assert!(result.is_err(), "symlinked actor ancestor must fail closed");
+}

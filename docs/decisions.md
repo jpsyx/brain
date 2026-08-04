@@ -524,6 +524,12 @@ Unrestricted launch construction deliberately skips capability parsing and
 clears stale capability artifacts, so malformed unused configuration cannot
 break or influence ordinary frontend behavior.
 
+That skip begins at TUI setup, before `App` construction. Startup first parses
+`access_mode` and every live non-capability setting strictly. It omits only the
+unused logical capability lists when the validated mode is unrestricted;
+workspace-only startup retains strict list parsing. This keeps malformed dead
+configuration from blocking either frontend without weakening the mode gate.
+
 Selected skill copies live under the workspace UUID and actor cache. They do
 not link to, prune, or rewrite the shared registry. This preserves the user's
 ordinary unrestricted environment and avoids one workspace launch changing
@@ -533,6 +539,15 @@ redirecting rendering to a sibling or later-retargeted tree. Runtime MCP files
 and wrappers are short-lived frontend artifacts: frontend switches remove the
 other frontend's files, retries remove abandoned temporary files, and durable
 renames sync the containing directory.
+
+For machine skill sources, the root-owned first absolute path component is the
+trust anchor. Brain canonicalizes that anchor, proves the full source remains
+below it, rejects every lower ancestor symlink, then retains the canonical
+source path. This narrowly permits platform-owned aliases such as `/var` while
+rejecting parent links controlled within the configured tree. For generated
+artifacts, the selected UUID cache directory is the trust anchor instead;
+recursive removal validates it and each target ancestor without following a
+symlink, then fails closed on any mismatch.
 
 ## Why we disable alternate scroll (and motion) reporting for the mouse
 

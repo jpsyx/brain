@@ -362,18 +362,20 @@ pub fn capability_plan(
             .map(|name| {
                 let resolution = if bundled.contains(name) {
                     CapabilityResolution::Available(SkillSelection::Bundled)
-                } else if let Some(skill) = machine_skills
+                } else if let Some(mut skill) = machine_skills
                     .iter()
                     .find(|skill| skill.name == *name)
                     .cloned()
                 {
-                    if crate::skills::plugin::validate_exact(&skill.path).is_ok() {
-                        CapabilityResolution::Available(SkillSelection::Machine(skill))
-                    } else {
-                        CapabilityResolution::Unavailable(
+                    match crate::skills::plugin::validate_exact_path(&skill.path) {
+                        Ok(path) => {
+                            skill.path = path;
+                            CapabilityResolution::Available(SkillSelection::Machine(skill))
+                        }
+                        Err(_) => CapabilityResolution::Unavailable(
                             "machine skill path must be an absolute symlink-free directory containing a regular SKILL.md"
                                 .to_owned(),
-                        )
+                        ),
                     }
                 } else {
                     CapabilityResolution::Unavailable(

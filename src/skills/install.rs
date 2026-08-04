@@ -95,20 +95,11 @@ fn write_built_to(
 
 /// Render only selected skills below one workspace/actor cache directory.
 /// No shared registry or frontend path is inspected or mutated.
-pub fn render_workspace_capabilities(
+pub(crate) fn render_workspace_capabilities(
     layout: &WorkspaceCapabilityLayout,
     sources: &Sources,
     plan: &crate::access::CapabilityPlan,
 ) -> Result<WorkspaceCapabilityReport> {
-    if layout.built_dir.exists() {
-        fs::remove_dir_all(&layout.built_dir).with_context(|| {
-            format!(
-                "clearing workspace capability skills {}",
-                layout.built_dir.display()
-            )
-        })?;
-    }
-    fs::create_dir_all(&layout.built_dir)?;
     let mut bundled = embed::bundled_skills();
     let mut rendered = Vec::new();
     for source in plan.skills.available_sources() {
@@ -129,13 +120,38 @@ pub fn render_workspace_capabilities(
             .extensions_dir
             .as_deref()
             .and_then(|directory| extension::load(&skill.name, directory));
-        write_built_to(&skill, ext.as_ref(), &layout.built_dir)?;
+        write_fresh_built_to(&skill, ext.as_ref(), &layout.built_dir)?;
         rendered.push(skill.name);
     }
     Ok(WorkspaceCapabilityReport {
         rendered_dir: layout.built_dir.clone(),
         rendered,
     })
+}
+
+fn write_fresh_built_to(
+    skill: &Skill,
+    ext: Option<&extension::Extension>,
+    built_dir: &Path,
+) -> Result<()> {
+    let dest = built_dir.join(&skill.name);
+    match fs::symlink_metadata(&dest) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+        Ok(_) => anyhow::bail!(
+            "workspace capability skill destination appeared during render: {}",
+            dest.display()
+        ),
+    }
+    for rendered in render::render(skill, ext) {
+        let path = dest.join(&rendered.rel_path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, &rendered.contents)
+            .with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn create_symlink(link: &Link) -> Result<()> {

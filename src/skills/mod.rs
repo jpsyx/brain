@@ -33,6 +33,8 @@ pub fn render_workspace_capabilities(
     plan: &crate::access::CapabilityPlan,
 ) -> anyhow::Result<WorkspaceCapabilityReport> {
     let layout = layout::Layout::workspace_capabilities(workspace, actor);
+    crate::access::remove_capability_path(workspace, &layout.built_dir)?;
+    crate::access::ensure_capability_directory(workspace, &layout.built_dir)?;
     install::render_workspace_capabilities(&layout, &real_sources(workspace), plan)
 }
 

@@ -266,8 +266,9 @@ Portable access policy. `mode` owns the two stable config values; `prompt`
 builds the trusted advisory text and deliberately naive literal outside-root
 warning; `capabilities` snapshots mode plus prompt; `skills` resolves portable
 logical names against the selected machine record; `enforcement` models honest
-frontend evidence and levels; `mcp` owns the machine schema plus frontend
-runtime translation; `store` strictly
+frontend evidence and levels; `artifact` owns symlink-safe validation and
+removal below the selected workspace's trusted UUID cache root; `mcp` owns the
+machine schema plus frontend runtime translation; `store` strictly
 loads portable config, preserves unrelated keys, and
 publishes mode changes through a synced same-directory atomic replacement. It
 also validates or seeds the selected record before readiness, a new record
@@ -278,7 +279,10 @@ from the selected workspace, resolved actor, and already-loaded portable
 The controller validates the plan's mode and credential provenance before a
 frontend can render artifacts or reach the transport. Unrestricted launch
 assembly bypasses portable and machine capability parsing, preserving normal
-frontend pass-through even when unused capability data is malformed.
+frontend pass-through even when unused capability data is malformed. TUI setup
+implements the same distinction before `App` construction: access mode and live
+settings remain strict, but unrestricted mode does not deserialize the unused
+logical capability lists.
 Inbound prompt text is not an input to policy construction.
 
 ### `users/`

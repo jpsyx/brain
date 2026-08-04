@@ -484,6 +484,19 @@ four core defaults. The controller requires one workspace-only plan and rejects
 a mode mismatch or credential provenance UUID from another workspace before
 frontend translation.
 
+A machine skill `path` is absolute. Its root-owned first component is the
+trusted source anchor. Brain canonicalizes that anchor and the complete path,
+requires the result to stay below the anchor, rejects symlinks in every
+component below it and in all source descendants, and stores the canonical
+path in the capability plan. This accommodates operating-system aliases such
+as `/var` without treating a configurable parent symlink as trusted.
+
+Capability artifacts use the selected workspace's UUID cache directory as
+their trusted filesystem root. Recursive cleanup validates that root and every
+ancestor of its target with `symlink_metadata`; the final target may be an
+unlinked symlink, but no ancestor symlink is followed. Missing targets are a
+no-op and any unexpected entry type fails closed.
+
 `classify_obvious_outside_path` is a pure defense-in-depth warning for literal
 absolute and `~/` paths. It does not resolve symlinks or aliases and does not
 attempt prompt-injection detection. Paraphrasing and indirect requests can

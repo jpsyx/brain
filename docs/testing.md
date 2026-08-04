@@ -176,12 +176,16 @@ first move is a failing test that reproduces it, *then* the fix.
   evidence, Codex's secret-free documented per-call overrides against the
   installed parser, collision-free stdio secret remapping, honest enforcement
   reports, exact symlink-free actor/root-local skill rendering without
-  global-registry mutation, lifecycle cleanup, safe symlink unlinking, and
-  redacted status/Debug output. App-level tests prove unrestricted launch
-  assembly does not parse unused malformed capability data and both
-  workspace-only main and triage requests attach the same plan. Controller unit
-  tests reject missing, wrong-mode, and foreign-provenance plans before
-  transport launch.
+  global-registry mutation, canonical machine-source containment, parent-link
+  retarget rejection, lifecycle cleanup, safe symlink unlinking, cache-root and
+  actor-ancestor sentinel preservation, and redacted status/Debug output.
+  Setup-seam tests prove unrestricted startup does not parse unused malformed
+  capability lists for either frontend while mode/live fields and all
+  workspace-only capability fields stay strict. App-level tests prove
+  unrestricted launch assembly does not parse unused malformed capability data
+  and both workspace-only main and triage requests attach the same plan.
+  Controller unit tests reject missing, wrong-mode, and foreign-provenance
+  plans before transport launch.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).

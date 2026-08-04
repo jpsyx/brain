@@ -167,9 +167,14 @@ select a separate profile.
 The selected skill view is rendered per workspace UUID and actor below the
 capability cache. It incorporates that root's extensions and contains only
 available selected sources. Machine sources are loaded from exactly their
-configured absolute directory, with symlinks rejected at the root and anywhere
-below it. Brain never searches a sibling directory by logical name. It creates
-no links into the shared skill registry,
+configured absolute directory. The root-owned first path component is the
+explicit trust anchor (so a platform alias such as `/var` can be canonicalized);
+the resolved directory must remain below that canonical anchor, and every
+component beneath the anchor, the skill root, and every descendant entry must
+be symlink-free. The canonical path is retained in the launch plan, so a
+retargeted parent link cannot redirect a later render. Brain never searches a
+sibling directory by logical name. It creates no links into the shared skill
+registry,
 so switching workspaces cannot prune or rewrite global skill state. Run
 `brain skills status` for requested, available, and frontend enforcement rows;
 the formatter never receives connection values or credentials.
@@ -178,7 +183,10 @@ Capability artifacts are frontend-lifecycle state. A Claude launch removes
 stale Codex wrappers and abandoned Claude temporary files; a Codex launch
 removes stale Claude JSON and temporary files. Unrestricted launches remove the
 whole workspace capability cache. Cleanup treats symlinks as links rather than
-following them, and successful atomic publications sync their parent directory.
+following them. Before any recursive removal, Brain validates the trusted
+workspace cache root and each existing component down through
+`capabilities/actors/<actor>/skills`; a symlinked ancestor fails the launch
+closed. Successful atomic publications sync their parent directory.
 Debug formatting exposes names and enforcement metadata only; connection
 material, credential values, prompts, hook values, commands, and launch
 environment values are redacted.

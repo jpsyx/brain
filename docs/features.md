@@ -121,7 +121,10 @@ skill names are trusted guidance for both frontends. `brain skills status`
 labels each requested capability as `strictly-selected`, `advisory-only`, or
 `unavailable`, rather than claiming isolation the frontend does not provide.
 Unrestricted launches skip capability parsing and remove stale workspace-only
-artifacts before using the frontend's ordinary global configuration.
+artifacts before using the frontend's ordinary global configuration. TUI
+startup therefore ignores malformed `allowed_mcps` or `allowed_skills` values
+only in unrestricted mode; it still validates `access_mode` and all live TUI
+settings, while workspace-only startup validates the capability lists too.
 
 **Swap the layout.** The palette's "Move brain panel to the left/right"
 command flips which side the brain panel sits on; the choice is persisted

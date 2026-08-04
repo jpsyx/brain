@@ -241,3 +241,43 @@ fn machine_skill_symlink_paths_and_entries_are_unavailable_without_traversal() {
             .is_some_and(|reason| reason.contains("symlink"))
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn machine_skill_parent_symlink_cannot_be_retargeted_into_an_available_source() {
+    use std::os::unix::fs::symlink;
+
+    let (_home, workspace) = temporary_workspace();
+    let first_parent = workspace.root().join("first-parent");
+    let second_parent = workspace.root().join("second-parent");
+    for parent in [&first_parent, &second_parent] {
+        std::fs::create_dir_all(parent.join("skill")).expect("machine skill parent");
+        std::fs::write(parent.join("skill/SKILL.md"), "# machine skill\n")
+            .expect("machine skill file");
+    }
+    let configured_parent = workspace.root().join("configured-parent");
+    symlink(&first_parent, &configured_parent).expect("configured parent symlink");
+    let config = Config {
+        access_mode: AccessMode::WorkspaceOnly,
+        allowed_skills: vec!["machine-only".to_owned()],
+        ..Config::default()
+    };
+    let machine = MachineCapabilityEnvironment::from_value(
+        family_id(),
+        serde_json::json!({
+            "skills": [{"name": "machine-only", "path": configured_parent.join("skill")}]
+        }),
+    )
+    .expect("machine capability environment");
+    std::fs::remove_file(&configured_parent).expect("remove first parent link");
+    symlink(&second_parent, &configured_parent).expect("retarget configured parent link");
+
+    let plan = capability_plan(&config, &machine).expect("capability plan");
+
+    assert!(plan.skills.available_names().is_empty());
+    assert!(
+        plan.skills
+            .unavailable_reason("machine-only")
+            .is_some_and(|reason| reason.contains("symlink"))
+    );
+}

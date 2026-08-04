@@ -144,7 +144,7 @@ impl AgentFrontend for ClaudeFrontend {
             .filter(|plan| !plan.mcps.uses_global_configuration())
             .map(|plan| {
                 let path = request.workspace().paths().capability_mcp_config();
-                crate::access::write_claude_runtime_config(&path, plan)
+                crate::access::write_claude_runtime_config(request.workspace(), plan)
                     .map_err(|error| AgentError::Frontend(error.to_string()))?;
                 Ok::<_, AgentError>(path)
             })
