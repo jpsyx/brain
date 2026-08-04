@@ -133,3 +133,45 @@ fn close_brain_releases_each_frontend_session_for_the_next_shell() {
         assert_eq!(app.db.sessions_by_recency(&scope), [session_id]);
     }
 }
+
+#[test]
+fn half_page_scroll_targets_the_visible_triage_controller() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let (main, main_recording) = recording_controller(&app, true, "main");
+    let (triage, triage_recording) = recording_controller(&app, true, "triage");
+    app.brain = Some(main);
+    app.triage_brain = Some(triage);
+    app.active_brain_tab = BrainTab::Triage;
+    app.focus = Panel::Brain;
+
+    app.scroll_focused_half_page(true);
+    app.scroll_focused_half_page(false);
+
+    assert_eq!(main_recording.events(), Vec::<ControllerEvent>::new());
+    assert_eq!(
+        triage_recording.events(),
+        vec![
+            ControllerEvent::ScrollUp(20),
+            ControllerEvent::ScrollDown(20)
+        ]
+    );
+}
+
+#[test]
+fn whole_shell_shutdown_explicitly_stops_every_agent_controller_once() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let (main, main_recording) = recording_controller(&app, true, "main");
+    let (triage, triage_recording) = recording_controller(&app, true, "triage");
+    app.brain = Some(main);
+    app.triage_brain = Some(triage);
+
+    app.shutdown_agent_controllers();
+    app.shutdown_agent_controllers();
+
+    assert_eq!(main_recording.events(), vec![ControllerEvent::Shutdown]);
+    assert_eq!(triage_recording.events(), vec![ControllerEvent::Shutdown]);
+}

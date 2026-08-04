@@ -241,6 +241,8 @@ pub fn run_tui(
     };
     let result = event_loop(&mut terminal, &mut app);
 
+    app.shutdown_agent_controllers();
+
     // Local changes are already pushed by the watcher. Exit performs no pull
     // or timer-driven reconciliation; downstream sync happens only at startup
     // or at the receiver's two-hour freshness gate.

@@ -99,6 +99,7 @@ tui::run_tui(command_context, view, cli, …) (the persistent shell)
        ├─ App owns one AgentController per live main/triage panel
        │    ├─ access::AccessPolicy snapshots trusted portable mode/root/actor
        │    ├─ agent::{ClaudeFrontend,CodexFrontend} translate semantic operations
+       │    ├─ agent::OpenCodeFrontend rejects every operation before transport access
        │    └─ PtyPane clears inherited env, spawns the complete spec, and carries bytes
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
        ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; status and log actions open the logs view)
@@ -141,10 +142,12 @@ transport, main and triage controller ownership, receiver controller dispatch,
 advisory portable access modes, and a fail-fast OpenCode selection stub now
 exist. Functional OpenCode sessions, coordinated task-schema activation, and
 the final shared receiver lease lifecycle remain later phases.
-`workspace_only` is prompt guidance plus capability filtering, not a filesystem
-sandbox or authentication boundary. Changing the machine default never changes
-portable access mode. The controller accepts a workspace-only launch only when
-its capability plan has the same access mode and selected workspace UUID;
+`workspace_only` is easy-to-bypass prompt guidance plus capability filtering,
+not a security or isolation boundary. It reduces accidents and naive leakage
+among trusted users; adversarial or sensitive workloads require an external
+OS, VM, machine, or container boundary. Changing the machine default never
+changes portable access mode. The controller accepts a workspace-only launch
+only when its capability plan has the same access mode and selected workspace UUID;
 unrestricted launches carry no plan and do not parse capability configuration.
 
 ## Modules
@@ -263,6 +266,9 @@ that keeps injected text separate from its final frontend input.
 `opencode` supplies a constructible frontend whose lifecycle, input, session,
 completion, and response operations all return typed unsupported errors before
 transport access.
+`LaunchRequest::HookMetadata` is trusted input that adapters merge into the
+explicit child environment. The plan-mandated `LaunchSpec::hooks` slot is
+currently reserved and empty; `PtyPane` does not consume a second hook channel.
 
 ### `access/`
 
@@ -846,7 +852,8 @@ then launches the selected frontend through an `AgentController`
 returns focus to the tasks main view so `j`/`k` work at once. It then wires the auto-sync
 triggers (a mandatory detached pull-biased startup sync and, when
 `watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
-loop, then drops the watcher and releases the session lock. No exit sync or
+loop, explicitly shuts down the main and triage controllers, then drops the
+watcher and releases the session lock. No exit sync or
 idle timer exists. The **daily-triage nudge**
 is coupled to that startup sync: when a configured startup sync is pending, `run_tui`
 does *not* run the check immediately. It captures the sync journal's latest
@@ -890,7 +897,8 @@ the production module remains focused on transport behavior.
 Compatibility launch planning: re-exported `agent::AgentKind`,
 `Plan::{Resume,Fresh}` (chosen from actor-scoped DB resume candidates), and
 `build_llm_command`, which adds the legacy shell `cd` prefix around the command
-translated by the selected adapter. `env_for` and `env_for_triage` remain only
+translated by the selected adapter and returns a typed error for a blank legacy
+session ID. `env_for` and `env_for_triage` remain only
 as compatibility helpers for pure callers and tests. Live TUI panels build
 complete `LaunchRequest` values: the adapter supplies common workspace identity
 and `BRAIN_AGENT_KIND`; the main panel's `HookMetadata` adds instance, PID,

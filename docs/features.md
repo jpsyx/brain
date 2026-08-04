@@ -48,6 +48,12 @@ while the selected agent has focus or the filter is being typed. macOS
 Option-produced equivalents are accepted too, so richer keyboard reporting in
 embedded frontends does not strand the scroll binding.
 
+Every live main or daily-triage session sits behind an `AgentController`.
+Keyboard, receiver, render, scroll, completion, and close paths call semantic
+operations on that facade; only the Claude and Codex adapters know their
+commands, input sequences, session rules, and hooks. Whole-shell teardown
+explicitly shuts down both controllers before their transports are dropped.
+
 **Closing vs quitting.** Exiting the agent (for Claude, `Ctrl-C` to end the
 turn, then `Ctrl-C` again to exit) **closes the brain panel** — the main view goes
 full-width and the shell keeps running. It does *not* quit `brain`. To
@@ -101,8 +107,9 @@ says so in the status line. See [integrations.md](integrations.md) and
 Codex is selected per run with `brain --codex`, `brain -cx`,
 `brain tasks --codex`, or `brain tasks -cx` and
 uses `codex_cmd` from brain env (default `codex`). Claude uses `claude_cmd`
-from brain env (default `claude --dangerously-skip-permissions`). Codex panels
-resume within the same frontend/workspace/actor/channel scope. Every TUI
+from brain env (default `claude --dangerously-skip-permissions`). Codex
+participates in the same frontend/workspace/actor/channel session store but
+currently rejects resume candidates, so live Codex panels start fresh. Every TUI
 startup refreshes the selected workspace's Claude and Codex hooks before state
 migration or agent launch, so remote prompts and completion delivery use the
 same current protocol. When brain
@@ -387,8 +394,12 @@ selected-root cwd, and a filtered child environment. The PTY evaluates the
 configured frontend command without loading login or interactive shell
 profiles, so those profiles cannot restore filtered variables. An initial
 prompt follows an explicit frontend option terminator, so option-looking user
-or inbound text stays prompt data. It is not a
-filesystem sandbox, authentication boundary, container, or OS-user boundary.
+or inbound text stays prompt data. Workspace-only mode is easy to bypass. It
+reduces accidents and naive leakage among trusted users, but is unsuitable for
+adversarial users or sensitive isolation. Real isolation requires an external
+OS, VM, machine, or container boundary. Claude and Codex continue to use the
+user's shared frontend login; selecting a workspace does not create another
+identity.
 A pure literal-path check can warn about obvious absolute or `~/` paths outside
 the root, but paraphrasing, aliases, links, and indirect requests can bypass
 it; it is deliberately not a prompt-injection detector.

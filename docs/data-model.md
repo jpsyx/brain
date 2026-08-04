@@ -382,7 +382,7 @@ requested workspace directly. A fresh ordinary or repair invocation instead
 synthesizes the compatible default `brain` workspace and then crosses the
 normal readiness boundary.
 
-### Current boundary versus planned policy
+### Current identity and schema boundary
 
 The current release resolves one immutable `ActorContext` at ordinary command
 bootstrap, before task, reindex, TUI, or local-agent work. Local/TUI work
@@ -463,8 +463,10 @@ snapshot. Unrestricted mode has no boundary prompt. Workspace-only mode builds
 one advisory prompt naming the selected root and actor, then every interactive,
 SMS, email, fresh, resumed, and triage request carries it to the selected
 frontend. Initial prompt text follows the frontend's option terminator, so a
-leading `-` remains prompt data. The policy is prompt guidance and capability filtering, not a
-filesystem sandbox.
+leading `-` remains prompt data. The policy is easy-to-bypass prompt guidance
+plus capability filtering. It reduces accidents and naive leakage among
+trusted users, but it is not suitable for adversarial or sensitive isolation;
+that requires an external OS, VM, machine, or container boundary.
 
 `CapabilityPlan` is a separate immutable launch snapshot. Portable config owns
 only ordered logical `allowed_mcps` and `allowed_skills` names. Resolution reads
@@ -596,6 +598,12 @@ It lives only in process memory (`App.triage_brain` /
 `App.active_brain_tab: BrainTab` / `App.triage_token`) and is torn down when
 triage completes or the shell exits.
 
+Both main and triage values are `AgentController` instances, not raw PTYs.
+Their shared semantic API owns launch, input, session, completion, terminal,
+and shutdown behavior; only frontend adapters translate those operations.
+Whole-shell teardown explicitly shuts down both controllers before releasing
+the session-store lock.
+
 ## Daily-triage completion signal (`triage_signal.rs`, `~/.cache/brain/triage-done.json`)
 
 The cross-process signal that closes the daily-triage tab. When the `/triage`
@@ -676,8 +684,8 @@ See [config.md](config.md) for migration and storage details.
 | Variable | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
-| `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Read by `env::claude_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
-| `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Read by `env::codex_command`; blank falls back to `codex`. |
+| `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
+| `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to `codex`. |
 | `opencode_cmd` | `String` | `opencode` | Reserved command for the constructible OpenCode stub. Blank falls back to `opencode`; no lifecycle path executes it. |
 | `agent_capabilities` | `Object` | *(unset)* | Selected-workspace machine material. `mcps[]` contains a logical `name`, exactly one `command` plus optional `args` or `url`, and optional `credentials` (`environment`, `headers`, `bearer_token`). `skills[]` contains a logical `name` and machine-local directory `path`. Credential descendants render as `(set)` in env listings. |
 

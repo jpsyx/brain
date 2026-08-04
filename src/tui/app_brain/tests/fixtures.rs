@@ -8,6 +8,8 @@ pub(super) enum ControllerEvent {
     QueueAfterActiveTurn,
     QueueDelivered,
     StartNewSession,
+    ScrollUp(usize),
+    ScrollDown(usize),
     Shutdown,
 }
 
@@ -108,6 +110,18 @@ impl AgentTransport for RecordingTransport {
     fn shutdown(&mut self) {
         self.recording.record(ControllerEvent::Shutdown);
         self.alive = false;
+    }
+
+    fn scroll_up(&mut self, rows: usize) {
+        self.recording.record(ControllerEvent::ScrollUp(rows));
+    }
+
+    fn scroll_down(&mut self, rows: usize) {
+        self.recording.record(ControllerEvent::ScrollDown(rows));
+    }
+
+    fn terminal_rows(&self) -> u16 {
+        40
     }
 }
 

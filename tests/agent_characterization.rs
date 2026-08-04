@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use brain::actor::{RequestIdentity, resolve_actor};
-use brain::session::{AgentKind, Plan, build_llm_command, env_for_triage};
+use brain::session::{AgentKind, env_for_triage};
 use brain::state::Db;
 use brain::users::{USERS_SCHEMA_VERSION, User, UserId, Users};
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
@@ -99,45 +99,6 @@ fn register_hook_session(db_path: &Path, agent_kind: &str, session_id: &str) {
             rusqlite::params![agent_kind, session_id],
         )
         .expect("register hook session");
-}
-
-#[test]
-fn fresh_and_resumed_launches_preserve_cwd_prefix_and_initial_prompt_quoting() {
-    let root = Path::new("/workspaces/family brain");
-    let prompt = Some("  don't lose this  ");
-    let cases = [
-        (
-            AgentKind::Claude,
-            " claude --model sonnet ",
-            Plan::Fresh("fresh-1".to_owned()),
-            "cd '/workspaces/family brain' && claude --model sonnet --session-id 'fresh-1' -- 'don'\\''t lose this'",
-        ),
-        (
-            AgentKind::Claude,
-            " claude --model sonnet ",
-            Plan::Resume("resume-1".to_owned()),
-            "cd '/workspaces/family brain' && claude --model sonnet --resume 'resume-1' -- 'don'\\''t lose this'",
-        ),
-        (
-            AgentKind::Codex,
-            " codex --model gpt-5 ",
-            Plan::Fresh("fresh-1".to_owned()),
-            "cd '/workspaces/family brain' && codex --model gpt-5 -- 'don'\\''t lose this'",
-        ),
-        (
-            AgentKind::Codex,
-            " codex --model gpt-5 ",
-            Plan::Resume("resume-1".to_owned()),
-            "cd '/workspaces/family brain' && codex --model gpt-5 resume 'resume-1' -- 'don'\\''t lose this'",
-        ),
-    ];
-
-    for (agent, configured_command, plan, expected) in cases {
-        assert_eq!(
-            build_llm_command(root, agent, configured_command, &plan, prompt),
-            Ok(expected.to_owned())
-        );
-    }
 }
 
 #[test]

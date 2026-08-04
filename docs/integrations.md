@@ -92,8 +92,8 @@ helpers and shell-outs live in the tasks modules:
   download URLs. The listener stops with the owning TUI, so a machine does not
   receive remote messages unless the user explicitly starts it with
   `brain --with-receiver` or the command palette.
-- **`cd <root> && <agent_cmd> …`** — the brain panel's PTY, shared by both
-  main views (see below).
+- **`<agent_cmd> …` with cwd set to `<root>`**: the brain panel's PTY,
+  shared by both main views (see below).
 
 This is the "central dispatch" design: `brain` is the single terminal command,
 and each capability is either an in-process main view (tasks, brain-directory
@@ -114,8 +114,8 @@ with `🔴 Choose one agent frontend: --codex or --open-code.`
 
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
-| Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> [--mcp-config <cache-json> --strict-mcp-config] --resume <id>` or `--session-id <id>` |
-| Codex | `codex_cmd` in brain env, default `codex` | Current panels launch fresh as `cd <root> && <codex_cmd> [-c <capability-override>...]`; the adapter retains `resume <id>` for a future validated resume source |
+| Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `<claude_cmd> [--mcp-config <cache-json> --strict-mcp-config] --resume <id>` or `--session-id <id>` |
+| Codex | `codex_cmd` in brain env, default `codex` | Current panels launch fresh as `<codex_cmd> [-c <capability-override>...]`; the adapter retains `resume <id>` for a future validated resume source |
 | OpenCode stub | `opencode_cmd` in brain env, default `opencode` | No launch shape. The value is represented but never executed. |
 
 `agent::ClaudeFrontend` and `agent::CodexFrontend` own these command shapes and
@@ -133,6 +133,12 @@ agent begins in that workspace from the first instant without consulting the
 default workspace. The transport evaluates the configured command with fixed
 `/bin/sh -c`; it does not load a login or interactive profile and never depends
 on a shell alias.
+
+Trusted `HookMetadata` lives on `LaunchRequest` and is merged into the explicit
+child environment by each functional adapter. The separate hook slot retained
+on `LaunchSpec` is reserved and empty; the PTY transport does not interpret it.
+When the shell exits, Brain explicitly shuts down both live controllers before
+releasing the session lock, so teardown does not depend on `PtyPane::drop`.
 
 Every `LaunchRequest` also carries an immutable access-policy snapshot built
 from the selected workspace, resolved actor, and portable config before any
@@ -208,8 +214,10 @@ workspace and actor's `BRAIN_*` identity, frontend kind, and trusted hook
 metadata. It does not forward provider API keys, another workspace's secrets,
 or registry JSON. Using a non-profile shell also prevents startup files from
 rehydrating variables removed by the environment filter. This filtering and
-the trusted prompt reduce accidental leakage; they are advisory controls, not
-a filesystem sandbox.
+the trusted prompt reduce accidents and naive leakage among trusted users.
+They remain easy to bypass, are unsuitable for adversarial users or sensitive
+isolation, and do not replace an external OS, VM, machine, or container
+boundary.
 
 When brain injects a prompt into an already-open panel, the controller sends
 the text first and owns the final semantic queue action a couple of event-loop
@@ -292,8 +300,11 @@ Which session to run is decided by the **lock + recency** model in
    `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and
    `BRAIN_AGENT_KIND` plus
    `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` /
-   `BRAIN_RESPONSE_DIR` / `BRAIN_RESPONSE_ID` into the child environment
-   (`session::env_for`). Local work uses the resolved `local_user_id`.
+   `BRAIN_RESPONSE_DIR` / `BRAIN_RESPONSE_ID` into the child environment.
+   Live panels carry these as `LaunchRequest::HookMetadata`; the selected
+   adapter combines them with trusted workspace identity. `session::env_for`
+   remains a compatibility helper for pure callers and tests. Local work uses
+   the resolved `local_user_id`.
    Receiver work first authenticates the provider request, then resolves an
    enabled portable sender; the queued workspace UUID and actor override the
    machine default for that complete request lineage.

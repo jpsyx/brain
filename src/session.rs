@@ -59,12 +59,8 @@ pub fn build_llm_command(
     prompt: Option<&str>,
 ) -> Result<String, crate::agent::AgentError> {
     let session_plan = match plan {
-        Plan::Resume(id) => crate::agent::SessionPlan::resume(
-            crate::agent::AgentSession::new(id).expect("legacy session IDs are non-blank"),
-        ),
-        Plan::Fresh(id) => crate::agent::SessionPlan::fresh(
-            crate::agent::AgentSession::new(id).expect("legacy session IDs are non-blank"),
-        ),
+        Plan::Resume(id) => crate::agent::SessionPlan::resume(crate::agent::AgentSession::new(id)?),
+        Plan::Fresh(id) => crate::agent::SessionPlan::fresh(crate::agent::AgentSession::new(id)?),
     };
     let command = crate::agent::build_command(agent_kind, llm_cmd, &session_plan, prompt)?;
     Ok(format!(
@@ -278,6 +274,22 @@ mod tests {
         .expect("Claude empty-prompt command");
         assert!(cmd.ends_with("--resume 'sess-9'"));
         assert!(!cmd.contains("''"));
+    }
+
+    #[test]
+    fn blank_legacy_session_ids_return_the_typed_validation_error() {
+        for plan in [Plan::Fresh("   ".to_owned()), Plan::Resume(String::new())] {
+            assert_eq!(
+                build_llm_command(
+                    &PathBuf::from("/Users/x/brain"),
+                    AgentKind::Claude,
+                    "claude",
+                    &plan,
+                    None,
+                ),
+                Err(crate::agent::AgentError::EmptySessionId)
+            );
+        }
     }
 
     #[test]

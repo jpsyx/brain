@@ -175,7 +175,8 @@ Brain silos each workspace's persisted state, configuration, and runtime
 artifacts. One machine registry says which workspaces this binary can select;
 portable files stay inside their root, and runtime files use the stable
 workspace UUID rather than a name or default. This persisted-artifact boundary
-is not a filesystem sandbox; `workspace_only` access remains prompt-based.
+is not a filesystem sandbox or isolation boundary; `workspace_only` remains
+prompt-based guidance plus advisory capability enforcement.
 
 | Boundary | Location | What belongs there | Portable? |
 | --- | --- | --- | --- |
@@ -261,7 +262,7 @@ requested workspace. Interactive ordinary commands ask for missing required
 setup and continue; headless commands print exact `brain workspace repair`
 instructions.
 
-### Current isolation and planned access guidance
+### Agent access and workspace boundaries
 
 The foundation currently isolates workspace selection, portable stores, and
 UUID-scoped runtime paths. Env, config, personalization, state, TUI, tasks,
@@ -271,17 +272,30 @@ code does not reopen the registry or consult a global root. Detached Brain
 children carry the canonical `--brain` name, and child integrations receive
 `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and `BRAIN_ACTOR_ID`.
 
-`workspace_only` mode uses prompt-based guidance and capability filtering. It
-is not a filesystem sandbox, authentication boundary, container, OS-account
-boundary, or protection from a malicious trusted user. Its limited purpose is
-to reduce accidental and naive cross-workspace leakage in a high-trust,
-self-hosted environment. The migrated/default workspace remains unrestricted
-unless its portable access policy explicitly configures it otherwise.
-Changing the default workspace never changes access mode.
+`workspace_only` mode is easy to bypass. It is intended only to reduce
+accidents and naive cross-workspace leakage among trusted users. It is
+unsuitable for adversarial users or sensitive isolation. Real isolation
+requires an external OS, VM, machine, or container boundary.
 
-The agent-controller facade and advisory access controls are active. OpenCode
-is represented only by the fail-fast selection stub; functional OpenCode
-sessions and the final shared receiver lease lifecycle remain later phases.
+Brain implements this advisory mode with trusted frontend instructions,
+selected-workspace capability filtering, a minimal child environment, and the
+selected workspace root as the child working directory. Claude and Codex keep
+using the user's shared frontend login; Brain does not create a separate
+credential identity for a workspace. `brain skills status` distinguishes
+strictly selected capabilities from advisory-only and unavailable ones instead
+of treating logical selection as proof of enforcement. The migrated/default
+workspace remains unrestricted unless its portable access policy explicitly
+configures it otherwise. Changing the default workspace never changes access
+mode.
+
+The `AgentController` facade and advisory access controls are active. TUI and
+receiver callers use semantic launch, type, submit, queue, new-session,
+completion, transcript, terminal, and shutdown operations. Claude and Codex
+adapters translate those operations into their own commands, input sequences,
+resume rules, and hook behavior. OpenCode is represented only by a
+constructible fail-fast adapter; every operation returns unsupported before a
+PTY or child process is touched. Functional OpenCode sessions and the final
+shared receiver lease lifecycle remain later phases.
 
 The task-schema migrator also remains inactive. Phase 5 owns the final legacy
 sync, coordinated backup, activation, and real-workspace rollout. Phase 2

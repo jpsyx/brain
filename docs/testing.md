@@ -150,7 +150,10 @@ first move is a failing test that reproduces it, *then* the fix.
   clock is involved.
 - **Launch builders** (`session.rs`). `AgentKind`, `Plan::decide` (resume vs
   fresh), `build_llm_command` (Claude `--resume`/`--session-id`, Codex `resume`
-  and no Claude flags for fresh launches, shell-quoting), and `env_for`.
+  and no Claude flags for fresh launches, shell-quoting, and typed rejection of
+  blank compatibility-plan session IDs), and `env_for`. The command matrix
+  lives here once; the integration characterization suite keeps only its real
+  hook and environment boundaries.
 - **OpenCode fail-fast smoke boundary.** `tests/opencode_smoke.rs` covers
   `--open-code`, normalized `-oc`, the typed mutually exclusive selection
   error and exact plain rendering, early process rejection, direct adapter
@@ -204,7 +207,9 @@ first move is a failing test that reproduces it, *then* the fix.
   launch, Enter calls semantic submit and reactivates the scoped store row,
   injected work queues and reactivates after a controller-owned two-tick delay,
   `Ctrl-N` targets the effective main or triage tab, shutdown fires once, and
-  agent exit closes only the panel. The actual `App::open_triage_tab` path uses
+  agent exit closes only the panel. It also proves half-page scroll targets the
+  visible triage controller and whole-shell teardown explicitly shuts down both
+  controllers. The actual `App::open_triage_tab` path uses
   the selected adapter, includes only ephemeral hook metadata, and creates no
   session row. Fallback completion captures the transport snapshot with the
   controller's initiating actor/channel before teardown.

@@ -258,10 +258,10 @@ syncs the parent directory. An interruption before replacement leaves the live
 bytes untouched and cleans the temporary so a retry is safe.
 
 Workspace-only uses the strongest trusted instruction surface each supported
-frontend exposes, selected-root cwd, and a minimal child environment. We call
-it advisory because no prompt or capability filter is a filesystem sandbox,
-authentication boundary, container, OS-account boundary, or defense against a
-malicious trusted user. Real adversarial isolation must remain outside Brain.
+frontend exposes, selected-root cwd, and a minimal child environment. It is
+easy to bypass and serves only to reduce accidents and naive leakage among
+trusted users. Adversarial users and sensitive isolation require an external
+OS, VM, machine, or container boundary.
 The naive literal-path classifier is only defense in depth: paraphrasing can
 bypass it, so it must never grow into a claimed prompt-injection detector.
 
@@ -460,13 +460,19 @@ with no transcript; blindly `--resume`-ing it later produces "couldn't find
 session with ID …". brain therefore checks the transcript exists on disk
 before resuming and skips candidates that don't, falling back to the next
 valid one (or a fresh chat). This is also why brain forces the PTY's cwd to
-`<brain_root>` *and* prefixes the command with `cd <root>`: every session is
-scoped to the same project dir, so the existence check and `--resume` always
+`<brain_root>` before the child starts: every session is scoped to the same
+project dir, so the existence check and `--resume` always
 look in the same place. When the fallback to a fresh chat is caused by a
 missing transcript, we surface it in the status line rather than silently —
 the user asked to know when their conversation didn't carry over.
 
 ## Why the brain panel launch is frontend-aware
+
+The TUI and receiver call the `AgentController` facade's semantic launch,
+input, lifecycle, completion, terminal, and shutdown operations. Only the
+Claude and Codex adapters translate those requests. The inert OpenCode adapter
+implements the same shape but returns `UnsupportedFrontend` before transport
+access for every operation.
 
 The brain panel must control frontend-specific session arguments, so it can't
 defer to a shell alias that might inject incompatible flags. Claude remains the

@@ -94,6 +94,16 @@ impl App<'_> {
         false
     }
 
+    /// End every live agent child before the owning shell drops its transports.
+    pub(crate) fn shutdown_agent_controllers(&mut self) {
+        for controller in [&mut self.brain, &mut self.triage_brain]
+            .into_iter()
+            .flatten()
+        {
+            let _ = controller.shutdown();
+        }
+    }
+
     /// Advance frontend-neutral delayed controller input for live panels.
     pub(crate) fn tick_agent_controllers(&mut self) {
         for controller in [&mut self.brain, &mut self.triage_brain]
