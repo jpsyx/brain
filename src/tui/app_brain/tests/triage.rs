@@ -7,6 +7,8 @@ fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
     for kind in [AgentKind::Claude, AgentKind::Codex] {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
+        app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+        let actor = app.interactive_actor.clone();
         let recording = LaunchRecording::default();
         app.triage_done_url_override = Some("http://127.0.0.1:4773/triage/done".to_owned());
         app.triage_transport_override = Some(Box::new(LaunchRecordingTransport {
@@ -25,7 +27,7 @@ fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
             assert_eq!(specs.len(), 1);
             specs[0].clone()
         };
-        assert!(spec.command.contains("'/triage'"));
+        assert_workspace_only_launch_spec(&app, &spec, kind, &actor, "/triage");
         assert_eq!(
             spec.environment
                 .iter()

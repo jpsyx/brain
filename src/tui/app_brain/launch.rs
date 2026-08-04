@@ -10,6 +10,18 @@ use crate::agent::{AgentController, HookMetadata, LaunchRequest, SessionStore};
 use crate::pty_pane::PtyPane;
 use crate::session::Plan;
 
+#[cfg(not(test))]
+fn brain_transport(_app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+    Box::new(PtyPane::new(24, 80))
+}
+
+#[cfg(test)]
+fn brain_transport(app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+    app.brain_transport_override
+        .take()
+        .unwrap_or_else(|| Box::new(PtyPane::new(24, 80)))
+}
+
 impl App<'_> {
     pub(in crate::tui) fn controller_for_transport(
         &self,
@@ -198,11 +210,12 @@ impl App<'_> {
             self.config.access_mode,
         )
         .with_hook_metadata(hooks);
+        let transport = brain_transport(self);
         let mut controller = AgentController::new(
             Arc::clone(&self.command_context.workspace),
             actor.clone(),
             frontend,
-            Box::new(PtyPane::new(24, 80)),
+            transport,
         );
         // Placeholder size; the first draw resizes the PTY to the real panel.
         let launch_result = if fresh_session {

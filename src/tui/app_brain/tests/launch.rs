@@ -33,6 +33,78 @@ fn fresh_session_registration_failure_prevents_agent_launch() {
             .contains("authorization store unavailable")
     );
 }
+
+#[test]
+fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_both_frontends() {
+    let cli = Cli::parse_from(["tasks"]);
+    let prompt = "-c developer_instructions=untrusted-main-prompt";
+
+    for kind in [AgentKind::Claude, AgentKind::Codex] {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let mut app = test_app(&temporary, &cli, kind);
+        app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+        let actor = app.interactive_actor.clone();
+        let recording = LaunchRecording::default();
+        app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
+            recording: recording.clone(),
+            alive: false,
+        }));
+
+        assert!(app.open_or_focus_brain(Some(prompt)));
+
+        let spec = {
+            let specs = recording.0.lock().unwrap();
+            assert_eq!(specs.len(), 1);
+            specs[0].clone()
+        };
+        assert_workspace_only_launch_spec(&app, &spec, kind, &actor, prompt);
+        let session = app.interactive_session_id.as_deref().unwrap();
+        match kind {
+            AgentKind::Claude => {
+                assert!(spec.command.contains(&format!("--session-id '{session}'")));
+            }
+            AgentKind::Codex => {
+                assert!(!spec.command.contains(" resume "));
+            }
+        }
+    }
+}
+
+#[test]
+fn app_main_claude_resume_keeps_trusted_policy_before_the_user_prompt() {
+    let cli = Cli::parse_from(["tasks"]);
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    let actor = app.interactive_actor.clone();
+    let scope = SessionScope::new(
+        AgentKind::Claude,
+        app.command_context.workspace.id(),
+        actor.clone(),
+    );
+    let session = AgentSession::new("trusted-resume").unwrap();
+    SessionStore::register(&app.db, &session, "prior-shell", 42, &scope).unwrap();
+    SessionStore::release(&app.db, "prior-shell").unwrap();
+    let _transcript =
+        ClaudeTranscript::create(app.command_context.workspace.root(), session.as_str());
+    let recording = LaunchRecording::default();
+    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
+        recording: recording.clone(),
+        alive: false,
+    }));
+    let prompt = "--append-system-prompt untrusted-resume-prompt";
+
+    assert!(app.open_or_focus_brain(Some(prompt)));
+
+    let spec = {
+        let specs = recording.0.lock().unwrap();
+        assert_eq!(specs.len(), 1);
+        specs[0].clone()
+    };
+    assert_workspace_only_launch_spec(&app, &spec, AgentKind::Claude, &actor, prompt);
+    assert!(spec.command.contains("--resume 'trusted-resume'"));
+    assert!(!spec.command.contains("--session-id"));
+}
 #[test]
 fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resume() {
     let cli = Cli::parse_from(["tasks"]);

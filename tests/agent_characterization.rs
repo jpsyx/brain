@@ -110,25 +110,25 @@ fn fresh_and_resumed_launches_preserve_cwd_prefix_and_initial_prompt_quoting() {
             AgentKind::Claude,
             " claude --model sonnet ",
             Plan::Fresh("fresh-1".to_owned()),
-            "cd '/workspaces/family brain' && claude --model sonnet --session-id 'fresh-1' 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && claude --model sonnet --session-id 'fresh-1' -- 'don'\\''t lose this'",
         ),
         (
             AgentKind::Claude,
             " claude --model sonnet ",
             Plan::Resume("resume-1".to_owned()),
-            "cd '/workspaces/family brain' && claude --model sonnet --resume 'resume-1' 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && claude --model sonnet --resume 'resume-1' -- 'don'\\''t lose this'",
         ),
         (
             AgentKind::Codex,
             " codex --model gpt-5 ",
             Plan::Fresh("fresh-1".to_owned()),
-            "cd '/workspaces/family brain' && codex --model gpt-5 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && codex --model gpt-5 -- 'don'\\''t lose this'",
         ),
         (
             AgentKind::Codex,
             " codex --model gpt-5 ",
             Plan::Resume("resume-1".to_owned()),
-            "cd '/workspaces/family brain' && codex --model gpt-5 resume 'resume-1' 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && codex --model gpt-5 resume 'resume-1' -- 'don'\\''t lose this'",
         ),
     ];
 

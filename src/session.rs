@@ -306,7 +306,7 @@ mod tests {
         );
         assert_eq!(
             cmd,
-            "cd '/Users/x/brain' && codex --model gpt-5 'Start here'"
+            "cd '/Users/x/brain' && codex --model gpt-5 -- 'Start here'"
         );
         assert!(!cmd.contains("--session-id"));
         assert!(!cmd.contains("--resume"));
@@ -322,25 +322,25 @@ mod tests {
                 AgentKind::Claude,
                 " claude --model sonnet ",
                 Plan::Fresh("fresh-1".to_owned()),
-                "cd '/workspaces/family brain' && claude --model sonnet --session-id 'fresh-1' 'don'\\''t lose this'",
+                "cd '/workspaces/family brain' && claude --model sonnet --session-id 'fresh-1' -- 'don'\\''t lose this'",
             ),
             (
                 AgentKind::Claude,
                 " claude --model sonnet ",
                 Plan::Resume("resume-1".to_owned()),
-                "cd '/workspaces/family brain' && claude --model sonnet --resume 'resume-1' 'don'\\''t lose this'",
+                "cd '/workspaces/family brain' && claude --model sonnet --resume 'resume-1' -- 'don'\\''t lose this'",
             ),
             (
                 AgentKind::Codex,
                 " codex --model gpt-5 ",
                 Plan::Fresh("fresh-1".to_owned()),
-                "cd '/workspaces/family brain' && codex --model gpt-5 'don'\\''t lose this'",
+                "cd '/workspaces/family brain' && codex --model gpt-5 -- 'don'\\''t lose this'",
             ),
             (
                 AgentKind::Codex,
                 " codex --model gpt-5 ",
                 Plan::Resume("resume-1".to_owned()),
-                "cd '/workspaces/family brain' && codex --model gpt-5 resume 'resume-1' 'don'\\''t lose this'",
+                "cd '/workspaces/family brain' && codex --model gpt-5 resume 'resume-1' -- 'don'\\''t lose this'",
             ),
         ];
 

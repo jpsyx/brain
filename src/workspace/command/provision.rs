@@ -27,15 +27,15 @@ pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
     store.transaction(|transaction| -> anyhow::Result<()> {
         let workspace_id = WorkspaceId::new();
         let record = fresh_record(root.clone(), workspace_id);
-        let (candidate, access_mode) = match transaction.load() {
+        let candidate = match transaction.load() {
             Ok(mut registry) => {
                 registry.attach_record(canonical_name.clone(), record)?;
-                (registry, AccessMode::WorkspaceOnly)
+                registry
             }
             Err(error) if is_missing_registry(&error) => {
                 let registry = first_registry(canonical_name.clone(), record);
                 crate::workspace::validate_registry(&registry)?;
-                (registry, AccessMode::Unrestricted)
+                registry
             }
             Err(error) => return Err(error.into()),
         };
@@ -46,6 +46,11 @@ pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
         if let Err(error) = manifest.write_new(&root) {
             return Err(manual_cleanup_required(error.into(), &created_directories));
         }
+        let access_mode = if canonical_name == candidate.default_workspace {
+            AccessMode::Unrestricted
+        } else {
+            AccessMode::WorkspaceOnly
+        };
         if let Err(error) = crate::access::ensure_portable_access_mode(&root, access_mode) {
             return Err(manual_cleanup_required(error, &created_directories));
         }
@@ -178,15 +183,23 @@ pub(super) fn attach(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
         }
         let manifest = crate::workspace::WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION"))?;
         let record = fresh_record(root.clone(), manifest.workspace_id());
-        match transaction.load() {
-            Ok(mut registry) => transaction.update(&mut registry, |candidate| {
-                candidate.attach_record(canonical_name.clone(), record)
-            })?,
+        let candidate = match transaction.load() {
+            Ok(mut registry) => {
+                registry.attach_record(canonical_name.clone(), record)?;
+                registry
+            }
             Err(error) if is_missing_registry(&error) => {
-                transaction.save(&first_registry(canonical_name.clone(), record))?;
+                first_registry(canonical_name.clone(), record)
             }
             Err(error) => return Err(error.into()),
-        }
+        };
+        let access_mode = if canonical_name == candidate.default_workspace {
+            AccessMode::Unrestricted
+        } else {
+            AccessMode::WorkspaceOnly
+        };
+        crate::access::ensure_portable_access_mode(&root, access_mode)?;
+        transaction.save(&candidate)?;
         Ok(())
     })?;
 

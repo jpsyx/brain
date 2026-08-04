@@ -219,7 +219,7 @@ mod adapter_tests {
                 .launch_spec(&fresh_with_prompt("Start here"))
                 .expect("Codex launch")
                 .command,
-            "codex 'Start here'"
+            "codex -- 'Start here'"
         );
         assert_eq!(
             claude
@@ -255,7 +255,7 @@ mod adapter_tests {
                 ))
                 .expect("Claude launch")
                 .command,
-            "claude --model sonnet --session-id 'fresh-1' 'don'\\''t lose this'"
+            "claude --model sonnet --session-id 'fresh-1' -- 'don'\\''t lose this'"
         );
         assert_eq!(
             codex
@@ -265,7 +265,7 @@ mod adapter_tests {
                 ))
                 .expect("Codex launch")
                 .command,
-            "codex --model gpt-5 resume 'resume-1' 'don'\\''t lose this'"
+            "codex --model gpt-5 resume 'resume-1' -- 'don'\\''t lose this'"
         );
     }
 

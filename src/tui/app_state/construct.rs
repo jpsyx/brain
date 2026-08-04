@@ -101,6 +101,8 @@ impl<'a> App<'a> {
             last_inner_height: 1,
             last_content_rows: 1,
             brain: None,
+            #[cfg(test)]
+            brain_transport_override: None,
             brain_turn_active: false,
             focus: Panel::Tasks,
             triage_brain: None,

@@ -85,14 +85,13 @@ pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> 
             workspace, enabled, &owner,
         );
     }
-    let value = if name == "access_mode" {
-        crate::access::AccessMode::parse(value)
-            .map(crate::access::AccessMode::as_config_value)
-            .ok_or_else(|| anyhow::anyhow!("access_mode must be unrestricted or workspace_only"))?
-    } else {
-        value
-    };
     let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
+    if name == "access_mode" {
+        let mode = crate::access::AccessMode::parse(value)
+            .ok_or_else(|| anyhow::anyhow!("access_mode must be unrestricted or workspace_only"))?;
+        owner.verify(workspace)?;
+        return crate::access::set_portable_access_mode(workspace.root(), mode);
+    }
     let mut map = load_map(workspace);
     map.insert(name.to_owned(), parse_value(value));
     save_map(workspace, &map, &owner)

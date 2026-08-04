@@ -147,9 +147,12 @@ server execution perform no workspace IO or prompt.
 
 `access_mode` belongs to portable workspace config, never the machine registry.
 The first migrated or created workspace is seeded as `unrestricted`; a later
-created workspace is seeded as `workspace_only`. An already-present portable
-value wins, and attaching an existing root does not rewrite it. Changing the
-machine default changes routing only and never changes either portable value.
+created or attached workspace is seeded as `workspace_only`. An already-present
+valid portable value wins. A selected schema-v2 record is checked before use,
+and a missing mode is seeded according to current default/nondefault status;
+`workspace list` checks every record without redirecting an ordinary command.
+Changing the machine default changes routing only and never changes either
+portable value.
 
 `workspace_only` installs trusted advisory instructions in both agent
 frontends, filters the child environment to selected-workspace context and
@@ -263,8 +266,8 @@ ordinary TUI, config, task, receiver-payload, or sync workspace selector.
 
 **Migration.** When an invocation's bootstrap policy permits registry access,
 brain checks `env.json` through `env::migrate`. A valid schema-v2 registry is a
-byte-for-byte no-op and does not inspect the default workspace's portable
-config. Any other
+byte-for-byte registry no-op, but Brain validates every registered root's
+portable access mode and seeds a missing value before reporting success. Any other
 body is interpreted as the legacy flat JSON object; invalid or non-object JSON
 is treated as an empty object. Migration creates exactly one default record:
 
@@ -335,6 +338,14 @@ This document is mostly about the **config store**
 editing it by hand (though hand-editing is fine). For personalization see the
 [Personalization](#personalization) section below and
 [data-model.md](data-model.md).
+
+Access-mode initialization and `brain config set access_mode=...` parse an
+existing file strictly, preserve unrelated object fields, and replace the file
+from a synced same-directory temporary. Malformed JSON, a non-object value, or
+an invalid stored mode is reported without changing the live bytes. A failed
+replacement removes its temporary and leaves the prior file available for a
+safe retry. TUI startup uses the same strict typed config path, so an invalid
+mode cannot silently fall back to unrestricted behavior.
 
 ### Receiver response configuration
 

@@ -311,8 +311,9 @@ delegated task values.
   existing person with `brain user local <id>`.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
   text under `NO_COLOR`. Valid portable modes include an honest three-line
-  access/enforcement/sandbox status; unavailable values are `setup pending`,
-  not guessed.
+  access/enforcement/sandbox status. Missing modes are seeded before listing;
+  malformed config or an invalid mode stops with an error instead of being
+  displayed as pending or guessed as unrestricted.
 
 For create, attach, remove, and repair, brain collects and validates all missing
 values from `/dev/tty` before legacy classification, migration, or mutation.
@@ -355,13 +356,18 @@ default workspace never changes access mode, UUID, root, local user, receiver
 switch, or env. Removing a workspace detaches the machine record only.
 
 The first migrated or created workspace defaults to `unrestricted`; later
-created workspaces default to portable `workspace_only`. Changing the machine
-default cannot rewrite either mode. Every interactive, SMS, email, resumed,
+created or attached workspaces default to portable `workspace_only`. A selected
+valid schema-v2 record is checked before use: missing modes are seeded from its
+current default/nondefault status, while valid existing modes are preserved.
+Listing or explicitly migrating the registry checks every record. Changing
+the machine default cannot rewrite either mode. Every interactive, SMS, email, resumed,
 fresh, and daily-triage agent launch snapshots the selected workspace mode from
 trusted config. `workspace_only` adds advisory system/developer instructions,
 selected-root cwd, and a filtered child environment. The PTY evaluates the
 configured frontend command without loading login or interactive shell
-profiles, so those profiles cannot restore filtered variables. It is not a
+profiles, so those profiles cannot restore filtered variables. An initial
+prompt follows an explicit frontend option terminator, so option-looking user
+or inbound text stays prompt data. It is not a
 filesystem sandbox, authentication boundary, container, or OS-user boundary.
 A pure literal-path check can warn about obvious absolute or `~/` paths outside
 the root, but paraphrasing, aliases, links, and indirect requests can bypass

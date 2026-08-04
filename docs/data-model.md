@@ -371,10 +371,12 @@ and an empty `local_user_id`; the outcome marks local identity setup required,
 and migration does not invent that user identity.
 Existing flat bytes are copied exactly
 to the first free adjacent `env.json.legacy-backup[.N]` before atomic registry
-replacement. A valid v2 input is never rewritten or backed up, making reruns
-UUID-stable and byte-stable.
+replacement. A valid v2 registry input is never rewritten or backed up, making
+reruns UUID-stable and byte-stable. Before that path succeeds, Brain strictly
+validates each registered root's portable access mode and atomically seeds
+missing modes: the current default receives `unrestricted`, and nondefault
+roots receive `workspace_only`. Valid existing values are never rewritten.
 
-The valid-v2 path does not inspect the default workspace's portable config.
 On a machine with no registry, a first explicit create/attach establishes the
 requested workspace directly. A fresh ordinary or repair invocation instead
 synthesizes the compatible default `brain` workspace and then crosses the
@@ -447,7 +449,12 @@ row is preserved because the surviving row remains its possible target.
 portable workspace data, not a field in `MachineRegistry`: the first migrated
 or created root is seeded unrestricted, later created roots are seeded
 workspace-only, and a default-workspace change never rewrites either file.
-Missing legacy values deserialize as unrestricted.
+Attach and valid-v2 startup apply the same default/nondefault rule to missing
+values before registry publication or readiness succeeds. Existing config is
+strictly parsed, unrelated fields are preserved, and access writes use a
+same-directory temporary, file sync, atomic replace, and parent-directory sync.
+Malformed/non-object config and invalid stored modes are errors, never an
+implicit unrestricted fallback.
 
 At launch, `AccessPolicy` snapshots the trusted mode, selected
 `WorkspaceContext`, and resolved `ActorContext`. User and inbound message text
@@ -455,7 +462,8 @@ remain only in `LaunchRequest::initial_prompt`; it cannot change the policy
 snapshot. Unrestricted mode has no boundary prompt. Workspace-only mode builds
 one advisory prompt naming the selected root and actor, then every interactive,
 SMS, email, fresh, resumed, and triage request carries it to the selected
-frontend. The policy is prompt guidance and capability filtering, not a
+frontend. Initial prompt text follows the frontend's option terminator, so a
+leading `-` remains prompt data. The policy is prompt guidance and capability filtering, not a
 filesystem sandbox.
 
 `classify_obvious_outside_path` is a pure defense-in-depth warning for literal

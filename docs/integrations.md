@@ -129,7 +129,9 @@ from the selected workspace, resolved actor, and portable config before any
 user or inbound prompt is considered. In `workspace_only` mode, Claude receives
 that advisory through `--append-system-prompt`; Codex receives it through the
 `developer_instructions` config override. The ordinary user prompt remains a
-separate argument. Fresh, resumed, interactive, SMS, email, and daily-triage
+separate argument after the frontend's `--` option terminator, so prompt text
+that begins with `-` cannot become a Claude flag or Codex config override.
+Fresh, resumed, interactive, SMS, email, and daily-triage
 requests use the same policy construction. Unrestricted mode adds no policy
 instruction.
 

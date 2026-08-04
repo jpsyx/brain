@@ -244,7 +244,18 @@ receiver switch, aliases, or env.
 Access mode stays portable because it describes the workspace's intended agent
 behavior, while the machine default remains routing metadata. The first
 migrated or created workspace is unrestricted for compatibility; later created
-workspaces start workspace-only. Existing portable values are preserved.
+or attached workspaces start workspace-only. Existing valid portable values are
+preserved. Valid-v2 startup validates only the selected root and seeds a missing
+value from its current default/nondefault status before readiness succeeds.
+Commands for a nondefault workspace therefore never mutate the default root;
+whole-registry list and explicit migration are the only all-record checks.
+
+Access-mode persistence is strict and atomic because a malformed portable file
+must never be converted into an apparently valid unrestricted configuration.
+Brain parses the existing JSON object before mutation, preserves unrelated
+keys, syncs a same-directory temporary, atomically replaces the live file, and
+syncs the parent directory. An interruption before replacement leaves the live
+bytes untouched and cleans the temporary so a retry is safe.
 
 Workspace-only uses the strongest trusted instruction surface each supported
 frontend exposes, selected-root cwd, and a minimal child environment. We call
@@ -258,7 +269,9 @@ Clearing the inherited environment is insufficient if the PTY starts an
 interactive or login shell: a profile can recreate a secret that filtering
 removed. Agent commands therefore run through fixed `/bin/sh -c`. This keeps
 the configured command string's ordinary shell parsing while deliberately
-excluding profile, alias, and shell-function startup behavior.
+excluding profile, alias, and shell-function startup behavior. Initial prompts
+are appended only after a standalone `--`, which prevents option-looking user
+or inbound text from becoming a frontend flag or configuration override.
 
 Ordinary command bootstrap now pins one immutable local actor before task,
 reindex, TUI, or local-agent work. A ready legacy workspace with no portable

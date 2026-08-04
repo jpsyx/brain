@@ -152,14 +152,20 @@ first move is a failing test that reproduces it, *then* the fix.
   fresh), `build_llm_command` (Claude `--resume`/`--session-id`, Codex `resume`
   and no Claude flags for fresh launches, shell-quoting), and `env_for`.
 - **Portable advisory access policy.** `tests/workspace_access_policy.rs`
-  proves first/later create and legacy-migration defaults, strict trusted
-  config mutation, and default-switch byte preservation.
+  proves first/later create and attach defaults, valid-v2 upgrade seeding,
+  strict typed status, trusted config mutation, and default-switch byte
+  preservation. Access-store unit tests prove malformed-byte preservation and
+  live-file continuity, temporary cleanup, and successful retry across an
+  injected pre-replace interruption.
   `tests/access_boundary.rs` pins the exact non-sandbox prompt fragments,
   unrestricted absence, immutable inbound separation, all actor/session/triage
   contexts, honest themed status, and the deliberately bypassable literal-path
   warning. `tests/agent_access_adapter.rs` proves Claude system-prompt and Codex
-  developer-instruction installation, selected cwd, and the explicit minimal
-  environment. A nested-process PTY test proves unrelated inherited workspace
+  developer-instruction installation, selected cwd, the explicit minimal
+  environment, and real shell argv termination for option-looking prompts.
+  App-level controller tests capture the actual fresh/resumed main-panel,
+  authenticated SMS/email, and triage launch specs for both frontends, including
+  exact trusted policy, cwd, separate prompt, actor, and channel. A nested-process PTY test proves unrelated inherited workspace
   secrets do not reach the child after `env_clear`; a temporary-HOME profile
   regression proves the non-profile shell cannot recreate a filtered secret.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
@@ -240,8 +246,8 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: manifest-aware create/attach, persistence failures, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. |
 | `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
-| `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, and persistence-failure preservation. |
-| `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` | Portable mode ownership/defaults, exact advisory contract, launch-context parity, adapter mechanisms, selected cwd, honest status, naive warning limits, and minimal environment. |
+| `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, valid-v2 portable-policy upgrade, and persistence-failure preservation. |
+| `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` + `tui::app_brain::tests` | Portable mode ownership/defaults, strict and atomic persistence, exact advisory contract, real App launch-context parity, adapter mechanisms, option-terminated prompt argv, selected cwd, honest typed status, naive warning limits, and minimal environment. |
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |

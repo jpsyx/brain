@@ -65,6 +65,7 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
     }
     let store = RegistryStore::real();
     if policy == BootstrapPolicy::RegistryOnly {
+        let access_store = store.clone();
         return registry_only_bootstrap_with(
             cli,
             store,
@@ -87,6 +88,12 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
                 };
                 if should_migrate {
                     crate::env::migrate_checked()?;
+                }
+                if !matches!(
+                    invocation,
+                    Invocation::WorkspaceCreate | Invocation::WorkspaceAttach
+                ) {
+                    ensure_selected_registry_access_mode(&access_store, prepared.brain.as_deref())?;
                 }
                 Ok(())
             },
@@ -215,6 +222,13 @@ fn bootstrap_with_io_and_hook(
             selected.record().root.display()
         );
     }
+    let access_mode = if selected.canonical_name() == &registry.default_workspace {
+        crate::access::AccessMode::Unrestricted
+    } else {
+        crate::access::AccessMode::WorkspaceOnly
+    };
+    crate::access::ensure_portable_access_mode(&selected.record().root, access_mode)
+        .map_err(|error| anyhow!("validate portable workspace access mode: {error:#}"))?;
     let provisional = WorkspaceContext::new(
         home,
         record.workspace_id,
@@ -249,6 +263,36 @@ fn bootstrap_with_io_and_hook(
             after_readiness()?;
             repaired_context(&store, &canonical_name, workspace_id, home, current_dir)
         }
+    }
+}
+
+fn ensure_selected_registry_access_mode(
+    store: &RegistryStore,
+    selector: Option<&str>,
+) -> Result<()> {
+    match RegistryStore::load_from(store.path()) {
+        Ok(registry) => {
+            let selected = registry.select(selector)?;
+            if !selected.record().root.is_dir() {
+                anyhow::bail!(
+                    "workspace root {} is unavailable; cannot validate portable access mode",
+                    selected.record().root.display()
+                );
+            }
+            let access_mode = if selected.canonical_name() == &registry.default_workspace {
+                crate::access::AccessMode::Unrestricted
+            } else {
+                crate::access::AccessMode::WorkspaceOnly
+            };
+            crate::access::ensure_portable_access_mode(&selected.record().root, access_mode)
+                .map_err(|error| anyhow!("validate portable workspace access mode: {error:#}"))
+        }
+        Err(crate::workspace::RegistryError::Io {
+            operation: crate::workspace::RegistryOperation::ReadRegistry,
+            kind: std::io::ErrorKind::NotFound,
+            ..
+        }) => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 

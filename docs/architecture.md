@@ -263,8 +263,11 @@ that keeps injected text separate from its final frontend input.
 Portable access policy. `mode` owns the two stable config values; `prompt`
 builds the trusted advisory text and deliberately naive literal outside-root
 warning; `capabilities` snapshots mode plus prompt and renders the honest themed
-status; `store` seeds a missing portable value without overwriting an existing
-one. Main, receiver, resumed, fresh, and triage launches all construct policy
+status; `store` strictly loads portable config, preserves unrelated keys, and
+publishes mode changes through a synced same-directory atomic replacement. It
+also validates or seeds the selected record before readiness, a new record
+before publication, and every record when listing or explicitly migrating the
+whole registry. Main, receiver, resumed, fresh, and triage launches all construct policy
 from the selected workspace, resolved actor, and already-loaded portable
 `Config`. Inbound prompt text is not an input to policy construction.
 

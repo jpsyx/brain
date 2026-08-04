@@ -159,6 +159,7 @@ fn append_prompt(parts: &mut Vec<String>, prompt: Option<&str>) {
     if let Some(prompt) = prompt {
         let prompt = prompt.trim();
         if !prompt.is_empty() {
+            parts.push("--".to_owned());
             parts.push(shell_quote(prompt));
         }
     }

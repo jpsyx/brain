@@ -247,6 +247,8 @@ pub(crate) struct App<'a> {
     /// most-recently-active free session for the selected frontend, workspace,
     /// actor, and channel (lock + recency, see `state`).
     brain: Option<AgentController>,
+    #[cfg(test)]
+    brain_transport_override: Option<Box<dyn crate::agent::AgentTransport>>,
     /// Whether the panel has a submitted prompt whose Stop hook has not
     /// completed. Receiver dispatch waits for active work, but can replace an
     /// idle startup panel even while another modal is visible.

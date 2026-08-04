@@ -98,8 +98,8 @@ fn run_inner(
         WorkspaceAction::List => {
             let registry = mutate::load_registry(store)?;
             selection.validate(&registry)?;
-            list::print(&registry, Theme::active());
-            Ok(())
+            crate::access::ensure_registry_access_modes(&registry)?;
+            list::print(&registry, Theme::active())
         }
         WorkspaceAction::Create { name, root } => {
             let prompted_root = answers.value(prompt::PromptField::Root).map(PathBuf::from);

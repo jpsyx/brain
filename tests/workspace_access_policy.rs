@@ -226,3 +226,71 @@ fn changing_machine_default_does_not_rewrite_portable_access_modes() {
         family_before
     );
 }
+
+#[test]
+fn valid_v2_registry_is_upgraded_before_workspace_list_succeeds() {
+    let fixture = CliFixture::new();
+    let personal = fixture.home.path().join("personal");
+    let family = fixture.home.path().join("family");
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&personal)]));
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&family)]));
+    fixture.make_ready("personal");
+    fixture.make_ready("family");
+    std::fs::remove_file(personal.join(".config/config.json")).unwrap();
+    std::fs::remove_file(family.join(".config/config.json")).unwrap();
+
+    let output = fixture.run(&["workspace", "list"]);
+
+    assert_success(&output);
+    assert_eq!(stored_mode(&personal), Some("unrestricted"));
+    assert_eq!(stored_mode(&family), Some("workspace_only"));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Access mode  unrestricted"));
+    assert!(stdout.contains("Access mode  workspace-only"));
+    assert!(!stdout.contains("setup pending"));
+}
+
+#[test]
+fn attaching_to_valid_v2_registry_seeds_workspace_only_before_publication() {
+    let fixture = CliFixture::new();
+    let personal = fixture.home.path().join("personal");
+    let family = fixture.home.path().join("family");
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&personal)]));
+    std::fs::create_dir_all(&family).unwrap();
+    brain::workspace::WorkspaceManifest::new(WorkspaceId::new())
+        .write_new(&family)
+        .unwrap();
+
+    let output = fixture.run(&["workspace", "attach", path_arg(&family)]);
+
+    assert_success(&output);
+    assert_eq!(stored_mode(&family), Some("workspace_only"));
+    assert!(
+        RegistryStore::load_from(&fixture.registry_path())
+            .unwrap()
+            .workspaces
+            .contains_key(&WorkspaceName::parse("family").unwrap())
+    );
+}
+
+#[test]
+fn workspace_list_rejects_invalid_portable_access_mode() {
+    let fixture = CliFixture::new();
+    let personal = fixture.home.path().join("personal");
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&personal)]));
+    fixture.make_ready("personal");
+    let path = personal.join(".config/config.json");
+    std::fs::write(&path, b"{\"access_mode\":\"read-only\",\"keep\":true}\n").unwrap();
+    let before = std::fs::read(&path).unwrap();
+
+    let output = fixture.run(&["workspace", "list"]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("access_mode"),
+        "unexpected stderr: {stderr}"
+    );
+    assert!(stderr.contains("read-only"), "unexpected stderr: {stderr}");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}

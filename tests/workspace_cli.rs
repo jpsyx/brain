@@ -709,7 +709,7 @@ fn workspace_list_is_sorted_complete_plain_and_accepts_a_global_alias_selector()
     std::fs::create_dir_all(alpha.join(".config")).unwrap();
     std::fs::write(
         alpha.join(".config/config.json"),
-        r#"{"access_mode":"read-only"}"#,
+        r#"{"access_mode":"workspace_only"}"#,
     )
     .unwrap();
 
@@ -721,7 +721,7 @@ fn workspace_list_is_sorted_complete_plain_and_accepts_a_global_alias_selector()
     assert_eq!(
         stdout,
         format!(
-            "Workspaces\n\n  alpha\n    root: {}\n    aliases: a, shared\n    local user: test-user\n    receiver: disabled\n    Access mode  read-only\n* zeta (default)\n    root: {}\n    aliases: none\n    local user: user-z\n    receiver: enabled\n    Access mode  unrestricted\n    Enforcement  frontend defaults\n    Sandbox      none\n",
+            "Workspaces\n\n  alpha\n    root: {}\n    aliases: a, shared\n    local user: test-user\n    receiver: disabled\n    Access mode  workspace-only\n    Enforcement  advisory prompts and capability filtering\n    Sandbox      none\n* zeta (default)\n    root: {}\n    aliases: none\n    local user: user-z\n    receiver: enabled\n    Access mode  unrestricted\n    Enforcement  frontend defaults\n    Sandbox      none\n",
             alpha.display(),
             zeta.display()
         )

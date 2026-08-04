@@ -128,7 +128,7 @@ pub fn run_tui(
     // a fresh instance id; the SessionStart integration reads BRAIN_* env vars
     // to attribute brain-panel sessions to this shell.
     let db = Db::open(&command_context.workspace)?;
-    let config = Config::load(&command_context.workspace);
+    let config = Config::try_load(&command_context.workspace)?;
     // Best-effort maintenance before this shell touches anything: free
     // session locks held by tasks shells that have since died, so their
     // sessions become resumable. A failure here must never block startup.
