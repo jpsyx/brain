@@ -326,8 +326,12 @@ must have a compatible manifest whose UUID matches the registry. When
 the machine's `local_user_id` must name one of them. The first interactive
 ordinary command creates that first person, optionally collecting receiver
 contacts already configured for the workspace, selects the person locally,
-and continues. Headless invocations never open `/dev/tty`; they stop with exact
-`brain user add` and `brain user local` commands. Create and attach remain
+and continues. When exactly one person already exists and no local user is set,
+any command (interactive **or** headless) silently adopts that sole person as
+this machine's local actor and continues, printing a one-line note; a user is
+never told to run `brain user local` when there is only one possible choice.
+Headless invocations with a genuinely ambiguous gap never open `/dev/tty`; they
+stop with exact `brain user add` and `brain user local` commands. Create and attach remain
 registry-only setup operations. For compatibility, an existing workspace with
 no `users.json` and a non-empty legacy local ID remains ready and is not
 silently migrated only when the ID is already exact lower-case kebab case.

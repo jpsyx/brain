@@ -71,6 +71,162 @@ fn legacy_readiness_accepts_exactly_valid_user_ids() {
     }
 }
 
+fn users_named(ids: &[&str]) -> brain::users::Users {
+    brain::users::Users {
+        schema_version: brain::users::USERS_SCHEMA_VERSION,
+        users: ids
+            .iter()
+            .map(|id| brain::users::User {
+                id: brain::users::UserId::parse(id).unwrap(),
+                name: (*id).to_owned(),
+                phones: Vec::new(),
+                emails: Vec::new(),
+                response_email: None,
+            })
+            .collect(),
+    }
+}
+
+fn record_without_local_user(root: PathBuf, workspace_id: WorkspaceId) -> WorkspaceRecord {
+    WorkspaceRecord {
+        workspace_id,
+        root,
+        aliases: BTreeSet::new(),
+        local_user_id: String::new(),
+        receiver_enabled: false,
+        env: Map::new(),
+    }
+}
+
+#[test]
+fn sole_portable_user_is_auto_adopted_as_local_in_every_mode() {
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    let manifest = WorkspaceManifest::new(workspace_id);
+    let name = WorkspaceName::parse("brain").unwrap();
+    let record = record_without_local_user(PathBuf::from("/brains/brain"), workspace_id);
+
+    for mode in [
+        InteractionMode::NonInteractive,
+        InteractionMode::Interactive,
+        InteractionMode::Internal,
+    ] {
+        let action = readiness_action_with_users(
+            &name,
+            &record,
+            Ok(manifest.clone()),
+            Ok(users_named(&["pablo"])),
+            mode,
+        )
+        .unwrap();
+        assert_eq!(
+            action,
+            ReadinessAction::AdoptLocalUser(brain::users::UserId::parse("pablo").unwrap()),
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn several_portable_users_still_require_an_explicit_local_choice() {
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    let manifest = WorkspaceManifest::new(workspace_id);
+    let name = WorkspaceName::parse("family").unwrap();
+    let record = record_without_local_user(PathBuf::from("/brains/family"), workspace_id);
+
+    assert_eq!(
+        readiness_action_with_users(
+            &name,
+            &record,
+            Ok(manifest.clone()),
+            Ok(users_named(&["pablo", "sam"])),
+            InteractionMode::Interactive,
+        )
+        .unwrap(),
+        ReadinessAction::Prompt(vec![ReadinessField::LocalUserId])
+    );
+
+    assert!(matches!(
+        readiness_action_with_users(
+            &name,
+            &record,
+            Ok(manifest),
+            Ok(users_named(&["pablo", "sam"])),
+            InteractionMode::NonInteractive,
+        )
+        .unwrap_err(),
+        brain::workspace::ReadinessError::Incomplete { .. }
+    ));
+}
+
+#[test]
+fn an_explicitly_set_but_unknown_local_user_is_never_auto_adopted() {
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    let manifest = WorkspaceManifest::new(workspace_id);
+    let name = WorkspaceName::parse("brain").unwrap();
+    let mut record = record_without_local_user(PathBuf::from("/brains/brain"), workspace_id);
+    "ghost".clone_into(&mut record.local_user_id);
+
+    let error = readiness_action_with_users(
+        &name,
+        &record,
+        Ok(manifest),
+        Ok(users_named(&["pablo"])),
+        InteractionMode::NonInteractive,
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        brain::workspace::ReadinessError::InvalidLocalUser { .. }
+    ));
+}
+
+#[test]
+fn headless_command_self_heals_a_sole_user_workspace_and_continues() {
+    let home = tempfile::tempdir().unwrap();
+    let config_home = tempfile::tempdir().unwrap();
+    let root = home.path().join("brain");
+    std::fs::create_dir_all(root.join(".config")).unwrap();
+    let canonical_name = WorkspaceName::parse("brain").unwrap();
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    WorkspaceManifest::new(workspace_id)
+        .write_new(&root)
+        .unwrap();
+    UsersStore::save_to(&root.join(".config/users.json"), &users_named(&["pablo"])).unwrap();
+    let registry = MachineRegistry {
+        schema_version: REGISTRY_SCHEMA_VERSION,
+        default_workspace: canonical_name.clone(),
+        workspaces: std::collections::BTreeMap::from([(
+            canonical_name,
+            record_without_local_user(root, workspace_id),
+        )]),
+    };
+    let registry_path = config_home.path().join("brain/env.json");
+    let store = RegistryStore::from_path(registry_path.clone());
+    store.replace(&registry).unwrap();
+    let mut cli = try_parse_from(["brain", "config", "list", "-b", "brain"]).unwrap();
+
+    let outcome = bootstrap_with_io(
+        &mut cli,
+        store,
+        home.path(),
+        home.path(),
+        InteractionMode::NonInteractive,
+        &mut std::io::empty(),
+        &mut std::io::sink(),
+    )
+    .unwrap();
+
+    let BootstrapContext::Ready(context) = outcome else {
+        panic!("a sole-user workspace must self-heal and continue headlessly");
+    };
+    assert_eq!(context.workspace.local_user_id(), "pablo");
+    let healed = RegistryStore::load_from(&registry_path).unwrap();
+    assert_eq!(
+        healed.select(Some("brain")).unwrap().record().local_user_id,
+        "pablo"
+    );
+}
+
 #[test]
 fn every_invocation_has_an_explicit_bootstrap_policy() {
     let cases = [

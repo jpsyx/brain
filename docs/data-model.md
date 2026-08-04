@@ -296,12 +296,25 @@ repair commands headlessly. Successful interactive repair happens under the
 registry transaction, then bootstrap reloads and constructs one
 `CommandContext` containing `Arc<WorkspaceContext>` and `RegistryStore`.
 
+One missing value never prompts or fails: when the manifest is present, exactly
+one portable person exists, and `local_user_id` was never set, readiness returns
+`ReadinessAction::AdoptLocalUser(id)`. A single-user workspace can only mean that
+one person, so bootstrap adopts them as this machine's local actor under the
+registry transaction (a one-line themed note on stderr) and continues the
+requested command in **every** mode, interactive or headless. This self-heals a
+workspace that reached the users-present/`local_user_id`-empty state, so an
+ordinary command such as `brain skills sync` never stops to send the user off to
+run `brain user local`. Adoption is deliberately narrow: a nonblank but unknown
+`local_user_id`, or two or more people with no local selection, is a genuine
+choice that still prompts (interactive) or errors with the exact repair command
+(headless).
+
 The first create deliberately leaves `local_user_id` empty. Its next ordinary
 interactive command creates the first portable person, selects it locally, and
 continues the requested command. Headless setup uses `brain user add` followed
-by `brain user local`. An existing workspace with no `users.json` and a
-non-empty legacy local ID remains ready so this release does not activate an
-unreviewed migration.
+by `brain user local` (or, once one person exists, the sole-user adoption above).
+An existing workspace with no `users.json` and a non-empty legacy local ID
+remains ready so this release does not activate an unreviewed migration.
 
 ### Portable people (`.config/users.json`)
 

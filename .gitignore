@@ -20,3 +20,9 @@
 /.agents/
 /.windsurf/
 /.claude/skills/
+
+# Python bytecode caches generated when the bundled skill scripts run
+# (e.g. skills/*/scripts). Never source; keep them out of the tree so the
+# bundled-skills personal-data guard test does not trip on compiled bytecode.
+__pycache__/
+*.pyc

@@ -237,6 +237,11 @@ fn bootstrap_with_io_and_hook(
             after_readiness()?;
             context_from_record(&store, canonical_name, &record, home, current_dir)
         }
+        ReadinessAction::AdoptLocalUser(user_id) => {
+            adopt_local_user(&store, canonical_name.as_str(), workspace_id, &user_id)?;
+            after_readiness()?;
+            repaired_context(&store, &canonical_name, workspace_id, home, current_dir)
+        }
         ReadinessAction::Prompt(fields) => {
             repair_interactively(
                 &store,
@@ -250,6 +255,49 @@ fn bootstrap_with_io_and_hook(
             repaired_context(&store, &canonical_name, workspace_id, home, current_dir)
         }
     }
+}
+
+/// Adopt the sole portable user as this machine's local actor. Runs with no
+/// prompt for both interactive and headless commands, so any command against a
+/// single-user workspace self-heals instead of failing with a follow-up command
+/// to run. A themed note (stderr) reports the one-time link.
+fn adopt_local_user(
+    store: &RegistryStore,
+    selector: &str,
+    expected_workspace_id: super::WorkspaceId,
+    user_id: &crate::users::UserId,
+) -> Result<()> {
+    store.transaction(|transaction| -> Result<()> {
+        let mut registry = transaction.load()?;
+        let selected = registry.select(Some(selector))?;
+        if selected.record().workspace_id != expected_workspace_id {
+            anyhow::bail!("selected workspace identity changed before adopting the local user");
+        }
+        let canonical_name = selected.canonical_name().clone();
+        let users = crate::users::UsersStore::load_from(
+            &selected.record().root.join(".config/users.json"),
+        )?;
+        if users.user(user_id).is_none() {
+            anyhow::bail!("sole workspace user {user_id} is no longer a portable member");
+        }
+        transaction.update(&mut registry, |candidate| {
+            let target = &mut candidate
+                .workspaces
+                .get_mut(&canonical_name)
+                .expect("selected workspace remains present")
+                .local_user_id;
+            user_id.to_string().clone_into(target);
+            Ok(())
+        })?;
+        Ok(())
+    })?;
+    let theme = crate::theme::Theme::active();
+    eprintln!(
+        "{} {}",
+        theme.info("Linked this machine to your only workspace user"),
+        theme.value(user_id.as_str())
+    );
+    Ok(())
 }
 
 fn repair_interactively(

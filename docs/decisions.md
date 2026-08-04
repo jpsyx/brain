@@ -1802,3 +1802,33 @@ not travel: it is derived from the immutable workspace UUID under the
 machine-local runtime cache. This boundary avoids syncing lock state while
 still preventing concurrent Brain processes on one machine from publishing the
 same grouped mutation.
+
+## A single-user workspace adopts its sole person instead of asking
+
+Readiness once treated an empty machine-local `local_user_id` as a setup gap for
+every workspace: interactively it prompted for a user ID, and headlessly it
+failed with `brain user local <USER_ID> -b <name>`. That is right when the
+choice is real, but it produced a bad experience in the common single-user case.
+A workspace that reached the users-present / `local_user_id`-empty state (for
+example the first portable person was written but the machine-local link was
+not) turned *every* later command into a dead end: running `brain skills sync`
+printed `workspace <name> needs setup` and told the user to go run a different
+command first. The user had already answered every question brain could
+meaningfully ask.
+
+When the manifest is present, exactly one portable person exists, and
+`local_user_id` was never set, `readiness_action_with_users` now returns
+`ReadinessAction::AdoptLocalUser(id)` in every interaction mode. Bootstrap links
+that sole person as the machine-local actor under the registry transaction,
+notes it on stderr, and continues the original command. There is nothing to ask
+when there is only one possible answer, and a read-shaped command such as
+`config list` self-heals the registry the first time it runs. This honors the
+house rule that a human should never be sent to `--help` or a follow-up command
+to do the obvious thing.
+
+The adoption is deliberately narrow so it never guesses over a real decision. A
+*nonblank* but unknown `local_user_id` is left as `InvalidLocalUser` (someone
+set it wrong; do not silently overwrite), and two or more people with no local
+selection still prompt interactively or fail headlessly with the exact repair
+commands. Only the unambiguous case, blank id plus exactly one member, is
+auto-resolved.
