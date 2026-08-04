@@ -21,6 +21,7 @@ pub use name::{WorkspaceName, WorkspaceNameError};
 pub use paths::WorkspacePaths;
 pub use readiness::{
     InteractionMode, ReadinessAction, ReadinessError, ReadinessField, readiness_action,
+    readiness_action_with_users,
 };
 pub use registry::{
     MachineRegistry, MigrationOutcome, REGISTRY_SCHEMA_VERSION, RegistryError, RegistryOperation,
@@ -70,10 +71,18 @@ mod tests {
         assert_ne!(personal.cache_dir(), family.cache_dir());
         assert_ne!(personal.state_db(), family.state_db());
         assert_ne!(personal.tui_lock(), family.tui_lock());
+        assert_ne!(
+            personal.user_transaction_lock(),
+            family.user_transaction_lock()
+        );
         assert_ne!(personal.sync_dir(), family.sync_dir());
         assert_eq!(personal.cache_dir(), personal_base.as_path());
         assert_eq!(personal.state_db(), personal_base.join("state.db"));
         assert_eq!(personal.tui_lock(), personal_base.join("tui.lock"));
+        assert_eq!(
+            personal.user_transaction_lock(),
+            personal_base.join("users.transaction.lock")
+        );
         assert_eq!(personal.inbox_dir(), personal_base.join("inbox"));
         assert_eq!(personal.responses_dir(), personal_base.join("responses"));
         assert_eq!(personal.logs_dir(), personal_base.join("logs"));

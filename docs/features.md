@@ -102,8 +102,10 @@ Codex is selected per run with `brain --codex`, `brain -cx`,
 `brain tasks --codex`, or `brain tasks -cx` and
 uses `codex_cmd` from brain env (default `codex`). Claude uses `claude_cmd`
 from brain env (default `claude --dangerously-skip-permissions`). Codex panels
-launch fresh, but receiver setup installs equivalent Codex hooks so remote
-prompts and completion delivery work the same way. When brain
+resume within the same frontend/workspace/actor/channel scope. Every TUI
+startup refreshes the selected workspace's Claude and Codex hooks before state
+migration or agent launch, so remote prompts and completion delivery use the
+same current protocol. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
 queue key; Claude still receives `Enter`.
 
@@ -304,9 +306,9 @@ delegated task values.
 - `workspace remove [<workspace>]` detaches only a non-default registry record.
   It never deletes root, config, cache, sync, or remote data. Choose another
   default first when removing the current default.
-- `workspace repair [--manifest] [--local-user-id <id>]` recreates a missing
-  matching manifest and/or sets this machine's local identity. With no repair
-  flags, an interactive terminal asks for the local ID and repairs both fields.
+- `workspace repair [--manifest] [--local-user-id <id>]` retains the legacy
+  manifest and local-ID repair surface. New portable workspaces select an
+  existing person with `brain user local <id>`.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
   text under `NO_COLOR`. Empty local user and unavailable portable
   `access_mode` are shown as `setup pending`, not guessed.
@@ -319,36 +321,144 @@ not open the terminal; after preflight they perform any required migration and
 execute normally.
 
 Every ordinary command crosses one readiness gate after selection. A workspace
-must have a compatible manifest whose UUID matches the registry and a non-empty
-`local_user_id`. Interactive invocations ask for missing setup, persist it, and
-continue the original command. Headless invocations never open `/dev/tty`; they
-stop with exact `brain workspace repair -b <workspace> ...` commands. Create
-and attach remain registry-only setup operations, so first create succeeds
-before a local user is known. Its next ordinary command triggers interactive
-setup or the headless repair instruction. Help, version, and hidden internal
-server execution never prompt.
+must have a compatible manifest whose UUID matches the registry. When
+`.config/users.json` exists, it must contain at least one portable person and
+the machine's `local_user_id` must name one of them. The first interactive
+ordinary command creates that first person, optionally collecting receiver
+contacts already configured for the workspace, selects the person locally,
+and continues. Headless invocations never open `/dev/tty`; they stop with exact
+`brain user add` and `brain user local` commands. Create and attach remain
+registry-only setup operations. For compatibility, an existing workspace with
+no `users.json` and a non-empty legacy local ID remains ready and is not
+silently migrated only when the ID is already exact lower-case kebab case.
+Brain treats that ID as a compatibility actor for the request without writing
+portable user data. A malformed nonblank legacy ID stops with an exact
+`brain workspace repair --local-user-id` command instead of failing later in
+actor bootstrap. Help, version, and hidden internal server execution never
+prompt.
 
-After readiness, the selected context is pinned for the command's lifetime.
+After readiness, the selected workspace and one resolved actor are pinned in
+the command context for the invocation's lifetime.
 Root-local config and personalization, task paths, reindex scripts, TUI state,
 locks, responses, and sync runtime files all derive from it. Two workspace UUIDs
 may hold TUIs and run syncs concurrently; a second TUI or sync for the same UUID
 is still rejected or coalesced. Changing the machine default affects only a
 future invocation. Brain-owned child scripts receive the selected workspace
-and local actor identity through `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`,
-`BRAIN_ROOT`, and `BRAIN_ACTOR_ID`.
+and immutable actor identity through `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`,
+`BRAIN_ROOT`, `BRAIN_ACTOR_ID`, and `BRAIN_CHANNEL`. Agent panels also receive
+`BRAIN_AGENT_KIND`.
 
 The first record becomes the default; later create/attach operations preserve
 it. Rename updates the default's canonical name when needed. Changing the
 default workspace never changes access mode, UUID, root, local user, receiver
 switch, or env. Removing a workspace detaches the machine record only.
 
-The current foundation does not enforce access modes. The planned
+The current Phase 2 boundary does not enforce access modes. The planned
 `workspace_only` mode is prompt-based guidance with light guardrails, not a
 filesystem sandbox, authentication boundary, container, or OS-user boundary.
 It aims only to reduce accidental and naive leakage between highly trusted,
-self-hosted workspaces. Portable users, inbound actor resolution,
-`assigned_to`, triage-habit policy, the agent-controller/OpenCode facade, and
-the shared receiver lease lifecycle are also later phases.
+self-hosted workspaces. Canonical task `assigned_to` and managed triage-habit
+policy are now active. The agent-controller/OpenCode facade and shared receiver
+lease lifecycle remain later phases.
+
+### `brain user`
+
+Portable members live in `<brain-root>/.config/users.json` and travel with the
+workspace. IDs use exact lower-case kebab case and identify people, not devices
+or authorization roles. The same person may use the same ID on multiple
+computers; machines do not create distinct identities for that person.
+`brain user list` shows every member.
+`brain user add` and `brain user update` accept a
+display name, repeatable `--phone`/`--email` or
+`--add-phone`/`--add-email` values, and an optional `--response-email`.
+Interactive invocations prompt for missing required values.
+
+Phones are stored as unambiguous E.164 values; common North American formatting
+is accepted only when it can be normalized without guessing. Emails are
+trimmed and ASCII-lowercased, with no provider-specific alias rewriting.
+Only contacts explicitly marked by the add/update commands are enabled for
+inbound identity resolution. An enabled phone or email may identify only one
+portable person. Compatibility setup offers an email only when the email
+receiver allowlist is configured. A legacy response email migrates to the first
+person only when it matches that allowlist; otherwise it remains unresolved
+for explicit review.
+
+`brain user local [<id>]` selects an existing portable person for this machine.
+`brain user remove [<id>]` refuses to remove the last person and scans both
+`tasks/tasks.csv` and `tasks/habits.csv` for `assigned_to` (plus the legacy
+`assignee` heading). If work is assigned, removal requires
+`--reassign-to <existing-id>`. Brain stages and syncs replacement files plus
+mode-preserving backups, publishes a portable recovery journal, then installs
+assignment files before `users.json`. The workspace UUID-scoped machine lock
+serializes this sequence. Ordinary errors restore the complete old generation;
+if the process stops after the journal is published, the next portable-user
+load performs the same recovery before continuing. Journal removal is the
+commit point, after which leftover staging files are safe to clean up.
+
+Task and habit readers temporarily accept the legacy `assignee` heading and
+prefer `assigned_to` when both appear. Any later write migrates the heading by
+name, preserves the value, and emits only `assigned_to`. New rows default to
+the immutable effective actor for the request. An unrelated edit never changes
+assignment; `--assigned-to` creation overrides and explicit reassignment must
+name a portable workspace member. One-person workspaces keep filling the ID but
+hide assignment detail, controls, and filters. Shared workspaces expose those
+surfaces without changing the actor default. The task shell resolves this mode
+once from the selected workspace's portable registry. Shared task cards show
+their assignment, `Ctrl+P` adds **Add task** and **Filter by assignee**, and a
+task's `Enter` actions add **Reassign this task**. The filter opens a captive
+numbered member picker with an **All assignees** clear row and remains visible
+in its own task-header row while active. That live row is the header's only
+assignment state; static chips retain other CLI filters but never a stale
+startup assignee. Switching members and clearing to
+**All assignees** always work from the complete current-view data. Add and reassign hand the interactive choice
+to the embedded agent's `/todo` flow; the scripts remain the noninteractive
+path. `brain tasks --assigned-to <user-id>` validates the ID against the
+selected workspace and initializes the same process-scoped filter used by the
+picker; plain output applies the equivalent final filter. A one-person or ready
+legacy workspace keeps assignment-specific TUI surfaces hidden, but an explicit
+valid startup filter remains recoverable because task-view `Esc` clears it
+before quitting.
+
+New task and habit rows also receive immutable UUIDv4 `task_uuid` values.
+Commands still locate rows by mutable display `task_id`, then preserve the
+matched UUID during completion and edits. A spawned habit occurrence receives
+a new UUID while retaining assignment and `system_key`. Deterministic UUIDv5
+conversion for legacy rows exists only behind an inactive helper: it requires
+the rollout-owned last-legacy-sync state, an existing durable machine-local
+backup base, and an explicit destination beneath that base. No startup,
+readiness, sync, or command path invokes it. Existing
+legacy CSV sync remains keyed by `task_id` until coordinated migration. The
+inactive helper rejects backup/workspace path overlap, creates a deep backup
+path one component at a time while syncing every actual parent, durably syncs
+every exact backup, and journals the three-file replacement so a retry
+recovers from failure or interruption at any replacement boundary. Journal
+publication errors also remove their temporary file before returning. Once a
+coordinator activates schema version 2, sync switches to immutable
+`task_uuid` identity while `task_id` remains a mutable display label; this
+release still does not activate the migration itself.
+
+Managed triage habits are a portable per-workspace feature, enabled by
+default. Brain identifies its daily and weekly chains with
+`brain.triage.daily` and `brain.triage.weekly`, independent of visible names.
+TUI startup, task reindex, and a successful explicit `brain sync repair`
+restore one open occurrence per enabled chain. Ordinary CLI, TUI, web, and
+skill mutation paths refuse to remove, complete, revive, or skip managed rows;
+the triage skill uses its narrow marker-aware completion helper. Every native
+or bundled-script task, habit, and display-counter writer participates in one
+workspace UUID-scoped task-store lock. Python writers also verify the exact
+bytes they read before atomically replacing a CSV, and `/todo remove` uses the
+protected removal script instead of editing a row directly.
+
+`brain config set enable_triage_habits=false` stages config, both task CSVs,
+and affected derived references as one recoverable transaction. It removes
+open and completed managed history while preserving unmarked similarly named
+habits and unrelated transcripts. The startup modal stays suppressed, but
+manual daily and weekly triage continue without habit mutation. Re-enabling
+creates fresh UUIDs and does not restore history. The grouped journal is bound
+to the selected workspace ID and root, accepts only schema-defined live targets
+and exact sibling artifacts, and rejects duplicates, symlink ancestors, and
+path escapes. Existing live files are replaced atomically from synced staged
+files, so readers never observe a missing-file interval.
 
 ### `brain reindex`
 
@@ -518,11 +628,15 @@ runs immediately at open as before.
 
 **Opting out for a run.** Passing `--no-daily-triage-check` (a process-scoped
 flag, valid for that invocation only, *not* a persistent config change)
-suppresses the nudge entirely: brain neither arms the deferred gate nor runs the
-check, so the modal can never open, no matter the habit state. The startup sync
-still runs. Mid-session, the command palette's **Disable/Enable daily triage
+suppresses only the alert. Brain still arms the post-sync refresh gate, then
+strictly reloads portable config, reconciles managed triage policy, and reloads
+the task tables after a clean startup sync; it skips only the modal check. The
+modal cannot open while that process-scoped suppression remains enabled.
+Mid-session, the command palette's **Disable/Enable daily triage
 alert** toggle flips the same process-scoped state, so a long-running TUI that
-spans several days can suppress or restore the nudge without a restart. To
+spans several days can suppress or restore the nudge without a restart. If the
+palette restores the alert while startup sync is still pending, Brain defers
+the check until synced config, managed policy, and tasks have refreshed. To
 disable the nudge permanently instead, clear the `daily_triage_name_pattern`
 config variable.
 
@@ -603,7 +717,12 @@ instead of a false clean report. If this machine's CSV baseline is missing,
 `check` avoids the confusing "everything pushes and pulls" preview: identical
 local/remote CSVs report cleanly, and when both sides are non-empty it treats
 the remote CSV as a provisional snapshot for local row deltas. The command
-never writes local CSVs, remote CSVs, or baselines.
+never writes local CSVs, remote CSVs, or baselines. It resolves the active task
+schema once from `tasks/SCHEMA.json`: inactive workspaces compare by `task_id`,
+while active schema-v2 workspaces compare by `task_uuid`. Malformed schema
+metadata, CSV records, or duplicate active identities produce a themed warning
+that names the baseline/local/remote generation and CSV instead of panicking or
+claiming the workspace is in sync.
 
 - Nothing pending on either side: a single `✓ In sync — nothing to push or
   pull.` line.
@@ -655,10 +774,10 @@ for the structured, agent-consumable form); the `/second-brain
 resolve-conflicts` skill reads that JSON, merges each group into its
 canonical file, then clears the copies with `brain sync resolve <original>`.
 
-**Task CSVs merge by id — no conflict copies.** `tasks/tasks.csv` and
+**Task CSVs merge by their active schema identity, with no conflict copies.** `tasks/tasks.csv` and
 `tasks/habits.csv` don't go through the keep-both path above at all: brain
-excludes them from the bisync file lane and reconciles them itself with an
-id-keyed 3-way merge (a cached local baseline + your local copy + the remote
+excludes them from the bisync file lane and reconciles them itself with a
+three-way merge (a cached local baseline + your local copy + the remote
 copy), writing the merged result back to both sides. Two machines that each
 add, complete, delete, or edit different fields on the same task converge
 cleanly, so neither file ever produces a `(conflict …)` copy. A side that
@@ -666,16 +785,29 @@ marks a task `status=done` always wins that row's status and completed date;
 a same-field disagreement otherwise resolves by whichever side's
 `last_touched` is more recent. Both `tasks.csv` and `habits.csv` carry that
 column; legacy rows without a parseable timestamp fall back to a deterministic
-tiebreak, journalled as a soft conflict. See [data-model.md](data-model.md)
+tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
+`task_id`; schema-v2 tables are aligned by column name and keyed by immutable
+`task_uuid`. A compatibility writer adding or populating that column does not
+activate UUID merge identity before `tasks/SCHEMA.json` does so. If distinct
+UUIDs claim the same `T###` or `H###`, the smaller
+UUID keeps it and the other rows receive deterministic IDs above the greatest
+number visible on either side. `blocked_by` chains and project metadata task
+lists are rewritten to the final labels; composite `see_also` values are too,
+including space-separated and punctuation-wrapped task IDs, without changing
+URLs or longer identifiers that merely contain the same characters. Unsupported schema versions, missing identity columns,
+legacy rows without `task_id`, or undeclared unknown columns refuse the whole
+task/habit operation before any CSV, baseline, metadata, remote, or counter
+write. See [data-model.md](data-model.md)
 for the merge rules and
 [integrations.md](integrations.md) for the transport.
 
 The two id counters (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) that say
 which id to hand out next are also excluded from bisync and reconciled
-separately, by the simplest safe rule: **take the highest**. Whichever machine's
-counter is larger wins, both sides are raised to it, and neither machine ever
-re-hands-out an id the other already used — no id collisions, regardless of
-which machine synced last.
+separately: take the highest local/remote counter, then raise it beyond the
+greatest display ID in the reconciled tables. Push-only sync also applies that
+floor locally before another task or habit can be allocated. Neither machine
+ever re-hands-out an id the other already used, so there are no id collisions
+regardless of which machine synced last.
 
 **Doctor.** `brain tasks doctor` reports rclone/sync health as one
 informational line: `rclone ✓ <version> · sync configured` or
@@ -778,9 +910,12 @@ brain (synced, never committed to the repo):
   generically: the completion signal carries a `require` list of output paths the
   run declared (an extension supplies them at `triage:daily-required-outputs`;
   core supplies none), and the daily-triage tab will not close until every one
-  exists — so a premature "done" can't kill the session before an extension's
+  exists, so a premature "done" can't kill the session before an extension's
   printable is written. An empty list closes immediately, keeping the generic
   core and any fork identical to the old behavior.
+  The bundled `todo` skill similarly exposes `todo:agenda-after-build` as a
+  generic no-op seam. Any installed extension supplies its own runtime content
+  and paths explicitly; core does not discover or name extension artifacts.
 - **Plugins** — whole skills you own, in `<root>/.config/plugins/<name>/`. The
   sync installs them alongside the bundled cores, into the same registry and
   frontends.
@@ -797,9 +932,10 @@ or mismatched identities are rejected and never fall back to the machine
 default. This service is separate from external message intake.
 
 The receiver server is owned by the running TUI and is opt-in. It exposes only
-authenticated `POST /sms` and `POST /email` routes. Twilio signatures and phone
-allowlists protect SMS/MMS; Resend/Svix signatures and email allowlists protect
-email. Resend timestamps must be within five minutes, recent provider delivery
+authenticated `POST /sms` and `POST /email` routes. Brain verifies the Twilio
+or Resend/Svix signature before resolving the normalized sender through the
+selected workspace's enabled portable phone or email identities. Unknown and
+disabled senders are rejected. Resend timestamps must be within five minutes, recent provider delivery
 IDs are deduplicated for the life of the receiver, request bodies are capped at
 1 MiB, and a bounded queue returns `503` backpressure instead of growing
 without limit. SMS numbers use exact E.164 matching, including the leading `+`
@@ -818,8 +954,10 @@ modal is visible. The modal itself never closes the agent panel. A submitted
 local turn is allowed to finish first; its Stop-hook completion is consumed
 even while an SMS/email lease is warm, so queued messages cannot become
 stranded. After a remote response, its channel panel remains open and reusable
-for three minutes. Another message on the same channel reuses it; the other
-channel switches immediately once active work finishes. A local prompt or
+for three minutes. Another message reuses it only when both channel and actor
+match; a different actor or channel switches once active work finishes. The
+initiating actor remains fixed for every follow-up in that session, even if a
+different machine-local user is selected elsewhere. A local prompt or
 keyboard input leaves a warm remote panel and resumes the interactive session.
 If an agent process cannot be launched, the inbound message remains queued and
 the receiver retries after a short backoff instead of leaving a phantom

@@ -1,70 +1,30 @@
 #!/usr/bin/env python3
-"""Bake the day's email-triage + newsletter markdown into the agenda markdown.
+"""Bake caller-supplied optional markdown into an agenda document.
 
-The `/triage` daily flow runs `/email-triage`, which produces two markdown
-sources: the non-newsletter action items (`/tmp/email-triage-actions-<ts>.md`,
-with GFM `- [ ]` checkboxes) and the newsletter digest
-(`~/brain/resources/email-digests/<ts>/newsletters.md`). Instead of leaving a second printable PDF in $AGENDA_DIR, that content is appended — as MARKDOWN — to
-the day's agenda markdown `/tmp/<date>.md`, so it becomes the tail of the one
-agenda PDF.
+The agenda and content paths are explicit caller inputs; this script never
+discovers content or infers a home-directory workspace. Caller content is
+wrapped in one generic marked section so reruns replace it idempotently.
 
-Why markdown, not a stapled PDF: the agenda PDF is (re)generated from
-`/tmp/<date>.md` by THREE independent paths — the /todo agenda-build step,
-`update_agenda_on_mutation.py` on every task/habit mutation, and the `agenda`
-zsh function when the Downloads PDF is missing. Only content that physically
-lives in `/tmp/<date>.md` is rendered by all three. So the triage is baked into
-the markdown; every regeneration then re-renders it (checkboxes and full
-newsletter text included), with no dependency on a separate PDF or pdfunite.
+The source's leading H1 is dropped and its remaining headings are demoted so
+the generic wrapper remains the only level-two section boundary. Re-running
+with new caller content replaces the prior marked section and never duplicates
+it.
 
-Two operations, both idempotent:
-
-- **assemble** (when --actions/--newsletters are given): build the appendix
-  markdown from the two sources and stage it at `/tmp/agenda-appendix-<date>.md`.
-  Source headings are demoted (so the appendix's only "## " section headings are
-  the two this script adds) and a leading H1 title in each source is dropped.
-- **inject** (always, if a staged appendix + agenda both exist): replace any
-  existing appendix in `/tmp/<date>.md` (everything from the first "## 📧 …"
-  heading to EOF) with the staged appendix. Re-running never duplicates it.
-
-This script only edits markdown. Rebuilding the agenda PDF is the caller's job
-(the /todo build step, or /triage after email-triage) — the appendix pages are
-an attachment and do NOT count toward the agenda's 2-page cap, so callers do the
-page-count check / font-shrink on the agenda BODY before injecting.
-
-Paths use literal `/tmp` (NOT tempfile.gettempdir(), which is a per-user
-`/var/folders/...` dir on macOS when TMPDIR is set) to match where the agenda
-markdown actually lives.
+This script only edits the explicit markdown files. Any rendering or other
+post-processing remains the caller's responsibility.
 
 Usage:
-    bake_triage_appendix.py --date YYYY-MM-DD \
-        [--actions <actions.md>] [--newsletters <newsletters.md>]
+    bake_triage_appendix.py --agenda <agenda.md> --content <content.md>
 """
 import argparse
 import re
 import sys
 from pathlib import Path
+from typing import Optional
 
-from _csvlib import today_iso
-
-TMP = Path("/tmp")
-
-# The two (and only two) "## " section headings the appendix introduces. The
-# emojis keep them distinct from every agenda-body section (❗ 🔁 ✅ / plain),
-# so the mutation script leaves them untouched and `strip_existing_appendix`
-# can find the boundary unambiguously.
-EMAIL_HEADING = "## 📧 Email triage"
-NEWSLETTER_HEADING = "## 📰 Newsletter triage"
-APPENDIX_MARKER = "## 📧"  # start-of-appendix sentinel (prefix match)
+APPENDIX_HEADING = "## Appendix <!-- brain:optional-content -->"
 
 _ATX_RE = re.compile(r"^(#{1,6})(\s.*)$")
-
-
-def agenda_md(date_iso: str) -> Path:
-    return TMP / f"{date_iso}.md"
-
-
-def appendix_md(date_iso: str) -> Path:
-    return TMP / f"agenda-appendix-{date_iso}.md"
 
 
 def _strip_leading_h1(text: str) -> str:
@@ -87,8 +47,8 @@ def _strip_leading_h1(text: str) -> str:
 def _demote_headings(text: str) -> str:
     """Demote every ATX heading so the deepest it can sit is `###`. A source
     `##` or `#` becomes `###`; `###` becomes `####`; etc. (capped at 6). This
-    guarantees the appendix body contains no `## ` line, so the only
-    section-level headings in it are the two this script adds."""
+    guarantees the appendix body contains no `## ` line, so the generic
+    wrapper remains the only section-level heading this script adds."""
     out = []
     for ln in text.splitlines():
         m = _ATX_RE.match(ln)
@@ -99,7 +59,7 @@ def _demote_headings(text: str) -> str:
     return "\n".join(out)
 
 
-def _prep(path_str: str | None) -> str | None:
+def _prep(path_str: Optional[str]) -> Optional[str]:
     if not path_str:
         return None
     p = Path(path_str).expanduser()
@@ -108,61 +68,52 @@ def _prep(path_str: str | None) -> str | None:
     return _demote_headings(_strip_leading_h1(p.read_text())).strip()
 
 
-def assemble(actions_path: str | None, newsletters_path: str | None) -> str:
-    """Build the appendix markdown from the two sources."""
-    actions = _prep(actions_path)
-    newsletters = _prep(newsletters_path)
-
-    parts = [EMAIL_HEADING, ""]
-    parts.append(actions if actions else "_No non-newsletter action items this run._")
-    parts += ["", NEWSLETTER_HEADING, ""]
-    parts.append(newsletters if newsletters else "_No newsletters this run._")
-    return "\n".join(parts).strip() + "\n"
+def assemble(content_path: str) -> Optional[str]:
+    """Wrap one caller-supplied markdown source in the generic boundary."""
+    content = _prep(content_path)
+    if content is None:
+        return None
+    return f"{APPENDIX_HEADING}\n\n{content}\n"
 
 
 def strip_existing_appendix(agenda_text: str) -> str:
-    """Return the agenda text with any prior appendix removed (everything from
-    the first `## 📧 …` heading onward)."""
+    """Return the agenda text with any prior marked optional section removed."""
     lines = agenda_text.splitlines()
     for i, ln in enumerate(lines):
-        if ln.startswith(APPENDIX_MARKER):
+        if ln == APPENDIX_HEADING:
             return "\n".join(lines[:i]).rstrip()
     return agenda_text.rstrip()
 
 
-def inject(date_iso: str) -> bool:
-    """Replace the appendix in `/tmp/<date>.md` with the staged one. Returns
-    True if the agenda markdown was written, False if either file is missing."""
-    staged = appendix_md(date_iso)
-    agenda = agenda_md(date_iso)
-    if not staged.is_file() or not agenda.is_file():
+def inject(agenda: Path, content: Path) -> bool:
+    """Replace the marked optional section with explicit caller content."""
+    if not agenda.is_file() or not content.is_file():
         return False
     body = strip_existing_appendix(agenda.read_text())
-    combined = body + "\n\n" + staged.read_text().strip() + "\n"
+    optional = assemble(str(content))
+    if optional is None:
+        return False
+    combined = body + "\n\n" + optional
     agenda.write_text(combined)
     return True
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Bake the day's email-triage + newsletter markdown into the agenda markdown."
+        description="Bake caller-supplied optional markdown into an agenda."
     )
-    parser.add_argument("--date", default=today_iso(), help="Agenda date (YYYY-MM-DD); defaults to today.")
-    parser.add_argument("--actions", help="Path to the email-triage action-items markdown.")
-    parser.add_argument("--newsletters", help="Path to the newsletter-digest markdown.")
+    parser.add_argument("--agenda", required=True, help="Agenda markdown to update.")
+    parser.add_argument(
+        "--content", required=True, help="Optional markdown supplied by the caller."
+    )
     args = parser.parse_args()
-    date_iso = args.date.strip()
 
-    if args.actions or args.newsletters:
-        text = assemble(args.actions, args.newsletters)
-        staged = appendix_md(date_iso)
-        staged.write_text(text)
-        print(f"[bake_triage_appendix] staged appendix -> {staged}")
-
-    if inject(date_iso):
-        print(f"[bake_triage_appendix] injected appendix into {agenda_md(date_iso)}")
+    agenda = Path(args.agenda).expanduser()
+    content = Path(args.content).expanduser()
+    if inject(agenda, content):
+        print(f"[bake_triage_appendix] injected optional content into {agenda}")
     else:
-        print("[bake_triage_appendix] nothing injected (no staged appendix and/or no agenda for date)")
+        print("[bake_triage_appendix] nothing injected (agenda or caller content is missing)")
     return 0
 
 

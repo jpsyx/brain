@@ -4,17 +4,27 @@
 //! [`load`] owns the on-disk CSV row structs and the loaders that turn a
 //! file into `Vec<Task>`.
 
+mod assignment;
 mod load;
 
+pub use assignment::{
+    AssignmentContext, AssignmentUiMode, AssignmentUser, assignment_after_edit,
+    assignment_context_for_workspace, assignment_filter_for_startup, assignment_for_create,
+    assignment_ui_mode,
+};
 pub use load::{load_habits, load_tasks};
 
 use chrono::NaiveDate;
+
+use super::identity::TaskUuid;
 
 /// Normalized, in-memory view of a task (or habit — same struct) with dates
 /// parsed and pipe-lists split. Habit-only fields default to empty / zero
 /// when loaded from tasks.csv.
 #[derive(Debug, Clone)]
 pub struct Task {
+    /// Immutable merge identity. `None` is accepted only for legacy rows until rollout.
+    pub task_uuid: Option<TaskUuid>,
     pub id: String,
     pub name: String,
     pub types: Vec<String>,
@@ -23,6 +33,8 @@ pub struct Task {
     pub due_date: Option<NaiveDate>,
     pub hard_deadline: bool,
     pub start_date: Option<NaiveDate>,
+    /// Portable workspace member currently responsible for this row.
+    pub assigned_to: String,
     pub notes: String,
     pub project: String,
     pub energy: String,
@@ -37,6 +49,8 @@ pub struct Task {
     /// Linear; empty for unlinked / non-code tasks (and always empty for
     /// habits, which never link to Linear).
     pub linear_issue: String,
+    /// Stable key for a Brain-managed definition, empty for ordinary rows.
+    pub system_key: String,
 }
 
 impl Task {
@@ -77,6 +91,12 @@ impl Task {
     #[must_use]
     pub fn is_done(&self) -> bool {
         self.status == "done"
+    }
+
+    /// Whether this row belongs to one of Brain's protected triage chains.
+    #[must_use]
+    pub fn is_managed_triage(&self) -> bool {
+        crate::tasks::triage_habits::is_managed_system_key(&self.system_key)
     }
 
     /// True iff this row's `status` is `done` AND `completed_date` is
@@ -152,6 +172,7 @@ impl Task {
 #[must_use]
 pub fn test_task(id: &str, status: &str) -> Task {
     Task {
+        task_uuid: None,
         id: id.to_owned(),
         name: format!("test task {id}"),
         types: Vec::new(),
@@ -160,6 +181,7 @@ pub fn test_task(id: &str, status: &str) -> Task {
         due_date: None,
         hard_deadline: false,
         start_date: None,
+        assigned_to: String::new(),
         notes: String::new(),
         project: String::new(),
         energy: String::new(),
@@ -171,16 +193,180 @@ pub fn test_task(id: &str, status: &str) -> Task {
         blocked_by: Vec::new(),
         completed_date: None,
         linear_issue: String::new(),
+        system_key: String::new(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Task, test_task};
+    use super::{
+        AssignmentContext, Task, assignment_after_edit, assignment_filter_for_startup,
+        assignment_for_create, assignment_ui_mode, test_task,
+    };
     use chrono::NaiveDate;
+
+    use crate::users::{USERS_SCHEMA_VERSION, User, UserId, Users};
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    fn users(ids: &[&str]) -> Users {
+        Users {
+            schema_version: USERS_SCHEMA_VERSION,
+            users: ids
+                .iter()
+                .map(|id| User {
+                    id: UserId::parse(id).unwrap(),
+                    name: (*id).to_owned(),
+                    phones: Vec::new(),
+                    emails: Vec::new(),
+                    response_email: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn creation_defaults_to_effective_actor_for_one_or_many_users() {
+        let actor = crate::actor::test_actor("wife");
+
+        assert_eq!(
+            assignment_for_create(&actor, &users(&["wife"])).as_str(),
+            "wife"
+        );
+        assert_eq!(
+            assignment_for_create(&actor, &users(&["pablo", "wife"])).as_str(),
+            "wife"
+        );
+    }
+
+    #[test]
+    fn unrelated_edits_preserve_assignment() {
+        let current = UserId::parse("pablo").unwrap();
+
+        assert_eq!(
+            assignment_after_edit(&current, None, &users(&["pablo", "wife"]))
+                .unwrap()
+                .as_str(),
+            "pablo"
+        );
+    }
+
+    #[test]
+    fn explicit_reassignment_requires_portable_membership() {
+        let current = UserId::parse("pablo").unwrap();
+        let workspace_users = users(&["pablo", "wife"]);
+
+        assert_eq!(
+            assignment_after_edit(&current, Some("wife"), &workspace_users)
+                .unwrap()
+                .as_str(),
+            "wife"
+        );
+        assert!(assignment_after_edit(&current, Some("stranger"), &workspace_users).is_err());
+    }
+
+    #[test]
+    fn one_user_hides_assignment_surfaces_without_changing_creation_default() {
+        let workspace_users = users(&["pablo"]);
+        let mode = assignment_ui_mode(&workspace_users);
+
+        assert!(!mode.show_in_detail);
+        assert!(!mode.show_create_control);
+        assert!(!mode.show_reassign_control);
+        assert!(!mode.show_filter);
+        assert_eq!(
+            assignment_for_create(&crate::actor::test_actor("pablo"), &workspace_users).as_str(),
+            "pablo"
+        );
+    }
+
+    #[test]
+    fn multiple_users_show_all_assignment_surfaces_and_still_default_to_actor() {
+        let workspace_users = users(&["pablo", "wife"]);
+        let mode = assignment_ui_mode(&workspace_users);
+
+        assert!(mode.show_in_detail);
+        assert!(mode.show_create_control);
+        assert!(mode.show_reassign_control);
+        assert!(mode.show_filter);
+        assert_eq!(
+            assignment_for_create(&crate::actor::test_actor("wife"), &workspace_users).as_str(),
+            "wife"
+        );
+    }
+
+    #[test]
+    fn assignment_context_uses_every_portable_workspace_member() {
+        let workspace_users = users(&["pablo", "wife"]);
+
+        let context =
+            AssignmentContext::from_users(&workspace_users, &crate::actor::test_actor("wife"));
+
+        assert_eq!(context.actor_id().as_str(), "wife");
+        assert!(context.mode().show_in_detail);
+        assert_eq!(
+            context
+                .users()
+                .iter()
+                .map(|user| user.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pablo", "wife"]
+        );
+    }
+
+    #[test]
+    fn legacy_assignment_context_is_one_actor_with_hidden_controls() {
+        let context = AssignmentContext::legacy(&crate::actor::test_actor("pablo"));
+
+        assert_eq!(context.actor_id().as_str(), "pablo");
+        assert_eq!(context.users().len(), 1);
+        assert_eq!(context.users()[0].name, "pablo");
+        assert!(!context.mode().show_in_detail);
+        assert!(!context.mode().show_create_control);
+        assert!(!context.mode().show_reassign_control);
+        assert!(!context.mode().show_filter);
+    }
+
+    #[test]
+    fn startup_assignment_filter_resolves_a_portable_member() {
+        let context = AssignmentContext::from_users(
+            &users(&["pablo", "wife"]),
+            &crate::actor::test_actor("pablo"),
+        );
+
+        assert_eq!(
+            assignment_filter_for_startup(&context, Some("wife"))
+                .unwrap()
+                .as_ref()
+                .map(UserId::as_str),
+            Some("wife")
+        );
+        assert_eq!(assignment_filter_for_startup(&context, None).unwrap(), None);
+    }
+
+    #[test]
+    fn startup_assignment_filter_rejects_a_non_member() {
+        let context = AssignmentContext::from_users(
+            &users(&["pablo", "wife"]),
+            &crate::actor::test_actor("pablo"),
+        );
+
+        let error = assignment_filter_for_startup(&context, Some("stranger")).unwrap_err();
+
+        assert!(error.to_string().contains("selected workspace member"));
+    }
+
+    #[test]
+    fn one_user_startup_filter_is_valid_even_with_hidden_picker_controls() {
+        let context =
+            AssignmentContext::from_users(&users(&["pablo"]), &crate::actor::test_actor("pablo"));
+
+        let filter = assignment_filter_for_startup(&context, Some("pablo")).unwrap();
+
+        assert_eq!(filter.as_ref().map(UserId::as_str), Some("pablo"));
+        assert!(!context.mode().show_filter);
     }
 
     // --- Task predicates ---

@@ -33,8 +33,10 @@ pub fn build_view(
         filtered.reverse();
     }
 
-    let (mut title, subtitle) = active_view
-        .map_or_else(|| selector::titles(selector, today), |v| view_titles(v, today));
+    let (mut title, subtitle) = active_view.map_or_else(
+        || selector::titles(selector, today),
+        |v| view_titles(v, today),
+    );
     if let Some(q) = &cli.filters.search {
         title = format!("{title} · search '{q}'");
     }
@@ -43,6 +45,16 @@ pub fn build_view(
         subtitle,
         tasks: filtered,
         total,
+    }
+}
+
+/// Apply the assignment constraint after materializing a complete view.
+///
+/// Interactive callers keep that complete view as their runtime filter base;
+/// plain output applies this final narrowing before rendering.
+pub(crate) fn apply_assignment_filter(view: &mut ViewSpec, assigned_to: Option<&str>) {
+    if let Some(assigned_to) = assigned_to {
+        view.tasks.retain(|task| task.assigned_to == assigned_to);
     }
 }
 
@@ -104,7 +116,7 @@ fn keeps_filters(t: &Task, f: &Filters, today: NaiveDate) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::build_view;
+    use super::{apply_assignment_filter, build_view};
     use crate::tasks::cli::Cli;
     use crate::tasks::selector::Selector;
     use crate::tasks::task::test_task;
@@ -132,8 +144,17 @@ mod tests {
         open.due_date = Some(today);
 
         let cli = empty_cli();
-        let view = build_view(&cli, &Selector::All, None, vec![done.clone(), open.clone()], today);
-        assert_eq!(view.tasks.iter().map(|t| t.id.clone()).collect::<Vec<_>>(), vec!["T2"]);
+        let view = build_view(
+            &cli,
+            &Selector::All,
+            None,
+            vec![done.clone(), open.clone()],
+            today,
+        );
+        assert_eq!(
+            view.tasks.iter().map(|t| t.id.clone()).collect::<Vec<_>>(),
+            vec!["T2"]
+        );
 
         let mut cli2 = empty_cli();
         cli2.filters.include_done = true;
@@ -198,5 +219,47 @@ mod tests {
         // Normal priority sort: p0 first → reversed: p2 first → T1 first.
         let ids: Vec<String> = view.tasks.iter().map(|t| t.id.clone()).collect();
         assert_eq!(ids, vec!["T1", "T2"]);
+    }
+
+    #[test]
+    fn assignment_filter_does_not_discard_the_tui_base_rows() {
+        let today = d(2026, 8, 3);
+        let mut pablo = test_task("T1", "not_started");
+        pablo.assigned_to = "pablo".to_owned();
+        let mut wife = test_task("T2", "not_started");
+        wife.assigned_to = "wife".to_owned();
+        let mut cli = empty_cli();
+        cli.filters.assigned_to = Some("wife".to_owned());
+
+        let view = build_view(&cli, &Selector::All, None, vec![pablo, wife], today);
+
+        assert_eq!(
+            view.tasks
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["T1", "T2"]
+        );
+    }
+
+    #[test]
+    fn plain_output_can_apply_the_assignment_filter_after_building_the_view() {
+        let today = d(2026, 8, 3);
+        let mut pablo = test_task("T1", "not_started");
+        pablo.assigned_to = "pablo".to_owned();
+        let mut wife = test_task("T2", "not_started");
+        wife.assigned_to = "wife".to_owned();
+        let cli = empty_cli();
+        let mut view = build_view(&cli, &Selector::All, None, vec![pablo, wife], today);
+
+        apply_assignment_filter(&mut view, Some("wife"));
+
+        assert_eq!(
+            view.tasks
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["T2"]
+        );
     }
 }

@@ -1,6 +1,6 @@
 ---
 name: todo
-description: Use when adding, completing, deferring, or planning tasks; when asking "what should I work on", "structure my day", or "anything slipping?"; for past-due triage; for converting an oversized task into a project; or any read/write to `~/brain/tasks/{tasks,habits}.csv`.
+description: Use when adding, completing, deferring, assigning, or planning tasks in the selected Brain workspace; when asking "what should I work on", "structure my day", or "anything slipping?"; for past-due triage; or for converting an oversized task into a project.
 ---
 
 # todo
@@ -11,9 +11,9 @@ The user's canonical task system lives at `<brain>/tasks/`:
 - `habits.csv` — recurring habits. The only recurring rows allowed.
 - `SCHEMA.json` — machine-readable schema.
 
-Throughout, `<brain>` is the brain root (`brain config get root`, default
-`~/brain`); `~/.agents/skills/todo/scripts/` is where `brain skills sync`
-installs this skill's helper scripts; `$AGENDA_DIR` is `brain config get
+Throughout, `<brain>` is the selected workspace root from `BRAIN_ROOT`;
+`~/.agents/skills/todo/scripts/` is where `brain skills sync` installs this
+skill's helper scripts; `$AGENDA_DIR` is `brain config get
 agenda_dir` (the folder the agenda PDF is written to, default your Downloads
 folder); and `markdown-to-pdf` is the configured PDF command
 (`markdown_to_pdf_path`).
@@ -100,11 +100,24 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
   external service. The sync *workflow* (when/how to mirror to a tracker) is
   personal; see the [External issue tracker](#external-issue-tracker-optional)
   section and its `todo:linear` extension point.
-- **Short task IDs are the canonical handle.** Tasks use `T###`
+- **Assignment follows the effective actor.** Every new task and habit defaults
+  `assigned_to` to the immutable effective actor in `BRAIN_ACTOR_ID`, whether
+  the workspace has one member or several. Unrelated edits never change it.
+  Explicit assignment uses `--assigned-to <user-id>` and explicit reassignment
+  uses `reassign_task.py <task> <user-id>`; both validate the ID through the
+  selected workspace's portable `.config/users.json`. One-person workspaces
+  hide assignment detail, creation/reassignment controls, and filters while
+  still filling the ID. Shared workspaces show those surfaces and accept
+  `assigned_to=<user-id>` as a list filter.
+- **Short task IDs are the user-facing handle.** Tasks use `T###`
   (e.g. `T17`), habits use `H###` (e.g. `H42`). Issued by
-  [`scripts/next_id.py`](scripts/next_id.py); counters live at
-  `~/brain/tasks/.tasks_next_id` and `~/brain/tasks/.habits_next_id`.
-  Never edit IDs by hand. **Name-fragment matching still works for
+  [`scripts/next_id.py`](scripts/next_id.py); counters live beside the selected
+  workspace's CSVs. Scripts require Brain's workspace environment and never
+  fall back to a home-directory brain.
+  `task_uuid` is the immutable merge identity: new rows and spawned habit
+  occurrences receive UUIDv4, while edits and completion preserve it.
+  `task_id` remains the mutable display identity used by commands. Do not edit
+  display IDs by hand. **Name-fragment matching still works for
   input** — IDs are shorthand, not a replacement. See
   [commands.md](references/commands.md) for the `<task>` resolution rules.
 
@@ -251,37 +264,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    PDF with `rm -f` between attempts so the versioned-collision
    fallback doesn't kick in.
 
-   **Then bake in the triage appendix (if staged).** `/triage` runs
-   `/email-triage`, which stages an appendix markdown at
-   `/tmp/agenda-appendix-<TARGET_DATE>.md` (the email-triage action
-   items + newsletter digest). After the agenda BODY fits the 2-page
-   cap, bake that appendix INTO the agenda markdown, then rebuild the
-   PDF from the combined markdown:
-
-       python3 ~/.agents/skills/todo/scripts/bake_triage_appendix.py --date <TARGET_DATE>
-       rm -f $AGENDA_DIR/agenda-<TARGET_DATE>.pdf
-       markdown-to-pdf /tmp/<TARGET_DATE>.md --out $AGENDA_DIR/agenda-<TARGET_DATE>.pdf --agenda
-
-   The bake step appends two markdown sections (`## 📧 Email triage`
-   with GFM `- [ ]` checkboxes, and `## 📰 Newsletter triage` with the
-   full digest text) to the END of `/tmp/<TARGET_DATE>.md`. It's a
-   no-op when nothing is staged (most non-triage days), and idempotent
-   (re-running replaces the appendix, never duplicates it).
-
-   **Bake into the MARKDOWN, never staple a separate PDF.** The agenda
-   PDF is regenerated from `/tmp/<TARGET_DATE>.md` by three paths — this
-   build step, `update_agenda_on_mutation.py` on every task mutation,
-   and the `agenda` zsh function when the Downloads PDF is missing.
-   Only content that lives in the markdown is rendered by all three, so
-   the triage MUST be in the markdown. Because it is, you do NOT re-run
-   the bake after a task mutation — the mutation regen re-renders the
-   already-baked appendix automatically.
-
-   **The 2-page cap is the agenda BODY only.** The appendix flows after
-   it and does NOT count. So run the page-count check / `--font-shrink`
-   loop on the body *before* baking (i.e. build + verify + shrink the
-   agenda body first, then bake the appendix, then rebuild). Never
-   count the appendix pages against the cap.
+<!-- brain:ext todo:agenda-after-build -->
 
    When the user does ask to open it, run:
 
@@ -896,7 +879,7 @@ order is the most common source of broken agendas.
 ### Phase 1 — Load state (read-only)
 
 1. Note wall-clock time (`date`).
-2. Read `~/brain/tasks/tasks.csv` — keep rows where `status` is neither
+2. Read `<brain>/tasks/tasks.csv` — keep rows where `status` is neither
    `done` nor `backlog`, AND (`start_date` is empty OR `start_date <= today`).
    A `backlog` task is parked indefinitely (see "Backlog status") — it never
    appears on an agenda until restored. A task whose
@@ -908,7 +891,7 @@ order is the most common source of broken agendas.
    `start_date <= today`. (Its `due_date` can be well past `start_date` —
    the task simply isn't surfaced anywhere until its start day arrives,
    even if the deadline is sooner.)
-3. Read `~/brain/tasks/habits.csv` — keep rows where (`status != done`)
+3. Read `<brain>/tasks/habits.csv` — keep rows where (`status != done`)
    OR (`status == done` AND `completed_date == today`).
 4. Bucket the tasks:
    - **MITs**: `mit` in `task_type`.
@@ -1228,7 +1211,10 @@ load-bearing ones:
   any sequential dependencies between sub-tasks encoded explicitly
   via `blocked_by`. Don't leave the dependency structure in the
   user's head.
-- **`/todo done|defer|add|remove|list`** — the usual CRUD.
+- **`/todo done|defer|add|remove|list`** covers the usual CRUD. After resolving any
+  links or confirmation needed for removal, `/todo remove` must execute
+  [scripts/remove_task.py](scripts/remove_task.py) so deletion crosses the
+  config-aware task-store guard. Never delete a CSV row directly.
 - **`/todo chronic`** — list chronically-ignored tasks (the same set
   that `/triage` Step 7 sweeps). Backed by
   [scripts/find_chronic_ignored.py](scripts/find_chronic_ignored.py).
@@ -1249,6 +1235,19 @@ load-bearing ones:
 - **`/todo reindex`** — apply automation rules + cleanup. Mirrors what
   `/second-brain reindex` runs for tasks.
 
+## Managed triage rows
+
+Brain may maintain two protected habit chains, identified by
+`system_key=brain.triage.daily` and `system_key=brain.triage.weekly`. The
+system key is authoritative even when a visible habit name is changed. While
+`brain config get enable_triage_habits` is `true`, managed triage rows cannot be removed, completed, revived, or skipped through ordinary `/todo`, task, or habit mutation paths. Do not work around the guard by editing CSV directly. The `/triage` skill owns its narrow completion helper.
+
+When the setting is `false`, Brain's transactional reconciler removes the
+managed definitions, open occurrences, completed history, and derived
+references. Ordinary similarly named rows without a managed system key remain
+user data. Reindex first reapplies this invariant, then runs generic
+automation and garbage collection.
+
 ## Start work on a task
 
 - **Trigger:** any phrasing that means "begin work on a specific task",
@@ -1256,10 +1255,10 @@ load-bearing ones:
   "let's begin T361", "kick off T361" (any task id `T<number>`).
 - **When triggered, do this before anything else:**
   1. **Pull in the task's full context.** Read its row in
-     `~/brain/tasks/tasks.csv` (notes, project, `see_also` links,
+     `<brain>/tasks/tasks.csv` (notes, project, `see_also` links,
      `blocked_by`, `last_touched`, priority, due/deadline). If a
      `project` slug is set, read the associated project page under
-     `~/brain/projects/<slug>/` (README, checklists, findings). Follow
+     `<brain>/projects/<slug>/` (README, checklists, findings). Follow
      any `see_also` sibling tasks and supporting URLs referenced in the
      notes.
   2. **Then reply with exactly two things:**
@@ -1303,7 +1302,10 @@ future Monday, not in the past. Math is done by
 — LLMs are bad at calendar arithmetic, always use the script.
 
 Completed habits stay in habits.csv for 7 days then get pruned by
-`cleanup_done_habits.py` during sync. That's your audit trail.
+`cleanup_done_habits.py` during sync. Managed completed occurrences use this
+same retention rule only while managed triage habits are enabled. Cleanup does
+not perform the feature-off purge; the transactional Brain reconciler owns
+that coupled config/data change. That's your audit trail.
 
 ## Skipping a habit
 

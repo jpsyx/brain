@@ -9,6 +9,7 @@ use std::path::Path;
 use anyhow::{Result, anyhow, bail};
 use chrono::{Datelike, Local, NaiveDate};
 
+use crate::tasks::identity::TaskUuid;
 use crate::theme::Theme;
 
 pub(crate) type Row = BTreeMap<String, String>;
@@ -64,11 +65,16 @@ pub fn normalize_id(raw: &str) -> Result<String> {
     Ok(format!("{prefix}{n}"))
 }
 
-pub fn run(root: &Path, raw_id: &str) -> Result<()> {
+pub fn run(
+    workspace: &crate::workspace::WorkspaceContext,
+    raw_id: &str,
+    actor: &crate::actor::ActorContext,
+) -> Result<()> {
+    let root = workspace.root();
     crate::logging::log(format!("tasks complete raw_id={raw_id}"));
     crate::logging::log(format!("complete root {}", root.display()));
     let today = Local::now().date_naive();
-    let result = complete_in_root_with_today(root, raw_id, today)?;
+    let result = complete_in_workspace_for_actor_with_today(workspace, raw_id, today, actor)?;
     crate::logging::log(format!(
         "complete result kind={:?} id={}",
         result.kind, result.task_id
@@ -77,11 +83,69 @@ pub fn run(root: &Path, raw_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn complete_in_root(root: &Path, raw_id: &str) -> Result<CompletionResult> {
-    complete_in_root_with_today(root, raw_id, Local::now().date_naive())
+fn protect_managed_completion(
+    workspace: &crate::workspace::WorkspaceContext,
+    raw_id: &str,
+) -> Result<()> {
+    protect_managed_completion_at(
+        workspace.root(),
+        raw_id,
+        crate::config::Config::load(workspace).enable_triage_habits,
+    )
 }
 
-pub fn complete_in_root_with_today(
+fn protect_managed_completion_at(root: &Path, raw_id: &str, enabled: bool) -> Result<()> {
+    let tasks_dir = root.join("tasks");
+    let tasks = read_csv(&tasks_dir.join("tasks.csv"))?;
+    let habits = read_csv(&tasks_dir.join("habits.csv"))?;
+    let row = match locate(&tasks, &habits, raw_id)? {
+        Located::Task(index) => tasks.rows.get(index),
+        Located::Habit(index) => habits.rows.get(index),
+    }
+    .ok_or_else(|| anyhow!("task row disappeared"))?;
+    crate::tasks::triage_habits::protect_system_key(
+        &field(row, "system_key"),
+        enabled,
+        crate::tasks::triage_habits::ManagedTaskError::ManagedTaskCannotComplete,
+    )?;
+    Ok(())
+}
+
+pub(crate) fn complete_in_workspace_for_actor_with_today(
+    workspace: &crate::workspace::WorkspaceContext,
+    raw_id: &str,
+    today: NaiveDate,
+    actor: &crate::actor::ActorContext,
+) -> Result<CompletionResult> {
+    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
+    protect_managed_completion(workspace, raw_id)?;
+    complete_in_root_for_actor_with_today(workspace.root(), raw_id, today, actor)
+}
+
+pub(crate) fn complete_in_root_protected_with_owner_and_today(
+    root: &Path,
+    lock_path: &Path,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
+    raw_id: &str,
+    today: NaiveDate,
+    enabled: bool,
+) -> Result<CompletionResult> {
+    owner.verify_path(lock_path)?;
+    protect_managed_completion_at(root, raw_id, enabled)?;
+    complete_in_root_with_today(root, raw_id, today)
+}
+
+/// Complete one task under the actor bound at the request boundary.
+pub(crate) fn complete_in_root_for_actor_with_today(
+    root: &Path,
+    raw_id: &str,
+    today: NaiveDate,
+    _actor: &crate::actor::ActorContext,
+) -> Result<CompletionResult> {
+    complete_in_root_with_today(root, raw_id, today)
+}
+
+pub(crate) fn complete_in_root_with_today(
     root: &Path,
     raw_id: &str,
     today: NaiveDate,
@@ -255,6 +319,7 @@ pub(crate) fn spawn_next_occurrence(
         )
     };
     let next_id = new_habit_id(tasks_dir, csv)?;
+    next.insert("task_uuid".to_owned(), TaskUuid::new().to_string());
     next.insert("task_id".to_owned(), next_id.clone());
     next.insert("status".to_owned(), "not_started".to_owned());
     next.insert("due_date".to_owned(), next_due.clone());
@@ -262,6 +327,7 @@ pub(crate) fn spawn_next_occurrence(
     next.insert("created_date".to_owned(), today_s.clone());
     next.insert("last_touched".to_owned(), today_s);
     csv.rows.push(next);
+    ensure_column(csv, "task_uuid");
     Ok((next_id, next_due))
 }
 
@@ -272,7 +338,12 @@ pub(crate) fn read_csv(path: &Path) -> Result<CsvFile> {
             rows: Vec::new(),
         });
     }
-    let mut reader = csv::ReaderBuilder::new().flexible(true).from_path(path)?;
+    let bytes = std::fs::read(path)?;
+    parse_csv_bytes(&bytes)
+}
+
+pub(crate) fn parse_csv_bytes(bytes: &[u8]) -> Result<CsvFile> {
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
     let header: Vec<String> = reader.headers()?.iter().map(str::to_owned).collect();
     let mut rows = Vec::new();
     for record in reader.records() {
@@ -286,11 +357,37 @@ pub(crate) fn read_csv(path: &Path) -> Result<CsvFile> {
         }
         rows.push(row);
     }
-    Ok(CsvFile { header, rows })
+    Ok(normalize_assignment_header(CsvFile { header, rows }))
+}
+
+fn normalize_assignment_header(mut csv: CsvFile) -> CsvFile {
+    let legacy_position = csv.header.iter().position(|column| column == "assignee");
+    let has_canonical = csv.header.iter().any(|column| column == "assigned_to");
+    let Some(legacy_position) = legacy_position else {
+        return csv;
+    };
+    if has_canonical {
+        csv.header.remove(legacy_position);
+        for row in &mut csv.rows {
+            row.remove("assignee");
+        }
+    } else {
+        "assigned_to".clone_into(&mut csv.header[legacy_position]);
+        for row in &mut csv.rows {
+            let assignment = row.remove("assignee").unwrap_or_default();
+            row.insert("assigned_to".to_owned(), assignment);
+        }
+    }
+    csv
 }
 
 pub(crate) fn write_csv(path: &Path, csv: &CsvFile) -> Result<()> {
-    let mut writer = csv::WriterBuilder::new().from_path(path)?;
+    std::fs::write(path, serialize_csv(csv)?)?;
+    Ok(())
+}
+
+pub(crate) fn serialize_csv(csv: &CsvFile) -> Result<Vec<u8>> {
+    let mut writer = csv::WriterBuilder::new().from_writer(Vec::new());
     writer.write_record(&csv.header)?;
     for row in &csv.rows {
         let record: Vec<String> = csv
@@ -300,8 +397,10 @@ pub(crate) fn write_csv(path: &Path, csv: &CsvFile) -> Result<()> {
             .collect();
         writer.write_record(record)?;
     }
-    writer.flush()?;
-    Ok(())
+    writer
+        .into_inner()
+        .map_err(csv::IntoInnerError::into_error)
+        .map_err(Into::into)
 }
 
 fn ensure_column(csv: &mut CsvFile, column: &str) {
@@ -534,8 +633,37 @@ fn nonempty(row: &Row, column: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompletionKind, complete_in_root_with_today, normalize_id};
+    use super::{
+        CompletionKind, complete_in_root_for_actor_with_today, complete_in_root_with_today,
+        normalize_id,
+    };
     use chrono::NaiveDate;
+
+    fn local_actor(root: &std::path::Path) -> crate::actor::ActorContext {
+        let workspace = crate::workspace::WorkspaceContext::new(
+            root,
+            crate::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+            crate::workspace::WorkspaceName::parse("legacy").unwrap(),
+            root,
+            "pablo",
+            root,
+        )
+        .unwrap();
+        crate::actor::local_actor(&workspace).unwrap()
+    }
+
+    #[test]
+    fn command_runner_requires_explicit_workspace_and_actor_contexts() {
+        fn accepts_runner(
+            _: fn(
+                &crate::workspace::WorkspaceContext,
+                &str,
+                &crate::actor::ActorContext,
+            ) -> anyhow::Result<()>,
+        ) {
+        }
+        accepts_runner(super::run);
+    }
 
     #[test]
     fn bare_number_assumes_task_prefix() {
@@ -587,10 +715,11 @@ mod tests {
         )
         .unwrap();
 
-        let result = complete_in_root_with_today(
+        let result = complete_in_root_for_actor_with_today(
             dir.path(),
             "T1",
             NaiveDate::from_ymd_opt(2026, 7, 26).unwrap(),
+            &local_actor(dir.path()),
         )
         .unwrap();
 
@@ -598,6 +727,100 @@ mod tests {
         let written = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
         assert!(
             written.contains("T1,Ship native complete,mit,done,2026-07-26,2026-07-26,alpha,LIN-1")
+        );
+    }
+
+    #[test]
+    fn completing_by_display_id_preserves_the_immutable_task_uuid() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        let task_uuid = "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4";
+        std::fs::write(
+            tasks_dir.join("tasks.csv"),
+            format!(
+                "task_uuid,task_id,task_name,status,completed_date,last_touched\n{task_uuid},T91,Preserve identity,not_started,,\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            tasks_dir.join("habits.csv"),
+            "task_uuid,task_id,task_name,status,completed_date,last_touched\n",
+        )
+        .unwrap();
+
+        complete_in_root_with_today(
+            dir.path(),
+            "T91",
+            NaiveDate::from_ymd_opt(2026, 8, 3).unwrap(),
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
+        assert!(written.contains(&format!("{task_uuid},T91,Preserve identity,done")));
+    }
+
+    #[test]
+    fn unrelated_mutation_migrates_assignee_header_and_preserves_assignment() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::write(
+            tasks_dir.join("tasks.csv"),
+            "task_id,task_name,status,assignee,completed_date,last_touched\n\
+T1,Preserve owner,not_started,wife,,\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tasks_dir.join("habits.csv"),
+            "task_id,task_name,status,assigned_to,completed_date,last_touched\n",
+        )
+        .unwrap();
+
+        complete_in_root_with_today(
+            dir.path(),
+            "T1",
+            NaiveDate::from_ymd_opt(2026, 8, 3).unwrap(),
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
+        assert_eq!(
+            written,
+            "task_id,task_name,status,assigned_to,completed_date,last_touched\n\
+T1,Preserve owner,done,wife,2026-08-03,2026-08-03\n"
+        );
+    }
+
+    #[test]
+    fn writer_prefers_canonical_assignment_when_both_headers_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::write(
+            tasks_dir.join("tasks.csv"),
+            "task_id,task_name,status,assignee,assigned_to,completed_date,last_touched\n\
+T1,Keep canonical,not_started,legacy,wife,,\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tasks_dir.join("habits.csv"),
+            "task_id,task_name,status,assigned_to,completed_date,last_touched\n",
+        )
+        .unwrap();
+
+        complete_in_root_with_today(
+            dir.path(),
+            "T1",
+            NaiveDate::from_ymd_opt(2026, 8, 3).unwrap(),
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
+        assert_eq!(
+            written,
+            "task_id,task_name,status,assigned_to,completed_date,last_touched\n\
+T1,Keep canonical,done,wife,2026-08-03,2026-08-03\n"
         );
     }
 
@@ -629,6 +852,11 @@ mod tests {
         assert_eq!(result.kind, CompletionKind::Habit);
         assert_eq!(result.next_due.as_deref(), Some("2026-07-27"));
         let written = std::fs::read_to_string(tasks_dir.join("habits.csv")).unwrap();
+        assert_eq!(
+            written.lines().next().unwrap_or_default().split(',').next(),
+            Some("task_id"),
+            "legacy sync stays keyed by task_id until coordinated migration"
+        );
         assert!(
             written.contains(
                 "H1,Morning pages,done,2026-07-24,1,days,2026-07-24,2026-07-26,2026-07-26"
@@ -639,5 +867,49 @@ mod tests {
             std::fs::read_to_string(tasks_dir.join(".habits_next_id")).unwrap(),
             "3\n"
         );
+    }
+
+    #[test]
+    fn spawned_habit_gets_new_uuid_and_retains_system_key_and_assignment() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::write(
+            tasks_dir.join("tasks.csv"),
+            "task_uuid,task_id,task_name,status,completed_date,last_touched\n",
+        )
+        .unwrap();
+        std::fs::write(tasks_dir.join(".habits_next_id"), "2\n").unwrap();
+        let source_uuid = "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4";
+        std::fs::write(
+            tasks_dir.join("habits.csv"),
+            format!(
+                "task_uuid,task_id,task_name,status,assigned_to,system_key,due_date,recur_interval,recur_unit,created_date,completed_date,last_touched\n{source_uuid},H1,Morning triage,not_started,wife,brain.triage.daily,2026-08-03,1,days,2026-08-03,,\n"
+            ),
+        )
+        .unwrap();
+
+        complete_in_root_with_today(
+            dir.path(),
+            "H1",
+            NaiveDate::from_ymd_opt(2026, 8, 3).unwrap(),
+        )
+        .unwrap();
+
+        let mut reader = csv::Reader::from_path(tasks_dir.join("habits.csv")).unwrap();
+        let rows = reader
+            .deserialize::<std::collections::BTreeMap<String, String>>()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            uuid::Uuid::parse_str(&rows[1]["task_uuid"])
+                .unwrap()
+                .get_version_num(),
+            4
+        );
+        assert_ne!(rows[1]["task_uuid"], source_uuid);
+        assert_eq!(rows[1]["system_key"], "brain.triage.daily");
+        assert_eq!(rows[1]["assigned_to"], "wife");
     }
 }

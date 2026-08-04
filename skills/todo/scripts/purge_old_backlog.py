@@ -31,13 +31,16 @@ import argparse
 import json
 import sys
 from datetime import date
-from pathlib import Path
 
-from _csvlib import TASKS_CSV, parse_date, read_csv, write_csv
-
-BRAIN = Path.home() / "brain"
-PROJECTS_DIR = BRAIN / "projects"
-ARCHIVE_DIR = BRAIN / "archive"
+from _csvlib import (
+    brain_root,
+    parse_date,
+    read_csv,
+    read_json,
+    tasks_csv,
+    write_csv,
+    write_json,
+)
 
 
 def minus_six_months(d: date) -> date:
@@ -60,11 +63,12 @@ def find_project_dir(slug: str):
     """Locate a project directory by slug under projects/ or archive/."""
     if not slug:
         return None
-    cand = PROJECTS_DIR / slug
+    cand = brain_root() / "projects" / slug
     if (cand / ".METADATA.json").exists():
         return cand
-    if ARCHIVE_DIR.exists():
-        for meta in ARCHIVE_DIR.rglob(".METADATA.json"):
+    archive_dir = brain_root() / "archive"
+    if archive_dir.exists():
+        for meta in archive_dir.rglob(".METADATA.json"):
             if meta.parent.name == slug:
                 return meta.parent
     return None
@@ -76,7 +80,7 @@ def record_deletion_in_project(slug: str, task: dict, deleted_date: str) -> None
         return
     meta_path = proj / ".METADATA.json"
     try:
-        meta = json.loads(meta_path.read_text())
+        meta = read_json(meta_path)
     except (OSError, ValueError):
         return
     entry = {
@@ -88,7 +92,7 @@ def record_deletion_in_project(slug: str, task: dict, deleted_date: str) -> None
     meta.setdefault("deleted_backlog_tasks", []).append(entry)
     if isinstance(meta.get("tasks"), list) and task.get("task_id") in meta["tasks"]:
         meta["tasks"].remove(task.get("task_id"))
-    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
+    write_json(meta_path, meta)
 
     notes = proj / "notes.md"
     header = "## Deleted backlog tasks\n"
@@ -113,7 +117,8 @@ def main() -> int:
 
     today = date.today()
     cutoff = minus_six_months(today)  # backlogged strictly before this => >6mo old
-    cols, rows = read_csv(TASKS_CSV)
+    path = tasks_csv()
+    cols, rows = read_csv(path)
 
     deleted, kept = [], []
     for r in rows:
@@ -139,7 +144,7 @@ def main() -> int:
             proj = (d.get("project") or "").strip()
             if proj:
                 record_deletion_in_project(proj, d, today.isoformat())
-        write_csv(TASKS_CSV, cols, kept)
+        write_csv(path, cols, kept)
 
     if args.report:
         print(json.dumps({"deleted_count": len(deleted),

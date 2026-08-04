@@ -9,11 +9,14 @@ pub fn run_habits(
     match &args.action {
         None => open_habits(context),
         Some(crate::cli::HabitsAction::Revive(revive)) => {
-            crate::tasks::revive::run(context.workspace.root(), &revive.query.join(" "))
+            crate::tasks::revive::run(&context.workspace, &revive.query.join(" "), &context.actor)
         }
-        Some(crate::cli::HabitsAction::Skip(skip)) => {
-            crate::tasks::skip::run(context.workspace.root(), &skip.id, skip.until.as_deref())
-        }
+        Some(crate::cli::HabitsAction::Skip(skip)) => crate::tasks::skip::run(
+            &context.workspace,
+            &skip.id,
+            skip.until.as_deref(),
+            &context.actor,
+        ),
     }
 }
 

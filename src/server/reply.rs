@@ -70,6 +70,17 @@ pub fn processing_notice(channel: &'static str) -> ReplyEnvelope {
     }
 }
 
+/// Verify that a completion artifact belongs to the immutable launched actor.
+#[must_use]
+pub fn completion_matches_actor(
+    value: &serde_json::Value,
+    actor: &crate::actor::ActorContext,
+) -> bool {
+    value.get("actor_id").and_then(serde_json::Value::as_str) == Some(actor.user_id().as_str())
+        && value.get("channel").and_then(serde_json::Value::as_str)
+            == Some(actor.channel().as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,5 +102,33 @@ mod tests {
     fn email_preserves_full_text_and_escapes_html() {
         assert_eq!(email("# Heading\n\nDetails").text, "# Heading\n\nDetails");
         assert!(email_html("<unsafe>").contains("&lt;unsafe&gt;"));
+    }
+
+    #[test]
+    fn completion_must_match_the_session_actor_and_channel() {
+        let users = crate::users::Users {
+            schema_version: crate::users::USERS_SCHEMA_VERSION,
+            users: vec![crate::users::User {
+                id: crate::users::UserId::parse("member").unwrap(),
+                name: "Member".to_owned(),
+                phones: Vec::new(),
+                emails: Vec::new(),
+                response_email: None,
+            }],
+        };
+        let actor = crate::actor::resolve_actor(
+            &crate::users::UserId::parse("member").unwrap(),
+            crate::actor::RequestIdentity::Local,
+            &users,
+        )
+        .unwrap();
+        assert!(completion_matches_actor(
+            &serde_json::json!({"actor_id":"member","channel":"interactive"}),
+            &actor,
+        ));
+        assert!(!completion_matches_actor(
+            &serde_json::json!({"actor_id":"other","channel":"interactive"}),
+            &actor,
+        ));
     }
 }

@@ -80,8 +80,13 @@ Its global `--brain/-b` selector resolves canonical names and aliases once at
 the bootstrap boundary. Ordinary commands receive a ready selected context;
 env writes verify both canonical name and immutable UUID, while config,
 personalization, tasks, reindex, sync, receiver setup, and the TUI consume that
-same context. Changing the default after bootstrap cannot redirect a read or
-write already in progress.
+same context and its once-resolved actor. Changing the default or local user
+after bootstrap cannot redirect or reattribute a read or write already in
+progress.
+Without a portable user store, legacy compatibility accepts only an exact
+lower-case kebab `local_user_id`. A malformed nonblank legacy value is rejected
+with `brain workspace repair -b <workspace> --local-user-id <USER_ID>`; Brain
+does not create `users.json` as part of that repair path.
 
 ### The `brain workspace` command
 
@@ -118,19 +123,29 @@ The manifest is create-only and strict: create publishes it only when the path
 is absent, attach reads it without editing, and unknown fields or identity
 mismatches fail rather than silently replacing portable identity.
 
+The same directory carries strict schema-1 `users.json` when portable people
+have been configured. It contains person IDs, display names, normalized phone
+and email identities, inbound-enabled flags, and optional response emails.
+The file travels with the workspace; the selected person's `local_user_id`
+remains in the machine registry.
+
+First-person setup asks for an email identity only when the workspace email
+receiver allowlist is non-empty. A legacy `response_email` supplies the default
+and migrates only when its normalized value matches that allowlist. A response
+setting alone does not enable inbound email or create a portable identity.
+
 Create and attach are registry-only setup commands, so they can establish an
-incomplete record. Before every ordinary command, Brain then requires that
-manifest agreement plus a non-empty `local_user_id`. An interactive invocation
-prompts for missing setup, persists it under the registry transaction, reloads
-the immutable context, and continues. A headless invocation never opens
-`/dev/tty`; it reports exact `brain workspace repair -b <workspace> ...`
-commands. The first `workspace create` therefore leaves `local_user_id` empty,
-and the next ordinary command is the explicit setup point. Version/help and
-hidden internal server execution perform no workspace IO or prompt.
+incomplete record. Before every ordinary command, Brain then requires manifest
+agreement and, when `users.json` exists, a local ID that names one portable
+person. An interactive first-use flow creates and selects the first person; a
+headless invocation reports exact `brain user add` and `brain user local`
+commands. An existing workspace with no `users.json` and a non-empty legacy
+local ID stays ready without being rewritten. Version/help and hidden internal
+server execution perform no workspace IO or prompt.
 
 ### Access policy status
 
-Access-mode enforcement is not part of the current foundation. The migrated
+Access-mode enforcement is not part of the current Phase 2 boundary. The migrated
 or default workspace remains unrestricted unless a later access-policy phase
 explicitly configures it otherwise. Planned `workspace_only` behavior uses
 prompt-based guidance and light guardrails. It is not a filesystem sandbox,
@@ -138,9 +153,13 @@ authentication boundary, container, OS-account boundary, or protection from a
 malicious trusted user. Its purpose is only to reduce accidental and naive
 cross-workspace leakage in a high-trust self-hosted environment.
 
-Portable users, inbound identity mapping, task `assigned_to`, triage-habit
-policy, the agent-controller/OpenCode facade, and final shared receiver
-lifecycle are also later phases, not schema exposed by this release.
+Inbound request actor selection now reads `users.json`: provider signatures are
+verified first, then the normalized sender must match an enabled phone or email
+identity. Legacy receiver allowlists and response settings remain compatibility
+inputs while the coordinated portable schema migration stays deferred. Task
+`assigned_to` and managed triage-habit policy are active in this phase. The
+agent-controller/OpenCode facade, access-mode enforcement, final shared
+receiver lifecycle, and task-schema migration activation remain later phases.
 
 ### Selected workspace env
 
@@ -358,6 +377,7 @@ the `name=value` form.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `enable_triage_habits` | `true` | Portable managed-triage policy. `brain config set enable_triage_habits=true` reconciles one open daily and weekly chain. Setting `false` uses one durable grouped transaction to purge managed rows and derived references before committing config. Manual `/triage` remains available. |
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
@@ -373,7 +393,7 @@ Every variable is optional; a missing file or missing field falls back to the
 default above. The brain directory is the selected `WorkspaceContext::root()`;
 only one-time legacy migration consults `paths::brain_root_path()` and the old
 pointer/default precedence. The runtime knobs
-(`daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
+(`enable_triage_habits`, `daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
 by `config.rs::Config`; they all read the same `config.json` and ignore fields
 they don't use. Agent launch commands are read by `env::claude_command` and
 `env::codex_command` instead.
@@ -464,14 +484,14 @@ shell** also keeps machine-managed state in a SQLite DB at
 `~/.cache/brain/workspaces/<workspace-id>/state.db` (created on first run; see `state.rs` and
 [data-model.md](data-model.md)):
 
-- `brain_sessions` — the Claude sessions brain has launched/adopted, with a
-  per-session PID lock, used to resume the right conversation (lock +
-  recency). Written by both `brain` and the SessionStart hook.
+- `brain_sessions` records Claude and Codex session identity plus workspace,
+  actor, and channel attribution, with a per-session PID lock used for scoped
+  lock-and-recency resume. Written by both `brain` and the SessionStart hook.
 - `meta` — small key/value store; today just `panel_side` (`"left"` or
   `"right"`), the side the brain panel sits on, set by the palette's "Move
   brain panel…" command and read on startup.
 
 You don't edit a workspace state DB by hand. Deleting it is safe: brain recreates it,
-starts a fresh Claude session, and reverts to the default right-side layout.
+starts a fresh agent session, and reverts to the default right-side layout.
 The `brain config`, `brain env`, and `brain tasks {complete,doctor,--no-tui}`
 utility paths never touch it.

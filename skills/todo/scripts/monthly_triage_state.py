@@ -5,7 +5,7 @@
 of a calendar month. This script owns that one bit of state so /triage can
 ask "is today's weekly triage also the monthly one?".
 
-State file: ~/brain/tasks/.monthly_triage.json
+State file: <selected-workspace>/tasks/.monthly_triage.json
     {"last_monthly_triage_month": "YYYY-MM"}
 
 Usage:
@@ -20,14 +20,17 @@ import argparse
 import json
 import sys
 from datetime import date
-from pathlib import Path
 
-STATE = Path.home() / "brain" / "tasks" / ".monthly_triage.json"
+from _csvlib import brain_root
+
+
+def state_path():
+    return brain_root() / "tasks" / ".monthly_triage.json"
 
 
 def _load() -> str:
     try:
-        return json.loads(STATE.read_text()).get("last_monthly_triage_month", "")
+        return json.loads(state_path().read_text()).get("last_monthly_triage_month", "")
     except (OSError, ValueError):
         return ""
 
@@ -43,7 +46,7 @@ def main() -> int:
     is_monthly = (last != month)
 
     if args.mark:
-        STATE.write_text(json.dumps({"last_monthly_triage_month": month}) + "\n")
+        state_path().write_text(json.dumps({"last_monthly_triage_month": month}) + "\n")
         print(json.dumps({"marked": month, "previous": last}))
         return 0
 

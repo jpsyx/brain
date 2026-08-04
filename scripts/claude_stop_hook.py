@@ -15,14 +15,26 @@ def main() -> None:
     try:
         payload = json.load(sys.stdin)
         session_id = payload.get("session_id") or payload.get("thread_id")
+        response_id = os.environ.get("BRAIN_RESPONSE_ID") or session_id
+        actor_id = os.environ.get("BRAIN_ACTOR_ID")
+        channel = os.environ.get("BRAIN_CHANNEL")
         message = payload.get("last_assistant_message")
-        if not session_id or not isinstance(message, str) or not message.strip():
+        if not session_id or not response_id or not actor_id or not channel or not isinstance(message, str) or not message.strip():
             return
         target_dir = pathlib.Path(directory)
         target_dir.mkdir(parents=True, exist_ok=True)
-        target = target_dir / f"{session_id}.json"
+        target = target_dir / f"{response_id}.json"
         temporary = target.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"session_id": session_id, "message": message}), encoding="utf-8")
+        temporary.write_text(
+            json.dumps({
+                "session_id": session_id,
+                "response_id": response_id,
+                "actor_id": actor_id,
+                "channel": channel,
+                "message": message,
+            }),
+            encoding="utf-8",
+        )
         temporary.replace(target)
     except Exception:
         return

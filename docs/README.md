@@ -50,6 +50,7 @@ src/
   lib.rs         — public re-exports for integration tests
   cli/           : focused clap surface (global + command-family modules)
   workspace/     : typed identity, schema-v2 registry, and current workspace command family
+  users/         : portable people, normalized identities, and atomic users.json storage
   config.rs      — typed knobs (triage pattern, linear, rollover)
   paths.rs       : legacy migration-only root compatibility
   settings/      — config store + `brain config` + markdown-to-pdf prereq

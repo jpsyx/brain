@@ -66,6 +66,8 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App<'_>) {
         draw_confirm(f, confirm, area);
     } else if let Some(picker) = app.link_picker.as_ref() {
         draw_link_picker(f, picker, area);
+    } else if let Some(picker) = app.assignee_filter.as_ref() {
+        draw_assignee_filter(f, picker, area);
     } else if let Some(menu) = app.search.palette.as_ref() {
         crate::menu::draw_modal(f, menu, area);
     } else if let Some(c) = app.search.confirm.as_ref() {

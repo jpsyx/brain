@@ -40,6 +40,8 @@ fn run_hook(db_path: &Path, attribution: Option<(&str, i32)>, input: &str) -> st
         "BRAIN_WORKSPACE",
         "BRAIN_ROOT",
         "BRAIN_ACTOR_ID",
+        "BRAIN_CHANNEL",
+        "BRAIN_AGENT_KIND",
         "BRAIN_INSTANCE_ID",
         "BRAIN_PID",
         "BRAIN_STATE_DB",
@@ -52,9 +54,32 @@ fn run_hook(db_path: &Path, attribution: Option<(&str, i32)>, input: &str) -> st
         cmd.env("BRAIN_WORKSPACE", "family");
         cmd.env("BRAIN_ROOT", "/tmp/family");
         cmd.env("BRAIN_ACTOR_ID", "pablo");
+        cmd.env("BRAIN_CHANNEL", "interactive");
+        cmd.env("BRAIN_AGENT_KIND", "claude");
         cmd.env("BRAIN_INSTANCE_ID", instance);
         cmd.env("BRAIN_PID", pid.to_string());
     }
+    run_hook_command(cmd, input)
+}
+
+fn run_scoped_hook(
+    db_path: &Path,
+    agent_kind: &str,
+    actor_id: &str,
+    instance: &str,
+    input: &str,
+) -> std::process::Output {
+    let mut cmd = Command::new("python3");
+    cmd.arg(hook_script());
+    cmd.env("BRAIN_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111");
+    cmd.env("BRAIN_WORKSPACE", "family");
+    cmd.env("BRAIN_ROOT", "/tmp/family");
+    cmd.env("BRAIN_ACTOR_ID", actor_id);
+    cmd.env("BRAIN_CHANNEL", "interactive");
+    cmd.env("BRAIN_AGENT_KIND", agent_kind);
+    cmd.env("BRAIN_INSTANCE_ID", instance);
+    cmd.env("BRAIN_PID", "4242");
+    cmd.env("BRAIN_STATE_DB", db_path);
     run_hook_command(cmd, input)
 }
 
@@ -96,14 +121,26 @@ fn settings_hook_commands(settings_path: &Path, event: &str) -> Vec<String> {
         .collect()
 }
 
-/// Read (instance, locked_pid) for a session row, or None if absent.
-fn read_session(db_path: &Path, session_id: &str) -> Option<(String, Option<i64>)> {
+/// Read immutable attribution plus lock state for a session row.
+fn read_session(
+    db_path: &Path,
+    session_id: &str,
+) -> Option<(String, Option<i64>, String, String, String, String)> {
     let conn = Connection::open(db_path).unwrap();
     conn.query_row(
-        "SELECT brain_instance_id, locked_pid FROM brain_sessions
-         WHERE claude_session_id = ?1",
+        "SELECT brain_instance_id, locked_pid, agent_kind, workspace_id, actor_id, channel
+         FROM brain_sessions WHERE agent_session_id = ?1",
         [session_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        },
     )
     .ok()
 }
@@ -140,6 +177,10 @@ fn hook_records_session_locked_to_instance_and_pid() {
     let row = read_session(&db, "claude-abc").expect("session recorded");
     assert_eq!(row.0, "inst-1");
     assert_eq!(row.1, Some(4242));
+    assert_eq!(row.2, "claude");
+    assert_eq!(row.3, "11111111-1111-4111-8111-111111111111");
+    assert_eq!(row.4, "pablo");
+    assert_eq!(row.5, "interactive");
 }
 
 #[test]
@@ -151,6 +192,8 @@ fn hook_without_complete_workspace_identity_is_noop() {
     cmd.env("BRAIN_WORKSPACE", "family");
     cmd.env("BRAIN_ROOT", "/tmp/family");
     cmd.env_remove("BRAIN_ACTOR_ID");
+    cmd.env("BRAIN_CHANNEL", "interactive");
+    cmd.env("BRAIN_AGENT_KIND", "claude");
     cmd.env("BRAIN_INSTANCE_ID", "inst-1");
     cmd.env("BRAIN_PID", "4242");
     cmd.env("BRAIN_STATE_DB", &db);
@@ -204,6 +247,55 @@ fn distinct_instances_get_distinct_locked_sessions() {
     run_hook(&db, Some(("inst-2", 20)), &start_input("sess-2"));
     assert_eq!(read_session(&db, "sess-1").unwrap().1, Some(10));
     assert_eq!(read_session(&db, "sess-2").unwrap().1, Some(20));
+}
+
+#[test]
+fn hook_preserves_equal_opaque_ids_with_conflicting_immutable_attribution() {
+    let (_tmp, db) = fresh_db();
+    let first = run_scoped_hook(
+        &db,
+        "claude",
+        "pablo",
+        "claude-instance",
+        &start_input("same-opaque-id"),
+    );
+    let second = run_scoped_hook(
+        &db,
+        "codex",
+        "partner",
+        "codex-instance",
+        &serde_json::json!({
+            "thread_id": "same-opaque-id",
+            "source": "startup",
+            "hook_event_name": "SessionStart"
+        })
+        .to_string(),
+    );
+    assert!(first.status.success());
+    assert!(second.status.success());
+
+    let conn = Connection::open(db).unwrap();
+    let mut statement = conn
+        .prepare(
+            "SELECT agent_kind, actor_id FROM brain_sessions
+             WHERE agent_session_id = 'same-opaque-id'
+             ORDER BY agent_kind",
+        )
+        .unwrap();
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("claude".to_owned(), "pablo".to_owned()),
+            ("codex".to_owned(), "partner".to_owned()),
+        ]
+    );
 }
 
 #[test]

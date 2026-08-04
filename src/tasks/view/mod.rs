@@ -14,6 +14,7 @@
 mod build;
 mod sort;
 
+pub(crate) use build::apply_assignment_filter;
 pub use build::build_view;
 
 use chrono::{Datelike, Duration, NaiveDate};

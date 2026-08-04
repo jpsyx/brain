@@ -211,11 +211,18 @@ upgrade error.
 Create writes the manifest before registry persistence and deliberately leaves
 `local_user_id` empty. This keeps create usable as a registry-only setup command
 and makes the next ordinary command the single interactive onboarding point.
-Headless callers receive exact repair commands instead of any `/dev/tty` access.
-Interactive repair persists under the registry transaction, reloads the record,
-and continues the originally requested command. On a later persistence failure,
+That flow creates the first portable person and selects it locally. Headless
+callers receive exact `brain user add` and `brain user local` commands instead
+of any `/dev/tty` access. On a later persistence failure,
 Brain preserves the newly written manifest rather than performing a racy
 path-based deletion; the matching identity remains inspectable and repairable.
+
+An existing workspace with no portable user file and a non-empty legacy local
+ID remains ready. Brain includes a pure legacy-conversion proposal so mappings
+can be reviewed and tested, but bootstrap deliberately does not call it. This
+compatibility gate avoids silently assigning old allowlisted contacts to an
+invented person or changing a workspace merely because a newer binary opened
+it.
 
 Selection is also a capability boundary, not a convenience lookup. Root-local
 stores accept `WorkspaceContext`; machine-env writes additionally require the
@@ -234,18 +241,83 @@ rewriting either workspace record or portable files. Consequently, changing
 the default workspace never changes access mode, UUID, root, local user,
 receiver switch, aliases, or env.
 
-The current foundation stops at selection and siloed paths. It intentionally
-does not pretend that path separation is access control. A later
-`workspace_only` mode will use prompt-based guidance and light guardrails to
+The current multi-workspace boundary stops short of access-policy enforcement.
+It intentionally does not pretend that path separation is access control. A
+later `workspace_only` mode will use prompt-based guidance and light guardrails to
 reduce accidental and naive leakage in a high-trust installation. It is not a
 filesystem sandbox, authentication boundary, container, OS-account boundary,
 or defense against a malicious trusted user. Real adversarial isolation must
 remain outside Brain.
 
-The portable user registry, inbound actor precedence, task `assigned_to`,
-triage-habit policy, agent-controller/OpenCode facade, and shared receiver
-leases remain later phases. Documenting those as current would make the
-foundation look safer and more complete than it is.
+Ordinary command bootstrap now pins one immutable local actor before task,
+reindex, TUI, or local-agent work. A ready legacy workspace with no portable
+user store uses its exact lower-case kebab local ID as a non-writing
+compatibility actor. Readiness rejects malformed nonblank legacy IDs with a
+machine-local repair command, matching the actor parser exactly.
+Inbound actor precedence remains immutable request context after provider
+authentication. Task `assigned_to` now defaults to that actor, while unrelated
+mutations preserve the existing assignment and explicit changes validate
+portable membership. This deliberately adds no owner, creator, audit, or device
+semantics. The agent-controller/OpenCode facade and shared receiver leases
+remain later phases. Actor context is attribution and routing,
+not a new authentication or access-control boundary.
+
+The same portable user ID may be selected on multiple computers because it
+names the person, not their machine. We intentionally add no cross-machine
+identity split, owner, creator, or audit-history concept.
+
+## Why triage enable/disable is one durable grouped replacement
+
+The setting changes both policy and portable data. Saving JSON first could
+leave disabled managed history behind; deleting CSV rows first could lose the
+chains while config still claims they are enabled. Brain therefore stages the
+config, task/habit CSVs, counter, and exact derived-reference rewrites, then
+publishes a recovery journal before replacing any live file. Ordinary failures
+roll back immediately. A later startup, reindex, config change, or repair first
+recovers an interrupted prepared generation.
+
+Stable `system_key` values, not visible names, decide ownership. This preserves
+same-named user habits and permits user renames without losing protection.
+Garbage collection retains its ordinary seven-day behavior while enabled and
+never becomes an incomplete feature-off purge.
+
+## Why assignment defaults to the effective actor
+
+The request actor is already immutable and portable, so it is the only default
+that behaves consistently for local and authenticated inbound work. User count
+changes presentation, not semantics: one-person workspaces hide redundant
+assignment controls but still persist the ID; shared workspaces reveal detail,
+creation/reassignment controls, and filtering. Compatibility is intentionally
+asymmetric: readers accept the legacy `assignee` heading, while any writer
+normalizes to `assigned_to`.
+
+## Why task UUID migration is inactive until coordinated rollout
+
+Human-facing `T###` and `H###` values are useful locators but cannot safely be
+the permanent merge identity once two machines can allocate the same display
+ID. New rows therefore receive immutable UUIDv4 identity, and migrated rows use
+a deterministic UUIDv5 input scoped by workspace, CSV kind, and legacy display
+ID. Completion and ordinary edits preserve the UUID; habit recurrence creates
+a new UUID while retaining assignment and `system_key`.
+
+Activation is deliberately separate. The fixture-tested schema helper requires
+an explicit last-legacy-sync state, an existing durable machine-local backup
+base, and a destination beneath that base; no runtime path calls it. Existing
+legacy CSVs keep `task_id` identity so their semantic merge remains compatible;
+schema-v2 CSVs merge by UUID, but the helper remains inactive. The UUID column
+alone is not activation: compatibility writers may add `task_uuid` for
+new rows while legacy rows remain blank, and sync continues to use `task_id`
+until `tasks/SCHEMA.json` declares the coordinated current schema. The helper
+rejects canonical or lexical path overlap with the workspace, creates each
+missing backup-directory component separately, syncs
+every actual parent on both first attempt and retry, durably syncs each exact
+backup before replacement, and publishes an internal prepared/committed
+recovery journal. A publication error removes the journal temporary before
+returning. A retry restores
+the complete legacy generation after a prepared interruption or retains the
+complete new generation after commit, so a mixed schema is never accepted as a
+new migration input. The coordinated rollout still owns the final legacy sync,
+backup activation, and rollout journal.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
@@ -373,9 +445,18 @@ command in verbatim, then appends the selected frontend's own session shape:
 Claude gets `--resume <id>` or `--session-id <id>`; Codex gets `resume <id>`
 only when a Codex id is known and no Claude-only flags for fresh launches.
 
-brain's current state DB is intentionally still Claude-scoped because it is
-populated by the Claude `SessionStart` hook. Passing those ids to Codex would be
-wrong, so Codex panels launch fresh until brain has a Codex-specific hook/store.
+The state DB keys sessions by frontend, opaque session ID, workspace, actor,
+and channel. Hook upserts, claims, and dead-lock reaping use that exact
+composite scope, so equal opaque IDs in different scopes never overwrite or
+unlock one another. A separate stable response ID lets the Stop hook signal a
+fresh Codex turn without pretending Brain chose Codex's thread ID.
+
+Hook refresh follows workspace singleton acquisition, so a rejected second TUI
+cannot alter the lifecycle contract of the live process. Different-workspace
+TUIs remain concurrent, so their shared `~/.codex/hooks.json` updates use a
+machine-wide SQLite transaction lock plus same-directory atomic replacement.
+The lock prevents lost read-modify-write updates; the rename prevents readers
+from observing partial JSON and preserves the old bytes on failure.
 
 ## Why we disable alternate scroll (and motion) reporting for the mouse
 
@@ -838,6 +919,39 @@ whole scheme's safety — no silent divergence, no human ever needing to
 adjudicate a task-CSV conflict — depends on the merge being a genuine
 mathematical convergence, not just "usually agrees."
 
+**Why immutable UUID wins over mutable display ID.** Two machines can allocate
+the same `T###` or `H###` independently, so display identity cannot safely be
+the permanent row key after schema migration. UUID-distinct rows both survive.
+For a contested label, the lexicographically smaller UUID retains it; loser
+UUIDs are sorted and assigned above the maximum number visible in base, local,
+or remote. This side-independent rule makes mirror-order merges byte-identical.
+
+**Why relationships resolve before display reconciliation.** A remote child's
+`blocked_by=T10` means the remote `T10`, not whichever UUID later wins that
+label globally. Each side therefore resolves `blocked_by` labels and bounded
+task IDs in free-text `see_also` to UUIDs before row merge, then emits final
+display IDs afterward. The `see_also` scanner skips `http(s)` URL spans and
+preserves every separator and non-reference character, including longer IDs
+that only contain the changed label. A missing target emits its original display label, never an
+internal UUID marker. Project metadata reverse
+links are regenerated from the authoritative CSV `project` column for the same
+reason. All metadata rewrites are parsed and staged before local publication,
+so one malformed project cannot partially rewrite unrelated projects.
+
+**Why schema-v2 validation is one whole-operation preflight.** Validating or
+publishing one CSV at a time could update tasks before discovering that habits
+is incompatible. Brain validates the manifest and all six base/local/remote
+tables first, then stages all project metadata. Any failure therefore leaves
+both CSVs, both baselines, metadata, remotes, and counters unchanged. Current
+identity requires `task_uuid`, `task_id`, `assigned_to`, and `system_key`;
+`last_touched` improves conflict resolution but is not identity.
+
+**Why schema-v2 unknown columns are opt-in.** Silently accepting a column Brain
+does not understand can preserve bytes while breaking relationship or identity
+semantics. Current tables require the known identity columns. A manifest may
+explicitly set `forward_compatible_columns: true` when byte preservation is
+safe; otherwise unknown columns refuse before any CSV or baseline write.
+
 **Why `brain check` reports CSV row deltas instead of simulating the full
 merge.** `check` is a read-only "what would move?" report, and its value is
 fast, low-risk visibility before running `brain sync`. For the task CSV lane,
@@ -1126,6 +1240,15 @@ pure runtime lookup can't order reliably. So base skills declare named markers
 substituted in place. Content with no matching marker still lands in a trailing
 "Personal extensions" section, so nothing the user wrote is silently dropped. A
 skill with no extension renders unchanged (markers are stripped).
+
+## Why optional agenda content is caller-supplied at a generic hook
+
+The bundled todo workflow must remain useful with no personal extension and
+must not encode a particular inbox, service, or staging layout. It therefore
+declares `todo:agenda-after-build` as a no-op-by-default hook. An installed
+extension may invoke the generic optional-content helper, but the caller must
+provide the agenda and content paths explicitly. Core performs no source
+discovery and attaches no provider-specific meaning to that content.
 
 ## Why extensions render a new built copy, never the repo/plugin source
 
@@ -1433,7 +1556,7 @@ instead of leaving it at rclone's HOME-dependent default. Two payoffs:
   once, which is exactly what heals a machine already wedged by the old
   concurrent-run bug.)
 
-## Why the id counters are max-merged, not bisynced
+## Why the id counters are max-merged and floored by emitted IDs
 
 `tasks/.tasks_next_id` and `tasks/.habits_next_id` hold the next integer id to
 hand out for a new task / habit. They used to ride the normal bisync lane, which
@@ -1442,16 +1565,18 @@ if the machine holding the *lower* value wrote more recently, bisync would pick
 the lower value, and that machine would then re-hand-out ids the other machine
 had already assigned — colliding in the id-keyed CSV merge (two different rows
 sharing one `task_id`). So the counters are now excluded from bisync and
-reconciled out-of-band by `counters::merge_counter` = `max(local, remote)`.
+reconciled out-of-band by the maximum local and remote value.
 
-Max is the whole rule, deliberately. It is stateless (needs no 3-way baseline
+Max is the whole counter rule, deliberately. It is stateless (needs no 3-way baseline
 like the CSVs), convergent, idempotent, and monotonic, so it can never regress a
-counter and never lets an id be reused. We explicitly did *not* add smarter
-rules (e.g. reconciling against the merged CSV's `max_existing_id`): "always take
-the highest next-id" is sufficient to avoid every collision, and the simpler
-rule is the more robust one. A missing/garbage counter on a side is treated as
-absent; if both are absent the file stays absent and allocation falls back to
-`max_existing_id + 1` at hand-out time.
+counter and never lets an id be reused. UUID collision reconciliation adds one
+necessary floor: the successful CSV operation returns one beyond the maximum
+emitted display number from its reconciled task and habit tables. Counter sync
+consumes those floors without fetching either remote CSV again. Push-only sync
+also writes the floor locally before the next allocation. This
+keeps the next ordinary writer from reissuing a label that reconciliation just
+created. A missing or garbage counter is treated as absent; absent counters
+still derive their first safe value from the CSV floor.
 
 ## Why the daily-triage nudge waits for the startup sync
 
@@ -1467,13 +1592,42 @@ then resolving it, but the simpler and better behavior is to **not show it at
 all until we know the truth**. On a sync-configured machine, `run_tui`
 defers the check: the shell is fully usable at once (no modal to dismiss), and
 `tick_triage_gate` runs the real `check_daily_triage` only after the startup
-sync completes (detected by a newer sync-journal row). The modal then appears
+sync completes successfully (detected by a newer clean downstream sync-journal
+row). Before evaluating the modal, Brain reloads portable config, applies the
+incoming managed-triage policy under the task-store owner, and reloads both
+task tables. The modal then appears
 only if triage is genuinely still due; if
 another machine handled it, it never appears. The gate keys on the journal's
 row id rather than the `current.json` in-flight marker specifically to avoid the
 "sync hasn't written its marker yet" start-gap: a new journal row is an
-unambiguous "a sync cycle finished" signal. If the sync is offline or fails,
+unambiguous successful-downstream signal. Push-only and non-clean rows do not
+open the gate. If the sync is offline or fails,
 the gate remains closed for that shell rather than evaluating stale local data.
+
+The CLI suppression flag and palette toggle share one live process-scoped
+field. The refresh gate deliberately stores no alert-state snapshot. Enabling
+the alert from the palette while startup sync is pending defers the check;
+after a successful refresh, Brain consults the live field against refreshed
+config and task state. Disabling it again before completion therefore remains
+suppressed, while enabling it cannot create a modal from stale pre-sync data.
+Refresh failures still surface as errors and never evaluate the alert.
+
+## Why all task writers share one workspace-scoped owner
+
+Managed-triage reconciliation changes portable config, task and habit tables,
+counters, and derived references as one logical generation. A process-local
+mutex would not protect the Rust CLI, TUI, server, sync worker, and bundled
+Python scripts from one another. Brain therefore uses a SQLite immediate
+transaction at the workspace UUID cache path as a stable interprocess owner.
+Rust mutation entry points hold it across read, decision, and publication;
+portable config read-modify-write and web habit completion do the same. Python
+CSV and project-metadata JSON writers hold the same owner, compare current
+bytes with their read snapshot, and publish with a file-synced atomic
+same-directory replace followed by a parent-directory sync. A stale writer
+fails explicitly instead of silently overwriting reconciliation. The native
+sync metadata publisher already runs beneath the sync command's owner, and the
+managed-triage metadata purge runs inside its authenticated grouped
+transaction, so every production project-metadata writer shares this boundary.
 ## TUI-owned receiver server
 
 The external receiver listener is deliberately owned by the singleton brain
@@ -1625,3 +1779,26 @@ the child agent, the *reliable* app-level surface is the command palette
 (`Ctrl+P` → filter → Enter), so **Show main brain session** / **Show daily
 triage session** are the works-anywhere path; the Alt chords remain as a bonus
 where the terminal supports them.
+
+## Portable-user removal uses a recovery journal, not absent live files
+
+Removing a portable person can update two assignment CSVs and `users.json`, but
+the filesystem has no cross-file rename primitive. Moving live files aside
+before replacement left a crash window where ordinary readers found files
+missing, and best-effort rollback could silently leave a mixed generation.
+
+The grouped transaction now copies mode-preserving backups, stages and syncs
+all replacements, and publishes a strict portable journal before touching live
+paths. Each installation is an atomic same-directory rename over an existing
+live file; assignment files install first and `users.json` last. An ordinary
+error rolls the whole group back and reports rollback failures. If the process
+stops after journal publication, the next portable-user load restores the old
+generation before parsing it. Journal removal is the durable commit point, so
+cleanup after that point cannot change the committed result.
+
+The journal travels inside workspace config because another machine may
+encounter the interrupted portable state. Its SQLite serialization lock does
+not travel: it is derived from the immutable workspace UUID under the
+machine-local runtime cache. This boundary avoids syncing lock state while
+still preventing concurrent Brain processes on one machine from publishing the
+same grouped mutation.

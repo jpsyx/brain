@@ -70,7 +70,7 @@ first move is a failing test that reproduces it, *then* the fix.
   runtime file trees byte-for-byte, repeats selected writes after changing the
   default, and tests same-name/different-UUID rejection. Focused tests also pin
   alias-to-canonical detached sync arguments after alias removal/default change,
-  the four-variable integration env, selected reindex `BRAIN_ROOT`, and
+  the typed actor integration env, selected reindex `BRAIN_ROOT`, and
   request-UUID habits GET/POST isolation.
 - **Workspace documentation contract.** `tests/workspace_docs.rs` runs the
   compiled binary's root, workspace, and nested alias help, then checks only
@@ -82,10 +82,21 @@ first move is a failing test that reproduces it, *then* the fix.
   deliberately avoids snapshots and punctuation-heavy prose.
 - **Hook integration.** `tests/hook_integration.rs` runs the real Python
   SessionStart hook against a temporary SQLite DB and the real shell installer
-  against temporary homes/roots. It covers the complete four-variable
-  workspace identity plus session attribution contract, selected-root argument
-  and `BRAIN_ROOT` precedence, project-relative commands, session rotation, and
-  malformed/ambient no-op behavior.
+  against temporary homes/roots. It covers the typed workspace/actor
+  identity plus session attribution contract, selected-root argument
+  and `BRAIN_ROOT` precedence, project-relative commands, actor-scoped session
+  rotation, equal opaque IDs with conflicting immutable attribution, schema-v2
+  row preservation, and malformed/ambient no-op behavior. The hook-installer
+  unit tests live in `src/command/server/receiver/hooks/tests.rs`; they pin the
+  exact installed Codex JSON command schema, execute the
+  actual configured start and stop commands as one attributed lifecycle, and
+  proves stale deployed scripts are refreshed. Further unit tests prove locked
+  concurrent JSON mutations retain both workspace registrations and unrelated
+  settings, always leave parseable JSON, and preserve original bytes when an
+  atomic replacement fails. TUI setup tests prove a held workspace singleton
+  prevents hook refresh.
+  `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
+  completion contract for a Codex-style `thread_id` payload.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
   map (defaults vs overrides — never the real store), the `config list` table
   layout and coloring, value coercion (`4`→number), name normalization, the
@@ -125,9 +136,10 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Filesystem collection** (integration). `entry::collect` against real
   temp trees: bucket tagging, `~/brain/...` rewriting, hidden-file
   skipping, root-skipping, tolerance of a missing bucket.
-- **The session store** (`state.rs`, in-memory SQLite). `pick_resume`
-  ordering, `claim` win/lose, `register_fresh` + `release` round-trip,
-  `reap_dead_locks` with an injected pid-liveness predicate, the
+- **The session store** (`state.rs`, in-memory SQLite). Scoped resume
+  ordering, exact composite-scope `claim` win/lose, registration + `release`
+  round-trip, exact composite-scope `reap_dead_locks` with an injected
+  pid-liveness predicate, preservation of equal opaque IDs across scopes, the
   two-shells-take-distinct-sessions invariant, and `panel_side` round-trip
   + flip. `open_in_memory` / `with_pid_alive` are the test seams
   (deterministic clock + injectable pid probe), so no real process or wall
@@ -155,9 +167,17 @@ first move is a failing test that reproduces it, *then* the fix.
   TUI thread.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
-  does not write remote-only state locally. The CSV integration regression
-  verifies an unchanged second pass performs no remote write, and
+  does not write remote-only state locally. UUID collision tests prove stable
+  winners, mirror-order convergence, idempotence, composite dependency
+  and free-text `see_also` rewrites, URL/substr preservation,
+  deleted-reference fallback, project reverse-link
+  regeneration, whole-operation schema refusal, retryable metadata
+  publication, and task/habit counter floors through the real allocator. The
+  CSV integration regression verifies an unchanged second pass performs no remote write, and
   `sync/trigger.rs` verifies completed detached children are reaped.
+  `sync/check.rs` separately proves schema-aware read-only identity, hybrid
+  legacy compatibility, labeled baseline/local/remote parse refusal, themed
+  warning output, and byte-stable refusal across every task-related store.
   `tests/watch_local.rs` exercises the real watcher callback in the default
   suite: macOS validates the one-second polling fallback, while other platforms
   use notify's recommended native backend.
@@ -179,9 +199,11 @@ first move is a failing test that reproduces it, *then* the fix.
   Finder, the editor tab, or the agent CLI is not a unit. We test the pure builders
   (`finder_target`, `edit_shell_command`, `iterm_new_tab_applescript`,
   `build_llm_command`), not the spawn.
-- **Real agent-provider behavior.** The Rust suite executes the SessionStart
-  hook and installer against temporary roots and SQLite databases, but it does
-  not launch a real Claude or Codex provider session.
+- **Real agent-provider behavior.** The Rust suite executes the exact installed
+  SessionStart and Stop commands against temporary roots and SQLite databases,
+  but it does not launch a real Claude or Codex provider session. Provider event
+  emission remains the frontend's documented contract, not behavior Brain can
+  manufacture or verify in isolation.
 - **Tautological defaults / getters.** `Bucket::Projects.label()` returns
   `"Projects"` — we keep one stability check, not a battery of getter
   tests.
@@ -199,8 +221,33 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, and persistence-failure preservation. |
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
-| `tests/todo_script_mutators.rs` | Brain-owned task scripts, including selected-root `BRAIN_ROOT` propagation for reindex. |
+| `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |
+| `tests/todo_script_mutators.rs` | Brain-owned task scripts, including selected-root `BRAIN_ROOT` propagation and isolated actor/workspace environment for every subprocess. |
+| `tests/task_schema_migration.rs` + `tasks::schema::transaction_tests` | Temp-only inactive migration fixtures: workspace/kind-scoped deterministic UUIDv5, explicit last-legacy-sync and pre-existing durable-backup-base preconditions, exact durable portable backups, canonical/lexical backup-path separation, strict current-schema detection, row/display-ID preservation, byte-idempotent reruns, injected deep-directory and backup-file parent open/sync failures, immediate journal-temporary cleanup, and crash/failure recovery before and throughout replacement. |
+| `tests/task_id_collision_merge.rs` + `sync::csv_merge`/`csv_sync`/`counters` tests | Temp-only and pure fixtures for UUID merge identity, name-aligned headers, deterministic display-ID collision winners/allocation, mirror-order and repeat convergence, pipe/comma `blocked_by`, production-format free-text `see_also` rewrites with URL and substring preservation, deleted-target fallback without marker leaks, project metadata reverse links, retry and local/remote error classification, strict/forward-compatible whole-operation schema policy, no-write refusal, and task/habit next-counter floors. |
+| `tests/triage_habits_config.rs` + `tasks::triage_habits` tests | Temp-only managed-definition reconciliation, rename-stable marker identity, CLI/TUI/web mutation guards, strict malformed-config refusal, managed-only and unmanaged-carrier display-reference purge, authenticated workspace-bound journal recovery, interprocess ownership, transaction module-size guards, live-file continuity, fresh re-enable, startup/reindex/repair restoration, suppressed-alert post-sync refresh, palette-enable/startup-refresh interleaving, and injected crashes at internal publication and cleanup boundaries. |
+| `skills/todo/scripts/tests/test_workspace_context.py` | Standalone Python subprocess coverage for selected-root-only writes, effective-actor assignment, explicit portable-membership validation, legacy and absent assignment-header migration, empty-CSV schema initialization, missing-context failure, UUIDv4 creation, UUID-preserving edits, fresh habit-occurrence identity with assignment/system-key retention, feature-gated managed triage completion, stale-snapshot refusal for CSV and project metadata, shared-owner serialization, protected removal, concurrent counter allocation, and managed-history garbage collection. |
 | `tests/verbose_cli.rs` | End-to-end `--verbose` contract for the compiled binary: stdout mirroring, `/tmp` log-file creation, command/action breadcrumbs, and task CSV load/write logging. |
+
+### Phase 2 migration and convergence matrix
+
+Every row below uses temporary roots, registries, caches, databases, and CSVs.
+No test reads or writes a real user workspace.
+
+| Scenario | Evidence |
+| --- | --- |
+| The same portable person is selected on two simulated machines | `two_machine_registries_select_the_same_portable_person` attaches the same portable workspace from two isolated machine registries and selects the same portable user ID on both. No device-specific identity is generated. |
+| Authenticated inbound identity drives default assignment | `authenticated_inbound_actor_drives_default_task_assignment` maps generic email and phone senders to a second workspace member, proves that identity overrides the local user, exports the immutable actor context, and creates real task rows assigned to the inbound actor. |
+| Two machines independently create the same display ID | `tests/task_id_collision_merge.rs` gives distinct UUID rows the same display ID, swaps local/remote order, and repeats the merge to prove deterministic convergence. |
+| Relationships survive display-ID reconciliation | `tests/task_id_collision_merge.rs` covers composite `blocked_by`, bounded free-text `see_also`, deleted-target fallback, and project metadata reverse links. |
+| Legacy rows receive stable migration identity | `tests/task_schema_migration.rs` derives UUIDv5 from workspace UUID, CSV kind, and legacy display ID, then proves byte-idempotent fixture migration with exact backups. The migration interface remains inactive. |
+| Disable purges managed history without false-positive loss | `tests/triage_habits_config.rs` removes managed definitions, open rows, completed history, and derived references while preserving same-named unmarked rows and unrelated transcripts. `tasks::triage_habits::purge` limits JSON edits to top-level `tasks[]`, preserves unrelated JSON/text bytes and ambiguous display references, and aborts on malformed JSON, invalid UTF-8, or traversal failures. |
+| Re-enable starts fresh | `disabling_purges_every_managed_row_and_derived_reference_then_reenables_fresh` proves exactly two new open managed rows, new UUIDs, and no restored history. |
+
+Phase 2 does not test or claim coordinated migration activation against a real
+workspace, advisory access enforcement, agent-controller/OpenCode behavior, or
+the final shared-server lease and receiver-routing lifecycle. Those belong to
+later roadmap phases.
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to

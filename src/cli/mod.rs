@@ -9,6 +9,7 @@ mod global;
 mod server;
 mod sync;
 mod tasks;
+mod users;
 mod workspace;
 
 pub use configuration::*;
@@ -16,6 +17,7 @@ pub use global::Cli;
 pub use server::*;
 pub use sync::*;
 pub use tasks::*;
+pub use users::*;
 pub use workspace::*;
 
 use clap::{Parser, Subcommand};
@@ -106,4 +108,7 @@ pub enum Cmd {
 
     /// Select, attach, and manage machine-local workspace registrations.
     Workspace(WorkspaceArgs),
+
+    /// Manage portable members of the selected workspace.
+    User(UserArgs),
 }

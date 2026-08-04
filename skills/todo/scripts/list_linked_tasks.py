@@ -18,7 +18,7 @@ Usage:
 import argparse
 import json
 import sys
-from _csvlib import TASKS_CSV, read_csv
+from _csvlib import read_csv, tasks_csv
 
 FIELDS = ["task_id", "task_name", "status", "linear_issue",
           "task_type", "priority", "project"]
@@ -32,7 +32,7 @@ def main() -> int:
     p.add_argument("--pretty", action="store_true", help="human-readable output")
     args = p.parse_args()
 
-    _, rows = read_csv(TASKS_CSV)
+    _, rows = read_csv(tasks_csv())
     linked = [r for r in rows if (r.get("linear_issue") or "").strip()]
     if args.open_only:
         linked = [r for r in linked if (r.get("status") or "") != "done"]

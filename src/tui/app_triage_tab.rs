@@ -125,7 +125,13 @@ impl App<'_> {
             &plan,
             Some("/triage"),
         );
-        let env = session::env_for_triage(&self.command_context.workspace, &done_url, &token);
+        let env = session::env_for_triage(
+            &self.command_context.workspace,
+            &self.interactive_actor,
+            self.agent_kind,
+            &done_url,
+            &token,
+        );
         match PtyPane::spawn_shell_command_with_env(&command, &env, &self.brain_root, 24, 80) {
             Ok(panel) => {
                 self.triage_brain = Some(panel);

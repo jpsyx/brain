@@ -9,6 +9,37 @@ use anyhow::Result;
 use crate::tasks::complete;
 use crate::tui::*;
 
+use super::triage::{TriageAlertEvent, should_check_daily_triage};
+
+fn task_for_id<'a>(tasks: &'a [Task], habits: &'a [Task], raw_id: &str) -> Option<&'a Task> {
+    tasks
+        .iter()
+        .chain(habits)
+        .find(|task| task.id.eq_ignore_ascii_case(raw_id))
+}
+
+fn protect_completion(
+    tasks: &[Task],
+    habits: &[Task],
+    raw_id: &str,
+    config: &Config,
+) -> Result<(), crate::tasks::triage_habits::ManagedTaskError> {
+    task_for_id(tasks, habits, raw_id).map_or(Ok(()), |task| {
+        crate::tasks::triage_habits::can_complete(task, config)
+    })
+}
+
+fn protect_removal(
+    tasks: &[Task],
+    habits: &[Task],
+    raw_id: &str,
+    config: &Config,
+) -> Result<(), crate::tasks::triage_habits::ManagedTaskError> {
+    task_for_id(tasks, habits, raw_id).map_or(Ok(()), |task| {
+        crate::tasks::triage_habits::can_remove(task, config)
+    })
+}
+
 impl App<'_> {
     pub(crate) fn show_logs_view(&mut self, kind: LogKind) {
         crate::logging::log(format!("open logs view kind={kind:?}"));
@@ -30,6 +61,11 @@ impl App<'_> {
     /// a decision when there are preservable links — keeps the no-impact
     /// case from costing the user a back-and-forth.
     pub(crate) fn run_remove(&mut self, raw_id: &str) {
+        if let Err(error) = protect_removal(&self.all_tasks, &self.all_habits, raw_id, &self.config)
+        {
+            self.flash = Some(FlashKind::Error(format!("⚠ {error}")));
+            return;
+        }
         let message = format!(
             "Remove {raw_id} via the /todo remove path.\n\n\
              If {raw_id} has no links worth preserving (chunked siblings, blockers, project references), delete the row outright and report it in one line.\n\n\
@@ -122,7 +158,13 @@ impl App<'_> {
     /// Complete a task or habit natively, then refresh from disk.
     pub(crate) fn mark_task_complete(&mut self, raw_id: &str) -> Result<()> {
         let id = complete::normalize_id(raw_id)?;
-        complete::complete_in_root(&self.brain_root, &id)?;
+        protect_completion(&self.all_tasks, &self.all_habits, &id, &self.config)?;
+        complete::complete_in_workspace_for_actor_with_today(
+            &self.command_context.workspace,
+            &id,
+            chrono::Local::now().date_naive(),
+            &self.command_context.actor,
+        )?;
         self.reload_tasks()?;
         Ok(())
     }
@@ -133,6 +175,10 @@ impl App<'_> {
             PaletteAction::SendBrainMessage => {
                 // Open / focus the persistent brain panel; the user types into it.
                 self.open_or_focus_brain(None);
+            }
+            PaletteAction::AddTask => {
+                let message = add_task_prompt(self.assignment.actor_id().as_str());
+                self.send_brain_prompt(&message);
             }
             PaletteAction::CloseBrain => {
                 self.close_brain();
@@ -207,6 +253,19 @@ impl App<'_> {
                     self.confirm = Some(ConfirmState::remove(id, label));
                 }
             }
+            PaletteAction::ReassignTask => {
+                let Some(id) = self.current_task_id() else {
+                    return;
+                };
+                let message = reassign_task_prompt(&id);
+                self.send_brain_prompt(&message);
+            }
+            PaletteAction::ChooseAssigneeFilter => {
+                self.assignee_filter = Some(AssigneeFilterState::new(
+                    self.assignment.users(),
+                    self.assignment_filter.as_ref(),
+                ));
+            }
             PaletteAction::OpenHabitsInBrowser => {
                 self.run_open_habits();
             }
@@ -257,10 +316,16 @@ impl App<'_> {
                     self.flash = Some(FlashKind::Info(
                         "daily triage alert enabled for this session".to_owned(),
                     ));
-                    // Re-enabling re-arms the nudge: surface it now if today's
-                    // triage is still outstanding, rather than waiting for the
-                    // next refresh or day rollover.
-                    self.check_daily_triage();
+                    // Re-enabling re-arms the nudge. While startup refresh is
+                    // pending, wait for synced config and habits instead of
+                    // evaluating stale local state.
+                    if should_check_daily_triage(
+                        TriageAlertEvent::PaletteEnabled,
+                        self.triage_gate.is_some(),
+                        self.skip_daily_triage_check,
+                    ) {
+                        self.check_daily_triage();
+                    }
                 }
             }
             PaletteAction::ShowMainBrainSession => {
@@ -293,6 +358,26 @@ impl App<'_> {
     }
 }
 
+#[cfg(test)]
+mod managed_triage_tests {
+    use super::{protect_completion, protect_removal};
+
+    fn managed() -> crate::tasks::task::Task {
+        let mut task = crate::tasks::task::test_task("H7", "not_started");
+        task.system_key = crate::tasks::triage_habits::DAILY_SYSTEM_KEY.to_owned();
+        task
+    }
+
+    #[test]
+    fn actual_tui_mutation_guards_reject_managed_rows() {
+        let task = managed();
+        let config = crate::config::Config::default();
+
+        assert!(protect_completion(&[], std::slice::from_ref(&task), "H7", &config).is_err());
+        assert!(protect_removal(&[], &[task], "H7", &config).is_err());
+    }
+}
+
 /// Build the "start task" brain prompt, interpolating the configured brain root
 /// so it never hardcodes `~/brain`. Pure, so the root-authority behavior is
 /// unit-testable.
@@ -311,9 +396,23 @@ pub(crate) fn start_task_prompt(id: &str, brain_root: &Path) -> String {
     )
 }
 
+#[must_use]
+pub(crate) fn add_task_prompt(actor_id: &str) -> String {
+    format!(
+        "Add a task through the /todo add flow. Default its portable assignment to assigned_to={actor_id} unless I explicitly choose another workspace member. Ask me interactively for any missing task details."
+    )
+}
+
+#[must_use]
+pub(crate) fn reassign_task_prompt(id: &str) -> String {
+    format!(
+        "Use the /todo assign {id} flow to reassign this task to a portable workspace member. Show me the available members and ask which one should own it."
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::start_task_prompt;
+    use super::{add_task_prompt, reassign_task_prompt, start_task_prompt};
     use std::path::Path;
 
     #[test]
@@ -328,5 +427,22 @@ mod tests {
     fn start_task_prompt_never_hardcodes_tilde_brain() {
         let p = start_task_prompt("T1", Path::new("/custom/root"));
         assert!(!p.contains("~/brain"));
+    }
+
+    #[test]
+    fn add_task_prompt_defaults_assignment_to_the_current_actor() {
+        let prompt = add_task_prompt("wife");
+
+        assert!(prompt.contains("/todo add"));
+        assert!(prompt.contains("assigned_to=wife"));
+        assert!(prompt.contains("unless I explicitly choose another workspace member"));
+    }
+
+    #[test]
+    fn reassign_task_prompt_targets_the_selected_task() {
+        let prompt = reassign_task_prompt("T7");
+
+        assert!(prompt.contains("/todo assign T7"));
+        assert!(prompt.contains("workspace member"));
     }
 }

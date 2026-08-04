@@ -14,7 +14,7 @@ here to find the code. Keep this in sync when you rename a concept.
 | **workspace UUID** | Portable, immutable identity. It survives canonical rename, root changes across machines, aliases, and default changes, and keys runtime paths. | `WorkspaceId`; `.config/workspace.json`; `WorkspaceRecord.workspace_id` |
 | **default workspace** | The canonical record selected only when `--brain/-b` is omitted. Changing the default workspace never changes access mode or any record field. | `MachineRegistry.default_workspace` |
 | **selected workspace** | The one immutable root/name/UUID/local-user snapshot resolved at command bootstrap. Ordinary runtime code receives this context instead of reopening the registry. | `CommandContext`; `Arc<WorkspaceContext>` |
-| **local user** / **local actor** | The machine-local `local_user_id` attached to the selected context. The portable user registry and inbound actor override are planned later phases. | `WorkspaceRecord.local_user_id`; `WorkspaceContext::local_user_id()` |
+| **local user** / **local actor** | The immutable local `ActorContext` resolved once during ordinary-command bootstrap from the machine's `local_user_id`. A legacy-ready workspace without `users.json` retains that ID as an interactive compatibility actor without creating portable state. | `CommandContext::actor`; `actor::local_actor` |
 | **workspace-only access** | A planned advisory mode based on prompt-based guidance and light guardrails. It is not a filesystem sandbox or an authentication boundary, and it is not enforced by the foundation release. | Later access-policy phase |
 
 ## The two-axis layout model
@@ -63,6 +63,6 @@ These are deliberately distinct and use different modifiers:
 | --- | --- | --- |
 | **agent frontend** | Which CLI runs in the brain panel: Claude by default or Codex for a `--codex` / `-cx` shell. | `session::AgentKind`; `cli::Cli::agent_kind` |
 | **the launch command** / **`claude_cmd` / `codex_cmd`** | The configured command the brain panel runs for the selected frontend. Both live in brain env because installed CLI paths and wrapper flags are machine-local; Claude gets `--resume`/`--session-id`, while Codex gets Codex-shaped args. | `env::claude_command`, `env::codex_command`, `session::build_llm_command` |
-| **session store** / **state DB** | The workspace-UUID-scoped SQLite DB (`~/.cache/brain/workspaces/<workspace-uuid>/state.db`) that tracks Claude resume state (lock + recency); receiver completion hooks work for both Claude and Codex. Codex panels launch fresh. | `WorkspacePaths::state_db`; `src/state.rs` |
-| **the hook** | The Claude `SessionStart` hook that attributes new sessions to this shell instance. | `scripts/claude_session_start_hook.py` |
+| **session store** / **state DB** | The workspace-UUID-scoped SQLite DB (`~/.cache/brain/workspaces/<workspace-uuid>/state.db`) that tracks resumable Claude and Codex sessions by frontend, workspace, actor, and channel (lock + recency). | `WorkspacePaths::state_db`; `src/state.rs` |
+| **the hooks** | The session-start hook that attributes a frontend session to its workspace, actor, and channel, plus the completion hook that returns the response to the initiating channel. | `scripts/claude_session_start_hook.py`, `scripts/claude_stop_hook.py` |
 | **run.sh** | The entry-point script that rebuilds the binary when the sources change, then `exec`s it (no plan, no shell-side effects). | `run.sh` |

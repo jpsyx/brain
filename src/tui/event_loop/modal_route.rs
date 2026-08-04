@@ -13,6 +13,7 @@ pub(crate) enum ModalInput {
     BrainInput,
     Confirm,
     LinkPicker,
+    AssigneeFilter,
     /// No modal is up — route to the panels (tasks / brain).
     Panels,
 }
@@ -25,6 +26,7 @@ pub(crate) struct ActiveModals {
     pub(crate) brain_input: bool,
     pub(crate) confirm: bool,
     pub(crate) link_picker: bool,
+    pub(crate) assignee_filter: bool,
 }
 
 /// Decide the keystroke target from the active overlays, in a fixed
@@ -40,6 +42,8 @@ pub(crate) const fn modal_input_target(m: ActiveModals) -> ModalInput {
         ModalInput::Confirm
     } else if m.link_picker {
         ModalInput::LinkPicker
+    } else if m.assignee_filter {
+        ModalInput::AssigneeFilter
     } else {
         ModalInput::Panels
     }
@@ -54,6 +58,7 @@ pub(crate) fn route_modal_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent,
         brain_input: app.brain_input.is_some(),
         confirm: app.confirm.is_some(),
         link_picker: app.link_picker.is_some(),
+        assignee_filter: app.assignee_filter.is_some(),
     });
     match target {
         ModalInput::Help => handle_help_key(app, k, ctrl),
@@ -61,6 +66,7 @@ pub(crate) fn route_modal_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent,
         ModalInput::BrainInput => handle_brain_input_key(app, k, ctrl),
         ModalInput::Confirm => handle_confirm_key(app, k, ctrl),
         ModalInput::LinkPicker => handle_link_picker_key(app, k, ctrl),
+        ModalInput::AssigneeFilter => handle_assignee_filter_key(app, k, ctrl),
         ModalInput::Panels => return false,
     }
     true

@@ -20,73 +20,125 @@ Rules enforced (see ../references/sync-rules.md for the canonical doc):
 Usage:
     apply_sync_rules.py             # dry-run; report only
     apply_sync_rules.py --fix       # write corrections
+    apply_sync_rules.py --complete-managed-triage daily
 """
 import argparse
-import csv
 import json
-import os
 import re
 import sys
 from datetime import date
 from pathlib import Path
 
-BRAIN = Path(os.environ.get("BRAIN_ROOT", Path.home() / "brain")).expanduser()
-TASKS = BRAIN / "tasks" / "tasks.csv"
-HABITS = BRAIN / "tasks" / "habits.csv"
-PROJECTS_DIR = BRAIN / "projects"
+from _csvlib import (
+    brain_root,
+    habits_csv,
+    new_habit_id,
+    new_uuid,
+    read_csv,
+    read_json,
+    tasks_csv,
+    touch_row,
+    write_csv,
+    write_json,
+)
+from next_habit_occurrence import next_due
 
 CHECKBOX_RE = re.compile(r"^\s*-\s*\[[ x]\]", re.MULTILINE)
-
-
-def read_csv(path: Path):
-    if not path.exists():
-        return [], []
-    with open(path, newline="") as f:
-        reader = csv.DictReader(f)
-        return reader.fieldnames or [], list(reader)
-
-
-def write_csv(path: Path, columns, rows):
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
-        w.writeheader()
-        for r in rows:
-            w.writerow({c: r.get(c, "") for c in columns})
-
-
-def touch_row(row: dict, today: str) -> None:
-    row["last_touched"] = today
+MANAGED_TRIAGE_KEYS = {
+    "daily": "brain.triage.daily",
+    "weekly": "brain.triage.weekly",
+}
 
 
 def load_json(path: Path):
-    with open(path) as f:
-        return json.load(f)
+    return read_json(path)
 
 
 def save_json(path: Path, data):
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    write_json(path, data)
 
 
 def project_meta_paths():
-    if not PROJECTS_DIR.is_dir():
+    projects_dir = brain_root() / "projects"
+    if not projects_dir.is_dir():
         return []
-    return sorted(PROJECTS_DIR.glob("*/.METADATA.json"))
+    return sorted(projects_dir.glob("*/.METADATA.json"))
+
+
+def triage_habits_enabled() -> bool:
+    path = brain_root() / ".config" / "config.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    return value.get("enable_triage_habits", True) is not False
+
+
+def complete_managed_triage(kind: str) -> int:
+    if not triage_habits_enabled():
+        print("managed triage habits are disabled; workflow completion recorded without habit mutation")
+        return 0
+
+    path = habits_csv()
+    columns, rows = read_csv(path)
+    key = MANAGED_TRIAGE_KEYS[kind]
+    pending = [
+        row
+        for row in rows
+        if (row.get("system_key") or "").strip() == key
+        and (row.get("status") or "").strip() != "done"
+    ]
+    if len(pending) != 1:
+        raise SystemExit(
+            f"expected exactly one pending {kind} managed triage habit; "
+            "run `brain reindex --tasks` to reconcile definitions"
+        )
+
+    today = date.today().isoformat()
+    source = pending[0]
+    source["status"] = "done"
+    source["completed_date"] = today
+    touch_row(source, today)
+    occurrence = dict(source)
+    occurrence["task_uuid"] = new_uuid()
+    occurrence["task_id"] = new_habit_id()
+    occurrence["status"] = "not_started"
+    occurrence["due_date"] = next_due(
+        source["due_date"],
+        int(source["recur_interval"]),
+        source["recur_unit"],
+    )
+    occurrence["created_date"] = today
+    occurrence["completed_date"] = ""
+    occurrence["last_touched"] = today
+    rows.append(occurrence)
+    write_csv(path, columns, rows)
+    print(f"completed managed {kind} triage habit {source.get('task_id')}")
+    return 0
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--fix", action="store_true",
                    help="write corrections (default: dry-run, report only)")
+    p.add_argument(
+        "--complete-managed-triage",
+        choices=sorted(MANAGED_TRIAGE_KEYS),
+        help="complete Brain's protected daily or weekly triage occurrence",
+    )
     args = p.parse_args()
+
+    if args.complete_managed_triage:
+        return complete_managed_triage(args.complete_managed_triage)
 
     today = date.today().isoformat()
     issues = []
     fixes_applied = []
 
     # 1-8 task-level rules ------------------------------------------------
-    for path in (TASKS, HABITS):
+    tasks = tasks_csv()
+    habits = habits_csv()
+    for path in (tasks, habits):
         if not path.exists():
             continue
         cols, rows = read_csv(path)
@@ -125,7 +177,7 @@ def main() -> int:
                     else:
                         issues.append(f"{path.name}: '{r.get('task_id')} {r.get('task_name')}' has empty defer_count")
             # rule 5: misplaced habit
-            if path == TASKS and "habit" in (r.get("task_type") or ""):
+            if path == tasks and "habit" in (r.get("task_type") or ""):
                 issues.append(f"tasks.csv: '{r.get('task_id')} {r.get('task_name')}' has task_type=habit — should move to habits.csv")
             # rule 7: sub-tasks → project
             if CHECKBOX_RE.search(r.get("notes") or ""):
@@ -152,7 +204,7 @@ def main() -> int:
     # 6. project bidirectional link ---------------------------------------
     forward = {}  # project_slug -> set of task_ids referencing it
     task_meta = {}  # task_id -> (path, row)
-    for path in (TASKS, HABITS):
+    for path in (tasks, habits):
         if not path.exists():
             continue
         _, rows = read_csv(path)
@@ -167,7 +219,7 @@ def main() -> int:
 
     # forward: every task.project must point to an existing project dir
     for slug, tids in forward.items():
-        meta_path = PROJECTS_DIR / slug / ".METADATA.json"
+        meta_path = brain_root() / "projects" / slug / ".METADATA.json"
         if not meta_path.exists():
             issues.append(
                 f"orphan task→project: project '{slug}' (referenced by {len(tids)} task(s)) does not exist"

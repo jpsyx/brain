@@ -7,6 +7,31 @@ use regex::RegexBuilder;
 use crate::tasks::task::Task;
 use crate::tui::*;
 
+struct StartupTriageRefresh {
+    config: crate::config::Config,
+    tasks: Vec<Task>,
+    habits: Vec<Task>,
+}
+
+fn refresh_after_successful_startup_sync(
+    workspace: &crate::workspace::WorkspaceContext,
+) -> anyhow::Result<StartupTriageRefresh> {
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
+    let config = crate::config::Config::try_load(workspace)?;
+    crate::tasks::triage_habits::apply_triage_habits_config_owned(
+        workspace,
+        config.enable_triage_habits,
+        &owner,
+    )?;
+    let tasks = crate::tasks::task::load_tasks(&workspace.root().join("tasks/tasks.csv"))?;
+    let habits = crate::tasks::task::load_habits(&workspace.root().join("tasks/habits.csv"))?;
+    Ok(StartupTriageRefresh {
+        config,
+        tasks,
+        habits,
+    })
+}
+
 impl App<'_> {
     /// Yes-path for the startup daily-triage modal. Opens the daily-triage pass
     /// in its own ephemeral brain-panel tab (`Alt+2`) seeded with `/triage`, so
@@ -32,6 +57,7 @@ impl App<'_> {
     /// blocker. See [`triage_nudge_target`] for the matching logic.
     pub(crate) fn check_daily_triage(&mut self) {
         if let Some(habit) = triage_modal_target(
+            self.config.enable_triage_habits,
             self.skip_daily_triage_check,
             &self.all_habits,
             &self.config.daily_triage_name_pattern,
@@ -91,12 +117,46 @@ impl App<'_> {
             &self.command_context.workspace.paths().sync_journal(),
         )
         .ok()
-        .and_then(|j| j.latest_id().ok())
+        .and_then(|j| j.latest_successful_downstream_id().ok())
         .flatten();
         if triage_gate_resolved(gate.seen_journal_id, latest) {
             self.triage_gate = None;
-            let _ = self.reload_tasks();
-            self.check_daily_triage();
+            match refresh_after_successful_startup_sync(&self.command_context.workspace) {
+                Ok(refreshed) => {
+                    self.config = refreshed.config;
+                    self.all_tasks = refreshed.tasks;
+                    self.all_habits = refreshed.habits;
+                    let selector = self
+                        .active_view
+                        .map_or(crate::tasks::selector::Selector::All, |view| {
+                            view.selector(self.today)
+                        });
+                    let spec = crate::tasks::view::build_view(
+                        self.cli,
+                        &selector,
+                        self.active_view,
+                        self.data_for_view(self.active_view),
+                        self.today,
+                    );
+                    self.header =
+                        crate::tasks::render::header_lines(&spec, self.cli, self.active_view);
+                    self.base_tasks = spec.tasks;
+                    self.rebuild_body();
+                    if should_check_daily_triage(
+                        TriageAlertEvent::RefreshSucceeded,
+                        false,
+                        self.skip_daily_triage_check,
+                    ) {
+                        self.check_daily_triage();
+                    }
+                }
+                Err(error) => {
+                    crate::logging::log(format!("post-sync triage refresh failed: {error:#}"));
+                    self.flash = Some(FlashKind::Error(format!(
+                        "post-sync task refresh failed: {error}"
+                    )));
+                }
+            }
         } else if let Some(gate) = self.triage_gate.as_mut() {
             gate.next_poll = now + std::time::Duration::from_millis(500);
         }
@@ -140,18 +200,38 @@ fn triage_gate_resolved(seen: Option<i64>, latest: Option<i64>) -> bool {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TriageAlertEvent {
+    PaletteEnabled,
+    RefreshSucceeded,
+}
+
+/// Decide whether an alert check runs now or remains deferred to fresh state.
+pub(super) fn should_check_daily_triage(
+    event: TriageAlertEvent,
+    refresh_gate_active: bool,
+    alert_disabled: bool,
+) -> bool {
+    !alert_disabled
+        && match event {
+            TriageAlertEvent::PaletteEnabled => !refresh_gate_active,
+            TriageAlertEvent::RefreshSucceeded => true,
+        }
+}
+
 /// Gate the daily-triage nudge on the process-scoped `--no-daily-triage-check`
 /// opt-out before consulting [`triage_nudge_target`]. When `disabled` is set the
 /// modal never fires this run regardless of habit state; this is a per-process
 /// flag, not a persistent config change. Pure so the opt-out is unit-tested
 /// without constructing an `App`.
 fn triage_modal_target<'h>(
+    enable_triage_habits: bool,
     disabled: bool,
     habits: &'h [Task],
     pattern: &str,
     today: chrono::NaiveDate,
 ) -> Option<&'h Task> {
-    if disabled {
+    if !enable_triage_habits || disabled {
         return None;
     }
     triage_nudge_target(habits, pattern, today)
@@ -235,7 +315,29 @@ fn triage_rollover(
 
 #[cfg(test)]
 mod triage_gate_tests {
-    use super::triage_gate_resolved;
+    use super::{
+        TriageAlertEvent, refresh_after_successful_startup_sync, should_check_daily_triage,
+        triage_gate_resolved,
+    };
+
+    #[test]
+    fn palette_reenable_defers_until_refresh_then_uses_live_alert_state() {
+        assert!(!should_check_daily_triage(
+            TriageAlertEvent::PaletteEnabled,
+            true,
+            false,
+        ));
+        assert!(should_check_daily_triage(
+            TriageAlertEvent::RefreshSucceeded,
+            false,
+            false,
+        ));
+        assert!(!should_check_daily_triage(
+            TriageAlertEvent::RefreshSucceeded,
+            false,
+            true,
+        ));
+    }
 
     #[test]
     fn resolves_when_a_newer_journal_row_appears() {
@@ -258,6 +360,107 @@ mod triage_gate_tests {
         // sync completed.
         assert!(!triage_gate_resolved(Some(5), Some(5)));
         assert!(!triage_gate_resolved(None, None));
+    }
+
+    #[test]
+    fn successful_startup_sync_reloads_opposite_portable_config_and_task_state() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        std::fs::create_dir_all(root.join("tasks")).unwrap();
+        std::fs::write(
+            root.join(".config/config.json"),
+            b"{\"enable_triage_habits\":false}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            b"task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/habits.csv"),
+            b"task_uuid,task_id,task_name,status,assigned_to,system_key\n8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Morning Triage,not_started,member,brain.triage.daily\n",
+        ).unwrap();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            temporary.path(),
+            crate::workspace::WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
+            crate::workspace::WorkspaceName::parse("family").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+
+        let refreshed = refresh_after_successful_startup_sync(&workspace).unwrap();
+
+        assert!(!refreshed.config.enable_triage_habits);
+        assert!(
+            refreshed
+                .habits
+                .iter()
+                .all(|habit| !habit.is_managed_triage())
+        );
+        assert!(
+            crate::tasks::task::load_habits(&root.join("tasks/habits.csv"))
+                .unwrap()
+                .iter()
+                .all(|habit| !habit.is_managed_triage())
+        );
+    }
+
+    #[test]
+    fn successful_startup_sync_reads_config_after_acquiring_the_task_store_owner() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        std::fs::create_dir_all(root.join("tasks")).unwrap();
+        std::fs::write(
+            root.join(".config/config.json"),
+            b"{\"enable_triage_habits\":true}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            b"task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/habits.csv"),
+            b"task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            temporary.path(),
+            crate::workspace::WorkspaceId::parse("a09c6257-6ccc-4a39-97a4-058c73a8c569").unwrap(),
+            crate::workspace::WorkspaceName::parse("family").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+        let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&workspace).unwrap();
+        let refresh_workspace = workspace;
+        let refresh = std::thread::spawn(move || {
+            refresh_after_successful_startup_sync(&refresh_workspace).unwrap()
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::fs::write(
+            root.join(".config/config.json"),
+            b"{\"enable_triage_habits\":false}\n",
+        )
+        .unwrap();
+        drop(owner);
+
+        let refreshed = refresh.join().unwrap();
+        assert!(!refreshed.config.enable_triage_habits);
+        assert!(
+            refreshed
+                .habits
+                .iter()
+                .all(|habit| !habit.is_managed_triage())
+        );
     }
 }
 
@@ -370,6 +573,7 @@ mod triage_nudge_tests {
     /// `#[cfg(test)]`-gated to that module) so this test owns its fixtures.
     fn triage(id: &str, due: chrono::NaiveDate, completed: Option<chrono::NaiveDate>) -> Task {
         Task {
+            task_uuid: None,
             id: id.to_owned(),
             name: "Morning Triage (5mins)".to_owned(),
             types: Vec::new(),
@@ -383,6 +587,7 @@ mod triage_nudge_tests {
             due_date: Some(due),
             hard_deadline: false,
             start_date: None,
+            assigned_to: String::new(),
             notes: String::new(),
             project: String::new(),
             energy: String::new(),
@@ -394,6 +599,7 @@ mod triage_nudge_tests {
             blocked_by: Vec::new(),
             completed_date: completed,
             linear_issue: String::new(),
+            system_key: String::new(),
         }
     }
 
@@ -459,9 +665,11 @@ mod triage_nudge_tests {
         let today = d(2026, 6, 24);
         // An open occurrence due today would normally fire the modal.
         let habits = vec![triage("H41", d(2026, 6, 24), None)];
-        assert!(triage_modal_target(false, &habits, "Morning Triage", today).is_some());
+        assert!(triage_modal_target(true, false, &habits, "Morning Triage", today).is_some());
         // The process-scoped `--no-daily-triage-check` opt-out suppresses it.
-        assert!(triage_modal_target(true, &habits, "Morning Triage", today).is_none());
+        assert!(triage_modal_target(true, true, &habits, "Morning Triage", today).is_none());
+        // The portable feature flag wins over every process preference.
+        assert!(triage_modal_target(false, false, &habits, "Morning Triage", today).is_none());
     }
 
     #[test]

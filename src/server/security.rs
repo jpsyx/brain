@@ -11,6 +11,27 @@ use sha2::Sha256;
 type TwilioMac = Hmac<Sha1>;
 type SvixMac = Hmac<Sha256>;
 
+/// Ordered receiver-boundary rejection reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthenticatedActorError {
+    ProviderAuthenticationFailed,
+    UnknownOrDisallowedSender,
+}
+
+/// Authenticate provider evidence before consulting portable sender identities.
+pub fn resolve_authenticated_actor(
+    provider_authenticated: bool,
+    local_user_id: &crate::users::UserId,
+    identity: crate::actor::RequestIdentity<'_>,
+    users: &crate::users::Users,
+) -> Result<crate::actor::ActorContext, AuthenticatedActorError> {
+    if !provider_authenticated {
+        return Err(AuthenticatedActorError::ProviderAuthenticationFailed);
+    }
+    crate::actor::resolve_actor(local_user_id, identity, users)
+        .map_err(|_| AuthenticatedActorError::UnknownOrDisallowedSender)
+}
+
 /// Compute Twilio's signature for an exact public URL and form body.
 #[cfg(test)]
 #[must_use]
@@ -124,6 +145,22 @@ pub fn is_e164_phone_number(number: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn users() -> crate::users::Users {
+        crate::users::Users {
+            schema_version: crate::users::USERS_SCHEMA_VERSION,
+            users: vec![crate::users::User {
+                id: crate::users::UserId::parse("member").unwrap(),
+                name: "Member".to_owned(),
+                phones: vec![crate::users::PhoneIdentity {
+                    value: "+12125550100".to_owned(),
+                    inbound_allowed: true,
+                }],
+                emails: Vec::new(),
+                response_email: None,
+            }],
+        }
+    }
+
     fn resend_signature(key: &[u8], webhook_id: &str, timestamp: &str, body: &[u8]) -> String {
         let mut mac = SvixMac::new_from_slice(key).unwrap();
         mac.update(webhook_id.as_bytes());
@@ -219,5 +256,36 @@ mod tests {
             body,
             &signature
         ));
+    }
+
+    #[test]
+    fn provider_authentication_precedes_sender_resolution() {
+        let result = resolve_authenticated_actor(
+            false,
+            &crate::users::UserId::parse("member").unwrap(),
+            crate::actor::RequestIdentity::Sms {
+                from: "+12125559999",
+            },
+            &users(),
+        );
+        assert!(matches!(
+            result,
+            Err(AuthenticatedActorError::ProviderAuthenticationFailed)
+        ));
+    }
+
+    #[test]
+    fn authenticated_sender_resolves_to_a_portable_user() {
+        let actor = resolve_authenticated_actor(
+            true,
+            &crate::users::UserId::parse("member").unwrap(),
+            crate::actor::RequestIdentity::Sms {
+                from: "+12125550100",
+            },
+            &users(),
+        )
+        .unwrap();
+        assert_eq!(actor.user_id().as_str(), "member");
+        assert_eq!(actor.channel(), crate::actor::Channel::Sms);
     }
 }

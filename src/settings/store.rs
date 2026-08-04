@@ -66,7 +66,9 @@ pub(crate) fn save_map_at(path: &Path, map: &Map<String, Value>) -> Result<()> {
 pub(super) fn save_map(
     workspace: &crate::workspace::WorkspaceContext,
     map: &Map<String, Value>,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
 ) -> Result<()> {
+    owner.verify(workspace)?;
     save_map_at(&store_path(workspace), map)
 }
 

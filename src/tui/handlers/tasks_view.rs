@@ -8,6 +8,20 @@ use crossterm::event::KeyCode;
 
 use crate::tasks::view::View;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EscapeAction {
+    ClearFilters,
+    Quit,
+}
+
+pub(crate) const fn normal_escape_action(has_active_filter: bool) -> EscapeAction {
+    if has_active_filter {
+        EscapeAction::ClearFilters
+    } else {
+        EscapeAction::Quit
+    }
+}
+
 /// Returns `true` when the loop should exit. Navigation operates on the
 /// selected task rather than on raw lines: j / k / ↓ / ↑ move one task,
 /// d / u jump half a screen of tasks, PgDn / PgUp move a full
@@ -49,13 +63,10 @@ pub(crate) fn handle_normal_key(app: &mut App<'_>, code: KeyCode, ctrl: bool) ->
     match code {
         KeyCode::Char('q' | 'Q') => return true,
         KeyCode::Char('c') if ctrl => return true,
-        KeyCode::Esc => {
-            if app.has_active_filter() {
-                app.clear_query();
-            } else {
-                return true;
-            }
-        }
+        KeyCode::Esc => match normal_escape_action(app.has_active_filter()) {
+            EscapeAction::ClearFilters => app.clear_active_filters(),
+            EscapeAction::Quit => return true,
+        },
         KeyCode::Char('/') => app.in_search = true,
         KeyCode::Tab => app.cycle_view_next(),
         KeyCode::BackTab => app.cycle_view_prev(),
@@ -132,14 +143,17 @@ pub(crate) fn handle_normal_key(app: &mut App<'_>, code: KeyCode, ctrl: bool) ->
                 let has_notes = app.current_has_notes();
                 let notes_expanded = app.current_notes_expanded();
                 let link_kind = app.current_link_kind();
-                app.palette = Some(PaletteState::new_task_actions(
-                    id,
-                    label,
-                    is_habit,
-                    has_notes,
-                    notes_expanded,
-                    link_kind,
-                ));
+                app.palette = Some(
+                    PaletteState::new_task_actions(
+                        id,
+                        label,
+                        is_habit,
+                        has_notes,
+                        notes_expanded,
+                        link_kind,
+                    )
+                    .with_assignment_mode(app.assignment.mode()),
+                );
             }
         }
 

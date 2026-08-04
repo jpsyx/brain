@@ -1,129 +1,24 @@
 //! `brain check`: a read-only, themed report of pending sync changes (what a
 //! `brain sync` would push/pull), built on a dry-run `rclone bisync`.
 
-use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::sync::config::SyncConfig;
-use crate::sync::csv_merge::parse;
 use crate::sync::csv_sync::{CSVS, baseline_path, remote_csv_arg};
 use crate::sync::progress::{self, Change, Side};
 use crate::theme::Theme;
 
-/// Row-level pending changes in one task CSV side versus its cached baseline.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CsvSideDiff {
-    pub added: usize,
-    pub changed: usize,
-    pub deleted: usize,
-}
+mod csv;
 
-impl CsvSideDiff {
-    #[must_use]
-    fn total(self) -> usize {
-        self.added + self.changed + self.deleted
-    }
-
-    #[must_use]
-    fn is_empty(self) -> bool {
-        self.total() == 0
-    }
-}
-
-/// Pending row-level changes for one managed CSV.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CsvPending {
-    pub name: String,
-    pub push: CsvSideDiff,
-    pub pull: Option<CsvSideDiff>,
-}
+pub use csv::{
+    CsvCheckError, CsvPending, CsvSideDiff, collect_csv_pending_with_fetch, csv_pending_from_texts,
+    diff_csv_rows, format_csv_check_error,
+};
 
 #[derive(Debug, Clone, Copy)]
 enum CsvDirection {
     Push,
     Pull,
-}
-
-/// Compare one CSV side against its cached baseline. Pure.
-#[must_use]
-pub fn diff_csv_rows(base: &str, side: &str) -> CsvSideDiff {
-    let base = parse(base);
-    let side = parse(side);
-    let mut diff = CsvSideDiff::default();
-    let ids: BTreeSet<&str> = base
-        .rows
-        .keys()
-        .chain(side.rows.keys())
-        .map(String::as_str)
-        .collect();
-
-    for id in ids {
-        match (base.rows.get(id), side.rows.get(id)) {
-            (None, Some(_)) => diff.added += 1,
-            (Some(_), None) => diff.deleted += 1,
-            (Some(base_row), Some(side_row)) if base_row != side_row => diff.changed += 1,
-            _ => {}
-        }
-    }
-    diff
-}
-
-/// Build the pending row diff for one managed CSV from cached baseline, local,
-/// and optional remote text. Pure.
-#[must_use]
-pub fn csv_pending_from_texts(
-    name: &str,
-    base: &str,
-    local: &str,
-    remote: Option<&str>,
-) -> CsvPending {
-    if base.trim().is_empty()
-        && let Some(remote_text) = remote
-    {
-        let local_table = parse(local);
-        let remote_table = parse(remote_text);
-        if local_table == remote_table {
-            return CsvPending {
-                name: name.to_owned(),
-                push: CsvSideDiff::default(),
-                pull: Some(CsvSideDiff::default()),
-            };
-        }
-        if !local_table.rows.is_empty() && !remote_table.rows.is_empty() {
-            return CsvPending {
-                name: name.to_owned(),
-                push: diff_csv_rows(remote_text, local),
-                pull: Some(CsvSideDiff::default()),
-            };
-        }
-    }
-    CsvPending {
-        name: name.to_owned(),
-        push: diff_csv_rows(base, local),
-        pull: remote.map(|text| diff_csv_rows(base, text)),
-    }
-}
-
-/// Collect pending CSV row diffs with injected baseline/remote readers.
-#[must_use]
-pub fn collect_csv_pending_with_fetch(
-    root: &Path,
-    csvs: &[&str],
-    mut read_baseline: impl FnMut(&str) -> String,
-    mut fetch_remote: impl FnMut(&str) -> Option<String>,
-) -> Vec<CsvPending> {
-    csvs.iter()
-        .map(|rel| {
-            let name = Path::new(rel)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or(rel);
-            let base = read_baseline(name);
-            let local = std::fs::read_to_string(root.join(rel)).unwrap_or_default();
-            let remote = fetch_remote(rel);
-            csv_pending_from_texts(name, &base, &local, remote.as_deref())
-        })
-        .collect()
 }
 
 /// Build the themed `brain check` report from the detected changes. Pure.
@@ -233,7 +128,7 @@ fn collect_csv_pending(
     root: &Path,
     remote_env: &[(String, String)],
     remote_arg: &str,
-) -> Vec<CsvPending> {
+) -> Result<Vec<CsvPending>, CsvCheckError> {
     crate::logging::log(format!("check csv pending root={}", root.display()));
     collect_csv_pending_with_fetch(
         root,
@@ -241,7 +136,11 @@ fn collect_csv_pending(
         |name| {
             let path = baseline_path(paths, name);
             crate::logging::log(format!("check csv baseline {}", path.display()));
-            std::fs::read_to_string(path).unwrap_or_default()
+            match std::fs::read_to_string(path) {
+                Ok(text) => Ok(text),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+                Err(error) => Err(format!("reading baseline: {error}")),
+            }
         },
         |rel| {
             crate::logging::log(format!("check csv remote {rel}"));
@@ -352,14 +251,22 @@ pub fn run(paths: &crate::workspace::WorkspacePaths, cfg: &SyncConfig, root: &st
         pull.len()
     ));
     println!("{}", theme.muted("Checking task and habit CSV baselines…"));
-    let csv = collect_csv_pending(paths, root, &remote.env, &remote.arg);
-    crate::logging::log(format!("check csv files={}", csv.len()));
-    println!("{}", format_report(&push, &pull, &csv, theme));
+    match collect_csv_pending(paths, root, &remote.env, &remote.arg) {
+        Ok(csv) => {
+            crate::logging::log(format!("check csv files={}", csv.len()));
+            println!("{}", format_report(&push, &pull, &csv, theme));
+        }
+        Err(error) => {
+            crate::logging::log(format!("check csv failed: {error}"));
+            println!("{}", format_csv_check_error(&error, theme));
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync::csv_merge::SchemaStatus;
 
     #[test]
     fn in_sync_when_nothing_to_push_or_pull() {
@@ -422,7 +329,7 @@ mod tests {
         let side = "task_id,title,status\n1,keep,open\n2,changed,open\n4,add,open\n";
 
         assert_eq!(
-            diff_csv_rows(base, side),
+            diff_csv_rows(base, side, SchemaStatus::Legacy).unwrap(),
             CsvSideDiff {
                 added: 1,
                 changed: 1,
@@ -432,13 +339,46 @@ mod tests {
     }
 
     #[test]
+    fn csv_diff_keys_by_uuid_and_aligns_reordered_headers() {
+        let base = "task_uuid,task_id,status,notes\n\
+                    10000000-0000-4000-8000-000000000010,T10,open,same\n";
+        let side = "notes,status,task_id,task_uuid\n\
+                    same,open,T10,10000000-0000-4000-8000-000000000010\n";
+
+        assert_eq!(
+            diff_csv_rows(base, side, SchemaStatus::Current).unwrap(),
+            CsvSideDiff::default()
+        );
+    }
+
+    #[test]
+    fn malformed_csv_diff_returns_a_typed_error() {
+        let error = diff_csv_rows(
+            "task_id,notes\nT1,ok\n",
+            "task_id,notes\nT1,ok,unexpected\n",
+            SchemaStatus::Legacy,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("malformed CSV record"));
+        assert!(error.to_string().contains("row 2"));
+    }
+
+    #[test]
     fn csv_pending_tracks_push_and_pull_sides_independently() {
         let base = "task_id,title,status\n1,base,open\n";
         let local = "task_id,title,status\n1,local,open\n2,local add,open\n";
         let remote = "task_id,title,status\n";
 
         assert_eq!(
-            csv_pending_from_texts("tasks.csv", base, local, Some(remote)),
+            csv_pending_from_texts(
+                "tasks/tasks.csv",
+                base,
+                local,
+                Some(remote),
+                SchemaStatus::Legacy,
+            )
+            .unwrap(),
             CsvPending {
                 name: "tasks.csv".to_string(),
                 push: CsvSideDiff {
@@ -460,7 +400,8 @@ mod tests {
         let csv = "task_id,title,status\n1,same,open\n2,also same,open\n";
 
         assert_eq!(
-            csv_pending_from_texts("tasks.csv", "", csv, Some(csv)),
+            csv_pending_from_texts("tasks/tasks.csv", "", csv, Some(csv), SchemaStatus::Legacy,)
+                .unwrap(),
             CsvPending {
                 name: "tasks.csv".to_string(),
                 push: CsvSideDiff::default(),
@@ -475,7 +416,14 @@ mod tests {
         let local = "task_id,title,status\n1,old,open\n2,new local,open\n";
 
         assert_eq!(
-            csv_pending_from_texts("tasks.csv", "", local, Some(remote)),
+            csv_pending_from_texts(
+                "tasks/tasks.csv",
+                "",
+                local,
+                Some(remote),
+                SchemaStatus::Legacy,
+            )
+            .unwrap(),
             CsvPending {
                 name: "tasks.csv".to_string(),
                 push: CsvSideDiff {
@@ -494,7 +442,14 @@ mod tests {
         let local = "task_id,title,status\n";
 
         assert_eq!(
-            csv_pending_from_texts("tasks.csv", "", local, Some(remote)),
+            csv_pending_from_texts(
+                "tasks/tasks.csv",
+                "",
+                local,
+                Some(remote),
+                SchemaStatus::Legacy,
+            )
+            .unwrap(),
             CsvPending {
                 name: "tasks.csv".to_string(),
                 push: CsvSideDiff::default(),
@@ -601,13 +556,14 @@ mod tests {
             &["tasks/tasks.csv"],
             |name| {
                 assert_eq!(name, "tasks.csv");
-                base.to_string()
+                Ok(base.to_string())
             },
             |rel| {
                 assert_eq!(rel, "tasks/tasks.csv");
                 Some(remote.to_string())
             },
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             pending,
@@ -629,5 +585,193 @@ mod tests {
             std::fs::read_to_string(local_path).expect("read local"),
             local
         );
+    }
+
+    #[test]
+    fn active_schema_v2_diff_keys_distinct_uuids_with_one_display_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks).unwrap();
+        std::fs::write(
+            tasks.join("SCHEMA.json"),
+            r#"{"task_schema_version":2,"merge_key":"task_uuid"}"#,
+        )
+        .unwrap();
+        let base = "task_uuid,task_id,assigned_to,system_key\n\
+                    10000000-0000-4000-8000-000000000001,T1,member-a,\n";
+        let local = "task_uuid,task_id,assigned_to,system_key\n\
+                     20000000-0000-4000-8000-000000000001,T1,member-a,\n";
+        std::fs::write(tasks.join("tasks.csv"), local).unwrap();
+
+        let pending = collect_csv_pending_with_fetch(
+            dir.path(),
+            &["tasks/tasks.csv"],
+            |_| Ok(base.to_owned()),
+            |_| Some(base.to_owned()),
+        )
+        .unwrap();
+
+        assert_eq!(pending[0].push.added, 1);
+        assert_eq!(pending[0].push.deleted, 1);
+        assert_eq!(pending[0].push.changed, 0);
+    }
+
+    #[test]
+    fn inactive_schema_hybrid_diff_remains_task_id_keyed() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks).unwrap();
+        let base = "task_id,task_uuid,status\nT1,,not_started\n";
+        let local = "task_id,task_uuid,status\n\
+                     T1,,done\n\
+                     T2,20000000-0000-4000-8000-000000000002,not_started\n";
+        std::fs::write(tasks.join("tasks.csv"), local).unwrap();
+
+        let pending = collect_csv_pending_with_fetch(
+            dir.path(),
+            &["tasks/tasks.csv"],
+            |_| Ok(base.to_owned()),
+            |_| Some(base.to_owned()),
+        )
+        .unwrap();
+
+        assert_eq!(pending[0].push.added, 1);
+        assert_eq!(pending[0].push.changed, 1);
+        assert_eq!(pending[0].push.deleted, 0);
+    }
+
+    #[test]
+    fn invalid_check_generations_are_labeled_and_leave_every_store_unchanged() {
+        use std::cell::RefCell;
+        use std::collections::BTreeMap;
+
+        for (generation, baseline, local, remote) in [
+            (
+                "baseline",
+                "task_id,status\nT1,open\nT1,done\n",
+                "task_id,status\nT1,open\n",
+                "task_id,status\nT1,open\n",
+            ),
+            (
+                "local",
+                "task_id,status\nT1,open\n",
+                "task_id,status\nT1,open,extra\n",
+                "task_id,status\nT1,open\n",
+            ),
+            (
+                "remote",
+                "task_id,status\nT1,open\n",
+                "task_id,status\nT1,open\n",
+                "task_id,status\nT1,open\nT1,done\n",
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let tasks = dir.path().join("tasks");
+            let project = dir.path().join("projects/alpha");
+            std::fs::create_dir_all(&tasks).unwrap();
+            std::fs::create_dir_all(&project).unwrap();
+            std::fs::write(tasks.join("tasks.csv"), local).unwrap();
+            std::fs::write(tasks.join("habits.csv"), "task_id,status\nH1,open\n").unwrap();
+            std::fs::write(tasks.join(".tasks_next_id"), "2\n").unwrap();
+            std::fs::write(tasks.join(".habits_next_id"), "2\n").unwrap();
+            std::fs::write(project.join(".METADATA.json"), b"{\"name\":\"alpha\"}\n").unwrap();
+            let baseline_path = dir.path().join("cache/baselines/tasks.csv");
+            std::fs::create_dir_all(baseline_path.parent().unwrap()).unwrap();
+            std::fs::write(&baseline_path, baseline).unwrap();
+            let remote_store = RefCell::new(BTreeMap::from([(
+                "tasks/tasks.csv".to_owned(),
+                remote.to_owned(),
+            )]));
+            let snapshots = [
+                (
+                    tasks.join("tasks.csv"),
+                    std::fs::read(tasks.join("tasks.csv")).unwrap(),
+                ),
+                (
+                    tasks.join("habits.csv"),
+                    std::fs::read(tasks.join("habits.csv")).unwrap(),
+                ),
+                (
+                    tasks.join(".tasks_next_id"),
+                    std::fs::read(tasks.join(".tasks_next_id")).unwrap(),
+                ),
+                (
+                    tasks.join(".habits_next_id"),
+                    std::fs::read(tasks.join(".habits_next_id")).unwrap(),
+                ),
+                (
+                    project.join(".METADATA.json"),
+                    std::fs::read(project.join(".METADATA.json")).unwrap(),
+                ),
+                (
+                    baseline_path.clone(),
+                    std::fs::read(&baseline_path).unwrap(),
+                ),
+            ];
+            let remote_before = remote_store.borrow().clone();
+
+            let error = collect_csv_pending_with_fetch(
+                dir.path(),
+                &["tasks/tasks.csv"],
+                |_| std::fs::read_to_string(&baseline_path).map_err(|error| error.to_string()),
+                |relative| remote_store.borrow().get(relative).cloned(),
+            )
+            .unwrap_err();
+
+            let message = error.to_string();
+            assert!(message.contains(generation), "{message}");
+            assert!(message.contains("tasks/tasks.csv"), "{message}");
+            for (path, before) in snapshots {
+                assert_eq!(std::fs::read(path).unwrap(), before);
+            }
+            assert_eq!(*remote_store.borrow(), remote_before);
+        }
+    }
+
+    #[test]
+    fn invalid_manifest_and_csv_render_warning_without_false_clean_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("tasks")).unwrap();
+        std::fs::write(dir.path().join("tasks/SCHEMA.json"), "not json\n").unwrap();
+        std::fs::write(
+            dir.path().join("tasks/tasks.csv"),
+            "task_id,status\nT1,open\n",
+        )
+        .unwrap();
+
+        let error = collect_csv_pending_with_fetch(
+            dir.path(),
+            &["tasks/tasks.csv"],
+            |_| Ok("task_id,status\nT1,open\n".to_owned()),
+            |_| Some("task_id,status\nT1,open\n".to_owned()),
+        )
+        .unwrap_err();
+        let warning = format_csv_check_error(&error, Theme::dark(false));
+
+        assert!(warning.contains("Could not check task and habit CSV changes"));
+        assert!(warning.contains("tasks/SCHEMA.json"));
+        assert!(!warning.contains("In sync"));
+    }
+
+    #[test]
+    fn baseline_read_failure_is_labeled_instead_of_treated_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("tasks")).unwrap();
+        std::fs::write(
+            dir.path().join("tasks/tasks.csv"),
+            "task_id,status\nT1,open\n",
+        )
+        .unwrap();
+
+        let error = collect_csv_pending_with_fetch(
+            dir.path(),
+            &["tasks/tasks.csv"],
+            |_| Err("permission denied".to_owned()),
+            |_| None,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("baseline tasks/tasks.csv"));
+        assert!(error.to_string().contains("permission denied"));
     }
 }

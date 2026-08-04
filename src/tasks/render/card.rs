@@ -84,7 +84,7 @@ fn name_line(task: &Task) -> Line<'static> {
     ])
 }
 
-fn meta_line(task: &Task, today: NaiveDate) -> Line<'static> {
+fn meta_line(task: &Task, today: NaiveDate, show_assignment: bool) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(12);
     spans.push(accent(&task.priority));
     spans.push(due_span(task.due_date, today, task.is_done()));
@@ -93,6 +93,16 @@ fn meta_line(task: &Task, today: NaiveDate) -> Line<'static> {
         status_label(&task.status),
         status_style(&task.status),
     ));
+
+    if show_assignment {
+        let assigned_to = if task.assigned_to.trim().is_empty() {
+            "unassigned"
+        } else {
+            task.assigned_to.trim()
+        };
+        spans.push(sep());
+        spans.push(dim(format!("assigned to {assigned_to}")));
+    }
 
     if !task.project.is_empty() {
         spans.push(sep());
@@ -147,12 +157,13 @@ pub fn task_lines(
     task: &Task,
     today: NaiveDate,
     notes_expanded: bool,
+    show_assignment: bool,
     tag_styles: &crate::personalization::tags::TagStyles,
 ) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::with_capacity(6);
     lines.push(header_chip_line(task, tag_styles));
     lines.push(name_line(task));
-    lines.push(meta_line(task, today));
+    lines.push(meta_line(task, today, show_assignment));
     lines.extend(notes_lines(task, notes_expanded));
     if let Some(l) = see_also_line(task) {
         lines.push(l);
@@ -175,6 +186,7 @@ pub fn task_lines(
 pub fn build_body_lines_with_ranges(
     tasks: &[Task],
     today: NaiveDate,
+    show_assignment: bool,
     tag_styles: &crate::personalization::tags::TagStyles,
     is_expanded: impl Fn(&Task) -> bool,
 ) -> (Vec<Line<'static>>, Vec<std::ops::Range<usize>>) {
@@ -183,7 +195,7 @@ pub fn build_body_lines_with_ranges(
     lines.push(Line::from(""));
     for task in tasks {
         let start = lines.len();
-        let task_l = task_lines(task, today, is_expanded(task), tag_styles);
+        let task_l = task_lines(task, today, is_expanded(task), show_assignment, tag_styles);
         let task_count = task_l.len();
         lines.extend(task_l);
         // Each task ends with a blank separator we want to exclude from the
@@ -229,7 +241,7 @@ mod tests {
         let today = d(2026, 6, 23);
         let mut t = test_task("T9", "not_started");
         t.linear_issue = "AVA-123".to_owned();
-        let lines = task_lines(&t, today, false, &styles());
+        let lines = task_lines(&t, today, false, false, &styles());
         let flat = flat(&lines);
         assert!(
             flat.contains("AVA-123"),
@@ -250,8 +262,8 @@ mod tests {
         // Expanding notes must not add a second `◇` line (the full-URL line
         // that previously read as a duplicate of the header marker). The
         // header chip's compact marker is the only Linear row, expanded or not.
-        let collapsed = task_lines(&t, today, false, &styles());
-        let expanded = task_lines(&t, today, true, &styles());
+        let collapsed = task_lines(&t, today, false, false, &styles());
+        let expanded = task_lines(&t, today, true, false, &styles());
         assert_eq!(linear_marker_rows(&collapsed), 1);
         assert_eq!(
             linear_marker_rows(&expanded),
@@ -266,6 +278,19 @@ mod tests {
     fn task_row_has_no_linear_marker_when_unlinked() {
         let today = d(2026, 6, 23);
         let t = test_task("T9", "not_started"); // linear_issue empty
-        assert!(!flat(&task_lines(&t, today, false, &styles())).contains("AVA"));
+        assert!(!flat(&task_lines(&t, today, false, false, &styles())).contains("AVA"));
+    }
+
+    #[test]
+    fn assignment_detail_is_visible_only_for_shared_workspace_mode() {
+        let today = d(2026, 8, 3);
+        let mut task = test_task("T9", "not_started");
+        task.assigned_to = "wife".to_owned();
+
+        let shared = flat(&task_lines(&task, today, false, true, &styles()));
+        let personal = flat(&task_lines(&task, today, false, false, &styles()));
+
+        assert!(shared.contains("assigned to wife"), "{shared}");
+        assert!(!personal.contains("wife"), "{personal}");
     }
 }

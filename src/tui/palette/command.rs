@@ -61,6 +61,18 @@ fn if_has_links(s: &PaletteState) -> bool {
     s.context_links != LinkKind::None
 }
 
+fn if_assignment_create(s: &PaletteState) -> bool {
+    s.assignment_mode.show_create_control
+}
+
+fn if_assignment_reassign(s: &PaletteState) -> bool {
+    s.assignment_mode.show_reassign_control
+}
+
+fn if_assignment_filter(s: &PaletteState) -> bool {
+    s.assignment_mode.show_filter
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum PaletteScope {
     /// Available regardless of selection state.
@@ -73,6 +85,9 @@ pub(super) enum PaletteScope {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PaletteAction {
+    /// Ask the brain agent to collect a new task, preserving actor assignment
+    /// as the default unless the user explicitly selects another member.
+    AddTask,
     /// Open (or focus) the persistent brain panel, resuming the shell's
     /// most-recently-active session. The user types directly into it.
     SendBrainMessage,
@@ -108,6 +123,10 @@ pub(crate) enum PaletteAction {
     /// status="dropped" based on the row state. Tasks only — habits
     /// have their own removal flow.
     RemoveTask,
+    /// Ask the brain agent to reassign the selected task or habit.
+    ReassignTask,
+    /// Open the native portable-member picker that filters the current view.
+    ChooseAssigneeFilter,
     /// Open today's habits page in the browser, served by the bundled brain
     /// server (started on demand via `server::lifecycle::ensure_running`).
     /// Global.
@@ -177,7 +196,10 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         | PaletteAction::DeferTask(_)
         | PaletteAction::SyncBrainNow
         | PaletteAction::ShowSyncStatus
-        | PaletteAction::ToggleDailyTriageAlert => None,
+        | PaletteAction::ToggleDailyTriageAlert
+        | PaletteAction::AddTask
+        | PaletteAction::ReassignTask
+        | PaletteAction::ChooseAssigneeFilter => None,
     }
 }
 
@@ -187,6 +209,13 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
 // start → complete → message-about → message-global → notes → remove →
 // defer group → other globals.
 pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
+    PaletteCommand {
+        label: "Add task",
+        action: PaletteAction::AddTask,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+        is_visible: if_assignment_create,
+    },
     PaletteCommand {
         label: "Start this task",
         action: PaletteAction::StartTask,
@@ -290,6 +319,20 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         // tasks only to avoid sending the wrong instruction.
         works_on_habits: false,
         is_visible: always,
+    },
+    PaletteCommand {
+        label: "Reassign this task",
+        action: PaletteAction::ReassignTask,
+        scope: PaletteScope::TaskSpecific,
+        works_on_habits: true,
+        is_visible: if_assignment_reassign,
+    },
+    PaletteCommand {
+        label: "Filter by assignee",
+        action: PaletteAction::ChooseAssigneeFilter,
+        scope: PaletteScope::Global,
+        works_on_habits: false,
+        is_visible: if_assignment_filter,
     },
     PaletteCommand {
         label: "Defer +1d",

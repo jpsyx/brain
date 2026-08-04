@@ -4,7 +4,6 @@ use anyhow::Result;
 
 pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandContext) -> Result<()> {
     use crate::cli::SyncAction;
-    use crate::sync::args::Direction;
     let root = command.workspace.root();
     let cfg = crate::sync::config::SyncConfig::load(command);
     match &args.action {
@@ -14,7 +13,7 @@ pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandConte
         }
         Some(SyncAction::Repair) => {
             crate::logging::log("sync repair");
-            run_once(command, &cfg, Direction::Resync, args.if_idle)
+            run_repair(command, &cfg, args.if_idle)
         }
         Some(SyncAction::Init) => {
             let theme = crate::theme::Theme::active();
@@ -25,7 +24,7 @@ pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandConte
                 )
             );
             crate::logging::log("sync init alias -> repair");
-            run_once(command, &cfg, Direction::Resync, args.if_idle)
+            run_repair(command, &cfg, args.if_idle)
         }
         Some(SyncAction::Status) => {
             crate::logging::log("sync status");
@@ -46,9 +45,34 @@ pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandConte
                 crate::sync::command::direction_label(direction),
                 args.if_idle
             ));
-            run_once(command, &cfg, direction, args.if_idle)
+            run_once(command, &cfg, direction, args.if_idle).map(|_| ())
         }
     }
+}
+
+fn run_repair(
+    command: &crate::workspace::CommandContext,
+    config: &crate::sync::config::SyncConfig,
+    if_idle: bool,
+) -> Result<()> {
+    let succeeded = run_once(
+        command,
+        config,
+        crate::sync::args::Direction::Resync,
+        if_idle,
+    )?;
+    reconcile_after_successful_repair(&command.workspace, succeeded)
+}
+
+fn reconcile_after_successful_repair(
+    workspace: &crate::workspace::WorkspaceContext,
+    succeeded: bool,
+) -> Result<()> {
+    if succeeded {
+        let enabled = crate::config::Config::load(workspace).enable_triage_habits;
+        crate::tasks::triage_habits::apply_triage_habits_config(workspace, enabled)?;
+    }
+    Ok(())
 }
 
 fn run_once(
@@ -56,7 +80,7 @@ fn run_once(
     config: &crate::sync::config::SyncConfig,
     direction: crate::sync::args::Direction,
     if_idle: bool,
-) -> Result<()> {
+) -> Result<bool> {
     let root = command.workspace.root();
     if !config.is_configured() {
         crate::logging::log("sync not configured");
@@ -67,7 +91,7 @@ fn run_once(
                 crate::theme::Theme::active(),
             )
         );
-        return Ok(());
+        return Ok(false);
     }
     crate::logging::log(format!(
         "sync acquire lock {}",
@@ -77,11 +101,11 @@ fn run_once(
     else {
         if if_idle {
             crate::logging::log("sync lock busy; if-idle coalesce");
-            return Ok(());
+            return Ok(false);
         }
         crate::logging::log("sync lock busy; following in-flight sync");
         crate::sync::follow::follow_until_done(command.workspace.paths());
-        return Ok(());
+        return Ok(false);
     };
     let now = chrono::Utc::now();
     let timestamp = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -95,10 +119,55 @@ fn run_once(
         (&timestamp, &timestamp, &date),
     )?;
     crate::logging::log(format!("sync outcome={}", outcome.label()));
+    let succeeded = matches!(outcome, crate::sync::verify::Outcome::Clean);
     match outcome {
         crate::sync::verify::Outcome::Clean => println!("sync complete."),
         crate::sync::verify::Outcome::NeedsAttention(message)
         | crate::sync::verify::Outcome::Aborted(message) => eprintln!("{message}"),
     }
-    Ok(())
+    Ok(succeeded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reconcile_after_successful_repair;
+
+    #[test]
+    fn successful_repair_restores_missing_managed_triage_definitions() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join("tasks")).unwrap();
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/habits.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(root.join(".config/config.json"), "{}\n").unwrap();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            temporary.path(),
+            crate::workspace::WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
+            crate::workspace::WorkspaceName::parse("family").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+
+        reconcile_after_successful_repair(&workspace, true).unwrap();
+
+        let habits = crate::tasks::task::load_habits(&root.join("tasks/habits.csv")).unwrap();
+        assert_eq!(
+            habits
+                .iter()
+                .filter(|habit| habit.is_managed_triage())
+                .count(),
+            2
+        );
+    }
 }

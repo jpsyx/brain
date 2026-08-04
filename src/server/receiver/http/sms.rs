@@ -13,9 +13,6 @@ pub(super) fn parse_sms(
     if request.method() != &Method::Post {
         return Err((405, "method not allowed".to_owned()));
     }
-    if security.allowed_sms.is_empty() {
-        return Err((503, "SMS receiving is not configured".to_owned()));
-    }
     let fields = parse_form(body)?;
     if security.twilio_auth_token.is_empty() || security.public_base_url.is_empty() {
         return Err((503, "Twilio security is not configured".to_owned()));
@@ -35,23 +32,35 @@ pub(super) fn parse_sms(
         })
         .map(|header| header.value.as_str())
         .unwrap_or_default();
-    if !crate::server::security::verify_twilio(
+    let authenticated = crate::server::security::verify_twilio(
         &security.twilio_auth_token,
         &format!("{}/sms", security.public_base_url.trim_end_matches('/')),
         &sorted,
         signature,
-    ) {
-        return Err((403, "invalid Twilio signature".to_owned()));
-    }
+    );
     let text = fields.get("Body").cloned().unwrap_or_default();
     let sender = fields.get("From").cloned().unwrap_or_default();
-    if !crate::server::security::sender_allowed(&sender, &security.allowed_sms) {
-        return Err((403, "SMS sender is not allowed".to_owned()));
-    }
+    let actor = security
+        .resolve_actor(
+            authenticated,
+            crate::actor::RequestIdentity::Sms { from: &sender },
+        )
+        .map_err(|error| match error {
+            crate::server::security::AuthenticatedActorError::ProviderAuthenticationFailed => {
+                (403, "invalid Twilio signature".to_owned())
+            }
+            crate::server::security::AuthenticatedActorError::UnknownOrDisallowedSender => {
+                (403, "SMS sender is not allowed".to_owned())
+            }
+        })?;
+    let sender = crate::users::normalize_phone(&sender)
+        .map_err(|_| (403, "SMS sender is not allowed".to_owned()))?;
     if text.trim().is_empty() && !fields.keys().any(|key| key.starts_with("MediaUrl")) {
         return Err((400, "SMS body and media are both empty".to_owned()));
     }
     Ok(InboundMessage {
+        workspace_id: security.workspace_id,
+        actor,
         channel: Channel::Sms,
         body: text,
         sender: sender.clone(),

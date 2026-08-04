@@ -8,6 +8,7 @@ use std::sync::Mutex;
 // `#[cfg(test)]` `task::test_task` helper. Keep a local minimal builder.
 fn test_task(id: &str, status: &str) -> Task {
     Task {
+        task_uuid: None,
         id: id.to_owned(),
         name: format!("test task {id}"),
         types: Vec::new(),
@@ -16,6 +17,7 @@ fn test_task(id: &str, status: &str) -> Task {
         due_date: None,
         hard_deadline: false,
         start_date: None,
+        assigned_to: String::new(),
         notes: String::new(),
         project: String::new(),
         energy: String::new(),
@@ -27,6 +29,7 @@ fn test_task(id: &str, status: &str) -> Task {
         blocked_by: Vec::new(),
         completed_date: None,
         linear_issue: String::new(),
+        system_key: String::new(),
     }
 }
 

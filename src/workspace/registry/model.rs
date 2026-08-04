@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::{RegistryError, validate_registry};
+use crate::users::UserId;
 use crate::workspace::{WorkspaceId, WorkspaceName};
 
 /// The only registry schema this release accepts.
@@ -50,7 +51,8 @@ pub struct WorkspaceRecord {
     /// Alternative selectors for this workspace.
     #[serde(default, deserialize_with = "deserialize_aliases")]
     pub aliases: BTreeSet<WorkspaceName>,
-    /// User identity used within this workspace on this machine.
+    /// Portable person selected within this workspace on this machine. This
+    /// identifies a person, never a device; readiness verifies membership.
     pub local_user_id: String,
     /// Whether this workspace accepts receiver traffic.
     #[serde(default)]
@@ -260,6 +262,24 @@ impl MachineRegistry {
         let canonical_name = self.select(Some(selector))?.canonical_name().clone();
         self.mutate(|candidate| {
             candidate.default_workspace = canonical_name;
+            Ok(())
+        })
+    }
+
+    /// Select one validated portable person for a canonical workspace.
+    pub fn set_local_user(
+        &mut self,
+        canonical_name: &WorkspaceName,
+        user_id: &UserId,
+    ) -> Result<(), RegistryError> {
+        self.mutate(|candidate| {
+            candidate
+                .workspaces
+                .get_mut(canonical_name)
+                .ok_or_else(|| RegistryError::UnknownWorkspace {
+                    canonical_name: canonical_name.to_string(),
+                })?
+                .local_user_id = user_id.to_string();
             Ok(())
         })
     }

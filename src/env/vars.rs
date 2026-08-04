@@ -261,8 +261,8 @@ mod tests {
     use super::*;
 
     fn command() -> CommandContext {
-        CommandContext {
-            workspace: std::sync::Arc::new(
+        CommandContext::for_test(
+            std::sync::Arc::new(
                 crate::workspace::WorkspaceContext::new(
                     std::path::Path::new("/home/tester"),
                     crate::workspace::WorkspaceId::new(),
@@ -273,10 +273,11 @@ mod tests {
                 )
                 .expect("context"),
             ),
-            registry_store: crate::workspace::RegistryStore::from_path(std::path::PathBuf::from(
+            crate::workspace::RegistryStore::from_path(std::path::PathBuf::from(
                 "/missing/env.json",
             )),
-        }
+            "tester",
+        )
     }
 
     #[test]

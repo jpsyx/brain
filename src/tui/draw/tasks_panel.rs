@@ -5,7 +5,8 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 
@@ -13,9 +14,12 @@ use crate::tasks::render::{compact_footer_line, search_bar_line, search_footer_l
 use crate::tui::*;
 
 pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
-    let header_h = u16::try_from(app.header.len().min(3))
-        .unwrap_or(u16::MAX)
-        .max(1);
+    let mut header = tasks_header_lines(
+        &app.header,
+        app.assignment.users(),
+        app.assignment_filter.as_ref(),
+    );
+    let header_h = tasks_header_height(header.len());
     let search_h: u16 = u16::from(app.show_search_bar());
 
     let chunks = Layout::default()
@@ -33,7 +37,6 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     // border together signal "tasks is not the active panel" — Alt+H
     // restores both to color. Mirrors the brain panel title, which grays
     // when it loses focus.
-    let mut header = app.header.clone();
     if app.brain.is_some() && app.focus != Panel::Tasks {
         if let Some(line) = header.first_mut() {
             for span in &mut line.spans {
@@ -158,13 +161,11 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     // Footer slot: a transient palette flash takes priority until the next
     // keystroke. A persistent receiver warning then returns; otherwise show
     // the usual search hint or compact shortcut bar.
-    let footer = if let Some(status) =
-        status_override_line(
-            app.flash.as_ref(),
-            app.sync_status.as_deref(),
-            app.persistent_warning.as_deref(),
-        )
-    {
+    let footer = if let Some(status) = status_override_line(
+        app.flash.as_ref(),
+        app.sync_status.as_deref(),
+        app.persistent_warning.as_deref(),
+    ) {
         status
     } else if app.in_search {
         search_footer_line()
@@ -172,4 +173,39 @@ pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
         compact_footer_line(chunks[3].width, app.pending_count)
     };
     f.render_widget(Paragraph::new(vec![footer]), chunks[3]);
+}
+
+pub(crate) fn tasks_header_height(line_count: usize) -> u16 {
+    u16::try_from(line_count).unwrap_or(u16::MAX).max(1)
+}
+
+pub(crate) fn tasks_header_lines(
+    static_header: &[Line<'static>],
+    users: &[crate::tasks::task::AssignmentUser],
+    assignment_filter: Option<&crate::users::UserId>,
+) -> Vec<Line<'static>> {
+    let mut header = static_header.to_vec();
+    if let Some(user_id) = assignment_filter {
+        let name = users
+            .iter()
+            .find(|user| &user.id == user_id)
+            .map_or_else(|| user_id.as_str(), |user| user.name.as_str());
+        header.push(assignee_filter_line(name, user_id.as_str()));
+    }
+    header
+}
+
+pub(crate) fn assignee_filter_line(name: &str, user_id: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            "  ASSIGNEE  ",
+            Style::default()
+                .fg(Color::Rgb(125, 207, 255))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("{name} ({user_id})"),
+            Style::default().fg(Color::Rgb(192, 202, 245)),
+        ),
+    ])
 }

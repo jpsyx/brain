@@ -5,14 +5,13 @@ IDs are prefix + integer:
 - Tasks (in tasks.csv) use `T1, T2, T3, ...`
 - Habits (in habits.csv) use `H1, H2, H3, ...`
 
-Counters live next to the CSVs, one plaintext file per kind:
-- ~/brain/tasks/.tasks_next_id   (next T# to issue)
-- ~/brain/tasks/.habits_next_id  (next H# to issue)
+Counters live next to the selected workspace CSVs, one plaintext file per kind.
 
 Each counter file holds a single decimal integer with no other content.
-Reading + incrementing is not atomic across concurrent processes; this is
-a single-user system so that's fine. If a counter file is missing it is
-recreated from the highest existing ID in the corresponding CSV.
+Allocation holds the selected workspace's shared task-store lock across the
+read and increment, so concurrent task writers cannot issue the same ID. If a
+counter file is missing it is recreated from the highest existing ID in the
+corresponding CSV.
 
 Usage:
     next_id.py --kind tasks      # prints e.g. "T108"
@@ -30,21 +29,17 @@ import re
 import sys
 from pathlib import Path
 
-BRAIN = Path.home() / "brain"
-TASKS_DIR = BRAIN / "tasks"
+from _csvlib import _acquire_task_store_lock, _reject_pending_rust_transaction, habits_csv, tasks_csv
 
-KINDS = {
-    "tasks": {
-        "prefix": "T",
-        "counter": TASKS_DIR / ".tasks_next_id",
-        "csv": TASKS_DIR / "tasks.csv",
-    },
-    "habits": {
-        "prefix": "H",
-        "counter": TASKS_DIR / ".habits_next_id",
-        "csv": TASKS_DIR / "habits.csv",
-    },
-}
+
+def _kind(kind: str):
+    csv_path = tasks_csv() if kind == "tasks" else habits_csv()
+    prefix = "T" if kind == "tasks" else "H"
+    return {
+        "prefix": prefix,
+        "counter": csv_path.parent / f".{kind}_next_id",
+        "csv": csv_path,
+    }
 
 
 def _max_existing(csv_path: Path, prefix: str) -> int:
@@ -62,7 +57,7 @@ def _max_existing(csv_path: Path, prefix: str) -> int:
 
 
 def _read_counter(kind: str) -> int:
-    cfg = KINDS[kind]
+    cfg = _kind(kind)
     cf: Path = cfg["counter"]
     if cf.exists():
         txt = cf.read_text().strip()
@@ -73,22 +68,28 @@ def _read_counter(kind: str) -> int:
 
 
 def _write_counter(kind: str, value: int) -> None:
-    KINDS[kind]["counter"].write_text(f"{value}\n")
+    _kind(kind)["counter"].write_text(f"{value}\n")
 
 
 def peek(kind: str) -> str:
-    return f"{KINDS[kind]['prefix']}{_read_counter(kind)}"
+    return f"{_kind(kind)['prefix']}{_read_counter(kind)}"
 
 
 def new_id(kind: str) -> str:
-    n = _read_counter(kind)
-    _write_counter(kind, n + 1)
-    return f"{KINDS[kind]['prefix']}{n}"
+    lock = _acquire_task_store_lock()
+    try:
+        _reject_pending_rust_transaction()
+        n = _read_counter(kind)
+        _write_counter(kind, n + 1)
+        return f"{_kind(kind)['prefix']}{n}"
+    finally:
+        lock.rollback()
+        lock.close()
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--kind", required=True, choices=sorted(KINDS))
+    p.add_argument("--kind", required=True, choices=["habits", "tasks"])
     p.add_argument("--peek", action="store_true",
                    help="show next ID without consuming the counter")
     args = p.parse_args()

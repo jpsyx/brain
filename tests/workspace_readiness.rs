@@ -2,7 +2,7 @@ use brain::cli::try_parse_from;
 use brain::workspace::{
     BootstrapContext, InteractionMode, MachineRegistry, REGISTRY_SCHEMA_VERSION, ReadinessAction,
     ReadinessField, RegistryStore, WorkspaceName, WorkspaceRecord, bootstrap_with_io,
-    readiness_action,
+    readiness_action, readiness_action_with_users,
 };
 use brain::workspace::{BootstrapPolicy, Invocation, bootstrap_policy, invocation_for};
 use brain::workspace::{ManifestError, WorkspaceId, WorkspaceManifest};
@@ -11,6 +11,65 @@ use std::collections::BTreeSet;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::process::Command;
+
+use brain::users::UsersStore;
+
+#[test]
+fn legacy_readiness_accepts_exactly_valid_user_ids() {
+    enum Expected {
+        Invalid,
+        Incomplete,
+        Ready,
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    let manifest = WorkspaceManifest::new(workspace_id);
+    let name = WorkspaceName::parse("family").unwrap();
+    for (raw, expected) in [
+        ("Pablo", Expected::Invalid),
+        ("local_user", Expected::Invalid),
+        (" pablo ", Expected::Invalid),
+        ("", Expected::Incomplete),
+        ("valid-kebab", Expected::Ready),
+    ] {
+        let record = WorkspaceRecord {
+            workspace_id,
+            root: temp.path().join("family"),
+            aliases: BTreeSet::new(),
+            local_user_id: raw.to_owned(),
+            receiver_enabled: false,
+            env: Map::new(),
+        };
+        let result = readiness_action_with_users(
+            &name,
+            &record,
+            Ok(manifest.clone()),
+            UsersStore::load_from(&temp.path().join(format!("missing-{raw:?}.json"))),
+            InteractionMode::NonInteractive,
+        );
+
+        match expected {
+            Expected::Invalid => {
+                let error = result.unwrap_err();
+                assert!(matches!(
+                    error,
+                    brain::workspace::ReadinessError::InvalidLegacyLocalUser { .. }
+                ));
+                assert!(
+                    error
+                        .to_string()
+                        .contains("brain workspace repair -b family --local-user-id <USER_ID>")
+                );
+            }
+            Expected::Incomplete => assert!(matches!(
+                result,
+                Err(brain::workspace::ReadinessError::Incomplete { .. })
+            )),
+            Expected::Ready => assert!(matches!(result, Ok(ReadinessAction::Ready(_)))),
+        }
+    }
+}
 
 #[test]
 fn every_invocation_has_an_explicit_bootstrap_policy() {
@@ -26,6 +85,7 @@ fn every_invocation_has_an_explicit_bootstrap_policy() {
         (Invocation::WorkspaceAttach, BootstrapPolicy::RegistryOnly),
         (Invocation::WorkspaceRemove, BootstrapPolicy::RegistryOnly),
         (Invocation::WorkspaceRepair, BootstrapPolicy::RegistryOnly),
+        (Invocation::User, BootstrapPolicy::RegistryOnly),
         (Invocation::WorkspaceList, BootstrapPolicy::ReadyWorkspace),
         (Invocation::WorkspaceRename, BootstrapPolicy::ReadyWorkspace),
         (Invocation::WorkspaceAlias, BootstrapPolicy::ReadyWorkspace),
@@ -89,7 +149,7 @@ fn readiness_prompts_interactively_and_errors_actionably_when_headless() {
     .unwrap_err();
     let message = error.to_string();
     assert!(message.contains("brain workspace repair -b family --manifest"));
-    assert!(message.contains("brain workspace repair -b family --local-user-id <USER_ID>"));
+    assert!(message.contains("brain user local <USER_ID> -b family"));
 }
 
 #[test]
@@ -202,20 +262,16 @@ fn first_create_is_registry_only_and_the_next_headless_command_names_the_exact_r
         .unwrap();
     assert!(!blocked.status.success());
     let stderr = String::from_utf8(blocked.stderr).unwrap();
-    assert!(stderr.contains("brain workspace repair -b family --local-user-id <USER_ID>"));
+    assert!(stderr.contains("brain user add -b family --id <USER_ID> --name <DISPLAY_NAME>"));
+    assert!(stderr.contains("brain user local <USER_ID> -b family"));
     assert!(
         !stderr.contains("--manifest"),
         "create already wrote the manifest: {stderr}"
     );
 
-    let repair = Command::new(env!("CARGO_BIN_EXE_brain"))
+    let add = Command::new(env!("CARGO_BIN_EXE_brain"))
         .args([
-            "workspace",
-            "repair",
-            "--local-user-id",
-            "pablo",
-            "-b",
-            "family",
+            "-b", "family", "user", "add", "--id", "pablo", "--name", "Pablo",
         ])
         .env("HOME", home.path())
         .env("XDG_CONFIG_HOME", config_home.path())
@@ -223,9 +279,21 @@ fn first_create_is_registry_only_and_the_next_headless_command_names_the_exact_r
         .output()
         .unwrap();
     assert!(
-        repair.status.success(),
+        add.status.success(),
         "{}",
-        String::from_utf8_lossy(&repair.stderr)
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let local = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .args(["user", "local", "pablo", "-b", "family"])
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", config_home.path())
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert!(
+        local.status.success(),
+        "{}",
+        String::from_utf8_lossy(&local.stderr)
     );
 
     let continued = Command::new(env!("CARGO_BIN_EXE_brain"))
@@ -304,7 +372,7 @@ fn interactive_bootstrap_repairs_then_continues_the_original_command() {
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();
     let mut cli = try_parse_from(["brain", "config", "list", "-b", "family"]).unwrap();
-    let mut input = Cursor::new(b"\npablo\n".to_vec());
+    let mut input = Cursor::new(b"Pablo\n\n".to_vec());
     let mut output = Vec::new();
 
     let outcome = bootstrap_with_io(
@@ -326,8 +394,192 @@ fn interactive_bootstrap_repairs_then_continues_the_original_command() {
     assert!(WorkspaceManifest::path(&root).is_file());
     assert_eq!(
         String::from_utf8(output).unwrap(),
-        "Local user ID (for example, pablo): A value is required.\nLocal user ID (for example, pablo): "
+        "Your display name: User ID [pablo]: "
     );
+}
+
+#[test]
+fn interactive_first_user_setup_uses_display_name_and_accepts_the_proposed_id() {
+    let home = tempfile::tempdir().unwrap();
+    let config_home = tempfile::tempdir().unwrap();
+    let root = home.path().join("family");
+    std::fs::create_dir_all(&root).unwrap();
+    let canonical_name = WorkspaceName::parse("family").unwrap();
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    WorkspaceManifest::new(workspace_id)
+        .write_new(&root)
+        .unwrap();
+    let registry = MachineRegistry {
+        schema_version: REGISTRY_SCHEMA_VERSION,
+        default_workspace: canonical_name.clone(),
+        workspaces: std::collections::BTreeMap::from([(
+            canonical_name,
+            WorkspaceRecord {
+                workspace_id,
+                root,
+                aliases: BTreeSet::new(),
+                local_user_id: String::new(),
+                receiver_enabled: false,
+                env: Map::new(),
+            },
+        )]),
+    };
+    let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
+    store.replace(&registry).unwrap();
+    let mut cli = try_parse_from(["brain", "config", "list", "-b", "family"]).unwrap();
+    let mut input = Cursor::new(b"Alex Smith\n\n".to_vec());
+    let mut output = Vec::new();
+
+    let outcome = bootstrap_with_io(
+        &mut cli,
+        store,
+        home.path(),
+        home.path(),
+        InteractionMode::Interactive,
+        &mut input,
+        &mut output,
+    )
+    .unwrap();
+
+    let BootstrapContext::Ready(context) = outcome else {
+        panic!("first user setup must continue the command");
+    };
+    assert_eq!(context.workspace.local_user_id(), "alex-smith");
+    let users = UsersStore::load(&context.workspace).unwrap();
+    let user = users
+        .user(&brain::users::UserId::parse("alex-smith").unwrap())
+        .unwrap();
+    assert_eq!(user.name, "Alex Smith");
+    assert!(user.phones.is_empty());
+    assert!(user.emails.is_empty());
+    assert_eq!(
+        String::from_utf8(output).unwrap(),
+        "Your display name: User ID [alex-smith]: "
+    );
+}
+
+#[test]
+fn first_user_setup_asks_for_contacts_only_for_configured_receiver_channels() {
+    let home = tempfile::tempdir().unwrap();
+    let config_home = tempfile::tempdir().unwrap();
+    let root = home.path().join("family");
+    std::fs::create_dir_all(root.join(".config")).unwrap();
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    WorkspaceManifest::new(workspace_id)
+        .write_new(&root)
+        .unwrap();
+    std::fs::write(
+        root.join(".config/config.json"),
+        br#"{"allowed_sms_senders":"+12125550100","allowed_email_senders":"alex@example.com,relative@example.com","response_email":"alex@example.com"}"#,
+    )
+    .unwrap();
+    let canonical_name = WorkspaceName::parse("family").unwrap();
+    let registry = MachineRegistry {
+        schema_version: REGISTRY_SCHEMA_VERSION,
+        default_workspace: canonical_name.clone(),
+        workspaces: std::collections::BTreeMap::from([(
+            canonical_name,
+            WorkspaceRecord {
+                workspace_id,
+                root,
+                aliases: BTreeSet::new(),
+                local_user_id: String::new(),
+                receiver_enabled: true,
+                env: Map::new(),
+            },
+        )]),
+    };
+    let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
+    store.replace(&registry).unwrap();
+    let mut cli = try_parse_from(["brain", "config", "list", "-b", "family"]).unwrap();
+    let mut input = Cursor::new(b"Alex Smith\n\n\n\n".to_vec());
+    let mut output = Vec::new();
+
+    let outcome = bootstrap_with_io(
+        &mut cli,
+        store,
+        home.path(),
+        home.path(),
+        InteractionMode::Interactive,
+        &mut input,
+        &mut output,
+    )
+    .unwrap();
+
+    let BootstrapContext::Ready(context) = outcome else {
+        panic!("configured receiver setup must continue the command");
+    };
+    let users = UsersStore::load(&context.workspace).unwrap();
+    let user = &users.users[0];
+    assert_eq!(user.phones[0].value, "+12125550100");
+    assert_eq!(user.emails[0].value, "alex@example.com");
+    assert_eq!(user.response_email.as_deref(), Some("alex@example.com"));
+    let prompts = String::from_utf8(output).unwrap();
+    assert!(prompts.contains("Phone [+12125550100]:"));
+    assert!(prompts.contains("Email [alex@example.com]:"));
+    assert!(
+        !user
+            .emails
+            .iter()
+            .any(|email| email.value == "relative@example.com")
+    );
+}
+
+#[test]
+fn response_email_alone_does_not_enable_or_prompt_for_an_email_identity() {
+    let home = tempfile::tempdir().unwrap();
+    let config_home = tempfile::tempdir().unwrap();
+    let root = home.path().join("family");
+    std::fs::create_dir_all(root.join(".config")).unwrap();
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    WorkspaceManifest::new(workspace_id)
+        .write_new(&root)
+        .unwrap();
+    std::fs::write(
+        root.join(".config/config.json"),
+        br#"{"response_email":"alex@example.com"}"#,
+    )
+    .unwrap();
+    let canonical_name = WorkspaceName::parse("family").unwrap();
+    let registry = MachineRegistry {
+        schema_version: REGISTRY_SCHEMA_VERSION,
+        default_workspace: canonical_name.clone(),
+        workspaces: std::collections::BTreeMap::from([(
+            canonical_name,
+            WorkspaceRecord {
+                workspace_id,
+                root,
+                aliases: BTreeSet::new(),
+                local_user_id: String::new(),
+                receiver_enabled: true,
+                env: Map::new(),
+            },
+        )]),
+    };
+    let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
+    store.replace(&registry).unwrap();
+    let mut cli = try_parse_from(["brain", "config", "list", "-b", "family"]).unwrap();
+    let mut input = Cursor::new(b"Alex Smith\n\n".to_vec());
+    let mut output = Vec::new();
+
+    let outcome = bootstrap_with_io(
+        &mut cli,
+        store,
+        home.path(),
+        home.path(),
+        InteractionMode::Interactive,
+        &mut input,
+        &mut output,
+    )
+    .unwrap();
+
+    let BootstrapContext::Ready(context) = outcome else {
+        panic!("response-only setup must continue without an email prompt");
+    };
+    let users = UsersStore::load(&context.workspace).unwrap();
+    assert!(users.users[0].emails.is_empty());
+    assert!(users.users[0].response_email.is_none());
+    assert!(!String::from_utf8(output).unwrap().contains("Email"));
 }
 
 #[test]
@@ -425,6 +677,7 @@ fn parsed_routes_map_to_their_explicit_invocations() {
             vec!["brain", "workspace", "list"],
             Invocation::WorkspaceList,
         ),
+        (vec!["brain", "user", "list"], Invocation::User),
         (vec!["brain", "config"], Invocation::Config),
         (vec!["brain", "env"], Invocation::Env),
         (vec!["brain", "sync"], Invocation::Sync),

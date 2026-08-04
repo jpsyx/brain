@@ -100,6 +100,7 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             && app.brain_input.is_none()
             && app.confirm.is_none()
             && app.link_picker.is_none()
+            && app.assignee_filter.is_none()
             && app.help.is_none()
             && is_count_relevant_key(k.code, ctrl);
         if !preserves_count {
@@ -223,15 +224,18 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                 let has_notes = app.current_has_notes();
                 let notes_expanded = app.current_notes_expanded();
                 let link_kind = app.current_link_kind();
-                Some(PaletteState::new(
-                    task_id,
-                    is_habit,
-                    has_notes,
-                    notes_expanded,
-                    link_kind,
-                    app.brain_panel_open(),
-                    app.log_path.is_some(),
-                ))
+                Some(
+                    PaletteState::new(
+                        task_id,
+                        is_habit,
+                        has_notes,
+                        notes_expanded,
+                        link_kind,
+                        app.brain_panel_open(),
+                        app.log_path.is_some(),
+                    )
+                    .with_assignment_mode(app.assignment.mode()),
+                )
             };
             let receiver_server_running = app.receiver_server_running();
             let daily_triage_alert_disabled = app.skip_daily_triage_check;

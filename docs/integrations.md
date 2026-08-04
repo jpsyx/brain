@@ -44,6 +44,16 @@ helpers and shell-outs live in the tasks modules:
   chunked-task MIT migration stay consistent without a Python completion script.
   Verbose runs log the resolved brain root, normalized id (when applicable),
   CSV files read/written, and completion result.
+  Managed triage rows are rejected at each of those user-facing entry points;
+  `/triage` alone uses `apply_sync_rules.py --complete-managed-triage
+  daily|weekly`, which becomes a no-op when the portable feature is disabled.
+  All Rust task mutations and bundled Python CSV/counter writers acquire the
+  same SQLite immediate transaction at
+  `<workspace-cache>/tasks.transaction.lock`. Portable config read-modify-write
+  operations, the habits web completion route, and bundled Python project
+  metadata writers use that owner too. Python CSV and JSON writers reject a
+  changed read snapshot and use a synced same-directory atomic replacement.
+  The protected `remove_task.py` boundary rejects enabled managed-row deletion.
 - **`brain tasks doctor`** — prints a progress plan via
   `tasks::doctor::format_doctor_plan` before checking the state DB schema,
   SessionStart hook settings, `rclone version`, and sync env.
@@ -130,7 +140,7 @@ ephemeral agent session as a brain-panel tab (`App::triage_brain`,
 launched through the same `session::build_llm_command` seeded with `/triage`,
 but with two deliberate differences from the main panel:
 
-- **It is never tracked.** `session::env_for_triage` injects the four common
+- **It is never tracked.** `session::env_for_triage` injects the five common
   workspace/actor variables plus `BRAIN_TRIAGE_DONE_URL` and
   `BRAIN_TRIAGE_TOKEN`, but **omits** `BRAIN_INSTANCE_ID` /
   `BRAIN_STATE_DB`. The SessionStart hook requires those tracking variables in
@@ -167,8 +177,12 @@ localhost-only endpoint consistent with `/habits/done`.
 Which session to run is decided by the **lock + recency** model in
 `state.rs` (DB at `<workspace-cache>/state.db`, WAL):
 
-1. On startup brain reaps locks held by dead PIDs, then walks
-   `free_sessions_by_recency()` (sessions no live brain holds, newest first)
+1. At ordinary command bootstrap brain resolves the local actor once. TUI
+   startup first acquires the workspace singleton, then refreshes the selected
+   workspace's Claude and Codex hooks before opening or migrating the state DB,
+   reaps locks held by dead
+   PIDs, then walks `sessions_by_recency()` within the exact
+   frontend/workspace/actor/channel scope
    and resumes the first whose **transcript actually exists** on disk —
    `~/.claude/projects/<mangled selected-root>/<id>.jsonl`
    (`session::project_dir_name` + a fallback scan). A session opened but
@@ -179,23 +193,37 @@ Which session to run is decided by the **lock + recency** model in
    it skipped a missing-transcript candidate, shows a status-line alert:
    *"couldn't find a session to resume — starting a new brain chat"*.
 2. brain passes the selected workspace's `BRAIN_WORKSPACE_ID`,
-   `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and `BRAIN_ACTOR_ID` plus
+   `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and
+   `BRAIN_AGENT_KIND` plus
    `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` /
-   `BRAIN_RESPONSE_DIR` into the Claude child's environment
-   (`session::env_for`). Foundation actor identity is the selected record's
-   `local_user_id`.
+   `BRAIN_RESPONSE_DIR` / `BRAIN_RESPONSE_ID` into the child environment
+   (`session::env_for`). Local work uses the resolved `local_user_id`.
+   Receiver work first authenticates the provider request, then resolves an
+   enabled portable sender; the queued workspace UUID and actor override the
+   machine default for that complete request lineage.
+   Multiple machines may select the same portable person ID. That ID represents
+   one person, not one device, owner, creator, or audit principal.
+   Bundled task mutators resolve their selected root and actor only from this
+   contract. A missing `BRAIN_ROOT` or `BRAIN_ACTOR_ID` fails directly; scripts
+   never fall back to a home-directory brain. New rows use `BRAIN_ACTOR_ID` for
+   `assigned_to`, while explicit assignment reads the selected root's portable
+   `users.json` before writing.
 3. A **SessionStart hook** —
    `scripts/claude_session_start_hook.py`, wired into
    `<brain-root>/.claude/settings.json` under `hooks.SessionStart` — fires on
    every session start / resume / `/clear` / compact. Reading those env
-   vars, it upserts the current session id (locked to `BRAIN_PID`) and frees
+   vars, it upserts the actual frontend session id plus immutable attribution
+   (locked to `BRAIN_PID`) and frees
    the instance's other sessions, so a `/new` mid-run becomes the session
    brain resumes next time and the prior conversation stays resumable. With
    any common workspace identity or required session attribution variable
    absent, the hook is a no-op.
 4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
    `last_assistant_message` under
-   `<workspace-cache>/responses/<session-id>.json`.
+   `<workspace-cache>/responses/<response-id>.json`. The stable response ID is
+   independent of the frontend session ID, which gives fresh Codex turns the
+   same completion path as Claude. The artifact repeats actor and channel; the
+   TUI discards it unless both match the launched session context.
    For an interactive turn, the TUI consumes it as the completion signal that
    allows queued receiver work to switch sessions. For an active SMS/email
    job, it sends the channel-specific final response, marks remote work idle,
@@ -206,12 +234,21 @@ Which session to run is decided by the **lock + recency** model in
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
 
-Codex panels use the same hook scripts and state DB. Receiver setup writes
-equivalent `SessionStart` and `Stop` entries to `~/.codex/hooks.json`; current
+Codex panels use the same hook scripts and state DB. Every TUI startup and
+receiver setup writes equivalent `SessionStart` and `Stop` entries to
+`~/.codex/hooks.json`. Shared Codex hook updates take an adjacent machine-wide
+SQLite transaction lock, reload current bytes under that lock, and publish
+synced JSON through a same-directory atomic rename. Concurrent workspace TUIs
+therefore preserve one another's registrations and unrelated settings; a
+failed replacement preserves the prior bytes. Current
 Codex CLI versions may ask you to trust those hooks once in the Codex UI.
 Claude and Codex remain separate session stores, but both frontends now report
 session starts and completed receiver turns through the same brain response
 protocol.
+Brain verifies the exact installed `hooks.json` command shape and executes both
+scripts against Codex-style `thread_id` payloads in tests. Whether Codex emits
+those documented lifecycle events is frontend-owned behavior and is not
+simulated as an external Codex process test.
 
 **One hook namespace, one DB per workspace.** Before the merge, `brain` and `tasks`
 each ran their own SessionStart hook keyed on separate env-var namespaces
@@ -232,9 +269,9 @@ Rust installer and `install_hook.sh` emit the same command.
 
 `scripts/install_hook.sh` deploys + installs both the SessionStart and the brain
 `claude_stop_hook.py` Stop hook (stripping any stale entries — old absolute /
-wrong-home / legacy `rc/` paths — matched by script basename). `brain receiver
-setup` does the same automatically (and also writes the equivalent entries to
-`~/.codex/hooks.json`). The standalone
+wrong-home / legacy `rc/` paths — matched by script basename). Every TUI
+startup does the same automatically before state migration or agent launch;
+`brain receiver setup` also refreshes both frontends. The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude settings manually. Its root precedence is the explicit argument,
 then `BRAIN_ROOT`, with `$HOME/brain` retained only as a documented legacy
@@ -362,6 +399,8 @@ bookkeeping.
   receives a check-access marker failure, it announces and runs the equivalent
   narrow `brain sync repair` flow automatically. These are default user-facing
   progress lines, separate from `--verbose` debug logging.
+  A clean explicit repair also reapplies the selected workspace's managed
+  triage invariant. Failed, aborted, coalesced, and ordinary sync runs do not.
 - **rclone is an external prerequisite.** Brain checks that the executable can
   start before touching the remote. When it is missing, sync stops with an
   install guide with two explicit choices: Homebrew users can run `brew install
@@ -510,14 +549,32 @@ bookkeeping.
   default excludes (`src/sync/args.rs`), so Lane-A bisync never touches them —
   line-based bisync would happily let one machine's edit clobber another's on
   structured, id-keyed data. Instead `command::sync_once` runs a dedicated
-  step (`crate::sync::csv_sync::sync_csvs`) once bisync itself hasn't aborted:
+  step (`crate::sync::csv_sync::sync_csvs`) once bisync itself hasn't aborted.
+  It holds the workspace task-store owner across CSV publication and dependent
+  counter reconciliation. For each CSV it then
   for each CSV it reads the cached baseline (`csv_sync::baseline_path`,
   `<workspace-cache>/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
   never synced), the local file, and the remote copy (fetched with `rclone
   copyto <remote> <tmp>`, over the same env-var `BRAIN:` remote bisync uses);
-  merges the three with the pure id-keyed 3-way merge in
-  `crate::sync::csv_merge` (`merge(base, ours, theirs)`, keyed by `task_id` —
-  see [data-model.md](data-model.md) for the rules); writes the merged CSV
+  preflights `tasks/SCHEMA.json` plus the base, local, and remote generations
+  of both CSVs, then merges with the pure 3-way merge in
+  `crate::sync::csv_merge`. Any preflight failure aborts this whole lane before
+  CSVs, baselines, project metadata, remote objects, or counters change.
+  Nonempty legacy input must contain and remains keyed by `task_id`, even when
+  compatibility writers have added `task_uuid` and populated it for new rows;
+  only an active `tasks/SCHEMA.json` schema v2 makes input name-aligned and
+  keyed by immutable `task_uuid`. The
+  inactive task-schema helper is never called by sync; see
+  [data-model.md](data-model.md) for the rules. Distinct UUIDs that claim one
+  display ID are renumbered deterministically, side-specific `blocked_by` and
+  bounded task references in free-text `see_also` are resolved through UUIDs;
+  URL spans and non-reference text remain byte-preserved. Final project reverse links are
+  staged from CSV `project` fields before repo-relative `.METADATA.json` paths
+  are copied to the configured remote. Every authoritative metadata file is
+  republished, even when its local bytes were already current, so retry heals
+  a previous partial remote publication. Local metadata write failures surface
+  as local-write errors, while callback failures identify remote publication.
+  The operation writes the merged CSV
   back to the local file, pushes it to the remote with another `rclone
   copyto`, then overwrites the baseline with the same merged text. A missing
   baseline (first run on a machine) means every row reads as newly added, so
@@ -526,22 +583,23 @@ bookkeeping.
   same-field CSV conflicts normally resolve by row recency on both tables. The
   merge outcome (added/merged/deleted/soft-conflict counts) is folded into the
   sync journal's `note` column as a `csv: +A ~M -D` segment (see
-  [data-model.md](data-model.md)); a CSV-merge failure never changes the
-  bisync run's own outcome, and the step is skipped entirely when that run
-  aborted. See [decisions.md](decisions.md) for why this file pair gets a
-  semantic merge instead of keep-both.
-- **The two id counters are max-merged out-of-band, right after the CSVs.**
+  [data-model.md](data-model.md)); a typed CSV-lane failure stops sync and
+  prevents counter reconciliation. The step is skipped entirely when the
+  bisync run aborted. See [decisions.md](decisions.md) for why this file pair
+  gets a semantic merge instead of keep-both.
+- **The two id counters are max-merged and floored out-of-band, right after the CSVs.**
   `tasks/.tasks_next_id` and `tasks/.habits_next_id` hold the next integer id to
   hand out. They're excluded from bisync too, because bisync's newer-mtime rule
   would let a machine with a *lower* counter that wrote more recently win, and it
   would then re-hand-out ids the other machine already assigned. Instead
   `command::sync_once` calls `crate::sync::counters::sync_counters`: for each
-  counter it fetches the remote value (same `rclone copyto` transport), reads the
-  local value, and writes/pushes `max(local, remote)` — the only rule that can't
-  lose an id. Max-merge is stateless (no baseline): `max` is convergent,
-  idempotent, and monotonic. Missing/garbage on a side is treated as absent; if
-  both sides are absent the file stays absent and id allocation falls back to
-  `max_existing_id + 1`. Best-effort and skipped after an abort, like the CSVs.
+  counter it fetches the remote value (same `rclone copyto` transport), reads
+  the local value, and applies the corresponding floor returned by the CSV
+  operation. It does not fetch the remote CSVs a second time. The resulting
+  value is `max(local, remote, reconciled_max + 1)`. Push-only sync also writes
+  the reconciled floor locally. The floor prevents a
+  normal writer from reissuing a display label created by collision
+  reconciliation. Missing or garbage counter values are treated as absent.
 - **`brain check` has a read-only CSV lane too.** Since those two CSVs are
   excluded from dry-run bisync, `src/sync/check.rs` reads the same cached
   baselines, reads the local CSVs, fetches each remote CSV with `rclone copyto`
@@ -552,7 +610,18 @@ bookkeeping.
   double-counting: identical local/remote CSVs are clean, and when both sides
   are non-empty and differ, the remote CSV is used as a provisional snapshot
   for local row deltas. The report explicitly says CSV rows are baseline diffs,
-  not provenance, and that `brain sync` will merge by id.
+  not provenance, and that `brain sync` will merge by immutable identity after
+  schema migration. The lane resolves `tasks/SCHEMA.json` once, uses `task_id`
+  while migration is inactive and `task_uuid` only for active schema v2, then
+  parses baseline, local, and remote generations through one fallible boundary.
+  Invalid metadata, malformed records, and duplicate active identities render a
+  warning naming the generation and relative CSV; they never panic or emit a
+  false clean result.
+- **Phase 2 does not activate migration or the final receiver architecture.**
+  The task-schema migrator remains an inactive fixture-tested interface; Phase
+  5 owns its last legacy sync, backups, activation, and real-workspace rollout.
+  The final shared-server lease and receiver-routing lifecycle remain Phase 4
+  work. Current actor propagation does not imply that later lifecycle is done.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.

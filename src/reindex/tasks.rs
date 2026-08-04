@@ -9,6 +9,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use anyhow::{Context, Result, bail};
+
 use crate::skills::layout::Layout;
 use crate::theme::Theme;
 
@@ -30,25 +32,55 @@ fn plan(home: &Path) -> Result<PathBuf, TaskOutcome> {
     }
 }
 
+fn reconcile_triage_before_reindex(workspace: &crate::workspace::WorkspaceContext) -> Result<()> {
+    let enabled = crate::config::Config::load(workspace).enable_triage_habits;
+    crate::tasks::triage_habits::apply_triage_habits_config(workspace, enabled)
+}
+
 /// Apply task automation rules + habit cleanup by shelling out to the installed
 /// `/todo` scripts. Their own output is inherited so the user sees what changed.
-pub fn reindex_tasks(workspace: &crate::workspace::WorkspaceContext, home: &Path) -> TaskOutcome {
+pub fn reindex_tasks(
+    workspace: &crate::workspace::WorkspaceContext,
+    actor: &crate::actor::ActorContext,
+    home: &Path,
+) -> Result<TaskOutcome> {
+    reconcile_triage_before_reindex(workspace)?;
     match plan(home) {
         Ok(scripts) => {
-            run_py(workspace, &scripts.join("apply_sync_rules.py"), &["--fix"]);
-            run_py(workspace, &scripts.join("cleanup_done_habits.py"), &[]);
-            TaskOutcome::Ran
+            run_py(
+                workspace,
+                actor,
+                &scripts.join("apply_sync_rules.py"),
+                &["--fix"],
+            )?;
+            run_py(
+                workspace,
+                actor,
+                &scripts.join("cleanup_done_habits.py"),
+                &[],
+            )?;
+            Ok(TaskOutcome::Ran)
         }
-        Err(outcome) => outcome,
+        Err(outcome) => Ok(outcome),
     }
 }
 
-fn run_py(workspace: &crate::workspace::WorkspaceContext, script: &Path, args: &[&str]) {
-    let _ = Command::new("python3")
+fn run_py(
+    workspace: &crate::workspace::WorkspaceContext,
+    actor: &crate::actor::ActorContext,
+    script: &Path,
+    args: &[&str],
+) -> Result<()> {
+    let status = Command::new("python3")
         .arg(script)
         .args(args)
-        .envs(workspace.integration_env(workspace.local_user_id()))
-        .status();
+        .envs(workspace.integration_env(actor))
+        .status()
+        .with_context(|| format!("run {}", script.display()))?;
+    if !status.success() {
+        bail!("{} exited with {status}", script.display());
+    }
+    Ok(())
 }
 
 /// The themed report line for a task outcome. Pure.
@@ -69,6 +101,20 @@ pub fn format_task_outcome(outcome: &TaskOutcome, theme: Theme) -> String {
 mod tests {
     use super::*;
 
+    fn legacy_workspace(temp: &tempfile::TempDir) -> crate::workspace::WorkspaceContext {
+        let root = temp.path().join("legacy-brain");
+        std::fs::create_dir_all(&root).unwrap();
+        crate::workspace::WorkspaceContext::new(
+            temp.path(),
+            crate::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+            crate::workspace::WorkspaceName::parse("legacy").unwrap(),
+            &root,
+            "pablo",
+            temp.path(),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn ran_reports_success() {
         let line = format_task_outcome(&TaskOutcome::Ran, Theme::dark(false));
@@ -82,5 +128,54 @@ mod tests {
             Theme::dark(false),
         );
         assert!(line.contains("brain skills sync"), "{line:?}");
+    }
+
+    #[test]
+    fn child_scripts_receive_the_request_boundary_actor_in_legacy_workspaces() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = legacy_workspace(&temp);
+        let actor = crate::actor::local_actor(&workspace).unwrap();
+        let script = temp.path().join("record_actor.py");
+        let output = temp.path().join("actor.txt");
+        std::fs::write(
+            &script,
+            "import os, pathlib, sys\npathlib.Path(sys.argv[1]).write_text(os.environ['BRAIN_ACTOR_ID'])\n",
+        )
+        .unwrap();
+
+        run_py(&workspace, &actor, &script, &[output.to_str().unwrap()]).unwrap();
+
+        assert_eq!(std::fs::read_to_string(output).unwrap(), "pablo");
+    }
+
+    #[test]
+    fn task_reindex_restores_missing_managed_triage_definitions() {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = legacy_workspace(&temporary);
+        std::fs::create_dir_all(workspace.root().join("tasks")).unwrap();
+        std::fs::create_dir_all(workspace.root().join(".config")).unwrap();
+        std::fs::write(
+            workspace.root().join("tasks/tasks.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.root().join("tasks/habits.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(workspace.root().join(".config/config.json"), "{}\n").unwrap();
+
+        reconcile_triage_before_reindex(&workspace).unwrap();
+
+        let habits =
+            crate::tasks::task::load_habits(&workspace.root().join("tasks/habits.csv")).unwrap();
+        assert_eq!(
+            habits
+                .iter()
+                .filter(|habit| habit.is_managed_triage())
+                .count(),
+            2
+        );
     }
 }

@@ -114,8 +114,8 @@ mod tests {
         name: &str,
         record: &WorkspaceRecord,
     ) -> CommandContext {
-        CommandContext {
-            workspace: Arc::new(
+        CommandContext::new(
+            Arc::new(
                 WorkspaceContext::new(
                     home,
                     record.workspace_id,
@@ -126,8 +126,9 @@ mod tests {
                 )
                 .expect("workspace context"),
             ),
-            registry_store: store.clone(),
-        }
+            store.clone(),
+        )
+        .unwrap()
     }
 
     #[test]

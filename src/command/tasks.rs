@@ -20,7 +20,7 @@ pub fn launch(
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
         Some(TasksCommand::Complete(args)) => {
-            return crate::tasks::complete::run(root, &args.id);
+            return crate::tasks::complete::run(&context.workspace, &args.id, &context.actor);
         }
         Some(TasksCommand::Search(args)) => Initial::CustomSearch(args.query.join(" ")),
         Some(TasksCommand::Doctor) => {
@@ -115,7 +115,20 @@ fn browse(
         initial_data.len(),
         cli.display.no_tui,
     ));
-    let view = crate::tasks::view::build_view(cli, &selector, start_view, initial_data, today);
+    let mut view = crate::tasks::view::build_view(cli, &selector, start_view, initial_data, today);
+    if cli.display.no_tui {
+        if cli.filters.assigned_to.is_some() {
+            let assignment = crate::tasks::task::assignment_context_for_workspace(
+                &context.workspace,
+                &context.actor,
+            )?;
+            crate::tasks::task::assignment_filter_for_startup(
+                &assignment,
+                cli.filters.assigned_to.as_deref(),
+            )?;
+        }
+        crate::tasks::view::apply_assignment_filter(&mut view, cli.filters.assigned_to.as_deref());
+    }
     crate::logging::log(format!(
         "built tasks view title={:?} shown={} total={}",
         view.title,

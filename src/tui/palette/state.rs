@@ -3,6 +3,7 @@
 //! the visible rows, and cursor movement / text editing. The struct itself
 //! lives in the `tui` root so every submodule can reach its fields.
 
+use crate::tasks::task::AssignmentUiMode;
 use crate::tui::*;
 
 use super::command::{PALETTE_COMMANDS, PaletteScope};
@@ -34,6 +35,7 @@ impl PaletteState {
             triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
+            assignment_mode: hidden_assignment_mode(),
         }
     }
 
@@ -65,6 +67,7 @@ impl PaletteState {
             triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
+            assignment_mode: hidden_assignment_mode(),
         }
     }
 
@@ -84,7 +87,15 @@ impl PaletteState {
             triage_open: false,
             logs_view: true,
             daily_triage_alert_disabled: false,
+            assignment_mode: hidden_assignment_mode(),
         }
+    }
+
+    /// Seed the selected workspace's per-surface assignment visibility.
+    #[must_use]
+    pub(crate) const fn with_assignment_mode(mut self, mode: AssignmentUiMode) -> Self {
+        self.assignment_mode = mode;
+        self
     }
 
     pub(crate) const fn task_in_context(&self) -> bool {
@@ -149,12 +160,15 @@ impl PaletteState {
             PaletteAction::MarkTaskComplete => format!("Mark {id} as complete"),
             PaletteAction::DeferTask(days) => format!("Defer {id} +{days}d"),
             PaletteAction::RemoveTask => format!("Remove task {id}"),
+            PaletteAction::ReassignTask => format!("Reassign {id}"),
             PaletteAction::MessageBrainAboutTask => format!("Message brain about {id}"),
             PaletteAction::StartTask => format!("Start {id}"),
             // `OpenLinks` and `ToggleNotes` are resolved above; global
             // actions don't reach this branch (filtered above). Fall
             // through defensively.
             PaletteAction::OpenLinks
+            | PaletteAction::AddTask
+            | PaletteAction::ChooseAssigneeFilter
             | PaletteAction::SendBrainMessage
             | PaletteAction::CloseBrain
             | PaletteAction::OpenHabitsInBrowser
@@ -290,5 +304,14 @@ impl PaletteState {
     pub(crate) fn pop(&mut self) {
         self.filter.pop();
         self.selected = 0;
+    }
+}
+
+const fn hidden_assignment_mode() -> AssignmentUiMode {
+    AssignmentUiMode {
+        show_in_detail: false,
+        show_create_control: false,
+        show_reassign_control: false,
+        show_filter: false,
     }
 }

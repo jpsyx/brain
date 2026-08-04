@@ -310,6 +310,35 @@ fn ready_non_default_command_does_not_touch_default_workspace_migration_inputs()
 }
 
 #[test]
+fn leading_workspace_selector_reads_the_selected_portable_triage_flag() {
+    let fixture = Fixture::new();
+    let personal = fixture.home.path().join("personal");
+    let family = fixture.home.path().join("family");
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&personal)]));
+    fixture.make_ready("personal");
+    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&family)]));
+    fixture.make_ready("family");
+    std::fs::write(
+        personal.join(".config/config.json"),
+        b"{\"enable_triage_habits\":true}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        family.join(".config/config.json"),
+        b"{\"enable_triage_habits\":false}\n",
+    )
+    .unwrap();
+
+    let default = fixture.run(&["config", "get", "enable_triage_habits"]);
+    let selected = fixture.run(&["--brain", "family", "config", "get", "enable_triage_habits"]);
+
+    assert_success(&default);
+    assert_success(&selected);
+    assert_eq!(String::from_utf8(default.stdout).unwrap().trim(), "true");
+    assert_eq!(String::from_utf8(selected.stdout).unwrap().trim(), "false");
+}
+
+#[test]
 fn workspace_create_treats_an_existing_default_root_as_legacy_install_evidence() {
     let fixture = Fixture::new();
     let legacy = fixture.home.path().join("brain");

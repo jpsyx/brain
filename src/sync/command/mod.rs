@@ -20,7 +20,7 @@ use chrono::{DateTime, Utc};
 use crate::sync::args::{self, Direction};
 use crate::sync::config::SyncConfig;
 use crate::sync::conflicts::{self, ConflictGroup};
-use crate::sync::csv_sync::CsvMergeOutcome;
+use crate::sync::csv_sync::{CsvMergeOutcome, CsvSyncError, CsvSyncResult};
 use crate::sync::journal::{Journal, SyncRun};
 use crate::sync::remote::{Remote, build_remote};
 use crate::sync::run::run_rclone;
@@ -29,6 +29,15 @@ use crate::theme::Theme;
 
 mod resolve;
 pub use resolve::resolve;
+
+fn sync_task_state(
+    csv_sync: impl FnOnce() -> Result<CsvSyncResult, CsvSyncError>,
+    counters: impl FnOnce(crate::sync::csv_sync::DisplayIdFloors),
+) -> Result<CsvSyncResult, CsvSyncError> {
+    let csv = csv_sync()?;
+    counters(csv.floors);
+    Ok(csv)
+}
 
 /// This machine's short hostname for conflict-copy names. Falls back to "host".
 #[must_use]
@@ -163,21 +172,26 @@ pub fn sync_once(
     ));
 
     // The two task CSVs are excluded from bisync and reconciled out-of-band via
-    // the 3-way merge. Best-effort: skip on an abort, and never let a CSV
-    // failure change the bisync outcome — just record what merged.
+    // one preflighted operation. A failure stops publication and prevents the
+    // dependent counters from advancing.
     let csv_note = if matches!(outcome, Outcome::Aborted(_)) {
         crate::logging::log("sync csv merge skipped after abort");
         String::new()
     } else {
         crate::logging::log("sync csv merge start");
         reporter.line(&theme.info("Merging task and habit CSVs by row id…"));
-        let note = format_csv_note(&crate::sync::csv_sync::sync_csvs(paths, cfg, root, dir));
+        let _task_owner =
+            crate::tasks::store_lock::TaskStoreOwner::acquire_path(&paths.task_store_lock())?;
+        let csv = sync_task_state(
+            || crate::sync::csv_sync::sync_csvs(paths, cfg, root, dir),
+            |floors| {
+                reporter.line(&theme.info("Reconciling task and habit id counters…"));
+                let counters = crate::sync::counters::sync_counters(cfg, root, dir, floors);
+                crate::logging::log(format!("sync id counters {counters:?}"));
+            },
+        )?;
+        let note = format_csv_note(&csv.outcomes);
         crate::logging::log(format!("sync csv merge note={note:?}"));
-        // Reconcile the monotonic id counters by max, so neither machine ever
-        // reuses an id the other already handed out. Best-effort, like the CSVs.
-        reporter.line(&theme.info("Reconciling task and habit id counters…"));
-        let counters = crate::sync::counters::sync_counters(cfg, root, dir);
-        crate::logging::log(format!("sync id counters {counters:?}"));
         note
     };
 
@@ -983,6 +997,35 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(format_csv_note(&outcomes), "csv: +1 ~0 -0");
+    }
+
+    #[test]
+    fn csv_preflight_failure_skips_counter_reconciliation() {
+        use std::cell::Cell;
+
+        let directory = tempfile::tempdir().unwrap();
+        let counter = directory.path().join("tasks/.tasks_next_id");
+        std::fs::create_dir_all(counter.parent().unwrap()).unwrap();
+        std::fs::write(&counter, "11\n").unwrap();
+        let counters_called = Cell::new(false);
+        let result = sync_task_state(
+            || {
+                Err(crate::sync::csv_sync::CsvSyncError::Preflight(
+                    "habits.csv missing task_uuid".to_owned(),
+                ))
+            },
+            |_| {
+                counters_called.set(true);
+                std::fs::write(&counter, "99\n").unwrap();
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(crate::sync::csv_sync::CsvSyncError::Preflight(_))
+        ));
+        assert!(!counters_called.get());
+        assert_eq!(std::fs::read_to_string(counter).unwrap(), "11\n");
     }
 
     #[test]

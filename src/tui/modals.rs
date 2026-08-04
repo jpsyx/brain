@@ -2,6 +2,7 @@
 //! crate root so `draw` can read their fields).
 
 use super::*;
+use crate::tasks::task::AssignmentUser;
 
 impl ConfirmState {
     pub(crate) fn mark_complete(task_id: String, task_label: String) -> Self {
@@ -172,5 +173,60 @@ impl LinkPickerState {
     /// The URL of the highlighted row.
     pub(crate) fn selected_url(&self) -> Option<&str> {
         self.links.get(self.selected).map(|l| l.url.as_str())
+    }
+}
+
+impl AssigneeFilterState {
+    pub(crate) fn new(users: &[AssignmentUser], current: Option<&UserId>) -> Self {
+        let selected = current
+            .and_then(|current| users.iter().position(|user| &user.id == current))
+            .map_or(0, |index| index + 1);
+        Self {
+            users: users.to_vec(),
+            selected,
+        }
+    }
+
+    pub(crate) fn rows(&self) -> Vec<String> {
+        std::iter::once("All assignees".to_owned())
+            .chain(
+                self.users
+                    .iter()
+                    .map(|user| format!("{} ({})", user.name, user.id)),
+            )
+            .collect()
+    }
+
+    pub(crate) const fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub(crate) const fn move_up(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
+
+    pub(crate) fn move_down(&mut self) {
+        if self.selected < self.users.len() {
+            self.selected += 1;
+        }
+    }
+
+    pub(crate) fn select_number(&mut self, n: usize) -> bool {
+        let row_count = self.users.len() + 1;
+        if n >= 1 && n <= row_count {
+            self.selected = n - 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn selected_user(&self) -> Option<UserId> {
+        self.selected
+            .checked_sub(1)
+            .and_then(|index| self.users.get(index))
+            .map(|user| user.id.clone())
     }
 }

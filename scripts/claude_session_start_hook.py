@@ -7,12 +7,14 @@ session in that selected workspace starts, resumes, clears (`/new` /
 `brain` shell so the next launch of that workspace can resume the right
 conversation, including a fresh session created mid-run by `/new`.
 
-`brain` passes the four common child-integration identity variables:
+`brain` passes the common child-integration identity variables:
 
   BRAIN_WORKSPACE_ID — immutable selected workspace UUID
   BRAIN_WORKSPACE    — selected canonical workspace name
   BRAIN_ROOT         — selected workspace root
   BRAIN_ACTOR_ID     — actor attributed to this launch
+  BRAIN_CHANNEL: initiating channel retained by follow-up turns
+  BRAIN_AGENT_KIND: agent frontend (`claude` or `codex`)
 
 The agent session extends that environment with:
 
@@ -51,6 +53,8 @@ def main() -> None:
         "BRAIN_WORKSPACE",
         "BRAIN_ROOT",
         "BRAIN_ACTOR_ID",
+        "BRAIN_CHANNEL",
+        "BRAIN_AGENT_KIND",
         "BRAIN_INSTANCE_ID",
         "BRAIN_STATE_DB",
     )
@@ -83,25 +87,48 @@ def main() -> None:
         conn.execute(
             """
             INSERT INTO brain_sessions
-              (claude_session_id, brain_instance_id, locked_pid, source,
-               created_at, last_active_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(claude_session_id) DO UPDATE SET
+              (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+               workspace_id, actor_id, channel, created_at, last_active_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(agent_kind, agent_session_id, workspace_id, actor_id, channel)
+            DO UPDATE SET
               brain_instance_id = excluded.brain_instance_id,
               locked_pid        = excluded.locked_pid,
               source            = excluded.source,
               last_active_at    = excluded.last_active_at
             """,
-            (session_id, instance, pid, source, now, now),
+            (
+                launch["BRAIN_AGENT_KIND"],
+                session_id,
+                instance,
+                pid,
+                source,
+                launch["BRAIN_WORKSPACE_ID"],
+                launch["BRAIN_ACTOR_ID"],
+                launch["BRAIN_CHANNEL"],
+                now,
+                now,
+            ),
         )
         # Exactly one current session per instance: free the others so a
         # /new (which may rotate the id) leaves the prior one resumable.
         conn.execute(
             """
             UPDATE brain_sessions SET locked_pid = NULL
-            WHERE brain_instance_id = ? AND claude_session_id <> ?
+            WHERE brain_instance_id = ?
+              AND NOT (
+                agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
+                AND actor_id = ? AND channel = ?
+              )
             """,
-            (instance, session_id),
+            (
+                instance,
+                launch["BRAIN_AGENT_KIND"],
+                session_id,
+                launch["BRAIN_WORKSPACE_ID"],
+                launch["BRAIN_ACTOR_ID"],
+                launch["BRAIN_CHANNEL"],
+            ),
         )
         conn.commit()
     except Exception:

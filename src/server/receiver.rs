@@ -23,6 +23,8 @@ pub enum Channel {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundMessage {
+    pub workspace_id: crate::workspace::WorkspaceId,
+    pub actor: crate::actor::ActorContext,
     pub channel: Channel,
     pub body: String,
     pub sender: String,

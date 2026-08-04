@@ -70,7 +70,8 @@ pub(crate) fn matching_names(csv: &CsvFile, needle: &str) -> Vec<String> {
 /// Resolves `needle` to a habit name and, when exactly one matches, revives it
 /// (writing `habits.csv`). Zero matches → `NoMatch`; several → `Ambiguous` (no
 /// write, so the caller can disambiguate).
-pub fn revive_fuzzy_in_root(root: &Path, needle: &str, today: NaiveDate) -> Result<ReviveOutcome> {
+#[cfg(test)]
+fn revive_fuzzy_in_root(root: &Path, needle: &str, today: NaiveDate) -> Result<ReviveOutcome> {
     let habits_path = root.join("tasks").join("habits.csv");
     let csv = read_csv(&habits_path)?;
     let names = matching_names(&csv, needle);
@@ -83,7 +84,11 @@ pub fn revive_fuzzy_in_root(root: &Path, needle: &str, today: NaiveDate) -> Resu
 
 /// Revive an exact habit name (used after interactive disambiguation). Writes
 /// `habits.csv` when it appends an occurrence.
-pub fn revive_named_in_root(root: &Path, name: &str, today: NaiveDate) -> Result<ReviveOutcome> {
+pub(crate) fn revive_named_in_root(
+    root: &Path,
+    name: &str,
+    today: NaiveDate,
+) -> Result<ReviveOutcome> {
     let tasks_dir = root.join("tasks");
     let habits_path = tasks_dir.join("habits.csv");
     let mut csv = read_csv(&habits_path)?;
@@ -161,23 +166,59 @@ fn id_number(id: &str) -> u32 {
 }
 
 /// CLI runner for `brain habits revive|fix <query>`.
-pub fn run(root: &std::path::Path, query: &str) -> Result<()> {
+pub fn run(
+    workspace: &crate::workspace::WorkspaceContext,
+    query: &str,
+    _actor: &crate::actor::ActorContext,
+) -> Result<()> {
+    let root = workspace.root();
     let today = Local::now().date_naive();
-    match revive_fuzzy_in_root(root, query, today)? {
-        ReviveOutcome::NoMatch => {
+    let enabled = crate::config::Config::load(workspace).enable_triage_habits;
+    let habits = read_csv(&root.join("tasks/habits.csv"))?;
+    let names = matching_names(&habits, query);
+    match names.as_slice() {
+        [] => {
             let theme = Theme::active();
             eprintln!(
                 "{}",
                 theme.warning(&format!("No habit matches \"{query}\"."))
             );
         }
-        ReviveOutcome::Ambiguous(names) => {
-            if let Some(chosen) = prompt_selection(&names)? {
-                let outcome = revive_named_in_root(root, &chosen, today)?;
+        [only] => {
+            print_outcome(&revive_named_in_workspace(workspace, only, today, enabled)?);
+        }
+        names => {
+            if let Some(chosen) = prompt_selection(names)? {
+                let outcome = revive_named_in_workspace(workspace, &chosen, today, enabled)?;
                 print_outcome(&outcome);
             }
         }
-        outcome => print_outcome(&outcome),
+    }
+    Ok(())
+}
+
+fn revive_named_in_workspace(
+    workspace: &crate::workspace::WorkspaceContext,
+    name: &str,
+    today: NaiveDate,
+    enabled: bool,
+) -> Result<ReviveOutcome> {
+    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
+    protect_managed_revival(workspace.root(), name, enabled)?;
+    revive_named_in_root(workspace.root(), name, today)
+}
+
+fn protect_managed_revival(root: &Path, name: &str, enabled: bool) -> Result<()> {
+    let habits = read_csv(&root.join("tasks/habits.csv"))?;
+    if let Some(row) = habits.rows.iter().find(|row| {
+        field(row, "task_name") == name
+            && crate::tasks::triage_habits::is_managed_system_key(&field(row, "system_key"))
+    }) {
+        crate::tasks::triage_habits::protect_system_key(
+            &field(row, "system_key"),
+            enabled,
+            crate::tasks::triage_habits::ManagedTaskError::ManagedTaskCannotRevive,
+        )?;
     }
     Ok(())
 }
@@ -258,6 +299,19 @@ fn prompt_selection(names: &[String]) -> Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_runner_requires_explicit_workspace_and_actor_contexts() {
+        fn accepts_runner(
+            _: fn(
+                &crate::workspace::WorkspaceContext,
+                &str,
+                &crate::actor::ActorContext,
+            ) -> anyhow::Result<()>,
+        ) {
+        }
+        accepts_runner(super::run);
+    }
 
     const HEADER: &str = "task_id,task_name,status,priority,due_date,recur_interval,recur_unit,created_date,completed_date,last_touched\n";
 

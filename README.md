@@ -173,7 +173,7 @@ is not a filesystem sandbox; `workspace_only` access remains prompt-based.
 
 | Boundary | Location | What belongs there | Portable? |
 | --- | --- | --- | --- |
-| Workspace-owned data | `<workspace-root>/` | Notes, tasks, skills customizations, and `.config/{workspace.json,config.json,personalization.json,extensions/,plugins/}` | Yes, it travels with that workspace |
+| Workspace-owned data | `<workspace-root>/` | Notes, tasks, skills customizations, and `.config/{workspace.json,users.json,config.json,personalization.json,extensions/,plugins/}` | Yes, it travels with that workspace |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema, canonical default, and each workspace's UUID, machine-local root, aliases, `local_user_id`, `receiver_enabled`, and siloed free-form `env` | No |
 | Workspace runtime/cache | `~/.cache/brain/workspaces/<workspace-uuid>/` | `state.db`, `tui.lock`, `inbox/`, `responses/`, and `sync/` locks, journal, current state, workdir, and CSV baselines | No |
 | Shared infrastructure | Machine server PID/control files and the current shared triage signal | Narrow process coordination only; habits payloads are selected by request UUID | No |
@@ -208,6 +208,19 @@ The sole registry has this strict schema-v2 shape:
   }
 }
 ```
+
+Portable people live separately in `<workspace-root>/.config/users.json`.
+Their lower-case kebab IDs identify people, so the same person may select the
+same ID on multiple computers. `local_user_id` selects that person only for
+local work on the current machine; an authenticated inbound phone or email
+mapping overrides it for that request. There is no separate device, owner,
+creator, or audit-history identity.
+
+Task and habit rows use `assigned_to` for that portable person and immutable
+`task_uuid` values for merge identity. Readers temporarily accept the legacy
+`assignee` heading, but every write emits `assigned_to`. `T###` and `H###`
+remain mutable display IDs: UUID-distinct rows survive a two-machine collision,
+then reconcile labels and relationships deterministically.
 
 Records never inherit or merge env values. The rule of thumb is: **wrong if
 synced means brain env; right everywhere means brain config.** `root` is
@@ -261,10 +274,12 @@ self-hosted environment. The migrated/default workspace remains unrestricted
 unless a later access-policy feature explicitly configures it otherwise.
 Changing the default workspace never changes access mode.
 
-Portable users, inbound sender identity, task `assigned_to`, triage-habit
-policy, access controls, the agent-controller/OpenCode facade, and the final
-shared receiver lease lifecycle are later phases. They are not part of this
-foundation.
+Access controls, the agent-controller/OpenCode facade, and the final shared
+receiver lease lifecycle remain later phases.
+
+The task-schema migrator also remains inactive. Phase 5 owns the final legacy
+sync, coordinated backup, activation, and real-workspace rollout. Phase 2
+proves the new readers, writers, merge behavior, and migration fixtures only.
 
 ## 3. Configuration
 
@@ -279,6 +294,7 @@ brain env set claude_cmd='claude --dangerously-skip-permissions'
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `enable_triage_habits` | `true` | Maintain protected daily and weekly triage chains. Setting `false` transactionally purges every managed occurrence and derived reference while leaving manual `/triage` available. |
 | `linear_workspace` | *(unset)* | Linear workspace slug; builds `https://linear.app/<slug>/issue/` for the task "open link" action. |
 | `daily_triage_name_pattern` | `Morning Triage` | Regex on habit names that gates the startup triage nudge. Empty disables it. |
 | `day_rollover_hour` | `6` | Hour (0–23) the "logical day" rolls over for the triage re-check. |
@@ -397,6 +413,12 @@ A bundled skill marks its extension points with HTML-comment markers:
 ```markdown
 <!-- brain:ext todo:calendar -->
 ```
+
+The bundled `todo` skill also exposes `todo:agenda-after-build`. It is a
+generic, no-op-by-default seam for caller-supplied post-build steps. An
+extension that uses it must supply its own content and paths at runtime; the
+bundled skill does not discover private artifacts or assume a particular
+external service.
 
 You supply the content in `<brain-root>/.config/extensions/<skill>.md`, as
 `[hook-name]` sections:

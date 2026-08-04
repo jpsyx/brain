@@ -86,12 +86,13 @@ mod tests {
         };
         let store = RegistryStore::from_path(home.path().join("config/brain/env.json"));
         store.replace(&registry).unwrap();
-        let context = CommandContext {
-            workspace: Arc::new(
+        let context = CommandContext::new(
+            Arc::new(
                 WorkspaceContext::new(home.path(), id, name, &root, "pablo", home.path()).unwrap(),
             ),
-            registry_store: store.clone(),
-        };
+            store.clone(),
+        )
+        .unwrap();
         let before = std::fs::read(store.path()).unwrap();
         let map = Map::from_iter([("root".to_owned(), json!("/escaped"))]);
 

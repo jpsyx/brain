@@ -19,12 +19,17 @@ This is implemented in [`scripts/_csvlib.py`](../scripts/_csvlib.py)
 `find_by_id_or_fuzzy()` + `locate()`. **Short IDs are shorthand;
 name fragments still work.**
 
+These locators intentionally use mutable `task_id`, then update the matched
+row without changing its immutable `task_uuid`.
+
 ## Capture
 
 - **`/todo add <freetext>`** — parse the freetext into a row. Required
   fields (ask only if missing): `task_name`, `task_type`, `priority`.
-  Defaults: `due_date` empty unless mentioned, `hard_deadline=false`,
-  `status=not_started`, `defer_count=0`, everything else empty.
+  New rows receive a UUIDv4 `task_uuid`. Defaults: `due_date` empty unless mentioned, `hard_deadline=false`,
+  `status=not_started`, `defer_count=0`, `assigned_to=BRAIN_ACTOR_ID`,
+  everything else empty. `--assigned-to <user-id>` is an explicit override
+  and must name a member in the selected workspace's `.config/users.json`.
   Implementation: [scripts/add_task.py](../scripts/add_task.py).
 
   **Chunked tasks** (`--chunks N --duration M`): split the task into
@@ -82,6 +87,9 @@ name fragments still work.**
 - **`/todo priority <task> p0|p1|p2|p3|p4`**
 - **`/todo mit <task>`** — adds `mit` to `task_type` (and removes if
   already present — toggle).
+- **`/todo assign <task> <user-id>`** — explicit reassignment through
+  `reassign_task.py`; validates portable membership and preserves every
+  unrelated field.
 - **`/todo set <task> <field>=<value>`** — generic setter for
   `energy_level`, `context`, `estimated_duration`, `project`,
   `start_date`, `blocked_by`, `notes`, `see_also`, `hard_deadline`.
@@ -95,7 +103,8 @@ name fragments still work.**
 - **`/todo list [filters...]`** — read the CSV directly and filter
   in Python (or eyeball it — the file is small). Examples:
   `priority<=p1`, `project=apply-to-ict4d-conference`,
-  `energy=low`, `context=computer`, `type=code`.
+  `energy=low`, `context=computer`, `type=code`. Shared workspaces also accept
+  `assigned_to=<user-id>`; one-person workspaces hide that filter.
 - **`/todo search <query>`** — `rg -i` over `task_name` + `notes`
   across both CSVs.
 - **`/todo habits`** — all active habit instances (status !=

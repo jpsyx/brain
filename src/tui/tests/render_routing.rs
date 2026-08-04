@@ -49,6 +49,7 @@ fn modals(help: bool, palette: bool, brain_input: bool, confirm: bool) -> Active
         brain_input,
         confirm,
         link_picker: false,
+        assignee_filter: false,
     }
 }
 
@@ -59,6 +60,18 @@ fn modals_with_picker(link_picker: bool) -> ActiveModals {
         brain_input: false,
         confirm: false,
         link_picker,
+        assignee_filter: false,
+    }
+}
+
+fn modals_with_assignee_filter(assignee_filter: bool) -> ActiveModals {
+    ActiveModals {
+        help: false,
+        palette: false,
+        brain_input: false,
+        confirm: false,
+        link_picker: false,
+        assignee_filter,
     }
 }
 
@@ -110,5 +123,13 @@ fn link_picker_routes_when_no_higher_modal_is_open() {
     assert_eq!(
         modal_input_target(modals(false, false, false, true)),
         ModalInput::Confirm
+    );
+}
+
+#[test]
+fn assignee_filter_picker_is_a_captive_modal() {
+    assert_eq!(
+        modal_input_target(modals_with_assignee_filter(true)),
+        ModalInput::AssigneeFilter
     );
 }

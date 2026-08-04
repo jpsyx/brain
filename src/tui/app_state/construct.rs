@@ -13,6 +13,17 @@ fn app_workspace_paths(command_context: &crate::workspace::CommandContext) -> (P
     )
 }
 
+fn reconcile_triage_startup(
+    workspace: &crate::workspace::WorkspaceContext,
+    enabled: bool,
+    tasks_path: &std::path::Path,
+) -> anyhow::Result<(Vec<Task>, Vec<Task>)> {
+    crate::tasks::triage_habits::apply_triage_habits_config(workspace, enabled)?;
+    let tasks = crate::tasks::task::load_tasks(tasks_path)?;
+    let habits = crate::tasks::task::load_habits(&workspace.root().join("tasks/habits.csv"))?;
+    Ok((tasks, habits))
+}
+
 impl<'a> App<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -23,6 +34,8 @@ impl<'a> App<'a> {
         csv_path: PathBuf,
         all_tasks: Vec<Task>,
         all_habits: Vec<Task>,
+        assignment: crate::tasks::task::AssignmentContext,
+        assignment_filter: Option<crate::users::UserId>,
         active_view: Option<View>,
         initial_search: Option<String>,
         agenda_runner: Box<dyn ShellRunner>,
@@ -36,6 +49,16 @@ impl<'a> App<'a> {
         skip_daily_triage_check: bool,
     ) -> Self {
         let (brain_root, db_path) = app_workspace_paths(&command_context);
+        let (all_tasks, all_habits) = reconcile_triage_startup(
+            &command_context.workspace,
+            config.enable_triage_habits,
+            &csv_path,
+        )
+        .unwrap_or_else(|error| {
+            crate::logging::log(format!("triage startup reconciliation failed: {error:#}"));
+            (all_tasks, all_habits)
+        });
+        let interactive_actor = command_context.actor.clone();
         let query = initial_search.unwrap_or_default();
         let in_search = !query.is_empty();
         let twilio_from = crate::env::get(&command_context, "twilio_from_number");
@@ -72,6 +95,8 @@ impl<'a> App<'a> {
             query,
             in_search,
             matcher: SkimMatcherV2::default().ignore_case(),
+            assignment,
+            assignment_filter,
             scroll: 0,
             last_inner_height: 1,
             last_content_rows: 1,
@@ -83,6 +108,8 @@ impl<'a> App<'a> {
             triage_token: None,
             brain_rect: None,
             instance,
+            interactive_actor,
+            session_actor: None,
             brain_root,
             db_path,
             log_path: crate::logging::path(),
@@ -92,6 +119,7 @@ impl<'a> App<'a> {
             brain_input: None,
             confirm: None,
             link_picker: None,
+            assignee_filter: None,
             help: None,
             flash: None,
             persistent_warning,
@@ -102,7 +130,7 @@ impl<'a> App<'a> {
             receiver_control: None,
             receiver_rx: None,
             receiver_queue: Vec::new(),
-            requested_receiver_channel: None,
+            requested_receiver_actor: None,
             receiver_lease: None,
             receiver_generation: 0,
             receiver_sender: None,
@@ -135,7 +163,7 @@ mod tests {
         CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
     };
 
-    use super::app_workspace_paths;
+    use super::{app_workspace_paths, reconcile_triage_startup};
 
     #[test]
     fn app_runtime_paths_come_only_from_the_selected_command_context() {
@@ -149,10 +177,11 @@ mod tests {
             Path::new("/workspaces"),
         )
         .expect("workspace context");
-        let context = CommandContext {
-            workspace: Arc::new(workspace),
-            registry_store: RegistryStore::from_path(home.join(".config/brain/env.json")),
-        };
+        let context = CommandContext::for_test(
+            Arc::new(workspace),
+            RegistryStore::from_path(home.join(".config/brain/env.json")),
+            "pablo",
+        );
 
         assert_eq!(
             app_workspace_paths(&context),
@@ -160,6 +189,45 @@ mod tests {
                 Path::new("/workspaces/family").to_path_buf(),
                 home.join(".cache/brain/workspaces/8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b/state.db"),
             )
+        );
+    }
+
+    #[test]
+    fn startup_reconciliation_restores_managed_definitions_before_loading_rows() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join("tasks")).unwrap();
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        let tasks_path = root.join("tasks/tasks.csv");
+        std::fs::write(
+            &tasks_path,
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tasks/habits.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        std::fs::write(root.join(".config/config.json"), "{}\n").unwrap();
+        let workspace = WorkspaceContext::new(
+            temporary.path(),
+            WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
+            WorkspaceName::parse("family").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+
+        let (_, habits) = reconcile_triage_startup(&workspace, true, &tasks_path).unwrap();
+
+        assert_eq!(
+            habits
+                .iter()
+                .filter(|habit| habit.is_managed_triage())
+                .count(),
+            2
         );
     }
 }

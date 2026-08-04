@@ -110,7 +110,7 @@ struct WorkspaceContext {
     id: WorkspaceId,       // immutable UUID identity
     name: WorkspaceName,   // canonical [a-z0-9][a-z0-9_-]* slug
     root: PathBuf,         // absolute lexical path, resolved once
-    local_user_id: String, // this machine's user identity in the workspace
+    local_user_id: String, // this machine's selected portable person
     paths: WorkspacePaths, // machine-local paths keyed by id
 }
 ```
@@ -241,7 +241,8 @@ or an explicit path derived from it; no handler reselects the default.
 Detached Brain children carry the canonical `--brain` selector, never the
 alias the caller happened to use. Brain-owned integrations receive exactly the
 common identity boundary `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
-and `BRAIN_ACTOR_ID`; agent-session variables are layered on separately.
+`BRAIN_ACTOR_ID`, and `BRAIN_CHANNEL`; agent-session variables are layered on
+separately.
 
 Collected management values first become a pure `Mutation` enum. `Create` and
 `Attach` carry a validated canonical name plus an absolute, tilde-expanded,
@@ -274,7 +275,7 @@ non-default record only.
   "schema_version": 1,
   "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
   "receiver_ingress_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
-  "minimum_brain_version": "0.17.1"
+  "minimum_brain_version": "0.18.3"
 }
 ```
 
@@ -287,16 +288,69 @@ manifest before replacing the flat registry.
 
 `workspace::bootstrap` maps every parsed route to `None`, `InternalNoPrompt`,
 `RegistryOnly`, or `ReadyWorkspace`. Only the last class selects and validates
-a record. Readiness is manifest validity/UUID agreement plus a non-empty
-machine-local `local_user_id`. Missing values become a pure
+a record. Readiness is manifest validity/UUID agreement plus portable
+membership when `.config/users.json` exists. In that schema, the machine-local
+`local_user_id` must parse as a user ID and name one member. Missing values become a pure
 `ReadinessAction::Prompt(fields)` interactively or a typed error carrying exact
 repair commands headlessly. Successful interactive repair happens under the
 registry transaction, then bootstrap reloads and constructs one
 `CommandContext` containing `Arc<WorkspaceContext>` and `RegistryStore`.
 
 The first create deliberately leaves `local_user_id` empty. Its next ordinary
-command is therefore the prompt/remediation boundary; after repair that same
-requested command continues.
+interactive command creates the first portable person, selects it locally, and
+continues the requested command. Headless setup uses `brain user add` followed
+by `brain user local`. An existing workspace with no `users.json` and a
+non-empty legacy local ID remains ready so this release does not activate an
+unreviewed migration.
+
+### Portable people (`.config/users.json`)
+
+Schema `1` is strict and rejects unknown fields:
+
+```json
+{
+  "schema_version": 1,
+  "users": [
+    {
+      "id": "alex-smith",
+      "name": "Alex Smith",
+      "phones": [{ "value": "+12125550123", "inbound_allowed": true }],
+      "emails": [{ "value": "alex@example.com", "inbound_allowed": true }],
+      "response_email": "alex@example.com"
+    }
+  ]
+}
+```
+
+User IDs are exact lower-case kebab identifiers. Names are non-empty display
+labels. Phone values are normalized to unambiguous E.164, and email values are
+trimmed and ASCII-lowercased without provider-specific rewriting. A person
+cannot repeat one contact, and one enabled inbound contact cannot belong to
+multiple people. `response_email`, when present, must also appear in that
+person's email list; it need not be enabled for inbound resolution.
+
+Legacy conversion associates a workspace-level response email with the first
+portable person only when it matches a normalized email receiver allowlist
+entry. An unmatched response address and every other allowlisted address stay
+in the unresolved proposal for explicit assignment. A response setting by
+itself does not configure an inbound email identity or trigger an email prompt.
+
+Removing a person can change `tasks.csv`, `habits.csv`, and `users.json` as one
+recoverable group. Same-directory staged files and backups preserve each live
+file's mode. The transient `.config/.brain-user-transaction.json` journal is
+portable so another machine can recognize an interrupted publication; relative
+paths in it are validated before recovery. The SQLite serialization lock is
+machine-local at
+`~/.cache/brain/workspaces/<workspace-uuid>/users.transaction.lock`. Before a
+portable-user load, Brain rolls any journaled group back to its complete old
+generation. Removing the journal commits the new generation.
+
+`local_user_id` stays in the machine registry because different machines may
+be used by different people in the same portable workspace. Two machines may
+also select the same portable ID for the same person; Brain does not create a
+machine-specific version of that person. The field denotes the person acting
+locally, not a device identity, workspace owner, creator, authentication claim,
+or audit principal.
 
 ### Legacy flat-env migration
 
@@ -326,13 +380,71 @@ requested workspace directly. A fresh ordinary or repair invocation instead
 synthesizes the compatible default `brain` workspace and then crosses the
 normal readiness boundary.
 
-### Foundation versus planned portable policy
+### Current boundary versus planned policy
 
-The current foundation stores one machine-local `local_user_id`, but it does
-not yet provide the portable user registry, inbound sender-to-user mapping, or
-task `assigned_to` field. It also does not implement triage-habit policy,
-access-mode enforcement, the agent-controller/OpenCode facade, or the final
-shared receiver lifecycle.
+The current release resolves one immutable `ActorContext` at ordinary command
+bootstrap, before task, reindex, TUI, or local-agent work. Local/TUI work
+resolves `local_user_id`; authenticated
+SMS/email work resolves an enabled portable identity and takes precedence over
+that machine default. A queued receiver job contains the workspace UUID and
+the resolved actor, never an untrusted sender string as `BRAIN_ACTOR_ID`.
+Follow-ups retain the initiating actor. A ready legacy workspace whose portable
+user store is absent uses its exact lower-case kebab local ID as an immutable
+compatibility actor and does not create `users.json`. Malformed nonblank legacy
+IDs are readiness errors with an explicit machine-local repair command. This
+does not add authentication,
+ownership, creator metadata, audit history, or device identity. The release
+now provides canonical `assigned_to` task and habit fields. The value is a
+portable `UserId`; creation defaults to the immutable effective actor,
+unrelated edits preserve it, and explicit changes validate membership. Readers
+accept legacy `assignee`, prefer `assigned_to` when both exist, and writers
+migrate to `assigned_to` by column name. Task rows accept an optional
+`task_uuid` during the compatibility window; all new rows receive UUIDv4, and
+mutations preserve any existing UUID. The inactive schema helper derives
+legacy UUIDv5 values from
+`<workspace-uuid>:<csv-kind>:<legacy-task-id>`, backs up both CSVs, both
+counters, and `SCHEMA.json`, then writes task schema version 2 with
+`task_uuid` as immutable merge identity and `task_id` as mutable display
+identity. The caller supplies an existing durable backup base; a backup
+destination is accepted only when its canonicalized path is beneath that base
+and disjoint from the workspace tree. Each missing descendant is created
+separately, and every actual parent is synced before continuing, including on
+retry through a partially created chain. Exact backup bytes are file-synced
+and their actual parent directory is synced before any portable replacement.
+The helper publishes a durable prepared/committed transaction journal before
+sequential atomic replacements, so retry can roll back an interrupted prepared
+generation or finish cleanup for a committed one; failed journal publication
+removes its temporary file immediately. Current detection validates the merge
+key, mutable display identity, canonical assignment, `system_key`, and UUIDs,
+not the schema version alone. It is not called by startup, readiness, sync, or
+commands. The rollout coordinator still owns the last legacy semantic sync,
+activation, and backup location. Existing legacy files retain `task_id` as
+their merge key until migration. Schema-v2 files merge by `task_uuid` and
+reconcile mutable display IDs without activating that migration.
+Managed triage identity lives in the optional `system_key` column. The reserved
+values `brain.triage.daily` and `brain.triage.weekly` identify Brain-owned
+chains even if their display names change. When enabled, reconciliation keeps
+exactly one pending occurrence for each key; recurrence creates a fresh UUID
+and retains its key and assignment. When disabled, one journaled grouped
+replacement removes every keyed task/habit row plus exact derived UUID/display
+references. Every managed UUID is removed. A managed display ID is also
+removed unless an unmanaged row with that display ID survives; duplicate
+managed rows do not make their shared display ID ambiguous. Name-only matches
+are never purged.
+
+The managed-triage transaction journal is schema version 2. It records the
+workspace UUID, normalized root, state (`preparing`, `prepared`, or
+`committed`), generated transaction ID, and exact live/staged/backup set.
+Recovery authenticates those fields before touching a file. Project purge
+rewrites only the top-level `.METADATA.json:tasks[]` reference field;
+malformed JSON, invalid UTF-8 indexes, and traversal errors abort the whole
+transaction before publication. A display reference shared with an unmanaged
+row is preserved because the surviving row remains its possible target.
+
+The release still does not implement access-mode enforcement, the
+agent-controller/OpenCode facade, or the final shared receiver lifecycle. It
+also does not activate the task-schema migrator or mutate a real legacy
+workspace; Phase 5 owns coordinated activation after the last legacy sync.
 
 The planned `workspace_only` mode is prompt-based guidance plus light
 guardrails. It is not a filesystem sandbox, authentication boundary,
@@ -344,20 +456,24 @@ explicitly configures it otherwise.
 
 ## Persistent state (`state.rs`, `<workspace-cache>/state.db`)
 
-The persistent shell tracks Claude sessions and the layout preference in
-SQLite (WAL). Codex panels currently launch fresh because their launch semantics
-remain frontend-specific. Receiver completion is hook-backed in both frontends.
+The persistent shell tracks frontend-scoped actor sessions and the layout
+preference in SQLite (WAL). Receiver completion is hook-backed in both
+frontends.
 Two tables:
 
 ```sql
 brain_sessions(
-  claude_session_id  TEXT PRIMARY KEY,
+  agent_kind         TEXT NOT NULL,  -- claude | codex
+  agent_session_id   TEXT NOT NULL,
   brain_instance_id  TEXT NOT NULL,  -- one per running `brain` shell (a lineage)
   locked_pid         INTEGER,        -- live brain holding it, or NULL when free
   source             TEXT,           -- last SessionStart source (startup/resume/clear/…)
-  channel            TEXT NOT NULL DEFAULT 'interactive', -- interactive | sms | email
+  workspace_id       TEXT NOT NULL,
+  actor_id           TEXT NOT NULL,
+  channel            TEXT NOT NULL,  -- interactive | sms | email
   created_at         INTEGER NOT NULL,
-  last_active_at     INTEGER NOT NULL
+  last_active_at     INTEGER NOT NULL,
+  PRIMARY KEY(agent_kind, agent_session_id, workspace_id, actor_id, channel)
 )
 meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)
   -- 'panel_side'            = 'left' | 'right'
@@ -374,20 +490,21 @@ without a manual `brain skills sync`.
 
 **The lock + recency model.** A session is "free" when `locked_pid IS NULL`.
 
-- `free_sessions_by_recency` → free sessions, newest (`last_active_at DESC`)
+- `sessions_by_recency` selects free sessions only within the exact
+  agent/workspace/actor/channel scope, newest (`last_active_at DESC`)
   first. The caller walks them and resumes the first whose **transcript
   exists** on disk (`tui::session_transcript_exists` +
   `session::project_dir_name`) — a session opened but never chatted in has a
   DB row but no `<id>.jsonl`, and `claude --resume` can't find it, so it's
   skipped (and the user gets a status-line alert when that forces a fresh
   chat).
-- `claim` → lock a free session to this shell's PID (loses cleanly if
-  another shell grabbed it first).
-- `register_fresh` → insert a brand-new session, locked.
-- Channel sessions are reserved for exactly one reusable SMS session and one
-  reusable email session. Remote messages select their channel row, while
-  interactive work uses the `interactive` role. A `/new` inbound command
-  creates a fresh row for that same channel.
+- `claim` → lock a free session in the exact composite scope to this
+  shell's PID (loses cleanly if another shell grabbed that scoped row first).
+- `register_scoped_fresh` inserts a new Claude session with complete immutable
+  attribution. Hooks record actual Claude or Codex session IDs.
+- Legacy schema-v2 rows migrate transactionally as Claude, interactive rows
+  for the selected workspace and its machine-local user; existing locks,
+  source, and timestamps are preserved.
 - Receiver runtime state distinguishes an active remote job
   (`receiver_started` is set) from a warm channel panel (`receiver_session_id`
   plus a three-minute `receiver_lease`). A warm lease never counts as active
@@ -397,8 +514,10 @@ without a manual `brain skills sync`.
   this instance's locks and stamp `last_active` (floats it to the top of the
   next resume — so re-opening with "Message brain" picks it back up, and a
   second terminal could too).
-- `reap_dead_locks` → on startup, free locks whose PID is no longer alive
-  (`kill -0`), so a crashed shell doesn't strand its session.
+- `reap_dead_locks` → on startup, free exact scoped rows whose PID is no
+  longer alive (`kill -0`), so a crashed shell doesn't strand its session.
+  Equal opaque IDs in other frontend/workspace/actor/channel scopes remain
+  independent.
 
 The invariant: at most one live shell holds a given session (no tangled
 threads), and exactly one session per instance is current (the SessionStart
@@ -743,7 +862,7 @@ No groups at all serializes as `[]`. This is the shape the `/second-brain
 resolve-conflicts` skill parses; see [integrations.md](integrations.md) for
 the resolve side of the contract.
 
-## CSV semantic merge (`src/sync/csv_merge.rs`, `src/sync/csv_sync.rs`)
+## CSV semantic merge (`src/sync/csv_merge/`, `src/sync/csv_sync/`)
 
 `tasks/tasks.csv` and `tasks/habits.csv` are excluded from the bisync file
 lane (`args::bisync_args`'s default excludes) and reconciled instead by a
@@ -752,23 +871,27 @@ copy the way a bisync'd file would (see [integrations.md](integrations.md)
 for the transport, [decisions.md](decisions.md) for why).
 
 Their two id counters, `tasks/.tasks_next_id` and `tasks/.habits_next_id`, are
-likewise excluded from bisync and reconciled out-of-band — but by a simpler
-rule: `counters::merge_counter` takes `max(local, remote)` (stateless, no
-baseline), the only rule that never regresses a monotonic counter and so never
-lets a machine reuse an id the other already assigned. `None` on both sides
-leaves the file absent, and id allocation falls back to `max_existing_id + 1`.
+likewise excluded from bisync and reconciled out-of-band. The counter takes
+`max(local, remote, emitted_max + 1)`, so display-ID reconciliation cannot
+leave a counter able to issue an ID that sync just emitted.
 
-`Table` (`csv_merge.rs`) is the parsed shape, keyed by the first column:
+`Table` (`csv_merge/table.rs`) is the parsed shape, keyed by the active merge
+column found by name:
 
 ```rust
 struct Table {
-    header: Vec<String>,                  // column order, task_id first
-    rows: BTreeMap<String, Vec<String>>,  // task_id -> row cells
+    header: Vec<String>,                  // preserved output order
+    rows: BTreeMap<String, Vec<String>>,  // task_uuid, or legacy task_id -> cells
+    schema_status: SchemaStatus,          // selected from tasks/SCHEMA.json
 }
 ```
 
-`merge(base, ours, theirs) -> (Table, Report)` unions the `task_id`s across
-all three tables and resolves each id independently:
+`merge(base, ours, theirs) -> (Table, Report)` uses `task_uuid` only when
+`tasks/SCHEMA.json` activates the current task schema, and otherwise preserves
+the inactive-migration compatibility path keyed by legacy `task_id`. Merely
+adding a `task_uuid` column does not activate migration: normal writers may
+populate it for new rows while existing rows remain blank. Rows are aligned by
+column name before these rules run:
 
 - **Present on one side only, absent from `base`** — added; kept as-is.
 - **Added on both sides under the same id** — field-merged against an empty
@@ -802,12 +925,32 @@ convergence, below). A legacy or malformed table without the column still
 falls back to a deterministic lexicographic tiebreak (the greater cell value
 wins), noted as a soft conflict in the `Report`.
 
-The header is chosen once per merge as whichever non-empty table has the
-most columns (preferring `ours`, then `theirs`, then `base`), so a schema
-superset survives a merge; every row is padded/truncated to that width
-(`norm`) before any comparison runs.
+The output header is the deterministic union of names from local, remote, and
+base. Schema version 2 requires `task_uuid`, `task_id`, `assigned_to`, and
+`system_key`; `last_touched` remains the preferred conflict timestamp but is
+not an identity requirement. A nonempty legacy table must contain `task_id`.
+Unknown columns survive only when `SCHEMA.json` declares
+`forward_compatible_columns: true`. The manifest and all six base/local/remote
+task and habit tables are preflighted together, so any rejection occurs before
+either CSV, baseline, metadata file, remote object, or counter changes.
 
-`serialize` writes rows in `task_id` order (the `BTreeMap`'s natural
+After row merge, `reconcile.rs` groups equal display IDs. The
+lexicographically smallest UUID retains each contested label; loser UUIDs are
+ordered deterministically and assigned numbers after the maximum display
+number across all three inputs. `relationships.rs` first resolves each side's
+pipe/comma-separated `blocked_by` labels through that side's pre-reconciliation
+display-to-UUID map, then emits the final labels. `see_also` is free text: task
+IDs may be space-separated or surrounded by punctuation because writers append
+URLs with a space. Its column-specific rewrite changes only bounded `T###` or
+`H###` references outside `http(s)` URLs, preserving whitespace, punctuation,
+separators, URLs, and text such as `T100` when only `T10` changed. It falls back
+to the original display label when a referenced row is deleted, so temporary
+UUID markers never reach disk. The same final table derives each project's
+`.METADATA.json:tasks[]`; every metadata file is parsed and staged before any
+local rewrite. Remote publication sends every authoritative metadata file,
+including locally unchanged files, so retry heals a prior partial upload.
+
+`serialize` writes rows in current merge-key order (the `BTreeMap`'s natural
 ordering), so two machines merging the same three inputs — even with
 `ours`/`theirs` swapped — produce **byte-identical** output (convergence),
 and merging an already-merged table with itself is a no-op (idempotency);
@@ -823,7 +966,10 @@ reads it as `base` (empty if absent, so the very first CSV sync on a machine
 merges as a safe union of local + remote); after merging, it writes the
 result to the local file and the remote (via `rclone copyto`), then
 overwrites the baseline with that same merged text so the next sync's `base`
-reflects exactly what was agreed this round.
+reflects exactly what was agreed this round. The whole-operation result also
+carries task and habit display-ID floors directly from those reconciled tables;
+counter reconciliation does not fetch either remote CSV again. Push-only sync
+still advances the local counters to those floors before the next allocation.
 
 **Journal note.** `command::format_csv_note` folds the `Report` from both
 CSVs into one segment appended to the sync journal's `note` column (see
@@ -833,7 +979,9 @@ changed, so a clean run's note isn't cluttered by a no-op CSV pass.
 
 **Read-only pending diff.** `brain check` does not run the full 3-way merge
 or update any CSV state. Instead `check::CsvSideDiff` compares one side
-against the cached baseline by `task_id` and counts whole-row additions,
+against the cached baseline by `task_uuid` when the current task schema is
+active (legacy `task_id` otherwise), aligns cells by column name, and counts
+whole-row additions,
 changes, and deletions. `check::CsvPending` holds one push diff
 (`baseline` vs. local CSV) and, when the remote fetch succeeds, one pull diff
 (`baseline` vs. remote CSV). This is a preview of pending row movement, not a
@@ -842,7 +990,10 @@ by `brain sync`. If the baseline text is missing, `check` treats identical
 local/remote CSVs as clean instead of double-counting both sides; when both
 sides are non-empty and differ, it uses the remote CSV as a provisional
 snapshot for local deltas so a local-only task addition does not appear as a
-spurious pull.
+spurious pull. Schema metadata and all three CSV generations use a fallible
+read boundary. Invalid schema, malformed records, or duplicate active keys
+stop the preview with a labeled warning, without mutating CSVs, baselines,
+metadata, counters, or remotes and without reporting a false clean state.
 
 ## Binary stdout (the output "schema")
 
