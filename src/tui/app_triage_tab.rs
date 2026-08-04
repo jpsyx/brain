@@ -19,6 +19,34 @@ use crate::agent::{
 };
 use crate::pty_pane::PtyPane;
 
+#[cfg(not(test))]
+fn triage_done_url(_app: &mut App<'_>) -> anyhow::Result<String> {
+    crate::server::lifecycle::ensure_running()
+        .map(|port| crate::server::url(port, crate::triage_signal::DONE_PATH))
+}
+
+#[cfg(test)]
+fn triage_done_url(app: &mut App<'_>) -> anyhow::Result<String> {
+    if let Some(url) = app.triage_done_url_override.take() {
+        return Ok(url);
+    }
+    crate::server::lifecycle::ensure_running()
+        .map(|port| crate::server::url(port, crate::triage_signal::DONE_PATH))
+}
+
+#[cfg(not(test))]
+fn triage_transport(_app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+    Box::new(PtyPane::new(24, 80))
+}
+
+#[cfg(test)]
+fn triage_transport(app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+    if let Some(transport) = app.triage_transport_override.take() {
+        return transport;
+    }
+    Box::new(PtyPane::new(24, 80))
+}
+
 impl App<'_> {
     /// Whether the brain panel is on screen with *either* the main or the
     /// triage session (the panel occupies its half whenever one is present).
@@ -32,7 +60,7 @@ impl App<'_> {
         resolve_active_tab(self.active_brain_tab, self.triage_brain.is_some())
     }
 
-    /// The PTY behind the currently-active tab, if any.
+    /// The controller behind the currently-active tab, if any.
     pub(crate) fn active_brain_controller(&self) -> Option<&AgentController> {
         match self.effective_brain_tab() {
             BrainTab::Triage => self.triage_brain.as_ref(),
@@ -102,8 +130,8 @@ impl App<'_> {
             return;
         }
 
-        let done_url = match crate::server::lifecycle::ensure_running() {
-            Ok(port) => crate::server::url(port, crate::triage_signal::DONE_PATH),
+        let done_url = match triage_done_url(self) {
+            Ok(url) => url,
             Err(error) => {
                 crate::logging::log(format!(
                     "triage tab: brain server unavailable ({error}); running triage inline"
@@ -131,10 +159,9 @@ impl App<'_> {
             ("BRAIN_TRIAGE_DONE_URL".to_owned(), done_url),
             ("BRAIN_TRIAGE_TOKEN".to_owned(), token.clone()),
         ]));
-        let mut controller = self.controller_for_transport(
-            self.interactive_actor.clone(),
-            Box::new(PtyPane::new(24, 80)),
-        );
+        let transport = triage_transport(self);
+        let mut controller =
+            self.controller_for_transport(self.interactive_actor.clone(), transport);
         match controller.launch(&request) {
             Ok(()) => {
                 self.triage_brain = Some(controller);
@@ -232,9 +259,7 @@ pub(crate) const fn resolve_active_tab(requested: BrainTab, has_triage: bool) ->
 #[cfg(test)]
 mod tests {
     use super::resolve_active_tab;
-    use crate::session::{self, AgentKind, Plan};
     use crate::tui::BrainTab;
-    use std::path::Path;
 
     #[test]
     fn triage_is_shown_only_when_a_triage_session_exists() {
@@ -246,35 +271,5 @@ mod tests {
     fn main_stays_main_regardless_of_triage_presence() {
         assert_eq!(resolve_active_tab(BrainTab::Main, true), BrainTab::Main);
         assert_eq!(resolve_active_tab(BrainTab::Main, false), BrainTab::Main);
-    }
-
-    #[test]
-    fn triage_launches_a_fresh_ephemeral_session_for_each_frontend() {
-        let plan = Plan::Fresh("ephemeral-id".to_owned());
-        let cases = [
-            (
-                AgentKind::Claude,
-                "claude --model sonnet",
-                "cd '/workspaces/family' && claude --model sonnet --session-id 'ephemeral-id' '/triage'",
-            ),
-            (
-                AgentKind::Codex,
-                "codex --model gpt-5",
-                "cd '/workspaces/family' && codex --model gpt-5 '/triage'",
-            ),
-        ];
-
-        for (agent, configured_command, expected) in cases {
-            assert_eq!(
-                session::build_llm_command(
-                    Path::new("/workspaces/family"),
-                    agent,
-                    configured_command,
-                    &plan,
-                    Some("/triage"),
-                ),
-                expected
-            );
-        }
     }
 }

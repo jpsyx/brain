@@ -143,14 +143,15 @@ retry.
 Answering **Yes** to the startup daily-triage nudge spawns a *second*,
 ephemeral agent session as a brain-panel tab (`App::triage_brain`,
 `app_triage_tab.rs`) rather than typing `/triage` into the main session. It is
-launched through the same adapter-backed compatibility wrapper seeded with
+launched through an `AgentController` and a fresh `LaunchRequest` seeded with
 `/triage`, but with two deliberate differences from the main panel:
 
-- **It is never tracked.** `session::env_for_triage` injects the five common
-  workspace/actor variables plus `BRAIN_TRIAGE_DONE_URL` and
-  `BRAIN_TRIAGE_TOKEN`, but **omits** `BRAIN_INSTANCE_ID` /
-  `BRAIN_STATE_DB`. The SessionStart hook requires those tracking variables in
-  addition to workspace identity, so the triage session is never written to
+- **It is never tracked.** Its `HookMetadata` contains only
+  `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. The selected adapter adds
+  the common workspace identity and `BRAIN_AGENT_KIND`, while
+  `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, and `BRAIN_RESPONSE_ID` remain absent.
+  The SessionStart hook requires those tracking variables in addition to
+  workspace identity, so the triage session is never written to
   `brain_sessions` and is never a resume candidate.
 - **Completion is signalled, not inferred.** A triage pass can involve
   back-and-forth with the user, so "the agent went idle" is not a reliable done
@@ -197,7 +198,7 @@ Which session to run is decided by the **lock + recency** model in
    skips those. If it claims a valid candidate it `--resume`s it; otherwise
    it starts a fresh `--session-id` (registered, locked to this PID) and, if
    it skipped a missing-transcript candidate, shows a status-line alert:
-   *"couldn't find a session to resume — starting a new brain chat"*.
+   *"couldn't find a session to resume; starting a new brain chat"*.
 2. brain passes the selected workspace's `BRAIN_WORKSPACE_ID`,
    `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and
    `BRAIN_AGENT_KIND` plus

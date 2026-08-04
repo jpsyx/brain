@@ -106,6 +106,10 @@ impl<'a> App<'a> {
             triage_brain: None,
             active_brain_tab: BrainTab::Main,
             triage_token: None,
+            #[cfg(test)]
+            triage_done_url_override: None,
+            #[cfg(test)]
+            triage_transport_override: None,
             brain_rect: None,
             instance,
             interactive_actor,

@@ -135,14 +135,13 @@ Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
 not use that UUID-scoped path.
 
-This is the current Phase 2 boundary plus the Phase 3 agent facade and adapter
+This is the current Phase 2 boundary plus the Phase 3 agent-controller
 boundary, not the complete approved roadmap. Task assignment and managed
 triage-habit policy are active. The frontend-neutral `agent` facade, concrete
-Claude/Codex adapters, and PTY transport implementation now exist. Current TUI
-callers use adapter-backed compatibility seams; controller ownership and full
-receiver migration remain later Phase 3 tasks. Advisory access modes, OpenCode,
+Claude/Codex adapters, PTY transport, main and triage controller ownership, and
+receiver controller dispatch now exist. Advisory access modes, OpenCode,
 coordinated task-schema activation, and the shared receiver lease lifecycle
-also remain later phases.
+remain later phases.
 In particular, `workspace_only` is planned prompt-based guidance and light
 guardrails. It is not a filesystem sandbox or an authentication boundary, and
 no access-mode enforcement ships in this foundation. Changing the default
@@ -254,7 +253,7 @@ and hook metadata values. `session` owns the canonical `AgentKind` identity,
 frontend-neutral `SessionStore`, immutable `SessionScope`, and durable
 `CompletionStatus`;
 the crate-level `session.rs` re-exports it and keeps adapter-backed command/env
-wrappers for compatibility until callers move. `claude` and `codex` own launch
+wrappers for compatibility callers and pure tests. `claude` and `codex` own launch
 syntax, input sequences, completion, transcript, and session-lifecycle rules.
 `PtyPane` implements `AgentTransport`. The main panel and ephemeral triage tab
 are both stored as `Option<AgentController>`; keyboard, receiver, draw, scroll,
@@ -790,8 +789,10 @@ The larger submodules are directories split by concern: `handlers/`
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
 `draw/mod.rs`), `palette/` (`command`/`state`), `app_state/`
 (`construct`/`nav`/`view`/`selection_query`), `app_actions/`
-(`commands`/`triage`), and `tests/` (split by area). `app_brain.rs` owns the
-main persistent controller, receiver dispatch, and completion delivery;
+(`commands`/`triage`), `app_brain/` (`launch`/`lifecycle` plus receiver
+`dispatch`/`completion`/`state` and focused tests), and `tests/` (split by
+area). `app_brain/` owns the main persistent controller, receiver dispatch,
+and completion delivery;
 `app_triage_tab.rs` owns the ephemeral daily-triage controller and tab
 (open/close/select, the `BrainTab` resolution, and the `tick_triage_done`
 auto-close). The overlay-modal state
@@ -849,19 +850,15 @@ the child starts and has no frontend-specific command or input knowledge.
 Compatibility launch planning: re-exported `agent::AgentKind`,
 `Plan::{Resume,Fresh}` (chosen from actor-scoped DB resume candidates), and
 `build_llm_command`, which adds the legacy shell `cd` prefix around the command
-translated by the selected adapter. `env_for` retains the current tracked-panel
-environment until controller-owned callers supply the complete launch request.
-Agent env starts with `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
-`BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and `BRAIN_AGENT_KIND`, then adds
-`BRAIN_INSTANCE_ID`, `BRAIN_PID`, the selected `BRAIN_STATE_DB`, and selected
-`BRAIN_RESPONSE_DIR`/`BRAIN_RESPONSE_ID` for the hooks. `claude_cmd`
-and `codex_cmd` are machine-local brain env values. Both configured commands
-are spliced in verbatim so they may carry their own flags, and brain never
-depends on a shell alias. `env_for_triage` starts with the five common
-workspace/actor variables plus `BRAIN_AGENT_KIND`, adds
-`BRAIN_TRIAGE_DONE_URL` / `BRAIN_TRIAGE_TOKEN`, and
-deliberately omits the session tracking vars so the daily-triage tab stays out
-of the session DB.
+translated by the selected adapter. `env_for` and `env_for_triage` remain only
+as compatibility helpers for pure callers and tests. Live TUI panels build
+complete `LaunchRequest` values: the adapter supplies common workspace identity
+and `BRAIN_AGENT_KIND`; the main panel's `HookMetadata` adds instance, PID,
+state DB, and response attribution, while the triage panel adds only
+`BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. `claude_cmd` and `codex_cmd`
+are machine-local brain env values. Both configured commands are spliced in
+verbatim so they may carry their own flags, and brain never depends on a shell
+alias.
 
 ### `triage_signal.rs`
 The on-disk bridge for the daily-triage tab's completion signal. Pure
@@ -886,7 +883,7 @@ and `active`/`completed` completion status;
 workspace's skills, read by `skills::resync_on_version_change`). The resume
 model is scoped lock + recency behind `agent::session::SessionStore`
 (`reap_dead_locks`, `sessions_by_recency`, `claim`, `register`, `release`,
-`mark_completed`, `completion_status`). The `PanelSide` enum lives here since
+`mark_active`, `mark_completed`, `completion_status`). The `PanelSide` enum lives here since
 it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 

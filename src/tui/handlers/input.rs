@@ -101,20 +101,20 @@ pub(crate) fn handle_brain_key(
     if !alive {
         return false;
     }
-    if brain_key_starts_turn(k.code) {
-        app.mark_brain_turn_started();
-    }
+    let starts_turn = brain_key_starts_turn(k.code);
     if let Some(controller) = app.brain.as_mut() {
         // Typing snaps back to the live tail so the prompt is always in
         // view, even if the user had scrolled up through history.
         controller.scroll_to_bottom();
-        let result = if brain_key_starts_turn(k.code) {
+        let result = if starts_turn {
             controller.submit_now()
         } else {
             controller.forward_terminal_input(bytes)
         };
         if let Err(error) = result {
             crate::logging::log(format!("brain input failed: {error}"));
+        } else if starts_turn {
+            app.mark_brain_turn_started();
         }
     }
     false

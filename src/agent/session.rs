@@ -159,6 +159,9 @@ pub trait SessionStore {
     /// Release every session held by a shell instance.
     fn release(&self, instance: &str) -> Result<()>;
 
+    /// Mark the currently locked session in one shell lineage active.
+    fn mark_active(&self, instance: &str, scope: &SessionScope) -> Result<bool>;
+
     /// Mark an exactly scoped session completed.
     fn mark_completed(&self, session: &AgentSession, scope: &SessionScope) -> Result<bool>;
 

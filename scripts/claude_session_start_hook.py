@@ -110,6 +110,16 @@ def main() -> None:
             ).fetchone()
             if not lineage:
                 return
+            target = conn.execute(
+                """
+                SELECT brain_instance_id, locked_pid FROM brain_sessions
+                WHERE agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
+                  AND actor_id = ? AND channel = ?
+                """,
+                (scope[0], session_id, scope[1], scope[2], scope[3]),
+            ).fetchone()
+            if target and target[0] != instance and target[1] is not None:
+                return
 
         conn.execute(
             """

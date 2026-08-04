@@ -500,6 +500,24 @@ impl SessionStore for Db {
         Self::release(self, instance)
     }
 
+    fn mark_active(&self, instance: &str, scope: &SessionScope) -> Result<bool> {
+        let changed = self.conn.execute(
+            "UPDATE brain_sessions SET completion_status = ?1
+             WHERE brain_instance_id = ?2 AND locked_pid IS NOT NULL
+               AND agent_kind = ?3 AND workspace_id = ?4
+               AND actor_id = ?5 AND channel = ?6",
+            rusqlite::params![
+                CompletionStatus::Active.as_str(),
+                instance,
+                scope.agent_kind().as_str(),
+                scope.workspace_id().to_string(),
+                scope.actor().user_id().as_str(),
+                scope.actor().channel().as_str(),
+            ],
+        )?;
+        Ok(changed == 1)
+    }
+
     fn mark_completed(&self, session: &AgentSession, scope: &SessionScope) -> Result<bool> {
         let changed = self.conn.execute(
             "UPDATE brain_sessions SET completion_status = ?1
@@ -593,6 +611,11 @@ mod tests {
             assert_eq!(
                 SessionStore::completion_status(&db, &session, &scope),
                 Some(CompletionStatus::Completed)
+            );
+            assert!(SessionStore::mark_active(&db, "shell", &scope).unwrap());
+            assert_eq!(
+                SessionStore::completion_status(&db, &session, &scope),
+                Some(CompletionStatus::Active)
             );
         }
     }

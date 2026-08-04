@@ -269,6 +269,10 @@ pub(crate) struct App<'a> {
     /// to auto-close the tab, so a stale signal from an earlier run can't close
     /// a freshly-opened session.
     triage_token: Option<String>,
+    #[cfg(test)]
+    triage_done_url_override: Option<String>,
+    #[cfg(test)]
+    triage_transport_override: Option<Box<dyn crate::agent::AgentTransport>>,
 
     /// Which main view is showing in the main panel: the tasks view (startup
     /// default) or the brain-directory fuzzy-search view. The brain panel is

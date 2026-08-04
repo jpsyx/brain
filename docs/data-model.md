@@ -508,7 +508,9 @@ without a manual `brain skills sync`.
   the ID rotates an already registered active shell lineage; every other hook
   event is rejected.
 - `SessionStore::mark_completed` and the Stop hook transition the exact scoped
-  row to `completed`; an accepted SessionStart returns it to `active`.
+  row to `completed`; an accepted SessionStart or
+  `SessionStore::mark_active` after a successful local or queued submit returns
+  it to `active`.
 - Legacy schema-v2 through schema-v4 rows migrate transactionally as Claude,
   interactive rows
   for the selected workspace and its machine-local user; existing locks,
@@ -535,12 +537,14 @@ hook frees the instance's others on every start, handling `/new`). The
 because it's the persisted layout value.
 
 **The daily-triage tab is deliberately *absent* from this table.** The
-ephemeral triage session (`App.triage_brain`) is launched with
-`session::env_for_triage`, which omits `BRAIN_INSTANCE_ID` / `BRAIN_STATE_DB`;
-the SessionStart hook no-ops without them, so no `brain_sessions` row is ever
-written and it is never a resume candidate. It lives only in process memory
-(`App.triage_brain` / `App.active_brain_tab: BrainTab` / `App.triage_token`) and
-is torn down when triage completes or the shell exits.
+ephemeral triage session (`App.triage_brain`) is launched by an
+`AgentController` from a fresh `LaunchRequest`. Its hook metadata carries the
+triage done URL and token but no `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, or
+`BRAIN_RESPONSE_ID`. The SessionStart hook no-ops without the tracking values,
+so no `brain_sessions` row is ever written and it is never a resume candidate.
+It lives only in process memory (`App.triage_brain` /
+`App.active_brain_tab: BrainTab` / `App.triage_token`) and is torn down when
+triage completes or the shell exits.
 
 ## Daily-triage completion signal (`triage_signal.rs`, `~/.cache/brain/triage-done.json`)
 

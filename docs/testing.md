@@ -138,10 +138,11 @@ first move is a failing test that reproduces it, *then* the fix.
   skipping, root-skipping, tolerance of a missing bucket.
 - **The session store** (`state.rs`, in-memory SQLite). Scoped resume
   ordering, exact composite-scope `claim` win/lose, registration + `release`
-  round-trip, exact composite-scope `reap_dead_locks` with an injected
-  pid-liveness predicate, preservation of equal opaque IDs across scopes, the
-  two-shells-take-distinct-sessions invariant, and `panel_side` round-trip
-  + flip. `open_in_memory` / `with_pid_alive` are the test seams
+  round-trip, `completed` to `active` reactivation for both frontends, exact
+  composite-scope `reap_dead_locks` with an injected pid-liveness predicate,
+  preservation of equal opaque IDs across scopes, the
+  two-shells-take-distinct-sessions invariant, and `panel_side` round-trip +
+  flip. `open_in_memory` / `with_pid_alive` are the test seams
   (deterministic clock + injectable pid probe), so no real process or wall
   clock is involved.
 - **Launch builders** (`session.rs`). `AgentKind`, `Plan::decide` (resume vs
@@ -150,16 +151,19 @@ first move is a failing test that reproduces it, *then* the fix.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).
-- **The brain shell's pure bits** (`tui.rs`). `startup_focus` (the shell
+- **The brain shell's pure bits** (`tui/`). `startup_focus` (the shell
   lands in the search panel at startup), `focus_left`/`focus_right`
   (focus follows the layout swap), `panel_borders` (the right panel owns the
   divider), and `key_to_bytes` (non-semantic key → terminal byte encoding).
-  Recording frontend/transport tests cover `AgentController` and its App
-  consumers: Enter calls semantic submit, injected work queues after a
-  controller-owned two-tick delay, shutdown fires once, agent exit closes only
-  the panel, normal and triage panels use the selected adapter, and fallback
-  completion captures the transport snapshot with the controller's initiating
-  actor/channel before teardown.
+  Recording frontend/transport tests under `tui/app_brain/tests/` cover
+  `AgentController` and its App consumers: failed fresh registration prevents
+  launch, Enter calls semantic submit and reactivates the scoped store row,
+  injected work queues and reactivates after a controller-owned two-tick delay,
+  `Ctrl-N` targets the effective main or triage tab, shutdown fires once, and
+  agent exit closes only the panel. The actual `App::open_triage_tab` path uses
+  the selected adapter, includes only ephemeral hook metadata, and creates no
+  session row. Fallback completion captures the transport snapshot with the
+  controller's initiating actor/channel before teardown.
 - **Receiver dispatch state.** `tui/receiver_state.rs` proves that an idle
   open panel switches to queued receiver work, an active submitted turn waits,
   a same-channel warm panel is reused, a different channel replaces it, and a

@@ -400,18 +400,22 @@ resumes its last conversation; a second can't grab the one the first holds,
 so it takes the next-free session or a fresh one. Crashes don't strand a
 session — dead-PID locks are reaped (`kill -0`) on the next startup.
 
-## Why a SessionStart hook (and deliberately not a Stop hook)
+## Why SessionStart and Stop hooks have distinct jobs
 
 brain can choose a session id up front (`--session-id`), but if the user
 types `/new` (or `/clear`) mid-run, Claude may rotate to an id brain never
-saw — and that fresh conversation is the one they'd want to resume next
-time. A **SessionStart** hook fires on every start/resume/clear/compact with
-the live `session_id` (keyed to the shell via `BRAIN_INSTANCE_ID` /
-`BRAIN_PID` env), so brain always learns the current id — robust whether or
-not `/clear` rotates it. We do **not** add a `Stop` hook (the `tasks`
-project's "last assistant message" mechanism): brain-panel sessions are
-continuous conversations, not discrete runs, so there's no per-run
-completion to capture.
+saw. That fresh conversation is the one they would want to resume next time.
+A **SessionStart** hook fires on every start/resume/clear/compact with the live
+`session_id` (keyed to the shell via `BRAIN_INSTANCE_ID` / `BRAIN_PID` env),
+so brain always learns the current id and returns the exact scoped row to
+`active`.
+
+The **Stop** hook has a separate, per-turn responsibility. It writes the
+authenticated completion artifact and marks that same scoped row `completed`,
+which lets queued receiver work advance. It does not end the persistent
+conversation or make the PTY disposable. The next successful local or queued
+submit calls `SessionStore::mark_active`, so ordinary turns after the first one
+do not depend on another SessionStart event to reactivate the row.
 
 ## Why we verify a transcript exists before resuming a session
 
@@ -1730,20 +1734,23 @@ session blocked everything else until it finished. We moved it into its own
 brain-panel **tab** (`Alt+1` main / `Alt+2` daily triage) so the pass runs as a
 background task.
 
-**Why a dedicated `triage_brain` slot, not a general `Vec<PtyPane>` of sessions.**
-The requirement was explicitly narrow: users must *not* be able to spawn
-arbitrary sessions; a second session may exist *only* for daily triage. A
-dedicated `Option<PtyPane>` plus a two-variant `BrainTab` models exactly that,
-keeps the existing single-panel receiver/session machinery (which is woven
-through `App.brain`) untouched, and can't grow into an unbounded tab manager by
-accident. Generalizing to N sessions would have been a much larger, riskier
-refactor for capability we deliberately don't want.
+**Why a dedicated `triage_brain` slot, not a general
+`Vec<AgentController>` of sessions.** The requirement was explicitly narrow:
+users must *not* be able to spawn arbitrary sessions; a second session may
+exist *only* for daily triage. A dedicated `Option<AgentController>` plus a
+two-variant `BrainTab` models exactly that, keeps receiver/session state
+centered on the dedicated `App.brain` controller, and cannot grow into an
+unbounded tab manager by accident. Generalizing to N sessions would have been
+a much larger refactor for capability we deliberately do not want.
 
-**Why the session is untracked.** The triage tab is ephemeral by construction:
-`session::env_for_triage` omits `BRAIN_INSTANCE_ID` / `BRAIN_STATE_DB`, so the
-SessionStart hook never records it and it is never a resume candidate. If the
-shell closes mid-triage the session is lost and the startup nudge simply fires
-again next launch — which is the desired behavior, not a bug to engineer around.
+**Why the session is untracked.** The triage tab is ephemeral by construction.
+`App::open_triage_tab` builds an `AgentController` from a `LaunchRequest` whose
+hook metadata carries only `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`.
+The adapter adds the common workspace identity and agent kind, but the request
+has no instance ID, state DB, or response ID. The SessionStart hook therefore
+never records it, and it is never a resume candidate. If the shell closes
+mid-triage the session is lost and the startup nudge simply fires again next
+launch, which is the desired behavior.
 
 **Why a completion signal instead of idle-detection, and why via the brain
 server.** "The agent went idle" is unreliable — a triage pass asks the user

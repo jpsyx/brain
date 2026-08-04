@@ -293,6 +293,21 @@ fn distinct_instances_get_distinct_locked_sessions() {
 }
 
 #[test]
+fn rotation_cannot_steal_a_session_registered_to_another_live_lineage() {
+    let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "sess-1", "inst-1", 10);
+    register_session(&db, "claude", "pablo", "sess-2", "inst-2", 20);
+
+    let out = run_hook(&db, Some(("inst-1", 10)), &start_input("sess-2"));
+
+    assert!(out.status.success(), "hook exited non-zero: {out:?}");
+    let first = read_session(&db, "sess-1").expect("first lineage preserved");
+    let second = read_session(&db, "sess-2").expect("second lineage preserved");
+    assert_eq!((first.0.as_str(), first.1), ("inst-1", Some(10)));
+    assert_eq!((second.0.as_str(), second.1), ("inst-2", Some(20)));
+}
+
+#[test]
 fn hook_preserves_equal_opaque_ids_with_conflicting_immutable_attribution() {
     let (_tmp, db) = fresh_db();
     register_session(
