@@ -607,6 +607,7 @@ class WorkspaceContextTests(unittest.TestCase):
             'agenda-appendix',
             '## 📧',
             '## 📰',
+            'the two this script adds',
         )
         targets = [SCRIPTS.parent / "SKILL.md", *SCRIPTS.glob("*.py")]
         for target in targets:

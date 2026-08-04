@@ -47,8 +47,8 @@ def _strip_leading_h1(text: str) -> str:
 def _demote_headings(text: str) -> str:
     """Demote every ATX heading so the deepest it can sit is `###`. A source
     `##` or `#` becomes `###`; `###` becomes `####`; etc. (capped at 6). This
-    guarantees the appendix body contains no `## ` line, so the only
-    section-level headings in it are the two this script adds."""
+    guarantees the appendix body contains no `## ` line, so the generic
+    wrapper remains the only section-level heading this script adds."""
     out = []
     for ln in text.splitlines():
         m = _ATX_RE.match(ln)

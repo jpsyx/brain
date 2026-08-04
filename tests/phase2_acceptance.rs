@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use brain::actor::{Channel, RequestIdentity, resolve_actor};
+use brain::actor::{Channel, RequestIdentity};
+use brain::server::security::{AuthenticatedActorError, resolve_authenticated_actor};
 use brain::users::{UserId, Users, UsersStore};
 use brain::workspace::{
     MachineRegistry, REGISTRY_SCHEMA_VERSION, RegistryStore, WorkspaceContext, WorkspaceId,
@@ -172,8 +173,26 @@ fn authenticated_inbound_actor_drives_default_task_assignment() {
     ];
 
     for (index, request) in requests.into_iter().enumerate() {
-        let actor =
-            resolve_actor(&UserId::parse("local-member").unwrap(), request, &users).unwrap();
+        let tasks_path = root.join("tasks/tasks.csv");
+        let rows_before_rejection = std::fs::read(&tasks_path).ok();
+        let rejected = resolve_authenticated_actor(
+            false,
+            &UserId::parse("local-member").unwrap(),
+            request,
+            &users,
+        );
+        assert!(matches!(
+            rejected,
+            Err(AuthenticatedActorError::ProviderAuthenticationFailed)
+        ));
+        assert_eq!(std::fs::read(&tasks_path).ok(), rows_before_rejection);
+        let actor = resolve_authenticated_actor(
+            true,
+            &UserId::parse("local-member").unwrap(),
+            request,
+            &users,
+        )
+        .unwrap();
         assert_eq!(actor.user_id().as_str(), "remote-member");
         assert!(matches!(actor.channel(), Channel::Email | Channel::Sms));
         let mut command = Command::new("python3");
