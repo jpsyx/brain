@@ -938,3 +938,84 @@ pub(crate) const fn advance_submit_countdown(pending: u8) -> (u8, bool) {
         n => (n - 1, false),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::session_transcript_exists;
+    use crate::actor::{RequestIdentity, resolve_actor};
+    use crate::session::AgentKind;
+    use crate::state::{Db, SessionScope};
+    use crate::tui::receiver_state::{
+        DispatchAction, commit_dispatch, dispatch_action_for_channel,
+    };
+    use crate::users::{USERS_SCHEMA_VERSION, User, UserId, Users};
+    use crate::workspace::WorkspaceId;
+
+    fn scope() -> SessionScope {
+        let users = Users {
+            schema_version: USERS_SCHEMA_VERSION,
+            users: vec![User {
+                id: UserId::parse("pablo").expect("valid user id"),
+                name: "Pablo".to_owned(),
+                phones: Vec::new(),
+                emails: Vec::new(),
+                response_email: None,
+            }],
+        };
+        let actor = resolve_actor(
+            &UserId::parse("pablo").expect("valid user id"),
+            RequestIdentity::Local,
+            &users,
+        )
+        .expect("local actor");
+        SessionScope::new(
+            AgentKind::Claude,
+            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").expect("valid id"),
+            actor,
+        )
+    }
+
+    #[test]
+    fn missing_transcript_is_not_a_resumable_claude_session() {
+        let id = format!("missing-{}", uuid::Uuid::new_v4());
+        assert!(
+            !session_transcript_exists(Path::new("/nonexistent/brain-root"), &id),
+            "a Claude resume candidate without a transcript must be skipped"
+        );
+    }
+
+    #[test]
+    fn remote_queue_waits_for_active_work_and_only_dequeues_after_launch() {
+        use crate::server::receiver::Channel;
+
+        assert_eq!(
+            dispatch_action_for_channel(Some(Channel::Sms), true, None, true, false),
+            DispatchAction::WaitForTurn
+        );
+        assert_eq!(
+            dispatch_action_for_channel(Some(Channel::Sms), false, None, false, false),
+            DispatchAction::StartNext
+        );
+
+        let mut queue = vec!["first", "second"];
+        assert_eq!(commit_dispatch(&mut queue, false), None);
+        assert_eq!(queue, ["first", "second"]);
+        assert_eq!(commit_dispatch(&mut queue, true), Some("first"));
+        assert_eq!(queue, ["second"]);
+    }
+
+    #[test]
+    fn clean_shutdown_releases_the_session_for_the_next_shell() {
+        let db = Db::open_in_memory().expect("state db");
+        let scope = scope();
+        db.register_scoped_fresh("session-1", "shell-1", 42, &scope)
+            .expect("register fresh session");
+        assert!(db.sessions_by_recency(&scope).is_empty());
+
+        db.release("shell-1").expect("release session lock");
+
+        assert_eq!(db.sessions_by_recency(&scope), ["session-1"]);
+    }
+}

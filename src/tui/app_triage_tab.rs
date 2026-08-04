@@ -223,7 +223,9 @@ pub(crate) const fn resolve_active_tab(requested: BrainTab, has_triage: bool) ->
 #[cfg(test)]
 mod tests {
     use super::resolve_active_tab;
+    use crate::session::{self, AgentKind, Plan};
     use crate::tui::BrainTab;
+    use std::path::Path;
 
     #[test]
     fn triage_is_shown_only_when_a_triage_session_exists() {
@@ -235,5 +237,35 @@ mod tests {
     fn main_stays_main_regardless_of_triage_presence() {
         assert_eq!(resolve_active_tab(BrainTab::Main, true), BrainTab::Main);
         assert_eq!(resolve_active_tab(BrainTab::Main, false), BrainTab::Main);
+    }
+
+    #[test]
+    fn triage_launches_a_fresh_ephemeral_session_for_each_frontend() {
+        let plan = Plan::Fresh("ephemeral-id".to_owned());
+        let cases = [
+            (
+                AgentKind::Claude,
+                "claude --model sonnet",
+                "cd '/workspaces/family' && claude --model sonnet --session-id 'ephemeral-id' '/triage'",
+            ),
+            (
+                AgentKind::Codex,
+                "codex --model gpt-5",
+                "cd '/workspaces/family' && codex --model gpt-5 '/triage'",
+            ),
+        ];
+
+        for (agent, configured_command, expected) in cases {
+            assert_eq!(
+                session::build_llm_command(
+                    Path::new("/workspaces/family"),
+                    agent,
+                    configured_command,
+                    &plan,
+                    Some("/triage"),
+                ),
+                expected
+            );
+        }
     }
 }

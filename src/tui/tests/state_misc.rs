@@ -4,6 +4,7 @@
 use crate::session::AgentKind;
 use crate::session::shell_quote;
 use crate::tui::*;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 // --- shell_quote ---
 
@@ -256,8 +257,19 @@ fn submit_countdown_fires_the_return_exactly_once() {
     assert_eq!(advance_submit_countdown(after_second), (0, false));
 }
 
+fn existing_submit_key(_agent_kind: AgentKind) -> Vec<u8> {
+    key_to_bytes(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .expect("Enter has a terminal encoding")
+}
+
+fn existing_queue_key(agent_kind: AgentKind) -> Vec<u8> {
+    submit_key_for_agent(agent_kind)
+}
+
 #[test]
-fn injected_prompt_submit_key_matches_agent_frontend() {
-    assert_eq!(submit_key_for_agent(AgentKind::Claude), vec![b'\r']);
-    assert_eq!(submit_key_for_agent(AgentKind::Codex), vec![b'\t']);
+fn semantic_input_differs_only_in_frontend_translation() {
+    assert_eq!(existing_submit_key(AgentKind::Claude), vec![b'\r']);
+    assert_eq!(existing_queue_key(AgentKind::Claude), vec![b'\r']);
+    assert_eq!(existing_submit_key(AgentKind::Codex), vec![b'\r']);
+    assert_eq!(existing_queue_key(AgentKind::Codex), vec![b'\t']);
 }

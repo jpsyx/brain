@@ -357,6 +357,46 @@ mod tests {
     }
 
     #[test]
+    fn launch_matrix_preserves_cwd_prefix_and_frontend_specific_session_syntax() {
+        let root = PathBuf::from("/workspaces/family brain");
+        let prompt = Some("  don't lose this  ");
+
+        let cases = [
+            (
+                AgentKind::Claude,
+                " claude --model sonnet ",
+                Plan::Fresh("fresh-1".to_owned()),
+                "cd '/workspaces/family brain' && claude --model sonnet --session-id 'fresh-1' 'don'\\''t lose this'",
+            ),
+            (
+                AgentKind::Claude,
+                " claude --model sonnet ",
+                Plan::Resume("resume-1".to_owned()),
+                "cd '/workspaces/family brain' && claude --model sonnet --resume 'resume-1' 'don'\\''t lose this'",
+            ),
+            (
+                AgentKind::Codex,
+                " codex --model gpt-5 ",
+                Plan::Fresh("fresh-1".to_owned()),
+                "cd '/workspaces/family brain' && codex --model gpt-5 'don'\\''t lose this'",
+            ),
+            (
+                AgentKind::Codex,
+                " codex --model gpt-5 ",
+                Plan::Resume("resume-1".to_owned()),
+                "cd '/workspaces/family brain' && codex --model gpt-5 resume 'resume-1' 'don'\\''t lose this'",
+            ),
+        ];
+
+        for (agent, configured_command, plan, expected) in cases {
+            assert_eq!(
+                build_llm_command(&root, agent, configured_command, &plan, prompt),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn project_dir_name_mangles_slashes_to_dashes() {
         assert_eq!(
             project_dir_name(&PathBuf::from("/Users/x/brain")),
@@ -419,5 +459,24 @@ mod tests {
         let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
         assert!(!keys.contains(&"BRAIN_INSTANCE_ID"));
         assert!(!keys.contains(&"BRAIN_STATE_DB"));
+    }
+
+    #[test]
+    fn triage_env_stays_ephemeral_for_each_frontend() {
+        for (agent, expected_kind) in [(AgentKind::Claude, "claude"), (AgentKind::Codex, "codex")] {
+            let env = env_for_triage(
+                &workspace(),
+                &actor(),
+                agent,
+                "http://127.0.0.1:8787/triage/done",
+                "tok-9",
+            );
+            let keys: Vec<&str> = env.iter().map(|(key, _)| key.as_str()).collect();
+
+            assert!(env.contains(&("BRAIN_AGENT_KIND".to_owned(), expected_kind.to_owned())));
+            assert!(env.contains(&("BRAIN_TRIAGE_TOKEN".to_owned(), "tok-9".to_owned())));
+            assert!(!keys.contains(&"BRAIN_INSTANCE_ID"));
+            assert!(!keys.contains(&"BRAIN_STATE_DB"));
+        }
     }
 }
