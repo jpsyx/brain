@@ -70,10 +70,8 @@ fn project_relative_command_is_identical_across_workspace_roots() {
         Path::new("/Users/pablo/family"),
     );
     let mbp = command(
-        Path::new(
-            "/Users/juanpablosarmiento/fam-brain/.claude/brain-hooks/claude_stop_hook.py",
-        ),
-        Path::new("/Users/juanpablosarmiento/fam-brain"),
+        Path::new("/Users/member-b/fam-brain/.claude/brain-hooks/claude_stop_hook.py"),
+        Path::new("/Users/member-b/fam-brain"),
     );
     assert_eq!(mini, mbp);
 }

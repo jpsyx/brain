@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::sync::config::SyncConfig;
-use crate::sync::csv_merge::parse;
+use crate::sync::csv_merge::{SchemaStatus, TableParseError, parse};
 use crate::sync::csv_sync::{CSVS, baseline_path, remote_csv_arg};
 use crate::sync::progress::{self, Change, Side};
 use crate::theme::Theme;
@@ -47,8 +47,17 @@ enum CsvDirection {
 /// Compare one CSV side against its cached baseline. Pure.
 #[must_use]
 pub fn diff_csv_rows(base: &str, side: &str) -> CsvSideDiff {
-    let base = parse(base);
-    let side = parse(side);
+    try_diff_csv_rows(base, side, SchemaStatus::Legacy).expect("CSV diff input must parse")
+}
+
+/// Fallible row diff used at local and remote read boundaries.
+pub fn try_diff_csv_rows(
+    base: &str,
+    side: &str,
+    schema_status: SchemaStatus,
+) -> Result<CsvSideDiff, TableParseError> {
+    let base = parse(base, schema_status)?;
+    let side = parse(side, schema_status)?;
     let header = base
         .header
         .iter()
@@ -77,7 +86,7 @@ pub fn diff_csv_rows(base: &str, side: &str) -> CsvSideDiff {
             _ => {}
         }
     }
-    diff
+    Ok(diff)
 }
 
 /// Build the pending row diff for one managed CSV from cached baseline, local,
@@ -92,8 +101,10 @@ pub fn csv_pending_from_texts(
     if base.trim().is_empty()
         && let Some(remote_text) = remote
     {
-        let local_table = parse(local);
-        let remote_table = parse(remote_text);
+        let local_table =
+            parse(local, SchemaStatus::Legacy).expect("local CSV diff input must parse");
+        let remote_table =
+            parse(remote_text, SchemaStatus::Legacy).expect("remote CSV diff input must parse");
         if local_table == remote_table {
             return CsvPending {
                 name: name.to_owned(),
@@ -451,6 +462,19 @@ mod tests {
                     same,open,T10,10000000-0000-4000-8000-000000000010\n";
 
         assert_eq!(diff_csv_rows(base, side), CsvSideDiff::default());
+    }
+
+    #[test]
+    fn malformed_csv_diff_returns_a_typed_error() {
+        let error = try_diff_csv_rows(
+            "task_id,notes\nT1,ok\n",
+            "task_id,notes\nT1,ok,unexpected\n",
+            SchemaStatus::Legacy,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("malformed CSV record"));
+        assert!(error.to_string().contains("row 2"));
     }
 
     #[test]

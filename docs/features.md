@@ -782,7 +782,9 @@ a same-field disagreement otherwise resolves by whichever side's
 column; legacy rows without a parseable timestamp fall back to a deterministic
 tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
 `task_id`; schema-v2 tables are aligned by column name and keyed by immutable
-`task_uuid`. If distinct UUIDs claim the same `T###` or `H###`, the smaller
+`task_uuid`. A compatibility writer adding or populating that column does not
+activate UUID merge identity before `tasks/SCHEMA.json` does so. If distinct
+UUIDs claim the same `T###` or `H###`, the smaller
 UUID keeps it and the other rows receive deterministic IDs above the greatest
 number visible on either side. `blocked_by` chains and project metadata task
 lists are rewritten to the final labels; composite `see_also` values are too,

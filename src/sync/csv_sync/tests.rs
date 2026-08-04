@@ -115,7 +115,9 @@ fn reconciled_project_metadata_is_written_and_pushed_with_final_ids() {
         "task_uuid,task_id,project\n\
              10000000-0000-4000-8000-000000000010,T10,alpha\n\
              20000000-0000-4000-8000-000000000010,T13,alpha\n",
-    );
+        crate::sync::csv_merge::SchemaStatus::Current,
+    )
+    .unwrap();
     let pushed = RefCell::new(Vec::new());
 
     let changed = reconcile_project_metadata(directory.path(), &[table], true, |relative, text| {
@@ -148,7 +150,9 @@ fn malformed_project_metadata_aborts_before_rewriting_unrelated_projects() {
     let table = parse(
         "task_uuid,task_id,project\n\
              10000000-0000-4000-8000-000000000010,T13,alpha\n",
-    );
+        crate::sync::csv_merge::SchemaStatus::Current,
+    )
+    .unwrap();
 
     let result = reconcile_project_metadata(directory.path(), &[table], true, |_, _| true);
 
@@ -305,6 +309,288 @@ fn one_invalid_csv_preflight_blocks_both_csvs_baselines_and_metadata() {
     assert!(!baseline_path(&paths, "habits.csv").exists());
     assert_eq!(std::fs::read(&metadata).unwrap(), metadata_before);
     assert_eq!(pushes.get(), 0);
+}
+
+#[test]
+fn python_legacy_writer_output_syncs_by_task_id_until_schema_activation() {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::process::Command;
+
+    let directory = tempfile::tempdir().unwrap();
+    let home = directory.path().join("home");
+    let root = directory.path().join("workspace");
+    let tasks_dir = root.join("tasks");
+    std::fs::create_dir_all(root.join(".config")).unwrap();
+    std::fs::create_dir_all(&tasks_dir).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        root.join(".config/users.json"),
+        r#"{"schema_version":1,"users":[{"id":"member-a","name":"Member A"}]}"#,
+    )
+    .unwrap();
+    let legacy_tasks = "task_id,task_name,task_type,status,priority,assigned_to\n\
+                        T1,Existing,personal,not_started,p2,member-a\n";
+    let legacy_habits = "task_id,task_name,status,assigned_to\n";
+    std::fs::write(tasks_dir.join("tasks.csv"), legacy_tasks).unwrap();
+    std::fs::write(tasks_dir.join("habits.csv"), legacy_habits).unwrap();
+
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/todo/scripts/add_task.py");
+    let output = Command::new("python3")
+        .arg(script)
+        .args([
+            "--name",
+            "New row",
+            "--type",
+            "personal",
+            "--priority",
+            "p2",
+        ])
+        .env("HOME", &home)
+        .env("XDG_CACHE_HOME", directory.path().join("xdg-cache"))
+        .env("BRAIN_ROOT", &root)
+        .env("BRAIN_WORKSPACE", "fixture")
+        .env("BRAIN_WORKSPACE_ID", "e806258e-491a-436d-9db4-a5ca9903e0d4")
+        .env("BRAIN_ACTOR_ID", "member-a")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let hybrid = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
+    assert!(hybrid.starts_with("task_id,"));
+    assert!(hybrid.contains("task_uuid"));
+
+    let remote = RefCell::new(BTreeMap::from([
+        ("tasks/tasks.csv".to_owned(), legacy_tasks.to_owned()),
+        ("tasks/habits.csv".to_owned(), legacy_habits.to_owned()),
+    ]));
+    let paths = paths(directory.path());
+    let result = sync_csvs_with_transport(
+        &paths,
+        &root,
+        Direction::Both,
+        |relative| remote.borrow().get(relative).cloned(),
+        |relative, text| {
+            remote
+                .borrow_mut()
+                .insert(relative.to_owned(), text.to_owned());
+            true
+        },
+    );
+
+    assert!(result.is_ok(), "{result:?}");
+    let local = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
+    let table = parse(&local, crate::sync::csv_merge::SchemaStatus::Legacy).unwrap();
+    assert_eq!(table.merge_key(), Some("task_id"));
+    let name = table.column("task_name").unwrap();
+    assert_eq!(table.rows["T1"][name], "Existing");
+    assert_eq!(table.rows["T2"][name], "New row");
+    assert_eq!(remote.borrow()["tasks/tasks.csv"], local);
+}
+
+#[test]
+fn python_new_file_stays_task_id_keyed_until_schema_activation() {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::process::Command;
+
+    let directory = tempfile::tempdir().unwrap();
+    let home = directory.path().join("home");
+    let root = directory.path().join("workspace");
+    std::fs::create_dir_all(root.join(".config")).unwrap();
+    std::fs::create_dir_all(root.join("tasks")).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        root.join(".config/users.json"),
+        r#"{"schema_version":1,"users":[{"id":"member-a","name":"Member A"}]}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("tasks/tasks.csv"), "").unwrap();
+    std::fs::write(root.join("tasks/habits.csv"), "task_id,status\n").unwrap();
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/todo/scripts/add_task.py");
+    let output = Command::new("python3")
+        .arg(script)
+        .args([
+            "--name",
+            "First row",
+            "--type",
+            "personal",
+            "--priority",
+            "p2",
+        ])
+        .env("HOME", &home)
+        .env("XDG_CACHE_HOME", directory.path().join("xdg-cache"))
+        .env("BRAIN_ROOT", &root)
+        .env("BRAIN_WORKSPACE", "fixture")
+        .env("BRAIN_WORKSPACE_ID", "e806258e-491a-436d-9db4-a5ca9903e0d4")
+        .env("BRAIN_ACTOR_ID", "member-a")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let remote = RefCell::new(BTreeMap::from([
+        ("tasks/tasks.csv".to_owned(), String::new()),
+        ("tasks/habits.csv".to_owned(), "task_id,status\n".to_owned()),
+    ]));
+    let paths = paths(directory.path());
+    let result = sync_csvs_with_transport(
+        &paths,
+        &root,
+        Direction::Both,
+        |relative| remote.borrow().get(relative).cloned(),
+        |relative, text| {
+            remote
+                .borrow_mut()
+                .insert(relative.to_owned(), text.to_owned());
+            true
+        },
+    );
+
+    assert!(result.is_ok(), "{result:?}");
+    let local = std::fs::read_to_string(root.join("tasks/tasks.csv")).unwrap();
+    let table = parse(&local, crate::sync::csv_merge::SchemaStatus::Legacy).unwrap();
+    assert_eq!(table.merge_key(), Some("task_id"));
+    assert!(table.rows.contains_key("T1"));
+    assert_eq!(remote.borrow()["tasks/tasks.csv"], local);
+}
+
+#[test]
+fn malformed_or_duplicate_generation_refuses_the_whole_operation() {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    struct Case {
+        name: &'static str,
+        manifest: Option<&'static str>,
+        local_tasks: &'static str,
+        remote_tasks: &'static str,
+        expected: &'static str,
+    }
+    let cases = [
+        Case {
+            name: "duplicate local current UUID",
+            manifest: Some(r#"{"task_schema_version":2,"merge_key":"task_uuid"}"#),
+            local_tasks: "task_uuid,task_id,assigned_to,system_key\n\
+                          10000000-0000-4000-8000-000000000001,T1,member-a,\n\
+                          10000000-0000-4000-8000-000000000001,T2,member-a,\n",
+            remote_tasks: "task_uuid,task_id,assigned_to,system_key\n",
+            expected: "local tasks/tasks.csv: duplicate task_uuid",
+        },
+        Case {
+            name: "duplicate remote legacy display ID",
+            manifest: None,
+            local_tasks: "task_id,status\nT1,not_started\n",
+            remote_tasks: "task_id,status\nT1,not_started\nT1,done\n",
+            expected: "remote tasks/tasks.csv: duplicate task_id",
+        },
+        Case {
+            name: "malformed remote record",
+            manifest: None,
+            local_tasks: "task_id,notes\nT1,ok\n",
+            remote_tasks: "task_id,notes\nT1,ok\nT2,ok,unexpected\n",
+            expected: "remote tasks/tasks.csv: malformed CSV record",
+        },
+    ];
+
+    for case in cases {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("workspace");
+        let tasks_dir = root.join("tasks");
+        std::fs::create_dir_all(root.join("projects/alpha")).unwrap();
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::write(tasks_dir.join("tasks.csv"), case.local_tasks).unwrap();
+        let habits = if case.manifest.is_some() {
+            "task_uuid,task_id,assigned_to,system_key\n"
+        } else {
+            "task_id,status\n"
+        };
+        std::fs::write(tasks_dir.join("habits.csv"), habits).unwrap();
+        std::fs::write(tasks_dir.join(".tasks_next_id"), "9\n").unwrap();
+        std::fs::write(tasks_dir.join(".habits_next_id"), "4\n").unwrap();
+        if let Some(manifest) = case.manifest {
+            std::fs::write(tasks_dir.join("SCHEMA.json"), manifest).unwrap();
+        }
+        let metadata = root.join("projects/alpha/.METADATA.json");
+        std::fs::write(&metadata, b"{\"name\":\"alpha\",\"tasks\":[\"T9\"]}\n").unwrap();
+        let paths = paths(directory.path());
+        std::fs::create_dir_all(paths.sync_csv_baselines()).unwrap();
+        let valid_baseline = if case.manifest.is_some() {
+            "task_uuid,task_id,assigned_to,system_key\n"
+        } else {
+            "task_id,status\n"
+        };
+        std::fs::write(baseline_path(&paths, "tasks.csv"), valid_baseline).unwrap();
+        std::fs::write(baseline_path(&paths, "habits.csv"), habits).unwrap();
+        let remote = RefCell::new(BTreeMap::from([
+            ("tasks/tasks.csv".to_owned(), case.remote_tasks.to_owned()),
+            ("tasks/habits.csv".to_owned(), habits.to_owned()),
+            ("tasks/.tasks_next_id".to_owned(), "12\n".to_owned()),
+            ("tasks/.habits_next_id".to_owned(), "7\n".to_owned()),
+        ]));
+        let before_remote = remote.borrow().clone();
+        let before_local_tasks = std::fs::read(tasks_dir.join("tasks.csv")).unwrap();
+        let before_local_habits = std::fs::read(tasks_dir.join("habits.csv")).unwrap();
+        let before_task_baseline = std::fs::read(baseline_path(&paths, "tasks.csv")).unwrap();
+        let before_habit_baseline = std::fs::read(baseline_path(&paths, "habits.csv")).unwrap();
+        let before_metadata = std::fs::read(&metadata).unwrap();
+        let before_task_counter = std::fs::read(tasks_dir.join(".tasks_next_id")).unwrap();
+        let before_habit_counter = std::fs::read(tasks_dir.join(".habits_next_id")).unwrap();
+
+        let result = sync_csvs_with_transport(
+            &paths,
+            &root,
+            Direction::Both,
+            |relative| remote.borrow().get(relative).cloned(),
+            |relative, text| {
+                remote
+                    .borrow_mut()
+                    .insert(relative.to_owned(), text.to_owned());
+                true
+            },
+        );
+
+        let error = result.expect_err(case.name).to_string();
+        assert!(
+            error.contains(case.expected),
+            "{case_name}: {error}",
+            case_name = case.name
+        );
+        assert_eq!(
+            std::fs::read(tasks_dir.join("tasks.csv")).unwrap(),
+            before_local_tasks
+        );
+        assert_eq!(
+            std::fs::read(tasks_dir.join("habits.csv")).unwrap(),
+            before_local_habits
+        );
+        assert_eq!(
+            std::fs::read(baseline_path(&paths, "tasks.csv")).unwrap(),
+            before_task_baseline
+        );
+        assert_eq!(
+            std::fs::read(baseline_path(&paths, "habits.csv")).unwrap(),
+            before_habit_baseline
+        );
+        assert_eq!(std::fs::read(&metadata).unwrap(), before_metadata);
+        assert_eq!(
+            std::fs::read(tasks_dir.join(".tasks_next_id")).unwrap(),
+            before_task_counter
+        );
+        assert_eq!(
+            std::fs::read(tasks_dir.join(".habits_next_id")).unwrap(),
+            before_habit_counter
+        );
+        assert_eq!(*remote.borrow(), before_remote);
+    }
 }
 
 #[test]

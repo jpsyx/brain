@@ -14,7 +14,7 @@ use std::{error::Error, fmt};
 
 use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
-use crate::sync::csv_merge::{merge, parse, serialize, validate_for_merge};
+use crate::sync::csv_merge::{merge, parse, schema_status, serialize, validate_for_merge};
 use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone_capture;
 use operation::sync_csvs_with_transport;
@@ -142,13 +142,38 @@ fn sync_one_with_mode(
     let baseline_text = std::fs::read_to_string(&baseline).unwrap_or_default();
     let local_text = std::fs::read_to_string(local).unwrap_or_default();
     let remote_text = fetch().unwrap_or_default();
-    let base = parse(&baseline_text);
-    let ours = parse(&local_text);
-    let theirs = parse(&remote_text);
     let manifest = local
         .parent()
         .map(|directory| directory.join("SCHEMA.json"))
         .and_then(|path| std::fs::read_to_string(path).ok());
+    let Ok(schema_status) = schema_status(manifest.as_deref()) else {
+        return CsvMergeOutcome {
+            name,
+            soft_conflicts: 1,
+            ..CsvMergeOutcome::default()
+        };
+    };
+    let parsed = [
+        ("baseline", parse(&baseline_text, schema_status)),
+        ("local", parse(&local_text, schema_status)),
+        ("remote", parse(&remote_text, schema_status)),
+    ];
+    let mut tables = parsed.into_iter().map(|(generation, result)| {
+        result.map_err(|error| {
+            crate::logging::log(format!(
+                "csv merge refused for {name}: {generation} {rel}: {error}"
+            ));
+        })
+    });
+    let (Some(Ok(base)), Some(Ok(ours)), Some(Ok(theirs))) =
+        (tables.next(), tables.next(), tables.next())
+    else {
+        return CsvMergeOutcome {
+            name,
+            soft_conflicts: 1,
+            ..CsvMergeOutcome::default()
+        };
+    };
     if let Err(error) = validate_for_merge(manifest.as_deref(), &[&base, &ours, &theirs]) {
         crate::logging::log(format!("csv merge refused for {name}: {error:#}"));
         return CsvMergeOutcome {

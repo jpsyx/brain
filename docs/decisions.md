@@ -304,7 +304,10 @@ Activation is deliberately separate. The fixture-tested schema helper requires
 an explicit last-legacy-sync state, an existing durable machine-local backup
 base, and a destination beneath that base; no runtime path calls it. Existing
 legacy CSVs keep `task_id` identity so their semantic merge remains compatible;
-schema-v2 CSVs merge by UUID, but the helper remains inactive. The helper
+schema-v2 CSVs merge by UUID, but the helper remains inactive. The UUID column
+alone is not activation: compatibility writers may add `task_uuid` for
+new rows while legacy rows remain blank, and sync continues to use `task_id`
+until `tasks/SCHEMA.json` declares the coordinated current schema. The helper
 rejects canonical or lexical path overlap with the workspace, creates each
 missing backup-directory component separately, syncs
 every actual parent on both first attempt and retry, durably syncs each exact

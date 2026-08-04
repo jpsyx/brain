@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::sync::args::Direction;
-use crate::sync::csv_merge::{Table, merge, parse, serialize, validate_for_merge};
+use crate::sync::csv_merge::{Table, merge, parse, schema_status, serialize, validate_for_merge};
 
 use super::metadata::{MetadataPublishError, prepare_project_metadata, publish_project_metadata};
 use super::{CSVS, CsvMergeOutcome, CsvSyncError, CsvSyncResult, DisplayIdFloors, baseline_path};
@@ -57,6 +57,9 @@ pub(super) fn sync_csvs_with_transport(
     mut fetch: impl FnMut(&str) -> Option<String>,
     mut push: impl FnMut(&str, &str) -> bool,
 ) -> Result<CsvSyncResult, CsvSyncError> {
+    let manifest = std::fs::read_to_string(root.join("tasks/SCHEMA.json")).ok();
+    let schema_status = schema_status(manifest.as_deref())
+        .map_err(|error| CsvSyncError::Preflight(format!("{error:#}")))?;
     let mut generations = Vec::with_capacity(CSVS.len());
     for relative in CSVS {
         let local = root.join(relative);
@@ -68,20 +71,24 @@ pub(super) fn sync_csvs_with_transport(
         let baseline_text = std::fs::read_to_string(&baseline).unwrap_or_default();
         let local_text = std::fs::read_to_string(&local).unwrap_or_default();
         let remote_text = fetch(relative).unwrap_or_default();
+        let parse_generation = |generation: &str, text: &str| {
+            parse(text, schema_status).map_err(|error| {
+                CsvSyncError::Preflight(format!("{generation} {relative}: {error}"))
+            })
+        };
         generations.push(CsvGeneration {
             relative,
             local,
             baseline,
-            base: parse(&baseline_text),
-            local_table: parse(&local_text),
-            remote_table: parse(&remote_text),
+            base: parse_generation("baseline", &baseline_text)?,
+            local_table: parse_generation("local", &local_text)?,
+            remote_table: parse_generation("remote", &remote_text)?,
             baseline_text,
             local_text,
             remote_text,
         });
     }
 
-    let manifest = std::fs::read_to_string(root.join("tasks/SCHEMA.json")).ok();
     let tables = generations
         .iter()
         .flat_map(|generation| {

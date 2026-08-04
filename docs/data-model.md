@@ -863,13 +863,16 @@ column found by name:
 struct Table {
     header: Vec<String>,                  // preserved output order
     rows: BTreeMap<String, Vec<String>>,  // task_uuid, or legacy task_id -> cells
+    schema_status: SchemaStatus,          // selected from tasks/SCHEMA.json
 }
 ```
 
-`merge(base, ours, theirs) -> (Table, Report)` uses `task_uuid` whenever that
-column exists, and otherwise preserves the inactive-migration compatibility
-path keyed by legacy `task_id`. Rows are aligned by column name before these
-rules run:
+`merge(base, ours, theirs) -> (Table, Report)` uses `task_uuid` only when
+`tasks/SCHEMA.json` activates the current task schema, and otherwise preserves
+the inactive-migration compatibility path keyed by legacy `task_id`. Merely
+adding a `task_uuid` column does not activate migration: normal writers may
+populate it for new rows while existing rows remain blank. Rows are aligned by
+column name before these rules run:
 
 - **Present on one side only, absent from `base`** — added; kept as-is.
 - **Added on both sides under the same id** — field-merged against an empty
@@ -957,7 +960,8 @@ changed, so a clean run's note isn't cluttered by a no-op CSV pass.
 
 **Read-only pending diff.** `brain check` does not run the full 3-way merge
 or update any CSV state. Instead `check::CsvSideDiff` compares one side
-against the cached baseline by `task_uuid` when present (legacy `task_id`
+against the cached baseline by `task_uuid` when the current task schema is
+active (legacy `task_id`
 otherwise), aligns cells by column name, and counts whole-row additions,
 changes, and deletions. `check::CsvPending` holds one push diff
 (`baseline` vs. local CSV) and, when the remote fetch succeeds, one pull diff

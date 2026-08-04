@@ -552,8 +552,10 @@ bookkeeping.
   of both CSVs, then merges with the pure 3-way merge in
   `crate::sync::csv_merge`. Any preflight failure aborts this whole lane before
   CSVs, baselines, project metadata, remote objects, or counters change.
-  Nonempty legacy input must contain and remains keyed by `task_id`;
-  schema-v2 input is name-aligned and keyed by immutable `task_uuid`. The
+  Nonempty legacy input must contain and remains keyed by `task_id`, even when
+  compatibility writers have added `task_uuid` and populated it for new rows;
+  only an active `tasks/SCHEMA.json` schema v2 makes input name-aligned and
+  keyed by immutable `task_uuid`. The
   inactive task-schema helper is never called by sync; see
   [data-model.md](data-model.md) for the rules. Distinct UUIDs that claim one
   display ID are renumbered deterministically, side-specific `blocked_by` and

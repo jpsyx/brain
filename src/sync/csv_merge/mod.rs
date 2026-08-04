@@ -7,13 +7,15 @@ mod table;
 
 pub use merge::{Report, merge};
 pub use relationships::{project_task_lists, rewrite_project_metadata};
-pub use table::{Table, parse, serialize, validate_for_merge};
+pub use table::{
+    SchemaStatus, Table, TableParseError, parse, schema_status, serialize, validate_for_merge,
+};
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{Table, merge, parse, serialize};
+    use super::{SchemaStatus, Table, merge, parse, serialize};
 
     const H: &[&str] = &[
         "task_id",
@@ -26,7 +28,7 @@ mod tests {
     ];
 
     fn tbl(header: &[&str], rows: &[&[&str]]) -> Table {
-        let header = header.iter().map(|value| (*value).to_owned()).collect();
+        let header: Vec<String> = header.iter().map(|value| (*value).to_owned()).collect();
         let mut map = BTreeMap::new();
         for row in rows {
             let cells = row
@@ -35,7 +37,16 @@ mod tests {
                 .collect::<Vec<_>>();
             map.insert(cells[0].clone(), cells);
         }
-        Table { header, rows: map }
+        let schema_status = if header.iter().any(|column| column == "task_uuid") {
+            SchemaStatus::Current
+        } else {
+            SchemaStatus::Legacy
+        };
+        Table {
+            header,
+            rows: map,
+            schema_status,
+        }
     }
 
     fn cell(table: &Table, id: &str, column: &str) -> String {
@@ -50,18 +61,21 @@ mod tests {
     #[test]
     fn parse_serialize_round_trip() {
         let text = "task_id,status,notes\n1,open,hello\n2,done,world\n";
-        assert_eq!(serialize(&parse(text)), text);
+        assert_eq!(serialize(&parse(text, SchemaStatus::Legacy).unwrap()), text);
     }
 
     #[test]
     fn rows_come_out_task_id_sorted_regardless_of_input_order() {
         let text = "task_id,status\n3,a\n1,b\n2,c\n";
-        assert_eq!(serialize(&parse(text)), "task_id,status\n1,b\n2,c\n3,a\n");
+        assert_eq!(
+            serialize(&parse(text, SchemaStatus::Legacy).unwrap()),
+            "task_id,status\n1,b\n2,c\n3,a\n"
+        );
     }
 
     #[test]
     fn short_rows_are_padded_to_header_width() {
-        let table = parse("task_id,status,notes\n1,open\n");
+        let table = parse("task_id,status,notes\n1,open\n", SchemaStatus::Legacy).unwrap();
         assert_eq!(
             table.rows["1"],
             vec!["1".to_owned(), "open".to_owned(), String::new()]
@@ -70,7 +84,7 @@ mod tests {
 
     #[test]
     fn empty_text_is_empty_table() {
-        let table = parse("");
+        let table = parse("", SchemaStatus::Legacy).unwrap();
         assert!(table.header.is_empty());
         assert!(table.rows.is_empty());
         assert_eq!(serialize(&table), "");

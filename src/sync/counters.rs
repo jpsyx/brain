@@ -46,8 +46,10 @@ pub fn merge_counter(local: Option<u32>, remote: Option<u32>) -> Option<u32> {
 pub fn counter_floor_from_csvs(local: &str, remote: &str, prefix: char) -> Option<u32> {
     [local, remote]
         .into_iter()
-        .flat_map(|text| {
-            let table = crate::sync::csv_merge::parse(text);
+        .filter_map(|text| {
+            crate::sync::csv_merge::parse(text, crate::sync::csv_merge::SchemaStatus::Legacy).ok()
+        })
+        .flat_map(|table| {
             let display_index = table.header.iter().position(|column| column == "task_id");
             table
                 .rows

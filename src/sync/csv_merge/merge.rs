@@ -199,7 +199,11 @@ pub fn merge(base: &Table, ours: &Table, theirs: &Table) -> (Table, Report) {
             (None, None, None) => {}
         }
     }
-    let mut merged = Table { header, rows };
+    let mut merged = Table {
+        header,
+        rows,
+        schema_status: ours.schema_status,
+    };
     reconcile(&mut merged, allocation_floor);
     (emit_final_references(&merged), report)
 }
