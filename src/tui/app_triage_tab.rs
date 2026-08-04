@@ -14,9 +14,7 @@ use super::*;
 
 use std::sync::Arc;
 
-use crate::agent::{
-    AccessPolicy, AgentController, AgentSession, HookMetadata, LaunchRequest, SessionPlan,
-};
+use crate::agent::{AgentController, AgentSession, HookMetadata, LaunchRequest, SessionPlan};
 use crate::pty_pane::PtyPane;
 
 #[cfg(not(test))]
@@ -148,12 +146,12 @@ impl App<'_> {
         let token = uuid::Uuid::new_v4().to_string();
         let session = AgentSession::new(uuid::Uuid::new_v4().to_string())
             .expect("generated triage session id");
-        let request = LaunchRequest::new(
+        let request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.command_context.workspace),
             self.interactive_actor.clone(),
             SessionPlan::fresh(session),
             Some("/triage".to_owned()),
-            AccessPolicy::default(),
+            self.config.access_mode,
         )
         .with_hook_metadata(HookMetadata::new(vec![
             ("BRAIN_TRIAGE_DONE_URL".to_owned(), done_url),

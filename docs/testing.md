@@ -151,6 +151,17 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Launch builders** (`session.rs`). `AgentKind`, `Plan::decide` (resume vs
   fresh), `build_llm_command` (Claude `--resume`/`--session-id`, Codex `resume`
   and no Claude flags for fresh launches, shell-quoting), and `env_for`.
+- **Portable advisory access policy.** `tests/workspace_access_policy.rs`
+  proves first/later create and legacy-migration defaults, strict trusted
+  config mutation, and default-switch byte preservation.
+  `tests/access_boundary.rs` pins the exact non-sandbox prompt fragments,
+  unrestricted absence, immutable inbound separation, all actor/session/triage
+  contexts, honest themed status, and the deliberately bypassable literal-path
+  warning. `tests/agent_access_adapter.rs` proves Claude system-prompt and Codex
+  developer-instruction installation, selected cwd, and the explicit minimal
+  environment. A nested-process PTY test proves unrelated inherited workspace
+  secrets do not reach the child after `env_clear`; a temporary-HOME profile
+  regression proves the non-profile shell cannot recreate a filtered secret.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).
@@ -192,10 +203,10 @@ first move is a failing test that reproduces it, *then* the fix.
   `tests/watch_local.rs` exercises the real watcher callback in the default
   suite: macOS validates the one-second polling fallback, while other platforms
   use notify's recommended native backend.
-- **PTY scrollback** (`pty_pane.rs`). `scroll_up`/`scroll_down` enter and
-  clamp scrollback. These spawn a tiny real PTY running `seq` — the one
-  place we let a child process in — because it's deterministic and
-  sub-second.
+- **PTY transport and scrollback** (`pty_pane/tests.rs`). Environment/profile
+  isolation plus `scroll_up`/`scroll_down` enter and clamp scrollback. These
+  spawn a tiny real PTY running `seq`; this is the one place we let a child
+  process in because it is deterministic and sub-second.
 
 ## What we deliberately don't test
 
@@ -230,6 +241,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: manifest-aware create/attach, persistence failures, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. |
 | `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
 | `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, and persistence-failure preservation. |
+| `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` | Portable mode ownership/defaults, exact advisory contract, launch-context parity, adapter mechanisms, selected cwd, honest status, naive warning limits, and minimal environment. |
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |
@@ -255,10 +267,9 @@ No test reads or writes a real user workspace.
 | Disable purges managed history without false-positive loss | `tests/triage_habits_config.rs` removes managed definitions, open rows, completed history, and derived references while preserving same-named unmarked rows and unrelated transcripts. `tasks::triage_habits::purge` limits JSON edits to top-level `tasks[]`, preserves unrelated JSON/text bytes and ambiguous display references, and aborts on malformed JSON, invalid UTF-8, or traversal failures. |
 | Re-enable starts fresh | `disabling_purges_every_managed_row_and_derived_reference_then_reenables_fresh` proves exactly two new open managed rows, new UUIDs, and no restored history. |
 
-Phase 2 does not test or claim coordinated migration activation against a real
-workspace, advisory access enforcement, agent-controller/OpenCode behavior, or
-the final shared-server lease and receiver-routing lifecycle. Those belong to
-later roadmap phases.
+The suite does not claim a filesystem sandbox, a general prompt-injection
+detector, coordinated task migration activation against a real workspace,
+OpenCode behavior, or the final shared-server lease lifecycle.
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to

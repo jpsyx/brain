@@ -156,6 +156,13 @@ fn migrate_locked(
         )]),
     };
     before_save()?;
+    let root = &registry.workspaces[&registry.default_workspace].root;
+    crate::access::ensure_portable_access_mode(root, crate::access::AccessMode::Unrestricted)
+        .map_err(|error| RegistryError::Json {
+            operation: RegistryOperation::WritePortableConfig,
+            path: root.join(".config/config.json"),
+            message: error.to_string(),
+        })?;
     transaction.save(&registry)?;
     Ok(MigrationOutcome {
         registry,

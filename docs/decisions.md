@@ -241,13 +241,24 @@ rewriting either workspace record or portable files. Consequently, changing
 the default workspace never changes access mode, UUID, root, local user,
 receiver switch, aliases, or env.
 
-The current multi-workspace boundary stops short of access-policy enforcement.
-It intentionally does not pretend that path separation is access control. A
-later `workspace_only` mode will use prompt-based guidance and light guardrails to
-reduce accidental and naive leakage in a high-trust installation. It is not a
-filesystem sandbox, authentication boundary, container, OS-account boundary,
-or defense against a malicious trusted user. Real adversarial isolation must
-remain outside Brain.
+Access mode stays portable because it describes the workspace's intended agent
+behavior, while the machine default remains routing metadata. The first
+migrated or created workspace is unrestricted for compatibility; later created
+workspaces start workspace-only. Existing portable values are preserved.
+
+Workspace-only uses the strongest trusted instruction surface each supported
+frontend exposes, selected-root cwd, and a minimal child environment. We call
+it advisory because no prompt or capability filter is a filesystem sandbox,
+authentication boundary, container, OS-account boundary, or defense against a
+malicious trusted user. Real adversarial isolation must remain outside Brain.
+The naive literal-path classifier is only defense in depth: paraphrasing can
+bypass it, so it must never grow into a claimed prompt-injection detector.
+
+Clearing the inherited environment is insufficient if the PTY starts an
+interactive or login shell: a profile can recreate a secret that filtering
+removed. Agent commands therefore run through fixed `/bin/sh -c`. This keeps
+the configured command string's ordinary shell parsing while deliberately
+excluding profile, alias, and shell-function startup behavior.
 
 Ordinary command bootstrap now pins one immutable local actor before task,
 reindex, TUI, or local-agent work. A ready legacy workspace with no portable

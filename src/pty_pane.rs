@@ -62,10 +62,10 @@ impl PtyPane {
         }
     }
 
-    /// Spawn `shell -ic <command>` so that aliases / shell functions defined
-    /// in the user's interactive rc resolve the same way they do at the
-    /// prompt. Extra `env` vars are injected into the child; brain uses them
-    /// to propagate the selected workspace/actor identity plus
+    /// Spawn `/bin/sh -c <command>` so shell command syntax works without
+    /// loading an interactive or login profile. Extra `env` vars are injected
+    /// into the child; brain uses them to propagate the selected
+    /// workspace/actor identity plus
     /// `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` into the agent so the
     /// SessionStart hook can attribute the session to the selected state DB.
     pub fn spawn_shell_command_with_env(
@@ -86,9 +86,9 @@ impl PtyPane {
         env: &[(String, String)],
         cwd: &Path,
     ) -> Result<()> {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
-        let mut cmd = CommandBuilder::new(&shell);
-        cmd.args(["-ic", command]);
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.env_clear();
+        cmd.args(["-c", command]);
         // Start the child in the selected workspace from the first instant,
         // before a compatibility command's own `cd` can run.
         cmd.cwd(cwd);
@@ -336,207 +336,4 @@ impl Drop for PtyPane {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::agent::{AgentTransport, HookMetadata, LaunchSpec};
-    use std::time::Duration;
-
-    fn spec(command: &str, cwd: &Path) -> LaunchSpec {
-        LaunchSpec::new(command, cwd.to_path_buf(), Vec::new(), HookMetadata::none())
-    }
-
-    fn wait_until_stopped(pty: &PtyPane) {
-        for _ in 0..300 {
-            if !AgentTransport::is_alive(pty) {
-                return;
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        panic!("PTY child did not stop");
-    }
-
-    fn wait_for_file(path: &Path) {
-        for _ in 0..300 {
-            if path.is_file() {
-                return;
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        panic!("PTY child did not create {}", path.display());
-    }
-
-    /// Run a command in a small PTY and block until the child exits and its
-    /// output has been parsed into the vt100 screen + scrollback.
-    fn run_and_settle(command: &str, rows: u16, cols: u16) -> PtyPane {
-        let pty = PtyPane::spawn_shell_command_with_env(command, &[], Path::new("."), rows, cols)
-            .expect("spawn pty");
-        for _ in 0..300 {
-            if !pty.is_alive() {
-                break;
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        // Let the reader thread drain the final bytes after EOF.
-        thread::sleep(Duration::from_millis(80));
-        pty
-    }
-
-    #[test]
-    fn transport_spawns_from_the_complete_launch_spec() {
-        let directory = tempfile::tempdir().expect("temporary cwd");
-        let spec = LaunchSpec::new(
-            "printf '%s\\n' \"$PWD\"; printf '%s' \"$BRAIN_TRANSPORT_MARKER\"",
-            directory.path().to_path_buf(),
-            vec![(
-                "BRAIN_TRANSPORT_MARKER".to_owned(),
-                "launch-spec-env".to_owned(),
-            )],
-            HookMetadata::none(),
-        );
-        let mut pty = PtyPane::new(5, 80);
-
-        AgentTransport::spawn(&mut pty, &spec).expect("spawn through transport");
-        for _ in 0..300 {
-            if !AgentTransport::is_alive(&pty) {
-                break;
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        thread::sleep(Duration::from_millis(80));
-
-        let output = AgentTransport::snapshot(&pty);
-        assert!(output.contains(&directory.path().display().to_string()));
-        assert!(output.contains("launch-spec-env"));
-    }
-
-    #[test]
-    fn dormant_transport_has_inert_lifecycle_and_rejects_input() {
-        let mut pty = PtyPane::new(5, 80);
-
-        assert!(!AgentTransport::is_alive(&pty));
-        assert_eq!(AgentTransport::snapshot(&pty), "");
-        assert_eq!(
-            AgentTransport::send(&mut pty, InputSequence::bytes(b"ignored")),
-            Err(AgentError::Transport("PTY child is not running".to_owned()))
-        );
-        AgentTransport::shutdown(&mut pty);
-        AgentTransport::shutdown(&mut pty);
-        assert!(!AgentTransport::is_alive(&pty));
-    }
-
-    #[test]
-    fn transport_rejects_input_after_the_child_exits() {
-        let mut pty = PtyPane::new(5, 80);
-        AgentTransport::spawn(&mut pty, &spec("true", Path::new("."))).expect("spawn child");
-        wait_until_stopped(&pty);
-
-        assert_eq!(
-            AgentTransport::send(&mut pty, InputSequence::bytes(b"too late")),
-            Err(AgentError::Transport("PTY child is not running".to_owned()))
-        );
-    }
-
-    #[test]
-    fn transport_rejects_a_second_spawn_while_the_child_is_alive() {
-        let mut pty = PtyPane::new(5, 80);
-        let running = spec("sleep 30", Path::new("."));
-        AgentTransport::spawn(&mut pty, &running).expect("spawn child");
-
-        assert_eq!(
-            AgentTransport::spawn(&mut pty, &spec("true", Path::new("."))),
-            Err(AgentError::Transport(
-                "cannot replace a running PTY child".to_owned()
-            ))
-        );
-        AgentTransport::shutdown(&mut pty);
-        wait_until_stopped(&pty);
-    }
-
-    #[test]
-    fn spawn_failure_leaves_the_transport_dormant_and_reusable() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let mut pty = PtyPane::new(5, 80);
-        let missing_shell = temporary.path().join("missing-shell");
-
-        assert!(pty.start(CommandBuilder::new(missing_shell)).is_err());
-        assert!(!AgentTransport::is_alive(&pty));
-        assert_eq!(
-            AgentTransport::send(&mut pty, InputSequence::bytes(b"ignored")),
-            Err(AgentError::Transport("PTY child is not running".to_owned()))
-        );
-
-        AgentTransport::spawn(&mut pty, &spec("true", temporary.path()))
-            .expect("spawn after failure");
-        wait_until_stopped(&pty);
-    }
-
-    #[test]
-    fn shutdown_stops_the_child_and_rejects_later_input() {
-        let mut pty = PtyPane::new(5, 80);
-        AgentTransport::spawn(&mut pty, &spec("sleep 30", Path::new("."))).expect("spawn child");
-
-        AgentTransport::shutdown(&mut pty);
-        wait_until_stopped(&pty);
-        assert_eq!(
-            AgentTransport::send(&mut pty, InputSequence::bytes(b"too late")),
-            Err(AgentError::Transport("PTY child is not running".to_owned()))
-        );
-    }
-
-    #[test]
-    fn dropping_the_transport_stops_its_child() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let heartbeat = temporary.path().join("heartbeat");
-        let command = format!(
-            "while :; do printf x >> {}; sleep 0.02; done",
-            crate::agent::frontend::shell_quote(&heartbeat.display().to_string())
-        );
-        let mut pty = PtyPane::new(5, 80);
-        AgentTransport::spawn(&mut pty, &spec(&command, temporary.path())).expect("spawn child");
-        wait_for_file(&heartbeat);
-
-        drop(pty);
-        thread::sleep(Duration::from_millis(100));
-        let settled_size = std::fs::metadata(&heartbeat)
-            .expect("heartbeat metadata")
-            .len();
-        thread::sleep(Duration::from_millis(200));
-        let final_size = std::fs::metadata(&heartbeat)
-            .expect("heartbeat metadata")
-            .len();
-        assert_eq!(
-            final_size, settled_size,
-            "PTY child remained active after drop"
-        );
-    }
-
-    #[test]
-    fn scroll_up_enters_scrollback_and_scroll_down_returns() {
-        // 200 lines into a 5-row terminal pushes ~195 rows into scrollback.
-        let pty = run_and_settle("seq 1 200", 5, 20);
-        assert_eq!(pty.scrollback_offset(), 0, "starts pinned to the live tail");
-
-        pty.scroll_up(10);
-        assert_eq!(pty.scrollback_offset(), 10);
-
-        pty.scroll_down(4);
-        assert_eq!(pty.scrollback_offset(), 6);
-
-        // Over-scrolling down saturates at the live tail (0).
-        pty.scroll_down(1000);
-        assert_eq!(pty.scrollback_offset(), 0);
-    }
-
-    #[test]
-    fn scroll_up_is_clamped_to_available_scrollback() {
-        let pty = run_and_settle("seq 1 200", 5, 20);
-        // Asking for far more than exists clamps to the real scrollback
-        // length rather than running off the end.
-        pty.scroll_up(1_000_000);
-        let max = pty.scrollback_offset();
-        assert!(max > 0, "should have real scrollback to enter");
-        // Asking again past the top is idempotent (already clamped).
-        pty.scroll_up(1_000_000);
-        assert_eq!(pty.scrollback_offset(), max);
-    }
-}
+mod tests;

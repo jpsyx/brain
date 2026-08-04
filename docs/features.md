@@ -310,8 +310,9 @@ delegated task values.
   manifest and local-ID repair surface. New portable workspaces select an
   existing person with `brain user local <id>`.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
-  text under `NO_COLOR`. Empty local user and unavailable portable
-  `access_mode` are shown as `setup pending`, not guessed.
+  text under `NO_COLOR`. Valid portable modes include an honest three-line
+  access/enforcement/sandbox status; unavailable values are `setup pending`,
+  not guessed.
 
 For create, attach, remove, and repair, brain collects and validates all missing
 values from `/dev/tty` before legacy classification, migration, or mutation.
@@ -353,13 +354,18 @@ it. Rename updates the default's canonical name when needed. Changing the
 default workspace never changes access mode, UUID, root, local user, receiver
 switch, or env. Removing a workspace detaches the machine record only.
 
-The current Phase 2 boundary does not enforce access modes. The planned
-`workspace_only` mode is prompt-based guidance with light guardrails, not a
+The first migrated or created workspace defaults to `unrestricted`; later
+created workspaces default to portable `workspace_only`. Changing the machine
+default cannot rewrite either mode. Every interactive, SMS, email, resumed,
+fresh, and daily-triage agent launch snapshots the selected workspace mode from
+trusted config. `workspace_only` adds advisory system/developer instructions,
+selected-root cwd, and a filtered child environment. The PTY evaluates the
+configured frontend command without loading login or interactive shell
+profiles, so those profiles cannot restore filtered variables. It is not a
 filesystem sandbox, authentication boundary, container, or OS-user boundary.
-It aims only to reduce accidental and naive leakage between highly trusted,
-self-hosted workspaces. Canonical task `assigned_to` and managed triage-habit
-policy are now active. The agent-controller/OpenCode facade and shared receiver
-lease lifecycle remain later phases.
+A pure literal-path check can warn about obvious absolute or `~/` paths outside
+the root, but paraphrasing, aliases, links, and indirect requests can bypass
+it; it is deliberately not a prompt-injection detector.
 
 ### `brain user`
 

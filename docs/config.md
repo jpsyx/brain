@@ -8,7 +8,7 @@ they are never inherited or merged from the default or another record.
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
 | **brain env / workspace registry** | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`, outside every brain root) | `brain workspace …` manages records; `brain env …` reads and writes the already-selected record | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
-| **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes** — travels with the brain | `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
+| **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes**: travels with the brain | Portable `access_mode`, `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
 another machine** — absolute paths, machine-specific binaries, secrets, and
@@ -145,13 +145,24 @@ server execution perform no workspace IO or prompt.
 
 ### Access policy status
 
-Access-mode enforcement is not part of the current Phase 2 boundary. The migrated
-or default workspace remains unrestricted unless a later access-policy phase
-explicitly configures it otherwise. Planned `workspace_only` behavior uses
-prompt-based guidance and light guardrails. It is not a filesystem sandbox,
-authentication boundary, container, OS-account boundary, or protection from a
-malicious trusted user. Its purpose is only to reduce accidental and naive
-cross-workspace leakage in a high-trust self-hosted environment.
+`access_mode` belongs to portable workspace config, never the machine registry.
+The first migrated or created workspace is seeded as `unrestricted`; a later
+created workspace is seeded as `workspace_only`. An already-present portable
+value wins, and attaching an existing root does not rewrite it. Changing the
+machine default changes routing only and never changes either portable value.
+
+`workspace_only` installs trusted advisory instructions in both agent
+frontends, filters the child environment to selected-workspace context and
+frontend necessities, and exposes an intentionally naive literal-path warning.
+It is not a filesystem sandbox, authentication boundary, container, OS-account
+boundary, or protection from a malicious trusted user. The status output says
+so directly:
+
+```text
+Access mode  workspace-only
+Enforcement  advisory prompts and capability filtering
+Sandbox      none
+```
 
 Inbound request actor selection now reads `users.json`: provider signatures are
 verified first, then the normalized sender must match an enabled phone or email
@@ -271,7 +282,8 @@ is treated as an empty object. Migration creates exactly one default record:
    dedicated field.
    Every other flat machine-local value except `root` moves unchanged into that
    record's `env`, including nested objects. Receiver and access-policy keys are
-   not duplicated into `env`; portable access setup remains required.
+   not duplicated into `env`. Migration preserves an existing portable mode or
+   seeds `access_mode: "unrestricted"` in portable config.
 
 Before an existing flat file is replaced, its exact original bytes are written
 beside it as `env.json.legacy-backup`; a collision uses the first free suffix
@@ -377,6 +389,7 @@ the `name=value` form.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `access_mode` | `unrestricted` | Portable agent boundary policy. `workspace_only` adds advisory trusted instructions and capability filtering; accepted values are exactly `unrestricted` and `workspace_only`. It is not a filesystem sandbox. |
 | `enable_triage_habits` | `true` | Portable managed-triage policy. `brain config set enable_triage_habits=true` reconciles one open daily and weekly chain. Setting `false` uses one durable grouped transaction to purge managed rows and derived references before committing config. Manual `/triage` remains available. |
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
@@ -393,7 +406,7 @@ Every variable is optional; a missing file or missing field falls back to the
 default above. The brain directory is the selected `WorkspaceContext::root()`;
 only one-time legacy migration consults `paths::brain_root_path()` and the old
 pointer/default precedence. The runtime knobs
-(`enable_triage_habits`, `daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
+(`access_mode`, `enable_triage_habits`, `daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
 by `config.rs::Config`; they all read the same `config.json` and ignore fields
 they don't use. Agent launch commands are read by `env::claude_command` and
 `env::codex_command` instead.

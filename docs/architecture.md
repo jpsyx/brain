@@ -97,8 +97,9 @@ tui::run_tui(command_context, view, cli, …) (the persistent shell)
  └─→ App event loop (tasks view + search view + agent PTY)
        ├─ agent::SessionStore: reap dead locks, scoped resume / claim or register
        ├─ App owns one AgentController per live main/triage panel
+       │    ├─ access::AccessPolicy snapshots trusted portable mode/root/actor
        │    ├─ agent::{ClaudeFrontend,CodexFrontend} translate semantic operations
-       │    └─ PtyPane `AgentTransport` spawns the complete spec and carries bytes
+       │    └─ PtyPane clears inherited env, spawns the complete spec, and carries bytes
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
        ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; status and log actions open the logs view)
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
@@ -135,17 +136,13 @@ Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
 not use that UUID-scoped path.
 
-This is the current Phase 2 boundary plus the Phase 3 agent-controller
-boundary, not the complete approved roadmap. Task assignment and managed
-triage-habit policy are active. The frontend-neutral `agent` facade, concrete
-Claude/Codex adapters, PTY transport, main and triage controller ownership, and
-receiver controller dispatch now exist. Advisory access modes, OpenCode,
-coordinated task-schema activation, and the shared receiver lease lifecycle
-remain later phases.
-In particular, `workspace_only` is planned prompt-based guidance and light
-guardrails. It is not a filesystem sandbox or an authentication boundary, and
-no access-mode enforcement ships in this foundation. Changing the default
-workspace never changes access mode.
+The frontend-neutral `agent` facade, concrete Claude/Codex adapters, PTY
+transport, main and triage controller ownership, receiver controller dispatch,
+and advisory portable access modes now exist. OpenCode, coordinated task-schema
+activation, and the final shared receiver lease lifecycle remain later phases.
+`workspace_only` is prompt guidance plus capability filtering, not a filesystem
+sandbox or authentication boundary. Changing the machine default never changes
+portable access mode.
 
 ## Modules
 
@@ -260,6 +257,16 @@ are both stored as `Option<AgentController>`; keyboard, receiver, draw, scroll,
 close, and event-loop code call controller semantics and never construct
 frontend keystrokes. The controller also owns the short delayed queue action
 that keeps injected text separate from its final frontend input.
+
+### `access/`
+
+Portable access policy. `mode` owns the two stable config values; `prompt`
+builds the trusted advisory text and deliberately naive literal outside-root
+warning; `capabilities` snapshots mode plus prompt and renders the honest themed
+status; `store` seeds a missing portable value without overwriting an existing
+one. Main, receiver, resumed, fresh, and triage launches all construct policy
+from the selected workspace, resolved actor, and already-loaded portable
+`Config`. Inbound prompt text is not an input to policy construction.
 
 ### `users/`
 
@@ -844,7 +851,14 @@ in-process rather than exiting.
 streams its bytes through a `vt100` parser, and exposes the screen for
 rendering. Reader / writer / waiter threads; `send` / `resize` /
 `scroll_*` / `is_alive`. It applies the spec's selected workspace cwd before
-the child starts and has no frontend-specific command or input knowledge.
+the child starts and has no frontend-specific command or input knowledge. It
+clears the inherited process environment, then applies only the launch spec's
+selected workspace/actor values, hook metadata, narrow frontend necessities,
+and a fixed `TERM`. The command string runs through fixed `/bin/sh -c`, which
+preserves configured command parsing without sourcing login or interactive
+profiles that could recreate filtered environment values.
+Real-PTY transport regressions live in the owned `pty_pane/tests.rs` child so
+the production module remains focused on transport behavior.
 
 ### `session.rs`
 Compatibility launch planning: re-exported `agent::AgentKind`,

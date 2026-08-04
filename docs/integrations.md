@@ -120,7 +120,28 @@ pure callers. `PtyPane` implements the frontend-neutral transport and
 applies a complete launch spec; its working directory is set to the
 already-selected `WorkspaceContext::root()` before the child starts, so the
 agent begins in that workspace from the first instant without consulting the
-default workspace. brain never depends on a shell alias.
+default workspace. The transport evaluates the configured command with fixed
+`/bin/sh -c`; it does not load a login or interactive profile and never depends
+on a shell alias.
+
+Every `LaunchRequest` also carries an immutable access-policy snapshot built
+from the selected workspace, resolved actor, and portable config before any
+user or inbound prompt is considered. In `workspace_only` mode, Claude receives
+that advisory through `--append-system-prompt`; Codex receives it through the
+`developer_instructions` config override. The ordinary user prompt remains a
+separate argument. Fresh, resumed, interactive, SMS, email, and daily-triage
+requests use the same policy construction. Unrestricted mode adds no policy
+instruction.
+
+The PTY clears inherited environment before launch. The explicit replacement
+contains only a narrow set of frontend runtime necessities (`HOME`, `PATH`,
+`SHELL`, user/locale/temp values, and `SSH_AUTH_SOCK` when present), the selected
+workspace and actor's `BRAIN_*` identity, frontend kind, and trusted hook
+metadata. It does not forward provider API keys, another workspace's secrets,
+or registry JSON. Using a non-profile shell also prevents startup files from
+rehydrating variables removed by the environment filter. This filtering and
+the trusted prompt reduce accidental leakage; they are advisory controls, not
+a filesystem sandbox.
 
 When brain injects a prompt into an already-open panel, the controller sends
 the text first and owns the final semantic queue action a couple of event-loop

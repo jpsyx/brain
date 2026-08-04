@@ -9,6 +9,7 @@ use anyhow::{Context, anyhow, bail};
 use serde_json::Map;
 
 use super::mutate::Mutation;
+use crate::access::AccessMode;
 use crate::theme::Theme;
 use crate::workspace::{
     MachineRegistry, REGISTRY_SCHEMA_VERSION, RegistryError, RegistryOperation, RegistryStore,
@@ -26,15 +27,15 @@ pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
     store.transaction(|transaction| -> anyhow::Result<()> {
         let workspace_id = WorkspaceId::new();
         let record = fresh_record(root.clone(), workspace_id);
-        let candidate = match transaction.load() {
+        let (candidate, access_mode) = match transaction.load() {
             Ok(mut registry) => {
                 registry.attach_record(canonical_name.clone(), record)?;
-                registry
+                (registry, AccessMode::WorkspaceOnly)
             }
             Err(error) if is_missing_registry(&error) => {
                 let registry = first_registry(canonical_name.clone(), record);
                 crate::workspace::validate_registry(&registry)?;
-                registry
+                (registry, AccessMode::Unrestricted)
             }
             Err(error) => return Err(error.into()),
         };
@@ -44,6 +45,9 @@ pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
         let manifest = crate::workspace::WorkspaceManifest::new(workspace_id);
         if let Err(error) = manifest.write_new(&root) {
             return Err(manual_cleanup_required(error.into(), &created_directories));
+        }
+        if let Err(error) = crate::access::ensure_portable_access_mode(&root, access_mode) {
+            return Err(manual_cleanup_required(error, &created_directories));
         }
         if let Err(error) = transaction.save(&candidate) {
             return Err(manual_cleanup_required(error.into(), &created_directories));

@@ -16,7 +16,12 @@ pub(super) struct VarSpec {
 /// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
 /// or the `~/brain` default and edited by hand, never via `brain config`
 /// (see [`crate::paths`]).
-pub(super) const VARS: [VarSpec; 10] = [
+pub(super) const VARS: [VarSpec; 11] = [
+    VarSpec {
+        name: "access_mode",
+        description: "Portable workspace access policy: unrestricted or workspace_only (advisory, not a filesystem sandbox).",
+        default: Some("unrestricted"),
+    },
     VarSpec {
         name: "enable_triage_habits",
         description: "When true, Brain maintains protected daily and weekly triage habit chains. Disabling purges their managed rows and derived references.",

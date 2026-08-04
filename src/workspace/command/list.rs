@@ -81,11 +81,21 @@ fn format_rows(rows: &[WorkspaceListRow], theme: Theme) -> String {
             theme.muted("disabled")
         };
         let _ = writeln!(output, "    receiver: {receiver}");
-        let access_mode = row.access_mode.as_deref().map_or_else(
-            || theme.warning("setup pending"),
-            |value| theme.value(value),
-        );
-        let _ = writeln!(output, "    access mode: {access_mode}");
+        if let Some(mode) = row
+            .access_mode
+            .as_deref()
+            .and_then(crate::access::AccessMode::parse)
+        {
+            for line in crate::access::render_access_status(mode, theme).lines() {
+                let _ = writeln!(output, "    {line}");
+            }
+        } else {
+            let access_mode = row.access_mode.as_deref().map_or_else(
+                || theme.warning("setup pending"),
+                |value| theme.value(value),
+            );
+            let _ = writeln!(output, "    Access mode  {access_mode}");
+        }
     }
     output
 }

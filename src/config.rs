@@ -17,6 +17,8 @@ use serde_json::Value;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Portable advisory access policy for this workspace.
+    pub access_mode: crate::access::AccessMode,
     /// Whether Brain maintains its daily and weekly triage habit chains.
     pub enable_triage_habits: bool,
     /// Email address used for long-form responses requested over SMS.
@@ -69,6 +71,7 @@ where
 impl Default for Config {
     fn default() -> Self {
         Self {
+            access_mode: crate::access::AccessMode::Unrestricted,
             enable_triage_habits: true,
             response_email: String::new(),
             allowed_sms_senders: String::new(),

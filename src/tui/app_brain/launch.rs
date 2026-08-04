@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crossterm::event::KeyCode;
 
-use crate::agent::{AccessPolicy, AgentController, HookMetadata, LaunchRequest, SessionStore};
+use crate::agent::{AgentController, HookMetadata, LaunchRequest, SessionStore};
 use crate::pty_pane::PtyPane;
 use crate::session::Plan;
 
@@ -190,12 +190,12 @@ impl App<'_> {
                     .to_string(),
             ),
         ]);
-        let request = LaunchRequest::new(
+        let request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.command_context.workspace),
             actor.clone(),
             session_plan,
             prompt.map(str::to_owned),
-            AccessPolicy::default(),
+            self.config.access_mode,
         )
         .with_hook_metadata(hooks);
         let mut controller = AgentController::new(

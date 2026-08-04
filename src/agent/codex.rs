@@ -31,7 +31,22 @@ impl CodexFrontend {
     }
 
     pub(super) fn command_for(command: &str, plan: &SessionPlan, prompt: Option<&str>) -> String {
+        Self::command_for_with_policy(command, plan, prompt, None)
+    }
+
+    fn command_for_with_policy(
+        command: &str,
+        plan: &SessionPlan,
+        prompt: Option<&str>,
+        policy: Option<&str>,
+    ) -> String {
         let mut parts = vec![command.trim().to_owned()];
+        if let Some(policy) = policy {
+            let policy = serde_json::to_string(policy)
+                .expect("serializing a Rust string as JSON cannot fail");
+            parts.push("-c".to_owned());
+            parts.push(shell_quote(&format!("developer_instructions={policy}")));
+        }
         if let SessionPlan::Resume(session) = plan {
             parts.push("resume".to_owned());
             parts.push(shell_quote(session.as_str()));
@@ -53,10 +68,11 @@ impl AgentFrontend for CodexFrontend {
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
         Ok(LaunchSpec::new(
-            Self::command_for(
+            Self::command_for_with_policy(
                 &self.command,
                 request.session_plan(),
                 request.initial_prompt(),
+                request.access_policy().boundary_prompt(),
             ),
             request.workspace().root().to_path_buf(),
             launch_environment(request, self.kind()),

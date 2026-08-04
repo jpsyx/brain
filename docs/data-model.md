@@ -441,18 +441,27 @@ malformed JSON, invalid UTF-8 indexes, and traversal errors abort the whole
 transaction before publication. A display reference shared with an unmanaged
 row is preserved because the surviving row remains its possible target.
 
-The release still does not implement access-mode enforcement, the
-agent-controller/OpenCode facade, or the final shared receiver lifecycle. It
-also does not activate the task-schema migrator or mutate a real legacy
-workspace; Phase 5 owns coordinated activation after the last legacy sync.
+## Portable access policy (`access/`, `.config/config.json`)
 
-The planned `workspace_only` mode is prompt-based guidance plus light
-guardrails. It is not a filesystem sandbox, authentication boundary,
-container, OS-account boundary, or defense against a malicious trusted user.
-Its purpose is limited to reducing accidental and naive cross-workspace
-leakage in a high-trust self-hosted installation. The migrated/default
-workspace remains unrestricted unless that later access-policy phase
-explicitly configures it otherwise.
+`AccessMode` accepts exactly `unrestricted` and `workspace_only`. It is
+portable workspace data, not a field in `MachineRegistry`: the first migrated
+or created root is seeded unrestricted, later created roots are seeded
+workspace-only, and a default-workspace change never rewrites either file.
+Missing legacy values deserialize as unrestricted.
+
+At launch, `AccessPolicy` snapshots the trusted mode, selected
+`WorkspaceContext`, and resolved `ActorContext`. User and inbound message text
+remain only in `LaunchRequest::initial_prompt`; it cannot change the policy
+snapshot. Unrestricted mode has no boundary prompt. Workspace-only mode builds
+one advisory prompt naming the selected root and actor, then every interactive,
+SMS, email, fresh, resumed, and triage request carries it to the selected
+frontend. The policy is prompt guidance and capability filtering, not a
+filesystem sandbox.
+
+`classify_obvious_outside_path` is a pure defense-in-depth warning for literal
+absolute and `~/` paths. It does not resolve symlinks or aliases and does not
+attempt prompt-injection detection. Paraphrasing and indirect requests can
+bypass it.
 
 ## Persistent state (`state.rs`, `<workspace-cache>/state.db`)
 

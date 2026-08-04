@@ -3,6 +3,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use crate::{
+    access::{AccessMode, AccessPolicy},
     actor::{ActorContext, Channel},
     agent::{
         AgentError, AgentKind, AgentSession, CompletionStrategy, HookMetadata, InputSequence,
@@ -10,16 +11,6 @@ use crate::{
     },
     workspace::WorkspaceContext,
 };
-
-/// A portable policy placeholder carried with every launch request.
-///
-/// Access-mode policy is added in the dedicated access module. Keeping the
-/// value in the request from the beginning prevents a future launch path from
-/// silently omitting it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AccessPolicy {
-    _private: (),
-}
 
 /// All frontend-neutral inputs required to launch an agent.
 #[derive(Debug, Clone)]
@@ -34,6 +25,25 @@ pub struct LaunchRequest {
 }
 
 impl LaunchRequest {
+    /// Build a launch request from resolved trusted workspace state.
+    #[must_use]
+    pub fn from_trusted_context(
+        workspace: Arc<WorkspaceContext>,
+        actor: ActorContext,
+        session_plan: SessionPlan,
+        initial_prompt: Option<String>,
+        access_mode: AccessMode,
+    ) -> Self {
+        let access_policy = AccessPolicy::new(&workspace, &actor, access_mode);
+        Self::new(
+            workspace,
+            actor,
+            session_plan,
+            initial_prompt,
+            access_policy,
+        )
+    }
+
     /// Bind a launch request to one immutable workspace and initiating actor.
     #[must_use]
     pub fn new(
@@ -178,12 +188,33 @@ pub(super) fn launch_environment(
     request: &LaunchRequest,
     kind: AgentKind,
 ) -> Vec<(String, String)> {
-    let mut environment = request
-        .workspace()
-        .integration_env(request.actor())
+    const FRONTEND_NECESSITIES: [&str; 10] = [
+        "HOME",
+        "PATH",
+        "SHELL",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TMPDIR",
+        "SSH_AUTH_SOCK",
+    ];
+    let mut environment = FRONTEND_NECESSITIES
         .into_iter()
-        .map(|(name, value)| (name.to_owned(), value))
+        .filter_map(|name| {
+            std::env::var(name)
+                .ok()
+                .map(|value| (name.to_owned(), value))
+        })
         .collect::<Vec<_>>();
+    environment.extend(
+        request
+            .workspace()
+            .integration_env(request.actor())
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value)),
+    );
     environment.push(("BRAIN_AGENT_KIND".to_owned(), kind.as_str().to_owned()));
     environment.extend(request.hook_metadata().values().iter().cloned());
     environment

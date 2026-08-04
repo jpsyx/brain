@@ -44,7 +44,20 @@ impl ClaudeFrontend {
     }
 
     pub(super) fn command_for(command: &str, plan: &SessionPlan, prompt: Option<&str>) -> String {
+        Self::command_for_with_policy(command, plan, prompt, None)
+    }
+
+    fn command_for_with_policy(
+        command: &str,
+        plan: &SessionPlan,
+        prompt: Option<&str>,
+        policy: Option<&str>,
+    ) -> String {
         let mut parts = vec![command.trim().to_owned()];
+        if let Some(policy) = policy {
+            parts.push("--append-system-prompt".to_owned());
+            parts.push(shell_quote(policy));
+        }
         match plan {
             SessionPlan::Fresh(session) => {
                 parts.push("--session-id".to_owned());
@@ -96,10 +109,11 @@ impl AgentFrontend for ClaudeFrontend {
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
         Ok(LaunchSpec::new(
-            Self::command_for(
+            Self::command_for_with_policy(
                 &self.command,
                 request.session_plan(),
                 request.initial_prompt(),
+                request.access_policy().boundary_prompt(),
             ),
             request.workspace().root().to_path_buf(),
             launch_environment(request, self.kind()),

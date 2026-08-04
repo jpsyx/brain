@@ -17,10 +17,11 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+pub use crate::access::AccessPolicy;
 pub use claude::ClaudeFrontend;
 pub use codex::CodexFrontend;
 pub use controller::{AgentController, AgentTransport};
-pub use frontend::{AccessPolicy, AgentFrontend, LaunchRequest, LaunchSpec};
+pub use frontend::{AgentFrontend, LaunchRequest, LaunchSpec};
 pub use hooks::HookMetadata;
 pub use input::InputSequence;
 pub use session::{
@@ -338,43 +339,41 @@ mod adapter_tests {
             .launch_spec(&fresh("fresh-1"))
             .expect("Claude launch");
         assert_eq!(claude_spec.cwd, PathBuf::from("/workspaces/family brain"));
-        assert_eq!(
-            claude_spec.environment,
-            vec![
-                (
-                    "BRAIN_WORKSPACE_ID".to_owned(),
-                    "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b".to_owned(),
-                ),
-                ("BRAIN_WORKSPACE".to_owned(), "family".to_owned()),
-                (
-                    "BRAIN_ROOT".to_owned(),
-                    "/workspaces/family brain".to_owned(),
-                ),
-                ("BRAIN_ACTOR_ID".to_owned(), "pablo".to_owned()),
-                ("BRAIN_CHANNEL".to_owned(), "interactive".to_owned()),
-                ("BRAIN_AGENT_KIND".to_owned(), "claude".to_owned()),
-            ]
-        );
+        for expected in [
+            (
+                "BRAIN_WORKSPACE_ID".to_owned(),
+                "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b".to_owned(),
+            ),
+            ("BRAIN_WORKSPACE".to_owned(), "family".to_owned()),
+            (
+                "BRAIN_ROOT".to_owned(),
+                "/workspaces/family brain".to_owned(),
+            ),
+            ("BRAIN_ACTOR_ID".to_owned(), "pablo".to_owned()),
+            ("BRAIN_CHANNEL".to_owned(), "interactive".to_owned()),
+            ("BRAIN_AGENT_KIND".to_owned(), "claude".to_owned()),
+        ] {
+            assert!(claude_spec.environment.contains(&expected));
+        }
 
         let codex_spec = codex.launch_spec(&fresh("fresh-1")).expect("Codex launch");
         assert_eq!(codex_spec.cwd, PathBuf::from("/workspaces/family brain"));
-        assert_eq!(
-            codex_spec.environment,
-            vec![
-                (
-                    "BRAIN_WORKSPACE_ID".to_owned(),
-                    "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b".to_owned(),
-                ),
-                ("BRAIN_WORKSPACE".to_owned(), "family".to_owned()),
-                (
-                    "BRAIN_ROOT".to_owned(),
-                    "/workspaces/family brain".to_owned(),
-                ),
-                ("BRAIN_ACTOR_ID".to_owned(), "pablo".to_owned()),
-                ("BRAIN_CHANNEL".to_owned(), "interactive".to_owned()),
-                ("BRAIN_AGENT_KIND".to_owned(), "codex".to_owned()),
-            ]
-        );
+        for expected in [
+            (
+                "BRAIN_WORKSPACE_ID".to_owned(),
+                "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b".to_owned(),
+            ),
+            ("BRAIN_WORKSPACE".to_owned(), "family".to_owned()),
+            (
+                "BRAIN_ROOT".to_owned(),
+                "/workspaces/family brain".to_owned(),
+            ),
+            ("BRAIN_ACTOR_ID".to_owned(), "pablo".to_owned()),
+            ("BRAIN_CHANNEL".to_owned(), "interactive".to_owned()),
+            ("BRAIN_AGENT_KIND".to_owned(), "codex".to_owned()),
+        ] {
+            assert!(codex_spec.environment.contains(&expected));
+        }
     }
 
     #[test]
