@@ -564,7 +564,7 @@ counterpart to `run::run_rclone` — no live terminal output, just `(exit_ok,
 combined_output)`), then classifies the captured detection-phase lines with
 `progress::classify_change`/`Side` (the same parser `progress.rs` already
 exposed for a future live file-list). It then runs the CSV lane's read-only
-counterpart: `check::collect_csv_pending_with_fetch` reads the cached
+counterpart in `check/csv.rs`: `check::collect_csv_pending_with_fetch` reads the cached
 `csv_sync::baseline_path` text and the local task/habit CSVs, fetches each
 remote CSV through `csv_sync::remote_csv_arg` + rclone `copyto`, and compares
 both sides to the baseline with UUID-aware, name-aligned

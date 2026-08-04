@@ -175,6 +175,9 @@ first move is a failing test that reproduces it, *then* the fix.
   publication, and task/habit counter floors through the real allocator. The
   CSV integration regression verifies an unchanged second pass performs no remote write, and
   `sync/trigger.rs` verifies completed detached children are reaped.
+  `sync/check.rs` separately proves schema-aware read-only identity, hybrid
+  legacy compatibility, labeled baseline/local/remote parse refusal, themed
+  warning output, and byte-stable refusal across every task-related store.
   `tests/watch_local.rs` exercises the real watcher callback in the default
   suite: macOS validates the one-second polling fallback, while other platforms
   use notify's recommended native backend.

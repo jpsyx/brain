@@ -961,8 +961,8 @@ changed, so a clean run's note isn't cluttered by a no-op CSV pass.
 **Read-only pending diff.** `brain check` does not run the full 3-way merge
 or update any CSV state. Instead `check::CsvSideDiff` compares one side
 against the cached baseline by `task_uuid` when the current task schema is
-active (legacy `task_id`
-otherwise), aligns cells by column name, and counts whole-row additions,
+active (legacy `task_id` otherwise), aligns cells by column name, and counts
+whole-row additions,
 changes, and deletions. `check::CsvPending` holds one push diff
 (`baseline` vs. local CSV) and, when the remote fetch succeeds, one pull diff
 (`baseline` vs. remote CSV). This is a preview of pending row movement, not a
@@ -971,7 +971,10 @@ by `brain sync`. If the baseline text is missing, `check` treats identical
 local/remote CSVs as clean instead of double-counting both sides; when both
 sides are non-empty and differ, it uses the remote CSV as a provisional
 snapshot for local deltas so a local-only task addition does not appear as a
-spurious pull.
+spurious pull. Schema metadata and all three CSV generations use a fallible
+read boundary. Invalid schema, malformed records, or duplicate active keys
+stop the preview with a labeled warning, without mutating CSVs, baselines,
+metadata, counters, or remotes and without reporting a false clean state.
 
 ## Binary stdout (the output "schema")
 

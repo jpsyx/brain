@@ -603,7 +603,12 @@ bookkeeping.
   are non-empty and differ, the remote CSV is used as a provisional snapshot
   for local row deltas. The report explicitly says CSV rows are baseline diffs,
   not provenance, and that `brain sync` will merge by immutable identity after
-  schema migration.
+  schema migration. The lane resolves `tasks/SCHEMA.json` once, uses `task_id`
+  while migration is inactive and `task_uuid` only for active schema v2, then
+  parses baseline, local, and remote generations through one fallible boundary.
+  Invalid metadata, malformed records, and duplicate active identities render a
+  warning naming the generation and relative CSV; they never panic or emit a
+  false clean result.
 - **Phase 2 does not activate migration or the final receiver architecture.**
   The task-schema migrator remains an inactive fixture-tested interface; Phase
   5 owns its last legacy sync, backups, activation, and real-workspace rollout.

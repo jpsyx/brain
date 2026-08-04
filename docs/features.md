@@ -717,7 +717,12 @@ instead of a false clean report. If this machine's CSV baseline is missing,
 `check` avoids the confusing "everything pushes and pulls" preview: identical
 local/remote CSVs report cleanly, and when both sides are non-empty it treats
 the remote CSV as a provisional snapshot for local row deltas. The command
-never writes local CSVs, remote CSVs, or baselines.
+never writes local CSVs, remote CSVs, or baselines. It resolves the active task
+schema once from `tasks/SCHEMA.json`: inactive workspaces compare by `task_id`,
+while active schema-v2 workspaces compare by `task_uuid`. Malformed schema
+metadata, CSV records, or duplicate active identities produce a themed warning
+that names the baseline/local/remote generation and CSV instead of panicking or
+claiming the workspace is in sync.
 
 - Nothing pending on either side: a single `✓ In sync — nothing to push or
   pull.` line.
