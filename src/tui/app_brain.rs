@@ -979,6 +979,7 @@ mod tests {
     fn test_app<'a>(temporary: &tempfile::TempDir, cli: &'a Cli, agent_kind: AgentKind) -> App<'a> {
         let root = temporary.path().join("family");
         std::fs::create_dir_all(root.join("tasks")).expect("create task directory");
+        std::fs::create_dir_all(root.join(".config")).expect("create config directory");
         std::fs::write(
             root.join("tasks/tasks.csv"),
             "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
@@ -989,6 +990,11 @@ mod tests {
             "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
         )
         .expect("write habits");
+        std::fs::write(
+            root.join(".config/config.json"),
+            "{\"claude_cmd\":\"sh -c 'sleep 30' #\"}\n",
+        )
+        .expect("write test agent command");
         let workspace = WorkspaceContext::new(
             temporary.path(),
             WorkspaceId::parse(WORKSPACE_ID).expect("valid workspace id"),
@@ -1064,6 +1070,31 @@ mod tests {
         false
     }
 
+    struct ClaudeTranscript {
+        path: PathBuf,
+        project_dir: PathBuf,
+    }
+
+    impl ClaudeTranscript {
+        fn create(brain_root: &Path, session_id: &str) -> Self {
+            let home = std::env::var_os("HOME").expect("test home directory");
+            let project_dir = PathBuf::from(home)
+                .join(".claude/projects")
+                .join(session::project_dir_name(brain_root));
+            std::fs::create_dir_all(&project_dir).expect("create transcript directory");
+            let path = project_dir.join(format!("{session_id}.jsonl"));
+            std::fs::write(&path, "{}\n").expect("write Claude transcript");
+            Self { path, project_dir }
+        }
+    }
+
+    impl Drop for ClaudeTranscript {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_dir(&self.project_dir);
+        }
+    }
+
     #[test]
     fn missing_transcript_is_not_a_resumable_claude_session() {
         let id = format!("missing-{}", uuid::Uuid::new_v4());
@@ -1071,6 +1102,71 @@ mod tests {
             !session_transcript_exists(Path::new("/nonexistent/brain-root"), &id),
             "a Claude resume candidate without a transcript must be skipped"
         );
+    }
+
+    #[test]
+    fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resume() {
+        let cli = Cli::parse_from(["tasks"]);
+        let resume_temporary = tempfile::tempdir().expect("resume temporary directory");
+        let mut resume_app = test_app(&resume_temporary, &cli, AgentKind::Claude);
+        let resume_scope = SessionScope::new(
+            AgentKind::Claude,
+            resume_app.command_context.workspace.id(),
+            resume_app.interactive_actor.clone(),
+        );
+        let valid_id = "valid-resume";
+        let missing_id = "missing-resume";
+        for id in [valid_id, missing_id] {
+            resume_app
+                .db
+                .register_scoped_fresh(id, "prior-shell", 42, &resume_scope)
+                .expect("register candidate");
+            resume_app
+                .db
+                .release("prior-shell")
+                .expect("release candidate");
+        }
+        let _transcript =
+            ClaudeTranscript::create(resume_app.command_context.workspace.root(), valid_id);
+
+        assert!(resume_app.open_or_focus_brain(None));
+
+        assert_eq!(resume_app.interactive_session_id.as_deref(), Some(valid_id));
+        assert!(resume_app.alert.is_none());
+        assert_eq!(
+            resume_app.db.sessions_by_recency(&resume_scope),
+            [missing_id]
+        );
+
+        let fresh_temporary = tempfile::tempdir().expect("fresh temporary directory");
+        let mut fresh_app = test_app(&fresh_temporary, &cli, AgentKind::Claude);
+        let fresh_scope = SessionScope::new(
+            AgentKind::Claude,
+            fresh_app.command_context.workspace.id(),
+            fresh_app.interactive_actor.clone(),
+        );
+        fresh_app
+            .db
+            .register_scoped_fresh(missing_id, "prior-shell", 42, &fresh_scope)
+            .expect("register missing candidate");
+        fresh_app
+            .db
+            .release("prior-shell")
+            .expect("release missing candidate");
+
+        assert!(fresh_app.open_or_focus_brain(None));
+
+        assert_ne!(
+            fresh_app.interactive_session_id.as_deref(),
+            Some(missing_id)
+        );
+        assert!(
+            fresh_app
+                .alert
+                .as_deref()
+                .is_some_and(|message| message.contains("couldn't find a session to resume"))
+        );
+        assert_eq!(fresh_app.db.sessions_by_recency(&fresh_scope), [missing_id]);
     }
 
     #[test]
