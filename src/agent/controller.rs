@@ -164,6 +164,8 @@ mod tests {
         Submit,
         Queue(String),
         Launch(SessionPlan),
+        Spawn,
+        NewSession,
         Transcript(AgentSession),
         Shutdown,
     }
@@ -213,6 +215,7 @@ mod tests {
         }
 
         fn new_session_input(&self) -> InputSequence {
+            self.recording.record(Event::NewSession);
             InputSequence::bytes(b"\x1dnew")
         }
 
@@ -232,6 +235,7 @@ mod tests {
 
     impl AgentTransport for RecordingTransport {
         fn spawn(&mut self, _spec: &LaunchSpec) -> Result<(), AgentError> {
+            self.recording.record(Event::Spawn);
             Ok(())
         }
 
@@ -343,7 +347,12 @@ mod tests {
 
         assert_eq!(
             recording.events(),
-            vec![Event::Launch(fresh), Event::Launch(resume)]
+            vec![
+                Event::Launch(fresh),
+                Event::Spawn,
+                Event::Launch(resume),
+                Event::Spawn,
+            ]
         );
     }
 
@@ -387,6 +396,6 @@ mod tests {
 
         controller.start_new_session().expect("new session");
 
-        assert!(recording.events().is_empty());
+        assert_eq!(recording.events(), vec![Event::NewSession]);
     }
 }

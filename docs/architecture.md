@@ -134,14 +134,17 @@ Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
 not use that UUID-scoped path.
 
-This is the current Phase 2 boundary, not the complete approved roadmap. Task
-assignment and managed triage-habit policy are active. Advisory access modes,
-the agent-controller/OpenCode facade, coordinated task-schema activation, and
-the shared receiver lease lifecycle remain later phases. In particular,
-`workspace_only` is planned prompt-based guidance and light guardrails. It is
-not a filesystem sandbox or an authentication boundary, and no access-mode
-enforcement ships in this foundation. Changing the default workspace never
-changes access mode.
+This is the current Phase 2 boundary plus the first Phase 3 agent facade
+boundary, not the complete approved roadmap. Task assignment and managed
+triage-habit policy are active. The frontend-neutral `agent` facade and its
+launch, input, session, hook, and transport types now exist, but concrete
+Claude/Codex adapters and TUI or receiver migration to that facade remain
+later Phase 3 tasks. Advisory access modes, OpenCode, coordinated task-schema
+activation, and the shared receiver lease lifecycle also remain later phases.
+In particular, `workspace_only` is planned prompt-based guidance and light
+guardrails. It is not a filesystem sandbox or an authentication boundary, and
+no access-mode enforcement ships in this foundation. Changing the default
+workspace never changes access mode.
 
 ## Modules
 
@@ -236,6 +239,19 @@ When readiness admits a legacy workspace with no portable user file,
 compatibility actor and writes nothing; the inactive portable migration remains
 inactive. Readiness rejects every nonblank ID that the `UserId` parser would
 reject, so actor bootstrap cannot discover a weaker legacy acceptance rule.
+
+### `agent/`
+
+The frontend-neutral agent boundary. `controller` owns the semantic
+`AgentController` facade and the transport trait, so callers can type, submit,
+queue, start sessions, launch, inspect completion and transcripts, snapshot,
+and shut down without constructing frontend keystrokes. `frontend` defines the
+frontend trait plus complete launch request and launch spec types; `input`,
+`session`, and `hooks` own the shared input, validated session-plan, completion,
+and hook metadata values. `AgentKind` currently re-exports the existing
+`session::AgentKind`, and the pre-facade `session.rs` command builders remain
+in place for compatibility. Concrete Claude/Codex adapters, the PTY transport
+implementation, and TUI or receiver migration remain later Phase 3 work.
 
 ### `users/`
 
