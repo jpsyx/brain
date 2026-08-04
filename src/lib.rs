@@ -9,6 +9,7 @@
 //! the modules themselves.
 
 pub mod actor;
+pub mod agent;
 pub mod cli;
 pub mod command;
 pub mod config;
