@@ -158,9 +158,10 @@ Read `AGENTS.md` (== `CLAUDE.md`) in full first. The non-negotiables:
 - **`cargo test --release` stays green** (runs in ~1s).
 - **Update `docs/` in the SAME change** per the docs-contract table in
   `AGENTS.md`. Docs are the source of truth for *what/why*.
-- **One module per file; ~400 production lines is the split smell** (inline
-  `#[cfg(test)]` doesn't count). Preserve public paths when splitting
-  (re-export from `mod.rs`).
+- **One module per file; ~400 production lines is the split smell.** Inline
+  tests do not count toward the production threshold, but all test suites,
+  harnesses, and fixtures follow the same modularity standard. Preserve public
+  paths when splitting (re-export from `mod.rs`).
 - **The repo is 100% public + generic.** No bucket names, hosts, emails, org
   names, or private paths anywhere. `bundled_skills_carry_no_personal_data`
   guards bundled skills; docs/tests are unguarded — keep them generic by hand.

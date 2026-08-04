@@ -193,18 +193,22 @@ users in `skills/`.)
 - **Follow the pure/impure split.** New decision logic goes in a pure
   function (testable); the `/dev/tty` and `Command` shells stay thin.
 - **One module per file; keep files small.** Prefer many small,
-  single-responsibility modules over a few giant ones — the Rust analogue of
+  single-responsibility modules over a few giant ones, the Rust analogue of
   the one-component-per-file convention. A `.rs` file that grows past **~400
   lines of production code** (inline `#[cfg(test)]` blocks don't count toward
-  the budget) is a smell: split it into a directory of submodules
+  the production budget, but remain subject to modularity review) is a smell:
+  split it into a directory of submodules
   (`foo.rs` → `foo/mod.rs` + `foo/<part>.rs`), the way `src/tasks/` already
   does with `task/`, `render/`, and `view/`. Split along real seams
   (matching vs. model vs. render; store vs. schema vs. discovery; one handler
   group per file), not at an arbitrary line. `mod.rs` should stay a thin
-  re-export + glue layer, not a dumping ground. When a file is large only
-  because of inline tests, split the *tests* by area instead. Don't split a
-  file that's already cohesive just to hit a number — the 400-line figure is a
-  prompt to look, not a hard cap.
+  re-export + glue layer, not a dumping ground. Apply the same standard to unit
+  tests, test-only modules, integration tests, benchmarks, examples, test
+  support, harnesses, and fixtures. Split large or multi-responsibility suites
+  by behavior or subsystem, and build fixtures from focused, composable helpers
+  instead of a catch-all fake process, server, builder, or support module.
+  Don't split a file that's already cohesive just to hit a number; the
+  400-line figure is a prompt to look, not a hard cap.
 - **Keep the dimmed shortcut annotation in sync with the binding.** Every
   command palette row that has a direct keystroke shows it as a gray `[…]`
   hint, driven by `shortcut_for` in `src/menu/model.rs`. Whenever you add or
