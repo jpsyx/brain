@@ -5,11 +5,11 @@ use crate::tui::*;
 use crate::agent::SessionStore;
 
 impl App<'_> {
-    /// Close the brain panel: drop the PTY (its Drop impl kills the agent
-    /// child, ending the session process), release the session lock so a
-    /// later open (or another shell) can resume it via recency, hand the
-    /// screen back to full-width tasks, and reload so a brain action whose
-    /// effect landed right before the close shows up immediately.
+    /// Close the brain panel: explicitly shut down its `AgentController`,
+    /// release the session lock so a later open (or another shell) can resume
+    /// it via recency, hand the screen back to full-width tasks, and reload so
+    /// a brain action whose effect landed right before the close shows up
+    /// immediately.
     pub(crate) fn close_brain(&mut self) {
         self.close_brain_with(Self::deliver_completed_remote_turn);
     }

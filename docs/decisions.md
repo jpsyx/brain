@@ -379,10 +379,11 @@ brain panel so the resumed conversation is immediately typable; `Alt+H` /
 
 ## Why claude exiting closes the panel instead of quitting the shell
 
-Exiting claude (Ctrl-C, Ctrl-C) is a frequent gesture — you end a chat
+Exiting claude (Ctrl-C, Ctrl-C) is a frequent gesture: you end a chat
 without meaning to leave `brain`. So when the `claude` child dies the event
-loop **closes the panel** (drops the PTY, search goes full-width) rather than
-quitting; the closing Ctrl-C is forwarded to claude and never seen as a quit,
+loop **closes the panel** (explicitly shuts down its controller, search goes
+full-width) rather than quitting; the closing Ctrl-C is forwarded to claude
+and never seen as a quit,
 and the auto-close needs no extra keystroke. Quitting `brain` is a separate,
 deliberate gesture: `Esc` / `Ctrl-c` from the **search** panel. Re-opening is
 **Message brain** (`Ctrl-M` or the palette), which resumes your latest

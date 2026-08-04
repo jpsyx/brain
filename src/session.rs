@@ -49,8 +49,10 @@ pub fn shell_quote(s: &str) -> String {
 ///
 /// # Errors
 ///
-/// Returns [`crate::agent::AgentError::UnsupportedFrontend`] for the OpenCode
-/// selection stub.
+/// Returns [`crate::agent::AgentError::EmptySessionId`] when the compatibility
+/// plan contains a blank session ID, or
+/// [`crate::agent::AgentError::UnsupportedFrontend`] for the OpenCode selection
+/// stub.
 pub fn build_llm_command(
     brain_root: &Path,
     agent_kind: AgentKind,
