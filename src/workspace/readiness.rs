@@ -26,6 +26,9 @@ pub enum ReadinessField {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadinessAction {
     Ready(WorkspaceManifest),
+    /// The workspace has exactly one portable user and no local user set, so the
+    /// sole user is adopted as this machine's local actor with no prompt.
+    AdoptLocalUser(UserId),
     Prompt(Vec<ReadinessField>),
 }
 
@@ -107,6 +110,15 @@ pub fn readiness_action_with_users(
                         canonical_name: canonical_name.to_string(),
                         user_id: record.local_user_id.clone(),
                     });
+                }
+                // A single-user workspace whose local user was never set can only
+                // mean that one person: adopt them silently instead of asking the
+                // human to hand-type a user ID (or run a follow-up command).
+                if manifest.is_some()
+                    && record.local_user_id.trim().is_empty()
+                    && let [sole] = users.users.as_slice()
+                {
+                    return Ok(ReadinessAction::AdoptLocalUser(sole.id.clone()));
                 }
                 missing.push(ReadinessField::LocalUserId);
             }
