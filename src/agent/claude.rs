@@ -44,7 +44,7 @@ impl ClaudeFrontend {
     }
 
     pub(super) fn command_for(command: &str, plan: &SessionPlan, prompt: Option<&str>) -> String {
-        Self::command_for_with_policy(command, plan, prompt, None)
+        Self::command_for_with_policy(command, plan, prompt, None, None)
     }
 
     fn command_for_with_policy(
@@ -52,8 +52,14 @@ impl ClaudeFrontend {
         plan: &SessionPlan,
         prompt: Option<&str>,
         policy: Option<&str>,
+        mcp_config: Option<&std::path::Path>,
     ) -> String {
         let mut parts = vec![command.trim().to_owned()];
+        if let Some(path) = mcp_config {
+            parts.push("--mcp-config".to_owned());
+            parts.push(shell_quote(&path.display().to_string()));
+            parts.push("--strict-mcp-config".to_owned());
+        }
         if let Some(policy) = policy {
             parts.push("--append-system-prompt".to_owned());
             parts.push(shell_quote(policy));
@@ -108,17 +114,46 @@ impl AgentFrontend for ClaudeFrontend {
     }
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
+        let capability_plan = request.access_policy().capability_plan();
+        if let Some(plan) = capability_plan.filter(|plan| !plan.skills.uses_global_configuration())
+        {
+            crate::skills::render_workspace_capabilities(
+                request.workspace(),
+                request.actor(),
+                plan,
+            )
+            .map_err(|error| AgentError::Frontend(error.to_string()))?;
+        }
+        let mcp_config = capability_plan
+            .filter(|plan| !plan.mcps.uses_global_configuration())
+            .map(|plan| {
+                let path = request.workspace().paths().capability_mcp_config();
+                crate::access::write_claude_runtime_config(&path, plan)
+                    .map_err(|error| AgentError::Frontend(error.to_string()))?;
+                Ok::<_, AgentError>(path)
+            })
+            .transpose()?;
+        let report = capability_plan.map_or_else(Default::default, |plan| {
+            let evidence = if mcp_config.is_some() {
+                crate::access::EnforcementEvidence::strict_mcps_only()
+            } else {
+                crate::access::EnforcementEvidence::advisory_only()
+            };
+            plan.enforcement_report(evidence)
+        });
         Ok(LaunchSpec::new(
             Self::command_for_with_policy(
                 &self.command,
                 request.session_plan(),
                 request.initial_prompt(),
                 request.access_policy().boundary_prompt(),
+                mcp_config.as_deref(),
             ),
             request.workspace().root().to_path_buf(),
             launch_environment(request, self.kind()),
             HookMetadata::none(),
-        ))
+        )
+        .with_capabilities(report))
     }
 
     fn submit_input(&self) -> InputSequence {

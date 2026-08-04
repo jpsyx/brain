@@ -31,7 +31,7 @@ impl CodexFrontend {
     }
 
     pub(super) fn command_for(command: &str, plan: &SessionPlan, prompt: Option<&str>) -> String {
-        Self::command_for_with_policy(command, plan, prompt, None)
+        Self::command_for_with_policy(command, plan, prompt, None, &[])
     }
 
     fn command_for_with_policy(
@@ -39,6 +39,7 @@ impl CodexFrontend {
         plan: &SessionPlan,
         prompt: Option<&str>,
         policy: Option<&str>,
+        capability_overrides: &[String],
     ) -> String {
         let mut parts = vec![command.trim().to_owned()];
         if let Some(policy) = policy {
@@ -46,6 +47,10 @@ impl CodexFrontend {
                 .expect("serializing a Rust string as JSON cannot fail");
             parts.push("-c".to_owned());
             parts.push(shell_quote(&format!("developer_instructions={policy}")));
+        }
+        for capability_override in capability_overrides {
+            parts.push("-c".to_owned());
+            parts.push(shell_quote(capability_override));
         }
         if let SessionPlan::Resume(session) = plan {
             parts.push("resume".to_owned());
@@ -68,17 +73,42 @@ impl AgentFrontend for CodexFrontend {
     }
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
+        let capability_plan = request.access_policy().capability_plan();
+        if let Some(plan) = capability_plan.filter(|plan| !plan.skills.uses_global_configuration())
+        {
+            crate::skills::render_workspace_capabilities(
+                request.workspace(),
+                request.actor(),
+                plan,
+            )
+            .map_err(|error| AgentError::Frontend(error.to_string()))?;
+        }
+        let capability_launch = capability_plan
+            .filter(|plan| !plan.mcps.uses_global_configuration())
+            .map(crate::access::codex_mcp_launch);
+        let overrides = capability_launch
+            .as_ref()
+            .map_or(&[][..], |launch| launch.overrides.as_slice());
+        let mut environment = launch_environment(request, self.kind());
+        if let Some(launch) = capability_launch.as_ref() {
+            environment.extend(launch.environment.iter().cloned());
+        }
+        let report = capability_plan.map_or_else(Default::default, |plan| {
+            plan.enforcement_report(crate::access::EnforcementEvidence::advisory_only())
+        });
         Ok(LaunchSpec::new(
             Self::command_for_with_policy(
                 &self.command,
                 request.session_plan(),
                 request.initial_prompt(),
                 request.access_policy().boundary_prompt(),
+                overrides,
             ),
             request.workspace().root().to_path_buf(),
-            launch_environment(request, self.kind()),
+            environment,
             HookMetadata::none(),
-        ))
+        )
+        .with_capabilities(report))
     }
 
     fn submit_input(&self) -> InputSequence {

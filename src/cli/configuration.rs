@@ -87,13 +87,15 @@ pub enum SkillsAction {
         #[arg(long)]
         root: Option<std::path::PathBuf>,
     },
+    /// Show requested workspace capabilities, availability, and enforcement.
+    Status,
 }
 
 #[cfg(test)]
 mod tests {
     use clap::{CommandFactory, Parser};
 
-    use super::EnvAction;
+    use super::{EnvAction, SkillsAction};
     use crate::cli::{Cli, Cmd};
 
     #[test]
@@ -118,5 +120,12 @@ mod tests {
             help.contains("Structural workspace fields are read-only"),
             "{help}"
         );
+    }
+
+    #[test]
+    fn skills_status_is_a_noninteractive_reporting_action() {
+        let cli = Cli::try_parse_from(["brain", "skills", "status"]).expect("parse");
+        assert!(matches!(cli.command, Some(Cmd::Skills(args))
+            if matches!(args.action, Some(SkillsAction::Status))));
     }
 }

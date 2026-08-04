@@ -8,7 +8,7 @@ they are never inherited or merged from the default or another record.
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
 | **brain env / workspace registry** | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`, outside every brain root) | `brain workspace …` manages records; `brain env …` reads and writes the already-selected record | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
-| **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes**: travels with the brain | Portable `access_mode`, `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
+| **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes**: travels with the brain | Portable `access_mode`, logical `allowed_mcps`/`allowed_skills`, `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
 another machine** — absolute paths, machine-specific binaries, secrets, and
@@ -167,6 +167,15 @@ Enforcement  advisory prompts and capability filtering
 Sandbox      none
 ```
 
+The portable `allowed_mcps` and `allowed_skills` arrays contain logical names
+only. A missing `allowed_skills` field defaults to `contacts`, `second-brain`,
+`todo`, and `triage`; an explicit empty array remains empty. In unrestricted
+mode the frontends use their ordinary global MCP and skill configuration. In
+workspace-only mode Brain resolves the logical names against only the selected
+workspace record's `agent_capabilities` environment object. Run
+`brain skills status` to see requested names, availability, and the honest
+Claude/Codex enforcement level without printing connection material.
+
 Inbound request actor selection now reads `users.json`: provider signatures are
 verified first, then the normalized sender must match an enabled phone or email
 identity. Legacy receiver allowlists and response settings remain compatibility
@@ -187,7 +196,31 @@ record fields are managed by `brain workspace`, not exposed as free-form env.
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
 | `codex_cmd` | `codex` | Command that launches the brain panel's Codex frontend on **this machine**. brain appends `resume <id>` only when it has a Codex session id to resume; fresh Codex panels launch without Claude-only `--session-id` / `--resume` flags. Blank falls back to `codex`. |
+| `agent_capabilities` | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
 | `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus the mandatory startup pull and change-triggered pushes; there is no periodic idle pull. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
+
+`agent_capabilities` has this selected-record shape. Each MCP defines exactly
+one of `command` or `url`; every credentials field is machine-local. A custom
+skill names a directory containing `SKILL.md`.
+
+```json
+{
+  "agent_capabilities": {
+    "mcps": [
+      {
+        "name": "notion",
+        "url": "https://example.test/mcp",
+        "credentials": {
+          "headers": { "Authorization": "secret value" }
+        }
+      }
+    ],
+    "skills": [
+      { "name": "custom-skill", "path": "/machine/local/custom-skill" }
+    ]
+  }
+}
+```
 
 ### The `brain env` command
 
@@ -401,6 +434,8 @@ the `name=value` form.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `access_mode` | `unrestricted` | Portable agent boundary policy. `workspace_only` adds advisory trusted instructions and capability filtering; accepted values are exactly `unrestricted` and `workspace_only`. It is not a filesystem sandbox. |
+| `allowed_mcps` | `[]` | Portable logical MCP names requested by workspace-only launches. Connection details and credentials belong only in the selected machine registry record. Accepts a JSON array or comma-separated names through `brain config set`. |
+| `allowed_skills` | `["contacts","second-brain","todo","triage"]` when missing | Portable logical skill names requested by workspace-only launches. An explicit `[]` disables every skill. Accepts a JSON array or comma-separated names through `brain config set`. |
 | `enable_triage_habits` | `true` | Portable managed-triage policy. `brain config set enable_triage_habits=true` reconciles one open daily and weekly chain. Setting `false` uses one durable grouped transaction to purge managed rows and derived references before committing config. Manual `/triage` remains available. |
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
@@ -417,7 +452,8 @@ Every variable is optional; a missing file or missing field falls back to the
 default above. The brain directory is the selected `WorkspaceContext::root()`;
 only one-time legacy migration consults `paths::brain_root_path()` and the old
 pointer/default precedence. The runtime knobs
-(`access_mode`, `enable_triage_habits`, `daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
+(`access_mode`, `allowed_mcps`, `allowed_skills`, `enable_triage_habits`,
+`daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
 by `config.rs::Config`; they all read the same `config.json` and ignore fields
 they don't use. Agent launch commands are read by `env::claude_command` and
 `env::codex_command` instead.

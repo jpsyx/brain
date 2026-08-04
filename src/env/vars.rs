@@ -138,8 +138,12 @@ fn resolve_all_from(command: &CommandContext, map: &Map<String, Value>) -> Vec<R
             .into_iter()
             .filter(|(name, _)| !VARS.iter().any(|var| var.name == name))
             .map(|(name, value)| Resolved {
+                value: if super::schema::is_sensitive(&name) {
+                    Some("(set)".to_owned())
+                } else {
+                    value_to_string(&value)
+                },
                 name,
-                value: value_to_string(&value),
                 description: "Nested value from env.json".to_owned(),
             }),
     );
@@ -380,5 +384,40 @@ mod tests {
             resolve_one_from_map(&command(), &map, "resend_api_key"),
             Some("(set)".to_owned())
         );
+    }
+
+    #[test]
+    fn agent_capability_credentials_are_redacted_from_env_list_rows() {
+        let map = serde_json::from_value(serde_json::json!({
+            "agent_capabilities": {
+                "mcps": [{
+                    "name": "notion",
+                    "url": "https://notion.example.test/mcp",
+                    "credentials": {
+                        "bearer_token": "machine-secret",
+                        "headers": {"Authorization": "header-secret"}
+                    }
+                }]
+            }
+        }))
+        .expect("env map");
+
+        let rows = resolve_all_from(&command(), &map);
+
+        assert!(rows.iter().any(|row| {
+            row.name == "agent_capabilities.mcps.0.url"
+                && row.value.as_deref() == Some("https://notion.example.test/mcp")
+        }));
+        assert!(rows.iter().any(|row| {
+            row.name == "agent_capabilities.mcps.0.credentials.bearer_token"
+                && row.value.as_deref() == Some("(set)")
+        }));
+        let rendered = rows
+            .iter()
+            .filter_map(|row| row.value.as_deref())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!rendered.contains("machine-secret"));
+        assert!(!rendered.contains("header-secret"));
     }
 }

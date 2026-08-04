@@ -15,7 +15,7 @@ pub(super) use crate::agent::{
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 11] = [
+pub(super) const VARS: [VarSpec; 12] = [
     VarSpec {
         name: "root",
         description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",
@@ -38,6 +38,12 @@ pub(super) const VARS: [VarSpec; 11] = [
         name: "codex_cmd",
         description: "Command used to launch Codex for the brain panel on THIS machine. Defaults to codex; brain appends Codex resume args when resuming.",
         default: Some(DEFAULT_CODEX_CMD),
+        legacy_config_fallback: false,
+    },
+    VarSpec {
+        name: "agent_capabilities",
+        description: "Selected workspace's machine-local MCP connections, executable paths, skill paths, and credentials. Portable config stores only logical allowlists.",
+        default: None,
         legacy_config_fallback: false,
     },
     VarSpec {
@@ -114,7 +120,8 @@ pub fn is_sensitive(name: &str) -> bool {
     matches!(
         name,
         "twilio_auth_token" | "resend_api_key" | "resend_webhook_signing_secret"
-    )
+    ) || name == "agent_capabilities"
+        || (name.starts_with("agent_capabilities.mcps.") && name.contains(".credentials."))
 }
 
 #[cfg(test)]

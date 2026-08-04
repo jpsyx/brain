@@ -109,6 +109,15 @@ same current protocol. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
 queue key; Claude still receives `Enter`.
 
+Workspace-only launches also resolve portable logical MCP and skill allowlists
+against only the selected workspace's machine record. Claude receives selected
+MCPs through a cache-local strict runtime config while preserving the shared
+login. Codex receives documented per-call config overrides, but its inherited
+global MCP and skill sources cannot currently be proven excluded. Selected
+skill names are trusted guidance for both frontends. `brain skills status`
+labels each requested capability as `strictly-selected`, `advisory-only`, or
+`unavailable`, rather than claiming isolation the frontend does not provide.
+
 **Swap the layout.** The palette's "Move brain panel to the left/right"
 command flips which side the brain panel sits on; the choice is persisted
 (`<workspace-cache>/state.db`), so it sticks across runs. `Alt+H`/`Alt+L`
@@ -203,6 +212,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
+| `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex enforcement level without printing connection material or credentials. |
 | `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
 | `brain --with-receiver` | Open the TUI and explicitly start its TUI-owned receiver server. |
 | `brain --no-daily-triage-check` | Open the TUI without ever showing the daily-triage startup nudge. Process-scoped (this run only); not a persistent config change. Combines with any other flag/subcommand. |

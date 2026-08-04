@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::layout::{Layout, Link, link_ops};
+use super::layout::{Layout, Link, WorkspaceCapabilityLayout, link_ops};
 use super::model::Skill;
 use super::{embed, extension, plugin, render};
 
@@ -25,6 +25,12 @@ pub struct Sources {
 /// What a sync did.
 pub struct Report {
     pub installed: Vec<String>,
+}
+
+/// What one cache-local selected skill render produced.
+pub struct WorkspaceCapabilityReport {
+    pub rendered_dir: PathBuf,
+    pub rendered: Vec<String>,
 }
 
 /// Render + install every bundled skill and plugin into `layout`, injecting
@@ -64,7 +70,15 @@ pub fn sync(layout: &Layout, sources: &Sources) -> Result<Report> {
 }
 
 fn write_built(skill: &Skill, ext: Option<&extension::Extension>, layout: &Layout) -> Result<()> {
-    let dest = layout.built_dir.join(&skill.name);
+    write_built_to(skill, ext, &layout.built_dir)
+}
+
+fn write_built_to(
+    skill: &Skill,
+    ext: Option<&extension::Extension>,
+    built_dir: &Path,
+) -> Result<()> {
+    let dest = built_dir.join(&skill.name);
     if dest.exists() {
         fs::remove_dir_all(&dest)
             .with_context(|| format!("clearing built skill {}", dest.display()))?;
@@ -77,6 +91,56 @@ fn write_built(skill: &Skill, ext: Option<&extension::Extension>, layout: &Layou
         fs::write(&path, &rf.contents).with_context(|| format!("writing {}", path.display()))?;
     }
     Ok(())
+}
+
+/// Render only selected skills below one workspace/actor cache directory.
+/// No shared registry or frontend path is inspected or mutated.
+pub fn render_workspace_capabilities(
+    layout: &WorkspaceCapabilityLayout,
+    sources: &Sources,
+    plan: &crate::access::CapabilityPlan,
+) -> Result<WorkspaceCapabilityReport> {
+    if layout.built_dir.exists() {
+        fs::remove_dir_all(&layout.built_dir).with_context(|| {
+            format!(
+                "clearing workspace capability skills {}",
+                layout.built_dir.display()
+            )
+        })?;
+    }
+    fs::create_dir_all(&layout.built_dir)?;
+    let mut bundled = embed::bundled_skills();
+    let mut rendered = Vec::new();
+    for source in plan.skills.available_sources() {
+        let skill = match source {
+            crate::access::ResolvedSkillSource::Bundled { name } => {
+                let index = bundled
+                    .iter()
+                    .position(|skill| skill.name == name)
+                    .ok_or_else(|| anyhow::anyhow!("bundled skill `{name}` disappeared"))?;
+                bundled.swap_remove(index)
+            }
+            crate::access::ResolvedSkillSource::Machine { name, path } => {
+                let parent = path
+                    .parent()
+                    .ok_or_else(|| anyhow::anyhow!("machine skill `{name}` has no parent"))?;
+                plugin::discover(parent)
+                    .into_iter()
+                    .find(|skill| skill.name == name)
+                    .ok_or_else(|| anyhow::anyhow!("machine skill `{name}` is unavailable"))?
+            }
+        };
+        let ext = sources
+            .extensions_dir
+            .as_deref()
+            .and_then(|directory| extension::load(&skill.name, directory));
+        write_built_to(&skill, ext.as_ref(), &layout.built_dir)?;
+        rendered.push(skill.name);
+    }
+    Ok(WorkspaceCapabilityReport {
+        rendered_dir: layout.built_dir.clone(),
+        rendered,
+    })
 }
 
 fn create_symlink(link: &Link) -> Result<()> {

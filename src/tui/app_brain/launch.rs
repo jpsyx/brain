@@ -23,6 +23,15 @@ fn brain_transport(app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
 }
 
 impl App<'_> {
+    pub(in crate::tui) fn launch_capability_plan(
+        &self,
+    ) -> anyhow::Result<crate::access::CapabilityPlan> {
+        let mut config = crate::config::Config::try_load(&self.command_context.workspace)?;
+        config.access_mode = self.config.access_mode;
+        crate::access::capability_plan_for(&config, &self.command_context)
+            .map_err(anyhow::Error::from)
+    }
+
     pub(in crate::tui) fn controller_for_transport(
         &self,
         actor: crate::actor::ActorContext,
@@ -202,6 +211,18 @@ impl App<'_> {
                     .to_string(),
             ),
         ]);
+        let capability_plan = match self.launch_capability_plan() {
+            Ok(plan) => plan,
+            Err(error) => {
+                crate::logging::log(format!("brain panel capability resolution failed: {error}"));
+                self.receiver_session_id = None;
+                self.session_actor = None;
+                self.flash = Some(FlashKind::Error(format!(
+                    "agent capabilities are invalid: {error}"
+                )));
+                return false;
+            }
+        };
         let request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.command_context.workspace),
             actor.clone(),
@@ -209,6 +230,7 @@ impl App<'_> {
             prompt.map(str::to_owned),
             self.config.access_mode,
         )
+        .with_capability_plan(capability_plan)
         .with_hook_metadata(hooks);
         let transport = brain_transport(self);
         let mut controller = AgentController::new(

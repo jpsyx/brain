@@ -19,6 +19,11 @@ use serde_json::Value;
 pub struct Config {
     /// Portable advisory access policy for this workspace.
     pub access_mode: crate::access::AccessMode,
+    /// Logical MCP server names available to workspace-only agent launches.
+    pub allowed_mcps: Vec<String>,
+    /// Logical skill names available to workspace-only agent launches.
+    #[serde(default = "default_allowed_skills")]
+    pub allowed_skills: Vec<String>,
     /// Whether Brain maintains its daily and weekly triage habit chains.
     pub enable_triage_habits: bool,
     /// Email address used for long-form responses requested over SMS.
@@ -72,6 +77,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             access_mode: crate::access::AccessMode::Unrestricted,
+            allowed_mcps: Vec::new(),
+            allowed_skills: default_allowed_skills(),
             enable_triage_habits: true,
             response_email: String::new(),
             allowed_sms_senders: String::new(),
@@ -81,6 +88,12 @@ impl Default for Config {
             day_rollover_hour: 6,
         }
     }
+}
+
+fn default_allowed_skills() -> Vec<String> {
+    ["contacts", "second-brain", "todo", "triage"]
+        .map(str::to_owned)
+        .to_vec()
 }
 
 impl Config {

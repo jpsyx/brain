@@ -495,6 +495,28 @@ machine-wide SQLite transaction lock plus same-directory atomic replacement.
 The lock prevents lost read-modify-write updates; the rename prevents readers
 from observing partial JSON and preserves the old bytes on failure.
 
+## Why workspace capabilities reuse shared frontend authentication
+
+Workspace capability selection is configuration, not a second identity. Brain
+therefore keeps portable logical allowlists in the root while commands, URLs,
+paths, and credentials stay in that workspace's selected machine record. It
+does not create Claude or Codex auth profiles.
+
+Claude has a verified strict MCP boundary: a cache-local generated JSON plus
+`--mcp-config --strict-mcp-config`. `--bare` is intentionally excluded because
+it changes authentication behavior. Claude's installed skill controls cannot
+strictly select an arbitrary subset, so skill names remain advisory. Codex's
+documented `-c` overrides merge with base config. Namespacing generated server
+keys prevents collision with known global names, but cannot prove that other
+global servers are excluded, so Codex remains advisory. Enforcement status is
+derived from those concrete launch facts and never upgraded from advisory by
+logical selection alone.
+
+Selected skill copies live under the workspace UUID and actor cache. They do
+not link to, prune, or rewrite the shared registry. This preserves the user's
+ordinary unrestricted environment and avoids one workspace launch changing
+another workspace's frontend state.
+
 ## Why we disable alternate scroll (and motion) reporting for the mouse
 
 `EnableMouseCapture` turns on more than we want. We immediately trim it with

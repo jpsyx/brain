@@ -121,7 +121,7 @@ boundaries:
 | --- | --- | --- |
 | Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, `.config/users.json`, config, personalization, extensions, and plugins |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
-| Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, portable-user transaction lock, inbox, responses, and sync lock/journal/current state/baselines |
+| Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, portable-user transaction lock, inbox, responses, capability artifacts, and sync lock/journal/current state/baselines |
 | Shared infrastructure | Machine server/control and transitional triage-signal paths only | Process coordination, never a default workspace payload path |
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
@@ -262,14 +262,18 @@ that keeps injected text separate from its final frontend input.
 
 Portable access policy. `mode` owns the two stable config values; `prompt`
 builds the trusted advisory text and deliberately naive literal outside-root
-warning; `capabilities` snapshots mode plus prompt and renders the honest themed
-status; `store` strictly loads portable config, preserves unrelated keys, and
+warning; `capabilities` snapshots mode plus prompt; `skills` resolves portable
+logical names against the selected machine record; `enforcement` models honest
+frontend evidence and levels; `mcp` owns the machine schema plus frontend
+runtime translation; `store` strictly
+loads portable config, preserves unrelated keys, and
 publishes mode changes through a synced same-directory atomic replacement. It
 also validates or seeds the selected record before readiness, a new record
 before publication, and every record when listing or explicitly migrating the
 whole registry. Main, receiver, resumed, fresh, and triage launches all construct policy
 from the selected workspace, resolved actor, and already-loaded portable
-`Config`. Inbound prompt text is not an input to policy construction.
+`Config`. Main and triage launch paths attach the same resolved capability plan.
+Inbound prompt text is not an input to policy construction.
 
 ### `users/`
 
@@ -425,7 +429,10 @@ computation), `install` (collect bundled + plugins, write built + create the
 two-hop symlinks; thin FS shell over `link_ops`), and `command`
 (`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the built
 dir, registry, frontend count, and extension/plugin sources before the FS shell
-runs). `resync_skills()` (the A seam) runs the pipeline, gated by
+runs; `brain skills status` reports capability selection and enforcement).
+For workspace-only launches, `layout` and `install` also render selected skills
+under the workspace UUID and actor cache without creating registry or frontend
+links. `resync_skills()` (the A seam) runs the pipeline, gated by
 `skills_auto_sync` (**default `true`** since the B4 cutover) so a mutation
 re-renders the live registry; set the flag `false` to manage skills only via
 explicit `brain skills sync`. jpsyx delegates to `brain skills sync` and never

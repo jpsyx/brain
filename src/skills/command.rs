@@ -6,12 +6,160 @@
 //! the live registry). Without it, the real per-user layout + brain-root sources
 //! are used.
 
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 
 use super::install::{self, Sources};
 use super::layout::Layout;
+
+/// Run `brain skills status` for the selected workspace.
+pub fn run_status(context: &crate::workspace::CommandContext) -> Result<()> {
+    let config = crate::config::Config::try_load(&context.workspace)?;
+    let plan = crate::access::capability_plan_for(&config, context)?;
+    println!(
+        "{}",
+        format_capability_status(&plan, crate::theme::Theme::active())
+    );
+    Ok(())
+}
+
+/// Render requested, available, and frontend enforcement without connection material.
+#[must_use]
+pub fn format_capability_status(
+    plan: &crate::access::CapabilityPlan,
+    theme: crate::theme::Theme,
+) -> String {
+    let mut output = theme.heading("Workspace agent capabilities");
+    write!(
+        output,
+        "\n  {} {}",
+        theme.muted("source workspace:"),
+        theme.value(&plan.credentials.source_workspace().to_string())
+    )
+    .expect("writing to a String cannot fail");
+    append_mcp_status(&mut output, plan, theme);
+    append_skill_status(&mut output, plan, theme);
+    output
+}
+
+fn append_mcp_status(
+    output: &mut String,
+    plan: &crate::access::CapabilityPlan,
+    theme: crate::theme::Theme,
+) {
+    write!(output, "\n\n{}", theme.accent("MCP capabilities"))
+        .expect("writing to a String cannot fail");
+    if plan.mcps.uses_global_configuration() {
+        write!(
+            output,
+            "\n  {}",
+            theme.warning("frontend global configuration")
+        )
+        .expect("writing to a String cannot fail");
+        return;
+    }
+    let claude = plan.enforcement_report(crate::access::EnforcementEvidence::strict_mcps_only());
+    let codex = plan.enforcement_report(crate::access::EnforcementEvidence::advisory_only());
+    for name in plan.mcps.names() {
+        append_capability_row(
+            output,
+            name,
+            plan.mcps.unavailable_reason(name),
+            claude.mcps.enforcement(name),
+            codex.mcps.enforcement(name),
+            theme,
+        );
+    }
+    if plan.mcps.names().is_empty() {
+        write!(output, "\n  {}", theme.muted("none requested"))
+            .expect("writing to a String cannot fail");
+    }
+}
+
+fn append_skill_status(
+    output: &mut String,
+    plan: &crate::access::CapabilityPlan,
+    theme: crate::theme::Theme,
+) {
+    write!(output, "\n\n{}", theme.accent("Skill capabilities"))
+        .expect("writing to a String cannot fail");
+    if plan.skills.uses_global_configuration() {
+        write!(
+            output,
+            "\n  {}",
+            theme.warning("frontend global configuration")
+        )
+        .expect("writing to a String cannot fail");
+        return;
+    }
+    let report = plan.enforcement_report(crate::access::EnforcementEvidence::advisory_only());
+    for name in plan.skills.names() {
+        append_capability_row(
+            output,
+            name,
+            plan.skills.unavailable_reason(name),
+            report.skills.enforcement(name),
+            report.skills.enforcement(name),
+            theme,
+        );
+    }
+    if plan.skills.names().is_empty() {
+        write!(output, "\n  {}", theme.muted("none requested"))
+            .expect("writing to a String cannot fail");
+    }
+}
+
+fn append_capability_row(
+    output: &mut String,
+    name: &str,
+    unavailable_reason: Option<&str>,
+    claude: Option<crate::access::CapabilityEnforcement>,
+    codex: Option<crate::access::CapabilityEnforcement>,
+    theme: crate::theme::Theme,
+) {
+    let available = unavailable_reason.is_none();
+    write!(
+        output,
+        "\n  {}  requested={}  available={}  Claude={}  Codex={}",
+        theme.value(name),
+        theme.success("yes"),
+        if available {
+            theme.success("yes")
+        } else {
+            theme.warning("no")
+        },
+        themed_enforcement(theme, claude),
+        themed_enforcement(theme, codex)
+    )
+    .expect("writing to a String cannot fail");
+    if let Some(reason) = unavailable_reason {
+        write!(output, "\n    {}", theme.muted(reason)).expect("writing to a String cannot fail");
+    }
+}
+
+const fn enforcement_label(
+    enforcement: Option<crate::access::CapabilityEnforcement>,
+) -> &'static str {
+    match enforcement {
+        Some(crate::access::CapabilityEnforcement::StrictlySelected) => "strictly-selected",
+        Some(crate::access::CapabilityEnforcement::AdvisoryOnly) => "advisory-only",
+        Some(crate::access::CapabilityEnforcement::Unavailable) | None => "unavailable",
+    }
+}
+
+fn themed_enforcement(
+    theme: crate::theme::Theme,
+    enforcement: Option<crate::access::CapabilityEnforcement>,
+) -> String {
+    let label = enforcement_label(enforcement);
+    match enforcement {
+        Some(crate::access::CapabilityEnforcement::StrictlySelected) => theme.success(label),
+        Some(crate::access::CapabilityEnforcement::AdvisoryOnly) => theme.warning(label),
+        Some(crate::access::CapabilityEnforcement::Unavailable) | None => theme.error(label),
+    }
+}
 
 /// Run `brain skills sync`. `root` (from `--root`) selects a sandbox.
 pub fn run_sync(workspace: &crate::workspace::WorkspaceContext, root: Option<&Path>) -> Result<()> {

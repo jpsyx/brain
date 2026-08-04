@@ -466,6 +466,16 @@ frontend. Initial prompt text follows the frontend's option terminator, so a
 leading `-` remains prompt data. The policy is prompt guidance and capability filtering, not a
 filesystem sandbox.
 
+`CapabilityPlan` is a separate immutable launch snapshot. Portable config owns
+only ordered logical `allowed_mcps` and `allowed_skills` names. Resolution reads
+only `agent_capabilities` from the already-selected machine registry record and
+retains that record's workspace UUID as credential provenance. Missing MCP
+connection data, incomplete credentials, and missing custom skill paths become
+`Unavailable`; duplicate or blank logical names are configuration errors.
+Unrestricted plans delegate to frontend global configuration. Workspace-only
+plans preserve an explicit empty list, while a missing skill list receives the
+four core defaults.
+
 `classify_obvious_outside_path` is a pure defense-in-depth warning for literal
 absolute and `~/` paths. It does not resolve symlinks or aliases and does not
 attempt prompt-injection detection. Paraphrasing and indirect requests can
@@ -647,6 +657,7 @@ See [config.md](config.md) for migration and storage details.
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
 | `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Read by `env::claude_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
 | `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Read by `env::codex_command`; blank falls back to `codex`. |
+| `agent_capabilities` | `Object` | *(unset)* | Selected-workspace machine material. `mcps[]` contains a logical `name`, exactly one `command` plus optional `args` or `url`, and optional `credentials` (`environment`, `headers`, `bearer_token`). `skills[]` contains a logical `name` and machine-local directory `path`. Credential descendants render as `(set)` in env listings. |
 
 All declared env variables and recursively flattened nested values render
 through the same `Resolved { name, value, description }` type `brain config`

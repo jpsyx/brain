@@ -65,6 +65,24 @@ fn parse_value(raw: &str) -> Value {
     }
 }
 
+fn parse_setting_value(name: &str, raw: &str) -> Result<Value> {
+    if matches!(name, "allowed_mcps" | "allowed_skills") {
+        let names = if raw.trim_start().starts_with('[') {
+            serde_json::from_str::<Vec<String>>(raw).map_err(|error| {
+                anyhow::anyhow!("{name} must be a JSON array or comma-separated names: {error}")
+            })?
+        } else {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(str::to_owned)
+                .collect()
+        };
+        return Ok(Value::Array(names.into_iter().map(Value::from).collect()));
+    }
+    Ok(parse_value(raw))
+}
+
 /// Persist `name=value` for a declared variable. Unknown names are rejected so
 /// a typo can't silently rot in the store.
 pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> {
@@ -93,7 +111,7 @@ pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> 
         return crate::access::set_portable_access_mode(workspace.root(), mode);
     }
     let mut map = load_map(workspace);
-    map.insert(name.to_owned(), parse_value(value));
+    map.insert(name.to_owned(), parse_setting_value(name, value)?);
     save_map(workspace, &map, &owner)
 }
 

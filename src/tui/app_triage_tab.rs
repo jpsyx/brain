@@ -146,6 +146,16 @@ impl App<'_> {
         let token = uuid::Uuid::new_v4().to_string();
         let session = AgentSession::new(uuid::Uuid::new_v4().to_string())
             .expect("generated triage session id");
+        let capability_plan = match self.launch_capability_plan() {
+            Ok(plan) => plan,
+            Err(error) => {
+                crate::logging::log(format!("triage tab capability resolution failed: {error}"));
+                self.flash = Some(FlashKind::Error(format!(
+                    "agent capabilities are invalid: {error}"
+                )));
+                return;
+            }
+        };
         let request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.command_context.workspace),
             self.interactive_actor.clone(),
@@ -153,6 +163,7 @@ impl App<'_> {
             Some("/triage".to_owned()),
             self.config.access_mode,
         )
+        .with_capability_plan(capability_plan)
         .with_hook_metadata(HookMetadata::new(vec![
             ("BRAIN_TRIAGE_DONE_URL".to_owned(), done_url),
             ("BRAIN_TRIAGE_TOKEN".to_owned(), token.clone()),

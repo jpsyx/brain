@@ -168,6 +168,15 @@ first move is a failing test that reproduces it, *then* the fix.
   exact trusted policy, cwd, separate prompt, actor, and channel. A nested-process PTY test proves unrelated inherited workspace
   secrets do not reach the child after `env_clear`; a temporary-HOME profile
   regression proves the non-profile shell cannot recreate a filtered secret.
+- **Workspace capabilities.** `tests/workspace_capabilities.rs` separates
+  portable logical selection from selected-record machine material, pins the
+  missing-versus-empty skill defaults, rejects duplicate names, and tests
+  unavailable credentials and skill sources. It verifies Claude's owner-only
+  strict MCP JSON, Codex's secret-free documented per-call overrides against
+  the installed parser, honest enforcement reports, actor/root-local skill
+  rendering without global-registry mutation, and status output without URLs
+  or credential values. App-level tests prove both main and triage requests
+  attach the same plan.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).

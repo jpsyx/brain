@@ -8,6 +8,7 @@ use crate::workspace::WorkspaceContext;
 pub struct AccessPolicy {
     mode: AccessMode,
     boundary_prompt: Option<String>,
+    capability_plan: Option<super::CapabilityPlan>,
 }
 
 /// Render an honest user-facing summary of the effective enforcement.
@@ -38,6 +39,7 @@ impl AccessPolicy {
         Self {
             mode,
             boundary_prompt: boundary_prompt(workspace, actor, mode),
+            capability_plan: None,
         }
     }
 
@@ -51,5 +53,40 @@ impl AccessPolicy {
     #[must_use]
     pub fn boundary_prompt(&self) -> Option<&str> {
         self.boundary_prompt.as_deref()
+    }
+
+    /// Attach selected capability names to the trusted advisory policy.
+    #[must_use]
+    pub fn with_capability_plan(mut self, plan: super::CapabilityPlan) -> Self {
+        if self.mode == AccessMode::WorkspaceOnly {
+            let policy = format!(
+                "Use only these requested MCP capabilities: {}. Use only these requested skills: {}. Capability availability and strictness are reported separately by the frontend launch.",
+                display_names(&plan.mcps.names()),
+                display_names(&plan.skills.names()),
+            );
+            match self.boundary_prompt.as_mut() {
+                Some(prompt) => {
+                    prompt.push_str("\n\n");
+                    prompt.push_str(&policy);
+                }
+                None => self.boundary_prompt = Some(policy),
+            }
+        }
+        self.capability_plan = Some(plan);
+        self
+    }
+
+    /// Frontend-independent selection attached to this launch.
+    #[must_use]
+    pub const fn capability_plan(&self) -> Option<&super::CapabilityPlan> {
+        self.capability_plan.as_ref()
+    }
+}
+
+fn display_names(names: &[&str]) -> String {
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join(", ")
     }
 }

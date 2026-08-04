@@ -123,15 +123,24 @@ pub fn run_skills(
     args: &crate::cli::SkillsArgs,
     context: &crate::workspace::CommandContext,
 ) -> Result<()> {
-    let root = match &args.action {
-        Some(crate::cli::SkillsAction::Sync { root }) => root.as_deref(),
-        None => None,
-    };
-    crate::logging::log(format!(
-        "skills sync root={}",
-        root.map_or_else(|| "(real)".to_owned(), |path| path.display().to_string())
-    ));
-    crate::skills::command::run_sync(&context.workspace, root)
+    match &args.action {
+        Some(crate::cli::SkillsAction::Status) => {
+            crate::logging::log("skills status");
+            crate::skills::command::run_status(context)
+        }
+        Some(crate::cli::SkillsAction::Sync { root }) => {
+            crate::logging::log(format!(
+                "skills sync root={}",
+                root.as_deref()
+                    .map_or_else(|| "(real)".to_owned(), |path| path.display().to_string())
+            ));
+            crate::skills::command::run_sync(&context.workspace, root.as_deref())
+        }
+        None => {
+            crate::logging::log("skills sync root=(real)");
+            crate::skills::command::run_sync(&context.workspace, None)
+        }
+    }
 }
 
 fn config_set_interactive(context: &crate::workspace::CommandContext, name: &str) -> Result<()> {

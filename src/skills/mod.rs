@@ -24,6 +24,18 @@ pub mod render;
 
 use std::path::PathBuf;
 
+pub use install::WorkspaceCapabilityReport;
+
+/// Render a selected workspace/actor skill view without touching registries.
+pub fn render_workspace_capabilities(
+    workspace: &crate::workspace::WorkspaceContext,
+    actor: &crate::actor::ActorContext,
+    plan: &crate::access::CapabilityPlan,
+) -> anyhow::Result<WorkspaceCapabilityReport> {
+    let layout = layout::Layout::workspace_capabilities(workspace, actor);
+    install::render_workspace_capabilities(&layout, &real_sources(workspace), plan)
+}
+
 /// The brain version currently running — the authority for a rendered
 /// registry. When the installed skills were rendered by a different version,
 /// they are stale (see [`needs_resync`]).
@@ -125,10 +137,7 @@ fn synced_version(workspace: &crate::workspace::WorkspaceContext) -> Option<Stri
 
 /// Persist the render stamp for `workspace`. Best-effort: a write failure is
 /// logged, never fatal (worst case the next invocation re-renders).
-pub(crate) fn record_synced_version(
-    workspace: &crate::workspace::WorkspaceContext,
-    version: &str,
-) {
+pub(crate) fn record_synced_version(workspace: &crate::workspace::WorkspaceContext, version: &str) {
     match crate::state::Db::open(workspace) {
         Ok(db) => {
             if let Err(err) = db.set_skills_synced_version(version) {
@@ -213,8 +222,11 @@ mod tests {
 
     #[test]
     fn version_resync_plan_names_the_update_and_render() {
-        let plan =
-            super::format_version_resync_plan(Some("0.17.1"), "0.18.0", crate::theme::Theme::dark(false));
+        let plan = super::format_version_resync_plan(
+            Some("0.17.1"),
+            "0.18.0",
+            crate::theme::Theme::dark(false),
+        );
         assert!(plan.contains("Brain updated"), "{plan}");
         assert!(plan.contains("0.17.1"), "{plan}");
         assert!(plan.contains("0.18.0"), "{plan}");
@@ -223,7 +235,8 @@ mod tests {
 
     #[test]
     fn version_resync_plan_handles_a_never_stamped_registry() {
-        let plan = super::format_version_resync_plan(None, "0.18.0", crate::theme::Theme::dark(false));
+        let plan =
+            super::format_version_resync_plan(None, "0.18.0", crate::theme::Theme::dark(false));
         assert!(plan.contains("0.18.0"), "{plan}");
     }
 }

@@ -108,8 +108,8 @@ inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex`,
 
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
-| Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> --resume <id>` or `--session-id <id>` |
-| Codex | `codex_cmd` in brain env, default `codex` | Current panels always launch fresh as `cd <root> && <codex_cmd>` with no Claude-only flags; the adapter retains the compatible `resume <id>` translation for a future validated resume source |
+| Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> [--mcp-config <cache-json> --strict-mcp-config] --resume <id>` or `--session-id <id>` |
+| Codex | `codex_cmd` in brain env, default `codex` | Current panels launch fresh as `cd <root> && <codex_cmd> [-c <capability-override>...]`; the adapter retains `resume <id>` for a future validated resume source |
 
 `agent::ClaudeFrontend` and `agent::CodexFrontend` own these command shapes and
 splice the configured base command in verbatim so it may carry its own flags.
@@ -134,6 +134,32 @@ that begins with `-` cannot become a Claude flag or Codex config override.
 Fresh, resumed, interactive, SMS, email, and daily-triage
 requests use the same policy construction. Unrestricted mode adds no policy
 instruction.
+
+Capability selection is separate from the boundary prompt. Portable config
+requests logical MCP and skill names; only the selected workspace registry
+record supplies commands, URLs, paths, and credentials. Claude writes selected
+available MCPs atomically to
+`~/.cache/brain/workspaces/<uuid>/capabilities/claude-mcp.json`, keeps the
+directory owner-only and the file mode `0600`, and launches with
+`--mcp-config` plus `--strict-mcp-config`. It does not use `--bare`, so the
+user's shared Claude authentication remains in effect. The installed Claude
+CLI has no verified select-some skill flag, so skills remain advisory.
+
+Codex receives only documented per-call `-c mcp_servers.*` overrides. Server
+keys use the full workspace UUID plus a byte-hex logical name, avoiding both
+global-name collisions and punctuation collisions. Credential values travel in
+the child environment and the overrides name their environment variables, so
+secrets do not appear in argv. Because dotted overrides merge with Codex's base
+configuration and do not prove exclusion of unrelated global servers, Codex
+MCP and skill enforcement remains advisory. Brain does not set `CODEX_HOME` or
+select a separate profile.
+
+The selected skill view is rendered per workspace UUID and actor below the
+capability cache. It incorporates that root's extensions and contains only
+available selected sources. It creates no links into the shared skill registry,
+so switching workspaces cannot prune or rewrite global skill state. Run
+`brain skills status` for requested, available, and frontend enforcement rows;
+the formatter never receives connection values or credentials.
 
 The PTY clears inherited environment before launch. The explicit replacement
 contains only a narrow set of frontend runtime necessities (`HOME`, `PATH`,

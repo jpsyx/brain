@@ -72,6 +72,13 @@ impl LaunchRequest {
         self
     }
 
+    /// Attach a separately resolved workspace capability selection.
+    #[must_use]
+    pub fn with_capability_plan(mut self, plan: crate::access::CapabilityPlan) -> Self {
+        self.access_policy = self.access_policy.with_capability_plan(plan);
+        self
+    }
+
     /// The selected workspace for this launch.
     #[must_use]
     pub fn workspace(&self) -> &Arc<WorkspaceContext> {
@@ -126,6 +133,8 @@ pub struct LaunchSpec {
     pub environment: Vec<(String, String)>,
     /// Frontend-owned hook association metadata.
     pub hooks: HookMetadata,
+    /// Honest per-capability enforcement derived from concrete launch flags.
+    pub capabilities: crate::access::CapabilityEnforcementReport,
 }
 
 impl LaunchSpec {
@@ -142,7 +151,18 @@ impl LaunchSpec {
             cwd,
             environment,
             hooks,
+            capabilities: crate::access::CapabilityEnforcementReport::default(),
         }
+    }
+
+    /// Attach the report proven by this frontend's launch arguments.
+    #[must_use]
+    pub fn with_capabilities(
+        mut self,
+        capabilities: crate::access::CapabilityEnforcementReport,
+    ) -> Self {
+        self.capabilities = capabilities;
+        self
     }
 }
 

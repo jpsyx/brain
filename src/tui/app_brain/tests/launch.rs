@@ -71,6 +71,36 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_both_fro
 }
 
 #[test]
+fn app_main_refuses_malformed_portable_capability_configuration() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    std::fs::write(
+        app.command_context
+            .workspace
+            .root()
+            .join(".config/config.json"),
+        r#"{"access_mode":"workspace_only","allowed_skills":"todo"}"#,
+    )
+    .expect("malformed capability config");
+    let recording = LaunchRecording::default();
+    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
+        recording: recording.clone(),
+        alive: false,
+    }));
+
+    assert!(!app.open_or_focus_brain(None));
+
+    assert!(recording.0.lock().expect("launch recording").is_empty());
+    assert!(matches!(
+        app.flash.as_ref(),
+        Some(crate::tui::FlashKind::Error(message))
+            if message.contains("agent capabilities are invalid")
+    ));
+}
+
+#[test]
 fn app_main_claude_resume_keeps_trusted_policy_before_the_user_prompt() {
     let cli = Cli::parse_from(["tasks"]);
     let temporary = tempfile::tempdir().expect("temporary directory");
