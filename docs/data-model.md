@@ -506,7 +506,9 @@ without a manual `brain skills sync`.
   complete immutable attribution and `active` status. SessionStart records the
   actual Claude or Codex session ID only when the exact tuple is registered or
   the ID rotates an already registered active shell lineage; every other hook
-  event is rejected.
+  event is rejected. The authorization reads and accepted rotation mutation
+  share one `BEGIN IMMEDIATE` transaction, so concurrent target claims are
+  serialized and a rejected or failed attempt preserves both lineages.
 - `SessionStore::mark_completed` and the Stop hook transition the exact scoped
   row to `completed`; an accepted SessionStart or
   `SessionStore::mark_active` after a successful local or queued submit returns

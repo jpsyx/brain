@@ -78,11 +78,12 @@ def main() -> None:
     now = int(time.time())
 
     try:
-        conn = sqlite3.connect(db_path, timeout=5)
+        conn = sqlite3.connect(db_path, timeout=5, isolation_level=None)
     except Exception:
         return
     try:
         conn.execute("PRAGMA busy_timeout = 5000;")
+        conn.execute("BEGIN IMMEDIATE")
         scope = (
             launch["BRAIN_AGENT_KIND"],
             launch["BRAIN_WORKSPACE_ID"],
@@ -109,6 +110,7 @@ def main() -> None:
                 (*scope, instance),
             ).fetchone()
             if not lineage:
+                conn.rollback()
                 return
             target = conn.execute(
                 """
@@ -119,6 +121,7 @@ def main() -> None:
                 (scope[0], session_id, scope[1], scope[2], scope[3]),
             ).fetchone()
             if target and target[0] != instance and target[1] is not None:
+                conn.rollback()
                 return
 
         conn.execute(
@@ -171,7 +174,11 @@ def main() -> None:
         )
         conn.commit()
     except Exception:
-        pass
+        try:
+            if conn.in_transaction:
+                conn.rollback()
+        except Exception:
+            pass
     finally:
         conn.close()
 

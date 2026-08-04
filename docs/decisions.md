@@ -417,6 +417,15 @@ conversation or make the PTY disposable. The next successful local or queued
 submit calls `SessionStore::mark_active`, so ordinary turns after the first one
 do not depend on another SessionStart event to reactivate the row.
 
+Rotation authorization and mutation must be one write transaction. A target
+ownership `SELECT` followed by a later unconditional upsert leaves a race in
+which two shells can both authorize the same free target and the last writer
+can overwrite the first. The hook therefore acquires `BEGIN IMMEDIATE` before
+reading the exact tuple, source lineage, or target owner. Contenders wait at
+the transaction boundary, then re-read current ownership; authorization
+no-ops and exceptions explicitly roll back, while the target upsert and prior
+session release commit together.
+
 ## Why we verify a transcript exists before resuming a session
 
 `claude --resume <id>` only works if a transcript `<id>.jsonl` exists in the

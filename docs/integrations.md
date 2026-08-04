@@ -227,7 +227,12 @@ Which session to run is decided by the **lock + recency** model in
    the instance's other sessions, so a `/new` mid-run becomes the session
    brain resumes next time and the prior conversation stays resumable. With
    any common workspace identity or required session attribution variable
-   absent, the hook is a no-op.
+   absent, the hook is a no-op. Authorization reads, target ownership checks,
+   the accepted upsert, and prior-session release run inside one
+   `BEGIN IMMEDIATE` transaction. Concurrent rotations therefore serialize
+   before authorization; rejected or failed attempts roll back without
+   changing either lineage, and SQLite's busy timeout lets a contender retry
+   the decision after the current writer commits.
 4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
    `last_assistant_message` under
    `<workspace-cache>/responses/<response-id>.json` only after the exact

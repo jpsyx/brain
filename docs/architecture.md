@@ -966,8 +966,10 @@ rebuild:
   A SessionStart hook may update an exact registered tuple or rotate an
   already registered active lineage; it rejects unregistered events and frees
   the instance's other sessions on every accepted start
-  (so `/new` leaves the prior conversation resumable); `release` clears the
-  lock on exit; dead-PID locks are reaped on the next startup.
+  (so `/new` leaves the prior conversation resumable). Its authorization and
+  mutation share one `BEGIN IMMEDIATE` transaction, so concurrent rotations
+  recheck target ownership after serialization. `release` clears the lock on
+  exit; dead-PID locks are reaped on the next startup.
 
 ## Dependencies
 

@@ -80,13 +80,16 @@ first move is a failing test that reproduces it, *then* the fix.
   `brain env`; and requires the prompt-based/non-sandbox disclaimer plus the
   invariant that changing the default workspace never changes access mode. It
   deliberately avoids snapshots and punctuation-heavy prose.
-- **Hook integration.** `tests/hook_integration.rs` runs the real Python
+- **Hook integration.** `tests/hook_integration.rs` plus its focused
+  `hook_integration/{atomic,installer}.rs` modules run the real Python
   SessionStart hook against a temporary SQLite DB and the real shell installer
-  against temporary homes/roots. It covers the typed workspace/actor
-  identity plus session attribution contract, selected-root argument
-  and `BRAIN_ROOT` precedence, project-relative commands, actor-scoped session
-  rotation, equal opaque IDs with conflicting immutable attribution, schema-v2
-  row preservation, and malformed/ambient no-op behavior. The hook-installer
+  against temporary homes/roots. They cover the typed workspace/actor
+  identity plus session attribution contract, selected-root argument and
+  `BRAIN_ROOT` precedence, project-relative commands, actor-scoped Claude and
+  Codex rotation, atomic target-claim serialization, rollback and retry after
+  an injected mutation failure, equal opaque IDs with conflicting immutable
+  attribution, schema-v2 row preservation, and malformed/ambient no-op
+  behavior. The hook-installer
   unit tests live in `src/command/server/receiver/hooks/tests.rs`; they pin the
   exact installed Codex JSON command schema, execute the
   actual configured start and stop commands as one attributed lifecycle, and
