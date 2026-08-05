@@ -1077,7 +1077,10 @@ reports `Accepting yes`; a live but disabled lease reports `TUI live` and
 `brain server status` and `brain receiver status -b <workspace>` are literal
 read-only probes. They do not write a diagnostic run log, migrate or repair
 configuration, create a users transaction lock, refresh installed skills,
-write the skill render stamp, or elect/start/churn the shared process.
+write the skill render stamp, or elect/start/churn the shared process. Receiver
+status uses one generation-bound control response for both server and exact
+workspace facts. A live control failure is reported, and neither status request
+expires leases or changes server lifecycle state.
 
 If all TUIs are closed, the final unregister stops the server immediately, so
 an inbound text reaches no Brain process and receives no Brain response. If

@@ -4,9 +4,9 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::Instant;
 
-use anyhow::{bail, Context, Result};
-use serde::de::DeserializeOwned;
+use anyhow::{Context, Result, bail};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 trait DeadlineClock {
     fn now(&mut self) -> Instant;
@@ -216,7 +216,7 @@ mod tests {
     use std::os::unix::net::UnixStream;
     use std::time::{Duration, Instant};
 
-    use super::{read_until_with_clock, write_until_with_clock, DeadlineClock};
+    use super::{DeadlineClock, read_until_with_clock, write_until_with_clock};
     use crate::server::control::ControlRequest;
 
     struct StepClock {

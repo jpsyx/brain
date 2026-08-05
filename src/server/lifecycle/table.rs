@@ -13,6 +13,9 @@ use super::{
 #[path = "table/error.rs"]
 mod error;
 pub use error::LeaseError;
+#[path = "table/status.rs"]
+mod status;
+pub(crate) use status::LeaseStatusView;
 
 /// A pure transition request for [`LeaseTable`].
 #[derive(Debug, Clone)]

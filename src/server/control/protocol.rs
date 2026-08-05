@@ -122,6 +122,8 @@ pub enum ControlResponse {
     WorkspaceStatus {
         /// Current process generation.
         generation: ServerGeneration,
+        /// Number of unexpired leases in this generation.
+        live_leases: usize,
         /// `None` when that workspace has no live lease in this generation.
         receiver_enabled: Option<bool>,
     },

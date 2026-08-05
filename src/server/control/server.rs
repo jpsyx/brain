@@ -147,12 +147,11 @@ impl ControlServer {
                 generation: self.generation,
                 ingress_id,
             },
-            Ok(ControlOutcome::WorkspaceStatus(receiver_enabled)) => {
-                ControlResponse::WorkspaceStatus {
-                    generation: self.generation,
-                    receiver_enabled,
-                }
-            }
+            Ok(ControlOutcome::WorkspaceStatus(status)) => ControlResponse::WorkspaceStatus {
+                generation: self.generation,
+                live_leases: status.live_leases,
+                receiver_enabled: status.receiver_enabled,
+            },
             Err(error) => ControlResponse::Rejected {
                 message: error.to_string(),
             },
@@ -275,12 +274,10 @@ impl ControlServer {
                 ControlOutcome::WorkspaceIngress(self.leases.live_ingress(workspace_id, now))
             }
             ControlRequest::WorkspaceStatus { workspace_id, .. } => {
-                ControlOutcome::WorkspaceStatus(
-                    self.leases.live_receiver_enabled(workspace_id, now),
-                )
+                ControlOutcome::WorkspaceStatus(self.leases.status_view(workspace_id, now))
             }
             ControlRequest::Snapshot => {
-                let live_leases = self.leases.live_workspaces(now).len();
+                let live_leases = self.leases.live_count_at(now);
                 ControlOutcome::Snapshot(ServerSnapshot {
                     generation: self.generation,
                     live_leases,
@@ -369,7 +366,7 @@ enum ControlOutcome {
     Decision(ServerDecision),
     Snapshot(ServerSnapshot),
     WorkspaceIngress(Option<crate::server::IngressId>),
-    WorkspaceStatus(Option<bool>),
+    WorkspaceStatus(crate::server::lifecycle::LeaseStatusView),
 }
 
 #[cfg(test)]

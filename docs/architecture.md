@@ -144,10 +144,11 @@ not use that UUID-scoped path.
 The frontend-neutral `agent` facade, concrete Claude/Codex adapters, PTY
 transport, main and triage controller ownership, receiver controller dispatch,
 advisory portable access modes, and a fail-fast OpenCode selection stub now
-exist. Functional OpenCode sessions, coordinated task-schema activation, and
-shared receiver authentication and forwarding remain later phases. The shared
-process control protocol, live TUI leases, heartbeats, crash recovery,
-final-TUI shutdown, and opaque-ingress HTTP routing are active.
+exist. Functional OpenCode sessions and coordinated task-schema activation
+remain later phases. The shared process control protocol, live TUI leases,
+heartbeats, crash recovery, final-TUI shutdown, opaque-ingress routing,
+authentication, actor resolution, exact TUI forwarding, and delivery are
+active.
 `workspace_only` is easy-to-bypass prompt guidance plus capability filtering,
 not a security or isolation boundary. It reduces accidents and naive leakage
 among trusted users; adversarial or sensitive workloads require an external
@@ -1031,8 +1032,12 @@ offline queue or launches an agent.
   only until that same deadline, without spawning an unjoinable connector.
   `client.rs` carries the deadline through connect, write, and read, and
   performs a bounded connect/elect/register handshake for startup and recovery.
-  Its generation-bound workspace-ingress lookup returns only the ingress from
-  that workspace's exact live accepted registration.
+  `status.rs` owns non-electing process and exact-workspace inspection. Receiver
+  status reads the process record once, then obtains live lease count and exact
+  receiver state from one generation-bound response. Both status requests use
+  immutable lease projections, so only the watchdog prunes TTLs or advances
+  final-expiry shutdown. The generation-bound workspace-ingress lookup returns
+  only the ingress from that workspace's exact live accepted registration.
   `server.rs` reopens registry plus
   manifest identity, compares the TUI-resolved root without retaining it,
   derives the UUID-local job socket, and verifies the live singleton and
@@ -1055,7 +1060,8 @@ offline queue or launches an agent.
   and signal cleanup; `watchdog.rs`
   applies clock-injected expiry plus the bounded initial-registration deadline;
   `lease.rs`, `table.rs`, and `decision.rs` own typed leases and latched
-  final-shutdown decisions. Signal flags and cleanup ownership precede process
+  final-shutdown decisions; `table/status.rs` owns immutable status
+  projections. Signal flags and cleanup ownership precede process
   state publication. The table and process record never contain roots, users,
   credentials, prompts, logs, or message bodies.
   `lifecycle::pid_alive` remains the stable seam for sync callers.

@@ -193,10 +193,10 @@ Inbound request actor selection now reads `users.json`: provider signatures are
 verified first, then the normalized sender must match an enabled phone or email
 identity. Legacy receiver allowlists and response settings remain compatibility
 inputs while the coordinated portable schema migration stays deferred. Task
-`assigned_to` and managed triage-habit policy are active in this phase. The
-functional OpenCode sessions, the final shared receiver lifecycle, and
-task-schema migration activation remain later phases. The agent-controller
-facade and advisory access modes are active; OpenCode is a fail-fast stub.
+`assigned_to`, managed triage-habit policy, and the complete shared receiver
+lifecycle are active. Functional OpenCode sessions and task-schema migration
+activation remain later phases. The agent-controller facade and advisory
+access modes are active; OpenCode is a fail-fast stub.
 
 ### Selected workspace env
 
@@ -459,8 +459,11 @@ lease. The four `brain receiver status -b <workspace>` rows keep those facts
 separate: `Receiver`, `TUI`, `Server`, and `Accepting`. Reading them uses
 literal read-only bootstrap. It never fills in a missing access mode, migrates
 or repairs registry/users state, renders skills, writes a render stamp or run
-log, or starts a process. Repair an incomplete workspace explicitly before
-asking for its receiver status.
+log, or starts a process. A live process is inspected through one
+generation-bound control response; failures from that live process are
+reported, not converted to `TUI not live`. Inspection does not expire leases
+or otherwise mutate the server. Repair an incomplete workspace explicitly
+before asking for its receiver status.
 
 ## The `brain config` command
 

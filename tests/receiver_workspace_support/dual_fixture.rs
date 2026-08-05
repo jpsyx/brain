@@ -17,6 +17,8 @@ pub struct DualWorkspaceReceiverFixture {
     family_ingress: brain::server::IngressId,
     personal_socket: Option<JobSocket>,
     family_socket: Option<JobSocket>,
+    personal_jobs: Vec<InboundJob>,
+    family_jobs: Vec<InboundJob>,
     personal_guard: Option<brain::tui::singleton::Guard>,
     family_guard: Option<brain::tui::singleton::Guard>,
     client: brain::server::control::ServerClient,
@@ -84,6 +86,8 @@ impl DualWorkspaceReceiverFixture {
             family_ingress,
             personal_socket: Some(personal_socket),
             family_socket: Some(family_socket),
+            personal_jobs: Vec::new(),
+            family_jobs: Vec::new(),
             personal_guard: Some(personal_guard),
             family_guard: Some(family_guard),
             client,
@@ -95,6 +99,11 @@ impl DualWorkspaceReceiverFixture {
             personal_registered: true,
             family_registered: true,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn home(&self) -> &std::path::Path {
+        self.home.path()
     }
 
     pub fn post_personal_signed_with_family_credentials(&self) -> String {
@@ -126,37 +135,44 @@ impl DualWorkspaceReceiverFixture {
         self.post_sms(self.family_ingress, "family-token", provider_id, prompt)
     }
 
-    pub fn personal_jobs(&self) -> Vec<InboundJob> {
-        let mut jobs = Vec::new();
+    pub fn personal_jobs(&mut self) -> Vec<InboundJob> {
         if let Some(socket) = &self.personal_socket {
-            socket.poll_jobs(self.personal.id(), &mut jobs);
+            socket.poll_jobs(self.personal.id(), &mut self.personal_jobs);
         }
-        jobs
+        self.personal_jobs.clone()
     }
 
-    pub fn family_jobs(&self) -> Vec<InboundJob> {
-        let mut jobs = Vec::new();
+    pub fn family_jobs(&mut self) -> Vec<InboundJob> {
         if let Some(socket) = &self.family_socket {
-            socket.poll_jobs(self.family.id(), &mut jobs);
+            socket.poll_jobs(self.family.id(), &mut self.family_jobs);
         }
-        jobs
+        self.family_jobs.clone()
     }
 
-    pub fn poll_both_jobs(&self) -> (Vec<InboundJob>, Vec<InboundJob>) {
-        let mut personal = Vec::new();
-        let mut family = Vec::new();
+    pub fn poll_both_jobs(&mut self) -> (Vec<InboundJob>, Vec<InboundJob>) {
         poll_until(Instant::now() + Duration::from_secs(3), || {
             self.personal_socket
                 .as_ref()
                 .expect("personal fake TUI is live")
-                .poll_jobs(self.personal.id(), &mut personal);
+                .poll_jobs(self.personal.id(), &mut self.personal_jobs);
             self.family_socket
                 .as_ref()
                 .expect("family fake TUI is live")
-                .poll_jobs(self.family.id(), &mut family);
-            !personal.is_empty() && !family.is_empty()
+                .poll_jobs(self.family.id(), &mut self.family_jobs);
+            !self.personal_jobs.is_empty() && !self.family_jobs.is_empty()
         });
-        (personal, family)
+        (self.personal_jobs.clone(), self.family_jobs.clone())
+    }
+
+    pub fn poll_personal_jobs(&mut self, expected: usize) -> Vec<InboundJob> {
+        poll_until(Instant::now() + Duration::from_secs(3), || {
+            self.personal_socket
+                .as_ref()
+                .expect("personal fake TUI is live")
+                .poll_jobs(self.personal.id(), &mut self.personal_jobs);
+            self.personal_jobs.len() >= expected
+        });
+        self.personal_jobs.clone()
     }
 
     pub fn shutdown(&mut self) {

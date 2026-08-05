@@ -283,9 +283,9 @@ authentication. Task `assigned_to` now defaults to that actor, while unrelated
 mutations preserve the existing assignment and explicit changes validate
 portable membership. This deliberately adds no owner, creator, audit, or device
 semantics. The agent-controller facade and fail-fast OpenCode selection stub
-are active; functional OpenCode behavior and shared receiver leases remain
-later phases. Actor context is attribution and routing, not a new
-authentication or access-control boundary.
+are active; shared receiver leases and authenticated forwarding are active as
+well. Functional OpenCode behavior remains a later phase. Actor context is
+attribution and routing, not a new authentication or access-control boundary.
 
 The same portable user ID may be selected on multiple computers because it
 names the person, not their machine. We intentionally add no cross-machine
@@ -1892,9 +1892,14 @@ through a pure command classifier before logger initialization. Receiver status
 uses a read-only selected-workspace bootstrap that validates existing registry,
 manifest, and users bytes through non-recovering readers. It returns the same
 four status facts without migration, repair, lock creation, skill rendering,
-stamp writes, process election, or live refresh. An incomplete workspace must
-be repaired explicitly. This keeps process state and persistent receiver intent
-observable without hidden state churn.
+stamp writes, process election, or live refresh. When a process record names a
+live PID, receiver status sends one generation-bound workspace-status request;
+that response supplies both process lease count and exact-workspace state.
+Transport, protocol, and generation errors remain errors. The server computes
+status through immutable lease-table projections, so status cannot reap TTLs,
+advance revisions, or latch shutdown. An incomplete workspace must be repaired
+explicitly. This keeps process state and persistent receiver intent observable
+without hidden state churn.
 
 ## Why control registration reopens authoritative workspace identity
 

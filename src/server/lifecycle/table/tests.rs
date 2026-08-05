@@ -407,6 +407,23 @@ fn receiver_changing_replay_overflow_cannot_extend_pre_revocation_authority() {
     );
 }
 
+#[test]
+fn status_view_filters_expiry_without_mutating_any_lease_table_state() {
+    let now = Instant::now();
+    let mut table = table_with_final_lease(now);
+    let before = table_snapshot(&table);
+
+    let status = table.status_view(family_id(), now + Duration::from_secs(5));
+
+    assert_eq!(status.live_leases, 0);
+    assert_eq!(status.receiver_enabled, None);
+    assert_eq!(table_snapshot(&table), before);
+    assert_eq!(
+        table.expire(now + Duration::from_secs(5)),
+        ServerDecision::ShutdownNow
+    );
+}
+
 fn table_snapshot(table: &LeaseTable) -> String {
     format!("{table:#?}")
 }

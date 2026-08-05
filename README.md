@@ -188,7 +188,9 @@ prompt-based guidance plus advisory capability enforcement.
 Active run logs remain under `/tmp` through `logging.rs`. The literal read-only
 `brain server status` and `brain receiver status -b <workspace>` probes are the
 exception: they create no run log, skill render, render stamp, config repair,
-or server state.
+or server state. Receiver status obtains process and exact-workspace lease facts
+from one generation-bound control response. Both status requests use immutable
+lease projections, leaving TTL cleanup solely to the watchdog.
 `WorkspacePaths::logs_dir` is reserved and unused; it is not the destination
 for current diagnostic logs.
 
@@ -321,8 +323,9 @@ completion, transcript, terminal, and shutdown operations. Claude and Codex
 adapters translate those operations into their own commands, input sequences,
 resume rules, and hook behavior. OpenCode is represented only by a
 constructible fail-fast adapter; every operation returns unsupported before a
-PTY or child process is touched. Functional OpenCode sessions and the final
-shared receiver lease lifecycle remain later phases.
+PTY or child process is touched. Functional OpenCode sessions remain a later
+phase. The shared receiver lease, ingress, authentication, forwarding, and
+delivery lifecycle is active.
 
 The task-schema migrator also remains inactive. Phase 5 owns the final legacy
 sync, coordinated backup, activation, and real-workspace rollout. Phase 2

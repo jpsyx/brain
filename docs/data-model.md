@@ -239,7 +239,10 @@ already-valid schema-v2 selected record, manifest, portable users, persistent
 intent, and any existing generation snapshot without invoking recovery or
 write-capable stores. This preserves the four-field receiver projection
 (`Receiver`, `TUI`, `Server`, `Accepting`) without changing bytes or process
-state.
+state. One generation-bound control response carries the process lease count
+and exact-workspace lease state. The underlying lease-table view filters
+expired entries without removing them or changing revisions and shutdown
+state; watchdog expiry remains a separate mutation.
 
 `WorkspacePaths` derives its full base from the ID:
 
@@ -415,8 +418,11 @@ machine-default changes operate only on the machine registry and cannot rotate
 portable ingress identity.
 
 `workspace::bootstrap` maps every parsed route to `None`, `InternalNoPrompt`,
-`RegistryOnly`, or `ReadyWorkspace`. Only the last class selects and validates
-a record. Readiness is manifest validity/UUID agreement plus portable
+`RegistryOnly`, `ReadOnlyWorkspace`, or `ReadyWorkspace`. The last two classes
+select a record. `ReadOnlyWorkspace` requires already-valid registry,
+manifest, and user bytes and opens no recovery or write seam. `ReadyWorkspace`
+may run ordinary readiness and repair. Readiness is manifest validity/UUID
+agreement plus portable
 membership when `.config/users.json` exists. In that schema, the machine-local
 `local_user_id` must parse as a user ID and name one member. Missing values become a pure
 `ReadinessAction::Prompt(fields)` interactively or a typed error carrying exact

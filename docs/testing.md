@@ -50,8 +50,9 @@ first move is a failing test that reproduces it, *then* the fix.
   prove migration is never called after cancellation, and prove complete flag
   forms perform no terminal IO. The real `/dev/tty` opener stays thin.
 - **Workspace bootstrap and readiness.** An exhaustive pure invocation table
-  proves every route is context-free, internal-no-prompt, registry-only, or
-  ready-workspace. Manifest tests reject unknown fields, schema/version
+  proves every route is `None`, `InternalNoPrompt`, `RegistryOnly`,
+  `ReadOnlyWorkspace`, or `ReadyWorkspace`. Manifest tests reject unknown
+  fields and schema/version
   incompatibility, and UUID disagreement. Injected `BufRead`/`Write` tests
   prove interactive repair persists and continues the original command, while
   compiled headless tests prove the exact repair commands and that no terminal
@@ -377,16 +378,26 @@ first move is a failing test that reproduces it, *then* the fix.
   injected clocks rather than fixed timing sleeps.
   The complete real-process E2E launches personal and family fake TUIs into one
   generation, accepts exactly one signed message into each exact queue,
-  orderly-closes family, observes one discarded/unavailable family request
-  while personal remains live, then closes personal and bounded-polls process
-  exit plus generation-artifact removal. It contains no fixed sleep.
+  orderly-closes family while retaining observable recording history, proves
+  one unavailable family request adds no family or cross-routed personal job,
+  accepts a fresh personal message in the same generation, then closes personal
+  and bounded-polls process exit plus generation-artifact removal. The test
+  injects an extra cross-routed job into a copy of the history and proves its
+  exact-route assertion rejects that mutation. It contains no fixed sleep.
 - **Literal read-only status.** `tests/status_read_only.rs` runs the compiled
   `brain server status` and selected `brain receiver status` commands. It
-  snapshots every HOME directory, file byte sequence, and symlink before and
-  after, checks that no PID-specific `/tmp` run log exists, checks that no
-  server state was created, and pins all four receiver status rows. This catches
-  accidental migration, config initialization, users transaction locks, skill
-  rendering, state-DB/render-stamp writes, and election.
+  snapshots every file type, Unix mode, regular-file byte sequence and SHA-256,
+  symlink target, and recursively traversed referent before and after. Referent
+  traversal records cycles rather than following them forever. The suite covers
+  absent and active servers, symlinked machine/workspace paths, eight concurrent
+  status commands, live control failure, and generation replacement. It checks
+  that no PID-specific `/tmp` run log exists, checks that no server state was
+  created, and pins all four receiver status rows. Exact lease-table tests prove
+  both process and workspace status leave expired leases, authority revisions,
+  and shutdown state untouched for the watchdog. This catches accidental
+  migration, config initialization, users transaction locks, skill rendering,
+  state-DB/render-stamp writes, election, control-error suppression, and status
+  pruning.
 - **Shared-server control protocol.** `tests/server_control.rs` is split into
   focused codec, registration, and transition suites. It covers bounded
   newline-delimited JSON round trips, malformed and oversized rejection,
@@ -486,9 +497,9 @@ No test reads or writes a real user workspace.
 | Re-enable starts fresh | `disabling_purges_every_managed_row_and_derived_reference_then_reenables_fresh` proves exactly two new open managed rows, new UUIDs, and no restored history. |
 
 The suite does not claim a filesystem sandbox, a general prompt-injection
-detector, coordinated task migration activation against a real workspace,
-functional OpenCode behavior, or the later shared HTTP receiver routing and
-job-forwarding stages.
+detector, coordinated task migration activation against a real workspace, or
+functional OpenCode behavior. Shared HTTP receiver routing and exact TUI
+job-forwarding are covered by the active Phase 4 integration suites.
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to

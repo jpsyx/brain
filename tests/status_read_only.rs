@@ -1,25 +1,34 @@
+#[allow(dead_code, unused_imports)]
+mod receiver_workspace_support;
+#[path = "status_read_only/snapshot.rs"]
+mod snapshot;
+
 use std::collections::BTreeMap;
+use std::os::unix::fs::MetadataExt as _;
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-#[derive(Debug, PartialEq, Eq)]
-enum Entry {
-    Directory,
-    File(Vec<u8>),
-    Symlink(PathBuf),
-}
+use sha2::{Digest as _, Sha256};
+
+use receiver_workspace_support::DualWorkspaceReceiverFixture;
+use snapshot::snapshot;
 
 #[test]
 fn server_status_is_a_literal_read_only_process_probe() {
     let home = tempfile::tempdir().expect("temporary home");
     let before = snapshot(home.path());
+    let before_logs = run_log_snapshot();
 
     let (pid, output) = run(home.path(), &["server", "status"]);
 
     assert!(output.status.success(), "{output:?}");
     assert_eq!(snapshot(home.path()), before);
-    let logs = pid_run_logs(pid).collect::<Vec<_>>();
-    assert!(logs.is_empty(), "status wrote run logs: {logs:?}");
+    assert_eq!(
+        pid_run_logs(pid, &run_log_snapshot()),
+        pid_run_logs(pid, &before_logs),
+        "status created or modified a PID run log"
+    );
     let server = home.path().join(".cache/brain/server");
     assert!(!server.exists(), "status created server state");
 }
@@ -29,13 +38,17 @@ fn receiver_status_reads_four_fields_without_mutating_workspace_or_machine_state
     let home = tempfile::tempdir().expect("temporary home");
     seed_ready_workspace(home.path());
     let before = snapshot(home.path());
+    let before_logs = run_log_snapshot();
 
     let (pid, output) = run(home.path(), &["-b", "brain", "receiver", "status"]);
 
     assert!(output.status.success(), "{output:?}");
     assert_eq!(snapshot(home.path()), before);
-    let logs = pid_run_logs(pid).collect::<Vec<_>>();
-    assert!(logs.is_empty(), "status wrote run logs: {logs:?}");
+    assert_eq!(
+        pid_run_logs(pid, &run_log_snapshot()),
+        pid_run_logs(pid, &before_logs),
+        "status created or modified a PID run log"
+    );
     let stdout = String::from_utf8(output.stdout).expect("UTF-8 stdout");
     for line in [
         "Receiver  enabled",
@@ -46,6 +59,113 @@ fn receiver_status_reads_four_fields_without_mutating_workspace_or_machine_state
         assert!(stdout.contains(line), "missing `{line}` in:\n{stdout}");
     }
     assert!(!home.path().join(".cache/brain/server").exists());
+}
+
+#[test]
+fn receiver_status_surfaces_a_live_process_control_failure() {
+    let home = tempfile::tempdir().expect("temporary home");
+    seed_ready_workspace(home.path());
+    publish_live_process_record(home.path(), "57b162df-983a-45c3-ac7e-bad94eb27a99");
+
+    let (_, output) = run(home.path(), &["-b", "brain", "receiver", "status"]);
+
+    assert!(!output.status.success(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 stderr");
+    assert!(
+        stderr.contains("connecting to the shared brain server"),
+        "missing preserved control error:\n{stderr}"
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("TUI       not live"));
+}
+
+#[test]
+fn receiver_status_rejects_generation_replacement_in_its_single_control_probe() {
+    let home = tempfile::tempdir().expect("temporary home");
+    seed_ready_workspace(home.path());
+    let paths = brain::server::lifecycle::ServerPaths::from_home(home.path());
+    std::fs::create_dir_all(paths.directory()).expect("server state directory");
+    let listener = UnixListener::bind(paths.control_socket()).expect("control listener");
+    publish_live_process_record(home.path(), "57b162df-983a-45c3-ac7e-bad94eb27a99");
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept status probe");
+        let request =
+            brain::server::control::codec::read::<brain::server::control::ControlRequest>(
+                &mut stream,
+            )
+            .expect("read status probe");
+        assert!(matches!(
+            request,
+            brain::server::control::ControlRequest::WorkspaceStatus { .. }
+        ));
+        brain::server::control::codec::write(
+            &mut stream,
+            &brain::server::control::ControlResponse::StaleGeneration,
+        )
+        .expect("write stale generation");
+    });
+
+    let (_, output) = run(home.path(), &["-b", "brain", "receiver", "status"]);
+
+    assert!(!output.status.success(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 stderr");
+    assert!(stderr.contains("generation changed"), "{stderr}");
+    server.join().expect("status probe server");
+}
+
+#[test]
+fn concurrent_status_commands_leave_an_active_generation_exactly_unchanged() {
+    let mut fixture = DualWorkspaceReceiverFixture::start();
+    let before_filesystem = snapshot(fixture.home());
+    let before_server = fixture.server_snapshot();
+
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(9));
+    let workers = (0..8)
+        .map(|index| {
+            let home = fixture.home().to_path_buf();
+            let barrier = std::sync::Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                if index % 2 == 0 {
+                    run(&home, &["server", "status"]).1
+                } else {
+                    run(&home, &["-b", "personal", "receiver", "status"]).1
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    barrier.wait();
+    for worker in workers {
+        let output = worker.join().expect("status worker");
+        assert!(output.status.success(), "{output:?}");
+    }
+
+    let after_server = fixture.server_snapshot();
+    assert_eq!(after_server, before_server);
+    assert_eq!(snapshot(fixture.home()), before_filesystem);
+    assert!(fixture.server_is_running());
+    fixture.shutdown();
+}
+
+#[test]
+fn receiver_status_is_read_only_through_symlinked_config_and_workspace_paths() {
+    let home = tempfile::tempdir().expect("temporary home");
+    let external = tempfile::tempdir().expect("external status state");
+    seed_ready_workspace(home.path());
+    let external_config = external.path().join("config");
+    let external_brain = external.path().join("brain");
+    std::fs::rename(home.path().join(".config"), &external_config).expect("move machine config");
+    std::fs::rename(home.path().join("brain"), &external_brain).expect("move workspace");
+    std::os::unix::fs::symlink(&external_config, home.path().join(".config"))
+        .expect("link machine config");
+    std::os::unix::fs::symlink(&external_brain, home.path().join("brain")).expect("link workspace");
+    std::os::unix::fs::symlink(home.path(), external_brain.join("cycle"))
+        .expect("link snapshot cycle");
+    let before = snapshot(home.path());
+
+    let (_, output) = run(home.path(), &["-b", "brain", "receiver", "status"]);
+
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(snapshot(home.path()), before);
 }
 
 fn run(home: &Path, arguments: &[&str]) -> (u32, Output) {
@@ -64,53 +184,59 @@ fn run(home: &Path, arguments: &[&str]) -> (u32, Output) {
     (pid, output)
 }
 
-fn pid_run_logs(pid: u32) -> impl Iterator<Item = PathBuf> {
-    let suffix = format!("-{pid}.log");
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RunLogEntry {
+    mode: u32,
+    size: u64,
+    modified: Option<std::time::Duration>,
+    bytes: Vec<u8>,
+    sha256: [u8; 32],
+}
+
+fn run_log_snapshot() -> BTreeMap<PathBuf, RunLogEntry> {
     std::fs::read_dir("/tmp")
         .into_iter()
         .flatten()
         .flatten()
-        .map(|entry| entry.path())
-        .filter(move |path| {
+        .filter_map(|entry| {
+            let path = entry.path();
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().ends_with(".log"))
+                .then(|| {
+                    let metadata = std::fs::metadata(&path).expect("run log metadata");
+                    let bytes = std::fs::read(&path).expect("run log bytes");
+                    let sha256 = Sha256::digest(&bytes).into();
+                    (
+                        path,
+                        RunLogEntry {
+                            mode: metadata.mode(),
+                            size: metadata.len(),
+                            modified: metadata
+                                .modified()
+                                .ok()
+                                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok()),
+                            bytes,
+                            sha256,
+                        },
+                    )
+                })
+        })
+        .collect()
+}
+
+fn pid_run_logs(
+    pid: u32,
+    snapshot: &BTreeMap<PathBuf, RunLogEntry>,
+) -> BTreeMap<PathBuf, RunLogEntry> {
+    let suffix = format!("-{pid}.log");
+    snapshot
+        .iter()
+        .filter(|(path, _)| {
             path.file_name()
                 .is_some_and(|name| name.to_string_lossy().ends_with(&suffix))
         })
-}
-
-fn snapshot(root: &Path) -> BTreeMap<PathBuf, Entry> {
-    let mut entries = BTreeMap::new();
-    snapshot_directory(root, root, &mut entries);
-    entries
-}
-
-fn snapshot_directory(root: &Path, directory: &Path, entries: &mut BTreeMap<PathBuf, Entry>) {
-    let mut children = std::fs::read_dir(directory)
-        .expect("read snapshot directory")
-        .map(|entry| entry.expect("read snapshot entry"))
-        .collect::<Vec<_>>();
-    children.sort_by_key(std::fs::DirEntry::file_name);
-    for child in children {
-        let path = child.path();
-        let relative = path
-            .strip_prefix(root)
-            .expect("snapshot prefix")
-            .to_path_buf();
-        let file_type = child.file_type().expect("snapshot file type");
-        if file_type.is_dir() {
-            entries.insert(relative, Entry::Directory);
-            snapshot_directory(root, &path, entries);
-        } else if file_type.is_symlink() {
-            entries.insert(
-                relative,
-                Entry::Symlink(std::fs::read_link(path).expect("snapshot symlink")),
-            );
-        } else {
-            entries.insert(
-                relative,
-                Entry::File(std::fs::read(path).expect("snapshot file")),
-            );
-        }
-    }
+        .map(|(path, entry)| (path.clone(), entry.clone()))
+        .collect()
 }
 
 fn seed_ready_workspace(home: &Path) {
@@ -162,4 +288,20 @@ fn seed_ready_workspace(home: &Path) {
         .expect("registry JSON"),
     )
     .expect("machine registry");
+}
+
+fn publish_live_process_record(home: &Path, generation: &str) {
+    let paths = brain::server::lifecycle::ServerPaths::from_home(home);
+    std::fs::create_dir_all(paths.directory()).expect("server state directory");
+    std::fs::write(
+        paths.process_record(),
+        serde_json::to_vec(&serde_json::json!({
+            "pid": std::process::id(),
+            "port": 8787,
+            "generation": generation,
+            "started_at": "2026-08-05T12:00:00Z"
+        }))
+        .expect("process record JSON"),
+    )
+    .expect("process record");
 }

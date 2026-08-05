@@ -326,6 +326,11 @@ all workspace mutation seams, including registry migration, access-mode or user
 repair, users transaction recovery, installed-skill rendering, and render-stamp
 writes. They inspect only existing process/control state and existing selected
 workspace bytes. They never acquire election ownership or notify a process.
+Receiver status reads the published process generation once and obtains live
+process plus exact-workspace facts from one generation-bound control request.
+A live-process transport, protocol, or replacement-generation failure is
+reported. Process and workspace status use immutable lease views; watchdog
+ticks remain the sole owner of TTL pruning and final-expiry shutdown.
 
 The externally observable lifetime is exact. Personal and family TUIs can hold
 two leases in the same generation and receive one message through their own
@@ -963,10 +968,9 @@ bookkeeping.
 - **Phase 2 did not activate migration or shared HTTP receiver routing.**
   The task-schema migrator remains an inactive fixture-tested interface; Phase
   5 owns its last legacy sync, backups, activation, and real-workspace rollout.
-  Shared-server control, TUI lease recovery, and public opaque-ingress routing
-  are now active; authenticated shared-process job forwarding remains later
-  Phase 4 work. Current actor propagation does not imply that delivery stage is
-  done.
+  Shared-server control, TUI lease recovery, public opaque-ingress routing,
+  authenticated actor resolution, exact TUI job forwarding, and response
+  delivery are now active.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.

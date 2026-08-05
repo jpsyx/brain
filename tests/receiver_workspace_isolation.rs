@@ -1,3 +1,5 @@
+#[path = "receiver_workspace_isolation/complete_lifecycle.rs"]
+mod complete_lifecycle;
 mod receiver_workspace_support;
 
 use std::io::Write as _;
@@ -14,50 +16,6 @@ use receiver_workspace_support::{
     DualWorkspaceReceiverFixture, FAMILY_ID, PERSONAL_ID, RecordingPipeline, RevocationPipeline,
     SharedReceiverFixture, job, poll_until, workspace,
 };
-
-#[test]
-fn two_fake_tuis_share_one_process_then_orderly_close_to_unavailable_and_shutdown() {
-    let mut fixture = DualWorkspaceReceiverFixture::start();
-    let initial = fixture.server_snapshot();
-    assert_eq!(initial.live_leases, 2);
-
-    let personal_response = fixture.post_personal_async("SM-e2e-personal", "personal exact");
-    let family_response = fixture.post_family_async("SM-e2e-family", "family exact");
-    let (personal_jobs, family_jobs) = fixture.poll_both_jobs();
-    assert!(
-        personal_response
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap()
-            .starts_with("HTTP/1.1 200")
-    );
-    assert!(
-        family_response
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap()
-            .starts_with("HTTP/1.1 200")
-    );
-    assert_eq!(personal_jobs.len(), 1);
-    assert_eq!(personal_jobs[0].workspace_id, fixture.personal.id());
-    assert_eq!(personal_jobs[0].prompt, "personal exact");
-    assert_eq!(family_jobs.len(), 1);
-    assert_eq!(family_jobs[0].workspace_id, fixture.family.id());
-    assert_eq!(family_jobs[0].prompt, "family exact");
-
-    fixture.close_family_tui();
-    let after_family = fixture.server_snapshot();
-    assert_eq!(after_family.generation, initial.generation);
-    assert_eq!(after_family.live_leases, 1);
-    let unavailable = fixture.post_family("SM-e2e-family-closed", "discard exactly once");
-    assert!(unavailable.starts_with("HTTP/1.1 200"), "{unavailable}");
-    assert_eq!(unavailable.matches("Brain is unavailable").count(), 1);
-    assert!(fixture.family_jobs().is_empty());
-    assert!(fixture.server_is_running());
-
-    fixture.close_personal_tui();
-    fixture.wait_for_server_exit();
-    assert!(!fixture.server_is_running());
-    assert!(!fixture.server_state_exists());
-}
 
 #[test]
 fn pipeline_resolves_before_credentials_and_authenticates_before_actor() {

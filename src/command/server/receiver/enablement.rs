@@ -144,13 +144,9 @@ pub(crate) fn read_receiver_status(
 ) -> Result<ReceiverStatus> {
     let enabled = receiver_enabled(context)?;
     let client = crate::server::lifecycle::ServerClient::default();
-    let server_running = client.connect_existing().is_ok();
-    let live_receiver_enabled = server_running
-        .then(|| client.workspace_receiver_enabled(context.workspace.id()))
-        .transpose()
-        .ok()
-        .flatten()
-        .flatten();
+    let live_status = client.workspace_status(context.workspace.id())?;
+    let server_running = live_status.is_some();
+    let live_receiver_enabled = live_status.and_then(|status| status.receiver_enabled);
     Ok(receiver_status(
         enabled,
         server_running,

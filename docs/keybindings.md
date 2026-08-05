@@ -130,7 +130,8 @@ persistent selected-workspace `receiver_enabled` value as `brain receiver
 start`, `brain receiver stop`, and startup `--with-receiver`. It never starts or
 stops the shared process; live TUI leases own that lifetime. The CLI-only
 receiver and server status probes are read-only and therefore have no palette
-mutation counterpart.
+mutation counterpart. Their control inspection is also immutable: status never
+expires a lease or advances shared-process state.
 
 - **Confirm** — Yes/No (triage adds Skip). `y`/`n`/`Esc`, `←`/`→`/`Tab` move, `Enter` resolves.
 - **Brain-input** (`Ctrl+Shift+M`) — compose a seeded message. `Alt+Enter` newline, `Enter` send.
