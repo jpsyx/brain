@@ -23,6 +23,21 @@ const _: () = assert!(
         < RECEIVER_HANDLER_TIMEOUT.as_secs()
 );
 
+pub(crate) fn receiver_webhook_url(
+    public_base_url: &str,
+    ingress_id: crate::server::IngressId,
+    channel: Channel,
+) -> String {
+    let channel = match channel {
+        Channel::Sms => "sms",
+        Channel::Email => "email",
+    };
+    format!(
+        "{}/w/{ingress_id}/{channel}",
+        public_base_url.trim_end_matches('/')
+    )
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct ProviderConfig {
     pub twilio_auth_token: String,

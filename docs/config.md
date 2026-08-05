@@ -134,10 +134,11 @@ and email identities, inbound-enabled flags, and optional response emails.
 The file travels with the workspace; the selected person's `local_user_id`
 remains in the machine registry.
 
-First-person setup asks for an email identity only when the workspace email
-receiver allowlist is non-empty. A legacy `response_email` supplies the default
-and migrates only when its normalized value matches that allowlist. A response
-setting alone does not enable inbound email or create a portable identity.
+Receiver setup edits portable people directly. It asks for a phone identity
+only when SMS is selected and an email identity only when email is selected.
+The address is attached to an existing selected user or a newly named user,
+with a separate inbound-allowed value. Legacy allowlists remain compatibility
+inputs outside this setup path.
 
 Create and attach are registry-only setup commands, so they can establish an
 incomplete record. Before every ordinary command, Brain then requires manifest
@@ -426,13 +427,22 @@ environment, so a workspace cannot inherit another workspace's shell values.
 `brain env list` and `brain env get` redact secret values.
 
 The setup prompt asks for one public base URL, such as
-`https://brain.example.com`, and derives the exact webhook endpoints
-`/sms` and `/email`. A missing credential, public URL, or sender allowlist
-fails closed. SMS sender matching is exact, so every configured phone number
+`https://brain.example.com`, loads the stable ingress from the selected
+portable manifest, and derives exact webhook endpoints
+`/w/<ingress>/sms` and `/w/<ingress>/email`. Provider values are saved as
+strings in one selected-record transaction, including values that look numeric.
+A missing channel credential, public URL, user address, or explicit allowed
+state fails before configuration is written. SMS sender matching is exact, so every configured phone number
 must use the same E.164 form Twilio sends. Brain preserves the leading `+` when
 writing and listing these values. Config files written by an older release
 that stored one phone number as a JSON number are read and displayed with the
 leading `+` restored.
+
+Headless setup accepts `--channels`, provider flags, `--user-id`, optional
+`--user-name` for creation, `--phone`/`--phone-allowed`, and
+`--email`/`--email-allowed`. A successful setup or `receiver set` asks only an
+already-running shared process to reload the selected workspace UUID. No
+receiver configuration command elects, restarts, or keeps a process alive.
 
 ## The `brain config` command
 

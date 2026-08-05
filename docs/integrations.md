@@ -562,12 +562,23 @@ TUI can deliver it over SMS or email without exposing the full thinking trace.
 Receiver setup stores provider credentials in the selected workspace's record
 in the machine-local brain env store. Enter the public base URL only, for
 example `https://brain.example.com`; the Twilio portal receives
-`https://brain.example.com/sms` and the Resend portal receives
-`https://brain.example.com/email`. Twilio signs the exact SMS URL, so the
+`https://brain.example.com/w/<selected-ingress>/sms` and the Resend portal
+receives `https://brain.example.com/w/<selected-ingress>/email`. Twilio signs the exact SMS URL, so the
 receiver derives that path before verification. Ordinary provider resolution
 uses only that selected record; Brain does not treat process-level `TWILIO_*`,
 `RESEND_*`, or `BRAIN_RECEIVER_PUBLIC_URL` values as runtime overrides. Secret
 values are redacted by `brain env list` and `brain env get`.
+
+The guided setup maps each configured address to an existing portable person
+or creates a named person in the selected workspace's `.config/users.json`.
+SMS setup requires only a phone identity; email setup requires only an email
+identity. Complete headless flags carry the user ID, optional new-user display
+name, address, and explicit inbound-allowed state. Provider values and public
+base URL are committed to only the exact canonical-name plus workspace-UUID
+record. A successful setup or `receiver set` sends an existing-process-only
+reload notification for that workspace UUID. It neither elects nor restarts a
+shared process, and a failed notification leaves the saved configuration as
+the commit point with a warning.
 
 The receiver handoff endpoint is the selected workspace's mode-`0600`
 `<workspace-cache>/jobs.sock`. One bounded serialized `InboundJob` carries the

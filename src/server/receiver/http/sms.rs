@@ -21,7 +21,7 @@ pub(super) fn authenticate(
     let signature = request.header("x-twilio-signature").unwrap_or_default();
     if !crate::server::security::verify_twilio(
         &config.twilio_auth_token,
-        &twilio_signature_url(&config.public_base_url, config.ingress_id),
+        &super::receiver_webhook_url(&config.public_base_url, config.ingress_id, Channel::Sms),
         &sorted,
         signature,
     ) {
@@ -46,10 +46,6 @@ pub(super) fn authenticate(
         receiving_address: String::new(),
         provider_id: fields.get("MessageSid").cloned(),
     })
-}
-
-fn twilio_signature_url(public_base_url: &str, ingress: crate::server::IngressId) -> String {
-    format!("{}/w/{ingress}/sms", public_base_url.trim_end_matches('/'))
 }
 
 fn sms_attachments(fields: &HashMap<String, String>) -> Vec<AttachmentRef> {
@@ -117,14 +113,18 @@ const fn hex_digit(byte: u8) -> Option<u8> {
 mod tests {
     use std::collections::HashMap;
 
-    use super::{decode_form, sms_attachments, twilio_signature_url};
+    use super::{decode_form, sms_attachments};
 
     #[test]
     fn signature_url_contains_the_selected_ingress() {
         let ingress =
             crate::server::IngressId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap();
         assert_eq!(
-            twilio_signature_url("https://receiver.example/", ingress),
+            super::super::receiver_webhook_url(
+                "https://receiver.example/",
+                ingress,
+                crate::server::receiver::Channel::Sms,
+            ),
             format!("https://receiver.example/w/{ingress}/sms")
         );
     }

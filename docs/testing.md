@@ -256,6 +256,16 @@ first move is a failing test that reproduces it, *then* the fix.
   upstream 502 outcomes. Injected Resend fetch tests cap both provider
   responses, and a counting reader proves only one proof byte beyond the limit
   is consumed.
+- **Workspace-specific receiver setup.**
+  `tests/receiver_setup_workspace.rs` runs provider-free, local CLI fixtures
+  against two selected workspaces. It proves distinct Twilio and Resend secrets
+  remain in their exact machine records, numeric-looking secrets remain strings,
+  output contains the stable `/w/<ingress>/<channel>` URLs without secret
+  values, and setup writes portable user mappings without rotating either
+  manifest. It also proves channel-specific address requirements and ingress
+  stability across rename, alias, default, and a second-machine attach. The
+  command-owner test records that setup and set both notify only the selected
+  UUID through the existing-process reload seam.
 - **Shared-server lease state.** `server/lifecycle/table.rs` uses injected
   monotonic instants and timing values to prove that different workspace leases
   coexist, duplicate live workspace, ingress, or lease identities fail, an
@@ -497,6 +507,9 @@ cargo test --release --test entry_collect
 
 # persistent receiver intent, exact-record isolation, and shared transition
 cargo test --release --test receiver_enablement
+
+# selected-record provider setup, users, URLs, and ingress stability
+cargo test --release --test receiver_setup_workspace
 
 # workspace documentation contract
 cargo test --release --test workspace_docs

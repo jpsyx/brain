@@ -103,6 +103,22 @@ pub fn set(command: &CommandContext, name: &str, value: &str) -> Result<()> {
     save_map(command, &map)
 }
 
+/// Persist several declared scalar values to one selected workspace record.
+pub(crate) fn set_many(command: &CommandContext, values: &[(&str, String)]) -> Result<()> {
+    let mut map = load_map(command);
+    for (name, value) in values {
+        let segments = path_segments(name)?;
+        if super::schema::is_structural(name) {
+            bail!("env variable `{name}` is structural and read-only");
+        }
+        if segments.len() != 1 || !is_known(name) {
+            bail!("unknown env variable `{name}` (known: {})", known_names());
+        }
+        set_path(&mut map, name, Value::String(value.clone()))?;
+    }
+    save_map(command, &map)
+}
+
 /// Write a raw JSON value under `name`, bypassing the declared-variable check.
 ///
 /// For structured env data (the `sync` block) that `set`'s scalar coercion +

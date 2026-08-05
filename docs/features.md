@@ -1104,10 +1104,17 @@ and unregisters before its workspace job socket is removed. Two workspaces may
 hold leases concurrently; the last orderly exit shuts the shared process down.
 
 `brain receiver setup` walks through the selected channel's provider
-credentials, one public base URL, the response email, and sender allowlists.
-Secrets are hidden while typing and stored in machine-local brain env. Blank
-keeps an existing value and `/clear` erases it. The setup output shows the
-exact `/sms` and/or `/email` webhook URL to enter in the provider portal. The
+credentials, one public base URL, and a portable-user address mapping. It lists
+existing people from the selected workspace's `users.json`; the user may choose
+one or create a new ID and display name. SMS requires a phone and email requires
+an email, each with an explicit inbound-allowed state. Complete noninteractive
+flags provide the same channel, provider, user, address, and allowed-state
+values. Secrets are hidden while typing and stored only in the selected
+machine-registry record. Blank keeps an existing provider value and `/clear`
+erases it. The setup output shows the exact
+`/w/<selected-ingress>/sms` and/or `/w/<selected-ingress>/email` URL to enter in
+the provider portal. Setup and `receiver set` notify only the selected live
+lease to reload; they never start or restart a process. The
 shared process prefers port `8787` and serves receiver routes only while at
 least one TUI lease keeps that process alive. A selected workspace accepts
 receiver work only while its own lease is live and enabled; another live

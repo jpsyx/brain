@@ -165,8 +165,9 @@ tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
 `command/{configuration,tasks,sync,server,workspace,users,reindex}` modules own the
 existing handlers. `command/server/` further separates receiver setup, HTTP
 server lifecycle, and habits dispatch. Receiver command ownership is reflected
-on disk: `receiver/mod.rs` owns dispatch and provider setup, while
-`receiver/hooks.rs` owns workspace-sensitive Claude/Codex hook installation;
+on disk: `receiver/mod.rs` owns dispatch, `receiver/setup/` owns selected-record
+provider planning plus portable-user mapping, and `receiver/hooks.rs` owns
+workspace-sensitive Claude/Codex hook installation;
 its focused installer tests live in the owned `receiver/hooks/tests.rs`
 submodule.
 

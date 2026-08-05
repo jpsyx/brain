@@ -1,6 +1,6 @@
 //! Background and receiver server command grammar.
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Args, Debug)]
 pub struct ServerArgs {
@@ -17,7 +17,7 @@ pub struct ReceiverArgs {
 #[derive(Subcommand, Debug)]
 pub enum ReceiverServerAction {
     /// Interactively configure receiver addresses and allowlists.
-    Setup,
+    Setup(Box<ReceiverSetupArgs>),
     /// Set one receiver environment variable, or choose interactively.
     Set {
         /// `name=value`; omit to choose from the receiver environment variables.
@@ -31,6 +31,62 @@ pub enum ReceiverServerAction {
     Stop,
     /// Show recent receiver logs.
     Logs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ReceiverSetupChannels {
+    Email,
+    Sms,
+    Both,
+}
+
+#[derive(Args, Debug, Default)]
+pub struct ReceiverSetupArgs {
+    /// Receiver channels to configure. Omit for the guided setup.
+    #[arg(long, value_enum)]
+    pub channels: Option<ReceiverSetupChannels>,
+    /// Public HTTPS base URL that fronts this Brain machine.
+    #[arg(long)]
+    pub public_url: Option<String>,
+    /// Twilio account identifier for the selected workspace.
+    #[arg(long)]
+    pub twilio_account_sid: Option<String>,
+    /// Twilio request-signing secret for the selected workspace.
+    #[arg(long)]
+    pub twilio_auth_token: Option<String>,
+    /// Twilio sender phone number, including country code.
+    #[arg(long)]
+    pub twilio_from_number: Option<String>,
+    /// Resend API credential for the selected workspace.
+    #[arg(long)]
+    pub resend_api_key: Option<String>,
+    /// Verified Resend sender address for outbound delivery.
+    #[arg(long)]
+    pub resend_from_email: Option<String>,
+    /// Resend webhook-signing secret for inbound verification.
+    #[arg(long)]
+    pub resend_webhook_signing_secret: Option<String>,
+    /// Existing portable user ID, or the ID for a new user.
+    #[arg(long)]
+    pub user_id: Option<String>,
+    /// Display name required when `--user-id` creates a new user.
+    #[arg(long)]
+    pub user_name: Option<String>,
+    /// Phone identity to map when SMS is configured.
+    #[arg(long)]
+    pub phone: Option<String>,
+    /// Whether the supplied phone may initiate inbound work.
+    #[arg(long, requires = "phone")]
+    pub phone_allowed: Option<bool>,
+    /// Email identity to map when email is configured.
+    #[arg(long)]
+    pub email: Option<String>,
+    /// Whether the supplied email may initiate inbound work.
+    #[arg(long, requires = "email")]
+    pub email_allowed: Option<bool>,
+    /// Optional long-response address for this user.
+    #[arg(long)]
+    pub response_email: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -51,10 +107,30 @@ pub enum ServerAction {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
+    use clap::{Args as _, Parser};
 
     use super::ReceiverServerAction;
     use crate::cli::{Cli, Cmd};
+
+    #[test]
+    fn receiver_setup_help_explains_every_provider_flag() {
+        let help = super::ReceiverSetupArgs::augment_args(clap::Command::new("setup"))
+            .render_long_help()
+            .to_string();
+        for description in [
+            "Twilio account identifier",
+            "Twilio request-signing secret",
+            "Twilio sender phone number",
+            "Resend API credential",
+            "Verified Resend sender address",
+            "Resend webhook-signing secret",
+        ] {
+            assert!(
+                help.contains(description),
+                "missing `{description}` in:\n{help}"
+            );
+        }
+    }
 
     #[test]
     fn receiver_commands_expose_enablement_but_no_manual_lifecycle() {
@@ -88,5 +164,37 @@ mod tests {
         let cli = Cli::try_parse_from(["brain", "receiver", "set"]).expect("parse");
         assert!(matches!(cli.command, Some(Cmd::Receiver(args))
             if matches!(args.action, ReceiverServerAction::Set { assignment: None })));
+    }
+
+    #[test]
+    fn receiver_setup_exposes_complete_headless_user_mapping() {
+        let cli = Cli::try_parse_from([
+            "brain",
+            "receiver",
+            "setup",
+            "--channels",
+            "sms",
+            "--public-url",
+            "https://brain.example.test",
+            "--twilio-account-sid",
+            "AC123",
+            "--twilio-auth-token",
+            "secret",
+            "--twilio-from-number",
+            "+12125550100",
+            "--user-id",
+            "alex",
+            "--user-name",
+            "Alex",
+            "--phone",
+            "+12125550101",
+            "--phone-allowed",
+            "false",
+        ])
+        .expect("parse headless setup");
+
+        assert!(matches!(cli.command, Some(Cmd::Receiver(args))
+            if matches!(&args.action, ReceiverServerAction::Setup(setup)
+                if setup.phone_allowed == Some(false))));
     }
 }

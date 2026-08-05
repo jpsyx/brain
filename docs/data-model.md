@@ -391,6 +391,12 @@ writes the manifest before registry persistence. Attach reads it without
 editing it. Legacy flat-env migration creates the root and first matching
 manifest before replacing the flat registry.
 
+The ingress UUID is generated only by `WorkspaceManifest::new` for a newly
+initialized workspace. Receiver setup loads and validates it without writing
+the manifest. Attach adopts it, while canonical rename, alias changes, and
+machine-default changes operate only on the machine registry and cannot rotate
+portable ingress identity.
+
 `workspace::bootstrap` maps every parsed route to `None`, `InternalNoPrompt`,
 `RegistryOnly`, or `ReadyWorkspace`. Only the last class selects and validates
 a record. Readiness is manifest validity/UUID agreement plus portable
@@ -452,6 +458,12 @@ portable person only when it matches a normalized email receiver allowlist
 entry. An unmatched response address and every other allowlisted address stay
 in the unresolved proposal for explicit assignment. A response setting by
 itself does not configure an inbound email identity or trigger an email prompt.
+
+Receiver setup performs explicit assignment against this model. A selected
+phone or email is normalized, inserted or updated on one exact user, and
+carries its own `inbound_allowed` boolean. A new ID also requires a display
+name. Channel selection controls required fields: SMS has no email requirement,
+and email has no phone requirement.
 
 Removing a person can change `tasks.csv`, `habits.csv`, and `users.json` as one
 recoverable group. Same-directory staged files and backups preserve each live

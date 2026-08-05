@@ -55,7 +55,7 @@ pub(super) const VARS: [VarSpec; 13] = [
     },
     VarSpec {
         name: "brain_receiver_public_url",
-        description: "Public base URL for the receiver; /sms and /email webhook paths are derived from it.",
+        description: "Selected workspace's public receiver base URL; /w/<ingress>/sms and /w/<ingress>/email paths are derived from it.",
         default: None,
         legacy_config_fallback: false,
     },

@@ -2189,3 +2189,27 @@ race. Status deliberately prints intent, TUI liveness, process reachability,
 and effective acceptance separately. This preserves TUI-only execution without
 inventing a durable queue, replay path, headless agent, manual lifecycle, or
 always-on responder.
+
+## Why receiver setup joins machine credentials to portable users by workspace
+
+Provider credentials and public routing origins describe one machine's
+connection to one workspace, so setup writes them only into the already
+selected schema-v2 machine record. Inbound identity describes a portable
+person, so the corresponding phone or email belongs in that workspace's
+`users.json`, not in process state or a machine-global allowlist. The setup
+planner requires only the address family selected by the channel and carries
+an explicit inbound-allowed value for headless parity.
+
+The portable manifest is the sole owner of public ingress identity. Setup reads
+its stable UUID to render `/w/<ingress>/<channel>` and never generates or
+rewrites it. Only new workspace initialization creates an ingress; attach,
+rename, alias, and default changes preserve it. This lets every provider URL
+remain stable while mutable machine selectors change.
+
+Provider values are validated and saved before one exact-workspace reload
+notification. The notification reuses the generation-bound enablement refresh,
+which already reopens authoritative selected state and updates only that live
+lease. No setup path elects or restarts the shared process. Since request
+handlers load provider and user data only after ingress selection, this reload
+mechanism does not introduce cross-workspace cache ownership or weaken the
+routing-before-secrets boundary.
