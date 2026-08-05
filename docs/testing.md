@@ -276,12 +276,19 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Shared-server control protocol.** `tests/server_control.rs` is split into
   focused codec, registration, and transition suites. It covers bounded
   newline-delimited JSON round trips, malformed and oversized rejection,
-  multiple-frame rejection through a real stream, a drip-fed absolute-deadline
-  failure, half-close handling, authoritative root and manifest validation,
-  cross-workspace and unbound job-socket rejection, duplicate workspace
-  rejection, heartbeat, receiver-enable update, unregister, non-sensitive
-  snapshot, and stale generation refusal. The pure heartbeat classifier proves
-  both missing and stale generations enter recovery.
+  multiple-frame rejection through a real stream, half-close handling,
+  authoritative root and manifest validation, cross-workspace and unbound
+  job-socket rejection, heartbeat, receiver-enable update, unregister,
+  non-sensitive snapshot, and stale generation refusal. Deterministic real
+  Unix-stream codec tests inject deadline observations between successful byte
+  reads, successful byte writes, and flush, proving continuous progress cannot
+  extend the total budget. A saturated real Unix listener proves the safe
+  connector completes within a bound without a helper thread; an expired
+  request deadline proves server-side job-listener validation uses that same
+  connector. A simulated lost accepted response proves an exact registration
+  retry succeeds while competing lease IDs and changed identities remain
+  rejected. The pure heartbeat classifier proves both missing and stale
+  generations enter recovery.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable

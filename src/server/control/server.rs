@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 
 use super::{ControlRequest, ControlResponse, LeaseRegistration, ServerSnapshot};
 use crate::server::lifecycle::{
-    LEASE_TTL, LeaseAction, LeaseTable, ServerDecision, ServerGeneration, WorkspaceLease,
+    LeaseAction, LeaseTable, ServerDecision, ServerGeneration, WorkspaceLease, LEASE_TTL,
 };
 use crate::workspace::{RegistryStore, WorkspaceManifest, WorkspaceName};
 
@@ -82,7 +82,7 @@ fn handle_stream(stream: &mut UnixStream, server: &mut ControlServer) -> Result<
         .checked_add(STREAM_TIMEOUT)
         .context("server control timeout exceeds the monotonic clock range")?;
     let response = match super::codec::read_until(stream, deadline) {
-        Ok(request) => server.apply(request, Instant::now()),
+        Ok(request) => server.apply_until(request, Instant::now(), deadline),
         Err(error) => ControlResponse::Rejected {
             message: error.to_string(),
         },
@@ -114,6 +114,22 @@ impl ControlServer {
     /// Apply one request without performing socket I/O.
     #[must_use]
     pub fn apply(&mut self, request: ControlRequest, now: Instant) -> ControlResponse {
+        let Some(deadline) = Instant::now().checked_add(STREAM_TIMEOUT) else {
+            return ControlResponse::Rejected {
+                message: "server control timeout exceeds the monotonic clock range".to_owned(),
+            };
+        };
+        self.apply_until(request, now, deadline)
+    }
+
+    /// Apply one request within the control connection's absolute deadline.
+    #[must_use]
+    pub fn apply_until(
+        &mut self,
+        request: ControlRequest,
+        now: Instant,
+        deadline: Instant,
+    ) -> ControlResponse {
         if request
             .generation()
             .is_some_and(|generation| generation != self.generation)
@@ -121,7 +137,7 @@ impl ControlServer {
             return ControlResponse::StaleGeneration;
         }
 
-        match self.apply_current(request, now) {
+        match self.apply_current(request, now, deadline) {
             Ok(ControlOutcome::Decision(decision)) => ControlResponse::Accepted {
                 generation: self.generation,
                 shutdown: matches!(decision, ServerDecision::ShutdownNow),
@@ -138,10 +154,15 @@ impl ControlServer {
         &mut self.leases
     }
 
-    fn apply_current(&mut self, request: ControlRequest, now: Instant) -> Result<ControlOutcome> {
+    fn apply_current(
+        &mut self,
+        request: ControlRequest,
+        now: Instant,
+        deadline: Instant,
+    ) -> Result<ControlOutcome> {
         let outcome = match request {
             ControlRequest::Register(registration) => {
-                let lease = self.validate_registration(&registration, now)?;
+                let lease = self.validate_registration(&registration, now, deadline)?;
                 let decision = self.leases.apply(LeaseAction::Register { lease, now })?;
                 ControlOutcome::Decision(decision)
             }
@@ -186,6 +207,7 @@ impl ControlServer {
         &self,
         registration: &LeaseRegistration,
         now: Instant,
+        deadline: Instant,
     ) -> Result<WorkspaceLease> {
         let registry = RegistryStore::load_from(self.registry_store.path())
             .context("reopening the machine workspace registry")?;
@@ -221,7 +243,7 @@ impl ControlServer {
         if registration.job_socket != expected_job_socket {
             anyhow::bail!("job socket does not match the validated workspace");
         }
-        validate_live_tui(&runtime_paths, registration.tui_pid)?;
+        validate_live_tui(&runtime_paths, registration.tui_pid, deadline)?;
         let expires_at = now
             .checked_add(LEASE_TTL)
             .context("lease expiry exceeds the monotonic clock range")?;
@@ -241,6 +263,7 @@ impl ControlServer {
 fn validate_live_tui(
     runtime_paths: &crate::workspace::WorkspacePaths,
     expected_pid: u32,
+    deadline: Instant,
 ) -> Result<()> {
     let lock_pid = fs::read_to_string(runtime_paths.tui_lock())
         .context("reading the workspace TUI singleton")?
@@ -250,7 +273,7 @@ fn validate_live_tui(
     if lock_pid != expected_pid || !crate::server::lifecycle::pid_alive(expected_pid) {
         anyhow::bail!("workspace TUI singleton does not match a live process");
     }
-    UnixStream::connect(runtime_paths.job_socket())
+    super::connect::connect_until(&runtime_paths.job_socket(), deadline)
         .context("connecting to the live workspace job listener")?;
     Ok(())
 }

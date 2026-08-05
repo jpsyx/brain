@@ -319,9 +319,12 @@ ordinary Rust cleanup.
 
 The control socket exchanges one newline-delimited JSON request and response
 per connection, with a 16 KiB frame cap and one two-second absolute deadline
-covering connect, write, and read. Each reader consumes through EOF and rejects
-trailing frames, so a slow byte stream cannot extend the budget one syscall at
-a time.
+covering connect, write, flush, and read. The codec checks that same deadline
+before every attempt, including attempts that keep making progress. Each reader
+consumes through EOF and rejects trailing frames, so a slow byte stream cannot
+extend the budget one syscall at a time. Connect uses a safe nonblocking Unix
+socket plus bounded readiness polling; it creates no connector worker that can
+outlive the caller's deadline.
 Register, heartbeat, receiver-enable update, and unregister requests carry the
 target process generation; stale generations are rejected before lease state
 can change. Snapshot is read-only and returns only generation plus live-lease
@@ -330,9 +333,13 @@ normalized comparison. The process reloads the machine registry, requires the
 exact canonical name and workspace UUID, reopens that record's portable
 manifest, and verifies its workspace and ingress UUIDs. It derives the expected
 job socket from its own machine paths plus the validated UUID, then requires a
-matching live TUI singleton PID and reachable job listener. Neither the root nor
-the client-supplied socket selects stored state. Receiver intent comes from the
-registry record rather than the TUI.
+matching live TUI singleton PID and probes the job listener within the same
+control-request deadline. Neither the root nor the client-supplied socket
+selects stored state. Receiver intent comes from the registry record rather
+than the TUI. If an accepted response is lost, retrying the exact same
+generation, lease, workspace identity, PID, and derived endpoint is accepted
+idempotently and renews the lease deadline. A competing lease or changed
+identity is still rejected.
 
 TUI startup orders ownership as workspace readiness, UUID singleton, UUID-local
 `jobs.sock`, bounded connect/elect/register handshake, heartbeat worker, then

@@ -1,6 +1,6 @@
-use super::support::{ControlFixture, generation, lease_id, stale_generation};
+use super::support::{generation, lease_id, stale_generation, ControlFixture};
 use brain::server::control::{
-    ControlRequest, ControlResponse, ControlServer, HeartbeatDisposition, heartbeat_disposition,
+    heartbeat_disposition, ControlRequest, ControlResponse, ControlServer, HeartbeatDisposition,
 };
 use std::time::{Duration, Instant};
 
@@ -37,9 +37,13 @@ fn register_heartbeat_update_snapshot_and_unregister_are_generation_guarded() {
             shutdown: false,
         } if accepted_generation == generation()
     ));
+    let lost_response = server.apply(ControlRequest::Register(fixture.registration()), now);
     assert!(matches!(
-        server.apply(ControlRequest::Register(fixture.registration()), now),
-        ControlResponse::Rejected { .. }
+        lost_response,
+        ControlResponse::Accepted {
+            generation: accepted_generation,
+            shutdown: false,
+        } if accepted_generation == generation()
     ));
     assert!(matches!(
         server.apply(
@@ -92,5 +96,45 @@ fn register_heartbeat_update_snapshot_and_unregister_are_generation_guarded() {
             now + Duration::from_secs(1),
         ),
         ControlResponse::Accepted { shutdown: true, .. }
+    ));
+}
+
+#[test]
+fn registration_retry_is_idempotent_only_after_the_same_response_is_lost() {
+    let fixture = ControlFixture::new();
+    let mut server = ControlServer::new(
+        generation(),
+        fixture.registry_store(),
+        fixture.temporary.path().to_path_buf(),
+    );
+    let now = Instant::now();
+    let registration = fixture.registration();
+
+    let _lost_response = server.apply(ControlRequest::Register(registration.clone()), now);
+    let retry = server.apply(
+        ControlRequest::Register(registration.clone()),
+        now + Duration::from_millis(1),
+    );
+    let mut competing_lease = registration.clone();
+    competing_lease.lease_id =
+        brain::server::lifecycle::LeaseId::parse("00000000-0000-0000-0000-000000000099")
+            .expect("competing lease ID");
+    let mut conflicting_identity = registration;
+    conflicting_identity.tui_pid = conflicting_identity.tui_pid.saturating_add(1);
+
+    assert!(matches!(
+        retry,
+        ControlResponse::Accepted {
+            generation: accepted_generation,
+            shutdown: false,
+        } if accepted_generation == generation()
+    ));
+    assert!(matches!(
+        server.apply(ControlRequest::Register(competing_lease), now),
+        ControlResponse::Rejected { .. }
+    ));
+    assert!(matches!(
+        server.apply(ControlRequest::Register(conflicting_identity), now),
+        ControlResponse::Rejected { .. }
     ));
 }

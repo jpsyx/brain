@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.27.1"
+version = "0.27.2"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
@@ -34,6 +34,10 @@ hmac = "0.12"
 # PollWatcher because FSEvents can silently omit valid changes. Debouncing stays
 # in our tested `watch::Debouncer` (no notify-debouncer-* dependency).
 notify = "8"
+# Safe nonblocking Unix-socket creation plus bounded poll lets the shared
+# control plane enforce one connect deadline without unsafe code or detached
+# connector threads. This crate was already present through portable-pty.
+nix = { version = "0.28", features = ["fs", "poll", "socket"] }
 nucleo-matcher = "0.3"
 regex = "1"
 # PTY-backed brain panel: portable-pty spawns the interactive `claude` child,

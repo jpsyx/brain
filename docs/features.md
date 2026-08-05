@@ -1039,7 +1039,10 @@ selected generation exits before registration, the handshake re-enters election
 and registers against the winner; authoritative identity rejection is not
 retried. Registration compares the normalized TUI-resolved root to the reopened
 registry, derives the UUID-local job socket from machine paths, and verifies the
-live singleton plus listener before accepting the lease. The TUI then heartbeats
+live singleton plus a deadline-bounded listener probe before accepting the
+lease. A retry after an accepted response is lost succeeds only when generation,
+lease, workspace identity, PID, and derived endpoint are unchanged; competing
+registrations remain rejected. The TUI then heartbeats
 once per second, re-elects and re-registers after a missing or stale generation,
 and unregisters before its workspace job socket is removed. Two workspaces may
 hold leases concurrently; the last orderly exit shuts the shared process down.

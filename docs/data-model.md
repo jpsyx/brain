@@ -151,7 +151,10 @@ this type split.
 
 At every injected monotonic instant the table first removes expired leases.
 It rejects an incoming lease whose expiry is already elapsed and accepts one
-live lease per workspace, ingress, and lease ID. It renews only the matching
+live lease per workspace, ingress, and lease ID. An exact replay of the current
+workspace's lease, canonical name, ingress, PID, and derived socket is an
+idempotent retry that refreshes expiry and authoritative enablement after a
+lost response. A different lease or changed identity still conflicts. It renews only the matching
 lease ID and keeps a known ingress after orderly removal or expiry. Routing is
 therefore one of `Accepting(live lease)`, `Disabled` (a live lease with the
 receiver off), `NoLiveTui` (known but no live lease), or `Unknown`. Expired
@@ -172,7 +175,8 @@ comparison value, never a lease field or state selector. The server reloads the
 registry and manifest to verify the identity tuple and normalized root, derives
 the authoritative socket path from machine state and workspace UUID, and
 requires both the singleton PID and job listener to be live. Only that derived
-socket enters the lease. Enablement comes from the authoritative registry. The
+socket enters the lease, and its liveness probe shares the control request's
+absolute deadline. Enablement comes from the authoritative registry. The
 read-only snapshot exposes only the generation and live-lease count.
 
 The machine-wide lifecycle record is deliberately smaller than a lease. Brain

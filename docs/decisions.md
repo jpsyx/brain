@@ -1822,12 +1822,19 @@ checks the workspace UUID and root, reopens that record's manifest, checks
 workspace and ingress UUIDs, and takes receiver enablement from the registry.
 It derives the endpoint from its own machine home plus the validated UUID,
 requires the claim to match, and proves the matching singleton PID and listener
-are live. The root is never retained and only the server-derived endpoint enters
-the lease. This keeps roots and credentials out of process state while
+are live within the control request's deadline. The root is never retained and
+only the server-derived endpoint enters the lease. This keeps roots and
+credentials out of process state while
 preventing a local client from redirecting a lease across silos.
 
 Control frames are newline-delimited JSON with a fixed size cap and one absolute
-deadline across connect, write, and EOF-terminated read. Every mutation names
+deadline checked before every connect, write, flush, and EOF-terminated read
+attempt, including successful progress. Stable `std` cannot initiate a
+cancellable nonblocking Unix-domain connect, so the control plane uses the safe
+`nix` socket and poll wrappers. A timed-out attempt drops its owned descriptor;
+no detached connector thread can accumulate. The server uses the same bounded
+connector for its job-listener liveness probe, preventing one workspace from
+stalling the single-threaded control loop. Every mutation names
 the process generation, so a heartbeat or shutdown from a dead generation
 cannot alter a replacement winner. Startup carries one deadline through
 connect, election, and registration, retrying missing or stale generations but
@@ -1835,6 +1842,12 @@ returning authoritative registration rejection immediately. A missed heartbeat
 uses the same handshake; an injected scheduler and recovery boundary make
 concurrent recovery deterministic in tests. The election lock, rather than
 timing, chooses the single replacement.
+
+Registration may commit before its response reaches the TUI. Retrying the exact
+same generation, lease, workspace identity, PID, and server-derived endpoint is
+therefore idempotently accepted and refreshes the deadline. Treating only this
+identity-exact replay as success preserves the duplicate-workspace and
+duplicate-lease exclusions for real contenders.
 
 ## TUI-owned receiver server
 

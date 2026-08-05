@@ -64,34 +64,6 @@ fn codec_read_rejects_multiple_frames_from_a_real_stream() {
 }
 
 #[test]
-fn codec_read_uses_one_total_deadline_against_a_drip_fed_stream() {
-    let (mut reader, mut writer) = UnixStream::pair().expect("Unix stream pair");
-    let frame =
-        brain::server::control::codec::encode(&ControlRequest::Snapshot).expect("snapshot frame");
-    let drip = std::thread::spawn(move || {
-        for byte in frame {
-            if writer.write_all(&[byte]).is_err() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    });
-    let started = Instant::now();
-
-    let error = brain::server::control::codec::read_until::<ControlRequest>(
-        &mut reader,
-        started + Duration::from_millis(70),
-    )
-    .expect_err("drip-fed request must exceed one total deadline");
-    let elapsed = started.elapsed();
-    drop(reader);
-    drip.join().expect("drip writer");
-
-    assert!(error.to_string().contains("deadline"), "{error:#}");
-    assert!(elapsed < Duration::from_millis(250), "elapsed {elapsed:?}");
-}
-
-#[test]
 fn deadline_read_succeeds_after_the_client_half_closes_its_write_side() {
     let (mut reader, mut writer) = UnixStream::pair().expect("Unix stream pair");
     let response = ControlResponse::Snapshot(brain::server::control::ServerSnapshot {

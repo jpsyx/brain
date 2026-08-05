@@ -99,7 +99,13 @@ impl LeaseTable {
                 lease_id: lease.lease_id,
             });
         }
-        if self.live.contains_key(&lease.workspace_id) {
+        if let Some(existing) = self.live.get_mut(&lease.workspace_id) {
+            if same_registration(existing, &lease) {
+                existing.expires_at = lease.expires_at;
+                existing.receiver_enabled = lease.receiver_enabled;
+                self.shutdown_pending = false;
+                return Ok(());
+            }
             return Err(LeaseError::WorkspaceAlreadyLeased {
                 workspace_id: lease.workspace_id,
             });
@@ -265,6 +271,15 @@ impl LeaseTable {
         }
         removed_any
     }
+}
+
+fn same_registration(existing: &WorkspaceLease, replay: &WorkspaceLease) -> bool {
+    existing.lease_id == replay.lease_id
+        && existing.workspace_id == replay.workspace_id
+        && existing.canonical_name == replay.canonical_name
+        && existing.ingress_id == replay.ingress_id
+        && existing.tui_pid == replay.tui_pid
+        && existing.job_socket == replay.job_socket
 }
 
 fn shutdown_decision(removed_lease: bool, no_live_leases: bool) -> ServerDecision {

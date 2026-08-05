@@ -6,15 +6,14 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use super::{ControlRequest, ControlResponse, LeaseRegistration, codec};
+use super::{codec, ControlRequest, ControlResponse, LeaseRegistration};
 use crate::server::lifecycle::{
-    LeaseId, ProcessRecord, ServerDecision, ServerGeneration, ServerPaths, connect_or_elect_until,
-    pid_alive,
+    connect_or_elect_until, pid_alive, LeaseId, ProcessRecord, ServerDecision, ServerGeneration,
+    ServerPaths,
 };
 
 /// Maximum time one local request may spend reading or writing its frame.
@@ -265,28 +264,7 @@ impl ServerClient {
     }
 
     fn connect_until(&self, deadline: Instant) -> Result<UnixStream> {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .filter(|remaining| !remaining.is_zero())
-            .context("server control request deadline elapsed before connect")?;
-        let path = self.paths.control_socket();
-        let (result_tx, result_rx) = mpsc::sync_channel(1);
-        std::thread::Builder::new()
-            .name("brain-control-connect".to_owned())
-            .spawn(move || {
-                let _ = result_tx.send(UnixStream::connect(path));
-            })
-            .context("spawning bounded server control connector")?;
-        result_rx
-            .recv_timeout(remaining)
-            .map_err(|error| match error {
-                mpsc::RecvTimeoutError::Timeout => {
-                    anyhow::anyhow!("server control request deadline elapsed while connecting")
-                }
-                mpsc::RecvTimeoutError::Disconnected => {
-                    anyhow::anyhow!("server control connector stopped before returning")
-                }
-            })?
+        super::connect::connect_until(&self.paths.control_socket(), deadline)
             .context("connecting to the shared brain server")
     }
 

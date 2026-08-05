@@ -967,12 +967,17 @@ and cannot outlive the interactive shell.
   receiver commands use the selected TUI's UUID-scoped job socket.
 - `server/control/` owns the bounded newline-delimited JSON protocol. `codec.rs`
   caps frames, requires one frame followed by EOF, and applies one absolute
-  deadline across transport I/O. `client.rs` carries that deadline through
-  connect, write, and read, and performs a bounded connect/elect/register
-  handshake for startup and recovery. `server.rs` reopens registry plus
+  deadline before every read, write, and flush attempt, including successful
+  progress. `connect.rs` creates a safe nonblocking Unix socket and polls it
+  only until that same deadline, without spawning an unjoinable connector.
+  `client.rs` carries the deadline through connect, write, and read, and
+  performs a bounded connect/elect/register handshake for startup and recovery.
+  `server.rs` reopens registry plus
   manifest identity, compares the TUI-resolved root without retaining it,
   derives the UUID-local job socket, and verifies the live singleton and
-  listener before creating a lease. `heartbeat.rs` renews or generation-safely
+  listener through the request's bounded connector before creating a lease. An
+  exact replay of an already-accepted registration is idempotent, while any
+  competing lease or changed identity remains rejected. `heartbeat.rs` renews or generation-safely
   re-elects and re-registers after a crash through an injected scheduling seam.
 - `server/security.rs` owns pure Twilio HMAC, Resend/Svix HMAC, and the ordered
   authenticate-then-resolve decision for enabled portable identities.
@@ -1094,6 +1099,10 @@ sibling so the two projects share a stack:
 - `fs2`: provides Rust-1.85-compatible advisory locking for the shared-server
   election mutex, avoiding unsafe platform calls while serializing exact owner
   reaping and parent-to-child adoption.
+- `nix` (`fs`, `poll`, `socket`): provides safe nonblocking Unix-socket setup,
+  readiness polling, and socket-error inspection for the shared control plane.
+  Stable `std` has no cancellable Unix-domain `connect`, so this small wrapper
+  enforces the total deadline without unsafe code or detached helper threads.
 - `notify` (8.x) — cross-platform filesystem observation for the **C4
   auto-sync watcher** (`src/sync/watch.rs`). Linux uses the recommended native
   backend. macOS uses notify's one-second `PollWatcher`, because FSEvents can

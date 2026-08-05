@@ -1,4 +1,4 @@
-use super::support::{ControlFixture, generation, workspace_id};
+use super::support::{generation, workspace_id, ControlFixture};
 use brain::server::control::{ControlRequest, ControlResponse, ControlServer};
 use brain::workspace::WorkspaceManifest;
 use std::time::Instant;
@@ -110,6 +110,25 @@ fn registration_rejects_an_unbound_job_socket() {
 
     assert!(matches!(
         server.apply(ControlRequest::Register(registration), Instant::now()),
+        ControlResponse::Rejected { message }
+            if message.contains("live workspace job listener")
+    ));
+}
+
+#[test]
+fn registration_job_listener_probe_obeys_the_control_request_deadline() {
+    let fixture = ControlFixture::new();
+    let mut server = ControlServer::new(
+        generation(),
+        fixture.registry_store(),
+        fixture.temporary.path().to_path_buf(),
+    );
+    let now = Instant::now();
+
+    let response = server.apply_until(ControlRequest::Register(fixture.registration()), now, now);
+
+    assert!(matches!(
+        response,
         ControlResponse::Rejected { message }
             if message.contains("live workspace job listener")
     ));
