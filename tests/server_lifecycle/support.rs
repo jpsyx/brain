@@ -1,0 +1,232 @@
+use brain::server::control::{LeaseRegistration, ServerClient};
+use brain::server::lifecycle::{ElectionGuard, IngressId, LeaseId, ServerGeneration, ServerPaths};
+use brain::workspace::{WorkspaceId, WorkspaceName};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
+
+pub(super) struct LiveTui {
+    workspace_id: WorkspaceId,
+    canonical_name: WorkspaceName,
+    ingress_id: IngressId,
+    pub(super) lease_id: LeaseId,
+    root: std::path::PathBuf,
+    job_socket_path: std::path::PathBuf,
+    _guard: brain::tui::singleton::Guard,
+    _job_socket: brain::tui::singleton::JobSocket,
+}
+
+impl LiveTui {
+    pub(super) fn new(
+        home: &std::path::Path,
+        name: &str,
+        workspace_id: &str,
+        ingress_id: &str,
+        lease_id: &str,
+    ) -> Self {
+        let workspace_id = WorkspaceId::parse(workspace_id).expect("valid workspace ID");
+        let canonical_name = WorkspaceName::parse(name).expect("valid workspace name");
+        let root = home.join(name);
+        let workspace = brain::workspace::WorkspaceContext::new(
+            home,
+            workspace_id,
+            canonical_name.clone(),
+            &root,
+            "tester",
+            home,
+        )
+        .expect("workspace context");
+        let guard = brain::tui::singleton::Guard::acquire(&workspace).expect("TUI singleton");
+        let job_socket =
+            brain::tui::singleton::JobSocket::bind(&workspace).expect("job socket listener");
+        Self {
+            workspace_id,
+            canonical_name,
+            ingress_id: IngressId::parse(ingress_id).expect("valid ingress ID"),
+            lease_id: LeaseId::parse(lease_id).expect("valid lease ID"),
+            root,
+            job_socket_path: workspace.paths().job_socket(),
+            _guard: guard,
+            _job_socket: job_socket,
+        }
+    }
+
+    pub(super) fn registration(&self, generation: ServerGeneration) -> LeaseRegistration {
+        LeaseRegistration {
+            generation,
+            lease_id: self.lease_id,
+            workspace_id: self.workspace_id,
+            canonical_name: self.canonical_name.to_string(),
+            ingress_id: self.ingress_id,
+            tui_pid: std::process::id(),
+            resolved_root: self.root.clone(),
+            job_socket: self.job_socket_path.clone(),
+        }
+    }
+}
+
+pub(super) struct RunningServer {
+    pub(super) child: Child,
+    home: tempfile::TempDir,
+    pub(super) paths: ServerPaths,
+    pub(super) client: ServerClient,
+    pub(super) generation: ServerGeneration,
+}
+
+impl RunningServer {
+    pub(super) fn start() -> Self {
+        let home = tempfile::tempdir().expect("temporary server home");
+        prepare_workspace_registry(home.path());
+        let paths = ServerPaths::from_home(home.path());
+        let generation = ServerGeneration::new();
+        let election = ElectionGuard::try_acquire(&paths, generation)
+            .expect("election probe")
+            .expect("test process wins election");
+        let child = Command::new(env!("CARGO_BIN_EXE_brain"))
+            .args([
+                "server",
+                "run",
+                "--generation",
+                &generation.to_string(),
+                "--port",
+                "0",
+            ])
+            .env("HOME", home.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn hidden server");
+        let handoff = election.handoff();
+        let client = ServerClient::with_launch_context(
+            paths.clone(),
+            std::path::PathBuf::from(env!("CARGO_BIN_EXE_brain")),
+            home.path().to_path_buf(),
+        );
+        wait_for("shared server reachability", || {
+            client.connect_existing().is_ok()
+        });
+        handoff.cleanup().expect("finish election handoff");
+        Self {
+            child,
+            home,
+            paths,
+            client,
+            generation,
+        }
+    }
+
+    pub(super) fn home(&self) -> &std::path::Path {
+        self.home.path()
+    }
+
+    pub(super) fn shutdown_with_two_leases(&mut self) {
+        let family = LiveTui::new(
+            self.home(),
+            "family",
+            "e806258e-491a-436d-9db4-a5ca9903e0d4",
+            "57b162df-983a-45c3-ac7e-bad94eb27a99",
+            "00000000-0000-0000-0000-000000000003",
+        );
+        let personal = LiveTui::new(
+            self.home(),
+            "personal",
+            "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+            "91a0cfc2-7427-49d5-a2f1-258f985cd7e5",
+            "00000000-0000-0000-0000-000000000004",
+        );
+        self.client
+            .register_generation(&family.registration(self.generation))
+            .expect("register family");
+        self.client
+            .register_generation(&personal.registration(self.generation))
+            .expect("register personal");
+        self.client
+            .unregister(family.lease_id)
+            .expect("unregister family");
+        self.client
+            .unregister(personal.lease_id)
+            .expect("unregister personal");
+        wait_for("shared server process exit", || {
+            self.child.try_wait().ok().flatten().is_some()
+        });
+    }
+}
+
+impl Drop for RunningServer {
+    fn drop(&mut self) {
+        if self.child.try_wait().ok().flatten().is_none() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
+pub(super) fn wait_for(description: &str, mut condition: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !condition() {
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {description}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn prepare_workspace_registry(home: &std::path::Path) {
+    let config = home.join(".config/brain");
+    let family = home.join("family");
+    let personal = home.join("personal");
+    std::fs::create_dir_all(&config).expect("machine config");
+    for (root, workspace_id, ingress_id) in [
+        (
+            &family,
+            "e806258e-491a-436d-9db4-a5ca9903e0d4",
+            "57b162df-983a-45c3-ac7e-bad94eb27a99",
+        ),
+        (
+            &personal,
+            "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+            "91a0cfc2-7427-49d5-a2f1-258f985cd7e5",
+        ),
+    ] {
+        std::fs::create_dir_all(root.join(".config")).expect("workspace config");
+        let manifest = serde_json::json!({
+            "schema_version": 1,
+            "workspace_id": workspace_id,
+            "receiver_ingress_id": ingress_id,
+            "minimum_brain_version": env!("CARGO_PKG_VERSION")
+        });
+        std::fs::write(
+            root.join(".config/workspace.json"),
+            serde_json::to_vec_pretty(&manifest).expect("manifest JSON"),
+        )
+        .expect("workspace manifest");
+    }
+    let registry = serde_json::json!({
+        "schema_version": 2,
+        "default_workspace": "personal",
+        "workspaces": {
+            "family": {
+                "workspace_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
+                "root": family,
+                "aliases": [],
+                "local_user_id": "tester",
+                "receiver_enabled": true,
+                "env": {}
+            },
+            "personal": {
+                "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+                "root": personal,
+                "aliases": [],
+                "local_user_id": "tester",
+                "receiver_enabled": true,
+                "env": {}
+            }
+        }
+    });
+    std::fs::write(
+        config.join("env.json"),
+        serde_json::to_vec_pretty(&registry).expect("registry JSON"),
+    )
+    .expect("machine registry");
+}

@@ -68,12 +68,21 @@ pub fn logs() -> Result<()> {
 /// Returns an error when election, spawning, or bounded startup fails.
 pub fn connect_or_elect(client: &ServerClient) -> Result<ProcessRecord> {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
+    connect_or_elect_until(client, deadline)
+}
+
+pub(crate) fn connect_or_elect_until(
+    client: &ServerClient,
+    deadline: Instant,
+) -> Result<ProcessRecord> {
     loop {
         let record = super::state::read_record(client.paths());
         let process_live = record.as_ref().is_some_and(|state| pid_alive(state.pid));
-        let socket_live = record
-            .as_ref()
-            .is_some_and(|state| client.connect_existing().is_ok_and(|found| found == *state));
+        let socket_live = record.as_ref().is_some_and(|state| {
+            client
+                .connect_existing_until(deadline)
+                .is_ok_and(|found| found == *state)
+        });
         if process_live && socket_live {
             return Ok(record.expect("live probes require a process record"));
         }
@@ -119,7 +128,7 @@ pub fn connect_or_elect(client: &ServerClient) -> Result<ProcessRecord> {
 
 fn wait_for_connection(client: &ServerClient, deadline: Instant) -> Result<Option<ProcessRecord>> {
     loop {
-        if let Ok(record) = client.connect_existing() {
+        if let Ok(record) = client.connect_existing_until(deadline) {
             return Ok(Some(record));
         }
         if Instant::now() >= deadline {
@@ -181,8 +190,12 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
         paths,
         &format!("server generation {generation} started on port {actual_port}"),
     );
-    let mut control_server =
-        ControlServer::new(generation, crate::workspace::RegistryStore::real());
+    let runtime_home = std::env::var_os("HOME").map_or_else(PathBuf::new, PathBuf::from);
+    let mut control_server = ControlServer::new(
+        generation,
+        crate::workspace::RegistryStore::real(),
+        runtime_home,
+    );
     let watchdog = Watchdog::new(Instant::now(), INITIAL_REGISTRATION_TIMEOUT);
 
     while !terminate.load(Ordering::Relaxed) {

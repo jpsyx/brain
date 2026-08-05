@@ -853,9 +853,11 @@ the transient palette flash.
 
 ### Startup (`run_tui`)
 `run_tui()` first acquires the workspace UUID singleton, refreshes hooks, binds
-the UUID-scoped `jobs.sock`, connects to or elects the machine-wide server,
-registers the validated workspace lease, and starts its heartbeat worker. Only
-then does it open the state DB, build the brain-search picker
+the UUID-scoped `jobs.sock`, completes a bounded connect/elect/register
+handshake with the machine-wide server, and starts its heartbeat worker. The
+handshake retries only stale or missing generations, while authoritative
+workspace rejection ends startup. Only then does it open the state DB, build
+the brain-search picker
 (`build_search`), and constructs the `App` from the selected `CommandContext`.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
@@ -964,10 +966,14 @@ and cannot outlive the interactive shell.
   own provider parsing, and `attachments.rs` stages media. Transitional
   receiver commands use the selected TUI's UUID-scoped job socket.
 - `server/control/` owns the bounded newline-delimited JSON protocol. `codec.rs`
-  caps frames and request time, `client.rs` attaches without election unless a
-  live TUI explicitly recovers, `server.rs` reopens and validates registry plus
-  manifest identity before creating a lease, and `heartbeat.rs` renews or
-  generation-safely re-elects and re-registers after a crash.
+  caps frames, requires one frame followed by EOF, and applies one absolute
+  deadline across transport I/O. `client.rs` carries that deadline through
+  connect, write, and read, and performs a bounded connect/elect/register
+  handshake for startup and recovery. `server.rs` reopens registry plus
+  manifest identity, compares the TUI-resolved root without retaining it,
+  derives the UUID-local job socket, and verifies the live singleton and
+  listener before creating a lease. `heartbeat.rs` renews or generation-safely
+  re-elects and re-registers after a crash through an injected scheduling seam.
 - `server/security.rs` owns pure Twilio HMAC, Resend/Svix HMAC, and the ordered
   authenticate-then-resolve decision for enabled portable identities.
 - `server/lifecycle/` owns the shared-process boundary. `paths.rs` places

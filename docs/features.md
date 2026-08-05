@@ -1034,10 +1034,15 @@ an unowned background daemon.
 
 There is no public server start or kill command. The lifecycle layer exposes
 `connect_or_elect` only for long-lived TUI startup and crash recovery. The TUI
-registers before launching its agent, heartbeats once per second, re-elects and
-re-registers after a missing or stale generation, and unregisters before its
-workspace job socket is removed. Two workspaces may hold leases concurrently;
-the last orderly exit shuts the shared process down.
+registers before launching its agent through one bounded handshake. If the
+selected generation exits before registration, the handshake re-enters election
+and registers against the winner; authoritative identity rejection is not
+retried. Registration compares the normalized TUI-resolved root to the reopened
+registry, derives the UUID-local job socket from machine paths, and verifies the
+live singleton plus listener before accepting the lease. The TUI then heartbeats
+once per second, re-elects and re-registers after a missing or stale generation,
+and unregisters before its workspace job socket is removed. Two workspaces may
+hold leases concurrently; the last orderly exit shuts the shared process down.
 
 `brain receiver setup` walks through the selected channel's provider
 credentials, one public base URL, the response email, and sender allowlists.

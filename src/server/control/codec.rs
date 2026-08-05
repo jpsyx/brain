@@ -1,6 +1,8 @@
 //! Bounded newline-delimited JSON framing for the local control socket.
 
 use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -44,7 +46,7 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
     serde_json::from_slice(&bytes[..bytes.len() - 1]).context("decoding server control frame")
 }
 
-/// Read and decode one bounded frame without waiting for EOF after its newline.
+/// Read and decode one bounded frame, requiring EOF after its newline.
 ///
 /// # Errors
 ///
@@ -52,20 +54,51 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
 pub fn read<T: DeserializeOwned>(reader: &mut impl Read) -> Result<T> {
     let mut frame = Vec::with_capacity(1024);
     loop {
-        let mut byte = [0_u8; 1];
+        let mut chunk = [0_u8; 1024];
         let count = reader
-            .read(&mut byte)
+            .read(&mut chunk)
             .context("reading server control frame")?;
         if count == 0 {
             break;
         }
-        frame.push(byte[0]);
-        if frame.len() > MAX_FRAME_BYTES {
+        let remaining = MAX_FRAME_BYTES.saturating_sub(frame.len());
+        if count > remaining {
             bail!("server control frame exceeds {MAX_FRAME_BYTES} bytes");
         }
-        if byte[0] == b'\n' {
+        frame.extend_from_slice(&chunk[..count]);
+    }
+    decode(&frame)
+}
+
+/// Read and decode one frame within one absolute transport deadline.
+///
+/// # Errors
+///
+/// Returns an error when timeout configuration, I/O, framing, or decoding
+/// fails, or when the absolute deadline expires between chunks.
+pub fn read_until<T: DeserializeOwned>(stream: &mut UnixStream, deadline: Instant) -> Result<T> {
+    stream
+        .set_nonblocking(true)
+        .context("setting nonblocking server control reads")?;
+    let mut frame = Vec::with_capacity(1024);
+    loop {
+        let mut chunk = [0_u8; 1024];
+        let count = match stream.read(&mut chunk) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                wait_for_io(deadline, "reading")?;
+                continue;
+            }
+            Err(error) => return Err(error).context("reading server control frame"),
+        };
+        if count == 0 {
             break;
         }
+        let remaining_capacity = MAX_FRAME_BYTES.saturating_sub(frame.len());
+        if count > remaining_capacity {
+            bail!("server control frame exceeds {MAX_FRAME_BYTES} bytes");
+        }
+        frame.extend_from_slice(&chunk[..count]);
     }
     decode(&frame)
 }
@@ -80,4 +113,46 @@ pub fn write<T: Serialize>(writer: &mut impl Write, message: &T) -> Result<()> {
         .write_all(&encode(message)?)
         .context("writing server control frame")?;
     writer.flush().context("flushing server control frame")
+}
+
+/// Encode and write one bounded frame within one absolute transport deadline.
+///
+/// # Errors
+///
+/// Returns an error when timeout configuration, serialization, size, I/O, or
+/// the absolute deadline fails.
+pub fn write_until<T: Serialize>(
+    stream: &mut UnixStream,
+    message: &T,
+    deadline: Instant,
+) -> Result<()> {
+    stream
+        .set_nonblocking(true)
+        .context("setting nonblocking server control writes")?;
+    let frame = encode(message)?;
+    let mut written = 0;
+    while written < frame.len() {
+        let count = match stream.write(&frame[written..]) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                wait_for_io(deadline, "writing")?;
+                continue;
+            }
+            Err(error) => return Err(error).context("writing server control frame"),
+        };
+        if count == 0 {
+            bail!("server control socket closed while writing");
+        }
+        written += count;
+    }
+    stream.flush().context("flushing server control frame")
+}
+
+fn wait_for_io(deadline: Instant, phase: &str) -> Result<()> {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .with_context(|| format!("server control request deadline elapsed while {phase}"))?;
+    std::thread::park_timeout(remaining.min(std::time::Duration::from_millis(1)));
+    Ok(())
 }

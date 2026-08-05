@@ -23,6 +23,8 @@ pub struct LeaseRegistration {
     pub ingress_id: IngressId,
     /// Operating-system identity of the live TUI.
     pub tui_pid: u32,
+    /// TUI-resolved root used only to compare with current machine state.
+    pub resolved_root: PathBuf,
     /// UUID-scoped socket on which the TUI accepts jobs.
     pub job_socket: PathBuf,
 }

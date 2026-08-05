@@ -167,10 +167,13 @@ watchdog observes it.
 Every mutating control request is tagged with the process generation. A stale
 generation yields `StaleGeneration` without touching the table. Registration
 contains workspace, lease, and ingress UUIDs, canonical name, TUI PID, and the
-UUID-local job socket, but no root or receiver-enable claim. The server reloads
-the registry and manifest to verify the identity tuple and derives enablement
-from the authoritative registry. The read-only snapshot exposes only the
-generation and live-lease count.
+TUI-resolved root plus UUID-local job socket. The root is an ephemeral
+comparison value, never a lease field or state selector. The server reloads the
+registry and manifest to verify the identity tuple and normalized root, derives
+the authoritative socket path from machine state and workspace UUID, and
+requires both the singleton PID and job listener to be live. Only that derived
+socket enters the lease. Enablement comes from the authoritative registry. The
+read-only snapshot exposes only the generation and live-lease count.
 
 The machine-wide lifecycle record is deliberately smaller than a lease. Brain
 publishes `~/.cache/brain/server/process.json` with only the process PID,

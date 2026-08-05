@@ -6,7 +6,9 @@ mod heartbeat;
 mod protocol;
 mod server;
 
-pub use client::ServerClient;
-pub use heartbeat::{HeartbeatDisposition, HeartbeatEvent, HeartbeatWorker, heartbeat_disposition};
+pub use client::{RegistrationGate, ServerClient};
+pub use heartbeat::{
+    HeartbeatClock, HeartbeatDisposition, HeartbeatEvent, HeartbeatWorker, heartbeat_disposition,
+};
 pub use protocol::{ControlRequest, ControlResponse, LeaseRegistration, ServerSnapshot};
 pub use server::{ControlListener, ControlServer};

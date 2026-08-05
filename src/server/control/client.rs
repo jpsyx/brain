@@ -6,18 +6,32 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
 use super::{ControlRequest, ControlResponse, LeaseRegistration, codec};
 use crate::server::lifecycle::{
-    LeaseId, ProcessRecord, ServerDecision, ServerGeneration, ServerPaths, WorkspaceLease,
+    LeaseId, ProcessRecord, ServerDecision, ServerGeneration, ServerPaths, connect_or_elect_until,
     pid_alive,
 };
 
 /// Maximum time one local request may spend reading or writing its frame.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+const REGISTRATION_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// Injected synchronization point after process discovery and before register.
+pub trait RegistrationGate: Send + 'static {
+    /// Observe a selected generation before its registration request is sent.
+    fn after_connect(&mut self, record: &ProcessRecord);
+}
+
+struct ImmediateRegistration;
+
+impl RegistrationGate for ImmediateRegistration {
+    fn after_connect(&mut self, _record: &ProcessRecord) {}
+}
 
 /// Reachability and control client for the machine-wide shared server.
 #[derive(Debug, Clone)]
@@ -67,12 +81,19 @@ impl ServerClient {
     ///
     /// Returns an error when no matching live process and control socket exist.
     pub fn connect_existing(&self) -> Result<ProcessRecord> {
+        let deadline = Instant::now()
+            .checked_add(REQUEST_TIMEOUT)
+            .context("server connection timeout exceeds the monotonic clock range")?;
+        self.connect_existing_until(deadline)
+    }
+
+    pub(crate) fn connect_existing_until(&self, deadline: Instant) -> Result<ProcessRecord> {
         let record = crate::server::lifecycle::read_record(&self.paths)
             .context("brain server is not running; open a brain TUI first")?;
         if !pid_alive(record.pid) {
             anyhow::bail!("brain server process {} is not alive", record.pid);
         }
-        match self.request(&ControlRequest::Snapshot)? {
+        match self.request_until(&ControlRequest::Snapshot, deadline)? {
             ControlResponse::Snapshot(snapshot) if snapshot.generation == record.generation => {
                 Ok(record)
             }
@@ -92,22 +113,58 @@ impl ServerClient {
         response_decision(self.request(&ControlRequest::Register(registration.clone()))?)
     }
 
-    /// Compatibility wrapper for callers that already hold a complete lease.
+    /// Connect or elect, then register within one bounded startup handshake.
+    ///
+    /// Authoritative registration rejection returns immediately. Missing or
+    /// stale transport and process generations re-enter election while time
+    /// remains.
     ///
     /// # Errors
     ///
-    /// Returns an error when connection or registration fails.
-    pub fn register(&self, lease: &WorkspaceLease) -> Result<ServerDecision> {
-        let generation = self.connect_existing()?.generation;
-        self.register_generation(&LeaseRegistration {
-            generation,
-            lease_id: lease.lease_id,
-            workspace_id: lease.workspace_id,
-            canonical_name: lease.canonical_name.to_string(),
-            ingress_id: lease.ingress_id,
-            tui_pid: lease.tui_pid,
-            job_socket: lease.job_socket.clone(),
-        })
+    /// Returns an error on timeout, authoritative rejection, or invalid wire
+    /// response.
+    pub fn connect_and_register(
+        &self,
+        registration: &mut LeaseRegistration,
+    ) -> Result<ProcessRecord> {
+        self.connect_and_register_with_gate(registration, ImmediateRegistration)
+    }
+
+    /// Registration handshake with an injected post-connect race boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::connect_and_register`].
+    pub fn connect_and_register_with_gate(
+        &self,
+        registration: &mut LeaseRegistration,
+        mut gate: impl RegistrationGate,
+    ) -> Result<ProcessRecord> {
+        let deadline = Instant::now()
+            .checked_add(REGISTRATION_TIMEOUT)
+            .context("server registration timeout exceeds the monotonic clock range")?;
+        loop {
+            let record = connect_or_elect_until(self, deadline)?;
+            registration.generation = record.generation;
+            gate.after_connect(&record);
+            match self.request_until(&ControlRequest::Register(registration.clone()), deadline) {
+                Ok(ControlResponse::Accepted {
+                    shutdown: false, ..
+                }) => return Ok(record),
+                Ok(ControlResponse::StaleGeneration) => {}
+                Ok(ControlResponse::Rejected { message }) => {
+                    anyhow::bail!("shared brain server rejected request: {message}");
+                }
+                Ok(response) => {
+                    anyhow::bail!("unexpected shared-server registration response: {response:?}");
+                }
+                Err(error) if is_recoverable_registration_transport(&error) => {}
+                Err(error) => return Err(error),
+            }
+            if Instant::now() >= deadline {
+                anyhow::bail!("shared brain server registration deadline elapsed");
+            }
+        }
     }
 
     /// Renew one lease against its current process generation.
@@ -177,17 +234,60 @@ impl ServerClient {
     /// Returns an error when the socket is unavailable, times out, or violates
     /// the protocol.
     pub fn request(&self, request: &ControlRequest) -> Result<ControlResponse> {
-        let mut stream = UnixStream::connect(self.paths.control_socket())
-            .context("connecting to the shared brain server")?;
-        stream
-            .set_read_timeout(Some(REQUEST_TIMEOUT))
-            .context("setting server control read timeout")?;
-        stream
-            .set_write_timeout(Some(REQUEST_TIMEOUT))
-            .context("setting server control write timeout")?;
-        codec::write(&mut stream, request)?;
+        self.request_with_timeout(request, REQUEST_TIMEOUT)
+    }
+
+    /// Exchange one request within one total connect, write, and read budget.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the timeout is zero or any transport phase fails.
+    pub fn request_with_timeout(
+        &self,
+        request: &ControlRequest,
+        timeout: Duration,
+    ) -> Result<ControlResponse> {
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .context("server control request timeout exceeds the monotonic clock range")?;
+        self.request_until(request, deadline)
+    }
+
+    fn request_until(
+        &self,
+        request: &ControlRequest,
+        deadline: Instant,
+    ) -> Result<ControlResponse> {
+        let mut stream = self.connect_until(deadline)?;
+        codec::write_until(&mut stream, request, deadline)?;
         stream.shutdown(Shutdown::Write).ok();
-        codec::read(&mut stream).context("reading shared-server response")
+        codec::read_until(&mut stream, deadline).context("reading shared-server response")
+    }
+
+    fn connect_until(&self, deadline: Instant) -> Result<UnixStream> {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .context("server control request deadline elapsed before connect")?;
+        let path = self.paths.control_socket();
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("brain-control-connect".to_owned())
+            .spawn(move || {
+                let _ = result_tx.send(UnixStream::connect(path));
+            })
+            .context("spawning bounded server control connector")?;
+        result_rx
+            .recv_timeout(remaining)
+            .map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => {
+                    anyhow::anyhow!("server control request deadline elapsed while connecting")
+                }
+                mpsc::RecvTimeoutError::Disconnected => {
+                    anyhow::anyhow!("server control connector stopped before returning")
+                }
+            })?
+            .context("connecting to the shared brain server")
     }
 
     pub(crate) fn spawn(&self, generation: ServerGeneration, port: u16) -> Result<()> {
@@ -228,6 +328,24 @@ impl ServerClient {
             .context("spawning elected shared brain server")?;
         Ok(())
     }
+}
+
+fn is_recoverable_registration_transport(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.downcast_ref::<std::io::Error>().is_some_and(|io| {
+            matches!(
+                io.kind(),
+                std::io::ErrorKind::NotFound
+                    | std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::UnexpectedEof
+            )
+        })
+    })
 }
 
 impl Default for ServerClient {

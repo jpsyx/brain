@@ -7,7 +7,30 @@ use std::thread::{self, JoinHandle};
 use anyhow::{Context, Result};
 
 use super::{ControlRequest, ControlResponse, LeaseRegistration, ServerClient};
-use crate::server::lifecycle::{HEARTBEAT_INTERVAL, ServerGeneration, connect_or_elect};
+use crate::server::lifecycle::{HEARTBEAT_INTERVAL, ServerGeneration};
+
+/// Injected heartbeat schedule and recovery boundary.
+///
+/// Production uses a monotonic interval. Lifecycle tests provide explicit
+/// ticks and barriers so election races do not depend on wall-clock sleeps.
+pub trait HeartbeatClock: Send + 'static {
+    /// Wait until the next heartbeat is due, or return `false` after stop.
+    fn wait_for_tick(&mut self, stop: &Receiver<()>) -> bool;
+
+    /// Synchronization seam immediately before entering server recovery.
+    fn recovery_boundary(&mut self) {}
+}
+
+struct IntervalHeartbeatClock;
+
+impl HeartbeatClock for IntervalHeartbeatClock {
+    fn wait_for_tick(&mut self, stop: &Receiver<()>) -> bool {
+        matches!(
+            stop.recv_timeout(HEARTBEAT_INTERVAL),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        )
+    }
+}
 
 /// Pure heartbeat response classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +76,16 @@ impl HeartbeatWorker {
     /// Start renewing an already accepted registration.
     #[must_use]
     pub fn start(client: ServerClient, registration: LeaseRegistration) -> Self {
+        Self::start_with_clock(client, registration, IntervalHeartbeatClock)
+    }
+
+    /// Start renewing with an injected monotonic tick source.
+    #[must_use]
+    pub fn start_with_clock(
+        client: ServerClient,
+        registration: LeaseRegistration,
+        mut clock: impl HeartbeatClock,
+    ) -> Self {
         let generation = Arc::new(Mutex::new(registration.generation));
         let worker_generation = Arc::clone(&generation);
         let worker_client = client.clone();
@@ -60,7 +93,7 @@ impl HeartbeatWorker {
         let (stop, stop_rx) = mpsc::channel();
         let (event_tx, events) = mpsc::channel();
         let join = thread::spawn(move || {
-            while stop_rx.recv_timeout(HEARTBEAT_INTERVAL).is_err() {
+            while clock.wait_for_tick(&stop_rx) {
                 let current = *worker_generation
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -71,6 +104,7 @@ impl HeartbeatWorker {
                 if heartbeat_disposition(response.as_ref().ok()) == HeartbeatDisposition::Current {
                     continue;
                 }
+                clock.recovery_boundary();
                 match recover(&worker_client, &mut worker_registration) {
                     Ok(recovered) => {
                         *worker_generation
@@ -136,10 +170,8 @@ fn recover(
     client: &ServerClient,
     registration: &mut LeaseRegistration,
 ) -> Result<ServerGeneration> {
-    let record = connect_or_elect(client).context("recovering the shared brain server")?;
-    registration.generation = record.generation;
-    client
-        .register_generation(registration)
-        .context("re-registering the live TUI")?;
+    let record = client
+        .connect_and_register(registration)
+        .context("recovering and re-registering the shared brain server")?;
     Ok(record.generation)
 }

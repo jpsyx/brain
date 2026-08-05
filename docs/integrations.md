@@ -318,17 +318,27 @@ publication; the process loop observes flags outside the handler and performs
 ordinary Rust cleanup.
 
 The control socket exchanges one newline-delimited JSON request and response
-per connection, with a 16 KiB frame cap and two-second read/write timeouts.
+per connection, with a 16 KiB frame cap and one two-second absolute deadline
+covering connect, write, and read. Each reader consumes through EOF and rejects
+trailing frames, so a slow byte stream cannot extend the budget one syscall at
+a time.
 Register, heartbeat, receiver-enable update, and unregister requests carry the
 target process generation; stale generations are rejected before lease state
 can change. Snapshot is read-only and returns only generation plus live-lease
-count. Registration never supplies a root: the process reloads the machine
-registry, requires the exact canonical name and workspace UUID, reopens that
-record's portable manifest, and verifies its workspace and ingress UUIDs. It
-derives receiver intent from the registry record rather than trusting the TUI.
+count. Registration supplies the TUI-resolved root only for an ephemeral,
+normalized comparison. The process reloads the machine registry, requires the
+exact canonical name and workspace UUID, reopens that record's portable
+manifest, and verifies its workspace and ingress UUIDs. It derives the expected
+job socket from its own machine paths plus the validated UUID, then requires a
+matching live TUI singleton PID and reachable job listener. Neither the root nor
+the client-supplied socket selects stored state. Receiver intent comes from the
+registry record rather than the TUI.
 
 TUI startup orders ownership as workspace readiness, UUID singleton, UUID-local
-`jobs.sock`, connect/elect, register, heartbeat worker, then agent/event loop.
+`jobs.sock`, bounded connect/elect/register handshake, heartbeat worker, then
+agent/event loop. If the selected generation exits between discovery and
+registration, the handshake re-enters election and registers with the winner;
+an authoritative workspace rejection returns immediately.
 The worker sends one heartbeat per second. Missing transport, a stale
 generation, or a lost lease triggers bounded election/reuse and re-registration;
 concurrent TUIs use the same election path so only one replacement wins.

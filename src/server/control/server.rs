@@ -3,6 +3,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -18,6 +19,7 @@ use crate::workspace::{RegistryStore, WorkspaceManifest, WorkspaceName};
 pub struct ControlServer {
     generation: ServerGeneration,
     registry_store: RegistryStore,
+    runtime_home: PathBuf,
     leases: LeaseTable,
 }
 
@@ -55,11 +57,15 @@ impl ControlListener {
     pub fn drain(&self, server: &mut ControlServer) -> Result<ServerDecision> {
         loop {
             match self.listener.accept() {
-                Ok((mut stream, _)) => {
-                    if handle_stream(&mut stream, server) == ServerDecision::ShutdownNow {
+                Ok((mut stream, _)) => match handle_stream(&mut stream, server) {
+                    Ok(ServerDecision::ShutdownNow) => {
                         return Ok(ServerDecision::ShutdownNow);
                     }
-                }
+                    Ok(ServerDecision::KeepRunning) => {}
+                    Err(error) => crate::logging::log(format!(
+                        "shared-server control request failed: {error:#}"
+                    )),
+                },
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     return Ok(ServerDecision::KeepRunning);
                 }
@@ -71,10 +77,11 @@ impl ControlListener {
 
 const STREAM_TIMEOUT: Duration = Duration::from_secs(2);
 
-fn handle_stream(stream: &mut UnixStream, server: &mut ControlServer) -> ServerDecision {
-    let _ = stream.set_read_timeout(Some(STREAM_TIMEOUT));
-    let _ = stream.set_write_timeout(Some(STREAM_TIMEOUT));
-    let response = match super::codec::read(stream) {
+fn handle_stream(stream: &mut UnixStream, server: &mut ControlServer) -> Result<ServerDecision> {
+    let deadline = Instant::now()
+        .checked_add(STREAM_TIMEOUT)
+        .context("server control timeout exceeds the monotonic clock range")?;
+    let response = match super::codec::read_until(stream, deadline) {
         Ok(request) => server.apply(request, Instant::now()),
         Err(error) => ControlResponse::Rejected {
             message: error.to_string(),
@@ -84,17 +91,22 @@ fn handle_stream(stream: &mut UnixStream, server: &mut ControlServer) -> ServerD
         ControlResponse::Accepted { shutdown: true, .. } => ServerDecision::ShutdownNow,
         _ => ServerDecision::KeepRunning,
     };
-    let _ = super::codec::write(stream, &response);
-    decision
+    super::codec::write_until(stream, &response, deadline)?;
+    Ok(decision)
 }
 
 impl ControlServer {
     /// Create an empty control state for one process generation.
     #[must_use]
-    pub fn new(generation: ServerGeneration, registry_store: RegistryStore) -> Self {
+    pub fn new(
+        generation: ServerGeneration,
+        registry_store: RegistryStore,
+        runtime_home: PathBuf,
+    ) -> Self {
         Self {
             generation,
             registry_store,
+            runtime_home,
             leases: LeaseTable::default(),
         }
     }
@@ -187,6 +199,12 @@ impl ControlServer {
         if record.workspace_id != registration.workspace_id {
             anyhow::bail!("workspace registration UUID does not match the machine registry");
         }
+        let authoritative_root = crate::workspace::normalize_root(&record.root, Path::new("/"))?;
+        let resolved_root =
+            crate::workspace::normalize_root(&registration.resolved_root, Path::new("/"))?;
+        if authoritative_root != resolved_root {
+            anyhow::bail!("workspace root changed after the TUI resolved it");
+        }
         let manifest = WorkspaceManifest::load(&record.root, env!("CARGO_PKG_VERSION"))
             .context("reopening the registered workspace manifest")?;
         if manifest.workspace_id() != registration.workspace_id {
@@ -197,6 +215,13 @@ impl ControlServer {
         {
             anyhow::bail!("workspace ingress UUID does not match its manifest");
         }
+        let runtime_paths =
+            crate::workspace::WorkspacePaths::new(&self.runtime_home, registration.workspace_id);
+        let expected_job_socket = runtime_paths.job_socket();
+        if registration.job_socket != expected_job_socket {
+            anyhow::bail!("job socket does not match the validated workspace");
+        }
+        validate_live_tui(&runtime_paths, registration.tui_pid)?;
         let expires_at = now
             .checked_add(LEASE_TTL)
             .context("lease expiry exceeds the monotonic clock range")?;
@@ -206,11 +231,28 @@ impl ControlServer {
             canonical_name: WorkspaceName::parse(&registration.canonical_name)?,
             ingress_id: registration.ingress_id,
             tui_pid: registration.tui_pid,
-            job_socket: registration.job_socket.clone(),
+            job_socket: expected_job_socket,
             receiver_enabled: record.receiver_enabled,
             expires_at,
         })
     }
+}
+
+fn validate_live_tui(
+    runtime_paths: &crate::workspace::WorkspacePaths,
+    expected_pid: u32,
+) -> Result<()> {
+    let lock_pid = fs::read_to_string(runtime_paths.tui_lock())
+        .context("reading the workspace TUI singleton")?
+        .trim()
+        .parse::<u32>()
+        .context("parsing the workspace TUI singleton PID")?;
+    if lock_pid != expected_pid || !crate::server::lifecycle::pid_alive(expected_pid) {
+        anyhow::bail!("workspace TUI singleton does not match a live process");
+    }
+    UnixStream::connect(runtime_paths.job_socket())
+        .context("connecting to the live workspace job listener")?;
+    Ok(())
 }
 
 enum ControlOutcome {

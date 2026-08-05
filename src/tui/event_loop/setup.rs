@@ -69,21 +69,22 @@ fn register_server_lease(
     command_context: &crate::workspace::CommandContext,
 ) -> Result<crate::server::control::HeartbeatWorker> {
     let client = crate::server::control::ServerClient::default();
-    let record = crate::server::lifecycle::connect_or_elect(&client)?;
     let manifest = crate::workspace::WorkspaceManifest::load(
         command_context.workspace.root(),
         env!("CARGO_PKG_VERSION"),
     )?;
     let registration = crate::server::control::LeaseRegistration {
-        generation: record.generation,
+        generation: crate::server::lifecycle::ServerGeneration::new(),
         lease_id: crate::server::lifecycle::LeaseId::new(),
         workspace_id: command_context.workspace.id(),
         canonical_name: command_context.workspace.name().to_string(),
         ingress_id: manifest.receiver_ingress_id().into(),
         tui_pid: std::process::id(),
+        resolved_root: command_context.workspace.root().to_path_buf(),
         job_socket: command_context.workspace.paths().job_socket(),
     };
-    client.register_generation(&registration)?;
+    let mut registration = registration;
+    client.connect_and_register(&mut registration)?;
     Ok(crate::server::control::HeartbeatWorker::start(
         client,
         registration,

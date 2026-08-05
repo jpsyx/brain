@@ -1814,18 +1814,27 @@ manual restart, or always-on responder.
 ## Why control registration reopens authoritative workspace identity
 
 The TUI knows its selected workspace, but the machine-wide server must not
-accept a client-supplied root or enablement value. Control registration carries
-only stable identity plus the UUID-scoped job endpoint. The server reloads the
-machine registry by exact canonical name, checks the workspace UUID, reopens
-that record's manifest, checks workspace and ingress UUIDs, and takes receiver
-enablement from the registry. This keeps roots and credentials out of process
-state while preventing a local client from redirecting a lease across silos.
+use a client-supplied root, endpoint, or enablement value to select state.
+Control registration carries the TUI-resolved root only for an ephemeral
+normalized comparison, plus stable identity and the claimed UUID-scoped job
+endpoint. The server reloads the machine registry by exact canonical name,
+checks the workspace UUID and root, reopens that record's manifest, checks
+workspace and ingress UUIDs, and takes receiver enablement from the registry.
+It derives the endpoint from its own machine home plus the validated UUID,
+requires the claim to match, and proves the matching singleton PID and listener
+are live. The root is never retained and only the server-derived endpoint enters
+the lease. This keeps roots and credentials out of process state while
+preventing a local client from redirecting a lease across silos.
 
-Control frames are newline-delimited JSON with a fixed size cap and bounded I/O
-time. Every mutation names the process generation, so a heartbeat or shutdown
-from a dead generation cannot alter a replacement winner. A missed heartbeat
-causes the TUI to use the same election path as startup and then re-register;
-the election lock, rather than timing, chooses the single replacement.
+Control frames are newline-delimited JSON with a fixed size cap and one absolute
+deadline across connect, write, and EOF-terminated read. Every mutation names
+the process generation, so a heartbeat or shutdown from a dead generation
+cannot alter a replacement winner. Startup carries one deadline through
+connect, election, and registration, retrying missing or stale generations but
+returning authoritative registration rejection immediately. A missed heartbeat
+uses the same handshake; an injected scheduler and recovery boundary make
+concurrent recovery deterministic in tests. The election lock, rather than
+timing, chooses the single replacement.
 
 ## TUI-owned receiver server
 

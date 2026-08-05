@@ -263,18 +263,25 @@ first move is a failing test that reproduces it, *then* the fix.
   same handoff value to remove a restored exact parent token on retry. An
   elected child that never receives its first registration exits within its
   bounded bootstrap deadline. Two fake TUI clients also register distinct
-  workspaces, observe a deliberately killed generation, race recovery, converge
-  on one replacement generation, re-register, and drive final-unregister
-  cleanup. All process waits use bounded condition polling.
+  workspaces, observe a deliberately killed generation, enter recovery together
+  through injected heartbeat clocks and an explicit barrier, converge on one
+  replacement generation, re-register, and drive final-unregister cleanup. A
+  second barrier-driven race removes the final old lease after discovery but
+  before startup registration and proves the bounded handshake elects and
+  registers with the replacement. All external process observation uses bounded
+  condition polling.
   `server/lifecycle/watchdog.rs` injects expiry and bootstrap instants directly,
   so crashed-final-lease and no-first-registration decisions have no timing
   sleep.
-- **Shared-server control protocol.** `tests/server_control.rs` covers bounded
+- **Shared-server control protocol.** `tests/server_control.rs` is split into
+  focused codec, registration, and transition suites. It covers bounded
   newline-delimited JSON round trips, malformed and oversized rejection,
-  authoritative register validation, duplicate workspace rejection, heartbeat,
-  receiver-enable update, unregister, non-sensitive snapshot, and stale
-  generation refusal. The pure heartbeat classifier proves both missing and
-  stale generations enter recovery.
+  multiple-frame rejection through a real stream, a drip-fed absolute-deadline
+  failure, half-close handling, authoritative root and manifest validation,
+  cross-workspace and unbound job-socket rejection, duplicate workspace
+  rejection, heartbeat, receiver-enable update, unregister, non-sensitive
+  snapshot, and stale generation refusal. The pure heartbeat classifier proves
+  both missing and stale generations enter recovery.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable

@@ -20,6 +20,7 @@ pub use lease::{
     WorkspaceAvailability, WorkspaceLease,
 };
 pub use paths::ServerPaths;
+pub(crate) use process::connect_or_elect_until;
 pub use process::{choose_port, connect_or_elect, logs, run_process, status};
 pub(crate) use state::read_record;
 pub use state::{ProcessRecord, ServerGeneration, ServerGenerationError};
