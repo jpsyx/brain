@@ -45,9 +45,7 @@ impl LogsView {
                     .join("\n"),
             })
             .filter(|content| !content.is_empty())
-            .unwrap_or_else(|| {
-                "No log entries are available for this brain run yet.".to_owned()
-            });
+            .unwrap_or_else(|| "No log entries are available for this brain run yet.".to_owned());
         Self {
             kind,
             text,

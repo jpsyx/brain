@@ -15,6 +15,6 @@ pub use migrate::migrate;
 pub(crate) use migrate::{migrate_checked, registry_is_valid_v2, registry_setup_needs_migration};
 pub use schema::is_sensitive;
 pub use vars::{get, resolve_all, resolve_one, set, set_raw};
-pub(crate) use vars::{replace_map, set_many};
+pub(crate) use vars::{restore_values_if_unchanged, set_many};
 
 pub(crate) use store::load_map;

@@ -8,6 +8,11 @@ pub(super) fn authenticate(
     body: &[u8],
     config: &ProviderConfig,
 ) -> Result<AuthenticatedInbound, ProviderError> {
+    if !twilio_url_is_exact(request.url()) {
+        return Err(ProviderError::InvalidRequest(
+            "Twilio webhook URL must not contain a query string",
+        ));
+    }
     if config.twilio_auth_token.is_empty() || config.public_base_url.is_empty() {
         return Err(ProviderError::NotConfigured(
             "Twilio security is not configured",
@@ -45,7 +50,12 @@ pub(super) fn authenticate(
         attachments,
         receiving_address: String::new(),
         provider_id: fields.get("MessageSid").cloned(),
+        email_reply: None,
     })
+}
+
+fn twilio_url_is_exact(url: &str) -> bool {
+    !url.contains('?')
 }
 
 fn sms_attachments(fields: &HashMap<String, String>) -> Vec<AttachmentRef> {
@@ -58,6 +68,7 @@ fn sms_attachments(fields: &HashMap<String, String>) -> Vec<AttachmentRef> {
         .filter_map(|index| {
             Some(AttachmentRef {
                 url: fields.get(&format!("MediaUrl{index}"))?.clone(),
+                provider_id: None,
                 content_type: fields.get(&format!("MediaContentType{index}")).cloned(),
                 filename: None,
             })
@@ -114,6 +125,16 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{decode_form, sms_attachments};
+
+    #[test]
+    fn twilio_query_strings_are_rejected_before_authentication() {
+        assert!(super::twilio_url_is_exact(
+            "/w/4ea7480a-bd86-47ec-9372-9f765ac2113a/sms"
+        ));
+        assert!(!super::twilio_url_is_exact(
+            "/w/4ea7480a-bd86-47ec-9372-9f765ac2113a/sms?unexpected=1"
+        ));
+    }
 
     #[test]
     fn signature_url_contains_the_selected_ingress() {

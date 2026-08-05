@@ -449,9 +449,12 @@ Headless setup accepts `--channels`, provider flags, `--user-id`, optional
 already-running shared process to reload the selected workspace UUID. No
 receiver configuration command elects, restarts, or keeps a process alive.
 Setup snapshots the selected record, portable users, and hook artifacts before
-its first write. A later persistence or hook failure rolls those exact selected
-bytes back, preserves peer records, aggregates any rollback error with the
-original failure, and sends no live reload notification.
+its first write. A later persistence or hook failure rolls back only values and
+files that still equal this setup attempt's writes. Concurrent changes survive,
+transaction-lock pathnames are never restored or unlinked, rollback errors are
+aggregated with the original failure, and no live reload notification is sent.
+Secret `brain env set` confirmations print only the variable name and `saved`,
+for both direct assignment and interactive entry.
 
 `receiver_enabled` is only persistent intent. Current acceptance is the
 conjunction of that selected-record value and an unexpired exact-workspace TUI

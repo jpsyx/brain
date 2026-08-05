@@ -74,7 +74,7 @@ pub fn run_env(args: &EnvArgs, context: &crate::workspace::CommandContext) -> Re
                 crate::env::set(context, &name, value)?;
                 println!(
                     "{}",
-                    crate::settings::set_confirmation(&name, value, crate::theme::Theme::active(),)
+                    env_set_confirmation(&name, value, crate::theme::Theme::active())
                 );
             } else {
                 crate::logging::log("env set interactive");
@@ -213,9 +213,17 @@ fn env_set_interactive(
     crate::env::set(context, &name, value)?;
     println!(
         "{}",
-        crate::settings::set_confirmation(&name, value, crate::theme::Theme::active())
+        env_set_confirmation(&name, value, crate::theme::Theme::active())
     );
     Ok(())
+}
+
+fn env_set_confirmation(name: &str, value: &str, theme: crate::theme::Theme) -> String {
+    if crate::env::is_sensitive(name) {
+        format!("{} saved", theme.accent(name))
+    } else {
+        crate::settings::set_confirmation(name, value, theme)
+    }
 }
 
 fn personalize_set_interactive(
@@ -305,12 +313,25 @@ pub(crate) fn masked_echo(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::masked_echo;
+    use super::{env_set_confirmation, masked_echo};
 
     #[test]
     fn masked_echo_uses_one_star_per_character() {
         assert_eq!(masked_echo("abc"), "***");
         assert_eq!(masked_echo("éx"), "**");
         assert_eq!(masked_echo(""), "");
+    }
+
+    #[test]
+    fn sensitive_env_confirmation_never_contains_the_assigned_value() {
+        let secret = "whsec_private-value";
+        let confirmation = env_set_confirmation(
+            "resend_webhook_signing_secret",
+            secret,
+            crate::theme::Theme::dark(false),
+        );
+
+        assert!(!confirmation.contains(secret));
+        assert!(confirmation.contains("saved"));
     }
 }

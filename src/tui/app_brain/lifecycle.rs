@@ -76,9 +76,10 @@ impl App<'_> {
                         self.command_context.clone(),
                         "fallback final email response",
                         recipients,
-                        "Brain response".to_owned(),
+                        crate::server::delivery::reply_subject(self.receiver_email_reply.as_ref()),
                         reply.text,
                         html,
+                        self.receiver_email_reply.clone(),
                     );
                 }
             }

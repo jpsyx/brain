@@ -158,6 +158,7 @@ fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
         thread_participants: vec!["+15551234567".to_owned()],
         response_email: None,
         allowed_response_recipients: Vec::new(),
+        email_reply: None,
     });
 
     app.tick_receiver();
@@ -222,6 +223,13 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_both_fro
                 } else {
                     Vec::new()
                 },
+                email_reply: (*channel == Channel::Email).then(|| {
+                    crate::server::receiver::EmailReplyContext {
+                        provider_email_id: "accepted-email-id".to_owned(),
+                        subject: "Accepted subject".to_owned(),
+                        message_id: Some("<accepted-message@example.test>".to_owned()),
+                    }
+                }),
             });
 
             crate::users::UsersStore::save(
@@ -264,9 +272,17 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_both_fro
                     ),
                     ["member@example.test", "thread@example.test"]
                 );
+                let reply = app.receiver_email_reply.as_ref().unwrap();
+                assert_eq!(reply.provider_email_id, "accepted-email-id");
+                assert_eq!(reply.subject, "Accepted subject");
+                assert_eq!(
+                    reply.message_id.as_deref(),
+                    Some("<accepted-message@example.test>")
+                );
             } else {
                 assert!(app.receiver_response_email.is_none());
                 assert!(app.receiver_recipients.is_empty());
+                assert!(app.receiver_email_reply.is_none());
             }
 
             let prompt = format!(

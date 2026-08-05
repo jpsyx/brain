@@ -1575,7 +1575,7 @@ old Python `habits/server.py`, with three deliberate choices:
   three source files separate keeps the CSS/JS editable and diffable; the JS's
   only functional change from the Python original is replacing
   `fetch('/api/done')` with the rendered
-  `/w/<selected-ingress>/habits/done` URL.
+  `/local/<exact-live-lease>/w/<selected-ingress>/habits/done` URL.
 - **Mark-done reuses brain's own completion, not a reimplementation.** `done`
   delegates to `crate::tasks::complete`, so the web "done" is the same native
   mutation (status, completed_date, `last_touched`, habit recurrence spawn, and
@@ -1782,9 +1782,11 @@ final lease and shuts the process down even when no request arrives.
 ## Why every HTTP route resolves opaque ingress before workspace state
 
 Names, roots, defaults, and query parameters are mutable selectors and cannot
-safely identify a workspace at a machine-wide listener. Every supported web
-endpoint therefore has the exact path shape `/w/<opaque-ingress>/...`, and the
-pure router parses the portable UUID into `IngressId` before any handler runs.
+safely identify a workspace at a machine-wide listener. Provider endpoints use
+`/w/<opaque-ingress>/{sms,email}`. Local habits and triage actions use
+`/local/<exact-live-lease>/w/<opaque-ingress>/...`, so a whole-port provider
+tunnel cannot publish local reads or mutations. The pure router parses these
+capabilities before any handler runs.
 Global, malformed, missing, extra-component, or unknown routes are rejected;
 there is no fallback to the machine default.
 
@@ -1837,8 +1839,9 @@ unresponsive. Final process exit signals the workers but never waits to join a
 worker held by a client, preserving immediate final-TUI shutdown.
 
 Local URL generation also treats the accepted lease as authoritative. The TUI
-retains its verified registration ingress, and short-lived commands use a
-generation-bound control lookup by exact workspace UUID. Reopening only the
+retains its verified registration ingress and exact lease capability, and
+short-lived commands use a generation-bound control lookup by exact workspace
+UUID to obtain both values. Reopening only the
 portable manifest could otherwise return a changed ingress, including one
 belonging to another concurrently live workspace, after registration had
 already accepted a different identity.
@@ -1849,7 +1852,10 @@ Several workspace TUIs can start concurrently, but one machine must expose only
 one loopback server and one control socket. Startup therefore uses an atomic
 `election.lock`: a live process and reachable socket are reused, one lock owner
 may remove stale infrastructure and spawn, and losing contenders poll for that
-winner within a fixed deadline. A process-scoped advisory lock on the shared
+winner within a fixed deadline. A loser returns to election when the observed
+token disappears, while an elected parent watches for child failure before
+publication and releases its exact token before retrying. A process-scoped
+advisory lock on the shared
 server directory serializes every exact observed-owner compare/remove/transfer,
 so a replacement winner cannot be reaped between validation and mutation. The
 starter explicitly hands its generation token to the child before releasing
@@ -1927,8 +1933,11 @@ attempt, including successful progress. Stable `std` cannot initiate a
 cancellable nonblocking Unix-domain connect, so the control plane uses the safe
 `nix` socket and poll wrappers. A timed-out attempt drops its owned descriptor;
 no detached connector thread can accumulate. The server uses the same bounded
-connector for its job-listener liveness probe, preventing one workspace from
-stalling the single-threaded control loop. Every mutation names
+connector for its job-listener liveness probe. Registration and enablement
+refresh copy immutable capabilities under the state mutex, perform registry,
+manifest, singleton, and socket IO outside it, then reacquire only to check the
+generation and original absolute deadline before mutation. Independent bounded
+control workers keep status, heartbeat, and unregister responsive. Every mutation names
 the process generation, so a heartbeat or shutdown from a dead generation
 cannot alter a replacement winner. Startup carries one deadline through
 connect, election, and registration, retrying missing or stale generations but
@@ -1955,9 +1964,13 @@ headless agent, or availability-only responder.
 
 The shared fixed four-worker boundary covers habits, triage, SMS, and email.
 Receiver bodies and serialized job frames are limited to 1 MiB, and each TUI's
-in-memory handoff queue is bounded at 64 jobs. The socket acknowledges only
-after a matching append and rolls that append back if the acknowledgment write
-fails. Disabled, missing, full, and failed endpoints receive one
+in-memory handoff queue is bounded at 64 jobs. The socket first holds a decoded
+job in connection-local staging and returns `prepared`. Final registry and
+exact-revision checks authorize an in-flight admission; only its atomic commit
+allows the TUI to append and acknowledge. Disable and unregister cancel pending
+or authorized admissions. If commit already won, revocation waits outside the
+control-state mutex for that exact admission to complete. Disabled, missing,
+full, and failed endpoints receive one
 channel-specific unavailable response and the request is discarded.
 
 The TUI keeps its listener nonblocking so each event-loop poll stays bounded,
@@ -1985,9 +1998,11 @@ work and actor/job construction, dispatch reloads the exact canonical registry
 record and requires its immutable workspace UUID and persistent receiver intent
 to remain valid. It then reacquires the control mutex only to revalidate the
 exact generation, authority revision, receiver enablement, and live lease, and
-releases the mutex before the UUID-local socket handoff. This second
-linearization point rejects both notified and notification-lost revocation
-during provider IO without holding the mutex during provider or socket work.
+releases the mutex before the UUID-local socket handoff. The staged socket
+repeats this check immediately before atomic admission commit. The attached
+authority revision and cancellable admission reject notified,
+notification-lost, unregister, and disable-enable ABA revocation without
+holding the mutex during provider or socket work.
 
 Persistent receiver intent is the mutation commit point. A generation-bound
 live refresh is a convergence notification, not a second transaction: failure
@@ -2005,9 +2020,13 @@ nonblocking connect, full frame write, and acknowledgment read, so successful
 progress cannot consume a renewed timeout. One shared compile-time timing
 invariant prevents these bounds from drifting apart. The curl reader stops
 after one over-limit proof byte and reaps the child before returning a typed
-502. Typed provider outcomes also preserve 202 for irrelevant signed webhook
-events instead of classifying errors by message text; operational logs call
-those events accepted without enqueue rather than rejected.
+502. Resend receives HTTP success for unavailable, ignored, and permanent
+discard outcomes so discarded webhooks cannot be replayed into a later live
+TUI; signature failures remain authentication failures. Accepted email jobs
+retain stable Resend email and attachment identifiers, and delayed dispatch
+refreshes signed download access using freshly loaded workspace credentials.
+Processing and final replies preserve accepted subject and message lineage
+without widening recipients.
 
 Provider requests still use the system `curl` binary to avoid adding a second
 HTTP client stack, but the complete curl configuration is written through the
@@ -2110,9 +2129,10 @@ server.** "The agent went idle" is unreliable because a triage pass asks the
 user questions. The `/triage` skill therefore POSTs an explicit completion
 signal (with a one-time token) once the pass truly ends. It targets the shared
 process already attached to the live TUI; opening a triage tab never elects or
-starts a server independently. An unauthenticated localhost `POST
-/w/<selected-ingress>/triage/done` matches the ingress-scoped habits completion
-precedent. Because the server
+starts a server independently. A localhost `POST
+/local/<exact-live-lease>/w/<selected-ingress>/triage/done` carries the exact
+live TUI's capability and matches the local habits-completion precedent.
+Because the server
 is a *separate process* from the TUI, the signal crosses on disk
 (`<workspace-cache>/triage-done.json`) and the matching TUI polls it in its
 existing per-tick

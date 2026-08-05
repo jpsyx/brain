@@ -47,7 +47,10 @@ fn triage_transport(app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> 
 
 impl App<'_> {
     pub(crate) fn triage_done_url_for_port(&self, port: u16) -> String {
-        crate::server::url(port, &crate::server::triage_done_path(self.server_ingress))
+        crate::server::url(
+            port,
+            &crate::server::triage_done_path(self.server_ingress, self.server_local_capability),
+        )
     }
 
     /// Whether the brain panel is on screen with *either* the main or the

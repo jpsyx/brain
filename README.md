@@ -213,6 +213,11 @@ socket. An accepted message is acknowledged only after one in-memory enqueue
 in that exact TUI. There is no durable inbound queue, replay worker, detached
 agent, manual server start/kill/restart command, or always-on responder.
 
+Habits and triage completion are local-only actions, not public ingress
+surfaces. Their `/local/<exact-live-lease>/w/<ingress>/...` URLs carry the
+ephemeral lease capability accepted by that TUI, so a peer workspace lease
+cannot read or mutate the selected workspace.
+
 If every TUI is closed, no server exists and an inbound text receives no Brain
 response. If another workspace TUI keeps the shared process alive but the
 target workspace is disabled, closed, expired, full, or unreachable, the

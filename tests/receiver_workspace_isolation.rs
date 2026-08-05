@@ -80,7 +80,7 @@ fn one_shared_process_routes_the_same_sender_to_two_exact_workspace_sockets() {
     let mut fixture = DualWorkspaceReceiverFixture::start();
 
     let swapped = fixture.post_personal_signed_with_family_credentials();
-    assert!(swapped.starts_with("HTTP/1.1 403"), "{swapped}");
+    assert!(swapped.starts_with("HTTP/1.1 401"), "{swapped}");
     assert!(fixture.personal_jobs().is_empty());
     assert!(fixture.family_jobs().is_empty());
 
@@ -234,7 +234,7 @@ fn missing_email_target_returns_one_json_unavailable_and_enqueues_nothing() {
     let mut queue = Vec::new();
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
 
-    assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     assert_eq!(response.matches("Brain is unavailable").count(), 1);
     assert!(response.contains("Content-Type: application/json"));
     assert!(queue.is_empty());
@@ -249,7 +249,39 @@ fn authenticated_non_received_email_event_returns_accepted_without_enqueue() {
     let mut queue = Vec::new();
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
 
-    assert!(response.starts_with("HTTP/1.1 202"), "{response}");
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert!(queue.is_empty());
+    fixture.shutdown();
+}
+
+#[test]
+fn repeated_resend_discard_outcomes_ack_without_enqueue_or_retry() {
+    let mut fixture = SharedReceiverFixture::start();
+    for response in [
+        fixture.post_permanent_email_event(),
+        fixture.post_permanent_email_event(),
+        fixture.post_ignored_email_event(),
+        fixture.post_ignored_email_event(),
+    ] {
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(!response.contains("queued\":true"), "{response}");
+    }
+    let mut queue = Vec::new();
+    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
+    assert!(queue.is_empty());
+    fixture.shutdown();
+
+    let mut fixture = SharedReceiverFixture::start_with_anchor();
+    fixture.unregister_target();
+    for response in [
+        fixture.post_unavailable_email_event(),
+        fixture.post_unavailable_email_event(),
+    ] {
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(response.matches("Brain is unavailable").count() <= 1);
+        assert!(!response.contains("queued\":true"), "{response}");
+    }
+    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
     assert!(queue.is_empty());
     fixture.shutdown();
 }

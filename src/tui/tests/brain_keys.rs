@@ -43,19 +43,35 @@ fn bare_m_does_not_open_brain() {
 
 #[test]
 fn ctrl_shift_m_messages_brain_about_task() {
-    assert!(ctrl_messages_brain_about_task(KeyCode::Char('m'), true, true));
-    assert!(ctrl_messages_brain_about_task(KeyCode::Char('M'), true, true));
+    assert!(ctrl_messages_brain_about_task(
+        KeyCode::Char('m'),
+        true,
+        true
+    ));
+    assert!(ctrl_messages_brain_about_task(
+        KeyCode::Char('M'),
+        true,
+        true
+    ));
 }
 
 #[test]
 fn ctrl_m_without_shift_does_not_message_about_task() {
-    assert!(!ctrl_messages_brain_about_task(KeyCode::Char('m'), true, false));
+    assert!(!ctrl_messages_brain_about_task(
+        KeyCode::Char('m'),
+        true,
+        false
+    ));
 }
 
 #[test]
 fn shift_m_without_ctrl_does_not_message_about_task() {
     // Plain Shift+M (a capital M keystroke) is not a chord.
-    assert!(!ctrl_messages_brain_about_task(KeyCode::Char('M'), false, true));
+    assert!(!ctrl_messages_brain_about_task(
+        KeyCode::Char('M'),
+        false,
+        true
+    ));
 }
 
 #[test]

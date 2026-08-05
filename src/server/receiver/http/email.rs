@@ -23,6 +23,8 @@ struct FetchedEmail {
     sender: String,
     participants: Vec<String>,
     attachments: Vec<AttachmentRef>,
+    subject: String,
+    message_id: Option<String>,
 }
 
 struct EmailHeaders<'a> {
@@ -129,6 +131,11 @@ fn fetch_verified(
         attachments: fetched.attachments,
         receiving_address: config.resend_from_email.clone(),
         provider_id: Some(verified.webhook_id),
+        email_reply: Some(crate::server::receiver::EmailReplyContext {
+            provider_email_id: verified.email_id,
+            subject: fetched.subject,
+            message_id: fetched.message_id,
+        }),
     })
 }
 
@@ -216,25 +223,65 @@ fn fetch_resend_json(key: &str, url: &str, limit: usize) -> Result<Vec<u8>, Prov
     Ok(output.stdout)
 }
 
-fn parse_received_email(email: &[u8], attachments: &[u8]) -> Result<FetchedEmail, ProviderError> {
-    let email: serde_json::Value = serde_json::from_slice(email)
-        .map_err(|_| ProviderError::Upstream("Resend returned invalid received email content"))?;
+pub(in crate::server::receiver) fn refresh_attachment_access(
+    command: &crate::workspace::CommandContext,
+    message: &crate::server::receiver::InboundJob,
+) -> Result<Vec<AttachmentRef>, ProviderError> {
+    let Some(reply) = &message.email_reply else {
+        return Ok(message.attachments.clone());
+    };
+    if message.attachments.is_empty() {
+        return Ok(Vec::new());
+    }
+    let key = crate::server::provider::get(command, "resend_api_key").ok_or(
+        ProviderError::NotConfigured("RESEND_API_KEY is not configured"),
+    )?;
+    refresh_attachment_access_with(
+        &reply.provider_email_id,
+        &key,
+        &message.attachments,
+        |url, limit| fetch_resend_json(&key, url, limit),
+    )
+}
+
+fn refresh_attachment_access_with(
+    email_id: &str,
+    key: &str,
+    accepted: &[AttachmentRef],
+    mut fetch: impl FnMut(&str, usize) -> Result<Vec<u8>, ProviderError>,
+) -> Result<Vec<AttachmentRef>, ProviderError> {
+    if key.trim().is_empty() {
+        return Err(ProviderError::NotConfigured(
+            "RESEND_API_KEY is not configured",
+        ));
+    }
+    let response = fetch(&received_attachments_url(email_id), RESEND_RESPONSE_LIMIT)?;
+    ensure_response_limit(&response)?;
+    let refreshed = parse_attachment_list(&response)?;
+    accepted
+        .iter()
+        .map(|attachment| {
+            let provider_id = attachment
+                .provider_id
+                .as_deref()
+                .ok_or(ProviderError::Upstream(
+                    "accepted Resend attachment has no stable identifier",
+                ))?;
+            refreshed
+                .iter()
+                .find(|candidate| candidate.provider_id.as_deref() == Some(provider_id))
+                .cloned()
+                .ok_or(ProviderError::Upstream(
+                    "accepted Resend attachment is no longer available",
+                ))
+        })
+        .collect()
+}
+
+fn parse_attachment_list(attachments: &[u8]) -> Result<Vec<AttachmentRef>, ProviderError> {
     let attachment_list: serde_json::Value = serde_json::from_slice(attachments)
         .map_err(|_| ProviderError::Upstream("Resend returned invalid attachment content"))?;
-    let body = email
-        .get("text")
-        .and_then(serde_json::Value::as_str)
-        .filter(|text| !text.trim().is_empty())
-        .or_else(|| email.get("html").and_then(serde_json::Value::as_str))
-        .unwrap_or_default()
-        .to_owned();
-    let sender = email
-        .get("from")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    let participants = email_participants(&email);
-    let attachments = attachment_list
+    Ok(attachment_list
         .get("data")
         .and_then(serde_json::Value::as_array)
         .map(|items| {
@@ -244,6 +291,10 @@ fn parse_received_email(email: &[u8], attachments: &[u8]) -> Result<FetchedEmail
                     let url = item.get("download_url")?.as_str()?.to_owned();
                     Some(AttachmentRef {
                         url,
+                        provider_id: item
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned),
                         content_type: item
                             .get("content_type")
                             .and_then(serde_json::Value::as_str)
@@ -256,12 +307,42 @@ fn parse_received_email(email: &[u8], attachments: &[u8]) -> Result<FetchedEmail
                 })
                 .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_default())
+}
+
+fn parse_received_email(email: &[u8], attachments: &[u8]) -> Result<FetchedEmail, ProviderError> {
+    let email: serde_json::Value = serde_json::from_slice(email)
+        .map_err(|_| ProviderError::Upstream("Resend returned invalid received email content"))?;
+    let body = email
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .or_else(|| email.get("html").and_then(serde_json::Value::as_str))
+        .unwrap_or_default()
+        .to_owned();
+    let sender = email
+        .get("from")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let subject = email
+        .get("subject")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let message_id = email
+        .get("message_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let participants = email_participants(&email);
+    let attachments = parse_attachment_list(attachments)?;
     Ok(FetchedEmail {
         body,
         sender,
         participants,
         attachments,
+        subject,
+        message_id,
     })
 }
 
@@ -315,6 +396,8 @@ mod tests {
                 sender: "member@example.test".to_owned(),
                 participants: vec!["member@example.test".to_owned()],
                 attachments: Vec::new(),
+                subject: "Original topic".to_owned(),
+                message_id: Some("<message-1@example.test>".to_owned()),
             })
         })
         .unwrap();
@@ -364,10 +447,13 @@ mod tests {
             "to": ["brain@example.com"],
             "cc": ["copy@example.com"],
             "reply_to": ["reply@example.com"],
+            "subject": "Original topic",
+            "message_id": "<message-1@example.com>",
             "attachments": [{"id":"a1","filename":"paper.pdf","content_type":"application/pdf"}]
         }"#;
         let attachments = br#"{
             "data": [{
+                "id": "a1",
                 "download_url": "https://inbound.example/paper",
                 "filename": "paper.pdf",
                 "content_type": "application/pdf"
@@ -378,6 +464,11 @@ mod tests {
 
         assert_eq!(fetched.body, "<p>Hello from email</p>");
         assert_eq!(fetched.sender, "sender@example.com");
+        assert_eq!(fetched.subject, "Original topic");
+        assert_eq!(
+            fetched.message_id.as_deref(),
+            Some("<message-1@example.com>")
+        );
         assert_eq!(
             fetched.participants,
             vec![
@@ -388,6 +479,7 @@ mod tests {
             ]
         );
         assert_eq!(fetched.attachments.len(), 1);
+        assert_eq!(fetched.attachments[0].provider_id.as_deref(), Some("a1"));
         assert_eq!(fetched.attachments[0].url, "https://inbound.example/paper");
         assert_eq!(
             fetched.attachments[0].content_type.as_deref(),
@@ -397,6 +489,55 @@ mod tests {
             fetched.attachments[0].filename.as_deref(),
             Some("paper.pdf")
         );
+    }
+
+    #[test]
+    fn email_reply_payload_preserves_subject_and_message_lineage() {
+        let payload = crate::server::delivery::email_payload(
+            "brain@example.test",
+            &["member@example.test".to_owned()],
+            "Re: Original topic",
+            "text",
+            "<p>text</p>",
+            Some("<message-1@example.test>"),
+        );
+
+        assert_eq!(payload["subject"], "Re: Original topic");
+        assert_eq!(
+            payload["headers"]["In-Reply-To"],
+            "<message-1@example.test>"
+        );
+        assert_eq!(payload["headers"]["References"], "<message-1@example.test>");
+        assert_eq!(payload["to"], serde_json::json!(["member@example.test"]));
+    }
+
+    #[test]
+    fn delayed_attachment_access_is_refreshed_from_stable_provider_ids() {
+        let accepted = vec![crate::server::receiver::AttachmentRef {
+            url: "https://expired.example/old-token".to_owned(),
+            provider_id: Some("attachment-1".to_owned()),
+            content_type: Some("application/pdf".to_owned()),
+            filename: Some("paper.pdf".to_owned()),
+        }];
+        let refreshed = super::refresh_attachment_access_with(
+            "email-1",
+            "secret-key",
+            &accepted,
+            |url, limit| {
+                assert_eq!(
+                    url,
+                    "https://api.resend.com/emails/receiving/email-1/attachments"
+                );
+                assert_eq!(limit, 1024 * 1024);
+                Ok(br#"{"data":[{"id":"attachment-1","download_url":"https://fresh.example/new-token","filename":"paper.pdf","content_type":"application/pdf"}]}"#.to_vec())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(refreshed.len(), 1);
+        assert_eq!(refreshed[0].url, "https://fresh.example/new-token");
+        assert_eq!(refreshed[0].provider_id.as_deref(), Some("attachment-1"));
+        assert!(!format!("{refreshed:?}").contains("secret-key"));
     }
 
     #[test]

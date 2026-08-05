@@ -19,6 +19,7 @@ enum CommitStep {
 
 struct SetupSnapshot {
     providers: serde_json::Map<String, serde_json::Value>,
+    provider_writes: Vec<(&'static str, String)>,
     files: Vec<FileSnapshot>,
     directories: Vec<DirectorySnapshot>,
 }
@@ -26,6 +27,7 @@ struct SetupSnapshot {
 struct FileSnapshot {
     path: PathBuf,
     bytes: Option<Vec<u8>>,
+    written_bytes: Option<Vec<u8>>,
     #[cfg(unix)]
     mode: Option<u32>,
 }
@@ -43,9 +45,7 @@ impl SetupSnapshot {
             root.join(".claude/brain-hooks/claude_session_start_hook.py"),
             root.join(".claude/brain-hooks/claude_stop_hook.py"),
             root.join(".claude/settings.json"),
-            root.join(".claude/.settings.json.transaction.lock"),
             home.join(".codex/hooks.json"),
-            home.join(".codex/.hooks.json.transaction.lock"),
         ];
         let files = paths
             .into_iter()
@@ -64,6 +64,7 @@ impl SetupSnapshot {
         .collect();
         Ok(Self {
             providers: crate::env::load_map(context),
+            provider_writes: Vec::new(),
             files,
             directories,
         })
@@ -76,7 +77,9 @@ impl SetupSnapshot {
                 failures.push(format!("restore {}: {error:#}", file.path.display()));
             }
         }
-        if let Err(error) = crate::env::replace_map(context, &self.providers) {
+        if let Err(error) =
+            crate::env::restore_values_if_unchanged(context, &self.providers, &self.provider_writes)
+        {
             failures.push(format!("restore selected provider record: {error:#}"));
         }
         for directory in &self.directories {
@@ -125,12 +128,24 @@ impl FileSnapshot {
         Ok(Self {
             path,
             bytes,
+            written_bytes: None,
             #[cfg(unix)]
             mode,
         })
     }
 
     fn restore(&self) -> Result<()> {
+        let Some(written) = &self.written_bytes else {
+            return Ok(());
+        };
+        match std::fs::read(&self.path) {
+            Ok(current) if current != *written => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(error).with_context(|| format!("read {}", self.path.display()));
+            }
+            Ok(_) => {}
+        }
         let Some(bytes) = &self.bytes else {
             return match std::fs::remove_file(&self.path) {
                 Ok(()) => Ok(()),
@@ -147,6 +162,34 @@ impl FileSnapshot {
     }
 }
 
+impl SetupSnapshot {
+    fn record_providers(&mut self, providers: &[(&'static str, String)]) {
+        self.provider_writes = providers.to_vec();
+    }
+
+    fn record_file(&mut self, path: &Path) -> Result<()> {
+        let Some(snapshot) = self.files.iter_mut().find(|file| file.path == path) else {
+            return Ok(());
+        };
+        snapshot.written_bytes = Some(
+            std::fs::read(path).with_context(|| format!("record write to {}", path.display()))?,
+        );
+        Ok(())
+    }
+
+    fn record_hook_step(&mut self, root: &Path, home: &Path, step: InstallStep) -> Result<()> {
+        let path = match step {
+            InstallStep::SessionScript => {
+                root.join(".claude/brain-hooks/claude_session_start_hook.py")
+            }
+            InstallStep::StopScript => root.join(".claude/brain-hooks/claude_stop_hook.py"),
+            InstallStep::ClaudeSettings => root.join(".claude/settings.json"),
+            InstallStep::CodexSettings => home.join(".codex/hooks.json"),
+        };
+        self.record_file(&path)
+    }
+}
+
 pub(super) fn persist_plan(plan: &SetupPlan, context: &CommandContext) -> Result<()> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -160,13 +203,16 @@ fn persist_plan_with_hook(
     home: &Path,
     mut after_write: impl FnMut(CommitStep) -> Result<()>,
 ) -> Result<()> {
-    let snapshot = SetupSnapshot::capture(context, home)?;
+    let mut snapshot = SetupSnapshot::capture(context, home)?;
     let result = (|| {
         crate::env::set_many(context, &plan.providers)?;
+        snapshot.record_providers(&plan.providers);
         after_write(CommitStep::Providers)?;
         crate::users::UsersStore::save(&context.workspace, &plan.users)?;
+        snapshot.record_file(&crate::users::UsersStore::path(&context.workspace))?;
         after_write(CommitStep::Users)?;
         hooks::install_for_home_with(context.workspace.root(), home, |step| {
+            snapshot.record_hook_step(context.workspace.root(), home, step)?;
             after_write(CommitStep::Hook(step))
         })?;
         Ok(())

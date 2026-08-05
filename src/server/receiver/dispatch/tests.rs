@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
@@ -15,8 +16,34 @@ use crate::workspace::{
     MachineRegistry, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName, WorkspaceRecord,
 };
 
+#[derive(Clone, Copy)]
+enum LateRevocation {
+    Disable,
+    Unregister,
+    DisableEnableAba,
+}
+
 #[test]
-fn shared_pipeline_rechecks_persisted_intent_after_provider_work_before_connect() {
+fn disable_after_final_revalidation_cancels_before_tui_ack() {
+    run_late_revocation(LateRevocation::Disable);
+}
+
+#[test]
+fn unregister_after_final_revalidation_cancels_before_tui_ack() {
+    run_late_revocation(LateRevocation::Unregister);
+}
+
+#[test]
+fn disable_enable_aba_after_final_revalidation_cancels_before_tui_ack() {
+    run_late_revocation(LateRevocation::DisableEnableAba);
+}
+
+fn run_late_revocation(revocation: LateRevocation) {
+    let provider_id = match revocation {
+        LateRevocation::Disable => "SM-late-disable",
+        LateRevocation::Unregister => "SM-late-unregister",
+        LateRevocation::DisableEnableAba => "SM-late-aba",
+    };
     let fixture = tempfile::tempdir().expect("receiver fixture");
     let workspace_id = WorkspaceId::parse(PERSONAL_ID).expect("workspace ID");
     let workspace_name = WorkspaceName::parse("personal").expect("workspace name");
@@ -112,11 +139,11 @@ fn shared_pipeline_rechecks_persisted_intent_after_provider_work_before_connect(
         .finish_workspace_route(&ticket, context, now)
         .expect("resolved route");
     let control = Arc::new(Mutex::new(server));
-    let body = "Body=late+disable&From=%2B12125550100&MessageSid=SM-late-disable";
+    let body = format!("Body=late+disable&From=%2B12125550100&MessageSid={provider_id}");
     let fields = BTreeMap::from([
         ("Body".to_owned(), "late disable".to_owned()),
         ("From".to_owned(), "+12125550100".to_owned()),
-        ("MessageSid".to_owned(), "SM-late-disable".to_owned()),
+        ("MessageSid".to_owned(), provider_id.to_owned()),
     ]);
     let signature = crate::server::security::twilio_signature(
         "personal-token",
@@ -132,10 +159,9 @@ fn shared_pipeline_rechecks_persisted_intent_after_provider_work_before_connect(
         .write_all(wire.as_bytes())
         .expect("write signed request");
     let request = crate::server::http::Request::read(request_server).expect("parse request");
-    let provider_finished = Arc::new(Barrier::new(2));
-    let release_admission = Arc::new(Barrier::new(2));
-    let worker_provider_finished = Arc::clone(&provider_finished);
-    let worker_release_admission = Arc::clone(&release_admission);
+    let (provider_finished_tx, provider_finished_rx) = mpsc::sync_channel(1);
+    let (release_admission_tx, release_admission_rx) = mpsc::sync_channel(1);
+    let worker_release_admission = Arc::new(Mutex::new(release_admission_rx));
     let worker_control = Arc::clone(&control);
     let (result_tx, result_rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
@@ -146,9 +172,16 @@ fn shared_pipeline_rechecks_persisted_intent_after_provider_work_before_connect(
             control: &worker_control,
             channel: Channel::Sms,
             handoff_deadline: None,
+            admission: None,
             before_final_admission: Some(Box::new(move || {
-                worker_provider_finished.wait();
-                worker_release_admission.wait();
+                provider_finished_tx
+                    .send(())
+                    .expect("signal final revalidation");
+                worker_release_admission
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .recv_timeout(Duration::from_secs(1))
+                    .expect("release final socket admission");
             })),
         };
         result_tx
@@ -156,28 +189,120 @@ fn shared_pipeline_rechecks_persisted_intent_after_provider_work_before_connect(
             .expect("report dispatch result");
     });
 
-    provider_finished.wait();
-    store
-        .transition_receiver(
-            &workspace_name,
-            workspace_id,
-            crate::workspace::ReceiverAction::Stop,
-        )
-        .expect("persist disable without live refresh");
-    release_admission.wait();
+    let queue = Arc::new(Mutex::new(Vec::new()));
+    let stop_polling = Arc::new(AtomicBool::new(false));
+    let poller_queue = Arc::clone(&queue);
+    let poller_stop = Arc::clone(&stop_polling);
+    let poller = std::thread::spawn(move || {
+        while !poller_stop.load(Ordering::Acquire) {
+            socket.poll_jobs(
+                workspace_id,
+                &mut poller_queue
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            );
+            std::thread::yield_now();
+        }
+    });
 
-    let mut queue = Vec::new();
+    provider_finished_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("pipeline reached final revalidation");
+    match revocation {
+        LateRevocation::Disable => {
+            store
+                .transition_receiver(
+                    &workspace_name,
+                    workspace_id,
+                    crate::workspace::ReceiverAction::Stop,
+                )
+                .expect("persist disable");
+            let response = control
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .apply(
+                    ControlRequest::RefreshEnabled {
+                        generation,
+                        workspace_id,
+                    },
+                    Instant::now(),
+                );
+            assert!(matches!(response, ControlResponse::Accepted { .. }));
+        }
+        LateRevocation::Unregister => {
+            let response = control
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .apply(
+                    ControlRequest::Unregister {
+                        generation,
+                        lease_id,
+                    },
+                    Instant::now(),
+                );
+            assert!(matches!(response, ControlResponse::Accepted { .. }));
+        }
+        LateRevocation::DisableEnableAba => {
+            store
+                .transition_receiver(
+                    &workspace_name,
+                    workspace_id,
+                    crate::workspace::ReceiverAction::Stop,
+                )
+                .expect("persist disable");
+            let response = control
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .apply(
+                    ControlRequest::RefreshEnabled {
+                        generation,
+                        workspace_id,
+                    },
+                    Instant::now(),
+                );
+            assert!(matches!(response, ControlResponse::Accepted { .. }));
+            store
+                .transition_receiver(
+                    &workspace_name,
+                    workspace_id,
+                    crate::workspace::ReceiverAction::Start,
+                )
+                .expect("persist re-enable");
+            let response = control
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .apply(
+                    ControlRequest::RefreshEnabled {
+                        generation,
+                        workspace_id,
+                    },
+                    Instant::now(),
+                );
+            assert!(matches!(response, ControlResponse::Accepted { .. }));
+        }
+    }
+    release_admission_tx
+        .send(())
+        .expect("release final socket admission");
+
     let deadline = Instant::now() + Duration::from_secs(1);
     let result = loop {
-        socket.poll_jobs(workspace_id, &mut queue);
         if let Ok(result) = result_rx.try_recv() {
             break result;
         }
         assert!(Instant::now() < deadline, "shared pipeline did not finish");
         std::thread::yield_now();
     };
+    stop_polling.store(true, Ordering::Release);
+    poller.join().expect("job socket poller");
     result.expect_err("persisted disable must reject before the real job-socket handoff");
-    assert!(queue.is_empty(), "disabled work reached the live TUI queue");
+    assert!(
+        queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty(),
+        "disabled work reached the live TUI queue"
+    );
 }
 
 fn tcp_pair() -> (TcpStream, TcpStream) {

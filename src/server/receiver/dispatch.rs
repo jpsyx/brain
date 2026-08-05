@@ -88,6 +88,7 @@ pub(in crate::server) fn dispatch_http(
         control,
         channel,
         handoff_deadline: None,
+        admission: None,
         #[cfg(test)]
         before_final_admission: None,
     };
@@ -108,6 +109,7 @@ struct SharedReceiverPipeline<'a> {
     control: &'a std::sync::Mutex<crate::server::control::ControlServer>,
     channel: super::Channel,
     handoff_deadline: Option<crate::server::http::deadline::HandoffDeadline>,
+    admission: Option<std::sync::Arc<super::admission::ReceiverAdmission>>,
     #[cfg(test)]
     before_final_admission: Option<Box<dyn Fn() + Send + Sync>>,
 }
@@ -231,6 +233,7 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
             thread_participants: authenticated.participants.clone(),
             response_email: actor.response_email.clone(),
             allowed_response_recipients: actor.allowed_response_recipients.clone(),
+            email_reply: authenticated.email_reply.clone(),
         })
     }
 
@@ -241,15 +244,46 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
             .handoff_deadline
             .as_ref()
             .context("receiver handoff deadline was not prepared")?;
+        let admission = self
+            .admission
+            .as_ref()
+            .context("receiver admission was not prepared")?
+            .clone();
+        let control = self.control;
+        let authorize = || {
+            final_admission(control, workspace)?;
+            admission.authorize()?;
+            #[cfg(test)]
+            if let Some(hook) = &self.before_final_admission {
+                hook();
+            }
+            Ok(())
+        };
+        let commit = || admission.commit();
         let result = job.provider_id.as_ref().map_or_else(
-            || forward_job_until(&workspace.lease().job_socket, job, handoff_deadline),
+            || {
+                forward_job_until_with_admission(
+                    &workspace.lease().job_socket,
+                    job,
+                    handoff_deadline,
+                    authorize,
+                    commit,
+                )
+            },
             |provider_id| {
                 let key = (job.workspace_id, job.channel, provider_id.clone());
                 forward_provider_delivery(&DELIVERIES, &key, || {
-                    forward_job_until(&workspace.lease().job_socket, job, handoff_deadline)
+                    forward_job_until_with_admission(
+                        &workspace.lease().job_socket,
+                        job,
+                        handoff_deadline,
+                        authorize,
+                        commit,
+                    )
                 })
             },
         );
+        admission.complete();
         result.map_err(|error| {
             DispatchHttpError {
                 status: 503,
@@ -272,10 +306,6 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
                 message: format!("receiver deadline cannot cover enqueue and response: {error}"),
             })
         })?;
-        #[cfg(test)]
-        if let Some(hook) = &self.before_final_admission {
-            hook();
-        }
         workspace.revalidate_receiver_intent().map_err(|error| {
             anyhow::Error::new(DispatchHttpError {
                 status: 503,
@@ -283,10 +313,11 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
                 message: error.to_string(),
             })
         })?;
-        self.control
+        let admission = self
+            .control
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .revalidate_workspace_route(workspace, std::time::Instant::now())
+            .begin_receiver_admission(workspace, std::time::Instant::now())
             .map_err(|error| {
                 anyhow::Error::new(DispatchHttpError {
                     status: 503,
@@ -294,9 +325,24 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
                     message: error.to_string(),
                 })
             })?;
+        self.admission = Some(admission);
         self.handoff_deadline = Some(handoff_deadline);
         Ok(())
     }
+}
+
+fn final_admission(
+    control: &std::sync::Mutex<crate::server::control::ControlServer>,
+    workspace: &crate::server::workspace_route::ResolvedWorkspaceRoute,
+) -> std::io::Result<()> {
+    workspace
+        .revalidate_receiver_intent()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    control
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .revalidate_workspace_route(workspace, std::time::Instant::now())
+        .map_err(|error| std::io::Error::other(error.to_string()))
 }
 
 type ProviderKey = (crate::workspace::WorkspaceId, super::Channel, String);
@@ -390,13 +436,29 @@ fn forward_job_until(
     job: &InboundJob,
     deadline: &crate::server::http::deadline::HandoffDeadline,
 ) -> Result<()> {
+    forward_job_until_with_admission(path, job, deadline, || Ok(()), || Ok(()))
+}
+
+fn forward_job_until_with_admission(
+    path: &Path,
+    job: &InboundJob,
+    deadline: &crate::server::http::deadline::HandoffDeadline,
+    final_admission: impl FnOnce() -> std::io::Result<()>,
+    commit_admission: impl FnOnce() -> std::io::Result<()>,
+) -> Result<()> {
     let frame = serde_json::to_vec(job).context("serializing inbound job")?;
     anyhow::ensure!(
         frame.len() <= JOB_FRAME_LIMIT,
         "inbound job exceeds the socket frame limit"
     );
-    super::transport::forward_serialized_until(path, &frame, deadline)
-        .context("forwarding job to the live workspace TUI")
+    super::transport::forward_serialized_until_with_admission(
+        path,
+        &frame,
+        deadline,
+        final_admission,
+        commit_admission,
+    )
+    .context("forwarding job to the live workspace TUI")
 }
 
 #[cfg(test)]

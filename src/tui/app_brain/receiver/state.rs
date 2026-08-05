@@ -45,6 +45,7 @@ impl App<'_> {
         self.receiver_sender = None;
         self.receiver_recipients.clear();
         self.receiver_response_email = None;
+        self.receiver_email_reply = None;
         self.receiver_session_id = None;
         self.receiver_lease = None;
         self.receiver_started = None;

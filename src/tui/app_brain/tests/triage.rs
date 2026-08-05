@@ -8,11 +8,15 @@ fn local_workspace_urls_use_the_ingress_accepted_at_registration() {
 
     assert_eq!(
         app.habits_url_for_port(4773),
-        format!("http://127.0.0.1:4773/w/{ACCEPTED_INGRESS}/habits")
+        format!(
+            "http://127.0.0.1:4773/local/{ACCEPTED_LOCAL_CAPABILITY}/w/{ACCEPTED_INGRESS}/habits"
+        )
     );
     assert_eq!(
         app.triage_done_url_for_port(4773),
-        format!("http://127.0.0.1:4773/w/{ACCEPTED_INGRESS}/triage/done")
+        format!(
+            "http://127.0.0.1:4773/local/{ACCEPTED_LOCAL_CAPABILITY}/w/{ACCEPTED_INGRESS}/triage/done"
+        )
     );
 }
 

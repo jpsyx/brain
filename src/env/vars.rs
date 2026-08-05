@@ -119,8 +119,39 @@ pub(crate) fn set_many(command: &CommandContext, values: &[(&str, String)]) -> R
     save_map(command, &map)
 }
 
-pub(crate) fn replace_map(command: &CommandContext, map: &Map<String, Value>) -> Result<()> {
-    save_map(command, map)
+pub(crate) fn restore_values_if_unchanged(
+    command: &CommandContext,
+    before: &Map<String, Value>,
+    written: &[(&str, String)],
+) -> Result<()> {
+    command
+        .registry_store
+        .transaction(|transaction| -> Result<()> {
+            let mut registry = transaction.load()?;
+            let selected = registry.select(Some(command.workspace.name().as_str()))?;
+            anyhow::ensure!(
+                selected.record().workspace_id == command.workspace.id(),
+                "selected workspace identity changed before env rollback"
+            );
+            let canonical_name = selected.canonical_name().clone();
+            let env = &mut registry
+                .workspaces
+                .get_mut(&canonical_name)
+                .ok_or_else(|| anyhow::anyhow!("selected workspace record disappeared"))?
+                .env;
+            for (name, value) in written {
+                if env.get(*name) != Some(&Value::String(value.clone())) {
+                    continue;
+                }
+                if let Some(original) = before.get(*name) {
+                    env.insert((*name).to_owned(), original.clone());
+                } else {
+                    env.remove(*name);
+                }
+            }
+            transaction.save(&registry)?;
+            Ok(())
+        })
 }
 
 /// Write a raw JSON value under `name`, bypassing the declared-variable check.

@@ -318,8 +318,9 @@ first move is a failing test that reproduces it, *then* the fix.
   shutdown exactly at TTL, and leaves an empty table without a timing sleep.
   The no-first-registration decision uses the same injected-clock boundary.
 - **Opaque-ingress workspace routing.** `server/router.rs` exhaustively proves
-  the exact method/component grammar for all habits, triage, SMS, and email
-  endpoints, including query stripping and rejection of global, malformed, or
+  the exact method/component grammar for provider SMS/email and
+  lease-capability local habits/triage endpoints, including query stripping
+  and rejection of global, malformed, or
   extra-component paths. `tests/server_workspace_routing.rs` injects lease
   instants to prove only a live enabled lease resolves to its revalidated
   workspace context, while disabled, unknown, and known-without-live-TUI routes
@@ -340,14 +341,18 @@ first move is a failing test that reproduces it, *then* the fix.
   blocked-route tests prove heartbeat renewal preserves a ticket, while
   disable/re-enable and identical same-ID unregister/re-register ABA
   transitions reject the pre-revocation ticket. Maximum-revision tests prove a
-  failed enablement update or receiver-changing registration replay leaves the
+  staged job-socket races cover disable, unregister, and disable-enable ABA
+  after final revalidation but before commit acknowledgment; every losing
+  admission returns unavailable and leaves the TUI queue empty. Failed
+  enablement update or receiver-changing registration replay leaves the
   whole lease table unchanged and cannot revive or extend authority.
-  A synchronized test hook on the real `SharedReceiverPipeline` persists a
-  disable after signed provider and actor work but before the production final
-  admission operation. It deliberately omits the live refresh and proves the
-  real nonblocking job listener receives no connection or enqueue. Removing
-  the production exact-record persisted-intent check makes this test accept and
-  enqueue, so the regression cannot pass through a copied test decision path.
+  A synchronized test hook on the real `SharedReceiverPipeline` revokes
+  authority after production final revalidation and authorization but before
+  the staged socket commit. Disable, unregister, and disable-enable ABA each
+  cancel the admission and leave the live TUI queue empty. Mutation coverage
+  that removes authorized-state cancellation makes the real pipeline accept
+  and enqueue, so the regression cannot pass through a copied test decision
+  path.
   Exact status tests distinguish a
   live disabled lease from an accepting lease. Actual parsed CLI start/stop and
   startup `--with-receiver -b` paths, plus keyboard-driven tasks and search

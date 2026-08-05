@@ -97,7 +97,10 @@ pub(crate) fn task_links(task: &Task, base: &str) -> Vec<Link> {
         if links.iter().any(|l| l.url == url) {
             continue;
         }
-        links.push(Link { label: url.clone(), url });
+        links.push(Link {
+            label: url.clone(),
+            url,
+        });
     }
     links
 }

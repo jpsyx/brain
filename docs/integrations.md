@@ -60,7 +60,8 @@ helpers and shell-outs live in the tasks modules:
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
 - **`brain habits` / palette "Open habits in browser"**: connect to the
   already-running shared brain process and open its
-  `/w/<selected-ingress>/habits` page via the system `open`. These short-lived paths never participate in process election;
+  `/local/<exact-live-lease>/w/<selected-ingress>/habits` page via the system
+  `open`. These short-lived paths never participate in process election;
   if no TUI owns a live process, they ask the user to open a brain TUI first.
   The process itself carries no
   selected `--brain`; each habits request instead carries an opaque ingress ID.
@@ -257,7 +258,7 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
 - **Completion is signalled, not inferred.** A triage pass can involve
   back-and-forth with the user, so "the agent went idle" is not a reliable done
   signal. brain connects to the shared process already attached to the TUI and
-  passes its `POST /w/<selected-ingress>/triage/done` URL plus a one-time
+  passes its capability-protected local triage-completion URL plus a one-time
   token into the session. When the `/triage` skill finishes (the habit marked
   and every output the run declared it must produce on disk) it POSTs
   `{"token": "<token>", "require": ["<path>", …]}` to that URL. The process and
@@ -278,7 +279,7 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
   exits on its own, the same tick closes the tab regardless.
 
 `brain server`'s route table therefore includes
-`POST /w/<ingress>/triage/done` (see `server/router.rs` plus
+`POST /local/<lease>/w/<ingress>/triage/done` (see `server/router.rs` plus
 `server/routes/triage/`), an unauthenticated localhost-only endpoint consistent
 with the ingress-scoped habits completion route.
 
@@ -387,8 +388,9 @@ remain enabled before credentials, users, prompts, or sockets are opened. This
 closes the persistence-to-control-refresh race without changing ingress-first
 routing.
 
-For every HTTP request, the pure router first parses an exact typed
-`/w/<ingress>/...` route. The shared process then captures a generation-bound
+For every HTTP request, the pure router first parses an exact typed provider
+`/w/<ingress>/{sms,email}` route or local
+`/local/<lease>/w/<ingress>/...` capability route. The shared process then captures a generation-bound
 ticket for the exact accepting lease. Only that ticket permits registry, root,
 manifest, or workspace-runtime selection. Those filesystem checks occur
 without holding the control-state mutex, and the process revalidates the same
@@ -609,12 +611,12 @@ reload notification for that workspace UUID. It neither elects nor restarts a
 shared process, and a failed notification leaves the saved configuration as
 the commit point with a warning.
 
-Before setup writes, it snapshots the selected env map, exact portable-user
-bytes, and every selected Claude/Codex hook artifact. Provider, user, and hook
-writes are then ordered under a bounded rollback boundary. A failure at any
-later write restores the exact prior artifacts and only the selected record's
-env map, preserving peer records; rollback errors are aggregated with the
-original setup error. Manifest identity and URL validation complete before the
+Before setup writes, it snapshots the selected provider values, exact
+portable-user bytes, and selected Claude/Codex hook artifacts, excluding their
+transaction lock pathnames. Provider, user, and hook writes are ordered under a
+bounded rollback boundary. A failure conditionally restores only values and
+files still equal to this attempt's after-image, preserving concurrent success,
+peer records, and live lock inodes. Manifest identity and URL validation complete before the
 first write, and live reload happens only after the whole transaction succeeds.
 
 Run logging applies a central argv redactor before the timestamped file or
@@ -625,10 +627,11 @@ phone/email values are replaced for `--flag value`, `--flag=value`, and
 
 The receiver handoff endpoint is the selected workspace's mode-`0600`
 `<workspace-cache>/jobs.sock`. One bounded serialized `InboundJob` carries the
-workspace UUID, immutable actor and channel, normalized sender, prompt,
-attachments, provider ID, and acceptance-time response metadata. The TUI
-acknowledges only after adding the matching job to its 64-entry memory queue;
-an ack-write failure rolls back that append. The shared HTTP listener uses four
+workspace UUID, immutable actor and channel, normalized sender, prompt, stable
+provider email/attachment IDs, provider ID, and acceptance-time response
+metadata. The TUI stages the decoded job, returns `prepared`, and adds it to its
+64-entry memory queue only after the server's exact-revision admission commits.
+The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.
 Only acknowledged jobs enter the cache. A failed or in-flight handoff returns
@@ -641,9 +644,13 @@ nonblocking connector, complete frame write, and acknowledgment read all use
 that same absolute handoff deadline; continuous progress cannot renew it.
 Resend's received-email and attachment-metadata calls each have a ten-second
 maximum and a 1 MiB response cap; an oversized stream is stopped after one
-proof byte beyond the cap, before JSON parsing. Ignored webhook events return
-202 and are logged as accepted without enqueue, while receiving-API rejection
-or malformed provider JSON returns 502.
+proof byte beyond the cap, before JSON parsing. Unavailable, ignored, and
+permanent discarded Resend events return provider success and remain outside
+the queue; invalid signatures remain authentication failures. Delayed email
+dispatch refreshes signed attachment access from stable provider IDs, and
+processing plus final replies preserve the original subject and message
+lineage without widening recipients. Receiving-API rejection or malformed
+provider JSON returns 502.
 Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through
 standard input rather than process arguments. Provider output is captured so it

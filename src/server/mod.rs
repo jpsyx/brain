@@ -4,9 +4,9 @@
 //! tab. [`lifecycle`] owns election, generation state, leases, and final-TUI
 //! shutdown; [`router`] owns the pure method+path to [`router::Route`] mapping.
 //!
-//! Ingress-scoped `GET /w/<ingress>/habits` renders today's habits page (see
-//! [`routes::habits`]); its completion endpoint delegates to brain's native
-//! completion machinery.
+//! Lease-capability-scoped `GET /local/<lease>/w/<ingress>/habits` renders
+//! today's habits page (see [`routes::habits`]); its completion endpoint
+//! delegates to brain's native completion machinery.
 
 pub mod control;
 pub mod delivery;
@@ -41,20 +41,20 @@ pub fn url(port: u16, path: &str) -> String {
 
 /// The selected workspace's habits page URL on the shared local server.
 #[must_use]
-pub fn habits_url(port: u16, ingress: IngressId) -> String {
-    url(port, &format!("/w/{ingress}/habits"))
+pub fn habits_url(port: u16, ingress: IngressId, capability: lifecycle::LeaseId) -> String {
+    url(port, &format!("/local/{capability}/w/{ingress}/habits"))
 }
 
 /// The selected workspace's completion route for the rendered habits page.
 #[must_use]
-pub fn habits_done_path(ingress: IngressId) -> String {
-    format!("/w/{ingress}/habits/done")
+pub fn habits_done_path(ingress: IngressId, capability: lifecycle::LeaseId) -> String {
+    format!("/local/{capability}/w/{ingress}/habits/done")
 }
 
 /// The selected workspace's daily-triage completion route.
 #[must_use]
-pub fn triage_done_path(ingress: IngressId) -> String {
-    format!("/w/{ingress}/triage/done")
+pub fn triage_done_path(ingress: IngressId, capability: lifecycle::LeaseId) -> String {
+    format!("/local/{capability}/w/{ingress}/triage/done")
 }
 
 /// Reload the selected workspace's stable portable ingress identity.
@@ -90,13 +90,20 @@ pub(in crate::server) fn respond(
 ) -> http::Response {
     let route = router::route(request.method(), request.url());
     match route {
-        Route::HabitsPage { ingress } => match resolve_workspace_route(control, ingress, now) {
-            Ok(workspace) => {
-                http::Response::html(200, routes::habits::page(workspace.context(), ingress))
-            }
+        Route::HabitsPage {
+            ingress,
+            capability,
+        } => match resolve_local_workspace_route(control, ingress, capability, now) {
+            Ok(workspace) => http::Response::html(
+                200,
+                routes::habits::page(workspace.context(), ingress, capability),
+            ),
             Err(error) => http::Response::text(error.status(), error.to_string()),
         },
-        Route::HabitsDone { ingress } => match resolve_workspace_route(control, ingress, now) {
+        Route::HabitsDone {
+            ingress,
+            capability,
+        } => match resolve_local_workspace_route(control, ingress, capability, now) {
             Ok(workspace) => match read_local_action_body(request) {
                 Ok(body) => {
                     let (status, json) =
@@ -107,7 +114,10 @@ pub(in crate::server) fn respond(
             },
             Err(error) => workspace_route_error_response(&error),
         },
-        Route::TriageDone { ingress } => match resolve_workspace_route(control, ingress, now) {
+        Route::TriageDone {
+            ingress,
+            capability,
+        } => match resolve_local_workspace_route(control, ingress, capability, now) {
             Ok(workspace) => match read_local_action_body(request) {
                 Ok(body) => {
                     let (status, json) = routes::triage::done(workspace.context(), &body);
@@ -125,6 +135,23 @@ pub(in crate::server) fn respond(
         }
         Route::NotFound => http::Response::empty(404),
     }
+}
+
+fn resolve_local_workspace_route(
+    control: &Mutex<control::ControlServer>,
+    ingress: IngressId,
+    capability: lifecycle::LeaseId,
+    now: std::time::Instant,
+) -> Result<workspace_route::ResolvedWorkspaceRoute, workspace_route::WorkspaceRouteError> {
+    let (ticket, loader) = {
+        let mut server = control
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let route = server.begin_local_workspace_route(ingress, capability, now)?;
+        drop(server);
+        route
+    };
+    resolve_workspace_route_ticket(control, &ticket, std::time::Instant::now, &loader)
 }
 
 pub(in crate::server) fn resolve_workspace_route(
@@ -190,14 +217,20 @@ fn receiver_response(
                     "receiver event accepted without enqueue channel={channel:?} status={}",
                     error.status()
                 ));
-                http::Response::text(error.status(), error.to_string())
+                http::Response::text(
+                    provider_http_status(error.status(), error.unavailable(), channel),
+                    error.to_string(),
+                )
             }
             ReceiverFailureLog::Rejected => {
                 crate::logging::log(format!(
                     "receiver request rejected channel={channel:?} status={} error={error}",
                     error.status()
                 ));
-                http::Response::text(error.status(), error.to_string())
+                http::Response::text(
+                    provider_http_status(error.status(), error.unavailable(), channel),
+                    error.to_string(),
+                )
             }
         },
     }
@@ -228,9 +261,17 @@ fn unavailable_receiver_response(channel: receiver::Channel) -> http::Response {
             format!("<Response><Message>{message}</Message></Response>"),
         ),
         receiver::Channel::Email => http::Response::json(
-            503,
+            200,
             serde_json::json!({"ok": false, "error": message}).to_string(),
         ),
+    }
+}
+
+const fn provider_http_status(status: u16, unavailable: bool, channel: receiver::Channel) -> u16 {
+    if matches!(channel, receiver::Channel::Email) && (unavailable || status != 401) {
+        200
+    } else {
+        status
     }
 }
 
@@ -298,8 +339,8 @@ impl LocalActionBodyError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ReceiverFailureLog, habits_done_path, habits_url, receiver_failure_log, triage_done_path,
-        url,
+        ReceiverFailureLog, habits_done_path, habits_url, provider_http_status,
+        receiver_failure_log, triage_done_path, url,
     };
 
     const FAMILY_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
@@ -320,16 +361,31 @@ mod tests {
         let ingress = crate::server::IngressId::parse(FAMILY_ID).unwrap();
 
         assert_eq!(
-            habits_url(8787, ingress),
-            format!("http://127.0.0.1:8787/w/{FAMILY_ID}/habits")
+            habits_url(
+                8787,
+                ingress,
+                crate::server::lifecycle::LeaseId::parse("57b162df-983a-45c3-ac7e-bad94eb27a99")
+                    .unwrap()
+            ),
+            format!(
+                "http://127.0.0.1:8787/local/57b162df-983a-45c3-ac7e-bad94eb27a99/w/{FAMILY_ID}/habits"
+            )
         );
         assert_eq!(
-            habits_done_path(ingress),
-            format!("/w/{FAMILY_ID}/habits/done")
+            habits_done_path(
+                ingress,
+                crate::server::lifecycle::LeaseId::parse("57b162df-983a-45c3-ac7e-bad94eb27a99")
+                    .unwrap()
+            ),
+            format!("/local/57b162df-983a-45c3-ac7e-bad94eb27a99/w/{FAMILY_ID}/habits/done")
         );
         assert_eq!(
-            triage_done_path(ingress),
-            format!("/w/{FAMILY_ID}/triage/done")
+            triage_done_path(
+                ingress,
+                crate::server::lifecycle::LeaseId::parse("57b162df-983a-45c3-ac7e-bad94eb27a99")
+                    .unwrap()
+            ),
+            format!("/local/57b162df-983a-45c3-ac7e-bad94eb27a99/w/{FAMILY_ID}/triage/done")
         );
     }
 
@@ -346,6 +402,30 @@ mod tests {
         assert_eq!(
             receiver_failure_log(503, true),
             ReceiverFailureLog::Unavailable
+        );
+    }
+
+    #[test]
+    fn resend_discard_outcomes_acknowledge_provider_success() {
+        assert_eq!(
+            provider_http_status(202, false, crate::server::receiver::Channel::Email),
+            200
+        );
+        assert_eq!(
+            provider_http_status(400, false, crate::server::receiver::Channel::Email),
+            200
+        );
+        assert_eq!(
+            provider_http_status(503, true, crate::server::receiver::Channel::Email),
+            200
+        );
+        assert_eq!(
+            provider_http_status(403, false, crate::server::receiver::Channel::Email),
+            200
+        );
+        assert_eq!(
+            provider_http_status(401, false, crate::server::receiver::Channel::Email),
+            401
         );
     }
 }

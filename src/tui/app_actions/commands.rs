@@ -110,7 +110,7 @@ impl App<'_> {
     }
 
     pub(crate) fn habits_url_for_port(&self, port: u16) -> String {
-        crate::server::habits_url(port, self.server_ingress)
+        crate::server::habits_url(port, self.server_ingress, self.server_local_capability)
     }
 
     /// Ctrl+O / "open link" entry point. Collects the selected entry's

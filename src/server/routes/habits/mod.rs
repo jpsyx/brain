@@ -48,11 +48,12 @@ impl DoneOutcome {
 pub fn page(
     workspace: &crate::workspace::WorkspaceContext,
     ingress: crate::server::IngressId,
+    capability: crate::server::lifecycle::LeaseId,
 ) -> String {
     let today = Local::now().date_naive();
     let rows = model::load(workspace.root());
     let (pending, completed) = model::classify(rows, today);
-    view::render(&pending, &completed, today, ingress)
+    view::render(&pending, &completed, today, ingress, capability)
 }
 
 /// Extract and validate the `task_id` from a `POST /habits/done` JSON body.

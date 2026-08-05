@@ -79,10 +79,12 @@ impl ServerClient {
             ControlResponse::WorkspaceIngress {
                 generation,
                 ingress_id: Some(ingress_id),
+                ..
             } if generation == record.generation => Ok(ingress_id),
             ControlResponse::WorkspaceIngress {
                 generation,
                 ingress_id: None,
+                ..
             } if generation == record.generation => {
                 anyhow::bail!("workspace has no live TUI lease in the shared server")
             }
@@ -91,6 +93,34 @@ impl ServerClient {
             }
             response => {
                 anyhow::bail!("unexpected shared-server workspace ingress response: {response:?}")
+            }
+        }
+    }
+
+    pub fn workspace_local_route(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<(IngressId, crate::server::lifecycle::LeaseId)> {
+        let record = self.connect_existing()?;
+        match self.request(&ControlRequest::WorkspaceIngress {
+            generation: record.generation,
+            workspace_id,
+        })? {
+            ControlResponse::WorkspaceIngress {
+                generation,
+                ingress_id: Some(ingress_id),
+                lease_id: Some(lease_id),
+            } if generation == record.generation => Ok((ingress_id, lease_id)),
+            ControlResponse::WorkspaceIngress { generation, .. }
+                if generation == record.generation =>
+            {
+                anyhow::bail!("workspace has no live TUI lease in the shared server")
+            }
+            ControlResponse::StaleGeneration => {
+                anyhow::bail!("shared brain server generation changed while resolving workspace")
+            }
+            response => {
+                anyhow::bail!("unexpected shared-server workspace route response: {response:?}")
             }
         }
     }

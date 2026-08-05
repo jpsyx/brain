@@ -31,10 +31,13 @@ pub(super) struct ServerFixture {
     pub(super) client: ServerClient,
     pub(super) generation: ServerGeneration,
     pub(super) family_lease: LeaseId,
+    pub(super) personal_lease: LeaseId,
     _personal_guard: brain::tui::singleton::Guard,
     _family_guard: brain::tui::singleton::Guard,
     _personal_job_socket: brain::tui::singleton::JobSocket,
     _family_job_socket: brain::tui::singleton::JobSocket,
+    _personal_heartbeat: brain::server::control::HeartbeatWorker,
+    _family_heartbeat: brain::server::control::HeartbeatWorker,
     child: Child,
 }
 
@@ -116,27 +119,26 @@ impl ServerFixture {
         let client = ServerClient::new(paths);
         let personal_lease = LeaseId::parse(PERSONAL_LEASE).expect("personal lease");
         let family_lease = LeaseId::parse(FAMILY_LEASE).expect("family lease");
-        wait_for_registration(
-            &client,
-            &registration(
-                &personal_workspace,
-                personal_ingress,
-                personal_lease,
-                generation,
-            ),
+        let personal_registration = registration(
+            &personal_workspace,
+            personal_ingress,
+            personal_lease,
+            generation,
         );
+        wait_for_registration(&client, &personal_registration);
+        let personal_heartbeat =
+            brain::server::control::HeartbeatWorker::start(client.clone(), personal_registration);
         let record = client
             .connect_existing()
             .expect("discover registered shared server");
         handoff.cleanup().expect("finish election handoff");
+        let family_registration =
+            registration(&family_workspace, family_ingress, family_lease, generation);
         client
-            .register_generation(&registration(
-                &family_workspace,
-                family_ingress,
-                family_lease,
-                generation,
-            ))
+            .register_generation(&family_registration)
             .expect("register family TUI");
+        let family_heartbeat =
+            brain::server::control::HeartbeatWorker::start(client.clone(), family_registration);
 
         Self {
             home,
@@ -148,10 +150,13 @@ impl ServerFixture {
             client,
             generation,
             family_lease,
+            personal_lease,
             _personal_guard: personal_guard,
             _family_guard: family_guard,
             _personal_job_socket: personal_job_socket,
             _family_job_socket: family_job_socket,
+            _personal_heartbeat: personal_heartbeat,
+            _family_heartbeat: family_heartbeat,
             child,
         }
     }
@@ -276,6 +281,12 @@ fn registration(
 
 fn request(port: u16, method: &str, path: &str, body: &str) -> String {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to brain server");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("bound HTTP response read");
+    stream
+        .set_write_timeout(Some(Duration::from_secs(3)))
+        .expect("bound HTTP request write");
     stream
         .write_all(
             format!(

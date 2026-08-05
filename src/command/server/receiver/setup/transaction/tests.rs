@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::sync::Barrier;
 
 use serde_json::{Map, json};
 
@@ -106,17 +107,10 @@ impl Fixture {
             std::fs::read(self.home.join(".codex/hooks.json")).unwrap(),
             self.codex_before
         );
-        assert!(
-            !self
-                .home
-                .join(".codex/.hooks.json.transaction.lock")
-                .exists()
-        );
         for path in [
             ".claude/brain-hooks/claude_session_start_hook.py",
             ".claude/brain-hooks/claude_stop_hook.py",
             ".claude/settings.json",
-            ".claude/.settings.json.transaction.lock",
         ] {
             assert!(!self.context.workspace.root().join(path).exists(), "{path}");
         }
@@ -124,7 +118,7 @@ impl Fixture {
 }
 
 #[test]
-fn rollback_failure_is_aggregated_with_the_original_setup_error() {
+fn rollback_does_not_clobber_an_unexpected_concurrent_file_change() {
     let fixture = Fixture::new();
     let users_path = UsersStore::path(&fixture.context.workspace);
 
@@ -143,8 +137,8 @@ fn rollback_failure_is_aggregated_with_the_original_setup_error() {
         message.contains("injected provider-boundary failure"),
         "{message}"
     );
-    assert!(message.contains("rollback also failed"), "{message}");
-    assert!(message.contains("restore"), "{message}");
+    assert!(!message.contains("rollback also failed"), "{message}");
+    assert!(users_path.is_dir());
 }
 
 fn plan() -> super::super::SetupPlan {
@@ -183,4 +177,41 @@ fn every_persistence_and_hook_failure_restores_exact_selected_bytes_and_peer_sta
         assert!(error.to_string().contains("injected"), "{error:#}");
         fixture.assert_restored();
     }
+}
+
+#[test]
+fn failed_setup_rollback_preserves_a_concurrent_success_and_live_lock_inode() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let fixture = Fixture::new();
+    let context = fixture.context.clone();
+    let home = fixture.home.clone();
+    let provider_written = Arc::new(Barrier::new(2));
+    let release_failure = Arc::new(Barrier::new(2));
+    let thread_provider_written = Arc::clone(&provider_written);
+    let thread_release_failure = Arc::clone(&release_failure);
+    let lock = home.join(".codex/.hooks.json.transaction.lock");
+    std::fs::write(&lock, b"live lock").unwrap();
+    let lock_inode = std::fs::metadata(&lock).unwrap().ino();
+
+    let failing = std::thread::spawn(move || {
+        persist_plan_with_hook(&plan(), &context, &home, |step| {
+            if step == CommitStep::Providers {
+                thread_provider_written.wait();
+                thread_release_failure.wait();
+                anyhow::bail!("injected failure after concurrent success");
+            }
+            Ok(())
+        })
+    });
+    provider_written.wait();
+    crate::env::set(&fixture.context, "codex_cmd", "concurrent-codex").unwrap();
+    release_failure.wait();
+
+    assert!(failing.join().unwrap().is_err());
+    assert_eq!(
+        crate::env::get(&fixture.context, "codex_cmd").as_deref(),
+        Some("concurrent-codex")
+    );
+    assert_eq!(std::fs::metadata(lock).unwrap().ino(), lock_inode);
 }

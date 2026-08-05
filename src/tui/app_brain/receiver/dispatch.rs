@@ -136,6 +136,7 @@ impl App<'_> {
                 .clone_from(&message.allowed_response_recipients);
             self.receiver_response_email
                 .clone_from(&message.response_email);
+            self.receiver_email_reply.clone_from(&message.email_reply);
             self.receiver_generation = self.receiver_generation.saturating_add(1);
             self.receiver_started = Some(std::time::Instant::now());
             self.receiver_delay_sent = false;

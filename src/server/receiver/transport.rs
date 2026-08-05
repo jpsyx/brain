@@ -1,5 +1,4 @@
 use std::io::{Read as _, Write as _};
-use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 
@@ -7,17 +6,41 @@ use crate::server::http::deadline::HandoffDeadline;
 
 const ACK_LIMIT: usize = 256;
 
+#[cfg(test)]
 pub(super) fn forward_serialized_until(
     path: &Path,
     frame: &[u8],
     deadline: &HandoffDeadline,
+) -> std::io::Result<()> {
+    forward_serialized_until_with_admission(path, frame, deadline, || Ok(()), || Ok(()))
+}
+
+pub(super) fn forward_serialized_until_with_admission(
+    path: &Path,
+    frame: &[u8],
+    deadline: &HandoffDeadline,
+    final_admission: impl FnOnce() -> std::io::Result<()>,
+    commit_admission: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     deadline.ensure_open()?;
     let mut stream = crate::server::control::connect::connect_until(path, deadline.expires_at())
         .map_err(|error| std::io::Error::other(format!("{error:#}")))?;
     deadline.ensure_open()?;
     write_until_with_chunk(&mut stream, frame, deadline, usize::MAX)?;
-    stream.shutdown(Shutdown::Write).ok();
+    write_until_with_chunk(&mut stream, b"\n", deadline, usize::MAX)?;
+    let prepared = read_ack_line_until(&mut stream, deadline)?;
+    if prepared.trim() != "prepared" {
+        return Err(std::io::Error::other(prepared));
+    }
+    if let Err(error) = final_admission() {
+        let _ = write_until_with_chunk(&mut stream, b"cancel\n", deadline, usize::MAX);
+        return Err(error);
+    }
+    if let Err(error) = commit_admission() {
+        let _ = write_until_with_chunk(&mut stream, b"cancel\n", deadline, usize::MAX);
+        return Err(error);
+    }
+    write_until_with_chunk(&mut stream, b"commit\n", deadline, usize::MAX)?;
     let response = read_ack_until_with_chunk(&mut stream, deadline, ACK_LIMIT + 1)?;
     if std::str::from_utf8(&response).map(str::trim) != Ok("accepted") {
         return Err(std::io::Error::other(
@@ -25,6 +48,32 @@ pub(super) fn forward_serialized_until(
         ));
     }
     Ok(())
+}
+
+fn read_ack_line_until(
+    stream: &mut UnixStream,
+    deadline: &HandoffDeadline,
+) -> std::io::Result<String> {
+    stream.set_nonblocking(true)?;
+    let mut response = Vec::new();
+    loop {
+        deadline.ensure_open()?;
+        let mut byte = [0_u8; 1];
+        match stream.read(&mut byte) {
+            Ok(0) => return Err(std::io::Error::other("job socket closed before admission")),
+            Ok(_) if byte[0] == b'\n' => {
+                return String::from_utf8(response).map_err(std::io::Error::other);
+            }
+            Ok(_) if response.len() < ACK_LIMIT => response.push(byte[0]),
+            Ok(_) => {
+                return Err(std::io::Error::other(
+                    "job admission response exceeds frame limit",
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => wait_for_io(deadline)?,
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn write_until_with_chunk(

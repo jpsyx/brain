@@ -209,6 +209,20 @@ impl WorkspaceRouteAuthority {
         })
     }
 
+    pub(crate) fn begin_local(
+        leases: &mut LeaseTable,
+        generation: ServerGeneration,
+        ingress: IngressId,
+        capability: crate::server::lifecycle::LeaseId,
+        now: Instant,
+    ) -> Result<WorkspaceRouteTicket, WorkspaceRouteError> {
+        let ticket = Self::begin(leases, generation, ingress, now)?;
+        if ticket.lease.lease_id != capability {
+            return Err(WorkspaceRouteError::new(404, "local route not found"));
+        }
+        Ok(ticket)
+    }
+
     /// Revalidate the same process generation and lease authority after IO.
     pub(crate) fn finish(
         leases: &mut LeaseTable,

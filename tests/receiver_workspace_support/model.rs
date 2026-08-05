@@ -32,6 +32,7 @@ pub fn job(workspace: &WorkspaceContext, prompt: &str) -> InboundJob {
         prompt: prompt.to_owned(),
         attachments: vec![AttachmentRef {
             url: "https://media.example.test/photo.jpg".to_owned(),
+            provider_id: None,
             content_type: Some("image/jpeg".to_owned()),
             filename: Some("photo.jpg".to_owned()),
         }],
@@ -40,6 +41,7 @@ pub fn job(workspace: &WorkspaceContext, prompt: &str) -> InboundJob {
         thread_participants: vec!["+12125550100".to_owned()],
         response_email: None,
         allowed_response_recipients: Vec::new(),
+        email_reply: None,
     }
 }
 

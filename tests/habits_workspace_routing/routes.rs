@@ -4,21 +4,33 @@ use super::support::*;
 fn two_live_workspace_routes_render_only_their_own_habits() {
     let server = ServerFixture::new(FAMILY_ID);
 
-    let family = server.get(&format!("/w/{}/habits", server.family_ingress));
-    let personal = server.get(&format!("/w/{}/habits", server.personal_ingress));
+    let family = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.family_lease, server.family_ingress
+    ));
+    let personal = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.personal_lease, server.personal_ingress
+    ));
 
     assert!(family.starts_with("HTTP/1.1 200"), "{family}");
     assert!(family.contains("Family habit"), "{family}");
     assert!(!family.contains("Personal habit"), "{family}");
     assert!(
-        family.contains(&format!("/w/{}/habits/done", server.family_ingress)),
+        family.contains(&format!(
+            "/local/{}/w/{}/habits/done",
+            server.family_lease, server.family_ingress
+        )),
         "the rendered page must preserve its opaque ingress in completion requests"
     );
     assert!(personal.starts_with("HTTP/1.1 200"), "{personal}");
     assert!(personal.contains("Personal habit"), "{personal}");
     assert!(!personal.contains("Family habit"), "{personal}");
     assert!(
-        personal.contains(&format!("/w/{}/habits/done", server.personal_ingress)),
+        personal.contains(&format!(
+            "/local/{}/w/{}/habits/done",
+            server.personal_lease, server.personal_ingress
+        )),
         "the rendered personal page must preserve only its ingress"
     );
 }
@@ -29,7 +41,10 @@ fn habits_post_mutates_only_the_workspace_named_by_ingress() {
     let personal_before = habits_bytes(&server.personal_root);
 
     let response = server.post(
-        &format!("/w/{}/habits/done", server.family_ingress),
+        &format!(
+            "/local/{}/w/{}/habits/done",
+            server.family_lease, server.family_ingress
+        ),
         r#"{"task_id":"H1"}"#,
     );
 
@@ -52,7 +67,10 @@ fn triage_completion_is_recorded_only_for_the_ingress_workspace() {
             .join("triage-done.json");
 
     let response = server.post(
-        &format!("/w/{}/triage/done", server.family_ingress),
+        &format!(
+            "/local/{}/w/{}/triage/done",
+            server.family_lease, server.family_ingress
+        ),
         r#"{"token":"family-triage"}"#,
     );
 
@@ -102,9 +120,15 @@ fn habits_requests_reject_a_manifest_identity_mismatch() {
     )
     .expect("replace family manifest identity");
 
-    let get = server.get(&format!("/w/{}/habits", server.family_ingress));
+    let get = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.family_lease, server.family_ingress
+    ));
     let post = server.post(
-        &format!("/w/{}/habits/done", server.family_ingress),
+        &format!(
+            "/local/{}/w/{}/habits/done",
+            server.family_lease, server.family_ingress
+        ),
         r#"{"task_id":"H1"}"#,
     );
 
@@ -120,9 +144,15 @@ fn habits_requests_reject_an_unavailable_selected_root() {
     let personal_before = habits_bytes(&server.personal_root);
     std::fs::remove_dir_all(&server.family_root).expect("remove temporary family root");
 
-    let get = server.get(&format!("/w/{}/habits", server.family_ingress));
+    let get = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.family_lease, server.family_ingress
+    ));
     let post = server.post(
-        &format!("/w/{}/habits/done", server.family_ingress),
+        &format!(
+            "/local/{}/w/{}/habits/done",
+            server.family_lease, server.family_ingress
+        ),
         r#"{"task_id":"H1"}"#,
     );
 
@@ -139,8 +169,14 @@ fn known_ingress_without_its_live_tui_is_unavailable_while_peer_stays_routable()
         .unregister_generation(server.generation, server.family_lease)
         .expect("unregister family TUI");
 
-    let family = server.get(&format!("/w/{}/habits", server.family_ingress));
-    let personal = server.get(&format!("/w/{}/habits", server.personal_ingress));
+    let family = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.family_lease, server.family_ingress
+    ));
+    let personal = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.personal_lease, server.personal_ingress
+    ));
 
     assert!(family.starts_with("HTTP/1.1 503"), "{family}");
     assert!(personal.starts_with("HTTP/1.1 200"), "{personal}");
@@ -148,16 +184,47 @@ fn known_ingress_without_its_live_tui_is_unavailable_while_peer_stays_routable()
 }
 
 #[test]
+fn local_actions_reject_a_peer_workspace_lease_capability() {
+    let server = ServerFixture::new(FAMILY_ID);
+    let family_before = habits_bytes(&server.family_root);
+
+    let page = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.personal_lease, server.family_ingress
+    ));
+    let mutation = server.post(
+        &format!(
+            "/local/{}/w/{}/habits/done",
+            server.personal_lease, server.family_ingress
+        ),
+        r#"{"task_id":"H1"}"#,
+    );
+
+    assert!(page.starts_with("HTTP/1.1 404"), "{page}");
+    assert!(mutation.starts_with("HTTP/1.1 404"), "{mutation}");
+    assert_eq!(habits_bytes(&server.family_root), family_before);
+}
+
+#[test]
 fn receiver_disabled_live_ingress_is_unavailable_while_peer_stays_routable() {
     let server = ServerFixture::new(FAMILY_ID);
     server.disable_family_receiver();
 
-    let family = server.get(&format!("/w/{}/habits", server.family_ingress));
+    let family = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.family_lease, server.family_ingress
+    ));
     let family_triage = server.post(
-        &format!("/w/{}/triage/done", server.family_ingress),
+        &format!(
+            "/local/{}/w/{}/triage/done",
+            server.family_lease, server.family_ingress
+        ),
         r#"{"token":"must-not-land"}"#,
     );
-    let personal = server.get(&format!("/w/{}/habits", server.personal_ingress));
+    let personal = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.personal_lease, server.personal_ingress
+    ));
 
     assert!(family.starts_with("HTTP/1.1 503"), "{family}");
     assert!(family_triage.starts_with("HTTP/1.1 503"), "{family_triage}");
@@ -170,8 +237,14 @@ fn persisted_disable_rejects_before_the_live_lease_refreshes() {
     let server = ServerFixture::new(FAMILY_ID);
     server.persist_family_receiver_disabled();
 
-    let family = server.get(&format!("/w/{}/habits", server.family_ingress));
-    let personal = server.get(&format!("/w/{}/habits", server.personal_ingress));
+    let family = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.family_lease, server.family_ingress
+    ));
+    let personal = server.get(&format!(
+        "/local/{}/w/{}/habits",
+        server.personal_lease, server.personal_ingress
+    ));
 
     assert!(family.starts_with("HTTP/1.1 503"), "{family}");
     assert!(personal.starts_with("HTTP/1.1 200"), "{personal}");

@@ -292,6 +292,18 @@ impl LeaseTable {
         self.live.get(&workspace_id).map(|lease| lease.ingress_id)
     }
 
+    #[must_use]
+    pub fn live_local_route(
+        &mut self,
+        workspace_id: WorkspaceId,
+        now: Instant,
+    ) -> Option<(IngressId, LeaseId)> {
+        self.prune_expired(now);
+        self.live
+            .get(&workspace_id)
+            .map(|lease| (lease.ingress_id, lease.lease_id))
+    }
+
     /// Return the receiver snapshot of an exact unexpired workspace lease.
     #[must_use]
     pub fn live_receiver_enabled(

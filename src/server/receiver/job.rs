@@ -14,8 +14,18 @@ pub enum Channel {
 #[serde(deny_unknown_fields)]
 pub struct AttachmentRef {
     pub url: String,
+    #[serde(default)]
+    pub provider_id: Option<String>,
     pub content_type: Option<String>,
     pub filename: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmailReplyContext {
+    pub provider_email_id: String,
+    pub subject: String,
+    pub message_id: Option<String>,
 }
 
 /// Immutable authenticated work accepted by exactly one live workspace TUI.
@@ -39,6 +49,8 @@ pub struct InboundJob {
     pub response_email: Option<String>,
     #[serde(default)]
     pub allowed_response_recipients: Vec<String>,
+    #[serde(default)]
+    pub email_reply: Option<EmailReplyContext>,
 }
 
 mod uuid_string {

@@ -12,7 +12,13 @@ fn unavailable_posts_reject_before_body_io_and_leave_control_responsive() {
 
     for (path, expected_status) in [
         (format!("/w/{UNKNOWN_ID}/habits/done"), "404"),
-        (format!("/w/{}/triage/done", server.family_ingress), "503"),
+        (
+            format!(
+                "/local/{}/w/{}/triage/done",
+                server.family_lease, server.family_ingress
+            ),
+            "503",
+        ),
     ] {
         let mut partial = partial_post(server.port, &path, 1_000_000);
         let mut response = String::new();
@@ -40,7 +46,10 @@ fn accepted_local_post_rejects_an_oversized_body() {
     let oversized = "x".repeat(16 * 1024 + 1);
 
     let response = server.post(
-        &format!("/w/{}/habits/done", server.family_ingress),
+        &format!(
+            "/local/{}/w/{}/habits/done",
+            server.family_lease, server.family_ingress
+        ),
         &oversized,
     );
 

@@ -48,6 +48,7 @@ impl<'a> App<'a> {
         panel_side: PanelSide,
         skip_daily_triage_check: bool,
         server_ingress: crate::server::IngressId,
+        server_local_capability: crate::server::lifecycle::LeaseId,
     ) -> Self {
         let (brain_root, db_path) = app_workspace_paths(&command_context);
         let (all_tasks, all_habits) = reconcile_triage_startup(
@@ -73,6 +74,7 @@ impl<'a> App<'a> {
             tag_styles: crate::personalization::load_tag_styles(&command_context.workspace),
             command_context,
             server_ingress,
+            server_local_capability,
             today,
             // Seeded to the startup date; `run_tui` overwrites it with the
             // current logical day right after the startup triage check so the
@@ -148,6 +150,7 @@ impl<'a> App<'a> {
             receiver_sender: None,
             receiver_recipients: Vec::new(),
             receiver_response_email: None,
+            receiver_email_reply: None,
             receiver_session_id: None,
             interactive_session_id: None,
             receiver_resume_session: None,

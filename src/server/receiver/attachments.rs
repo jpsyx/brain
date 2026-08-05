@@ -22,8 +22,28 @@ pub fn stage_attachments(
     let dir_error = std::fs::create_dir_all(&dir)
         .err()
         .map(|error| error.to_string());
-    message
-        .attachments
+    let attachments = if message.channel == Channel::Email {
+        match super::http::refresh_attachment_access(command, message) {
+            Ok(attachments) => attachments,
+            Err(error) => {
+                return message
+                    .attachments
+                    .iter()
+                    .map(|attachment| StagedAttachment {
+                        source: attachment
+                            .provider_id
+                            .clone()
+                            .unwrap_or_else(|| "Resend attachment".to_owned()),
+                        path: None,
+                        error: Some(format!("refreshing attachment access: {error}")),
+                    })
+                    .collect();
+            }
+        }
+    } else {
+        message.attachments.clone()
+    };
+    attachments
         .iter()
         .enumerate()
         .map(|(index, attachment)| {

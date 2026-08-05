@@ -22,9 +22,8 @@ pub struct DualWorkspaceReceiverFixture {
     personal_guard: Option<brain::tui::singleton::Guard>,
     family_guard: Option<brain::tui::singleton::Guard>,
     client: brain::server::control::ServerClient,
-    generation: brain::server::lifecycle::ServerGeneration,
-    personal_lease: brain::server::lifecycle::LeaseId,
-    family_lease: brain::server::lifecycle::LeaseId,
+    personal_heartbeat: Option<brain::server::control::HeartbeatWorker>,
+    family_heartbeat: Option<brain::server::control::HeartbeatWorker>,
     child: Child,
     port: u16,
     personal_registered: bool,
@@ -75,8 +74,8 @@ impl DualWorkspaceReceiverFixture {
             client.connect_existing().ok()
         });
         handoff.cleanup().unwrap();
-        let personal_lease = register(&client, generation, &personal, personal_ingress);
-        let family_lease = register(&client, generation, &family, family_ingress);
+        let personal_heartbeat = register(&client, generation, &personal, personal_ingress);
+        let family_heartbeat = register(&client, generation, &family, family_ingress);
 
         Self {
             home,
@@ -91,9 +90,8 @@ impl DualWorkspaceReceiverFixture {
             personal_guard: Some(personal_guard),
             family_guard: Some(family_guard),
             client,
-            generation,
-            personal_lease,
-            family_lease,
+            personal_heartbeat: Some(personal_heartbeat),
+            family_heartbeat: Some(family_heartbeat),
             child,
             port: record.port,
             personal_registered: true,
@@ -183,9 +181,12 @@ impl DualWorkspaceReceiverFixture {
 
     pub fn close_family_tui(&mut self) {
         if self.family_registered {
-            self.client
-                .unregister_generation(self.generation, self.family_lease)
+            self.family_heartbeat
+                .as_mut()
+                .expect("family heartbeat")
+                .shutdown()
                 .unwrap();
+            self.family_heartbeat = None;
             self.family_registered = false;
         }
         self.family_socket.take();
@@ -194,9 +195,12 @@ impl DualWorkspaceReceiverFixture {
 
     pub fn close_personal_tui(&mut self) {
         if self.personal_registered {
-            self.client
-                .unregister_generation(self.generation, self.personal_lease)
+            self.personal_heartbeat
+                .as_mut()
+                .expect("personal heartbeat")
+                .shutdown()
                 .unwrap();
+            self.personal_heartbeat = None;
             self.personal_registered = false;
         }
         self.personal_socket.take();
@@ -253,14 +257,14 @@ impl DualWorkspaceReceiverFixture {
 impl Drop for DualWorkspaceReceiverFixture {
     fn drop(&mut self) {
         if self.personal_registered {
-            let _ = self
-                .client
-                .unregister_generation(self.generation, self.personal_lease);
+            if let Some(heartbeat) = self.personal_heartbeat.as_mut() {
+                let _ = heartbeat.shutdown();
+            }
         }
         if self.family_registered {
-            let _ = self
-                .client
-                .unregister_generation(self.generation, self.family_lease);
+            if let Some(heartbeat) = self.family_heartbeat.as_mut() {
+                let _ = heartbeat.shutdown();
+            }
         }
         if self.child.try_wait().ok().flatten().is_none() {
             let _ = self.child.kill();
@@ -359,21 +363,20 @@ fn register(
     generation: brain::server::lifecycle::ServerGeneration,
     workspace: &WorkspaceContext,
     ingress_id: brain::server::IngressId,
-) -> brain::server::lifecycle::LeaseId {
+) -> brain::server::control::HeartbeatWorker {
     let lease_id = brain::server::lifecycle::LeaseId::new();
-    client
-        .register_generation(&brain::server::control::LeaseRegistration {
-            generation,
-            lease_id,
-            workspace_id: workspace.id(),
-            canonical_name: workspace.name().as_str().to_owned(),
-            ingress_id,
-            tui_pid: std::process::id(),
-            resolved_root: workspace.root().to_path_buf(),
-            job_socket: workspace.paths().job_socket(),
-        })
-        .unwrap();
-    lease_id
+    let registration = brain::server::control::LeaseRegistration {
+        generation,
+        lease_id,
+        workspace_id: workspace.id(),
+        canonical_name: workspace.name().as_str().to_owned(),
+        ingress_id,
+        tui_pid: std::process::id(),
+        resolved_root: workspace.root().to_path_buf(),
+        job_socket: workspace.paths().job_socket(),
+    };
+    client.register_generation(&registration).unwrap();
+    brain::server::control::HeartbeatWorker::start(client.clone(), registration)
 }
 
 fn poll_value<T>(deadline: Instant, mut value: impl FnMut() -> Option<T>) -> T {

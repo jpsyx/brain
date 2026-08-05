@@ -972,8 +972,10 @@ brain (synced, never committed to the repo):
 ### Habits and receiver servers
 
 The habits server remains one machine-shared, local-only service. The selected
-workspace is explicit in `GET /w/<ingress>/habits` and
-`POST /w/<ingress>/habits/done`. The opaque ingress first resolves through the
+workspace is explicit in `GET /local/<lease>/w/<ingress>/habits` and
+`POST /local/<lease>/w/<ingress>/habits/done`. The exact live lease capability
+keeps local reads and mutations unavailable on provider-facing `/w/...` paths.
+The opaque ingress first resolves through the
 shared process's live lease table. Only then does the server reload schema v2,
 verify the exact registry workspace and root plus matching portable manifest,
 and read or write that workspace's habits CSV. Missing, malformed, unknown,
@@ -995,7 +997,8 @@ or email identities. Unknown and disabled senders are rejected. Resend
 timestamps must be within five minutes. Request bodies and serialized job
 frames are capped at 1 MiB, and the live TUI queue is bounded at 64 jobs.
 Each Resend received-email or attachment-metadata response is also capped at
-1 MiB and ten seconds. Signed events other than `email.received` return 202;
+1 MiB and ten seconds. Unavailable, ignored, and permanent discarded Resend
+events receive HTTP success; invalid signatures remain authentication errors.
 Receiving API failures return 502.
 Accepted provider IDs are deduplicated in a bounded cache scoped by workspace
 and channel; failed handoffs retain no retry state. SMS numbers use exact E.164
@@ -1147,7 +1150,8 @@ download URLs are preserved for the agent.
 `brain habits` and the habits palette action connect only to the process
 already attached to a live TUI. They never elect or spawn one independently.
 Without that process, the command fails with an instruction to open a Brain
-TUI first; with one, it prints the local `/w/<selected-ingress>/habits` URL
+TUI first; with one, it prints the local
+`/local/<exact-live-lease>/w/<selected-ingress>/habits` URL
 before handing it to the system browser.
 
 `brain habits revive <fuzzy name>` (alias `brain habits fix`) repairs a **lapsed

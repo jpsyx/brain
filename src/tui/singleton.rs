@@ -133,7 +133,6 @@ impl JobSocket {
                     }
                     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
                     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
-                    let queue_len = queue.len();
                     let response = read_job(&mut stream).and_then(|job| {
                         if job.workspace_id != workspace_id {
                             anyhow::bail!("inbound job targets another workspace");
@@ -141,6 +140,11 @@ impl JobSocket {
                         if queue.len() >= crate::server::receiver::INBOUND_QUEUE_CAPACITY {
                             anyhow::bail!("inbound queue is full");
                         }
+                        stream
+                            .write_all(b"prepared\n")
+                            .context("acknowledging staged job")?;
+                        let command = read_admission_command(&mut stream)?;
+                        anyhow::ensure!(command == "commit", "job admission was cancelled");
                         queue.push(job);
                         Ok(())
                     });
@@ -152,9 +156,6 @@ impl JobSocket {
                         format!("rejected: {error:#}\n").replace(['\r', '\n'], " ")
                     };
                     if let Err(error) = stream.write_all(message.as_bytes()) {
-                        if accepted {
-                            queue.truncate(queue_len);
-                        }
                         crate::logging::log(format!(
                             "workspace job acknowledgment failed: {error}"
                         ));
@@ -172,19 +173,36 @@ impl JobSocket {
 
 fn read_job(stream: &mut UnixStream) -> Result<crate::server::receiver::InboundJob> {
     let mut bytes = Vec::new();
-    Read::by_ref(stream)
-        .take(
-            u64::try_from(crate::server::receiver::dispatch::JOB_FRAME_LIMIT)
-                .unwrap_or(u64::MAX)
-                .saturating_add(1),
-        )
-        .read_to_end(&mut bytes)
-        .context("reading inbound job")?;
+    let mut byte = [0_u8; 1];
+    while bytes.len() <= crate::server::receiver::dispatch::JOB_FRAME_LIMIT {
+        stream
+            .read_exact(&mut byte)
+            .context("reading inbound job")?;
+        if byte[0] == b'\n' {
+            break;
+        }
+        bytes.push(byte[0]);
+    }
     anyhow::ensure!(
         bytes.len() <= crate::server::receiver::dispatch::JOB_FRAME_LIMIT,
         "inbound job exceeds the socket frame limit"
     );
     serde_json::from_slice(&bytes).context("decoding inbound job")
+}
+
+fn read_admission_command(stream: &mut UnixStream) -> Result<String> {
+    let mut bytes = Vec::new();
+    let mut byte = [0_u8; 1];
+    while bytes.len() <= 16 {
+        stream
+            .read_exact(&mut byte)
+            .context("reading job admission decision")?;
+        if byte[0] == b'\n' {
+            return String::from_utf8(bytes).context("decoding job admission decision");
+        }
+        bytes.push(byte[0]);
+    }
+    anyhow::bail!("job admission decision is too large")
 }
 
 impl Drop for JobSocket {

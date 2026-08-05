@@ -184,7 +184,8 @@ back to a known historical ingress or another workspace's lease.
 
 The public route identity is a typed portable `IngressId`, never a canonical
 name, root, default selection, or query parameter. Every accepted path has the
-exact shape `/w/<ingress>/<endpoint>`. Shared-process routing first consults
+provider shape `/w/<ingress>/{sms,email}` or local capability shape
+`/local/<lease>/w/<ingress>/{habits,habits/done,triage/done}`. Shared-process routing first consults
 `LeaseTable::availability`. Only `Accepting` yields a live lease and a
 generation-bound `WorkspaceRouteTicket`. Registry, root, and manifest IO then
 occurs without the control-state mutex. The route revalidates that the same
@@ -770,7 +771,7 @@ the session-store lock.
 The cross-process signal that closes the daily-triage tab. When the `/triage`
 skill finishes a background pass it POSTs
 `{"token": "<one-time-token>", "require": ["<path>", …]}` to the brain server's
-`POST /w/<selected-ingress>/triage/done`; after live-lease and manifest
+`POST /local/<exact-live-lease>/w/<selected-ingress>/triage/done`; after live-lease and manifest
 resolution, the handler writes to only that workspace's UUID-scoped cache:
 
 ```json

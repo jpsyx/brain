@@ -140,6 +140,11 @@ impl HeartbeatWorker {
         self.registration.ingress_id
     }
 
+    #[must_use]
+    pub const fn lease_id(&self) -> crate::server::lifecycle::LeaseId {
+        self.registration.lease_id
+    }
+
     /// Stop heartbeats, then unregister before the caller removes its job socket.
     ///
     /// # Errors

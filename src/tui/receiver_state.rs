@@ -118,13 +118,7 @@ mod tests {
     #[test]
     fn queued_message_reuses_a_warm_panel_for_the_same_channel() {
         assert_eq!(
-            dispatch_action_for_channel(
-                Some(Channel::Sms),
-                true,
-                Some(Channel::Sms),
-                false,
-                false,
-            ),
+            dispatch_action_for_channel(Some(Channel::Sms), true, Some(Channel::Sms), false, false,),
             DispatchAction::ReuseReceiverPanel
         );
     }
@@ -157,10 +151,7 @@ mod tests {
     fn failed_launch_retry_waits_for_its_backoff_deadline() {
         let now = Instant::now();
         assert!(retry_ready(None, now));
-        assert!(!retry_ready(
-            Some(now + Duration::from_secs(5)),
-            now
-        ));
+        assert!(!retry_ready(Some(now + Duration::from_secs(5)), now));
         assert!(retry_ready(
             Some(now + Duration::from_secs(5)),
             now + Duration::from_secs(5)

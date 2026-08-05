@@ -11,7 +11,10 @@ const SHARED_HTTP_CONNECTION_LIMIT: usize = 4;
 #[test]
 fn shared_http_admission_stays_at_four_while_control_remains_responsive() {
     let server = ServerFixture::new(FAMILY_ID);
-    let path = format!("/w/{}/habits/done", server.family_ingress);
+    let path = format!(
+        "/local/{}/w/{}/habits/done",
+        server.family_lease, server.family_ingress
+    );
     let mut held = Vec::with_capacity(SHARED_HTTP_CONNECTION_LIMIT);
 
     for _ in 0..SHARED_HTTP_CONNECTION_LIMIT {
@@ -20,7 +23,10 @@ fn shared_http_admission_stays_at_four_while_control_remains_responsive() {
 
     let mut overflow = complete_get(
         server.port,
-        &format!("/w/{}/habits", server.personal_ingress),
+        &format!(
+            "/local/{}/w/{}/habits",
+            server.personal_lease, server.personal_ingress
+        ),
     );
     let mut first = [0_u8; 1];
     let error = overflow

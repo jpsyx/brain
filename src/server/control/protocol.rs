@@ -117,6 +117,8 @@ pub enum ControlResponse {
         generation: ServerGeneration,
         /// `None` when that workspace has no live lease in this generation.
         ingress_id: Option<IngressId>,
+        /// Ephemeral local capability owned by that exact live lease.
+        lease_id: Option<LeaseId>,
     },
     /// Receiver enablement snapshot of an exact live workspace lease.
     WorkspaceStatus {

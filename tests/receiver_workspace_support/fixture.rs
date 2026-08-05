@@ -19,7 +19,7 @@ pub struct SharedReceiverFixture {
     _guard: brain::tui::singleton::Guard,
     client: brain::server::control::ServerClient,
     generation: brain::server::lifecycle::ServerGeneration,
-    lease_id: brain::server::lifecycle::LeaseId,
+    heartbeat: Option<brain::server::control::HeartbeatWorker>,
     target_registered: bool,
     anchor: Option<AnchorLease>,
     child: Child,
@@ -27,7 +27,7 @@ pub struct SharedReceiverFixture {
 }
 
 struct AnchorLease {
-    lease_id: brain::server::lifecycle::LeaseId,
+    heartbeat: brain::server::control::HeartbeatWorker,
     _guard: brain::tui::singleton::Guard,
     _socket: JobSocket,
 }
@@ -113,18 +113,18 @@ impl SharedReceiverFixture {
             client.connect_existing().ok()
         });
         handoff.cleanup().unwrap();
-        let lease_id = register_workspace(&client, generation, &workspace, ingress);
+        let heartbeat = register_workspace(&client, generation, &workspace, ingress);
         let anchor = anchor_workspace.map(|workspace| {
             let guard = brain::tui::singleton::Guard::acquire(&workspace).unwrap();
             let socket = JobSocket::bind(&workspace).unwrap();
-            let lease_id = register_workspace(
+            let heartbeat = register_workspace(
                 &client,
                 generation,
                 &workspace,
                 brain::server::workspace_ingress(&workspace).unwrap(),
             );
             AnchorLease {
-                lease_id,
+                heartbeat,
                 _guard: guard,
                 _socket: socket,
             }
@@ -137,7 +137,7 @@ impl SharedReceiverFixture {
             _guard: guard,
             client,
             generation,
-            lease_id,
+            heartbeat: Some(heartbeat),
             target_registered: true,
             anchor,
             child,
@@ -163,9 +163,12 @@ impl SharedReceiverFixture {
     }
 
     pub fn unregister_target(&mut self) {
-        self.client
-            .unregister_generation(self.generation, self.lease_id)
+        self.heartbeat
+            .as_mut()
+            .expect("target heartbeat")
+            .shutdown()
             .unwrap();
+        self.heartbeat = None;
         self.target_registered = false;
     }
 
@@ -214,6 +217,30 @@ impl SharedReceiverFixture {
         post(self.port, &request)
     }
 
+    pub fn post_unavailable_email_event(&self) -> String {
+        post(
+            self.port,
+            &signed_email_event(
+                self.ingress,
+                b"personal-resend-secret",
+                "unavailable-webhook",
+                "email.received",
+            ),
+        )
+    }
+
+    pub fn post_permanent_email_event(&self) -> String {
+        post(
+            self.port,
+            &signed_email_event(
+                self.ingress,
+                b"personal-resend-secret",
+                "permanent-webhook",
+                "email.received",
+            ),
+        )
+    }
+
     pub fn post_ignored_email_event(&self) -> String {
         post(
             self.port,
@@ -233,6 +260,12 @@ impl SharedReceiverFixture {
             self.ingress,
         );
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
         stream.write_all(request.as_bytes()).unwrap();
         stream.write_all(&vec![b'x'; OVERSIZED]).unwrap();
         let mut response = String::new();
@@ -242,15 +275,17 @@ impl SharedReceiverFixture {
 
     pub fn shutdown(&mut self) {
         if self.target_registered {
-            self.client
-                .unregister_generation(self.generation, self.lease_id)
+            self.heartbeat
+                .as_mut()
+                .expect("target heartbeat")
+                .shutdown()
                 .unwrap();
+            self.heartbeat = None;
             self.target_registered = false;
         }
         if let Some(anchor) = self.anchor.take() {
-            self.client
-                .unregister_generation(self.generation, anchor.lease_id)
-                .unwrap();
+            let mut heartbeat = anchor.heartbeat;
+            heartbeat.shutdown().unwrap();
         }
         poll_until(Instant::now() + Duration::from_secs(3), || {
             self.child.try_wait().ok().flatten().is_some()
@@ -261,14 +296,13 @@ impl SharedReceiverFixture {
 impl Drop for SharedReceiverFixture {
     fn drop(&mut self) {
         if self.target_registered {
-            let _ = self
-                .client
-                .unregister_generation(self.generation, self.lease_id);
+            if let Some(heartbeat) = self.heartbeat.as_mut() {
+                let _ = heartbeat.shutdown();
+            }
         }
         if let Some(anchor) = self.anchor.take() {
-            let _ = self
-                .client
-                .unregister_generation(self.generation, anchor.lease_id);
+            let mut heartbeat = anchor.heartbeat;
+            let _ = heartbeat.shutdown();
         }
         if self.child.try_wait().ok().flatten().is_none() {
             let _ = self.child.kill();
@@ -348,21 +382,20 @@ fn register_workspace(
     generation: brain::server::lifecycle::ServerGeneration,
     workspace: &WorkspaceContext,
     ingress_id: brain::server::IngressId,
-) -> brain::server::lifecycle::LeaseId {
+) -> brain::server::control::HeartbeatWorker {
     let lease_id = brain::server::lifecycle::LeaseId::new();
-    client
-        .register_generation(&brain::server::control::LeaseRegistration {
-            generation,
-            lease_id,
-            workspace_id: workspace.id(),
-            canonical_name: workspace.name().as_str().to_owned(),
-            ingress_id,
-            tui_pid: std::process::id(),
-            resolved_root: workspace.root().to_path_buf(),
-            job_socket: workspace.paths().job_socket(),
-        })
-        .unwrap();
-    lease_id
+    let registration = brain::server::control::LeaseRegistration {
+        generation,
+        lease_id,
+        workspace_id: workspace.id(),
+        canonical_name: workspace.name().as_str().to_owned(),
+        ingress_id,
+        tui_pid: std::process::id(),
+        resolved_root: workspace.root().to_path_buf(),
+        job_socket: workspace.paths().job_socket(),
+    };
+    client.register_generation(&registration).unwrap();
+    brain::server::control::HeartbeatWorker::start(client.clone(), registration)
 }
 
 fn poll_value<T>(deadline: Instant, mut value: impl FnMut() -> Option<T>) -> T {

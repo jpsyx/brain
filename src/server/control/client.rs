@@ -247,7 +247,7 @@ impl ServerClient {
             .context("connecting to the shared brain server")
     }
 
-    pub(crate) fn spawn(&self, generation: ServerGeneration, port: u16) -> Result<()> {
+    pub(crate) fn spawn(&self, generation: ServerGeneration, port: u16) -> Result<u32> {
         use std::os::unix::process::CommandExt as _;
 
         fs::create_dir_all(self.paths.directory())
@@ -276,14 +276,14 @@ impl ServerClient {
         if let Some(home) = &self.home {
             command.env("HOME", home);
         }
-        command
+        let child = command
             .stdin(Stdio::null())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(error_log))
             .process_group(0)
             .spawn()
             .context("spawning elected shared brain server")?;
-        Ok(())
+        Ok(child.id())
     }
 }
 

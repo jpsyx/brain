@@ -943,7 +943,7 @@ The on-disk bridge for the daily-triage tab's completion signal. Pure
 in `require` must exist; core declares none, so an empty list closes at once)
 plus a thin file shell (`record_done` / `read_signal` / `clear`,
 `<workspace-cache>/triage-done.json`): the brain server writes it from
-`POST /w/<ingress>/triage/done`, the matching TUI polls it each tick and holds a premature signal
+`POST /local/<lease>/w/<ingress>/triage/done`, the matching TUI polls it each tick and holds a premature signal
 until its required outputs land. Deliberately ignorant of *what* those outputs
 are — see the extension-agnostic rule in [AGENTS.md](../AGENTS.md). See
 [integrations.md](integrations.md). The route resolves a live lease and verified
@@ -979,7 +979,8 @@ process alive but the selected target is unavailable, the handler sends one
 unavailable response and discards the message. No process component stores an
 offline queue or launches an agent.
 - `server/router.rs` — pure exact-component mapping for
-  `/w/<ingress>/{habits,habits/done,triage/done,sms,email}`. Global,
+  provider `/w/<ingress>/{sms,email}` and capability-protected local
+  `/local/<lease>/w/<ingress>/{habits,habits/done,triage/done}` paths. Global,
   malformed, missing, and extra-component routes are rejected.
 - `server/workspace_route.rs` — resolves the typed ingress through the live
   lease table first. Shared-process routing captures a generation-bound lease
@@ -1018,7 +1019,8 @@ offline queue or launches an agent.
   verify and normalize provider input; Resend retrieval is capped at 1 MiB per
   response and ten seconds per request;
   `dispatch.rs` resolves the selected workspace's portable actor and performs
-  transactional, workspace-scoped provider-ID deduplication, while
+  transactional, workspace-scoped provider-ID deduplication;
+  `admission.rs` linearizes cancellable exact-lease admission with revocation, while
   `dispatch/tests.rs` exercises that production pipeline's synchronized final
   admission boundary; `transport.rs`
   carries one short absolute deadline through nonblocking job-socket connect,
@@ -1041,10 +1043,11 @@ offline queue or launches an agent.
   watchdog supplies periodic pruning and guarantees final crashed-lease
   shutdown without traffic. The generation-bound workspace-ingress lookup
   returns only the ingress from that workspace's exact live accepted registration.
-  `server.rs` reopens registry plus
+  `server.rs` copies validation capabilities under the state mutex, reopens registry plus
   manifest identity, compares the TUI-resolved root without retaining it,
   derives the UUID-local job socket, and verifies the live singleton and
-  listener through the request's bounded connector before creating a lease. An
+  listener through the request's bounded connector without that mutex, then
+  rechecks generation and deadline before creating a lease. An
   exact replay of an already-accepted registration is idempotent, while any
   competing lease or changed identity remains rejected. `heartbeat.rs` renews or generation-safely
   re-elects and re-registers after a crash through an injected scheduling seam.
@@ -1082,19 +1085,19 @@ offline queue or launches an agent.
   `enablement.rs` child, with their tests under `enablement/tests.rs`.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST handlers receive an already-resolved workspace context;
-  the rendered page preserves only that context's opaque ingress in its POST
-  URL. Unknown, no-live-TUI, unavailable-root, and identity-mismatched routes
+  the rendered page preserves that context's opaque ingress and exact live
+  lease capability in its POST URL. Unknown, no-live-TUI, unavailable-root, and identity-mismatched routes
   are rejected and never fall back to the machine default.
-- `server/routes/triage/` — the `POST /w/<ingress>/triage/done` controller: the
+- `server/routes/triage/` - the capability-protected local triage completion controller: the
   ephemeral daily-triage session's workspace-scoped completion signal (see
   `triage_signal.rs`).
 
 The shared HTTP process resolves receiver ingress availability before loading
 credentials, users, prompt data, or the workspace job socket. A request is
 accepted only after provider authentication, actor resolution, and an
-acknowledged append to the exact live TUI's 64-entry in-memory queue. The
-mode-`0600` UUID-local socket bounds serialized frames at 1 MiB and rolls back
-the append if the acknowledgment cannot be written. Failed, full, disabled,
+committed staged handoff to the exact live TUI's 64-entry in-memory queue. The
+mode-`0600` UUID-local socket bounds serialized frames at 1 MiB and holds the
+decoded job outside the queue until final authority commits. Failed, full, disabled,
 and missing targets receive one channel-specific unavailable response and are
 not retained or retried. Provider IDs are retained only after an enqueue ack;
 the accepted cache is bounded at 1024 keys scoped by workspace and channel.
@@ -1102,7 +1105,10 @@ Immediately before socket handoff, dispatch reserves the final five seconds
 for the HTTP response and derives one handoff deadline capped at two seconds
 and at the start of that response reserve. It revalidates the retained
 generation, authority revision, receiver enablement, and live lease under the
-control mutex. The same final admission boundary first reloads the selected
+control mutex. The staged socket repeats the check and atomically commits a
+cancellable admission before enqueue. Disable, unregister, and disable-enable
+ABA either cancel before commit or wait for an already committed handoff
+outside the mutex. The same final admission boundary first reloads the selected
 canonical registry record and requires the exact workspace UUID's persistent
 receiver intent to remain enabled, so a lost live-refresh notification cannot
 let a raced disable enqueue. It then carries that exact handoff deadline

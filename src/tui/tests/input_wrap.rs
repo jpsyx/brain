@@ -35,20 +35,14 @@ fn wrap_input_hard_splits_overlong_word() {
 
 #[test]
 fn wrap_input_honors_explicit_newlines() {
-    assert_eq!(
-        wrap_input("a\nb", 10),
-        vec!["a".to_owned(), "b".to_owned()]
-    );
+    assert_eq!(wrap_input("a\nb", 10), vec!["a".to_owned(), "b".to_owned()]);
 }
 
 #[test]
 fn wrap_input_trailing_newline_yields_trailing_blank_row() {
     // A trailing newline leaves an empty last row so the cursor lands
     // at the start of a fresh line.
-    assert_eq!(
-        wrap_input("hi\n", 10),
-        vec!["hi".to_owned(), String::new()]
-    );
+    assert_eq!(wrap_input("hi\n", 10), vec!["hi".to_owned(), String::new()]);
 }
 
 #[test]

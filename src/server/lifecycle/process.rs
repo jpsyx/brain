@@ -111,16 +111,16 @@ pub(crate) fn connect_or_elect_until(
                     remove_stale_socket(client.paths())?;
                 }
                 let port = choose_port(preferred_is_free(PREFERRED_PORT), PREFERRED_PORT);
-                client.spawn(guard.generation(), port)?;
+                let starter_pid = client.spawn(guard.generation(), port)?;
                 let handoff = guard.handoff();
-                let connection = wait_for_connection(client, deadline);
+                let connection = wait_for_started_connection(client, deadline, starter_pid);
                 handoff.cleanup()?;
                 if let Some(found) = connection? {
                     return Ok(found);
                 }
             }
             StartDecision::WaitForWinner => {
-                if let Some(found) = wait_for_connection(client, deadline)? {
+                if let Some(found) = wait_for_winner(client, deadline)? {
                     return Ok(found);
                 }
             }
@@ -131,16 +131,50 @@ pub(crate) fn connect_or_elect_until(
     }
 }
 
-fn wait_for_connection(client: &ServerClient, deadline: Instant) -> Result<Option<ProcessRecord>> {
+fn wait_for_winner(client: &ServerClient, deadline: Instant) -> Result<Option<ProcessRecord>> {
+    let observation_deadline = deadline.min(Instant::now() + Duration::from_millis(100));
     loop {
-        if let Ok(record) = client.connect_existing_until(deadline) {
+        if let Ok(record) = client.connect_existing_until(observation_deadline) {
             return Ok(Some(record));
         }
-        if Instant::now() >= deadline {
+        if retry_winner_election(
+            client.paths().election_lock().exists(),
+            Instant::now(),
+            observation_deadline,
+        ) {
             return Ok(None);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::park_timeout(POLL_INTERVAL);
     }
+}
+
+fn wait_for_started_connection(
+    client: &ServerClient,
+    deadline: Instant,
+    starter_pid: u32,
+) -> Result<Option<ProcessRecord>> {
+    loop {
+        let observation_deadline = deadline.min(Instant::now() + Duration::from_millis(100));
+        if let Ok(record) = client.connect_existing_until(observation_deadline) {
+            return Ok(Some(record));
+        }
+        if retry_after_starter_wait(pid_alive(starter_pid), Instant::now(), deadline) {
+            return Ok(None);
+        }
+        std::thread::park_timeout(POLL_INTERVAL);
+    }
+}
+
+fn retry_winner_election(
+    election_token_exists: bool,
+    now: Instant,
+    observation_deadline: Instant,
+) -> bool {
+    !election_token_exists || now >= observation_deadline
+}
+
+fn retry_after_starter_wait(starter_alive: bool, now: Instant, deadline: Instant) -> bool {
+    !starter_alive || now >= deadline
 }
 
 /// Pick the preferred port when free, otherwise request an ephemeral port.
@@ -205,13 +239,13 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
 
     while !terminate.load(Ordering::Relaxed) {
         let decision = {
-            let mut control_server = control_server
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let control_decision = control.drain(&mut control_server)?;
+            let control_decision = control.drain(&control_server)?;
             if control_decision == ServerDecision::ShutdownNow {
                 control_decision
             } else {
+                let mut control_server = control_server
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 watchdog.tick(control_server.leases_mut(), Instant::now())?
             }
         };
@@ -272,5 +306,31 @@ fn append_log(paths: &ServerPaths, message: &str) {
         .open(paths.log())
     {
         let _ = writeln!(file, "{} {message}", chrono::Utc::now().to_rfc3339());
+    }
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::{retry_after_starter_wait, retry_winner_election};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn owner_cleanup_while_waiting_returns_the_loser_to_election() {
+        let now = Instant::now();
+        assert!(retry_winner_election(
+            false,
+            now,
+            now + Duration::from_secs(1)
+        ));
+    }
+
+    #[test]
+    fn starter_failure_before_publication_returns_the_owner_to_election() {
+        let now = Instant::now();
+        assert!(retry_after_starter_wait(
+            false,
+            now,
+            now + Duration::from_secs(1)
+        ));
     }
 }

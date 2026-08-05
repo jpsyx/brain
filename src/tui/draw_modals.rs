@@ -7,9 +7,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{
-        Block, BorderType, Borders, Clear, Paragraph,
-    },
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
 
 pub(crate) fn draw_confirm(f: &mut Frame, state: &ConfirmState, area: Rect) {
@@ -198,7 +196,10 @@ pub(crate) fn draw_link_picker(f: &mut Frame, state: &LinkPickerState, area: Rec
             // URL dimmed alongside it. Notes rows already are the URL.
             if link.label != link.url {
                 spans.push(Span::styled(
-                    format!("  {}", crate::tasks::render::truncate(&link.url, url_budget)),
+                    format!(
+                        "  {}",
+                        crate::tasks::render::truncate(&link.url, url_budget)
+                    ),
                     dim,
                 ));
             }
@@ -318,10 +319,7 @@ pub(crate) fn draw_brain_input(f: &mut Frame, state: &BrainInputState, area: Rec
         f.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::raw(" "),
-                Span::styled(
-                    label_text,
-                    Style::default().fg(Color::Rgb(122, 134, 173)),
-                ),
+                Span::styled(label_text, Style::default().fg(Color::Rgb(122, 134, 173))),
             ])),
             chunks[0],
         );

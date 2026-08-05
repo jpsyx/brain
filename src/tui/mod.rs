@@ -155,6 +155,7 @@ pub(crate) struct App<'a> {
     command_context: crate::workspace::CommandContext,
     /// Workspace ingress verified and accepted with this TUI's live lease.
     server_ingress: crate::server::IngressId,
+    server_local_capability: crate::server::lifecycle::LeaseId,
     tag_styles: crate::personalization::tags::TagStyles,
     today: NaiveDate,
     /// Runtime config, held so post-startup actions (the `r`-hotkey triage
@@ -363,6 +364,7 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_sender: Option<String>,
     pub(crate) receiver_recipients: Vec<String>,
     pub(crate) receiver_response_email: Option<String>,
+    pub(crate) receiver_email_reply: Option<crate::server::receiver::EmailReplyContext>,
     pub(crate) receiver_session_id: Option<String>,
     pub(crate) interactive_session_id: Option<String>,
     pub(crate) receiver_resume_session: Option<String>,

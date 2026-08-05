@@ -96,9 +96,10 @@ pub fn send_email_background(
     subject: String,
     text: String,
     html: String,
+    reply: Option<crate::server::receiver::EmailReplyContext>,
 ) {
     if let Err(error) = dispatch_background(action, move || {
-        send_email(&command, &to, &subject, &text, &html)
+        send_email(&command, &to, &subject, &text, &html, reply.as_ref())
     }) {
         crate::logging::log(format!(
             "receiver delivery could not start action={action} error={error:#}"
@@ -204,18 +205,67 @@ pub fn send_email(
     subject: &str,
     text: &str,
     html: &str,
+    reply: Option<&crate::server::receiver::EmailReplyContext>,
 ) -> anyhow::Result<()> {
     let key = super::provider::get(command, "resend_api_key")
         .ok_or_else(|| anyhow::anyhow!("RESEND_API_KEY is not configured"))?;
     let from = super::provider::get(command, "resend_from_email")
         .ok_or_else(|| anyhow::anyhow!("RESEND_FROM_EMAIL is not configured"))?;
-    let payload = serde_json::json!({
+    let payload = email_payload(
+        &from,
+        to,
+        subject,
+        text,
+        html,
+        reply.and_then(|context| context.message_id.as_deref()),
+    );
+    send_email_payload(&key, &payload)
+}
+
+#[must_use]
+pub fn reply_subject(reply: Option<&crate::server::receiver::EmailReplyContext>) -> String {
+    let Some(subject) = reply
+        .map(|context| context.subject.trim())
+        .filter(|value| !value.is_empty())
+    else {
+        return "Brain response".to_owned();
+    };
+    if subject
+        .get(..3)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("re:"))
+    {
+        subject.to_owned()
+    } else {
+        format!("Re: {subject}")
+    }
+}
+
+#[must_use]
+pub fn email_payload(
+    from: &str,
+    to: &[String],
+    subject: &str,
+    text: &str,
+    html: &str,
+    in_reply_to: Option<&str>,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
         "from": from,
         "to": to,
         "subject": subject,
         "text": text,
         "html": html,
     });
+    if let Some(message_id) = in_reply_to {
+        payload["headers"] = serde_json::json!({
+            "In-Reply-To": message_id,
+            "References": message_id,
+        });
+    }
+    payload
+}
+
+fn send_email_payload(key: &str, payload: &serde_json::Value) -> anyhow::Result<()> {
     let output = super::provider::CurlRequest::new()
         .flag("silent")
         .flag("show-error")
@@ -305,5 +355,33 @@ mod tests {
             "brain@example.test",
         );
         assert_eq!(recipients, vec!["member@example.test"]);
+    }
+
+    #[test]
+    fn processing_and_final_email_use_acceptance_time_recipients_subject_and_lineage() {
+        let reply = crate::server::receiver::EmailReplyContext {
+            provider_email_id: "provider-email".to_owned(),
+            subject: "Quarterly planning".to_owned(),
+            message_id: Some("<message@example.test>".to_owned()),
+        };
+
+        let accepted_recipients = vec![
+            "member@example.test".to_owned(),
+            "thread@example.test".to_owned(),
+        ];
+        for message in ["Still working", "Final answer"] {
+            let payload = email_payload(
+                "brain@example.test",
+                &accepted_recipients,
+                &reply_subject(Some(&reply)),
+                message,
+                &format!("<p>{message}</p>"),
+                reply.message_id.as_deref(),
+            );
+            assert_eq!(payload["to"], serde_json::json!(accepted_recipients));
+            assert_eq!(payload["subject"], "Re: Quarterly planning");
+            assert_eq!(payload["headers"]["In-Reply-To"], "<message@example.test>");
+            assert_eq!(payload["headers"]["References"], "<message@example.test>");
+        }
     }
 }

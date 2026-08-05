@@ -80,9 +80,10 @@ impl App<'_> {
                         self.command_context.clone(),
                         "delayed email notice",
                         recipients,
-                        "Brain is still working".to_owned(),
+                        crate::server::delivery::reply_subject(self.receiver_email_reply.as_ref()),
                         notice.text,
                         html,
+                        self.receiver_email_reply.clone(),
                     );
                 }
             }
@@ -149,9 +150,10 @@ impl App<'_> {
                         self.command_context.clone(),
                         "final email response",
                         recipients,
-                        "Brain response".to_owned(),
+                        crate::server::delivery::reply_subject(self.receiver_email_reply.as_ref()),
                         reply.text,
                         html,
+                        self.receiver_email_reply.clone(),
                     );
                 }
             }
@@ -160,6 +162,7 @@ impl App<'_> {
         self.receiver_sender = None;
         self.receiver_recipients.clear();
         self.receiver_response_email = None;
+        self.receiver_email_reply = None;
         self.receiver_started = None;
         self.receiver_delay_sent = false;
         self.receiver_generation = self.receiver_generation.saturating_add(1);

@@ -7,6 +7,8 @@ use anyhow::Context as _;
 
 use super::{AttachmentRef, Channel};
 
+pub(in crate::server::receiver) use email::refresh_attachment_access;
+
 pub(super) const WEBHOOK_BODY_LIMIT: usize = 1024 * 1024;
 pub(in crate::server) const RECEIVER_HANDLER_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(30);
@@ -98,7 +100,8 @@ impl ProviderError {
     pub(super) const fn status(self) -> u16 {
         match self {
             Self::IgnoredEvent => 202,
-            Self::InvalidSignature(_) | Self::SenderNotAllowed(_) => 403,
+            Self::InvalidSignature(_) => 401,
+            Self::SenderNotAllowed(_) => 403,
             Self::BodyTooLarge => 413,
             Self::Upstream(_) => 502,
             Self::NotConfigured(_) | Self::Deadline => 503,
@@ -138,6 +141,7 @@ pub(super) struct AuthenticatedInbound {
     pub attachments: Vec<AttachmentRef>,
     pub receiving_address: String,
     pub provider_id: Option<String>,
+    pub email_reply: Option<super::EmailReplyContext>,
 }
 
 pub(super) fn authenticate(

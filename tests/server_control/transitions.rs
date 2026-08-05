@@ -181,6 +181,7 @@ fn live_workspace_ingress_lookup_is_generation_and_workspace_scoped() {
         ControlResponse::WorkspaceIngress {
             generation: generation(),
             ingress_id: Some(fixture.ingress_id),
+            lease_id: Some(lease_id()),
         }
     );
     assert_eq!(
@@ -194,6 +195,7 @@ fn live_workspace_ingress_lookup_is_generation_and_workspace_scoped() {
         ControlResponse::WorkspaceIngress {
             generation: generation(),
             ingress_id: None,
+            lease_id: None,
         }
     );
 }
