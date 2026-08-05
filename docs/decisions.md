@@ -1783,10 +1783,13 @@ winner within a fixed deadline. A process-scoped advisory lock on the shared
 server directory serializes every exact observed-owner compare/remove/transfer,
 so a replacement winner cannot be reaped between validation and mutation. The
 starter explicitly hands its generation token to the child before releasing
-that mutex. The hidden `server run` command requires the elected generation
-token, so it is not a manual availability surface. Public server commands are
-read-only `status` and `logs`; short-lived habits and triage paths attach to an
-existing process and never elect one.
+that mutex, but retains an exact-owner cleanup guard until bounded publication
+observation finishes. Child adoption changes the owner identity and disarms
+that cleanup by comparison; child loss before adoption leaves the parent token
+unchanged and removable. The hidden `server run` command requires the elected
+generation token, so it is not a manual availability surface. Public server
+commands are read-only `status` and `logs`; short-lived habits and triage paths
+attach to an existing process and never elect one.
 
 The process publishes only PID, port, generation UUID, and start time. Its
 owner holds the election lock while generation-checked cleanup removes the

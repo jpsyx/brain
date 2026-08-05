@@ -129,9 +129,15 @@ impl ElectionGuard {
         self.record.generation
     }
 
-    /// Release the starter mutex while leaving its exact token for child adoption.
-    pub fn handoff(mut self) {
+    /// Release the starter mutex while retaining exact cleanup until adoption.
+    #[must_use]
+    pub fn handoff(mut self) -> ElectionHandoff {
+        let handoff = ElectionHandoff {
+            paths: self.paths.clone(),
+            record: self.record,
+        };
         self.remove_on_drop = false;
+        handoff
     }
 }
 
@@ -140,6 +146,22 @@ impl Drop for ElectionGuard {
         if self.remove_on_drop && read_lock(&self.paths) == Some(self.record) {
             let _ = fs::remove_file(self.paths.election_lock());
         }
+    }
+}
+
+/// Parent-side cleanup retained while a spawned child adopts the election.
+#[derive(Debug)]
+pub struct ElectionHandoff {
+    paths: ServerPaths,
+    record: ElectionRecord,
+}
+
+impl Drop for ElectionHandoff {
+    fn drop(&mut self) {
+        let Ok(Some(_mutex)) = ElectionMutex::try_acquire(&self.paths) else {
+            return;
+        };
+        let _ = remove_lock_if_observed(&self.paths, self.record);
     }
 }
 
@@ -319,7 +341,7 @@ mod race_tests {
         let parent = ElectionGuard::try_acquire(&paths, generation)
             .expect("parent election")
             .expect("parent owns election");
-        parent.handoff();
+        let handoff = parent.handoff();
         let adoption_complete = Arc::new(Barrier::new(2));
         let release_child = Arc::new(Barrier::new(2));
         let thread_paths = paths.clone();
@@ -332,6 +354,8 @@ mod race_tests {
             drop(guard);
         });
         adoption_complete.wait();
+        drop(handoff);
+        assert!(validate_election_token(&paths, generation).is_ok());
 
         assert!(
             ElectionGuard::try_acquire(&paths, contender)
@@ -346,6 +370,33 @@ mod race_tests {
                 .expect("election after adoption")
                 .is_some()
         );
+    }
+
+    #[test]
+    fn parent_handoff_cleans_its_exact_token_when_child_is_lost_before_adoption() {
+        let temporary = tempfile::tempdir().expect("temporary server directory");
+        let paths = ServerPaths::from_directory(temporary.path().join("server"));
+        let generation = ServerGeneration::parse("57b162df-983a-45c3-ac7e-bad94eb27a99")
+            .expect("valid generation");
+        let parent = ElectionGuard::try_acquire(&paths, generation)
+            .expect("parent election")
+            .expect("parent owns election");
+        let child_ready = Arc::new(Barrier::new(2));
+        let lose_child = Arc::new(Barrier::new(2));
+        let thread_ready = Arc::clone(&child_ready);
+        let thread_loss = Arc::clone(&lose_child);
+        let child = std::thread::spawn(move || {
+            thread_ready.wait();
+            thread_loss.wait();
+        });
+        let handoff = parent.handoff();
+        child_ready.wait();
+
+        lose_child.wait();
+        child.join().expect("pre-adoption child");
+        drop(handoff);
+
+        assert!(!paths.election_lock().exists());
     }
 
     fn replace_at_barrier(paths: &ServerPaths, replacement: ElectionRecord) {

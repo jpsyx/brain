@@ -11,7 +11,9 @@ mod table;
 mod watchdog;
 
 pub use decision::ServerDecision;
-pub use election::{ElectionGuard, StartDecision, decide_start, validate_election_token};
+pub use election::{
+    ElectionGuard, ElectionHandoff, StartDecision, decide_start, validate_election_token,
+};
 pub use lease::{
     HEARTBEAT_INTERVAL, IngressId, IngressIdError, LEASE_TTL, LeaseId, LeaseIdError, LeaseTiming,
     WorkspaceAvailability, WorkspaceLease,

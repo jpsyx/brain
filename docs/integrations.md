@@ -290,8 +290,11 @@ payload. A starter must atomically own the election lock, and the hidden
 before binding. An advisory lock on the shared server directory serializes
 exact observed-owner reaping and parent-to-child token adoption; the parent
 releases the mutex only through an explicit handoff that leaves its generation
-token for the child. Losing TUI contenders use bounded polling for the
-published winner.
+token for the child while retaining exact cleanup responsibility. A successful
+child adoption changes the token owner, making parent cleanup a no-op; child
+loss before adoption leaves the token unchanged, so the parent removes it when
+the bounded publication wait ends. Losing TUI contenders use bounded polling
+for the published winner.
 
 The process is not an independently managed daemon. Public `brain server`
 actions are read-only `status` and `logs`; there is no start, kill, or restart

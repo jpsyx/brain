@@ -312,7 +312,7 @@ fn signal_after_publication_in_the_startup_window_cleans_all_artifacts() {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn gated hidden server");
-    election.handoff();
+    let handoff = election.handoff();
     let mut gated = None;
     wait_for("server startup gate", || match gate.accept() {
         Ok((stream, _)) => {
@@ -329,6 +329,7 @@ fn signal_after_publication_in_the_startup_window_cleans_all_artifacts() {
     let mut ready = [0; 5];
     gated.read_exact(&mut ready).expect("read startup ready");
     assert_eq!(&ready, b"ready");
+    drop(handoff);
     assert!(paths.process_record().exists());
     assert!(paths.control_socket().exists());
     assert!(paths.election_lock().exists());
@@ -372,11 +373,12 @@ fn bind_failure_before_publication_cleans_early_artifacts() {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn hidden server with occupied port");
-    election.handoff();
+    let handoff = election.handoff();
 
     wait_for("failed server exit", || {
         child.try_wait().ok().flatten().is_some()
     });
+    drop(handoff);
 
     assert!(!paths.process_record().exists());
     assert!(!paths.control_socket().exists());
@@ -448,11 +450,12 @@ impl RunningServer {
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn hidden server");
-        election.handoff();
+        let handoff = election.handoff();
         let client = ServerClient::new(paths.clone());
         wait_for("shared server reachability", || {
             client.connect_existing().is_ok()
         });
+        drop(handoff);
         Self {
             child,
             _home: home,

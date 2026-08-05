@@ -962,7 +962,8 @@ and cannot outlive the interactive shell.
   `process.json`, `control.sock`, `election.lock`, and `server.log` below one
   machine-wide directory. `state.rs` owns the minimal generation-tagged record;
   `election.rs` owns the pure start decision, directory advisory mutex, exact
-  owner checks, and parent-to-child token handoff;
+  owner checks, and parent-to-child token handoff with retained parent cleanup
+  until child publication;
   `process.rs` owns the non-electing client, detached elected spawn, hidden
   server loop, signal cleanup, and narrow registration seam; `watchdog.rs`
   applies clock-injected expiry plus the bounded initial-registration deadline;

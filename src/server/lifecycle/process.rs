@@ -232,10 +232,12 @@ pub fn connect_or_elect(client: &ServerClient) -> Result<ProcessRecord> {
                 }
                 let port = choose_port(preferred_is_free(PREFERRED_PORT), PREFERRED_PORT);
                 client.spawn(guard.generation(), port)?;
-                guard.handoff();
+                let handoff = guard.handoff();
                 if let Some(found) = wait_for_connection(client, deadline)? {
+                    drop(handoff);
                     return Ok(found);
                 }
+                drop(handoff);
             }
             StartDecision::WaitForWinner => {
                 if let Some(found) = wait_for_connection(client, deadline)? {
