@@ -52,7 +52,10 @@ impl Request {
             if !valid_field_name(name) {
                 return Err(RequestError::Malformed);
             }
-            headers.push((name.to_ascii_lowercase(), value.trim().to_owned()));
+            headers.push((
+                name.to_ascii_lowercase(),
+                parse_field_value(value)?.to_owned(),
+            ));
         }
 
         let content_length = unique_content_length(&headers)?;
@@ -227,6 +230,16 @@ fn valid_field_name(name: &str) -> bool {
                         | b'~'
                 )
         })
+}
+
+fn parse_field_value(value: &str) -> Result<&str, RequestError> {
+    if value.chars().any(|character| {
+        (character.is_control() && character != '\t')
+            || (!character.is_ascii() && character.is_whitespace())
+    }) {
+        return Err(RequestError::Malformed);
+    }
+    Ok(value.trim_matches([' ', '\t']))
 }
 
 fn read_exact_body(

@@ -356,7 +356,9 @@ heartbeat renewal preserves the incarnation. Registration and receiver
 enablement changes advance it; removal or expiry leaves no accepting
 authority, and any later registration advances the remembered incarnation. A
 disable/re-enable or same-fields unregister/re-register ABA transition always
-invalidates the old ticket.
+invalidates the old ticket. The next revision is checked before expiry,
+enablement, registration, or revision state changes, so overflow cannot partly
+apply a transition.
 Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
 live TUI returns 503 before local route behavior or receiver dispatch; it is
 never acknowledged as accepted work.
@@ -370,7 +372,10 @@ all consume the same budget. HTTP framing accepts at most one
 `Content-Length` or the one supported `chunked` transfer coding, never both,
 and rejects repeated or unsupported codings, invalid field-name syntax,
 malformed chunk sizes, forbidden framing trailers, and over-limit chunks or
-trailers. Workers cannot accept until all four spawns succeed, and a partial
+trailers. Field values remove only `SP` and `HTAB` optional whitespace and
+reject forbidden controls and Unicode whitespace before framing decisions.
+Chunk extensions are rejected by the intentional extension-free safe subset.
+Workers cannot accept until all four spawns succeed, and a partial
 start is aborted before any body read. Each worker finishes routing and
 post-load live-lease revalidation before reading a POST body. This keeps
 stalled or oversized body IO out of the lifecycle/control loop and keeps the

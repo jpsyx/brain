@@ -198,7 +198,10 @@ job socket cannot match a ticket from before revocation. An unregister,
 disable, replacement, or expiry makes the ticket stale. Unknown
 ingress maps to 404; a known ingress with receiver disabled or no live TUI maps
 to 503. The returned context and lease remain paired for later forwarding
-without reopening another selector.
+without reopening another selector. A registration replay or enablement update
+computes its next revision before changing expiry, enablement, or registration
+state; revision overflow rejects the complete transition without extending or
+reviving authority.
 The accepted registration is also the source for local habits and triage URL
 generation, so a later portable-manifest change cannot redirect a live TUI or
 selected short-lived command through a peer workspace's ingress.

@@ -94,7 +94,7 @@ impl LeaseTable {
     /// # Errors
     ///
     /// Returns [`LeaseError`] when the lease would violate workspace or ingress
-    /// identity ownership.
+    /// identity ownership or its authority revision cannot advance.
     pub fn register(&mut self, lease: WorkspaceLease, now: Instant) -> Result<(), LeaseError> {
         self.prune_expired(now);
 
@@ -105,11 +105,15 @@ impl LeaseTable {
         }
         if let Some(existing) = self.live.get_mut(&lease.workspace_id) {
             if same_registration(existing, &lease) {
+                let next_revision = (existing.receiver_enabled != lease.receiver_enabled)
+                    .then(|| next_authority_revision(&self.authority_revisions, lease.workspace_id))
+                    .transpose()?;
                 existing.expires_at = lease.expires_at;
-                if existing.receiver_enabled != lease.receiver_enabled {
-                    advance_authority(&mut self.authority_revisions, lease.workspace_id)?;
-                }
                 existing.receiver_enabled = lease.receiver_enabled;
+                if let Some(next_revision) = next_revision {
+                    self.authority_revisions
+                        .insert(lease.workspace_id, next_revision);
+                }
                 self.shutdown_pending = false;
                 return Ok(());
             }
@@ -154,11 +158,13 @@ impl LeaseTable {
             });
         }
 
+        let next_revision = next_authority_revision(&self.authority_revisions, lease.workspace_id)?;
         self.known_ingresses
             .insert(lease.ingress_id, lease.workspace_id);
         self.known_workspace_ingresses
             .insert(lease.workspace_id, lease.ingress_id);
-        advance_authority(&mut self.authority_revisions, lease.workspace_id)?;
+        self.authority_revisions
+            .insert(lease.workspace_id, next_revision);
         self.live.insert(lease.workspace_id, lease);
         self.shutdown_pending = false;
         Ok(())
@@ -197,7 +203,8 @@ impl LeaseTable {
     /// # Errors
     ///
     /// Returns [`LeaseError::LeaseNotLive`] when the lease was missing or
-    /// expired.
+    /// expired, or [`LeaseError::AuthorityRevisionOverflow`] when the authority
+    /// revision cannot advance. An overflow leaves the lease unchanged.
     pub fn set_receiver_enabled(
         &mut self,
         lease_id: LeaseId,
@@ -214,8 +221,9 @@ impl LeaseTable {
             return Ok(());
         }
         let workspace_id = lease.workspace_id;
+        let next_revision = next_authority_revision(&self.authority_revisions, workspace_id)?;
         lease.receiver_enabled = receiver_enabled;
-        advance_authority(&mut self.authority_revisions, workspace_id)?;
+        self.authority_revisions.insert(workspace_id, next_revision);
         Ok(())
     }
 
@@ -304,17 +312,15 @@ impl LeaseTable {
     }
 }
 
-fn advance_authority(
-    revisions: &mut HashMap<WorkspaceId, AuthorityRevision>,
+fn next_authority_revision(
+    revisions: &HashMap<WorkspaceId, AuthorityRevision>,
     workspace_id: WorkspaceId,
-) -> Result<(), LeaseError> {
-    let next = authority_revision_after(
+) -> Result<AuthorityRevision, LeaseError> {
+    authority_revision_after(
         revisions.get(&workspace_id).copied(),
         AuthorityChange::Revoked,
     )
-    .ok_or(LeaseError::AuthorityRevisionOverflow)?;
-    revisions.insert(workspace_id, next);
-    Ok(())
+    .ok_or(LeaseError::AuthorityRevisionOverflow)
 }
 
 fn preserve_authority(

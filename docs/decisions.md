@@ -1795,8 +1795,10 @@ heartbeat renewal preserves it, while registration or an enablement change
 advances it. Removal or expiry leaves no accepting authority, and a later
 registration advances the remembered revision. Thus an identical
 disable/re-enable or unregister/re-register sequence cannot revive authority
-captured before revocation. Handlers receive the resulting `WorkspaceContext`
-explicitly. They
+captured before revocation. Revision advancement is checked before any lease
+field changes, so overflow leaves enablement, expiry, registration state, and
+the current revision unchanged. Handlers receive the resulting
+`WorkspaceContext` explicitly. They
 never reopen a global root or choose a workspace independently. This ordering
 prevents slow filesystem IO from blocking heartbeat or shutdown and prevents
 one route from selecting another workspace's tasks, triage signal,
@@ -1816,11 +1818,13 @@ response write, and flush consumes the one deadline established at connection
 parsing, so drip progress cannot retain a worker indefinitely. The parser
 accepts either one `Content-Length` or exactly one supported `chunked` transfer
 coding, rejects ambiguous framing and invalid field names, and bounds and
-validates chunks and trailers. A start gate lets workers accept only after all
-spawns
-succeed, so partial startup rollback cannot consume a request body. A stalled
-client can occupy one bounded worker only until the absolute deadline and
-apply backpressure, but cannot occupy the lifecycle loop, grow an unbounded
+validates chunks and trailers. Header values trim only HTTP optional whitespace
+(`SP` and `HTAB`) and reject forbidden controls or Unicode whitespace before
+framing interpretation. Chunk extensions are rejected as a deliberate,
+extension-free safe subset. A start gate lets workers accept only after all
+spawns succeed, so partial startup rollback cannot consume a request body. A
+stalled client can occupy one bounded worker only until the absolute deadline
+and apply backpressure, but cannot occupy the lifecycle loop, grow an unbounded
 thread set, or make the control socket
 unresponsive. Final process exit signals the workers but never waits to join a
 worker held by a client, preserving immediate final-TUI shutdown.

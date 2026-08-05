@@ -1010,9 +1010,13 @@ deadline, and revalidates a captured live route ticket after workspace
 filesystem checks. Byte-by-byte progress and a slow response drain cannot
 renew that deadline. Conflicting `Content-Length`/`Transfer-Encoding`, repeated
 or unsupported transfer codings, invalid field names, and malformed bounded
-chunk/trailer grammar are rejected. Route tickets also carry an authority
+chunk/trailer grammar are rejected. Framing values accept only `SP`/`HTAB` as
+optional whitespace; controls, Unicode whitespace, and chunk extensions are
+outside the supported safe subset. Route tickets also carry an authority
 incarnation: heartbeats preserve it, while disable/re-enable or identical
-unregister/re-register transitions cannot revive an earlier ticket. Slow or
+unregister/re-register transitions cannot revive an earlier ticket. A revision
+overflow rejects its whole enablement or replay transition without changing
+lease state. Slow or
 partial clients therefore cannot grow the thread set, block control requests,
 or make a stale lease authoritative.
 

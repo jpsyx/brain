@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use super::super::AuthorityRevision;
 use super::super::{IngressId, LeaseId, LeaseTiming, WorkspaceAvailability, WorkspaceLease};
 use super::{LeaseAction, LeaseError, LeaseTable, ServerDecision};
 use crate::workspace::{WorkspaceId, WorkspaceName};
@@ -350,6 +351,64 @@ fn rejected_registration_cannot_consume_final_expiry_shutdown() {
             .unwrap(),
         ServerDecision::ShutdownNow
     );
+}
+
+#[test]
+fn receiver_enablement_overflow_leaves_the_entire_lease_table_unchanged() {
+    let now = Instant::now();
+    let mut table = table_with_final_lease(now);
+    table
+        .authority_revisions
+        .insert(family_id(), AuthorityRevision::from_raw(u64::MAX));
+    let accepting = table_snapshot(&table);
+
+    assert!(matches!(
+        table.set_receiver_enabled(lease_id(1), false, now),
+        Err(LeaseError::AuthorityRevisionOverflow)
+    ));
+    assert_eq!(table_snapshot(&table), accepting);
+    assert!(matches!(
+        table.availability(ingress(FAMILY_INGRESS), now),
+        WorkspaceAvailability::Accepting(_)
+    ));
+
+    table.live.get_mut(&family_id()).unwrap().receiver_enabled = false;
+    let disabled = table_snapshot(&table);
+    assert!(matches!(
+        table.set_receiver_enabled(lease_id(1), true, now),
+        Err(LeaseError::AuthorityRevisionOverflow)
+    ));
+    assert_eq!(table_snapshot(&table), disabled);
+    assert_eq!(
+        table.availability(ingress(FAMILY_INGRESS), now),
+        WorkspaceAvailability::Disabled
+    );
+}
+
+#[test]
+fn receiver_changing_replay_overflow_cannot_extend_pre_revocation_authority() {
+    let now = Instant::now();
+    let mut table = table_with_final_lease(now);
+    table
+        .authority_revisions
+        .insert(family_id(), AuthorityRevision::from_raw(u64::MAX));
+    let mut replay = lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, false);
+    replay.expires_at = now + Duration::from_secs(30);
+    let before = table_snapshot(&table);
+
+    assert!(matches!(
+        table.register(replay, now),
+        Err(LeaseError::AuthorityRevisionOverflow)
+    ));
+    assert_eq!(table_snapshot(&table), before);
+    assert_eq!(
+        table.availability(ingress(FAMILY_INGRESS), now + Duration::from_secs(6)),
+        WorkspaceAvailability::NoLiveTui
+    );
+}
+
+fn table_snapshot(table: &LeaseTable) -> String {
+    format!("{table:#?}")
 }
 
 fn table_with_final_lease(now: Instant) -> LeaseTable {

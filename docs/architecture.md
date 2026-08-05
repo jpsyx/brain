@@ -967,14 +967,18 @@ receiver worker remains TUI-owned and cannot outlive the interactive shell.
   preserve that revision; registration and enablement changes create a new
   authority incarnation. Removal or expiry leaves no accepting authority, and
   any later registration advances the remembered revision even when every
-  lease field is reused.
+  lease field is reused. Revision advancement is checked before the lease
+  transition, so an unrepresentable next revision leaves all authority state
+  unchanged.
 - `server/http/` — the shared process's bounded, connection-closing HTTP/1.x
   request parser and response writer. Request heads are capped at 16 KiB, IO
   shares one absolute two-second monotonic deadline from the first head read
   through body reads, response writes, and flush, and each accepted connection
   carries one request. The parser rejects conflicting or repeated framing,
   unsupported transfer codings, invalid field names, and malformed or
-  over-limit chunk/trailer grammar.
+  over-limit chunk/trailer grammar. Field values strip only HTTP `SP`/`HTAB`
+  optional whitespace; forbidden controls and Unicode whitespace are rejected.
+  Chunk extensions are outside the deliberately extension-free safe subset.
 - `server/http_workers.rs` — a fixed four-worker, process-lifetime HTTP set
   over a loopback `std::net::TcpListener`. A start gate prevents any worker
   from accepting until all four spawns succeed; partial startup therefore

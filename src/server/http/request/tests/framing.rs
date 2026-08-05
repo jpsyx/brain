@@ -38,6 +38,45 @@ fn rejects_invalid_http_field_names_without_trimming_them() {
 }
 
 #[test]
+fn rejects_non_http_whitespace_in_framing_values() {
+    let mut accepted = Vec::new();
+    for whitespace in ['\u{000b}', '\u{000c}', '\u{00a0}'] {
+        for framing in [
+            format!("Content-Length:{whitespace}1"),
+            format!("Transfer-Encoding:{whitespace}chunked"),
+        ] {
+            let raw = format!("POST / HTTP/1.1\r\nHost: localhost\r\n{framing}\r\n\r\n");
+            if !matches!(parse_request(raw.as_bytes()), Err(RequestError::Malformed)) {
+                accepted.push(framing);
+            }
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "non-HTTP whitespace was accepted: {accepted:?}"
+    );
+}
+
+#[test]
+fn accepts_space_and_tab_as_framing_ows() {
+    let mut length =
+        parse_request(b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: \t1\t \r\n\r\na")
+            .expect("parse content length with HTTP OWS");
+    assert_eq!(length.read_body(1).expect("read length body"), b"a");
+
+    let mut chunked = parse_request(
+        b"POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: \tchunked\t \r\n\r\n0\r\n\r\n",
+    )
+    .expect("parse transfer encoding with HTTP OWS");
+    assert!(
+        chunked
+            .read_body(1)
+            .expect("read empty chunked body")
+            .is_empty()
+    );
+}
+
+#[test]
 fn accepts_one_exact_chunked_coding_with_bounded_chunks_and_trailers() {
     let raw = b"POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n0\r\nX-Trace: ok\r\n\r\n";
     let mut request = parse_request(raw).expect("parse exact chunked request");
