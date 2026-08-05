@@ -208,7 +208,7 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
             break;
         }
         if let Some(mut request) = server.recv_timeout(POLL_INTERVAL)? {
-            let response = super::super::respond(&mut request);
+            let response = super::super::respond(&mut request, &mut control_server, Instant::now());
             let _ = request.respond(response);
         }
     }

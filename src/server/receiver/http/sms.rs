@@ -34,7 +34,7 @@ pub(super) fn parse_sms(
         .unwrap_or_default();
     let authenticated = crate::server::security::verify_twilio(
         &security.twilio_auth_token,
-        &format!("{}/sms", security.public_base_url.trim_end_matches('/')),
+        &twilio_signature_url(&security.public_base_url, security.ingress_id),
         &sorted,
         signature,
     );
@@ -68,6 +68,10 @@ pub(super) fn parse_sms(
         provider_id: fields.get("MessageSid").cloned(),
         attachments: sms_attachments(&fields),
     })
+}
+
+fn twilio_signature_url(public_base_url: &str, ingress: crate::server::IngressId) -> String {
+    format!("{}/w/{ingress}/sms", public_base_url.trim_end_matches('/'))
 }
 
 fn sms_attachments(fields: &HashMap<String, String>) -> Vec<Attachment> {
@@ -131,8 +135,20 @@ const fn hex_digit(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_form, sms_attachments};
+    use super::{decode_form, sms_attachments, twilio_signature_url};
     use std::collections::HashMap;
+
+    const FAMILY_INGRESS: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
+
+    #[test]
+    fn twilio_signature_url_includes_the_resolved_ingress() {
+        let ingress = crate::server::IngressId::parse(FAMILY_INGRESS).unwrap();
+
+        assert_eq!(
+            twilio_signature_url("https://receiver.example/", ingress),
+            format!("https://receiver.example/w/{FAMILY_INGRESS}/sms")
+        );
+    }
 
     #[test]
     fn mms_media_keeps_twilio_index_order_and_content_types() {

@@ -59,14 +59,14 @@ helpers and shell-outs live in the tasks modules:
   SessionStart hook settings, `rclone version`, and sync env.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
 - **`brain habits` / palette "Open habits in browser"**: connect to the
-  already-running shared brain process and open its `/habits` page via the
-  system `open`. These short-lived paths never participate in process election;
+  already-running shared brain process and open its
+  `/w/<selected-ingress>/habits` page via the system `open`. These short-lived paths never participate in process election;
   if no TUI owns a live process, they ask the user to open a brain TUI first.
   The process itself carries no
-  selected `--brain`; meanwhile each habits request carries a workspace UUID
-  and reloads the exact registry record plus matching portable manifest before
-  touching payload. Missing, malformed, unknown, unavailable, or
-  manifest-mismatched identities are rejected and never route to the default.
+  selected `--brain`; each habits request instead carries an opaque ingress ID.
+  The process requires its live lease before reloading the exact registry record
+  and matching portable manifest. Missing, malformed, unknown, no-live-TUI,
+  unavailable, or identity-mismatched routes never fall back to the default.
 - **`brain habits revive|fix <name>`** — repair a lapsed recurring habit (all
   occurrences `done`, none pending) by fuzzy name, without touching the server.
   Dispatched after workspace bootstrap by `command/server/habits.rs`; the
@@ -80,8 +80,10 @@ helpers and shell-outs live in the tasks modules:
   which reuses `tasks::complete`'s `locate` (id/fuzzy resolution, rejecting task
   ids) and `spawn_next_occurrence`. Native port of the retired `skip_habit.py`.
   See [features.md](features.md).
-- **Receiver server** — the opt-in TUI-owned listener accepts only `POST /sms`
-  and `POST /email`. Twilio requests must pass the exact URL/form HMAC and SMS
+- **Receiver server** — the opt-in transitional TUI-owned worker accepts only
+  `POST /w/<selected-ingress>/sms` and
+  `POST /w/<selected-ingress>/email`. It rejects any other ingress before body
+  or provider parsing. Twilio requests must pass the exact URL/form HMAC and SMS
   sender allowlist. Resend requests must pass the official `v1,<signature>`
   Svix verification, a five-minute timestamp window, and the email sender
   allowlist. Successful Resend deliveries receive HTTP 200, and the Receiving
@@ -256,12 +258,13 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
 - **Completion is signalled, not inferred.** A triage pass can involve
   back-and-forth with the user, so "the agent went idle" is not a reliable done
   signal. brain connects to the shared process already attached to the TUI and
-  passes its `POST /triage/done` URL plus a one-time
+  passes its `POST /w/<selected-ingress>/triage/done` URL plus a one-time
   token into the session. When the `/triage` skill finishes (the habit marked
   and every output the run declared it must produce on disk) it POSTs
   `{"token": "<token>", "require": ["<path>", …]}` to that URL. The process and
   the TUI are separate processes, so the signal crosses on disk: the
-  `routes::triage` handler records it to `~/.cache/brain/triage-done.json` via
+  `routes::triage` handler records it to
+  `<workspace-cache>/triage-done.json` via
   `crate::triage_signal::record_done`, and the TUI's per-tick
   `App::tick_triage_done` reads it (`triage_signal::read_signal`) and auto-closes
   the tab only when the token matches the tab it opened **and** every path in
@@ -275,9 +278,10 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
   the generic core (and any fork) behaves exactly as before. If the triage child
   exits on its own, the same tick closes the tab regardless.
 
-`brain server`'s route table therefore gains `POST /triage/done` (see
-`server/router.rs` + `server/routes/triage/`), an unauthenticated
-localhost-only endpoint consistent with `/habits/done`.
+`brain server`'s route table therefore includes
+`POST /w/<ingress>/triage/done` (see `server/router.rs` plus
+`server/routes/triage/`), an unauthenticated localhost-only endpoint consistent
+with the ingress-scoped habits completion route.
 
 ## Shared-server process lifecycle
 
@@ -340,6 +344,15 @@ than the TUI. If an accepted response is lost, retrying the exact same
 generation, lease, workspace identity, PID, and derived endpoint is accepted
 idempotently and renews the lease deadline. A competing lease or changed
 identity is still rejected.
+
+For every HTTP request, the pure router first parses an exact typed
+`/w/<ingress>/...` route. `WorkspaceRouteResolver` then asks the live lease
+table for that ingress. Only a live lease permits registry, root, manifest, or
+workspace-runtime selection; the resolver rechecks the registry workspace UUID
+and portable manifest workspace/ingress UUIDs before returning a context.
+Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
+live TUI returns 503 before local route behavior or receiver dispatch; it is
+never acknowledged as accepted work.
 
 TUI startup orders ownership as workspace readiness, UUID singleton, UUID-local
 `jobs.sock`, bounded connect/elect/register handshake, heartbeat worker, then
@@ -823,12 +836,13 @@ bookkeeping.
   Invalid metadata, malformed records, and duplicate active identities render a
   warning naming the generation and relative CSV; they never panic or emit a
   false clean result.
-- **Phase 2 does not activate migration or shared HTTP receiver routing.**
+- **Phase 2 did not activate migration or shared HTTP receiver routing.**
   The task-schema migrator remains an inactive fixture-tested interface; Phase
   5 owns its last legacy sync, backups, activation, and real-workspace rollout.
-  Shared-server control and TUI lease recovery are now active; public ingress
-  routing and job forwarding remain Phase 4 work. Current actor propagation
-  does not imply those later delivery stages are done.
+  Shared-server control, TUI lease recovery, and public opaque-ingress routing
+  are now active; authenticated shared-process job forwarding remains later
+  Phase 4 work. Current actor propagation does not imply that delivery stage is
+  done.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.

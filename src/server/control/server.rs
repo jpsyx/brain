@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 
 use super::{ControlRequest, ControlResponse, LeaseRegistration, ServerSnapshot};
 use crate::server::lifecycle::{
-    LeaseAction, LeaseTable, ServerDecision, ServerGeneration, WorkspaceLease, LEASE_TTL,
+    LEASE_TTL, LeaseAction, LeaseTable, ServerDecision, ServerGeneration, WorkspaceLease,
 };
 use crate::workspace::{RegistryStore, WorkspaceManifest, WorkspaceName};
 
@@ -152,6 +152,25 @@ impl ControlServer {
     /// Mutable lease state used by the process watchdog and later routing.
     pub(crate) const fn leases_mut(&mut self) -> &mut LeaseTable {
         &mut self.leases
+    }
+
+    /// Resolve an HTTP ingress through current live leases before loading any
+    /// workspace-specific state.
+    pub(crate) fn resolve_workspace_route(
+        &mut self,
+        ingress: crate::server::IngressId,
+        now: Instant,
+    ) -> Result<
+        crate::server::workspace_route::ResolvedWorkspaceRoute,
+        crate::server::workspace_route::WorkspaceRouteError,
+    > {
+        crate::server::workspace_route::WorkspaceRouteResolver::new(
+            &mut self.leases,
+            &self.registry_store,
+            &self.runtime_home,
+            now,
+        )
+        .resolve(ingress)
     }
 
     fn apply_current(

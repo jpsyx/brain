@@ -970,16 +970,18 @@ brain (synced, never committed to the repo):
 ### Habits and receiver servers
 
 The habits server remains one machine-shared, local-only service. The selected
-workspace is explicit in `GET /habits?workspace_id=<UUID>` and
-`POST /habits/done?workspace_id=<UUID>`. On every request the server reloads
-schema v2, resolves that exact UUID, verifies that its root is available, and
-checks that the portable manifest has the same identity before reading or
-writing the workspace's habits CSV. Missing, malformed, unknown, unavailable,
-or mismatched identities are rejected and never fall back to the machine
-default. This service is separate from external message intake.
+workspace is explicit in `GET /w/<ingress>/habits` and
+`POST /w/<ingress>/habits/done`. The opaque ingress first resolves through the
+shared process's live lease table. Only then does the server reload schema v2,
+verify the exact registry workspace and root plus matching portable manifest,
+and read or write that workspace's habits CSV. Missing, malformed, unknown,
+receiver-disabled, no-live-TUI, unavailable, or mismatched routes never fall
+back to the machine default; the unavailable cases return 503.
 
-The receiver server is owned by the running TUI and is opt-in. It exposes only
-authenticated `POST /sms` and `POST /email` routes. Brain verifies the Twilio
+The transitional receiver worker is owned by the running TUI and is opt-in. It
+exposes only authenticated `POST /w/<selected-ingress>/sms` and
+`POST /w/<selected-ingress>/email` routes. It rejects another workspace's
+ingress before reading or parsing provider content. Brain verifies the Twilio
 or Resend/Svix signature before resolving the normalized sender through the
 selected workspace's enabled portable phone or email identities. Unknown and
 disabled senders are rejected. Resend timestamps must be within five minutes, recent provider delivery
@@ -990,11 +992,12 @@ and country code. A malformed configured SMS number produces a persistent
 yellow warning in the TUI status line. The former generic
 `/webhooks/capture` route has been removed.
 
-This remains the per-TUI external receiver behavior. The one-process control
-plane has shipped: each ready TUI binds a UUID-scoped job socket, registers a
-validated live lease, heartbeats it, recovers the shared process after a crash,
-and unregisters before removing its socket. Multi-workspace HTTP ingress
-routing and job forwarding remain later work.
+The one-process control plane and HTTP route boundary have shipped: each ready
+TUI binds a UUID-scoped job socket, registers a validated live lease, heartbeats
+it, recovers the shared process after a crash, and unregisters before removing
+its socket. Every shared-process endpoint has an opaque ingress prefix and is
+resolved to a verified live workspace before route behavior. Shared-process
+authentication and in-memory job forwarding remain later work.
 
 Inbound messages wait only for a submitted agent turn, not merely for the
 brain panel to exist. An idle startup panel is closed and replaced by the
@@ -1063,8 +1066,8 @@ messages and attachment download URLs are preserved for the agent.
 `brain habits` and the habits palette action connect only to the process
 already attached to a live TUI. They never elect or spawn one independently.
 Without that process, the command fails with an instruction to open a Brain
-TUI first; with one, it prints the local `/habits` URL before handing it to the
-system browser.
+TUI first; with one, it prints the local `/w/<selected-ingress>/habits` URL
+before handing it to the system browser.
 
 `brain habits revive <fuzzy name>` (alias `brain habits fix`) repairs a **lapsed
 habit** — a recurring habit whose every occurrence is `done` with none pending,

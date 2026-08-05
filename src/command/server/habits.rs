@@ -26,7 +26,8 @@ fn open_habits(context: &crate::workspace::CommandContext) -> Result<()> {
     let port = crate::server::lifecycle::ServerClient::default()
         .connect_existing()?
         .port;
-    let target = crate::server::habits_url(port, context.workspace.id());
+    let ingress = crate::server::workspace_ingress(&context.workspace)?;
+    let target = crate::server::habits_url(port, ingress);
     crate::logging::log(format!("habits open {target}"));
     println!("{}", theme.info(&format!("Opening {target}")));
     crate::logging::log(format!("spawn open {target}"));

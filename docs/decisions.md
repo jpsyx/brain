@@ -1567,13 +1567,15 @@ old Python `habits/server.py`, with three deliberate choices:
 
 - **Assets are inlined, not served.** The frontend lives at the repo root under
   `web/habits/` (`index.html` shell + `style.css` + `app.js`), but the brain
-  server has no static-file route — only `/habits` and `/habits/done`. So
+  server has no static-file route, only ingress-scoped habits page and
+  completion routes. So
   `view.rs` embeds all three with `include_str!` and fills `{{CSS}}`/`{{JS}}`/
   `{{BODY}}`/… into the shell at render time, emitting one self-contained
   document (exactly what the Python single-file template produced). Keeping the
   three source files separate keeps the CSS/JS editable and diffable; the JS's
-  only functional change from the Python original is `fetch('/api/done')` →
-  `fetch('/habits/done')`.
+  only functional change from the Python original is replacing
+  `fetch('/api/done')` with the rendered
+  `/w/<selected-ingress>/habits/done` URL.
 - **Mark-done reuses brain's own completion, not a reimplementation.** `done`
   delegates to `crate::tasks::complete`, so the web "done" is the same native
   mutation (status, completed_date, `last_touched`, habit recurrence spawn, and
@@ -1764,14 +1766,33 @@ The table keeps ingress catalog entries after a lease is removed or expires.
 That preserves the meaningful distinction between an unknown public route and
 a known workspace whose TUI is no longer live, while pruning the actual lease
 before any route can receive stale socket or PID data. A receiver-disabled live
-lease is a third, separate state. The later HTTP layer can map all unavailable
-states to the required provider behavior without confusing them internally.
+lease is a third, separate state. The HTTP layer can map all unavailable states
+to the required behavior without confusing them internally.
 
 The table accepts an injected monotonic instant and heartbeat schedule. This
 makes a one-second production heartbeat and five-second TTL deterministic in
 tests, allows final-lease shutdown to be a pure decision, and avoids timing
 sleeps or an always-on availability responder. Process election, socket IO,
 and the watchdog remain separate thin layers built on this state machine.
+
+## Why every HTTP route resolves opaque ingress before workspace state
+
+Names, roots, defaults, and query parameters are mutable selectors and cannot
+safely identify a workspace at a machine-wide listener. Every supported web
+endpoint therefore has the exact path shape `/w/<opaque-ingress>/...`, and the
+pure router parses the portable UUID into `IngressId` before any handler runs.
+Global, malformed, missing, extra-component, or unknown routes are rejected;
+there is no fallback to the machine default.
+
+`WorkspaceRouteResolver` next asks the shared `LeaseTable` for a live lease.
+Only after that decision does it reload the lease's exact canonical registry
+record, check the workspace UUID and root, reopen the portable manifest, and
+check both workspace and ingress UUIDs. Handlers receive the resulting
+`WorkspaceContext` explicitly. They never reopen a global root or choose a
+workspace independently. This ordering prevents one route from selecting
+another workspace's tasks, triage signal, credentials, users, prompts, logs,
+or job socket. Disabled and no-live-TUI routes return 503 before handler
+behavior; receiver dispatch never accepts unavailable work.
 
 ## Why the shared server is elected and generation-owned
 
@@ -1973,9 +1994,11 @@ user questions. The `/triage` skill therefore POSTs an explicit completion
 signal (with a one-time token) once the pass truly ends. It targets the shared
 process already attached to the live TUI; opening a triage tab never elects or
 starts a server independently. An unauthenticated localhost `POST
-/triage/done` matches the existing `/habits/done` precedent. Because the server
+/w/<selected-ingress>/triage/done` matches the ingress-scoped habits completion
+precedent. Because the server
 is a *separate process* from the TUI, the signal crosses on disk
-(`~/.cache/brain/triage-done.json`) and the TUI polls it in its existing per-tick
+(`<workspace-cache>/triage-done.json`) and the matching TUI polls it in its
+existing per-tick
 loop, the same poll-of-disk pattern the triage nudge and receiver responses
 already use. The token guard prevents a stale signal from closing a fresh tab.
 

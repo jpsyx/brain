@@ -1,4 +1,4 @@
-//! The UUID-scoped `/habits` route: a today's-habits page and mark-done endpoint.
+//! The ingress-scoped habits page and mark-done endpoint.
 //!
 //! Thin controller. [`model`] reads + filters + sorts habits (pure decisions
 //! plus one file read); [`view`] renders them into the `web/habits/` shell.
@@ -11,9 +11,6 @@
 
 pub mod model;
 pub mod view;
-pub(crate) mod workspace;
-
-use std::path::Path;
 
 use chrono::Local;
 use serde_json::json;
@@ -46,13 +43,16 @@ impl DoneOutcome {
     }
 }
 
-/// Render today's habits page for `root`, as of the local date.
+/// Render today's habits page for one already-resolved workspace.
 #[must_use]
-pub fn page(root: &Path, workspace_id: crate::workspace::WorkspaceId) -> String {
+pub fn page(
+    workspace: &crate::workspace::WorkspaceContext,
+    ingress: crate::server::IngressId,
+) -> String {
     let today = Local::now().date_naive();
-    let rows = model::load(root);
+    let rows = model::load(workspace.root());
     let (pending, completed) = model::classify(rows, today);
-    view::render(&pending, &completed, today, workspace_id)
+    view::render(&pending, &completed, today, ingress)
 }
 
 /// Extract and validate the `task_id` from a `POST /habits/done` JSON body.
@@ -73,7 +73,7 @@ fn parse_task_id(body: &str) -> Result<String, DoneOutcome> {
 
 /// Mark a habit done through brain's native completion path.
 #[must_use]
-pub fn done(root: &Path, lock_path: &Path, body: &str) -> DoneOutcome {
+pub fn done(workspace: &crate::workspace::WorkspaceContext, body: &str) -> DoneOutcome {
     let raw_id = match parse_task_id(body) {
         Ok(id) => id,
         Err(bad) => return bad,
@@ -82,17 +82,18 @@ pub fn done(root: &Path, lock_path: &Path, body: &str) -> DoneOutcome {
         Ok(id) => id,
         Err(e) => return DoneOutcome::BadRequest(e.to_string()),
     };
-    let owner = match crate::tasks::store_lock::TaskStoreOwner::acquire_path(lock_path) {
+    let lock_path = workspace.paths().task_store_lock();
+    let owner = match crate::tasks::store_lock::TaskStoreOwner::acquire_path(&lock_path) {
         Ok(owner) => owner,
         Err(error) => return DoneOutcome::Failed(error.to_string()),
     };
-    let enabled = match crate::config::Config::try_load_from_root(root) {
+    let enabled = match crate::config::Config::try_load_from_root(workspace.root()) {
         Ok(config) => config.enable_triage_habits,
         Err(error) => return DoneOutcome::Failed(error.to_string()),
     };
     match complete_in_root_protected_with_owner_and_today(
-        root,
-        lock_path,
+        workspace.root(),
+        &lock_path,
         &owner,
         &id,
         Local::now().date_naive(),
@@ -198,11 +199,7 @@ mod tests {
         )
         .unwrap();
 
-        let outcome = done(
-            workspace.root(),
-            &workspace.paths().task_store_lock(),
-            r#"{"task_id":"H1"}"#,
-        );
+        let outcome = done(&workspace, r#"{"task_id":"H1"}"#);
 
         assert!(matches!(
             outcome,
@@ -239,11 +236,11 @@ mod tests {
         )
         .unwrap();
         let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&workspace).unwrap();
-        let lock_path = workspace.paths().task_store_lock();
+        let request_workspace = workspace;
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let request = std::thread::spawn(move || {
             done_tx
-                .send(done(&root, &lock_path, r#"{"task_id":"H1"}"#))
+                .send(done(&request_workspace, r#"{"task_id":"H1"}"#))
                 .unwrap();
         });
 
@@ -283,9 +280,17 @@ mod tests {
         .unwrap();
         std::fs::write(root.join(".config/config.json"), "not json\n").unwrap();
         let before = std::fs::read(&habits_path).unwrap();
-        let lock_path = temporary.path().join("tasks.transaction.lock");
+        let workspace = crate::workspace::WorkspaceContext::new(
+            temporary.path(),
+            crate::workspace::WorkspaceId::new(),
+            crate::workspace::WorkspaceName::parse("family").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
 
-        let outcome = done(&root, &lock_path, r#"{"task_id":"H1"}"#);
+        let outcome = done(&workspace, r#"{"task_id":"H1"}"#);
 
         assert!(matches!(outcome, DoneOutcome::Failed(_)));
         assert_eq!(std::fs::read(habits_path).unwrap(), before);

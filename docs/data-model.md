@@ -156,8 +156,8 @@ workspace's lease, canonical name, ingress, PID, and derived socket is an
 idempotent retry that refreshes expiry and authoritative enablement after a
 lost response. A different lease or changed identity still conflicts. It renews only the matching
 lease ID and keeps a known ingress after orderly removal or expiry. Routing is
-therefore one of `Accepting(live lease)`, `Disabled` (a live lease with the
-receiver off), `NoLiveTui` (known but no live lease), or `Unknown`. Expired
+therefore one of `Accepting(live lease)`, `Disabled` (a live lease exists but
+the receiver is off), `NoLiveTui` (known but no live lease), or `Unknown`. Expired
 leases are never returned. Removing or expiring the final live lease yields
 `ShutdownNow`; otherwise the process receives `KeepRunning`. The production
 schedule uses a one-second heartbeat and five-second TTL, while tests inject
@@ -178,6 +178,17 @@ requires both the singleton PID and job listener to be live. Only that derived
 socket enters the lease, and its liveness probe shares the control request's
 absolute deadline. Enablement comes from the authoritative registry. The
 read-only snapshot exposes only the generation and live-lease count.
+
+The public route identity is a typed portable `IngressId`, never a canonical
+name, root, default selection, or query parameter. Every accepted path has the
+exact shape `/w/<ingress>/<endpoint>`. `WorkspaceRouteResolver` consults
+`LeaseTable::availability` first. Only `Accepting` yields a live lease from
+which the server may select a canonical registry record. It then
+revalidates registry workspace UUID, root availability, portable manifest
+workspace UUID, and portable manifest ingress UUID before constructing the
+immutable `WorkspaceContext`. Unknown ingress maps to 404; a known ingress with
+receiver-disabled or has no live TUI maps to 503. The returned context and
+lease remain paired for later forwarding without reopening another selector.
 
 The machine-wide lifecycle record is deliberately smaller than a lease. Brain
 publishes `~/.cache/brain/server/process.json` with only the process PID,
@@ -676,12 +687,13 @@ and shutdown behavior; only frontend adapters translate those operations.
 Whole-shell teardown explicitly shuts down both controllers before releasing
 the session-store lock.
 
-## Daily-triage completion signal (`triage_signal.rs`, `~/.cache/brain/triage-done.json`)
+## Daily-triage completion signal (`triage_signal.rs`, `<workspace-cache>/triage-done.json`)
 
 The cross-process signal that closes the daily-triage tab. When the `/triage`
 skill finishes a background pass it POSTs
 `{"token": "<one-time-token>", "require": ["<path>", …]}` to the brain server's
-`POST /triage/done`; the handler writes:
+`POST /w/<selected-ingress>/triage/done`; after live-lease and manifest
+resolution, the handler writes to only that workspace's UUID-scoped cache:
 
 ```json
 { "token": "<one-time-token>", "require": ["/abs/path/one", "/abs/path/two"], "at": 1730000000 }

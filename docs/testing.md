@@ -273,6 +273,19 @@ first move is a failing test that reproduces it, *then* the fix.
   `server/lifecycle/watchdog.rs` injects expiry and bootstrap instants directly,
   so crashed-final-lease and no-first-registration decisions have no timing
   sleep.
+- **Opaque-ingress workspace routing.** `server/router.rs` exhaustively proves
+  the exact method/component grammar for all habits, triage, SMS, and email
+  endpoints, including query stripping and rejection of global, malformed, or
+  extra-component paths. `tests/server_workspace_routing.rs` injects lease
+  instants to prove only a live enabled lease resolves to its revalidated
+  workspace context, while disabled, unknown, and known-without-live-TUI routes
+  remain distinct. `tests/habits_workspace_routing.rs` drives the
+  compiled shared process with two fake live TUIs and distinct manifests. It
+  proves each ingress renders and mutates only its own habits, triage completion
+  lands only in the selected UUID cache, unknown routes never fall back or emit
+  provider acknowledgements, and disabling or removing one live lease leaves
+  its peer routable. Server observation uses deadline-bounded polling; lifecycle
+  decisions use injected clocks rather than fixed timing sleeps.
 - **Shared-server control protocol.** `tests/server_control.rs` is split into
   focused codec, registration, and transition suites. It covers bounded
   newline-delimited JSON round trips, malformed and oversized rejection,

@@ -95,15 +95,19 @@ impl App<'_> {
     }
 
     /// "Open habits page" palette entry. Uses the already-attached shared
-    /// process, then opens its `/habits` page in the browser
+    /// process, then opens this workspace's ingress-scoped habits page
     /// through the injected `open_runner`, flashing success / error.
     pub(crate) fn run_open_habits(&mut self) {
         self.flash = Some(
             match crate::server::lifecycle::ServerClient::default().connect_existing() {
                 Ok(record) => {
-                    let url =
-                        crate::server::habits_url(record.port, self.command_context.workspace.id());
-                    open_url(self.open_runner.as_ref(), &url)
+                    match crate::server::workspace_ingress(&self.command_context.workspace) {
+                        Ok(ingress) => {
+                            let url = crate::server::habits_url(record.port, ingress);
+                            open_url(self.open_runner.as_ref(), &url)
+                        }
+                        Err(error) => FlashKind::Error(format!("⚠ habits failed: {error}")),
+                    }
                 }
                 Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
             },

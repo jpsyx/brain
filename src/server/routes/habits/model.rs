@@ -1,4 +1,4 @@
-//! Pure habit model for the `/habits` route.
+//! Pure habit model for the ingress-scoped habits route.
 //!
 //! Owns the on-disk CSV row, the normalized [`Habit`], the pure
 //! filter-and-sort [`classify`] (mirroring the Python `read_today_habits`),
@@ -35,12 +35,7 @@ pub enum TimeBucket {
 
 impl TimeBucket {
     /// Buckets in display / sort order.
-    pub const ALL: [Self; 4] = [
-        Self::Morning,
-        Self::Afternoon,
-        Self::Evening,
-        Self::Anytime,
-    ];
+    pub const ALL: [Self; 4] = [Self::Morning, Self::Afternoon, Self::Evening, Self::Anytime];
 
     /// Sort rank (0 = earliest).
     #[must_use]
@@ -88,10 +83,10 @@ pub fn parse_ideal_minutes(raw: &str) -> Option<u32> {
         return None;
     }
     let hour24 = match (h, pm) {
-        (12, false) => 0,       // 12 AM = midnight
-        (12, true) => 12,       // 12 PM = noon
-        (h, false) => h,        // AM
-        (h, true) => h + 12,    // PM
+        (12, false) => 0,    // 12 AM = midnight
+        (12, true) => 12,    // 12 PM = noon
+        (h, false) => h,     // AM
+        (h, true) => h + 12, // PM
     };
     Some(hour24 * 60 + m)
 }
@@ -325,7 +320,10 @@ mod tests {
         afternoon.ideal_time = Some("2:00 PM".to_owned());
         let (pending, _) = classify(vec![afternoon, morning], today);
         assert_eq!(
-            pending.iter().map(|h| h.task_id.as_str()).collect::<Vec<_>>(),
+            pending
+                .iter()
+                .map(|h| h.task_id.as_str())
+                .collect::<Vec<_>>(),
             ["H_morning", "H_afternoon"],
         );
     }
@@ -338,7 +336,10 @@ mod tests {
         let b = habit("H_high", "not_started", "p0");
         let (pending, _) = classify(vec![a, b], today);
         assert_eq!(
-            pending.iter().map(|h| h.task_id.as_str()).collect::<Vec<_>>(),
+            pending
+                .iter()
+                .map(|h| h.task_id.as_str())
+                .collect::<Vec<_>>(),
             ["H_high", "H_low"],
         );
     }

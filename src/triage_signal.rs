@@ -5,7 +5,7 @@
 //! back-and-forth with the user, "the LLM stopped talking" is *not* a reliable
 //! completion signal. Instead the `/triage` skill, once the pass is truly done
 //! (the Morning Triage habit marked and every output the run *declared it must
-//! produce* actually on disk), POSTs to the local brain server's [`DONE_PATH`]
+//! produce* actually on disk), POSTs to its ingress-scoped local brain route
 //! with the one-time token brain handed it in `BRAIN_TRIAGE_TOKEN`.
 //!
 //! **This module knows nothing about what a triage pass produces.** The core
@@ -43,19 +43,10 @@ pub struct Signal {
     pub require: Vec<String>,
 }
 
-/// The brain-server path the `/triage` skill POSTs to when a daily-triage pass
-/// completes. brain hands the full URL to the session in `BRAIN_TRIAGE_DONE_URL`.
-pub const DONE_PATH: &str = "/triage/done";
-
-/// Where the completion signal lands: `~/.cache/brain/triage-done.json`.
-/// Mirrors [`crate::state::Db::default_path`] and the server record.
+/// Where one workspace's completion signal lands in its UUID-scoped cache.
 #[must_use]
-pub fn done_path() -> PathBuf {
-    let base = std::env::var_os("HOME").map_or_else(
-        || PathBuf::from("."),
-        |home| PathBuf::from(home).join(".cache").join("brain"),
-    );
-    base.join("triage-done.json")
+pub fn done_path(workspace: &crate::workspace::WorkspaceContext) -> PathBuf {
+    workspace.paths().cache_dir().join("triage-done.json")
 }
 
 /// Parse a `{"token": "...", "require": [...]}` completion-signal document.
@@ -119,8 +110,12 @@ pub fn ready_to_close<F: Fn(&str) -> bool>(require: &[String], exists: F) -> boo
 ///
 /// # Errors
 /// Propagates any error creating the cache directory or writing the file.
-pub fn record_done(token: &str, require: &[String]) -> std::io::Result<()> {
-    let path = done_path();
+pub fn record_done(
+    workspace: &crate::workspace::WorkspaceContext,
+    token: &str,
+    require: &[String],
+) -> std::io::Result<()> {
+    let path = done_path(workspace);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -138,15 +133,15 @@ pub fn record_done(token: &str, require: &[String]) -> std::io::Result<()> {
 /// the file is absent or unparseable. Impure (the disk read); the parse is
 /// [`parse_signal`].
 #[must_use]
-pub fn read_signal() -> Option<Signal> {
-    let raw = std::fs::read_to_string(done_path()).ok()?;
+pub fn read_signal(workspace: &crate::workspace::WorkspaceContext) -> Option<Signal> {
+    let raw = std::fs::read_to_string(done_path(workspace)).ok()?;
     parse_signal(&raw)
 }
 
 /// Remove the signal file so a consumed (or superseded) signal cannot fire
 /// again. Missing file is not an error.
-pub fn clear() {
-    let _ = std::fs::remove_file(done_path());
+pub fn clear(workspace: &crate::workspace::WorkspaceContext) {
+    let _ = std::fs::remove_file(done_path(workspace));
 }
 
 #[cfg(test)]
@@ -184,8 +179,18 @@ mod tests {
 
     #[test]
     fn done_path_lives_under_the_brain_cache() {
-        let path = done_path();
+        let temporary = tempfile::tempdir().unwrap();
+        let selected = workspace(
+            temporary.path(),
+            "personal",
+            "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+        );
+        let path = done_path(&selected);
         assert!(path.ends_with("triage-done.json"));
+        assert!(
+            path.to_string_lossy()
+                .contains(selected.id().to_string().as_str())
+        );
     }
 
     #[test]
@@ -229,5 +234,42 @@ mod tests {
         assert!(ready_to_close(&require, |_| true));
         assert!(!ready_to_close(&require, |p| p == "/a"));
         assert!(!ready_to_close(&require, |_| false));
+    }
+
+    #[test]
+    fn signal_storage_is_scoped_to_the_resolved_workspace() {
+        let temporary = tempfile::tempdir().unwrap();
+        let personal = workspace(
+            temporary.path(),
+            "personal",
+            "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+        );
+        let family = workspace(
+            temporary.path(),
+            "family",
+            "e806258e-491a-436d-9db4-a5ca9903e0d4",
+        );
+
+        record_done(&family, "family-token", &[]).unwrap();
+
+        assert_eq!(read_signal(&family).unwrap().token, "family-token");
+        assert!(read_signal(&personal).is_none());
+        assert_ne!(done_path(&personal), done_path(&family));
+    }
+
+    fn workspace(
+        home: &std::path::Path,
+        name: &str,
+        id: &str,
+    ) -> crate::workspace::WorkspaceContext {
+        crate::workspace::WorkspaceContext::new(
+            home,
+            crate::workspace::WorkspaceId::parse(id).unwrap(),
+            crate::workspace::WorkspaceName::parse(name).unwrap(),
+            &home.join(name),
+            "tester",
+            home,
+        )
+        .unwrap()
     }
 }

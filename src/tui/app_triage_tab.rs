@@ -18,10 +18,13 @@ use crate::agent::{AgentController, AgentSession, HookMetadata, LaunchRequest, S
 use crate::pty_pane::PtyPane;
 
 #[cfg(not(test))]
-fn triage_done_url(_app: &mut App<'_>) -> anyhow::Result<String> {
-    crate::server::lifecycle::ServerClient::default()
-        .connect_existing()
-        .map(|record| crate::server::url(record.port, crate::triage_signal::DONE_PATH))
+fn triage_done_url(app: &App<'_>) -> anyhow::Result<String> {
+    let record = crate::server::lifecycle::ServerClient::default().connect_existing()?;
+    let ingress = crate::server::workspace_ingress(&app.command_context.workspace)?;
+    Ok(crate::server::url(
+        record.port,
+        &crate::server::triage_done_path(ingress),
+    ))
 }
 
 #[cfg(test)]
@@ -29,9 +32,12 @@ fn triage_done_url(app: &mut App<'_>) -> anyhow::Result<String> {
     if let Some(url) = app.triage_done_url_override.take() {
         return Ok(url);
     }
-    crate::server::lifecycle::ServerClient::default()
-        .connect_existing()
-        .map(|record| crate::server::url(record.port, crate::triage_signal::DONE_PATH))
+    let record = crate::server::lifecycle::ServerClient::default().connect_existing()?;
+    let ingress = crate::server::workspace_ingress(&app.command_context.workspace)?;
+    Ok(crate::server::url(
+        record.port,
+        &crate::server::triage_done_path(ingress),
+    ))
 }
 
 #[cfg(not(test))]
@@ -113,11 +119,10 @@ impl App<'_> {
         self.select_brain_tab(tabs[next]);
     }
 
-    /// Open the ephemeral daily-triage tab: ensure the internal brain server is
-    /// up (so the skill's completion POST lands), spawn a fresh *untracked*
-    /// session seeded with `/triage`, and focus it. Falls back to the old
-    /// inline behavior (type `/triage` into the main session) if the server
-    /// can't start, so triage still runs.
+    /// Open the ephemeral daily-triage tab: attach to the TUI-owned shared
+    /// process, spawn a fresh *untracked* session seeded with `/triage`, and
+    /// focus it. Falls back to the old inline behavior (type `/triage` into the
+    /// main session) if the live route is unavailable, so triage still runs.
     pub(crate) fn open_triage_tab(&mut self) {
         // Already running a triage tab — just focus it rather than spawning a
         // second one.
@@ -143,7 +148,7 @@ impl App<'_> {
 
         // Drop any stale completion signal so it can't immediately close the
         // tab we're about to open.
-        crate::triage_signal::clear();
+        crate::triage_signal::clear(&self.command_context.workspace);
 
         let token = uuid::Uuid::new_v4().to_string();
         let session = AgentSession::new(uuid::Uuid::new_v4().to_string())
@@ -209,7 +214,7 @@ impl App<'_> {
         }
         self.triage_token = None;
         self.active_brain_tab = BrainTab::Main;
-        crate::triage_signal::clear();
+        crate::triage_signal::clear(&self.command_context.workspace);
         self.focus = if self.brain.is_some() {
             Panel::Brain
         } else {
@@ -236,7 +241,8 @@ impl App<'_> {
             self.close_triage_tab();
             return;
         }
-        let Some(signal) = crate::triage_signal::read_signal() else {
+        let Some(signal) = crate::triage_signal::read_signal(&self.command_context.workspace)
+        else {
             return;
         };
         if signal.token != expected {

@@ -123,7 +123,7 @@ boundaries:
 | Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, `.config/users.json`, config, personalization, extensions, and plugins |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
 | Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, portable-user transaction lock, inbox, responses, capability artifacts, and sync lock/journal/current state/baselines |
-| Shared infrastructure | `~/.cache/brain/server/` plus the transitional triage-signal path | Generation-tagged process coordination and an infrastructure-only log, never a default workspace payload path |
+| Shared infrastructure | `~/.cache/brain/server/` | Generation-tagged process coordination and an infrastructure-only log, never a default workspace payload path |
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
 Env, config, personalization, state, TUI, tasks, reindex, sync, and child
@@ -141,9 +141,9 @@ The frontend-neutral `agent` facade, concrete Claude/Codex adapters, PTY
 transport, main and triage controller ownership, receiver controller dispatch,
 advisory portable access modes, and a fail-fast OpenCode selection stub now
 exist. Functional OpenCode sessions, coordinated task-schema activation, and
-shared HTTP receiver routing remain later phases. The shared process control
-protocol, live TUI leases, heartbeats, crash recovery, and final-TUI shutdown
-are active.
+shared receiver authentication and forwarding remain later phases. The shared
+process control protocol, live TUI leases, heartbeats, crash recovery,
+final-TUI shutdown, and opaque-ingress HTTP routing are active.
 `workspace_only` is easy-to-bypass prompt guidance plus capability filtering,
 not a security or isolation boundary. It reduces accidents and naive leakage
 among trusted users; adversarial or sensitive workloads require an external
@@ -930,13 +930,13 @@ The on-disk bridge for the daily-triage tab's completion signal. Pure
 `parse_signal` + `ready_to_close` (the close gate: every path the run declared
 in `require` must exist; core declares none, so an empty list closes at once)
 plus a thin file shell (`record_done` / `read_signal` / `clear`,
-`~/.cache/brain/triage-done.json`): the brain server writes it from
-`POST /triage/done`, the TUI polls it each tick and holds a premature signal
+`<workspace-cache>/triage-done.json`): the brain server writes it from
+`POST /w/<ingress>/triage/done`, the matching TUI polls it each tick and holds a premature signal
 until its required outputs land. Deliberately ignorant of *what* those outputs
 are — see the extension-agnostic rule in [AGENTS.md](../AGENTS.md). See
-[integrations.md](integrations.md). This file remains part of the transitional
-machine-shared server control plane; workspace membership/routing and its
-replacement belong to the approved shared-server phase.
+[integrations.md](integrations.md). The route resolves a live lease and verified
+workspace context before selecting the signal path, so one workspace cannot
+close another workspace's triage tab.
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
@@ -953,13 +953,15 @@ it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
 ### `server/`
-Brain is converging on one TUI-lifetime shared process. It currently serves the
-local habits and triage routes, while the transitional receiver server remains a TUI-owned, opt-in
-listener on `/sms` and `/email`; it is never started by ordinary TUI startup
-and cannot outlive the interactive shell.
-- `server/router.rs` — pure route mapping for `/habits`, `/habits/done`,
-  `/triage/done`, `/sms`, and `/email`. The former `/webhooks/capture`
-  placeholder is removed.
+Brain has one machine-wide, TUI-lifetime shared process. It serves the local
+habits and triage routes and owns the public route grammar; the transitional
+receiver worker remains TUI-owned and cannot outlive the interactive shell.
+- `server/router.rs` — pure exact-component mapping for
+  `/w/<ingress>/{habits,habits/done,triage/done,sms,email}`. Global,
+  malformed, missing, and extra-component routes are rejected.
+- `server/workspace_route.rs` — resolves the typed ingress through the live
+  lease table first, then reloads and revalidates the matching registry record,
+  root, and portable manifest before returning a `WorkspaceContext`.
 - `server/receiver.rs` + `server/receiver/` — the receiver facade and its
   single-responsibility modules: `http/` owns the bounded four-worker
   `tiny_http` listener and channel queue, `http/sms.rs` and `http/email.rs`
@@ -999,13 +1001,13 @@ and cannot outlive the interactive shell.
   credentials, prompts, logs, or message bodies.
   `lifecycle::pid_alive` remains the stable seam for sync callers.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
-  and completion POST requests carry `workspace_id`; the shared process
-  reloads the registry by exact UUID and verifies the root's portable manifest
-  before accessing that workspace's CSV. A missing, malformed, unknown,
-  unavailable, or manifest-mismatched identity is rejected; it never falls
-  back to the machine default.
-- `server/routes/triage/` — the `POST /triage/done` controller: the ephemeral
-  daily-triage session's completion signal (see `triage_signal.rs`).
+  and completion POST handlers receive an already-resolved workspace context;
+  the rendered page preserves only that context's opaque ingress in its POST
+  URL. Unknown, no-live-TUI, unavailable-root, and identity-mismatched routes
+  are rejected and never fall back to the machine default.
+- `server/routes/triage/` — the `POST /w/<ingress>/triage/done` controller: the
+  ephemeral daily-triage session's workspace-scoped completion signal (see
+  `triage_signal.rs`).
 
 `brain --with-receiver` starts the receiver listener after the TUI singleton is
 acquired. The global palette can start, stop, restart, and inspect it while

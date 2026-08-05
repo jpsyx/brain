@@ -27,6 +27,7 @@ pub(super) struct SecurityConfig {
     workspace_id: crate::workspace::WorkspaceId,
     local_user_id: crate::users::UserId,
     users: crate::users::Users,
+    ingress_id: crate::server::IngressId,
 }
 
 impl SecurityConfig {
@@ -35,6 +36,8 @@ impl SecurityConfig {
             .context("parsing selected local user")?;
         let users = crate::users::UsersStore::load(&command.workspace)
             .context("loading portable workspace users")?;
+        let ingress_id = crate::server::workspace_ingress(&command.workspace)
+            .context("loading selected receiver ingress")?;
         Ok(Self {
             twilio_auth_token: crate::server::provider::get(command, "twilio_auth_token")
                 .unwrap_or_default(),
@@ -50,6 +53,7 @@ impl SecurityConfig {
             workspace_id: command.workspace.id(),
             local_user_id,
             users,
+            ingress_id,
         })
     }
 
@@ -193,16 +197,16 @@ fn respond(
         request.url()
     ));
     let result = match route {
-        Route::Sms => read_request_body(request)
+        Route::Sms { ingress } if ingress == security.ingress_id => read_request_body(request)
             .and_then(|body| sms::parse_sms(request, &body, security))
             .and_then(|message| enqueue(tx, message, recent)),
-        Route::Email => read_request_body(request)
+        Route::Email { ingress } if ingress == security.ingress_id => read_request_body(request)
             .and_then(|body| email::parse_email(request, &body, security))
             .and_then(|message| enqueue(tx, message, recent)),
         _ => Err((404, "not found".to_owned())),
     };
     match result {
-        Ok(()) if route == Route::Sms => {
+        Ok(()) if matches!(route, Route::Sms { .. }) => {
             crate::logging::log("receiver http accepted route=Sms status=200");
             Response::from_string(
                 "<Response><Message>Received. I’ll get back to you shortly.</Message></Response>",
@@ -310,16 +314,21 @@ mod tests {
     struct CommandFixture {
         _temp: tempfile::TempDir,
         command: crate::workspace::CommandContext,
+        ingress: crate::server::IngressId,
     }
 
     fn command() -> CommandFixture {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("brain");
         std::fs::create_dir_all(&root).unwrap();
+        let workspace_id = crate::workspace::WorkspaceId::new();
+        let manifest = crate::workspace::WorkspaceManifest::new(workspace_id);
+        let ingress = manifest.receiver_ingress_id().into();
+        manifest.write_new(&root).unwrap();
         let workspace = std::sync::Arc::new(
             crate::workspace::WorkspaceContext::new(
                 temp.path(),
-                crate::workspace::WorkspaceId::new(),
+                workspace_id,
                 crate::workspace::WorkspaceName::parse("brain").expect("valid name"),
                 &root,
                 "tester",
@@ -350,6 +359,7 @@ mod tests {
                 )),
             )
             .unwrap(),
+            ingress,
         }
     }
 
@@ -436,7 +446,8 @@ mod tests {
         let body = vec![b'x'; 1_048_577];
         write!(
             client,
-            "POST /sms HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "POST /w/{}/sms HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            command.ingress,
             body.len()
         )
         .unwrap();
@@ -449,6 +460,33 @@ mod tests {
     }
 
     #[test]
+    fn mismatched_ingress_is_rejected_before_channel_parsing() {
+        let probe = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        let (message_tx, _message_rx) = mpsc::sync_channel(INBOUND_QUEUE_CAPACITY);
+        let command = command();
+        let receiver = ReceiverServer::start(&command.command, port, &message_tx).unwrap();
+        let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let body = "From=untrusted";
+        write!(
+            client,
+            "POST /w/{}/sms HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            crate::server::IngressId::new(),
+            body.len()
+        )
+        .unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        drop(receiver);
+
+        assert!(response.starts_with("HTTP/1.1 404"), "{response}");
+    }
+
+    #[test]
     fn one_slow_webhook_does_not_block_other_requests() {
         let probe = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = probe.local_addr().unwrap().port();
@@ -458,7 +496,11 @@ mod tests {
         let receiver = ReceiverServer::start(&command.command, port, &message_tx).unwrap();
         let mut slow = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         slow.write_all(
-            b"POST /sms HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\nConnection: close\r\n\r\n",
+            format!(
+                "POST /w/{}/sms HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\nConnection: close\r\n\r\n",
+                command.ingress
+            )
+            .as_bytes(),
         )
         .unwrap();
         std::thread::sleep(Duration::from_millis(50));
