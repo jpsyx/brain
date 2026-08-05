@@ -964,8 +964,9 @@ and cannot outlive the interactive shell.
   `election.rs` owns the pure start decision, directory advisory mutex, exact
   owner checks, and parent-to-child token handoff with retained parent cleanup
   until child publication. Its explicit, bounded completion retries transient
-  mutex contention only while the exact parent token remains and reports
-  cleanup failures to the caller;
+  mutex contention only while the exact parent token remains. Fallible token
+  inspection reports filesystem and JSON failures without consuming the
+  cleanup capability, so callers may repair and retry;
   `process.rs` owns the non-electing client, detached elected spawn, hidden
   server loop, signal cleanup, and narrow registration seam; `watchdog.rs`
   applies clock-injected expiry plus the bounded initial-registration deadline;

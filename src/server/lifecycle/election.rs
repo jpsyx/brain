@@ -169,12 +169,13 @@ impl ElectionHandoff {
     ///
     /// # Errors
     ///
-    /// Returns an error when the mutex cannot be inspected or acquired within
-    /// the cleanup window, or when the exact parent token cannot be removed.
-    pub fn cleanup(self) -> Result<()> {
+    /// Returns an error when the token cannot be inspected, when the mutex
+    /// cannot be acquired within the cleanup window, or when the exact parent
+    /// token cannot be removed.
+    pub fn cleanup(&self) -> Result<()> {
         let deadline = Instant::now() + HANDOFF_CLEANUP_TIMEOUT;
         loop {
-            if read_lock(&self.paths) != Some(self.record) {
+            if inspect_lock(&self.paths)? != Some(self.record) {
                 return Ok(());
             }
             match ElectionMutex::try_acquire(&self.paths)? {
@@ -267,8 +268,22 @@ fn read_lock(paths: &ServerPaths) -> Option<ElectionRecord> {
     serde_json::from_slice(&bytes).ok()
 }
 
+fn inspect_lock(paths: &ServerPaths) -> Result<Option<ElectionRecord>> {
+    let bytes = match fs::read(paths.election_lock()) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("reading {}", paths.election_lock().display()));
+        }
+    };
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .with_context(|| format!("parsing {}", paths.election_lock().display()))
+}
+
 fn remove_lock_if_observed(paths: &ServerPaths, observed: ElectionRecord) -> Result<bool> {
-    if read_lock(paths) != Some(observed) {
+    if inspect_lock(paths)? != Some(observed) {
         return Ok(false);
     }
     match fs::remove_file(paths.election_lock()) {
@@ -320,6 +335,32 @@ mod race_tests {
             .expect("conditional adoption")
         );
         assert_eq!(read_lock(&paths), Some(replacement));
+    }
+
+    #[test]
+    fn exact_cleanup_recheck_propagates_token_read_error() {
+        let temporary = tempfile::tempdir().expect("temporary server directory");
+        let paths = ServerPaths::from_directory(temporary.path().join("server"));
+        fs::create_dir_all(paths.directory()).expect("create server directory");
+        fs::create_dir(paths.election_lock()).expect("create unreadable token directory");
+        let observed = record(std::process::id(), "57b162df-983a-45c3-ac7e-bad94eb27a99");
+
+        let cleanup = remove_lock_if_observed(&paths, observed);
+
+        assert!(cleanup.is_err());
+    }
+
+    #[test]
+    fn exact_cleanup_recheck_propagates_malformed_token_error() {
+        let temporary = tempfile::tempdir().expect("temporary server directory");
+        let paths = ServerPaths::from_directory(temporary.path().join("server"));
+        fs::create_dir_all(paths.directory()).expect("create server directory");
+        fs::write(paths.election_lock(), b"not-json").expect("write malformed token");
+        let observed = record(std::process::id(), "57b162df-983a-45c3-ac7e-bad94eb27a99");
+
+        let cleanup = remove_lock_if_observed(&paths, observed);
+
+        assert!(cleanup.is_err());
     }
 
     #[test]
@@ -475,6 +516,55 @@ mod race_tests {
         }
         cleanup.join().expect("handoff cleanup thread");
 
+        assert!(!paths.election_lock().exists());
+    }
+
+    #[test]
+    fn parent_handoff_cleanup_propagates_token_read_error() {
+        let temporary = tempfile::tempdir().expect("temporary server directory");
+        let paths = ServerPaths::from_directory(temporary.path().join("server"));
+        let generation = ServerGeneration::parse("57b162df-983a-45c3-ac7e-bad94eb27a99")
+            .expect("valid generation");
+        let parent = ElectionGuard::try_acquire(&paths, generation)
+            .expect("parent election")
+            .expect("parent owns election");
+        let handoff = parent.handoff();
+        let parent_record = handoff.record;
+        fs::remove_file(paths.election_lock()).expect("remove parent token");
+        fs::create_dir(paths.election_lock()).expect("replace token with unreadable directory");
+
+        let cleanup = handoff.cleanup();
+
+        assert!(cleanup.is_err());
+        assert!(paths.election_lock().is_dir());
+        fs::remove_dir(paths.election_lock()).expect("remove unreadable directory");
+        create_lock(&paths, parent_record).expect("restore parent token");
+        handoff.cleanup().expect("retry parent cleanup");
+        assert!(!paths.election_lock().exists());
+    }
+
+    #[test]
+    fn parent_handoff_cleanup_propagates_malformed_token_error() {
+        let temporary = tempfile::tempdir().expect("temporary server directory");
+        let paths = ServerPaths::from_directory(temporary.path().join("server"));
+        let generation = ServerGeneration::parse("57b162df-983a-45c3-ac7e-bad94eb27a99")
+            .expect("valid generation");
+        let parent = ElectionGuard::try_acquire(&paths, generation)
+            .expect("parent election")
+            .expect("parent owns election");
+        let handoff = parent.handoff();
+        let parent_record = handoff.record;
+        fs::write(paths.election_lock(), b"not-json").expect("write malformed token");
+
+        let cleanup = handoff.cleanup();
+
+        assert!(cleanup.is_err());
+        assert_eq!(
+            fs::read(paths.election_lock()).expect("read malformed token"),
+            b"not-json"
+        );
+        write_lock(&paths, parent_record).expect("restore parent token");
+        handoff.cleanup().expect("retry parent cleanup");
         assert!(!paths.election_lock().exists());
     }
 

@@ -298,8 +298,11 @@ the advisory mutex at that boundary, explicit cleanup retries at a fixed
 interval for at most two seconds while the exact parent token remains instead
 of abandoning it. Adoption or replacement changes the record and ends the
 retry without touching the new owner; acquisition and timeout failures return
-to the caller. Losing TUI contenders use bounded polling for the published
-winner.
+to the caller. Both the initial token inspection and the exact recheck under
+the mutex distinguish a missing token from filesystem or malformed-JSON
+failures. Those failures propagate, and cleanup borrows its handoff capability
+so the same value can retry after repair. Losing TUI contenders use bounded
+polling for the published winner.
 
 The process is not an independently managed daemon. Public `brain server`
 actions are read-only `status` and `logs`; there is no start, kill, or restart

@@ -1790,10 +1790,14 @@ parent token unchanged and removable. Explicit cleanup retries transient
 advisory-mutex contention at a fixed interval within a bounded two-second
 window, then reports acquisition, removal, or timeout failure to its caller.
 This prevents a brief contender from stranding the parent token while leaving
-an adopted or replacement token untouched. The hidden `server run` command
-requires the elected generation token, so it is not a manual availability
-surface. Public server commands are read-only `status` and `logs`; short-lived
-habits and triage paths attach to an existing process and never elect one.
+an adopted or replacement token untouched. Cleanup uses fallible inspection
+before acquisition and during exact conditional removal: only `NotFound` means
+no token, while filesystem and JSON errors propagate. The operation borrows
+rather than consumes its handoff value, preserving the capability for a repair
+and retry after failure. The hidden `server run` command requires the elected
+generation token, so it is not a manual availability surface. Public server
+commands are read-only `status` and `logs`; short-lived habits and triage paths
+attach to an existing process and never elect one.
 
 The process publishes only PID, port, generation UUID, and start time. Its
 owner holds the election lock while generation-checked cleanup removes the

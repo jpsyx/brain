@@ -258,9 +258,11 @@ first move is a failing test that reproduces it, *then* the fix.
   adoption. A barrier-held advisory mutex proves that cleanup survives brief
   contention after child loss through its explicit bounded operation, while
   the adoption race proves that cleanup cannot remove the child's transferred
-  token. An elected child that never receives its first registration exits
-  within its bounded bootstrap deadline. All process waits use bounded
-  condition polling.
+  token. Controlled unreadable and malformed token artifacts prove that both
+  cleanup inspections propagate errors, preserve the artifact, and allow the
+  same handoff value to remove a restored exact parent token on retry. An
+  elected child that never receives its first registration exits within its
+  bounded bootstrap deadline. All process waits use bounded condition polling.
   `server/lifecycle/watchdog.rs` injects expiry and bootstrap instants directly,
   so crashed-final-lease and no-first-registration decisions have no timing
   sleep.
