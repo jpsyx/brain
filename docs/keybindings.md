@@ -123,7 +123,9 @@ Shared across the app; a captive modal consumes all input.
   intentionally palette-only.
 - **Task actions** (`Enter` on a task): per-task command list. Shared
   workspaces add the palette-only **Reassign this task** row.
-- **Confirm** — Yes/No (triage adds Skip). `y`/`n`/`Esc`, `←`/`→`/`Tab` move, `Enter` resolves.
+- **Confirm** — Yes/No (the daily-triage nudge adds **Skip**, which marks today's
+  Morning Triage habit done deterministically in-process — no agent). `y`/`n`/`s`/`Esc`,
+  `←`/`→`/`Tab` move, `Enter` resolves.
 - **Brain-input** (`Ctrl+Shift+M`) — compose a seeded message. `Alt+Enter` newline, `Enter` send.
 - **Link picker** (`Ctrl+O`, ≥ 2 links) — numbered; digit opens, `Enter` opens highlighted.
 - **Assignee filter** (shared-workspace palette row): numbered portable

@@ -17,6 +17,12 @@ pub fn run_habits(
             skip.until.as_deref(),
             &context.actor,
         ),
+        Some(crate::cli::HabitsAction::CompleteManagedTriage(args)) => {
+            crate::tasks::triage_habits::complete_managed_triage_cli(
+                &context.workspace,
+                args.kind.into(),
+            )
+        }
     }
 }
 

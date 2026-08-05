@@ -41,12 +41,34 @@ impl App<'_> {
         self.open_triage_tab();
     }
 
-    /// Skip-path for the startup daily-triage modal. Hands off to the brain
-    /// with [`SKIP_TRIAGE_PROMPT`] — the `/triage` + `/todo` skills'
-    /// documented "skip daily triage" trigger — so the brain marks today's
-    /// Morning Triage habit done and runs no triage pass.
+    /// Skip-path for the startup daily-triage modal. Skipping daily triage is
+    /// deterministic — it only marks today's protected Morning Triage
+    /// occurrence done and spawns the next — so this runs the native
+    /// completion in-process (the same mutation as
+    /// `brain habits complete-managed-triage daily`) rather than round-tripping
+    /// through the brain panel. No agent, no prompt. Respects
+    /// `enable_triage_habits`: a disabled feature is a no-op that still
+    /// dismisses the nudge. Contrast the Yes path (`run_triage`) and agenda
+    /// generation, which are agent-driven because they involve judgement.
     pub(crate) fn skip_triage(&mut self) {
-        self.send_brain_prompt(SKIP_TRIAGE_PROMPT);
+        let outcome = crate::tasks::triage_habits::complete_managed_triage(
+            &self.command_context.workspace,
+            crate::tasks::triage_habits::ManagedTriageKind::Daily,
+            self.config.enable_triage_habits,
+            self.today,
+        );
+        match outcome {
+            Ok(_) => {
+                if let Err(error) = self.reload_tasks() {
+                    crate::logging::log(format!("reload after triage skip failed: {error:#}"));
+                }
+                self.flash = Some(FlashKind::Info("✓ daily triage skipped".to_owned()));
+            }
+            Err(error) => {
+                crate::logging::log(format!("triage skip failed: {error:#}"));
+                self.flash = Some(FlashKind::Error(format!("triage skip failed: {error}")));
+            }
+        }
     }
 
     /// Match the configured daily-triage habit by name; if no occurrence of

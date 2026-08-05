@@ -92,6 +92,17 @@ quit `brain` mid-triage the ephemeral session is simply lost and the nudge fires
 again next launch — nothing to resume. See [integrations.md](integrations.md)
 for the completion-signal wiring.
 
+**Saying Skip is deterministic — no agent.** The nudge's third button, **Skip**,
+means "not today." Skipping is pure bookkeeping (mark today's Morning Triage
+occurrence done and spawn tomorrow's — nothing to decide), so brain does it
+**in-process** the instant you press it: no brain panel opens, no prompt is
+typed, no agent runs. It is the exact mutation of
+`brain habits complete-managed-triage daily` (see below), and it **respects
+`enable_triage_habits`**: with the feature off, Skip just dismisses the nudge
+and touches nothing. The agenda refreshes in place and a `✓ daily triage
+skipped` flash confirms it. (Contrast **Yes**, which is agent-driven because a
+real pass involves judgement.)
+
 **Session resume.** On startup the brain panel resumes your **most recent
 Claude session** — the continuous conversation picks up where it left off.
 If you type `/new` (or `/clear`) inside claude — or press `Ctrl+N` — that
@@ -1071,6 +1082,16 @@ The rule:
 
 Like `brain tasks complete`, skip mutates the CSV natively and does not touch the
 agenda file; the next agenda build re-derives habit state from the CSV.
+
+`brain habits complete-managed-triage <daily|weekly>` completes Brain's
+**protected** managed triage occurrence (which the ordinary complete/skip CLIs
+refuse while `enable_triage_habits` is on): it marks today's occurrence done and
+spawns the next, keyed on the stable `system_key` rather than an id. This is the
+deterministic mutation the daily-triage nudge's **Skip** button runs in-process,
+now exposed as a first-class CLI so an agent (or you) can do it non-interactively.
+It **respects `enable_triage_habits`**: with the feature off it is a pure no-op
+that mutates nothing (the day is acknowledged handled), so a fork with the
+feature disabled behaves identically.
 
 ### Prerequisite: `markdown-to-pdf`
 

@@ -117,6 +117,9 @@ pub fn run(
             Some(crate::cli::HabitsAction::Skip(_)) => {
                 crate::logging::log("dispatch habits skip");
             }
+            Some(crate::cli::HabitsAction::CompleteManagedTriage(_)) => {
+                crate::logging::log("dispatch habits complete-managed-triage");
+            }
         }
         return super::server::run_habits(args, context);
     }

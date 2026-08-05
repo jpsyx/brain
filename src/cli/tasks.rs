@@ -22,6 +22,34 @@ pub enum HabitsAction {
     /// is deferred one day. `--until YYYY-MM-DD` defers to that date instead,
     /// for either cadence (never marking done).
     Skip(SkipArgs),
+
+    /// Complete Brain's protected daily or weekly managed triage occurrence
+    /// deterministically: mark today's occurrence done and spawn the next, the
+    /// exact mutation the daily-triage modal's Skip button performs. No agent,
+    /// no judgement. A no-op when managed triage habits are disabled.
+    CompleteManagedTriage(CompleteManagedTriageArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct CompleteManagedTriageArgs {
+    /// Which managed triage chain to complete.
+    #[arg(value_enum)]
+    pub kind: ManagedTriageKindArg,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum ManagedTriageKindArg {
+    Daily,
+    Weekly,
+}
+
+impl From<ManagedTriageKindArg> for crate::tasks::triage_habits::ManagedTriageKind {
+    fn from(value: ManagedTriageKindArg) -> Self {
+        match value {
+            ManagedTriageKindArg::Daily => Self::Daily,
+            ManagedTriageKindArg::Weekly => Self::Weekly,
+        }
+    }
 }
 
 #[derive(Args, Debug)]
@@ -148,6 +176,36 @@ mod tests {
     #[test]
     fn habits_skip_requires_an_id() {
         assert!(Cli::try_parse_from(["brain", "habits", "skip"]).is_err());
+    }
+
+    #[test]
+    fn habits_complete_managed_triage_parses_daily_and_weekly() {
+        use super::{CompleteManagedTriageArgs, HabitsAction, ManagedTriageKindArg};
+
+        for (word, expected) in [
+            ("daily", ManagedTriageKindArg::Daily),
+            ("weekly", ManagedTriageKindArg::Weekly),
+        ] {
+            let cli =
+                Cli::try_parse_from(["brain", "habits", "complete-managed-triage", word]).expect("parse");
+            let Some(Cmd::Habits(args)) = cli.command else {
+                panic!("expected habits");
+            };
+            let Some(HabitsAction::CompleteManagedTriage(CompleteManagedTriageArgs { kind })) =
+                args.action
+            else {
+                panic!("expected complete-managed-triage");
+            };
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn habits_complete_managed_triage_rejects_unknown_kind() {
+        assert!(
+            Cli::try_parse_from(["brain", "habits", "complete-managed-triage", "monthly"]).is_err()
+        );
+        assert!(Cli::try_parse_from(["brain", "habits", "complete-managed-triage"]).is_err());
     }
 
     #[test]
