@@ -1773,6 +1773,26 @@ tests, allows final-lease shutdown to be a pure decision, and avoids timing
 sleeps or an always-on availability responder. Process election, socket IO,
 and the watchdog remain separate thin layers built on this state machine.
 
+## Why the shared server is elected and generation-owned
+
+Several workspace TUIs can start concurrently, but one machine must expose only
+one loopback server and one control socket. Startup therefore uses an atomic
+`election.lock`: a live process and reachable socket are reused, one lock owner
+may remove stale infrastructure and spawn, and losing contenders poll for that
+winner within a fixed deadline. The hidden `server run` command requires the
+elected generation token, so it is not a manual availability surface. Public
+server commands are read-only `status` and `logs`; short-lived habits and
+triage paths attach to an existing process and never elect one.
+
+The process publishes only PID, port, generation UUID, and start time. Its
+owner holds the election lock while generation-checked cleanup removes the
+record and socket. This prevents an exiting or signalled stale process from
+deleting a newer winner's artifacts. An orderly final unregister exits
+immediately; the watchdog applies injected-clock lease expiry and exits after
+the final crashed lease reaches TTL. The design deliberately has no durable
+inbound queue, replay worker, headless agent, manual restart, or always-on
+responder.
+
 ## TUI-owned receiver server
 
 The external receiver listener is deliberately owned by the singleton brain
@@ -1892,15 +1912,15 @@ mid-triage the session is lost and the startup nudge simply fires again next
 launch, which is the desired behavior.
 
 **Why a completion signal instead of idle-detection, and why via the brain
-server.** "The agent went idle" is unreliable — a triage pass asks the user
-questions. So the `/triage` skill POSTs an explicit completion signal (with a
-one-time token) once the pass truly ends. It targets the **brain server** (the
-habits daemon), not the receiver server: the habits daemon is the always-on,
-auto-started internal service, and an unauthenticated localhost `POST
-/triage/done` matches the existing `/habits/done` precedent. Because that daemon
+server.** "The agent went idle" is unreliable because a triage pass asks the
+user questions. The `/triage` skill therefore POSTs an explicit completion
+signal (with a one-time token) once the pass truly ends. It targets the shared
+process already attached to the live TUI; opening a triage tab never elects or
+starts a server independently. An unauthenticated localhost `POST
+/triage/done` matches the existing `/habits/done` precedent. Because the server
 is a *separate process* from the TUI, the signal crosses on disk
 (`~/.cache/brain/triage-done.json`) and the TUI polls it in its existing per-tick
-loop — the same poll-of-disk pattern the triage nudge and receiver responses
+loop, the same poll-of-disk pattern the triage nudge and receiver responses
 already use. The token guard prevents a stale signal from closing a fresh tab.
 
 ## Palette commands carry a per-command `is_visible` predicate

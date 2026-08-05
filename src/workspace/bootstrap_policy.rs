@@ -80,7 +80,7 @@ pub(super) const fn registry_only_prompt_order(
 #[must_use]
 pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
     match invocation {
-        Invocation::Help | Invocation::Version => BootstrapPolicy::None,
+        Invocation::Help | Invocation::Version | Invocation::Server => BootstrapPolicy::None,
         Invocation::AgentHook | Invocation::InternalServer => BootstrapPolicy::InternalNoPrompt,
         Invocation::WorkspaceCreate
         | Invocation::WorkspaceAttach
@@ -97,7 +97,6 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         | Invocation::Check
         | Invocation::Personalize
         | Invocation::Skills
-        | Invocation::Server
         | Invocation::Receiver
         | Invocation::Habits
         | Invocation::Reindex
@@ -133,7 +132,7 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
         Some(Cmd::Skills(_)) => Invocation::Skills,
         Some(Cmd::Server(args)) => match args.action {
             ServerAction::Run { .. } => Invocation::InternalServer,
-            ServerAction::Start | ServerAction::Status | ServerAction::Kill => Invocation::Server,
+            ServerAction::Status | ServerAction::Logs => Invocation::Server,
         },
         Some(Cmd::Receiver(_)) => Invocation::Receiver,
         Some(Cmd::Habits(_)) => Invocation::Habits,

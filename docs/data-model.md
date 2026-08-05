@@ -160,6 +160,15 @@ leases are never returned. Removing or expiring the final live lease yields
 schedule uses a one-second heartbeat and five-second TTL, while tests inject
 their own `LeaseTiming` and never sleep.
 
+The machine-wide lifecycle record is deliberately smaller than a lease. Brain
+publishes `~/.cache/brain/server/process.json` with only the process PID,
+loopback HTTP port, generation UUID, and RFC3339 start time. Sibling
+`control.sock`, `election.lock`, and `server.log` artifacts are infrastructure,
+not workspace state. The record never contains a workspace UUID or root,
+ingress ID, job socket, actor, sender, credential, prompt, log payload, or
+message body. A generation UUID guards cleanup so a stale owner cannot remove a
+new winner's record or socket.
+
 `WorkspacePaths` derives its full base from the ID:
 
 ```text

@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.26.9"
+version = "0.26.10"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
@@ -49,8 +49,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.10"
 sha2 = "0.10"
-# The habits daemon and TUI-owned receiver are small synchronous HTTP services
-# bound to loopback. The receiver uses a fixed worker pool behind the user's
+# Safe SIGINT/SIGTERM flags let the shared process run generation-guarded
+# cleanup without introducing unsafe signal handlers.
+signal-hook = "0.3"
+# The shared local process and TUI-owned receiver are small synchronous HTTP
+# services bound to loopback. The receiver uses a fixed worker pool behind the user's
 # reverse proxy; an async runtime would add substantial machinery for two
 # low-volume webhook routes.
 tiny_http = "0.12"

@@ -58,14 +58,11 @@ helpers and shell-outs live in the tasks modules:
   `tasks::doctor::format_doctor_plan` before checking the state DB schema,
   SessionStart hook settings, `rclone version`, and sync env.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
-- **`brain habits` / palette "Open habits in browser"** — bring up the bundled
-  brain server (`server::lifecycle::ensure_running`) and open its `/habits`
-  page via the system `open`; the CLI path prints the server-state plan before
-  waiting on the daemon and then prints the URL it is opening. They no longer
-  shell out to a zsh function. This daemon, its state record, receiver control
-  socket, and triage completion bridge remain a transitional machine-shared
-  control plane. Full live-workspace membership and receiver routing remain
-  deferred to the approved shared-server phase. The process itself carries no
+- **`brain habits` / palette "Open habits in browser"**: connect to the
+  already-running shared brain process and open its `/habits` page via the
+  system `open`. These short-lived paths never participate in process election;
+  if no TUI owns a live process, they ask the user to open a brain TUI first.
+  The process itself carries no
   selected `--brain`; meanwhile each habits request carries a workspace UUID
   and reloads the exact registry record plus matching portable manifest before
   touching payload. Missing, malformed, unknown, unavailable, or
@@ -258,11 +255,11 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
   `brain_sessions` and is never a resume candidate.
 - **Completion is signalled, not inferred.** A triage pass can involve
   back-and-forth with the user, so "the agent went idle" is not a reliable done
-  signal. brain first calls `server::lifecycle::ensure_running()` to bring up the
-  internal habits daemon and passes its `POST /triage/done` URL plus a one-time
+  signal. brain connects to the shared process already attached to the TUI and
+  passes its `POST /triage/done` URL plus a one-time
   token into the session. When the `/triage` skill finishes (the habit marked
   and every output the run declared it must produce on disk) it POSTs
-  `{"token": "<token>", "require": ["<path>", …]}` to that URL. The daemon and
+  `{"token": "<token>", "require": ["<path>", …]}` to that URL. The process and
   the TUI are separate processes, so the signal crosses on disk: the
   `routes::triage` handler records it to `~/.cache/brain/triage-done.json` via
   `crate::triage_signal::record_done`, and the TUI's per-tick
@@ -281,6 +278,27 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
 `brain server`'s route table therefore gains `POST /triage/done` (see
 `server/router.rs` + `server/routes/triage/`), an unauthenticated
 localhost-only endpoint consistent with `/habits/done`.
+
+## Shared-server process lifecycle
+
+One machine-wide process stores its infrastructure below
+`~/.cache/brain/server/`: `process.json`, `control.sock`, `election.lock`, and
+`server.log`. `process.json` is generation-tagged and contains only PID, port,
+generation UUID, and start time. It carries no selected workspace or portable
+payload. A starter must atomically own the election lock, and the hidden
+`brain server run --generation <uuid> --port <port>` loop validates that token
+before binding. Losing TUI contenders use bounded polling for the published
+winner.
+
+The process is not an independently managed daemon. Public `brain server`
+actions are read-only `status` and `logs`; there is no start, kill, or restart
+surface. Only live TUI startup and heartbeat recovery may call the electing
+client. Habits and triage callers attach without electing. The final orderly
+lease removal returns `ShutdownNow` immediately; an injected-clock watchdog
+expires crashed leases and stops after the final TTL. Drop and SIGINT/SIGTERM
+cleanup remove the process record and socket only when their generation still
+owns them. Safe signal flags come from `signal-hook`; the process loop observes
+them outside the handler and performs ordinary Rust cleanup.
 
 ## Claude Sessions: SessionStart/Stop Hooks + State DB
 

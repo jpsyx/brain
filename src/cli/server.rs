@@ -37,15 +37,15 @@ pub enum ReceiverServerAction {
 
 #[derive(Subcommand, Debug)]
 pub enum ServerAction {
-    /// Start the brain server in the background (reuses a running one).
-    Start,
     /// Show whether the brain server is running and where.
     Status,
-    /// Stop the background brain server.
-    Kill,
-    /// (internal) Run the blocking server loop; used by the background daemon.
+    /// Show recent shared-server lifecycle logs.
+    Logs,
+    /// (internal) Run the elected blocking server loop.
     #[command(hide = true)]
     Run {
+        #[arg(long)]
+        generation: crate::server::lifecycle::ServerGeneration,
         #[arg(long)]
         port: u16,
     },

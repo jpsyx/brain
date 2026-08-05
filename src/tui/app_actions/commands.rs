@@ -94,17 +94,20 @@ impl App<'_> {
         }
     }
 
-    /// "Open habits page" palette entry. Brings up the bundled brain server
-    /// (starting it if needed), then opens its `/habits` page in the browser
+    /// "Open habits page" palette entry. Uses the already-attached shared
+    /// process, then opens its `/habits` page in the browser
     /// through the injected `open_runner`, flashing success / error.
     pub(crate) fn run_open_habits(&mut self) {
-        self.flash = Some(match crate::server::lifecycle::ensure_running() {
-            Ok(port) => {
-                let url = crate::server::habits_url(port, self.command_context.workspace.id());
-                open_url(self.open_runner.as_ref(), &url)
-            }
-            Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
-        });
+        self.flash = Some(
+            match crate::server::lifecycle::ServerClient::default().connect_existing() {
+                Ok(record) => {
+                    let url =
+                        crate::server::habits_url(record.port, self.command_context.workspace.id());
+                    open_url(self.open_runner.as_ref(), &url)
+                }
+                Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
+            },
+        );
     }
 
     /// Ctrl+O / "open link" entry point. Collects the selected entry's

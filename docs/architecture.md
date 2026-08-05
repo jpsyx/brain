@@ -123,7 +123,7 @@ boundaries:
 | Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, `.config/users.json`, config, personalization, extensions, and plugins |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
 | Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, portable-user transaction lock, inbox, responses, capability artifacts, and sync lock/journal/current state/baselines |
-| Shared infrastructure | Machine server/control and transitional triage-signal paths only | Process coordination, never a default workspace payload path |
+| Shared infrastructure | `~/.cache/brain/server/` plus the transitional triage-signal path | Generation-tagged process coordination and an infrastructure-only log, never a default workspace payload path |
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
 Env, config, personalization, state, TUI, tasks, reindex, sync, and child
@@ -944,8 +944,8 @@ it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
 ### `server/`
-Brain has two separate HTTP services. The habits server remains local-only and
-serves the habits frontend. The receiver server is a TUI-owned, opt-in
+Brain is converging on one TUI-lifetime shared process. It currently serves the
+local habits and triage routes, while the transitional receiver server remains a TUI-owned, opt-in
 listener on `/sms` and `/email`; it is never started by ordinary TUI startup
 and cannot outlive the interactive shell.
 - `server/router.rs` — pure route mapping for `/habits`, `/habits/done`,
@@ -958,15 +958,16 @@ and cannot outlive the interactive shell.
   the protected local command socket.
 - `server/security.rs` owns pure Twilio HMAC, Resend/Svix HMAC, and the ordered
   authenticate-then-resolve decision for enabled portable identities.
-- `server/lifecycle/` separates the legacy local habits-server IO lifecycle
-  from the pure shared-server lease state machine. `lease.rs` owns typed lease,
-  ingress, and timing values; `table.rs` owns registration, heartbeat, expiry,
-  and availability transitions; and `decision.rs` owns the keep-running versus
-  final-shutdown result. The table retains only opaque UUID identities and
-  verified lease metadata, never workspace roots, users, credentials, prompts,
-  logs, or message bodies. The existing `lifecycle::pid_alive` probe remains
-  the stable liveness seam for sync callers while process election and socket
-  IO are added in the next lifecycle phase.
+- `server/lifecycle/` owns the shared-process boundary. `paths.rs` places
+  `process.json`, `control.sock`, `election.lock`, and `server.log` below one
+  machine-wide directory. `state.rs` owns the minimal generation-tagged record;
+  `election.rs` owns the pure start decision and atomic owner lock;
+  `process.rs` owns the non-electing client, detached elected spawn, hidden
+  server loop, signal cleanup, and narrow registration seam; `watchdog.rs`
+  applies clock-injected expiry; `lease.rs`, `table.rs`, and `decision.rs` own
+  typed leases and final-shutdown decisions. The table and process record never
+  contain roots, users, credentials, prompts, logs, or message bodies.
+  `lifecycle::pid_alive` remains the stable seam for sync callers.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST requests carry `workspace_id`; the shared process
   reloads the registry by exact UUID and verifies the root's portable manifest
@@ -1057,10 +1058,14 @@ sibling so the two projects share a stack:
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
   them out. Multi-file skill assets rule out `include_str!`.
 - `tiny_http` — the two small synchronous HTTP services under `src/server/`:
-  the local habits daemon and the TUI-owned receiver. The receiver uses a
+  the machine-wide shared local process and the transitional TUI-owned
+  receiver. The receiver uses a
   fixed four-worker pool, bounded request bodies, and a bounded handoff queue;
   this preserves concurrency and backpressure without pulling a Tokio runtime
   into an otherwise synchronous CLI.
+- `signal-hook`: installs safe SIGINT/SIGTERM flags for the shared process.
+  The accept loop observes the flag and lets its generation owner remove only
+  the matching process record and control socket, without unsafe signal code.
 - `notify` (8.x) — cross-platform filesystem observation for the **C4
   auto-sync watcher** (`src/sync/watch.rs`). Linux uses the recommended native
   backend. macOS uses notify's one-second `PollWatcher`, because FSEvents can

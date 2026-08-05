@@ -73,11 +73,9 @@ pub fn run(
             }
         };
     }
-    if let Some(Cmd::Server(args)) = &cli.command
-        && matches!(args.action, crate::cli::ServerAction::Run { .. })
-    {
-        crate::logging::log("dispatch internal server");
-        return super::server::run_server(args, None);
+    if let Some(Cmd::Server(args)) = &cli.command {
+        crate::logging::log("dispatch server");
+        return super::server::run_server(args);
     }
     let context = ready_context(capability)?;
     if let Some(Cmd::Config(args)) = &cli.command {
@@ -99,10 +97,6 @@ pub fn run(
     if let Some(Cmd::Skills(args)) = &cli.command {
         crate::logging::log("dispatch skills");
         return super::configuration::run_skills(args, context);
-    }
-    if let Some(Cmd::Server(args)) = &cli.command {
-        crate::logging::log("dispatch server");
-        return super::server::run_server(args, Some(context));
     }
     if let Some(Cmd::Receiver(args)) = &cli.command {
         crate::logging::log("dispatch receiver");

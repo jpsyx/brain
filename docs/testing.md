@@ -240,8 +240,16 @@ first move is a failing test that reproduces it, *then* the fix.
   action branch directly. The suite also proves
   that a previously registered ingress stays distinguishable as `NoLiveTui`
   after its lease is gone, rather than becoming `Unknown`. These tests have no
-  process, socket, filesystem, or sleep dependency; process election and
-  watchdog integration tests belong to the following lifecycle phase.
+  process, socket, filesystem, or sleep dependency.
+- **Shared-server process lifecycle.** `tests/server_lifecycle.rs` exercises
+  the compiled binary under a temporary home. Pure startup tests cover live
+  reuse, stale cleanup, one elected starter, and losing contenders. Process
+  tests prove the hidden loop rejects a missing generation token, two distinct
+  workspace leases coexist, the first orderly unregister leaves the process
+  reachable, the final unregister exits and removes generation artifacts, and
+  SIGTERM takes the same guarded cleanup path. All process waits use bounded
+  condition polling. `server/lifecycle/watchdog.rs` injects the expiry instant
+  directly, so crashed-final-lease shutdown has no timing sleep.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable

@@ -19,8 +19,9 @@ use crate::pty_pane::PtyPane;
 
 #[cfg(not(test))]
 fn triage_done_url(_app: &mut App<'_>) -> anyhow::Result<String> {
-    crate::server::lifecycle::ensure_running()
-        .map(|port| crate::server::url(port, crate::triage_signal::DONE_PATH))
+    crate::server::lifecycle::ServerClient::default()
+        .connect_existing()
+        .map(|record| crate::server::url(record.port, crate::triage_signal::DONE_PATH))
 }
 
 #[cfg(test)]
@@ -28,8 +29,9 @@ fn triage_done_url(app: &mut App<'_>) -> anyhow::Result<String> {
     if let Some(url) = app.triage_done_url_override.take() {
         return Ok(url);
     }
-    crate::server::lifecycle::ensure_running()
-        .map(|port| crate::server::url(port, crate::triage_signal::DONE_PATH))
+    crate::server::lifecycle::ServerClient::default()
+        .connect_existing()
+        .map(|record| crate::server::url(record.port, crate::triage_signal::DONE_PATH))
 }
 
 #[cfg(not(test))]

@@ -229,7 +229,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex enforcement level without printing connection material or credentials. |
-| `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
+| `brain server {status\|logs}` | Inspect the TUI-lifetime shared process without starting, stopping, or repairing it (see below). |
 | `brain --with-receiver` | Open the TUI and explicitly start its TUI-owned receiver server. |
 | `brain --no-daily-triage-check` | Open the TUI without ever showing the daily-triage startup nudge. Process-scoped (this run only); not a persistent config change. Combines with any other flag/subcommand. |
 | `brain receiver {setup\|set\|start\|status\|stop\|restart\|logs}` | Configure, edit, or control the TUI-owned SMS/email listener. `receiver set` edits one receiver environment variable or opens a described selector. |
@@ -1016,19 +1016,25 @@ freshness gate described above. The HTTP acknowledgement remains immediate,
 but stale local state is pulled before the queued message reaches Claude or
 Codex.
 
-- `brain server start` — start the daemon in the background if it isn't already
-  running (idempotent: an existing live server is reused and its URL reprinted).
-- `brain server status` — report whether it is running and on which port.
-- `brain server kill` — stop the background server and drop its record.
-- `brain server run --port <p>` — the internal blocking accept loop the spawned
-  daemon runs; hidden from `--help` (you never invoke it directly).
+- `brain server status` reports the live process PID, port, and generation, or
+  says that no process is running. It neither elects a starter nor cleans stale
+  state and needs no selected workspace.
+- `brain server logs` prints the machine-wide infrastructure log, or says that
+  no log exists. It is likewise read-only and workspace-independent.
+- `brain server run --generation <uuid> --port <p>` is the hidden blocking
+  loop used only by an elected starter. A matching token must already own
+  `election.lock`; direct or tokenless startup is rejected.
+
+There is no public server start or kill command. The lifecycle layer exposes
+`connect_or_elect` only for long-lived TUI startup and crash recovery; the TUI
+registration/heartbeat wiring arrives with the shared control protocol.
 
 `brain receiver setup` walks through the selected channel's provider
 credentials, one public base URL, the response email, and sender allowlists.
 Secrets are hidden while typing and stored in machine-local brain env. Blank
 keeps an existing value and `/clear` erases it. The setup output shows the
 exact `/sms` and/or `/email` webhook URL to enter in the provider portal. The
-habits daemon prefers port `8787`. The receiver listener uses port `8788`
+shared process prefers port `8787`. The receiver listener uses port `8788`
 and exists only while its owning TUI exists. Start it with `brain --with-receiver`
 or the global palette. `brain receiver status` works from another
 terminal through the TUI control socket; start/stop/restart also route through
@@ -1036,9 +1042,11 @@ that owner-only socket and never create a second brain shell. Email body and
 attachment content is retrieved through Resend's Receiving APIs; HTML-only
 messages and attachment download URLs are preserved for the agent.
 
-`brain server start` and `brain habits` both print the server-state path and
-plan before checking or spawning the daemon. `brain habits` then prints the
-local `/habits` URL before handing it to the system browser.
+`brain habits` and the habits palette action connect only to the process
+already attached to a live TUI. They never elect or spawn one independently.
+Without that process, the command fails with an instruction to open a Brain
+TUI first; with one, it prints the local `/habits` URL before handing it to the
+system browser.
 
 `brain habits revive <fuzzy name>` (alias `brain habits fix`) repairs a **lapsed
 habit** — a recurring habit whose every occurrence is `done` with none pending,

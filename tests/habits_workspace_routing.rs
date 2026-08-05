@@ -5,6 +5,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use brain::server::lifecycle::{ElectionGuard, ServerGeneration, ServerPaths};
 use brain::workspace::{
     MachineRegistry, RegistryStore, WorkspaceId, WorkspaceManifest, WorkspaceName, WorkspaceRecord,
 };
@@ -66,8 +67,20 @@ impl ServerFixture {
             .expect("write workspace registry");
 
         let port = available_port();
+        let paths = ServerPaths::from_home(home.path());
+        let generation = ServerGeneration::new();
+        let election = ElectionGuard::try_acquire(&paths, generation)
+            .expect("elect test server")
+            .expect("test fixture owns the server election");
         let child = Command::new(env!("CARGO_BIN_EXE_brain"))
-            .args(["server", "run", "--port", &port.to_string()])
+            .args([
+                "server",
+                "run",
+                "--generation",
+                &generation.to_string(),
+                "--port",
+                &port.to_string(),
+            ])
             .env("HOME", home.path())
             .env_remove("XDG_CONFIG_HOME")
             .stdin(Stdio::null())
@@ -76,6 +89,7 @@ impl ServerFixture {
             .spawn()
             .expect("start brain server");
         wait_for_server(port);
+        drop(election);
 
         Self {
             _home: home,

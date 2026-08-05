@@ -1,10 +1,8 @@
-//! The local habits server and TUI-owned receiver server.
+//! The shared local HTTP server and transitional TUI-owned receiver server.
 //!
 //! One shared daemon per machine, reused across every `brain` invocation and
-//! tab. [`lifecycle`] owns the on-disk daemon record and the `start` /
-//! `status` / `kill` actions; [`router`] owns the pure method+path to
-//! [`router::Route`] mapping. [`run`] is the blocking accept loop the detached
-//! daemon runs.
+//! tab. [`lifecycle`] owns election, generation state, leases, and final-TUI
+//! shutdown; [`router`] owns the pure method+path to [`router::Route`] mapping.
 //!
 //! UUID-scoped `GET /habits` renders today's habits page (see
 //! [`routes::habits`]) and `POST /habits/done` marks a habit done by delegating
@@ -22,8 +20,8 @@ pub mod security;
 
 pub use lifecycle::IngressId;
 
-use anyhow::{Context, Result};
-use tiny_http::{Header, Request, Response, Server};
+use anyhow::Result;
+use tiny_http::{Header, Request, Response};
 
 use self::router::Route;
 
@@ -56,29 +54,13 @@ pub fn habits_done_path(workspace_id: crate::workspace::WorkspaceId) -> String {
 /// # Errors
 /// Returns an error if the address can't be bound or the bound port can't be
 /// resolved.
-pub fn run(port: u16) -> Result<()> {
-    let server = Server::http(("127.0.0.1", port))
-        .map_err(|e| anyhow::anyhow!("binding 127.0.0.1:{port}: {e}"))?;
-    let actual = server
-        .server_addr()
-        .to_ip()
-        .context("resolving the bound server address")?
-        .port();
-    lifecycle::write_state(lifecycle::ServerState {
-        pid: std::process::id(),
-        port: actual,
-    })?;
-
-    for mut request in server.incoming_requests() {
-        let response = respond(&mut request);
-        let _ = request.respond(response);
-    }
-    Ok(())
+pub fn run(generation: lifecycle::ServerGeneration, port: u16) -> Result<()> {
+    lifecycle::run_process(&lifecycle::ServerPaths::default(), generation, port)
 }
 
 /// Build the response for a single request. The routing decision itself is the
 /// pure [`router::route`]; the handlers ([`routes::habits`]) own the HTML/JSON.
-fn respond(request: &mut Request) -> Response<std::io::Cursor<Vec<u8>>> {
+pub(super) fn respond(request: &mut Request) -> Response<std::io::Cursor<Vec<u8>>> {
     let route = router::route(request.method().as_str(), request.url());
     match route {
         Route::HabitsPage => {

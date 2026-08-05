@@ -128,7 +128,7 @@ pub(crate) enum PaletteAction {
     /// Open the native portable-member picker that filters the current view.
     ChooseAssigneeFilter,
     /// Open today's habits page in the browser, served by the bundled brain
-    /// server (started on demand via `server::lifecycle::ensure_running`).
+    /// server already attached to the live TUI.
     /// Global.
     OpenHabitsInBrowser,
     /// Kick a best-effort background `brain sync` now. Global; no shortcut.

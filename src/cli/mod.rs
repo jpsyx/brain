@@ -77,8 +77,7 @@ pub enum Cmd {
     /// Manage the bundled brain skills (render + install into the agent registry).
     Skills(SkillsArgs),
 
-    /// Manage the background brain server (the local HTTP service; `start`,
-    /// `status`, `kill`). One shared daemon per machine.
+    /// Inspect the TUI-lifetime shared HTTP server (`status`, `logs`).
     Server(ServerArgs),
 
     /// Control the TUI-owned external receiver server.
@@ -88,8 +87,8 @@ pub enum Cmd {
     /// Open today's habits page, or manage a habit
     /// (`brain habits revive <name>`, `brain habits skip <id>`).
     ///
-    /// Bare `brain habits` opens the browser page (starting the brain server if
-    /// needed). `brain habits revive <fuzzy name>` (alias `fix`) respawns a
+    /// Bare `brain habits` opens the browser page when a TUI has attached the
+    /// shared server. `brain habits revive <fuzzy name>` (alias `fix`) respawns a
     /// recurring habit whose chain lapsed, meaning every occurrence is marked
     /// done with none pending. `brain habits skip <id|fuzzy>` opts out of a
     /// habit for today (cadence-aware: a daily habit is marked done + respawned;
