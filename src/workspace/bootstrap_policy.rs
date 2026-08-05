@@ -23,7 +23,9 @@ pub enum Invocation {
     Personalize,
     Skills,
     Server,
+    ServerStatus,
     Receiver,
+    ReceiverStatus,
     Habits,
     Reindex,
     Tasks,
@@ -36,6 +38,7 @@ pub enum BootstrapPolicy {
     None,
     InternalNoPrompt,
     RegistryOnly,
+    ReadOnlyWorkspace,
     ReadyWorkspace,
 }
 
@@ -68,7 +71,9 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::Personalize
         | Invocation::Skills
         | Invocation::Server
+        | Invocation::ServerStatus
         | Invocation::Receiver
+        | Invocation::ReceiverStatus
         | Invocation::Habits
         | Invocation::Reindex
         | Invocation::Tasks
@@ -80,13 +85,16 @@ pub(super) const fn registry_only_prompt_order(
 #[must_use]
 pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
     match invocation {
-        Invocation::Help | Invocation::Version | Invocation::Server => BootstrapPolicy::None,
+        Invocation::Help | Invocation::Version | Invocation::Server | Invocation::ServerStatus => {
+            BootstrapPolicy::None
+        }
         Invocation::AgentHook | Invocation::InternalServer => BootstrapPolicy::InternalNoPrompt,
         Invocation::WorkspaceCreate
         | Invocation::WorkspaceAttach
         | Invocation::WorkspaceRemove
         | Invocation::WorkspaceRepair
         | Invocation::User => BootstrapPolicy::RegistryOnly,
+        Invocation::ReceiverStatus => BootstrapPolicy::ReadOnlyWorkspace,
         Invocation::WorkspaceList
         | Invocation::WorkspaceRename
         | Invocation::WorkspaceAlias
@@ -132,11 +140,24 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
         Some(Cmd::Skills(_)) => Invocation::Skills,
         Some(Cmd::Server(args)) => match args.action {
             ServerAction::Run { .. } => Invocation::InternalServer,
-            ServerAction::Status | ServerAction::Logs => Invocation::Server,
+            ServerAction::Status => Invocation::ServerStatus,
+            ServerAction::Logs => Invocation::Server,
         },
-        Some(Cmd::Receiver(_)) => Invocation::Receiver,
+        Some(Cmd::Receiver(args)) => match args.action {
+            crate::cli::ReceiverServerAction::Status => Invocation::ReceiverStatus,
+            _ => Invocation::Receiver,
+        },
         Some(Cmd::Habits(_)) => Invocation::Habits,
         Some(Cmd::Reindex(_)) => Invocation::Reindex,
         Some(Cmd::Tasks(_)) => Invocation::Tasks,
     }
+}
+
+/// Whether a command must avoid every diagnostic and bootstrap write.
+#[must_use]
+pub fn is_read_only_status(cli: &crate::cli::Cli) -> bool {
+    matches!(
+        invocation_for(cli),
+        Invocation::ServerStatus | Invocation::ReceiverStatus
+    )
 }

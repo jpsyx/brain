@@ -1877,6 +1877,25 @@ exist before state publication, closing the startup signal window. The design
 deliberately has no durable inbound queue, replay worker, headless agent,
 manual restart, or always-on responder.
 
+## Why status probes bypass ordinary bootstrap and logging
+
+The shared lifecycle acceptance gate treats status as observation, not as an
+opportunity to make the selected workspace ready. Ordinary ready-workspace
+bootstrap may migrate the registry, initialize access config, recover portable
+user transactions, refresh installed skills after a version change, and write
+the render stamp. The ordinary run logger also creates a private `/tmp` file.
+Those are correct for commands that will work with the workspace, but they
+make a status probe mutate the thing it is measuring.
+
+`brain server status` and `brain receiver status -b <workspace>` therefore pass
+through a pure command classifier before logger initialization. Receiver status
+uses a read-only selected-workspace bootstrap that validates existing registry,
+manifest, and users bytes through non-recovering readers. It returns the same
+four status facts without migration, repair, lock creation, skill rendering,
+stamp writes, process election, or live refresh. An incomplete workspace must
+be repaired explicitly. This keeps process state and persistent receiver intent
+observable without hidden state churn.
+
 ## Why control registration reopens authoritative workspace identity
 
 The TUI knows its selected workspace, but the machine-wide server must not

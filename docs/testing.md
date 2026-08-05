@@ -313,8 +313,9 @@ first move is a failing test that reproduces it, *then* the fix.
   registers with the replacement. All external process observation uses bounded
   condition polling.
   `server/lifecycle/watchdog.rs` injects expiry and bootstrap instants directly,
-  so crashed-final-lease and no-first-registration decisions have no timing
-  sleep.
+  so a crashed final lease remains live immediately before TTL, requests
+  shutdown exactly at TTL, and leaves an empty table without a timing sleep.
+  The no-first-registration decision uses the same injected-clock boundary.
 - **Opaque-ingress workspace routing.** `server/router.rs` exhaustively proves
   the exact method/component grammar for all habits, triage, SMS, and email
   endpoints, including query stripping and rejection of global, malformed, or
@@ -374,6 +375,18 @@ first move is a failing test that reproduces it, *then* the fix.
   unsupported safe-subset case.
   Server observation uses deadline-bounded polling; lifecycle decisions use
   injected clocks rather than fixed timing sleeps.
+  The complete real-process E2E launches personal and family fake TUIs into one
+  generation, accepts exactly one signed message into each exact queue,
+  orderly-closes family, observes one discarded/unavailable family request
+  while personal remains live, then closes personal and bounded-polls process
+  exit plus generation-artifact removal. It contains no fixed sleep.
+- **Literal read-only status.** `tests/status_read_only.rs` runs the compiled
+  `brain server status` and selected `brain receiver status` commands. It
+  snapshots every HOME directory, file byte sequence, and symlink before and
+  after, checks that no PID-specific `/tmp` run log exists, checks that no
+  server state was created, and pins all four receiver status rows. This catches
+  accidental migration, config initialization, users transaction locks, skill
+  rendering, state-DB/render-stamp writes, and election.
 - **Shared-server control protocol.** `tests/server_control.rs` is split into
   focused codec, registration, and transition suites. It covers bounded
   newline-delimited JSON round trips, malformed and oversized rejection,

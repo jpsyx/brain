@@ -185,9 +185,33 @@ prompt-based guidance plus advisory capability enforcement.
 | Workspace runtime/cache | `~/.cache/brain/workspaces/<workspace-uuid>/` | `state.db`, `tui.lock`, `inbox/`, `responses/`, and `sync/` locks, journal, current state, workdir, and CSV baselines | No |
 | Shared infrastructure | Machine server PID/control files and the current shared triage signal | Narrow process coordination only; habits payloads are selected by request UUID | No |
 
-Active run logs remain under `/tmp` through `logging.rs`.
+Active run logs remain under `/tmp` through `logging.rs`. The literal read-only
+`brain server status` and `brain receiver status -b <workspace>` probes are the
+exception: they create no run log, skill render, render stamp, config repair,
+or server state.
 `WorkspacePaths::logs_dir` is reserved and unused; it is not the destination
 for current diagnostic logs.
+
+### Shared server and receiver lifetime
+
+Brain runs at most one machine-wide HTTP process, and only while one or more
+workspace TUIs are live. A ready TUI binds its UUID-local job socket, wins or
+joins the shared-process election, registers its workspace lease, and renews
+that lease with heartbeats. An orderly final close unregisters and stops the
+process immediately. A crashed final TUI stops renewing, so the watchdog
+removes its lease and stops the process after the five-second TTL.
+
+Every public route begins with the portable opaque ingress in
+`/w/<ingress>/...`. Brain resolves that ingress to an enabled, live lease before
+it selects a root, provider credential, portable user, prompt, log scope, or job
+socket. An accepted message is acknowledged only after one in-memory enqueue
+in that exact TUI. There is no durable inbound queue, replay worker, detached
+agent, manual server start/kill/restart command, or always-on responder.
+
+If every TUI is closed, no server exists and an inbound text receives no Brain
+response. If another workspace TUI keeps the shared process alive but the
+target workspace is disabled, closed, expired, full, or unreachable, the
+sender receives one unavailable response and the message is discarded.
 
 The portable manifest is
 `<workspace-root>/.config/workspace.json`. It contains the stable workspace UUID,

@@ -44,7 +44,7 @@ mod tests {
     use crate::workspace::{WorkspaceId, WorkspaceName};
 
     #[test]
-    fn injected_watchdog_clock_requests_shutdown_after_final_expiry() {
+    fn crashed_final_lease_runs_until_ttl_then_shuts_down_at_the_injected_clock() {
         let now = Instant::now();
         let watchdog = Watchdog::new(now, Duration::from_secs(30));
         let mut leases = LeaseTable::default();
@@ -66,10 +66,17 @@ mod tests {
 
         assert_eq!(
             watchdog
+                .tick(&mut leases, now + Duration::from_secs(4))
+                .unwrap(),
+            ServerDecision::KeepRunning
+        );
+        assert_eq!(
+            watchdog
                 .tick(&mut leases, now + Duration::from_secs(5))
                 .unwrap(),
             ServerDecision::ShutdownNow
         );
+        assert!(leases.is_empty());
     }
 
     #[test]

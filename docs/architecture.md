@@ -43,7 +43,8 @@ user types `brain …`
        └─ exec target/release/brain "$@"   (forwards every argument)
 
 the binary:
-  ├─ every run → writes a timestamped `/tmp` log; `--verbose` mirrors logs to stdout
+  ├─ ordinary run → writes a timestamped `/tmp` log; `--verbose` mirrors logs to stdout
+  ├─ server/receiver status → literal read-only probe with no run log or repair
   ├─ help / version → print and exit without opening the TUI
   ├─ tasks complete / doctor / --no-tui → mutation, health check, or plain output
   ├─ tasks search → opens the persistent TUI with a custom task search
@@ -73,10 +74,13 @@ argv
  └─→ Cli::parse                          (cli/)
       ├─→ help / -v / --version / Cmd::Version
       │    └─→ print and exit before workspace bootstrap or command gates
-      ├─→ logging::init                  (timestamped `/tmp` log; stdout mirror with `--verbose`)
+      ├─→ status classifier              (server/receiver status skips write boundaries)
+      ├─→ logging::init                  (other commands: `/tmp` log; optional stdout mirror)
       ├─→ workspace::bootstrap            (explicit per-invocation policy)
       │    ├─ context-free/internal → no registry, root, or prompt
       │    ├─ create/attach/remove/repair → registry capability only
+      │    ├─ receiver status → read-only selected context, no migration,
+      │    │    readiness repair, users transaction recovery, or skills render
       │    └─ ordinary command → migrate only without a valid v2 registry,
       │         select once, validate readiness, repair interactively,
       │         return CommandContext
@@ -220,7 +224,9 @@ path, lock-owning transactions, and same-directory atomic replacement), `lock`
 (the bounded SQLite transaction lock on the stable adjacent database),
 and `migrate` (the one-time flat-env conversion and exact-byte backup).
 `bootstrap_policy` classifies every invocation before workspace IO, while
-`bootstrap` executes that policy. Context-free and hidden internal-server
+`bootstrap` executes that policy. `read_only` owns the selected-workspace
+status path and uses non-recovering readers so observation cannot create a
+lock, config value, state DB, or skill render. Context-free and hidden internal-server
 routes cannot prompt. Create, attach, remove, and repair first run the
 `command::preflight` prompt-and-validation stage; only a complete request may
 trigger legacy migration and receive a registry capability. Ordinary commands
@@ -961,6 +967,16 @@ it's the persisted value. Mirrors `tasks/src/state`. See
 Brain has one machine-wide, TUI-lifetime shared process. It serves the local
 habits and triage routes, owns the public route grammar, and authenticates and
 forwards receiver requests only to live workspace TUIs.
+
+The lifecycle is closed around those TUIs. Startup binds the workspace-local
+job socket before election and registration; heartbeats renew only the
+registered lease; recovery re-enters the election after a stale generation.
+The final orderly unregister stops the process immediately, while the watchdog
+stops it when the final crashed lease reaches TTL. With no TUI there is no
+process and therefore no inbound Brain response. If a peer TUI keeps the
+process alive but the selected target is unavailable, the handler sends one
+unavailable response and discards the message. No process component stores an
+offline queue or launches an agent.
 - `server/router.rs` — pure exact-component mapping for
   `/w/<ingress>/{habits,habits/done,triage/done,sms,email}`. Global,
   malformed, missing, and extra-component routes are rejected.

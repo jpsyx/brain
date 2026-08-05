@@ -32,6 +32,18 @@ impl CommandContext {
         })
     }
 
+    pub(super) fn new_read_only(
+        workspace: Arc<WorkspaceContext>,
+        registry_store: RegistryStore,
+    ) -> Result<Self> {
+        let actor = crate::actor::local_actor_read_only(&workspace)?;
+        Ok(Self {
+            workspace,
+            actor,
+            registry_store,
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(
         workspace: Arc<WorkspaceContext>,
@@ -64,6 +76,13 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
         return Ok(BootstrapContext::None);
     }
     let store = RegistryStore::real();
+    if policy == BootstrapPolicy::ReadOnlyWorkspace {
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .ok_or_else(|| anyhow!("HOME is not set"))?;
+        let current_dir = std::env::current_dir().context("read current directory")?;
+        return super::read_only::bootstrap(cli, &store, &home, &current_dir);
+    }
     if policy == BootstrapPolicy::RegistryOnly {
         let access_store = store.clone();
         return registry_only_bootstrap_with(
@@ -161,6 +180,9 @@ pub fn bootstrap_with_io(
     reader: &mut impl BufRead,
     writer: &mut impl Write,
 ) -> Result<BootstrapContext> {
+    if bootstrap_policy(invocation_for(cli)) == BootstrapPolicy::ReadOnlyWorkspace {
+        return super::read_only::bootstrap(cli, &store, home, current_dir);
+    }
     if bootstrap_policy(invocation_for(cli)) == BootstrapPolicy::RegistryOnly {
         crate::workspace::command::preflight_registry_only_with_io(
             cli,
@@ -208,6 +230,9 @@ fn bootstrap_with_io_and_hook(
             return Ok(BootstrapContext::None);
         }
         BootstrapPolicy::RegistryOnly => return Ok(BootstrapContext::RegistryOnly(store)),
+        BootstrapPolicy::ReadOnlyWorkspace => {
+            return super::read_only::bootstrap(cli, &store, home, current_dir);
+        }
         BootstrapPolicy::ReadyWorkspace => {}
     }
 

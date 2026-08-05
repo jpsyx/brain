@@ -256,7 +256,12 @@ fn every_invocation_has_an_explicit_bootstrap_policy() {
         (Invocation::Personalize, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Skills, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Server, BootstrapPolicy::None),
+        (Invocation::ServerStatus, BootstrapPolicy::None),
         (Invocation::Receiver, BootstrapPolicy::ReadyWorkspace),
+        (
+            Invocation::ReceiverStatus,
+            BootstrapPolicy::ReadOnlyWorkspace,
+        ),
         (Invocation::Habits, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Reindex, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Tasks, BootstrapPolicy::ReadyWorkspace),
@@ -840,7 +845,8 @@ fn parsed_routes_map_to_their_explicit_invocations() {
         (vec!["brain", "check"], Invocation::Check),
         (vec!["brain", "personalize"], Invocation::Personalize),
         (vec!["brain", "skills"], Invocation::Skills),
-        (vec!["brain", "server", "status"], Invocation::Server),
+        (vec!["brain", "server", "status"], Invocation::ServerStatus),
+        (vec!["brain", "server", "logs"], Invocation::Server),
         (
             vec![
                 "brain",
@@ -853,7 +859,11 @@ fn parsed_routes_map_to_their_explicit_invocations() {
             ],
             Invocation::InternalServer,
         ),
-        (vec!["brain", "receiver", "status"], Invocation::Receiver),
+        (
+            vec!["brain", "receiver", "status"],
+            Invocation::ReceiverStatus,
+        ),
+        (vec!["brain", "receiver", "start"], Invocation::Receiver),
         (vec!["brain", "habits"], Invocation::Habits),
         (vec!["brain", "reindex"], Invocation::Reindex),
         (

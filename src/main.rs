@@ -28,9 +28,14 @@ fn main() -> Result<()> {
         std::process::exit(2);
     }
 
-    let log_guard = brain::logging::init(cli.verbose, true)?;
-    let argv = std::env::args().collect::<Vec<String>>();
-    brain::logging::log(format!("argv {:?}", brain::logging::redact_argv(&argv)));
+    let read_only_status = brain::workspace::is_read_only_status(&cli);
+    let log_guard = (!read_only_status)
+        .then(|| brain::logging::init(cli.verbose, true))
+        .transpose()?;
+    if !read_only_status {
+        let argv = std::env::args().collect::<Vec<String>>();
+        brain::logging::log(format!("argv {:?}", brain::logging::redact_argv(&argv)));
+    }
 
     let bootstrap = match brain::workspace::bootstrap(&mut cli) {
         Ok(context) => context,
@@ -43,7 +48,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn exit_with_error(error: &anyhow::Error, log_guard: brain::logging::Guard) -> ! {
+fn exit_with_error(error: &anyhow::Error, log_guard: Option<brain::logging::Guard>) -> ! {
     eprintln!("{error}");
     drop(log_guard);
     std::process::exit(1);

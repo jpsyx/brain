@@ -320,6 +320,22 @@ cleanup owner and safe `signal-hook` flags are installed before state
 publication; the process loop observes flags outside the handler and performs
 ordinary Rust cleanup.
 
+The status probe is stricter than ordinary command bootstrap. `brain server
+status` and `brain receiver status -b <workspace>` skip run-log creation and
+all workspace mutation seams, including registry migration, access-mode or user
+repair, users transaction recovery, installed-skill rendering, and render-stamp
+writes. They inspect only existing process/control state and existing selected
+workspace bytes. They never acquire election ownership or notify a process.
+
+The externally observable lifetime is exact. Personal and family TUIs can hold
+two leases in the same generation and receive one message through their own
+job sockets. Closing family unregisters it; if personal remains, a family
+request receives one unavailable response and is discarded while personal
+stays routable. Closing personal then removes the final lease and the process
+exits immediately. If the final TUI crashes, its heartbeat expires at TTL and
+the watchdog makes the same shutdown decision. With no live TUI and no process,
+an inbound text receives no Brain response.
+
 The control socket exchanges one newline-delimited JSON request and response
 per connection, with a 16 KiB frame cap and one two-second absolute deadline
 covering connect, write, flush, and read. The codec checks that same deadline

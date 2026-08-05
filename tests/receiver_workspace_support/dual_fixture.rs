@@ -15,17 +15,18 @@ pub struct DualWorkspaceReceiverFixture {
     pub family: WorkspaceContext,
     personal_ingress: brain::server::IngressId,
     family_ingress: brain::server::IngressId,
-    personal_socket: JobSocket,
-    family_socket: JobSocket,
-    _personal_guard: brain::tui::singleton::Guard,
-    _family_guard: brain::tui::singleton::Guard,
+    personal_socket: Option<JobSocket>,
+    family_socket: Option<JobSocket>,
+    personal_guard: Option<brain::tui::singleton::Guard>,
+    family_guard: Option<brain::tui::singleton::Guard>,
     client: brain::server::control::ServerClient,
     generation: brain::server::lifecycle::ServerGeneration,
     personal_lease: brain::server::lifecycle::LeaseId,
     family_lease: brain::server::lifecycle::LeaseId,
     child: Child,
     port: u16,
-    registered: bool,
+    personal_registered: bool,
+    family_registered: bool,
 }
 
 impl DualWorkspaceReceiverFixture {
@@ -81,17 +82,18 @@ impl DualWorkspaceReceiverFixture {
             family,
             personal_ingress,
             family_ingress,
-            personal_socket,
-            family_socket,
-            _personal_guard: personal_guard,
-            _family_guard: family_guard,
+            personal_socket: Some(personal_socket),
+            family_socket: Some(family_socket),
+            personal_guard: Some(personal_guard),
+            family_guard: Some(family_guard),
             client,
             generation,
             personal_lease,
             family_lease,
             child,
             port: record.port,
-            registered: true,
+            personal_registered: true,
+            family_registered: true,
         }
     }
 
@@ -120,16 +122,23 @@ impl DualWorkspaceReceiverFixture {
         self.post_sms_async(self.family_ingress, "family-token", provider_id, prompt)
     }
 
+    pub fn post_family(&self, provider_id: &str, prompt: &str) -> String {
+        self.post_sms(self.family_ingress, "family-token", provider_id, prompt)
+    }
+
     pub fn personal_jobs(&self) -> Vec<InboundJob> {
         let mut jobs = Vec::new();
-        self.personal_socket
-            .poll_jobs(self.personal.id(), &mut jobs);
+        if let Some(socket) = &self.personal_socket {
+            socket.poll_jobs(self.personal.id(), &mut jobs);
+        }
         jobs
     }
 
     pub fn family_jobs(&self) -> Vec<InboundJob> {
         let mut jobs = Vec::new();
-        self.family_socket.poll_jobs(self.family.id(), &mut jobs);
+        if let Some(socket) = &self.family_socket {
+            socket.poll_jobs(self.family.id(), &mut jobs);
+        }
         jobs
     }
 
@@ -138,23 +147,60 @@ impl DualWorkspaceReceiverFixture {
         let mut family = Vec::new();
         poll_until(Instant::now() + Duration::from_secs(3), || {
             self.personal_socket
+                .as_ref()
+                .expect("personal fake TUI is live")
                 .poll_jobs(self.personal.id(), &mut personal);
-            self.family_socket.poll_jobs(self.family.id(), &mut family);
+            self.family_socket
+                .as_ref()
+                .expect("family fake TUI is live")
+                .poll_jobs(self.family.id(), &mut family);
             !personal.is_empty() && !family.is_empty()
         });
         (personal, family)
     }
 
     pub fn shutdown(&mut self) {
-        if self.registered {
-            self.client
-                .unregister_generation(self.generation, self.personal_lease)
-                .unwrap();
+        self.close_family_tui();
+        self.close_personal_tui();
+        self.wait_for_server_exit();
+    }
+
+    pub fn close_family_tui(&mut self) {
+        if self.family_registered {
             self.client
                 .unregister_generation(self.generation, self.family_lease)
                 .unwrap();
-            self.registered = false;
+            self.family_registered = false;
         }
+        self.family_socket.take();
+        self.family_guard.take();
+    }
+
+    pub fn close_personal_tui(&mut self) {
+        if self.personal_registered {
+            self.client
+                .unregister_generation(self.generation, self.personal_lease)
+                .unwrap();
+            self.personal_registered = false;
+        }
+        self.personal_socket.take();
+        self.personal_guard.take();
+    }
+
+    pub fn server_snapshot(&self) -> brain::server::control::ServerSnapshot {
+        self.client.snapshot().unwrap().1
+    }
+
+    pub fn server_is_running(&self) -> bool {
+        self.client.connect_existing().is_ok()
+    }
+
+    pub fn server_state_exists(&self) -> bool {
+        self.client.paths().process_record().exists()
+            || self.client.paths().control_socket().exists()
+    }
+
+    pub fn wait_for_server_exit(&mut self) {
         poll_until(Instant::now() + Duration::from_secs(3), || {
             self.child.try_wait().ok().flatten().is_some()
         });
@@ -190,10 +236,12 @@ impl DualWorkspaceReceiverFixture {
 
 impl Drop for DualWorkspaceReceiverFixture {
     fn drop(&mut self) {
-        if self.registered {
+        if self.personal_registered {
             let _ = self
                 .client
                 .unregister_generation(self.generation, self.personal_lease);
+        }
+        if self.family_registered {
             let _ = self
                 .client
                 .unregister_generation(self.generation, self.family_lease);

@@ -8,11 +8,14 @@ mod id;
 mod manifest;
 mod name;
 mod paths;
+mod read_only;
 mod readiness;
 pub mod registry;
 
 pub use bootstrap::{BootstrapContext, CommandContext, bootstrap, bootstrap_with_io};
-pub use bootstrap_policy::{BootstrapPolicy, Invocation, bootstrap_policy, invocation_for};
+pub use bootstrap_policy::{
+    BootstrapPolicy, Invocation, bootstrap_policy, invocation_for, is_read_only_status,
+};
 pub(crate) use context::normalize_root;
 pub use context::{WorkspaceContext, WorkspaceContextError};
 pub use id::{WorkspaceId, WorkspaceIdError};

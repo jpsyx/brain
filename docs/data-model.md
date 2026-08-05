@@ -226,6 +226,21 @@ new winner's record or socket. The elected process must receive its first
 registration within two seconds or it exits and removes its generation
 artifacts, covering a starter TUI that disappears before registration.
 
+There is intentionally no durable inbound-work model. `InboundJob` crosses one
+bounded Unix connection and exists afterward only in the exact target TUI's
+64-entry memory queue. A successful acknowledgment means that append occurred;
+an unavailable response means the message was discarded. No row, spool file,
+replay cursor, or headless-agent record exists. Consequently, zero live TUIs
+means zero server and no Brain response, while a live peer plus unavailable
+target means one unavailable response and no retained work.
+
+Status uses a separate `ReadOnlyWorkspace` bootstrap policy. It reads an
+already-valid schema-v2 selected record, manifest, portable users, persistent
+intent, and any existing generation snapshot without invoking recovery or
+write-capable stores. This preserves the four-field receiver projection
+(`Receiver`, `TUI`, `Server`, `Accepting`) without changing bytes or process
+state.
+
 `WorkspacePaths` derives its full base from the ID:
 
 ```text

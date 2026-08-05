@@ -1074,6 +1074,19 @@ Status requires both persisted intent and an enabled exact live lease before it
 reports `Accepting yes`; a live but disabled lease reports `TUI live` and
 `Accepting no`.
 
+`brain server status` and `brain receiver status -b <workspace>` are literal
+read-only probes. They do not write a diagnostic run log, migrate or repair
+configuration, create a users transaction lock, refresh installed skills,
+write the skill render stamp, or elect/start/churn the shared process.
+
+If all TUIs are closed, the final unregister stops the server immediately, so
+an inbound text reaches no Brain process and receives no Brain response. If
+some other workspace TUI remains live but the target workspace is disabled,
+closed, expired, full, or unreachable, the sender receives one unavailable
+response and that message is discarded. A crashed final TUI leaves only its
+renewable lease; expiry after TTL stops the process. Nothing is retained for
+later replay.
+
 - `brain server status` reports process reachability and the live TUI lease
   count only, or says that no process is running. It neither elects a starter
   nor exposes workspace message data and needs no selected workspace.

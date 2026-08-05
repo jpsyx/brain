@@ -124,6 +124,14 @@ Shared across the app; a captive modal consumes all input.
   intentionally palette-only.
 - **Task actions** (`Enter` on a task): per-task command list. Shared
   workspaces add the palette-only **Reassign this task** row.
+
+The receiver palette row has no direct key. Its dynamic label mutates the same
+persistent selected-workspace `receiver_enabled` value as `brain receiver
+start`, `brain receiver stop`, and startup `--with-receiver`. It never starts or
+stops the shared process; live TUI leases own that lifetime. The CLI-only
+receiver and server status probes are read-only and therefore have no palette
+mutation counterpart.
+
 - **Confirm** — Yes/No (triage adds Skip). `y`/`n`/`Esc`, `←`/`→`/`Tab` move, `Enter` resolves.
 - **Brain-input** (`Ctrl+Shift+M`) — compose a seeded message. `Alt+Enter` newline, `Enter` send.
 - **Link picker** (`Ctrl+O`, ≥ 2 links) — numbered; digit opens, `Enter` opens highlighted.

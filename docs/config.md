@@ -453,6 +453,15 @@ its first write. A later persistence or hook failure rolls those exact selected
 bytes back, preserves peer records, aggregates any rollback error with the
 original failure, and sends no live reload notification.
 
+`receiver_enabled` is only persistent intent. Current acceptance is the
+conjunction of that selected-record value and an unexpired exact-workspace TUI
+lease. The four `brain receiver status -b <workspace>` rows keep those facts
+separate: `Receiver`, `TUI`, `Server`, and `Accepting`. Reading them uses
+literal read-only bootstrap. It never fills in a missing access mode, migrates
+or repairs registry/users state, renders skills, writes a render stamp or run
+log, or starts a process. Repair an incomplete workspace explicitly before
+asking for its receiver status.
+
 ## The `brain config` command
 
 | Command | Effect |

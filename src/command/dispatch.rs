@@ -28,13 +28,14 @@ fn capability_for(
         (BootstrapPolicy::RegistryOnly, BootstrapContext::RegistryOnly(store)) => {
             Ok(DispatchCapability::Registry(store))
         }
-        (BootstrapPolicy::ReadyWorkspace, BootstrapContext::Ready(context)) => {
-            Ok(DispatchCapability::Ready(context))
-        }
+        (
+            BootstrapPolicy::ReadOnlyWorkspace | BootstrapPolicy::ReadyWorkspace,
+            BootstrapContext::Ready(context),
+        ) => Ok(DispatchCapability::Ready(context)),
         (BootstrapPolicy::RegistryOnly, _) => {
             anyhow::bail!("internal command dispatch expected a workspace registry")
         }
-        (BootstrapPolicy::ReadyWorkspace, _) => {
+        (BootstrapPolicy::ReadOnlyWorkspace | BootstrapPolicy::ReadyWorkspace, _) => {
             anyhow::bail!("internal command dispatch expected a ready workspace")
         }
         (BootstrapPolicy::None | BootstrapPolicy::InternalNoPrompt, _) => {
