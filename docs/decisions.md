@@ -1751,6 +1751,28 @@ fails explicitly instead of silently overwriting reconciliation. The native
 sync metadata publisher already runs beneath the sync command's owner, and the
 managed-triage metadata purge runs inside its authenticated grouped
 transaction, so every production project-metadata writer shares this boundary.
+## Why shared-server routing starts with a pure lease table
+
+The shared receiver must make a routing decision before it reads a selected
+workspace's root, environment, user record, credentials, prompts, logs, or job
+socket. A pure `LeaseTable` is the narrowest boundary that can enforce that
+ordering. It records verified, live TUI registrations by typed workspace,
+lease, and ingress UUIDs, with only the lease-local job socket and receiver
+intent needed by the later forwarding layer.
+
+The table keeps ingress catalog entries after a lease is removed or expires.
+That preserves the meaningful distinction between an unknown public route and
+a known workspace whose TUI is no longer live, while pruning the actual lease
+before any route can receive stale socket or PID data. A receiver-disabled live
+lease is a third, separate state. The later HTTP layer can map all unavailable
+states to the required provider behavior without confusing them internally.
+
+The table accepts an injected monotonic instant and heartbeat schedule. This
+makes a one-second production heartbeat and five-second TTL deterministic in
+tests, allows final-lease shutdown to be a pure decision, and avoids timing
+sleeps or an always-on availability responder. Process election, socket IO,
+and the watchdog remain separate thin layers built on this state machine.
+
 ## TUI-owned receiver server
 
 The external receiver listener is deliberately owned by the singleton brain

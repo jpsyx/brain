@@ -958,7 +958,15 @@ and cannot outlive the interactive shell.
   the protected local command socket.
 - `server/security.rs` owns pure Twilio HMAC, Resend/Svix HMAC, and the ordered
   authenticate-then-resolve decision for enabled portable identities.
-- `server/lifecycle.rs` — the legacy local habits-server lifecycle.
+- `server/lifecycle/` separates the legacy local habits-server IO lifecycle
+  from the pure shared-server lease state machine. `lease.rs` owns typed lease,
+  ingress, and timing values; `table.rs` owns registration, heartbeat, expiry,
+  and availability transitions; and `decision.rs` owns the keep-running versus
+  final-shutdown result. The table retains only opaque UUID identities and
+  verified lease metadata, never workspace roots, users, credentials, prompts,
+  logs, or message bodies. The existing `lifecycle::pid_alive` probe remains
+  the stable liveness seam for sync callers while process election and socket
+  IO are added in the next lifecycle phase.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST requests carry `workspace_id`; the shared process
   reloads the registry by exact UUID and verifies the root's portable manifest

@@ -20,6 +20,8 @@ pub mod router;
 pub mod routes;
 pub mod security;
 
+pub use lifecycle::IngressId;
+
 use anyhow::{Context, Result};
 use tiny_http::{Header, Request, Response, Server};
 

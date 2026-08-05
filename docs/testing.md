@@ -231,6 +231,15 @@ first move is a failing test that reproduces it, *then* the fix.
   `sync/journal.rs` proves push-only/aborted rows do not refresh it.
   `server/delivery.rs` verifies that provider delivery is dispatched off the
   TUI thread.
+- **Shared-server lease state.** `server/lifecycle/table.rs` uses injected
+  monotonic instants and timing values to prove that different workspace leases
+  coexist, duplicate live workspace or ingress identities fail, heartbeats
+  renew only their matching lease, expiry cannot expose stale routing data, and
+  final orderly or expired removal requests shutdown. The suite also proves
+  that a previously registered ingress stays distinguishable as `NoLiveTui`
+  after its lease is gone, rather than becoming `Unknown`. These tests have no
+  process, socket, filesystem, or sleep dependency; process election and
+  watchdog integration tests belong to the following lifecycle phase.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable

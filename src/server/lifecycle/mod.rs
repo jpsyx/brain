@@ -18,6 +18,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::theme::Theme;
 
+mod decision;
+mod lease;
+mod table;
+
+pub use decision::ServerDecision;
+pub use lease::{
+    HEARTBEAT_INTERVAL, IngressId, IngressIdError, LEASE_TTL, LeaseId, LeaseIdError, LeaseTiming,
+    WorkspaceAvailability, WorkspaceLease,
+};
+pub use table::{LeaseAction, LeaseError, LeaseTable};
+
 /// The port the daemon prefers; if it is free the server binds it, otherwise
 /// the OS assigns an ephemeral one.
 const PREFERRED_PORT: u16 = 8787;
@@ -315,5 +326,275 @@ mod tests {
         assert!(plan.contains("state: ~/.cache/brain/server.json"), "{plan}");
         assert!(plan.contains("reuse a live daemon"), "{plan}");
         assert!(plan.contains("start one if needed"), "{plan}");
+    }
+}
+
+#[cfg(test)]
+mod lease_table_tests {
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    use super::{
+        IngressId, LeaseError, LeaseId, LeaseTable, LeaseTiming, WorkspaceAvailability,
+        WorkspaceLease,
+    };
+    use crate::workspace::{WorkspaceId, WorkspaceName};
+
+    const FAMILY_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
+    const PERSONAL_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
+    const FAMILY_INGRESS: &str = "57b162df-983a-45c3-ac7e-bad94eb27a99";
+    const PERSONAL_INGRESS: &str = "91a0cfc2-7427-49d5-a2f1-258f985cd7e5";
+
+    #[test]
+    fn leases_for_different_workspaces_coexist_and_final_removal_shuts_down() {
+        let now = Instant::now();
+        let mut table = LeaseTable::default();
+        let family = lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true);
+        let personal = lease(
+            "personal",
+            PERSONAL_ID,
+            PERSONAL_INGRESS,
+            lease_id(2),
+            now,
+            true,
+        );
+
+        table.register(family, now).expect("family lease registers");
+        table
+            .register(personal, now)
+            .expect("personal lease registers");
+
+        assert_eq!(table.live_workspaces(now), [family_id(), personal_id()]);
+        assert_eq!(
+            table.unregister(lease_id(1), now),
+            super::ServerDecision::KeepRunning
+        );
+        assert_eq!(
+            table.unregister(lease_id(2), now),
+            super::ServerDecision::ShutdownNow
+        );
+    }
+
+    #[test]
+    fn rejects_a_second_live_lease_for_one_workspace() {
+        let now = Instant::now();
+        let mut table = LeaseTable::default();
+        table
+            .register(
+                lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true),
+                now,
+            )
+            .expect("first lease registers");
+        let result = table.register(
+            lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(2), now, true),
+            now,
+        );
+
+        assert!(matches!(
+            result,
+            Err(LeaseError::WorkspaceAlreadyLeased { .. })
+        ));
+    }
+
+    #[test]
+    fn heartbeat_renews_only_its_matching_live_lease() {
+        let now = Instant::now();
+        let timing = LeaseTiming::new(Duration::from_millis(5), Duration::from_secs(10));
+        let mut table = LeaseTable::default();
+        table
+            .register(
+                lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true),
+                now,
+            )
+            .expect("family lease registers");
+        table
+            .register(
+                lease(
+                    "personal",
+                    PERSONAL_ID,
+                    PERSONAL_INGRESS,
+                    lease_id(2),
+                    now,
+                    true,
+                ),
+                now,
+            )
+            .expect("personal lease registers");
+
+        table
+            .heartbeat(lease_id(1), now + Duration::from_secs(1), timing)
+            .expect("matching lease renews");
+
+        assert!(matches!(
+            table.availability(ingress(FAMILY_INGRESS), now + Duration::from_secs(10)),
+            WorkspaceAvailability::Accepting(_)
+        ));
+        assert_eq!(
+            table.availability(ingress(PERSONAL_INGRESS), now + Duration::from_secs(10)),
+            WorkspaceAvailability::NoLiveTui
+        );
+    }
+
+    #[test]
+    fn expiry_removes_the_lease_without_returning_stale_routing_data() {
+        let now = Instant::now();
+        let mut table = LeaseTable::default();
+        table
+            .register(
+                lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true),
+                now,
+            )
+            .expect("lease registers");
+
+        assert_eq!(
+            table.expire(now + Duration::from_secs(10)),
+            super::ServerDecision::ShutdownNow
+        );
+        assert_eq!(
+            table.availability(ingress(FAMILY_INGRESS), now + Duration::from_secs(10)),
+            WorkspaceAvailability::NoLiveTui
+        );
+    }
+
+    #[test]
+    fn stale_same_workspace_lease_is_replaced_after_server_recovery() {
+        let now = Instant::now();
+        let mut table = LeaseTable::default();
+        table
+            .register(
+                lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true),
+                now,
+            )
+            .expect("first lease registers");
+        table
+            .register(
+                lease(
+                    "personal",
+                    PERSONAL_ID,
+                    PERSONAL_INGRESS,
+                    lease_id(3),
+                    now + Duration::from_secs(7),
+                    true,
+                ),
+                now,
+            )
+            .expect("unrelated lease registers");
+
+        table
+            .register(
+                lease(
+                    "family",
+                    FAMILY_ID,
+                    FAMILY_INGRESS,
+                    lease_id(2),
+                    now + Duration::from_secs(10),
+                    true,
+                ),
+                now + Duration::from_secs(10),
+            )
+            .expect("stale lease is replaced");
+
+        assert!(matches!(
+            table.availability(ingress(FAMILY_INGRESS), now + Duration::from_secs(10)),
+            WorkspaceAvailability::Accepting(WorkspaceLease { lease_id: found, .. }) if found == lease_id(2)
+        ));
+        assert!(matches!(
+            table.availability(ingress(PERSONAL_INGRESS), now + Duration::from_secs(10)),
+            WorkspaceAvailability::Accepting(WorkspaceLease { lease_id: found, .. }) if found == lease_id(3)
+        ));
+    }
+
+    #[test]
+    fn rejects_an_ingress_collision_between_live_workspaces() {
+        let now = Instant::now();
+        let mut table = LeaseTable::default();
+        table
+            .register(
+                lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true),
+                now,
+            )
+            .expect("family lease registers");
+
+        let result = table.register(
+            lease(
+                "personal",
+                PERSONAL_ID,
+                FAMILY_INGRESS,
+                lease_id(2),
+                now,
+                true,
+            ),
+            now,
+        );
+
+        assert!(matches!(
+            result,
+            Err(LeaseError::IngressAlreadyLeased { .. })
+        ));
+    }
+
+    #[test]
+    fn disabled_live_lease_is_distinct_from_no_live_tui_and_unknown_ingress() {
+        let now = Instant::now();
+        let mut table = LeaseTable::default();
+        table
+            .register(
+                lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, false),
+                now,
+            )
+            .expect("disabled lease registers");
+
+        assert_eq!(
+            table.availability(ingress(FAMILY_INGRESS), now),
+            WorkspaceAvailability::Disabled
+        );
+        assert_eq!(
+            table.unregister(lease_id(1), now),
+            super::ServerDecision::ShutdownNow
+        );
+        assert_eq!(
+            table.availability(ingress(FAMILY_INGRESS), now),
+            WorkspaceAvailability::NoLiveTui
+        );
+        assert_eq!(
+            table.availability(ingress(PERSONAL_INGRESS), now),
+            WorkspaceAvailability::Unknown
+        );
+    }
+
+    fn lease(
+        canonical_name: &str,
+        workspace_id: &str,
+        ingress_id: &str,
+        lease_id: LeaseId,
+        now: Instant,
+        receiver_enabled: bool,
+    ) -> WorkspaceLease {
+        WorkspaceLease {
+            lease_id,
+            workspace_id: WorkspaceId::parse(workspace_id).expect("valid workspace UUID"),
+            canonical_name: WorkspaceName::parse(canonical_name).expect("valid workspace name"),
+            ingress_id: ingress(ingress_id),
+            tui_pid: 42,
+            job_socket: PathBuf::from("/tmp/brain-job.sock"),
+            receiver_enabled,
+            expires_at: now + Duration::from_secs(5),
+        }
+    }
+
+    fn family_id() -> WorkspaceId {
+        WorkspaceId::parse(FAMILY_ID).expect("valid family UUID")
+    }
+
+    fn personal_id() -> WorkspaceId {
+        WorkspaceId::parse(PERSONAL_ID).expect("valid personal UUID")
+    }
+
+    fn ingress(value: &str) -> IngressId {
+        IngressId::parse(value).expect("valid ingress UUID")
+    }
+
+    fn lease_id(last: u128) -> LeaseId {
+        LeaseId::parse(&format!("00000000-0000-0000-0000-{last:012x}")).expect("valid lease UUID")
     }
 }

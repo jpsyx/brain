@@ -132,6 +132,33 @@ stay valid inputs. A relative root requires an absolute injected base;
 relative path. It intentionally carries no alias, default, or registry
 reference.
 
+### Shared-server lease routing (`server/lifecycle/`)
+
+The shared process will receive only live TUI registrations. Its pure
+`LeaseTable` records each `WorkspaceLease` by stable `WorkspaceId` and keeps a
+separate catalog of previously seen opaque `IngressId` values. A lease contains
+its unique `LeaseId`, canonical workspace name, ingress ID, TUI PID,
+workspace-local job socket, receiver-enable snapshot, and monotonic expiry.
+It contains no root, registry environment, user identity, credential, prompt,
+log, or inbound message data.
+
+`IngressId` is a distinct UUID newtype even though the current portable
+manifest still serializes `receiver_ingress_id` through `WorkspaceId`. The two
+types preserve exactly the same UUID-string representation at that boundary;
+conversion is explicit so a public ingress can never be used accidentally as a
+workspace selector. A future manifest migration is therefore unnecessary for
+this type split.
+
+At every injected monotonic instant the table first removes expired leases.
+It accepts one live lease per workspace and ingress, renews only the matching
+lease ID, and keeps a known ingress after orderly removal or expiry. Routing is
+therefore one of `Accepting(live lease)`, `Disabled` (a live lease with the
+receiver off), `NoLiveTui` (known but no live lease), or `Unknown`. Expired
+leases are never returned. Removing or expiring the final live lease yields
+`ShutdownNow`; otherwise the process receives `KeepRunning`. The production
+schedule uses a one-second heartbeat and five-second TTL, while tests inject
+their own `LeaseTiming` and never sleep.
+
 `WorkspacePaths` derives its full base from the ID:
 
 ```text
