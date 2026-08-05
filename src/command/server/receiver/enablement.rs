@@ -2,6 +2,9 @@
 
 use anyhow::{Context, Result};
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) trait ReceiverIntentRefresher {
     fn refresh_enabled(&self, workspace_id: crate::workspace::WorkspaceId) -> Result<()>;
 }

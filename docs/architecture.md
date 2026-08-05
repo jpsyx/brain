@@ -996,7 +996,9 @@ forwards receiver requests only to live workspace TUIs.
   verify and normalize provider input; Resend retrieval is capped at 1 MiB per
   response and ten seconds per request;
   `dispatch.rs` resolves the selected workspace's portable actor and performs
-  transactional, workspace-scoped provider-ID deduplication; `transport.rs`
+  transactional, workspace-scoped provider-ID deduplication, while
+  `dispatch/tests.rs` exercises that production pipeline's synchronized final
+  admission boundary; `transport.rs`
   carries one short absolute deadline through nonblocking job-socket connect,
   frame write, and acknowledgment read; `job.rs` defines
   the immutable serialized `InboundJob`; `unavailable.rs` owns the one-response,
@@ -1047,7 +1049,7 @@ forwards receiver requests only to live workspace TUIs.
   inbound jobs and has no text lifecycle control grammar. Receiver command
   dispatch and setup remain in `command/server/receiver/mod.rs`; the exact
   mutation, refresh-warning, and status decisions live in its focused
-  `enablement.rs` child.
+  `enablement.rs` child, with their tests under `enablement/tests.rs`.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST handlers receive an already-resolved workspace context;
   the rendered page preserves only that context's opaque ingress in its POST

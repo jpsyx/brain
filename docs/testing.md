@@ -323,9 +323,13 @@ first move is a failing test that reproduces it, *then* the fix.
   transitions reject the pre-revocation ticket. Maximum-revision tests prove a
   failed enablement update or receiver-changing registration replay leaves the
   whole lease table unchanged and cannot revive or extend authority.
-  A synchronized provider boundary persists a disable after route context load
-  but before final handoff, deliberately omits the live refresh, and proves the
-  real job listener receives no connection. Exact status tests distinguish a
+  A synchronized test hook on the real `SharedReceiverPipeline` persists a
+  disable after signed provider and actor work but before the production final
+  admission operation. It deliberately omits the live refresh and proves the
+  real nonblocking job listener receives no connection or enqueue. Removing
+  the production exact-record persisted-intent check makes this test accept and
+  enqueue, so the regression cannot pass through a copied test decision path.
+  Exact status tests distinguish a
   live disabled lease from an accepting lease. Actual parsed CLI start/stop and
   startup `--with-receiver -b` paths, plus keyboard-driven tasks and search
   palettes, prove both persistence directions and exact-workspace refresh
@@ -516,9 +520,9 @@ cargo test --release -- --nocapture
 5. If the behavior is user-visible (a new key, menu item, or config
    variable), update the relevant `docs/` file in the same change.
 
-Receiver enablement tests keep persistent intent separate from live process
-state. They cover the shared pure transition, exact selected-record mutation,
-stale identity rejection with byte preservation, authoritative control refresh,
-reduced clap grammar, and dynamic labels in both palette models. Lifecycle
-tests use injected instants or bounded polling; they never depend on fixed
-sleeps.
+Receiver enablement tests under `command/server/receiver/enablement/tests.rs`
+keep persistent intent separate from live process state. They cover the shared
+pure transition, exact selected-record mutation, stale identity rejection with
+byte preservation, authoritative control refresh, reduced clap grammar, and
+dynamic labels in both palette models. Lifecycle tests use injected instants or
+bounded polling; they never depend on fixed sleeps.
