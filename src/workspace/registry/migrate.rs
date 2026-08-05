@@ -90,11 +90,17 @@ fn migrate_locked(
     before_save: impl FnOnce() -> Result<(), RegistryError>,
 ) -> Result<MigrationOutcome, RegistryError> {
     if let Ok(registry) = serde_json::from_slice::<MachineRegistry>(legacy_body) {
+        let portable_setup_required = crate::access::ensure_registry_access_modes(&registry)
+            .map_err(|error| RegistryError::Json {
+                operation: RegistryOperation::WritePortableConfig,
+                path: config_dir.to_path_buf(),
+                message: format!("{error:#}"),
+            })?;
         return Ok(MigrationOutcome {
             registry,
             created_registry: false,
             backup_path: None,
-            portable_setup_required: false,
+            portable_setup_required,
         });
     }
 
@@ -156,6 +162,13 @@ fn migrate_locked(
         )]),
     };
     before_save()?;
+    crate::access::ensure_registry_access_modes(&registry).map_err(|error| {
+        RegistryError::Json {
+            operation: RegistryOperation::WritePortableConfig,
+            path: config_dir.to_path_buf(),
+            message: format!("{error:#}"),
+        }
+    })?;
     transaction.save(&registry)?;
     Ok(MigrationOutcome {
         registry,

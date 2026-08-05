@@ -101,11 +101,17 @@ impl<'a> App<'a> {
             last_inner_height: 1,
             last_content_rows: 1,
             brain: None,
+            #[cfg(test)]
+            brain_transport_override: None,
             brain_turn_active: false,
             focus: Panel::Tasks,
             triage_brain: None,
             active_brain_tab: BrainTab::Main,
             triage_token: None,
+            #[cfg(test)]
+            triage_done_url_override: None,
+            #[cfg(test)]
+            triage_transport_override: None,
             brain_rect: None,
             instance,
             interactive_actor,
@@ -114,7 +120,6 @@ impl<'a> App<'a> {
             db_path,
             log_path: crate::logging::path(),
             alert: None,
-            pending_brain_submit: 0,
             palette: None,
             brain_input: None,
             confirm: None,

@@ -9,10 +9,15 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 use brain::state::Db;
 use rusqlite::Connection;
+
+#[path = "hook_integration/atomic.rs"]
+mod atomic;
+#[path = "hook_integration/installer.rs"]
+mod installer;
 
 /// Locate the hook script relative to the Cargo manifest.
 fn hook_script() -> PathBuf {
@@ -28,6 +33,27 @@ fn fresh_db() -> (tempfile::TempDir, PathBuf) {
     let db_path = tmp.path().join("state.db");
     drop(Db::open_path(&db_path).expect("open"));
     (tmp, db_path)
+}
+
+fn register_session(
+    db_path: &Path,
+    agent_kind: &str,
+    actor_id: &str,
+    session_id: &str,
+    instance: &str,
+    pid: i32,
+) {
+    let connection = Connection::open(db_path).unwrap();
+    connection
+        .execute(
+            "INSERT INTO brain_sessions
+               (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+                workspace_id, actor_id, channel, created_at, last_active_at)
+             VALUES (?1, ?2, ?3, ?4, 'test-launch',
+                     '11111111-1111-4111-8111-111111111111', ?5, 'interactive', 1, 1)",
+            rusqlite::params![agent_kind, session_id, instance, pid, actor_id],
+        )
+        .unwrap();
 }
 
 /// Run the hook with the given attribution env (None → ambient, no env set)
@@ -83,7 +109,7 @@ fn run_scoped_hook(
     run_hook_command(cmd, input)
 }
 
-fn run_hook_command(mut cmd: Command, input: &str) -> std::process::Output {
+fn spawn_hook_command(mut cmd: Command, input: &str) -> Child {
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -95,30 +121,33 @@ fn run_hook_command(mut cmd: Command, input: &str) -> std::process::Output {
         .write_all(input.as_bytes())
         .unwrap();
     drop(child.stdin.take());
-    child.wait_with_output().expect("wait hook")
+    child
 }
 
-fn settings_hook_commands(settings_path: &Path, event: &str) -> Vec<String> {
-    let settings: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(settings_path).expect("read installed settings"))
-            .expect("parse installed settings");
-    settings["hooks"][event]
-        .as_array()
-        .expect("hook event array")
-        .iter()
-        .flat_map(|entry| {
-            entry["hooks"]
-                .as_array()
-                .expect("hook command array")
-                .iter()
-        })
-        .map(|hook| {
-            hook["command"]
-                .as_str()
-                .expect("hook command string")
-                .to_owned()
-        })
-        .collect()
+fn run_hook_command(cmd: Command, input: &str) -> std::process::Output {
+    spawn_hook_command(cmd, input)
+        .wait_with_output()
+        .expect("wait hook")
+}
+
+fn attributed_hook_command(
+    db_path: &Path,
+    agent_kind: &str,
+    actor_id: &str,
+    instance: &str,
+    pid: i32,
+) -> Command {
+    let mut cmd = Command::new("python3");
+    cmd.env("BRAIN_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111");
+    cmd.env("BRAIN_WORKSPACE", "family");
+    cmd.env("BRAIN_ROOT", "/tmp/family");
+    cmd.env("BRAIN_ACTOR_ID", actor_id);
+    cmd.env("BRAIN_CHANNEL", "interactive");
+    cmd.env("BRAIN_AGENT_KIND", agent_kind);
+    cmd.env("BRAIN_INSTANCE_ID", instance);
+    cmd.env("BRAIN_PID", pid.to_string());
+    cmd.env("BRAIN_STATE_DB", db_path);
+    cmd
 }
 
 /// Read immutable attribution plus lock state for a session row.
@@ -166,8 +195,26 @@ fn hook_without_instance_env_is_noop() {
 }
 
 #[test]
+fn hook_rejects_an_unregistered_workspace_session_tuple() {
+    let (_tmp, db) = fresh_db();
+
+    let out = run_hook(
+        &db,
+        Some(("unregistered-shell", 4242)),
+        &start_input("unregistered-session"),
+    );
+
+    assert!(out.status.success(), "hook exited non-zero: {out:?}");
+    assert!(
+        read_session(&db, "unregistered-session").is_none(),
+        "hook events cannot create an unregistered workspace/session tuple"
+    );
+}
+
+#[test]
 fn hook_records_session_locked_to_instance_and_pid() {
     let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "claude-abc", "inst-1", 4242);
     let out = run_hook(&db, Some(("inst-1", 4242)), &start_input("claude-abc"));
     assert!(
         out.status.success(),
@@ -210,6 +257,7 @@ fn hook_without_complete_workspace_identity_is_noop() {
 #[test]
 fn new_rotation_frees_the_prior_session_for_the_same_instance() {
     let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "sess-A", "inst-1", 4242);
     // First session for the instance.
     run_hook(&db, Some(("inst-1", 4242)), &start_input("sess-A"));
     // `/new` rotates to a fresh session id; the hook fires again.
@@ -224,6 +272,7 @@ fn new_rotation_frees_the_prior_session_for_the_same_instance() {
 #[test]
 fn re_firing_the_same_session_keeps_it_locked() {
     let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "sess-A", "inst-1", 4242);
     run_hook(&db, Some(("inst-1", 4242)), &start_input("sess-A"));
     // Resume / compact fires SessionStart again for the same id.
     run_hook(&db, Some(("inst-1", 4242)), &start_input("sess-A"));
@@ -243,6 +292,8 @@ fn distinct_instances_get_distinct_locked_sessions() {
     // Two tasks shells each record their own session; neither frees the
     // other's (the /new free pass is scoped to the firing instance).
     let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "sess-1", "inst-1", 10);
+    register_session(&db, "claude", "pablo", "sess-2", "inst-2", 20);
     run_hook(&db, Some(("inst-1", 10)), &start_input("sess-1"));
     run_hook(&db, Some(("inst-2", 20)), &start_input("sess-2"));
     assert_eq!(read_session(&db, "sess-1").unwrap().1, Some(10));
@@ -250,8 +301,39 @@ fn distinct_instances_get_distinct_locked_sessions() {
 }
 
 #[test]
+fn rotation_cannot_steal_a_session_registered_to_another_live_lineage() {
+    let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "sess-1", "inst-1", 10);
+    register_session(&db, "claude", "pablo", "sess-2", "inst-2", 20);
+
+    let out = run_hook(&db, Some(("inst-1", 10)), &start_input("sess-2"));
+
+    assert!(out.status.success(), "hook exited non-zero: {out:?}");
+    let first = read_session(&db, "sess-1").expect("first lineage preserved");
+    let second = read_session(&db, "sess-2").expect("second lineage preserved");
+    assert_eq!((first.0.as_str(), first.1), ("inst-1", Some(10)));
+    assert_eq!((second.0.as_str(), second.1), ("inst-2", Some(20)));
+}
+
+#[test]
 fn hook_preserves_equal_opaque_ids_with_conflicting_immutable_attribution() {
     let (_tmp, db) = fresh_db();
+    register_session(
+        &db,
+        "claude",
+        "pablo",
+        "same-opaque-id",
+        "claude-instance",
+        4242,
+    );
+    register_session(
+        &db,
+        "codex",
+        "partner",
+        "same-opaque-id",
+        "codex-instance",
+        4242,
+    );
     let first = run_scoped_hook(
         &db,
         "claude",
@@ -296,66 +378,4 @@ fn hook_preserves_equal_opaque_ids_with_conflicting_immutable_attribution() {
             ("codex".to_owned(), "partner".to_owned()),
         ]
     );
-}
-
-#[test]
-fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
-    let temp = tempfile::TempDir::new().expect("tempdir");
-    let home = temp.path().join("home");
-    let selected_root = temp.path().join("family");
-    let ignored_env_root = temp.path().join("ignored-env-root");
-    std::fs::create_dir_all(&home).expect("create home");
-
-    let output = Command::new("bash")
-        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/install_hook.sh"))
-        .arg(&selected_root)
-        .env("HOME", &home)
-        .env("BRAIN_ROOT", &ignored_env_root)
-        .output()
-        .expect("run hook installer");
-
-    assert!(
-        output.status.success(),
-        "installer failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let settings = selected_root.join(".claude/settings.json");
-    assert_eq!(
-        settings_hook_commands(&settings, "SessionStart"),
-        vec!["python3 .claude/brain-hooks/claude_session_start_hook.py"]
-    );
-    assert_eq!(
-        settings_hook_commands(&settings, "Stop"),
-        vec!["python3 .claude/brain-hooks/claude_stop_hook.py"]
-    );
-    assert!(
-        selected_root
-            .join(".claude/brain-hooks/claude_session_start_hook.py")
-            .is_file()
-    );
-    assert!(!ignored_env_root.exists());
-    assert!(!home.join("brain").exists());
-}
-
-#[test]
-fn installer_uses_brain_root_when_no_explicit_root_is_passed() {
-    let temp = tempfile::TempDir::new().expect("tempdir");
-    let home = temp.path().join("home");
-    let selected_root = temp.path().join("family-from-env");
-    std::fs::create_dir_all(&home).expect("create home");
-
-    let output = Command::new("bash")
-        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/install_hook.sh"))
-        .env("HOME", &home)
-        .env("BRAIN_ROOT", &selected_root)
-        .output()
-        .expect("run hook installer");
-
-    assert!(
-        output.status.success(),
-        "installer failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(selected_root.join(".claude/settings.json").is_file());
-    assert!(!home.join("brain").exists());
 }

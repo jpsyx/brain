@@ -80,13 +80,16 @@ first move is a failing test that reproduces it, *then* the fix.
   `brain env`; and requires the prompt-based/non-sandbox disclaimer plus the
   invariant that changing the default workspace never changes access mode. It
   deliberately avoids snapshots and punctuation-heavy prose.
-- **Hook integration.** `tests/hook_integration.rs` runs the real Python
+- **Hook integration.** `tests/hook_integration.rs` plus its focused
+  `hook_integration/{atomic,installer}.rs` modules run the real Python
   SessionStart hook against a temporary SQLite DB and the real shell installer
-  against temporary homes/roots. It covers the typed workspace/actor
-  identity plus session attribution contract, selected-root argument
-  and `BRAIN_ROOT` precedence, project-relative commands, actor-scoped session
-  rotation, equal opaque IDs with conflicting immutable attribution, schema-v2
-  row preservation, and malformed/ambient no-op behavior. The hook-installer
+  against temporary homes/roots. They cover the typed workspace/actor
+  identity plus session attribution contract, selected-root argument and
+  `BRAIN_ROOT` precedence, project-relative commands, actor-scoped Claude and
+  Codex rotation, atomic target-claim serialization, rollback and retry after
+  an injected mutation failure, equal opaque IDs with conflicting immutable
+  attribution, schema-v2 row preservation, and malformed/ambient no-op
+  behavior. The hook-installer
   unit tests live in `src/command/server/receiver/hooks/tests.rs`; they pin the
   exact installed Codex JSON command schema, execute the
   actual configured start and stop commands as one attributed lifecycle, and
@@ -96,7 +99,11 @@ first move is a failing test that reproduces it, *then* the fix.
   atomic replacement fails. TUI setup tests prove a held workspace singleton
   prevents hook refresh.
   `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
-  completion contract for a Codex-style `thread_id` payload.
+  completion contract for a Codex-style `thread_id` payload. It also pauses a
+  real Stop hook after payload parsing, rotates the same live Claude lineage
+  through the real SessionStart hook, and proves the stale completion is
+  rejected after serialization. A deterministic publication-failure fixture
+  proves both Claude and Codex retain `active` state and leave no staged file.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
   map (defaults vs overrides — never the real store), the `config list` table
   layout and coloring, value coercion (`4`→number), name normalization, the
@@ -138,24 +145,83 @@ first move is a failing test that reproduces it, *then* the fix.
   skipping, root-skipping, tolerance of a missing bucket.
 - **The session store** (`state.rs`, in-memory SQLite). Scoped resume
   ordering, exact composite-scope `claim` win/lose, registration + `release`
-  round-trip, exact composite-scope `reap_dead_locks` with an injected
-  pid-liveness predicate, preservation of equal opaque IDs across scopes, the
-  two-shells-take-distinct-sessions invariant, and `panel_side` round-trip
-  + flip. `open_in_memory` / `with_pid_alive` are the test seams
+  round-trip, `completed` to `active` reactivation for both frontends, exact
+  composite-scope `reap_dead_locks` with an injected pid-liveness predicate,
+  preservation of equal opaque IDs across scopes, the
+  two-shells-take-distinct-sessions invariant, and `panel_side` round-trip +
+  flip. `open_in_memory` / `with_pid_alive` are the test seams
   (deterministic clock + injectable pid probe), so no real process or wall
   clock is involved.
 - **Launch builders** (`session.rs`). `AgentKind`, `Plan::decide` (resume vs
   fresh), `build_llm_command` (Claude `--resume`/`--session-id`, Codex `resume`
-  and no Claude flags for fresh launches, shell-quoting), and `env_for`.
+  and no Claude flags for fresh launches, shell-quoting, and typed rejection of
+  blank compatibility-plan session IDs), and `env_for`. The command matrix
+  lives here once; the integration characterization suite keeps only its real
+  hook and environment boundaries.
+- **OpenCode fail-fast smoke boundary.** `tests/opencode_smoke.rs` covers
+  `--open-code`, normalized `-oc`, the typed mutually exclusive selection
+  error and exact plain rendering, early process rejection, direct adapter
+  rejection, and every controller lifecycle/input/terminal-control rejection
+  against an instrumented transport with no side effects. Env units cover the
+  reserved command value. No test launches OpenCode.
+- **Portable advisory access policy.** `tests/workspace_access_policy.rs`
+  proves first/later create and attach defaults, valid-v2 upgrade seeding,
+  strict typed status, trusted config mutation, and default-switch byte
+  preservation. Access-store unit tests prove malformed-byte preservation and
+  live-file continuity, temporary cleanup, and successful retry across an
+  injected pre-replace interruption.
+  `tests/access_boundary.rs` pins the exact non-sandbox prompt fragments,
+  unrestricted absence, immutable inbound separation, all actor/session/triage
+  contexts, honest themed status, and the deliberately bypassable literal-path
+  warning. `tests/agent_access_adapter.rs` proves Claude system-prompt and Codex
+  developer-instruction installation, selected cwd, the explicit minimal
+  environment, and real shell argv termination for option-looking prompts.
+  App-level controller tests capture the actual fresh/resumed main-panel,
+  authenticated SMS/email, and triage launch specs for both frontends, including
+  exact trusted policy, cwd, separate prompt, actor, and channel. A nested-process PTY test proves unrelated inherited workspace
+  secrets do not reach the child after `env_clear`; a temporary-HOME profile
+  regression proves the non-profile shell cannot recreate a filtered secret.
+- **Workspace capabilities.** `tests/workspace_capabilities.rs` separates
+  portable logical selection from selected-record machine material, pins the
+  missing-versus-empty skill defaults, normalized/invalid logical names,
+  malformed transport data, unavailable credentials, and skill sources. It
+  verifies Claude's owner-only strict MCP JSON and conservative direct-command
+  evidence, Codex's secret-free documented per-call overrides against the
+  installed parser, collision-free stdio secret remapping, honest enforcement
+  reports, exact symlink-free actor/root-local skill rendering without
+  global-registry mutation, canonical machine-source containment, parent-link
+  retarget rejection, lifecycle cleanup, safe symlink unlinking, cache-root and
+  actor-ancestor sentinel preservation, and redacted status/Debug output.
+  Setup-seam tests prove unrestricted startup does not parse unused malformed
+  capability lists for either frontend while mode/live fields and all
+  workspace-only capability fields stay strict. App-level tests prove
+  unrestricted launch assembly does not parse unused malformed capability data
+  and both workspace-only main and triage requests attach the same plan.
+  Controller unit tests exercise the complete access-mode/capability-plan
+  matrix and prove only unrestricted-without-plan and matching
+  workspace-only-with-plan reach frontend or transport work. App launch tests
+  also prove malformed capability configuration leaves a free resumable
+  session unclaimed and clears the attempted response identity.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).
-- **The brain shell's pure bits** (`tui.rs`). `startup_focus` (the shell
+- **The brain shell's pure bits** (`tui/`). `startup_focus` (the shell
   lands in the search panel at startup), `focus_left`/`focus_right`
   (focus follows the layout swap), `panel_borders` (the right panel owns the
-  divider), `key_to_bytes` (key → PTY byte encoding), `new_session_bytes`
-  (`Ctrl-N` types `/new`, no trailing return), and `advance_submit_countdown`
-  (the deferred-Return countdown fires exactly once at zero).
+  divider), and `key_to_bytes` (non-semantic key → terminal byte encoding).
+  Recording frontend/transport tests under `tui/app_brain/tests/` cover
+  `AgentController` and its App consumers: failed fresh registration prevents
+  launch, Enter calls semantic submit and reactivates the scoped store row,
+  injected work queues and reactivates after a controller-owned two-tick delay,
+  `Ctrl-N` targets the effective main or triage tab, shutdown fires once, and
+  agent exit closes only the panel. It also proves half-page scroll targets the
+  visible triage controller and whole-shell teardown explicitly shuts down both
+  controllers. The actual `App::open_triage_tab` path uses
+  the selected adapter, includes only ephemeral hook metadata, and creates no
+  session row. Prelaunch validation tests prove capability and response
+  identity errors happen before a resumable claim and clear the attempted
+  response identity. Fallback completion captures the transport snapshot with
+  the controller's initiating actor/channel before teardown.
 - **Receiver dispatch state.** `tui/receiver_state.rs` proves that an idle
   open panel switches to queued receiver work, an active submitted turn waits,
   a same-channel warm panel is reused, a different channel replaces it, and a
@@ -181,10 +247,10 @@ first move is a failing test that reproduces it, *then* the fix.
   `tests/watch_local.rs` exercises the real watcher callback in the default
   suite: macOS validates the one-second polling fallback, while other platforms
   use notify's recommended native backend.
-- **PTY scrollback** (`pty_pane.rs`). `scroll_up`/`scroll_down` enter and
-  clamp scrollback. These spawn a tiny real PTY running `seq` — the one
-  place we let a child process in — because it's deterministic and
-  sub-second.
+- **PTY transport and scrollback** (`pty_pane/tests.rs`). Environment/profile
+  isolation plus `scroll_up`/`scroll_down` enter and clamp scrollback. These
+  spawn a tiny real PTY running `seq`; this is the one place we let a child
+  process in because it is deterministic and sub-second.
 
 ## What we deliberately don't test
 
@@ -218,7 +284,8 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: manifest-aware create/attach, persistence failures, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. |
 | `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
-| `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, and persistence-failure preservation. |
+| `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, valid-v2 portable-policy upgrade, and persistence-failure preservation. |
+| `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` + `tui::app_brain::tests` | Portable mode ownership/defaults, strict and atomic persistence, exact advisory contract, real App launch-context parity, adapter mechanisms, option-terminated prompt argv, selected cwd, honest typed status, naive warning limits, and minimal environment. |
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |
@@ -244,10 +311,9 @@ No test reads or writes a real user workspace.
 | Disable purges managed history without false-positive loss | `tests/triage_habits_config.rs` removes managed definitions, open rows, completed history, and derived references while preserving same-named unmarked rows and unrelated transcripts. `tasks::triage_habits::purge` limits JSON edits to top-level `tasks[]`, preserves unrelated JSON/text bytes and ambiguous display references, and aborts on malformed JSON, invalid UTF-8, or traversal failures. |
 | Re-enable starts fresh | `disabling_purges_every_managed_row_and_derived_reference_then_reenables_fresh` proves exactly two new open managed rows, new UUIDs, and no restored history. |
 
-Phase 2 does not test or claim coordinated migration activation against a real
-workspace, advisory access enforcement, agent-controller/OpenCode behavior, or
-the final shared-server lease and receiver-routing lifecycle. Those belong to
-later roadmap phases.
+The suite does not claim a filesystem sandbox, a general prompt-injection
+detector, coordinated task migration activation against a real workspace,
+functional OpenCode behavior, or the final shared-server lease lifecycle.
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to

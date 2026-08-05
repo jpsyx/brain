@@ -4,19 +4,17 @@ use clap::Parser;
 
 use super::Cmd;
 
-pub(super) fn normalize_codex_aliases<I, S>(args: I) -> Vec<String>
+pub(super) fn normalize_agent_aliases<I, S>(args: I) -> Vec<String>
 where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
     args.into_iter()
         .map(Into::into)
-        .map(|arg| {
-            if arg == "-cx" {
-                "--codex".to_owned()
-            } else {
-                arg
-            }
+        .map(|arg| match arg.as_str() {
+            "-cx" => "--codex".to_owned(),
+            "-oc" => "--open-code".to_owned(),
+            _ => arg,
         })
         .collect()
 }
@@ -26,7 +24,7 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    extract_workspace_selectors(normalize_codex_aliases(args))
+    extract_workspace_selectors(normalize_agent_aliases(args))
 }
 
 fn extract_workspace_selectors(args: Vec<String>) -> Vec<String> {
@@ -111,6 +109,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub codex: bool,
 
+    /// Select the fail-fast OpenCode stub. Alias: -oc.
+    #[arg(long = "open-code", global = true)]
+    pub open_code: bool,
+
     /// Start the TUI-owned receiver server alongside the brain shell.
     #[arg(long, global = true)]
     pub with_receiver: bool,
@@ -129,15 +131,39 @@ pub struct Cli {
 
 impl Cli {
     /// Selected brain-panel agent frontend.
-    #[must_use]
-    pub const fn agent_kind(&self) -> crate::session::AgentKind {
-        if self.codex {
-            crate::session::AgentKind::Codex
-        } else {
-            crate::session::AgentKind::Claude
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AgentSelectionError::ConflictingFrontends`] when both
+    /// non-default frontend flags are present.
+    pub const fn selected_agent(&self) -> Result<crate::session::AgentKind, AgentSelectionError> {
+        match (self.codex, self.open_code) {
+            (true, true) => Err(AgentSelectionError::ConflictingFrontends),
+            (true, false) => Ok(crate::session::AgentKind::Codex),
+            (false, true) => Ok(crate::session::AgentKind::OpenCode),
+            (false, false) => Ok(crate::session::AgentKind::Claude),
         }
     }
 }
+
+/// Invalid brain-panel frontend selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentSelectionError {
+    /// More than one mutually exclusive non-default frontend was selected.
+    ConflictingFrontends,
+}
+
+impl std::fmt::Display for AgentSelectionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConflictingFrontends => {
+                formatter.write_str("Choose one agent frontend: --codex or --open-code.")
+            }
+        }
+    }
+}
+
+impl std::error::Error for AgentSelectionError {}
 
 #[cfg(test)]
 mod tests {
@@ -164,20 +190,20 @@ mod tests {
     fn codex_flag_selects_codex_frontend() {
         let cli = Cli::try_parse_from(["brain", "--codex"]).expect("parse");
         assert!(cli.codex);
-        assert_eq!(cli.agent_kind(), AgentKind::Codex);
+        assert_eq!(cli.selected_agent(), Ok(AgentKind::Codex));
     }
 
     #[test]
     fn cx_alias_selects_codex_frontend() {
-        let cli = Cli::try_parse_from(normalize_codex_aliases(["brain", "-cx"])).expect("parse");
+        let cli = Cli::try_parse_from(normalize_agent_aliases(["brain", "-cx"])).expect("parse");
         assert!(cli.codex);
-        assert_eq!(cli.agent_kind(), AgentKind::Codex);
+        assert_eq!(cli.selected_agent(), Ok(AgentKind::Codex));
     }
 
     #[test]
     fn claude_is_the_default_frontend() {
         let cli = Cli::try_parse_from(["brain"]).expect("parse");
-        assert_eq!(cli.agent_kind(), AgentKind::Claude);
+        assert_eq!(cli.selected_agent(), Ok(AgentKind::Claude));
     }
 
     #[test]

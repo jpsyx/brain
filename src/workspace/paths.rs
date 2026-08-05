@@ -71,6 +71,27 @@ impl WorkspacePaths {
         self.cache_dir.join("logs")
     }
 
+    /// Workspace-scoped runtime capability artifacts.
+    #[must_use]
+    pub fn capabilities_dir(&self) -> PathBuf {
+        self.cache_dir.join("capabilities")
+    }
+
+    /// Claude's selected-only runtime MCP configuration.
+    #[must_use]
+    pub fn capability_mcp_config(&self) -> PathBuf {
+        self.capabilities_dir().join("claude-mcp.json")
+    }
+
+    /// Actor-specific selected skill render, isolated from global registries.
+    #[must_use]
+    pub fn capability_skills_dir(&self, actor: &crate::users::UserId) -> PathBuf {
+        self.capabilities_dir()
+            .join("actors")
+            .join(actor.to_string())
+            .join("skills")
+    }
+
     /// The workspace-scoped synchronization runtime directory.
     #[must_use]
     pub fn sync_dir(&self) -> PathBuf {

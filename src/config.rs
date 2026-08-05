@@ -17,6 +17,13 @@ use serde_json::Value;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Portable advisory access policy for this workspace.
+    pub access_mode: crate::access::AccessMode,
+    /// Logical MCP server names available to workspace-only agent launches.
+    pub allowed_mcps: Vec<String>,
+    /// Logical skill names available to workspace-only agent launches.
+    #[serde(default = "default_allowed_skills")]
+    pub allowed_skills: Vec<String>,
     /// Whether Brain maintains its daily and weekly triage habit chains.
     pub enable_triage_habits: bool,
     /// Email address used for long-form responses requested over SMS.
@@ -69,6 +76,9 @@ where
 impl Default for Config {
     fn default() -> Self {
         Self {
+            access_mode: crate::access::AccessMode::Unrestricted,
+            allowed_mcps: Vec::new(),
+            allowed_skills: default_allowed_skills(),
             enable_triage_habits: true,
             response_email: String::new(),
             allowed_sms_senders: String::new(),
@@ -78,6 +88,12 @@ impl Default for Config {
             day_rollover_hour: 6,
         }
     }
+}
+
+fn default_allowed_skills() -> Vec<String> {
+    ["contacts", "second-brain", "todo", "triage"]
+        .map(str::to_owned)
+        .to_vec()
 }
 
 impl Config {
@@ -94,20 +110,41 @@ impl Config {
         Self::try_load_from_root(workspace.root())
     }
 
+    /// Load TUI startup state without parsing capability lists that unrestricted
+    /// sessions never consume. Access mode and every live TUI field remain strict.
+    pub(crate) fn try_load_for_startup(
+        workspace: &crate::workspace::WorkspaceContext,
+    ) -> anyhow::Result<Self> {
+        Self::try_load_for_startup_from_root(workspace.root())
+    }
+
+    fn try_load_for_startup_from_root(root: &std::path::Path) -> anyhow::Result<Self> {
+        let Some(mut value) = read_strict_config_value(root)? else {
+            return Ok(Self::default());
+        };
+        let access_mode = value
+            .get("access_mode")
+            .cloned()
+            .map_or(Ok(crate::access::AccessMode::Unrestricted), |value| {
+                serde_json::from_value(value).map_err(anyhow::Error::from)
+            })?;
+        if access_mode == crate::access::AccessMode::Unrestricted {
+            let object = value
+                .as_object_mut()
+                .expect("strict config reader returns an object");
+            object.remove("allowed_mcps");
+            object.remove("allowed_skills");
+        }
+        let mut config: Self = serde_json::from_value(value).map_err(anyhow::Error::from)?;
+        config.access_mode = access_mode;
+        Ok(config)
+    }
+
     /// Strictly load portable config from an explicit workspace root.
     pub(crate) fn try_load_from_root(root: &std::path::Path) -> anyhow::Result<Self> {
-        let path = root.join(".config/config.json");
-        let bytes = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::default());
-            }
-            Err(error) => return Err(anyhow::Error::from(error)),
+        let Some(value) = read_strict_config_value(root)? else {
+            return Ok(Self::default());
         };
-        let value: Value = serde_json::from_slice(&bytes).map_err(anyhow::Error::from)?;
-        if !value.is_object() {
-            anyhow::bail!("{} must contain a JSON object", path.display());
-        }
         serde_json::from_value(value).map_err(anyhow::Error::from)
     }
 
@@ -139,6 +176,20 @@ impl Config {
     pub fn allowed_email(&self) -> Vec<String> {
         split_allowlist(&self.allowed_email_senders)
     }
+}
+
+fn read_strict_config_value(root: &std::path::Path) -> anyhow::Result<Option<Value>> {
+    let path = root.join(".config/config.json");
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(anyhow::Error::from(error)),
+    };
+    let value: Value = serde_json::from_slice(&bytes).map_err(anyhow::Error::from)?;
+    if !value.is_object() {
+        anyhow::bail!("{} must contain a JSON object", path.display());
+    }
+    Ok(Some(value))
 }
 
 fn split_allowlist(raw: &str) -> Vec<String> {

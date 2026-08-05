@@ -7,42 +7,14 @@
 
 use std::path::Path;
 
-/// Which agent frontend the brain panel is running.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentKind {
-    /// Claude Code.
-    Claude,
-    /// OpenAI Codex.
-    Codex,
-}
-
-impl AgentKind {
-    /// Human label for UI copy.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Claude => "Claude",
-            Self::Codex => "Codex",
-        }
-    }
-
-    /// Stable state-database representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-        }
-    }
-}
+pub use crate::agent::AgentKind;
 
 /// What the brain panel should launch this run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Plan {
-    /// Resume an existing Claude session by id (`claude --resume <id>`).
+    /// Resume an existing frontend session by ID.
     Resume(String),
-    /// Start a new Claude session with a brain-chosen id
-    /// (`claude --session-id <uuid>`).
+    /// Start a new frontend session with a brain-chosen ID.
     Fresh(String),
 }
 
@@ -58,8 +30,7 @@ impl Plan {
 /// Single-quote a string for safe inclusion in a `sh -c` command line.
 #[must_use]
 pub fn shell_quote(s: &str) -> String {
-    let escaped = s.replace('\'', "'\\''");
-    format!("'{escaped}'")
+    crate::agent::frontend::shell_quote(s)
 }
 
 /// Build the shell command handed to the PTY.
@@ -75,42 +46,29 @@ pub fn shell_quote(s: &str) -> String {
 /// Defer / Start / Remove / agenda / triage / message-about-task actions).
 /// The brain-search view always passes `None` — its panel is typed into by
 /// hand.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns [`crate::agent::AgentError::EmptySessionId`] when the compatibility
+/// plan contains a blank session ID, or
+/// [`crate::agent::AgentError::UnsupportedFrontend`] for the OpenCode selection
+/// stub.
 pub fn build_llm_command(
     brain_root: &Path,
     agent_kind: AgentKind,
     llm_cmd: &str,
     plan: &Plan,
     prompt: Option<&str>,
-) -> String {
-    let mut parts = vec![
-        "cd".to_owned(),
-        shell_quote(&brain_root.display().to_string()),
-        "&&".to_owned(),
-        llm_cmd.trim().to_owned(),
-    ];
-    match (agent_kind, plan) {
-        (AgentKind::Claude, Plan::Resume(id)) => {
-            parts.push("--resume".to_owned());
-            parts.push(shell_quote(id));
-        }
-        (AgentKind::Claude, Plan::Fresh(id)) => {
-            parts.push("--session-id".to_owned());
-            parts.push(shell_quote(id));
-        }
-        (AgentKind::Codex, Plan::Resume(id)) => {
-            parts.push("resume".to_owned());
-            parts.push(shell_quote(id));
-        }
-        (AgentKind::Codex, Plan::Fresh(_)) => {}
-    }
-    if let Some(p) = prompt {
-        let trimmed = p.trim();
-        if !trimmed.is_empty() {
-            parts.push(shell_quote(trimmed));
-        }
-    }
-    parts.join(" ")
+) -> Result<String, crate::agent::AgentError> {
+    let session_plan = match plan {
+        Plan::Resume(id) => crate::agent::SessionPlan::resume(crate::agent::AgentSession::new(id)?),
+        Plan::Fresh(id) => crate::agent::SessionPlan::fresh(crate::agent::AgentSession::new(id)?),
+    };
+    let command = crate::agent::build_command(agent_kind, llm_cmd, &session_plan, prompt)?;
+    Ok(format!(
+        "cd {} && {command}",
+        shell_quote(&brain_root.display().to_string())
+    ))
 }
 
 /// Claude's project-dir name for a working directory.
@@ -123,10 +81,10 @@ pub fn build_llm_command(
 /// persisted a transcript before we hand its id to `claude --resume`.
 #[must_use]
 pub fn project_dir_name(brain_root: &Path) -> String {
-    brain_root.to_string_lossy().replace(['/', '.'], "-")
+    crate::agent::claude_project_dir_name(brain_root)
 }
 
-/// Selected workspace/actor identity plus session vars injected into Claude.
+/// Selected workspace/actor identity plus session vars injected into the agent.
 ///
 /// The SessionStart and Stop hooks use the matching UUID-scoped DB/response
 /// paths, including after `/new` / `/clear` re-sessions.
@@ -253,7 +211,8 @@ mod tests {
             "claude",
             &Plan::Fresh("uuid-1".to_owned()),
             None,
-        );
+        )
+        .expect("Claude fresh command");
         assert!(cmd.starts_with("cd '/Users/x/brain' && claude"));
         assert!(cmd.contains("--session-id 'uuid-1'"));
         assert!(!cmd.contains("--resume"));
@@ -267,7 +226,8 @@ mod tests {
             "claude",
             &Plan::Resume("sess-9".to_owned()),
             None,
-        );
+        )
+        .expect("Claude resume command");
         assert!(cmd.contains("--resume 'sess-9'"));
         assert!(!cmd.contains("--session-id"));
     }
@@ -283,7 +243,8 @@ mod tests {
             "claude --dangerously-skip-permissions",
             &Plan::Resume("sess-9".to_owned()),
             None,
-        );
+        )
+        .expect("configured Claude command");
         assert_eq!(
             cmd,
             "cd '/Users/x/brain' && claude --dangerously-skip-permissions --resume 'sess-9'"
@@ -298,7 +259,8 @@ mod tests {
             "claude",
             &Plan::Fresh("uuid-1".to_owned()),
             Some("Defer T123 by 7 days"),
-        );
+        )
+        .expect("Claude prompt command");
         assert!(cmd.ends_with("'Defer T123 by 7 days'"));
     }
 
@@ -310,9 +272,26 @@ mod tests {
             "claude",
             &Plan::Resume("sess-9".to_owned()),
             Some("   "),
-        );
+        )
+        .expect("Claude empty-prompt command");
         assert!(cmd.ends_with("--resume 'sess-9'"));
         assert!(!cmd.contains("''"));
+    }
+
+    #[test]
+    fn blank_legacy_session_ids_return_the_typed_validation_error() {
+        for plan in [Plan::Fresh("   ".to_owned()), Plan::Resume(String::new())] {
+            assert_eq!(
+                build_llm_command(
+                    &PathBuf::from("/Users/x/brain"),
+                    AgentKind::Claude,
+                    "claude",
+                    &plan,
+                    None,
+                ),
+                Err(crate::agent::AgentError::EmptySessionId)
+            );
+        }
     }
 
     #[test]
@@ -323,7 +302,8 @@ mod tests {
             "claude",
             &Plan::Fresh("u".to_owned()),
             Some("don't break"),
-        );
+        )
+        .expect("Claude quoted-prompt command");
         assert!(cmd.contains(r"'don'\''t break'"));
     }
 
@@ -335,7 +315,8 @@ mod tests {
             "codex",
             &Plan::Resume("sess-9".to_owned()),
             None,
-        );
+        )
+        .expect("Codex resume command");
         assert_eq!(cmd, "cd '/Users/x/brain' && codex resume 'sess-9'");
     }
 
@@ -347,13 +328,54 @@ mod tests {
             "codex --model gpt-5",
             &Plan::Fresh("uuid-1".to_owned()),
             Some("Start here"),
-        );
+        )
+        .expect("Codex fresh command");
         assert_eq!(
             cmd,
-            "cd '/Users/x/brain' && codex --model gpt-5 'Start here'"
+            "cd '/Users/x/brain' && codex --model gpt-5 -- 'Start here'"
         );
         assert!(!cmd.contains("--session-id"));
         assert!(!cmd.contains("--resume"));
+    }
+
+    #[test]
+    fn launch_matrix_preserves_cwd_prefix_and_frontend_specific_session_syntax() {
+        let root = PathBuf::from("/workspaces/family brain");
+        let prompt = Some("  don't lose this  ");
+
+        let cases = [
+            (
+                AgentKind::Claude,
+                " claude --model sonnet ",
+                Plan::Fresh("fresh-1".to_owned()),
+                "cd '/workspaces/family brain' && claude --model sonnet --session-id 'fresh-1' -- 'don'\\''t lose this'",
+            ),
+            (
+                AgentKind::Claude,
+                " claude --model sonnet ",
+                Plan::Resume("resume-1".to_owned()),
+                "cd '/workspaces/family brain' && claude --model sonnet --resume 'resume-1' -- 'don'\\''t lose this'",
+            ),
+            (
+                AgentKind::Codex,
+                " codex --model gpt-5 ",
+                Plan::Fresh("fresh-1".to_owned()),
+                "cd '/workspaces/family brain' && codex --model gpt-5 -- 'don'\\''t lose this'",
+            ),
+            (
+                AgentKind::Codex,
+                " codex --model gpt-5 ",
+                Plan::Resume("resume-1".to_owned()),
+                "cd '/workspaces/family brain' && codex --model gpt-5 resume 'resume-1' -- 'don'\\''t lose this'",
+            ),
+        ];
+
+        for (agent, configured_command, plan, expected) in cases {
+            assert_eq!(
+                build_llm_command(&root, agent, configured_command, &plan, prompt),
+                Ok(expected.to_owned())
+            );
+        }
     }
 
     #[test]
@@ -419,5 +441,24 @@ mod tests {
         let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
         assert!(!keys.contains(&"BRAIN_INSTANCE_ID"));
         assert!(!keys.contains(&"BRAIN_STATE_DB"));
+    }
+
+    #[test]
+    fn triage_env_stays_ephemeral_for_each_frontend() {
+        for (agent, expected_kind) in [(AgentKind::Claude, "claude"), (AgentKind::Codex, "codex")] {
+            let env = env_for_triage(
+                &workspace(),
+                &actor(),
+                agent,
+                "http://127.0.0.1:8787/triage/done",
+                "tok-9",
+            );
+            let keys: Vec<&str> = env.iter().map(|(key, _)| key.as_str()).collect();
+
+            assert!(env.contains(&("BRAIN_AGENT_KIND".to_owned(), expected_kind.to_owned())));
+            assert!(env.contains(&("BRAIN_TRIAGE_TOKEN".to_owned(), "tok-9".to_owned())));
+            assert!(!keys.contains(&"BRAIN_INSTANCE_ID"));
+            assert!(!keys.contains(&"BRAIN_STATE_DB"));
+        }
     }
 }

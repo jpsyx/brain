@@ -11,14 +11,15 @@ use ratatui::{
 };
 use tui_term::widget::PseudoTerminal;
 
-use crate::pty_pane::PtyPane;
 use crate::tui::*;
 
 pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
     let focused = app.focus == Panel::Brain;
     let has_triage = app.triage_brain.is_some();
     let active_tab = app.effective_brain_tab();
-    let alive = app.active_brain_pty().is_some_and(PtyPane::is_alive);
+    let alive = app
+        .active_brain_controller()
+        .is_some_and(|controller| controller.is_alive().unwrap_or(false));
 
     let border_color = if focused {
         Color::Rgb(125, 207, 255) // cyan accent — matches the rest of the palette
@@ -84,14 +85,17 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
 
     // Resize the active PTY + parser to match the inner terminal area. No-op
     // when dimensions match, so this is safe to call every frame.
-    if let Some(pty) = app.active_brain_pty_mut() {
+    if let Some(controller) = app.active_brain_controller_mut() {
         if term_area.height > 0 && term_area.width > 0 {
-            pty.resize(term_area.height, term_area.width);
+            let _ = controller.resize(term_area.height, term_area.width);
         }
     }
 
-    if let Some(pty) = app.active_brain_pty() {
-        if let Ok(parser) = pty.parser.read() {
+    if let Some(screen) = app
+        .active_brain_controller()
+        .and_then(|controller| controller.terminal_screen().ok().flatten())
+    {
+        if let Ok(parser) = screen.read() {
             let screen = parser.screen();
             let widget = PseudoTerminal::new(screen);
             f.render_widget(widget, term_area);

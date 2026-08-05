@@ -1,5 +1,41 @@
 //! Provider delivery decisions and narrow recipient authorization.
 
+/// Immutable data captured from a completed remote controller before teardown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CompletionDelivery {
+    snapshot: String,
+    actor: crate::actor::ActorContext,
+    channel: crate::server::receiver::Channel,
+}
+
+impl CompletionDelivery {
+    /// Capture the transport output and initiating identity from one controller.
+    #[must_use]
+    pub(crate) fn capture(controller: &crate::agent::AgentController) -> Option<Self> {
+        let channel = match controller.actor().channel() {
+            crate::actor::Channel::Sms => crate::server::receiver::Channel::Sms,
+            crate::actor::Channel::Email => crate::server::receiver::Channel::Email,
+            crate::actor::Channel::Interactive => return None,
+        };
+        Some(Self {
+            snapshot: controller.snapshot().ok()?,
+            actor: controller.actor().clone(),
+            channel,
+        })
+    }
+
+    /// Consume the captured delivery at the side-effect boundary.
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        String,
+        crate::actor::ActorContext,
+        crate::server::receiver::Channel,
+    ) {
+        (self.snapshot, self.actor, self.channel)
+    }
+}
+
 type DeliveryJob = Box<dyn FnOnce() + Send>;
 
 static DELIVERY_DISPATCHER: std::sync::LazyLock<

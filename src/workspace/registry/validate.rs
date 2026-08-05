@@ -23,6 +23,7 @@ pub enum RegistryOperation {
     CreateDirectory,
     CreateTemporary,
     WriteTemporary,
+    WritePortableConfig,
     SyncTemporary,
     ReplaceRegistry,
 }
@@ -41,6 +42,7 @@ impl Display for RegistryOperation {
             Self::CreateDirectory => "create workspace registry directory",
             Self::CreateTemporary => "create temporary workspace registry",
             Self::WriteTemporary => "write temporary workspace registry",
+            Self::WritePortableConfig => "write portable workspace config",
             Self::SyncTemporary => "sync temporary workspace registry",
             Self::ReplaceRegistry => "replace workspace registry",
         })

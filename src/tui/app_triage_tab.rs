@@ -12,8 +12,38 @@
 
 use super::*;
 
+use std::sync::Arc;
+
+use crate::agent::{AgentController, AgentSession, HookMetadata, LaunchRequest, SessionPlan};
 use crate::pty_pane::PtyPane;
-use crate::session::{self, AgentKind, Plan};
+
+#[cfg(not(test))]
+fn triage_done_url(_app: &mut App<'_>) -> anyhow::Result<String> {
+    crate::server::lifecycle::ensure_running()
+        .map(|port| crate::server::url(port, crate::triage_signal::DONE_PATH))
+}
+
+#[cfg(test)]
+fn triage_done_url(app: &mut App<'_>) -> anyhow::Result<String> {
+    if let Some(url) = app.triage_done_url_override.take() {
+        return Ok(url);
+    }
+    crate::server::lifecycle::ensure_running()
+        .map(|port| crate::server::url(port, crate::triage_signal::DONE_PATH))
+}
+
+#[cfg(not(test))]
+fn triage_transport(_app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+    Box::new(PtyPane::new(24, 80))
+}
+
+#[cfg(test)]
+fn triage_transport(app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+    if let Some(transport) = app.triage_transport_override.take() {
+        return transport;
+    }
+    Box::new(PtyPane::new(24, 80))
+}
 
 impl App<'_> {
     /// Whether the brain panel is on screen with *either* the main or the
@@ -28,17 +58,17 @@ impl App<'_> {
         resolve_active_tab(self.active_brain_tab, self.triage_brain.is_some())
     }
 
-    /// The PTY behind the currently-active tab, if any.
-    pub(crate) fn active_brain_pty(&self) -> Option<&PtyPane> {
+    /// The controller behind the currently-active tab, if any.
+    pub(crate) fn active_brain_controller(&self) -> Option<&AgentController> {
         match self.effective_brain_tab() {
             BrainTab::Triage => self.triage_brain.as_ref(),
             BrainTab::Main => self.brain.as_ref(),
         }
     }
 
-    /// Mutable counterpart of [`Self::active_brain_pty`] (used by the per-frame
-    /// PTY resize).
-    pub(crate) fn active_brain_pty_mut(&mut self) -> Option<&mut PtyPane> {
+    /// Mutable counterpart of [`Self::active_brain_controller`] used by the
+    /// per-frame terminal resize.
+    pub(crate) fn active_brain_controller_mut(&mut self) -> Option<&mut AgentController> {
         match self.effective_brain_tab() {
             BrainTab::Triage => self.triage_brain.as_mut(),
             BrainTab::Main => self.brain.as_mut(),
@@ -89,13 +119,17 @@ impl App<'_> {
     pub(crate) fn open_triage_tab(&mut self) {
         // Already running a triage tab — just focus it rather than spawning a
         // second one.
-        if self.triage_brain.as_ref().is_some_and(PtyPane::is_alive) {
+        if self
+            .triage_brain
+            .as_ref()
+            .is_some_and(|controller| controller.is_alive().unwrap_or(false))
+        {
             self.select_brain_tab(BrainTab::Triage);
             return;
         }
 
-        let done_url = match crate::server::lifecycle::ensure_running() {
-            Ok(port) => crate::server::url(port, crate::triage_signal::DONE_PATH),
+        let done_url = match triage_done_url(self) {
+            Ok(url) => url,
             Err(error) => {
                 crate::logging::log(format!(
                     "triage tab: brain server unavailable ({error}); running triage inline"
@@ -110,31 +144,38 @@ impl App<'_> {
         crate::triage_signal::clear();
 
         let token = uuid::Uuid::new_v4().to_string();
-        let llm_cmd = match self.agent_kind {
-            AgentKind::Claude => crate::env::claude_command(&self.command_context),
-            AgentKind::Codex => crate::env::codex_command(&self.command_context),
+        let session = AgentSession::new(uuid::Uuid::new_v4().to_string())
+            .expect("generated triage session id");
+        let capability_plan = match self.launch_capability_plan() {
+            Ok(plan) => plan,
+            Err(error) => {
+                crate::logging::log(format!("triage tab capability resolution failed: {error}"));
+                self.flash = Some(FlashKind::Error(format!(
+                    "agent capabilities are invalid: {error}"
+                )));
+                return;
+            }
         };
-        // A fresh, throwaway session id: never claimed, never registered in the
-        // DB, so the SessionStart hook (which keys off the absent
-        // BRAIN_INSTANCE_ID / BRAIN_STATE_DB) leaves it untracked.
-        let plan = Plan::Fresh(uuid::Uuid::new_v4().to_string());
-        let command = session::build_llm_command(
-            &self.brain_root,
-            self.agent_kind,
-            &llm_cmd,
-            &plan,
-            Some("/triage"),
+        let mut request = LaunchRequest::from_trusted_context(
+            Arc::clone(&self.command_context.workspace),
+            self.interactive_actor.clone(),
+            SessionPlan::fresh(session),
+            Some("/triage".to_owned()),
+            self.config.access_mode,
         );
-        let env = session::env_for_triage(
-            &self.command_context.workspace,
-            &self.interactive_actor,
-            self.agent_kind,
-            &done_url,
-            &token,
-        );
-        match PtyPane::spawn_shell_command_with_env(&command, &env, &self.brain_root, 24, 80) {
-            Ok(panel) => {
-                self.triage_brain = Some(panel);
+        if let Some(plan) = capability_plan {
+            request = request.with_capability_plan(plan);
+        }
+        request = request.with_hook_metadata(HookMetadata::new(vec![
+            ("BRAIN_TRIAGE_DONE_URL".to_owned(), done_url),
+            ("BRAIN_TRIAGE_TOKEN".to_owned(), token.clone()),
+        ]));
+        let transport = triage_transport(self);
+        let mut controller =
+            self.controller_for_transport(self.interactive_actor.clone(), transport);
+        match controller.launch(&request) {
+            Ok(()) => {
+                self.triage_brain = Some(controller);
                 self.triage_token = Some(token);
                 self.active_brain_tab = BrainTab::Triage;
                 self.focus = Panel::Brain;
@@ -161,7 +202,9 @@ impl App<'_> {
     /// reload the CSVs (a triage pass mutates tasks/habits). Returns focus to
     /// the main session when it's open, else to the tasks panel.
     pub(crate) fn close_triage_tab(&mut self) {
-        self.triage_brain = None;
+        if let Some(mut controller) = self.triage_brain.take() {
+            let _ = controller.shutdown();
+        }
         self.triage_token = None;
         self.active_brain_tab = BrainTab::Main;
         crate::triage_signal::clear();
@@ -182,7 +225,11 @@ impl App<'_> {
         let Some(expected) = self.triage_token.clone() else {
             return;
         };
-        if self.triage_brain.as_ref().is_some_and(|p| !p.is_alive()) {
+        if self
+            .triage_brain
+            .as_ref()
+            .is_some_and(|controller| controller.is_alive().is_ok_and(|alive| !alive))
+        {
             crate::logging::log("triage tab: session exited; closing");
             self.close_triage_tab();
             return;

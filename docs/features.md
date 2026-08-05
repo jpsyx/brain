@@ -48,6 +48,12 @@ while the selected agent has focus or the filter is being typed. macOS
 Option-produced equivalents are accepted too, so richer keyboard reporting in
 embedded frontends does not strand the scroll binding.
 
+Every live main or daily-triage session sits behind an `AgentController`.
+Keyboard, receiver, render, scroll, completion, and close paths call semantic
+operations on that facade; only the Claude and Codex adapters know their
+commands, input sequences, session rules, and hooks. Whole-shell teardown
+explicitly shuts down both controllers before their transports are dropped.
+
 **Closing vs quitting.** Exiting the agent (for Claude, `Ctrl-C` to end the
 turn, then `Ctrl-C` again to exit) **closes the brain panel** — the main view goes
 full-width and the shell keeps running. It does *not* quit `brain`. To
@@ -101,13 +107,31 @@ says so in the status line. See [integrations.md](integrations.md) and
 Codex is selected per run with `brain --codex`, `brain -cx`,
 `brain tasks --codex`, or `brain tasks -cx` and
 uses `codex_cmd` from brain env (default `codex`). Claude uses `claude_cmd`
-from brain env (default `claude --dangerously-skip-permissions`). Codex panels
-resume within the same frontend/workspace/actor/channel scope. Every TUI
+from brain env (default `claude --dangerously-skip-permissions`). Codex
+participates in the same frontend/workspace/actor/channel session store but
+currently rejects resume candidates, so live Codex panels start fresh. Every TUI
 startup refreshes the selected workspace's Claude and Codex hooks before state
 migration or agent launch, so remote prompts and completion delivery use the
 same current protocol. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
 queue key; Claude still receives `Enter`.
+
+Workspace-only launches also resolve portable logical MCP and skill allowlists
+against only the selected workspace's machine record. Claude receives selected
+MCPs through a cache-local runtime config while preserving the shared login.
+Brain reports this selection as strict only when `claude_cmd` is a safely parsed
+direct Claude invocation with no conflicting Brain-owned flags; indirect or
+shell-ambiguous commands are reported as advisory. Codex receives documented
+per-call config overrides, but its inherited
+global MCP and skill sources cannot currently be proven excluded. Selected
+skill names are trusted guidance for both frontends. `brain skills status`
+labels each requested capability as `strictly-selected`, `advisory-only`, or
+`unavailable`, rather than claiming isolation the frontend does not provide.
+Unrestricted launches skip capability parsing and remove stale workspace-only
+artifacts before using the frontend's ordinary global configuration. TUI
+startup therefore ignores malformed `allowed_mcps` or `allowed_skills` values
+only in unrestricted mode; it still validates `access_mode` and all live TUI
+settings, while workspace-only startup validates the capability lists too.
 
 **Swap the layout.** The palette's "Move brain panel to the left/right"
 command flips which side the brain panel sits on; the choice is persisted
@@ -188,6 +212,7 @@ management and reporting commands stay outside the persistent shell.
 | --- | --- |
 | `brain` | Open the persistent shell on the tasks view (the startup default) with the default Claude brain panel. |
 | `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. Claude remains the default. |
+| `brain --open-code` / `brain -oc` | Select the constructible OpenCode stub. It exits with a themed unsupported error before workspace bootstrap, TUI, PTY, hook, or server startup. `--codex --open-code` exits with `🔴 Choose one agent frontend: --codex or --open-code.` |
 | `brain --brain <workspace>` / `brain -b <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--brain=<workspace>` is equivalent; `--` ends option extraction. |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` may be passed before or after `tasks` to use Codex in the brain panel. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
@@ -203,6 +228,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
+| `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex enforcement level without printing connection material or credentials. |
 | `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
 | `brain --with-receiver` | Open the TUI and explicitly start its TUI-owned receiver server. |
 | `brain --no-daily-triage-check` | Open the TUI without ever showing the daily-triage startup nudge. Process-scoped (this run only); not a persistent config change. Combines with any other flag/subcommand. |
@@ -245,7 +271,8 @@ Reads and writes your **machine-local** brain env inside the selected workspace
 record in the schema-v2 registry (`$XDG_CONFIG_HOME/brain/env.json`, falling
 back to `~/.config/brain/env.json`). These are values that would be *wrong* if
 copied to another machine: `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
-self-healing), `claude_cmd`/`codex_cmd` (this machine's agent launch commands), and the
+self-healing), `claude_cmd`/`codex_cmd` (this machine's functional agent launch commands),
+`opencode_cmd` (reserved for the nonfunctional stub), and the
 Backblaze `sync` block (written by `brain sync setup`, below — see
 [config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:
@@ -310,8 +337,10 @@ delegated task values.
   manifest and local-ID repair surface. New portable workspaces select an
   existing person with `brain user local <id>`.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
-  text under `NO_COLOR`. Empty local user and unavailable portable
-  `access_mode` are shown as `setup pending`, not guessed.
+  text under `NO_COLOR`. Valid portable modes include an honest three-line
+  access/enforcement/sandbox status. Missing modes are seeded before listing;
+  malformed config or an invalid mode stops with an error instead of being
+  displayed as pending or guessed as unrestricted.
 
 For create, attach, remove, and repair, brain collects and validates all missing
 values from `/dev/tty` before legacy classification, migration, or mutation.
@@ -357,13 +386,27 @@ it. Rename updates the default's canonical name when needed. Changing the
 default workspace never changes access mode, UUID, root, local user, receiver
 switch, or env. Removing a workspace detaches the machine record only.
 
-The current Phase 2 boundary does not enforce access modes. The planned
-`workspace_only` mode is prompt-based guidance with light guardrails, not a
-filesystem sandbox, authentication boundary, container, or OS-user boundary.
-It aims only to reduce accidental and naive leakage between highly trusted,
-self-hosted workspaces. Canonical task `assigned_to` and managed triage-habit
-policy are now active. The agent-controller/OpenCode facade and shared receiver
-lease lifecycle remain later phases.
+The first migrated or created workspace defaults to `unrestricted`; later
+created or attached workspaces default to portable `workspace_only`. A selected
+valid schema-v2 record is checked before use: missing modes are seeded from its
+current default/nondefault status, while valid existing modes are preserved.
+Listing or explicitly migrating the registry checks every record. Changing
+the machine default cannot rewrite either mode. Every interactive, SMS, email, resumed,
+fresh, and daily-triage agent launch snapshots the selected workspace mode from
+trusted config. `workspace_only` adds advisory system/developer instructions,
+selected-root cwd, and a filtered child environment. The PTY evaluates the
+configured frontend command without loading login or interactive shell
+profiles, so those profiles cannot restore filtered variables. An initial
+prompt follows an explicit frontend option terminator, so option-looking user
+or inbound text stays prompt data. Workspace-only mode is easy to bypass. It
+reduces accidents and naive leakage among trusted users, but is unsuitable for
+adversarial users or sensitive isolation. Real isolation requires an external
+OS, VM, machine, or container boundary. Claude and Codex continue to use the
+user's shared frontend login; selecting a workspace does not create another
+identity.
+A pure literal-path check can warn about obvious absolute or `~/` paths outside
+the root, but paraphrasing, aliases, links, and indirect requests can bypass
+it; it is deliberately not a prompt-injection detector.
 
 ### `brain user`
 

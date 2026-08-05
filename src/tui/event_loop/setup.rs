@@ -61,6 +61,10 @@ fn acquire_singleton_then_refresh(
     Ok(guard)
 }
 
+fn load_startup_config(workspace: &crate::workspace::WorkspaceContext) -> Result<Config> {
+    Config::try_load_for_startup(workspace)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_tui(
     command_context: &crate::workspace::CommandContext,
@@ -125,14 +129,14 @@ pub fn run_tui(
     let mut terminal = Terminal::new(backend)?;
 
     // Persistent state: open the session DB. Each tasks-shell invocation gets
-    // a fresh instance id; the Claude SessionStart hook reads BRAIN_* env vars
-    // to attribute brain-panel Claude sessions to this shell.
+    // a fresh instance id; the SessionStart integration reads BRAIN_* env vars
+    // to attribute brain-panel sessions to this shell.
     let db = Db::open(&command_context.workspace)?;
-    let config = Config::load(&command_context.workspace);
+    let config = load_startup_config(&command_context.workspace)?;
     // Best-effort maintenance before this shell touches anything: free
     // session locks held by tasks shells that have since died, so their
     // sessions become resumable. A failure here must never block startup.
-    let _ = db.reap_dead_locks();
+    let _ = crate::agent::SessionStore::reap_dead_locks(&db);
     let instance = uuid::Uuid::new_v4().to_string();
     // Retain the root chosen once at workspace bootstrap; a later default
     // change cannot redirect this TUI.
@@ -237,6 +241,8 @@ pub fn run_tui(
     };
     let result = event_loop(&mut terminal, &mut app);
 
+    app.shutdown_agent_controllers();
+
     // Local changes are already pushed by the watcher. Exit performs no pull
     // or timer-driven reconciliation; downstream sync happens only at startup
     // or at the receiver's two-hour freshness gate.
@@ -261,7 +267,16 @@ pub fn run_tui(
 
 #[cfg(test)]
 mod tests {
-    use super::{acquire_singleton_then_refresh, startup_sync_plan};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use crate::access::AccessMode;
+    use crate::agent::{
+        AgentFrontend, AgentSession, ClaudeFrontend, CodexFrontend, LaunchRequest, SessionPlan,
+    };
+    use crate::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
+
+    use super::{acquire_singleton_then_refresh, load_startup_config, startup_sync_plan};
 
     #[test]
     fn suppressed_startup_alert_still_waits_to_refresh_synced_state() {
@@ -296,5 +311,81 @@ mod tests {
 
         assert!(result.is_err());
         assert!(!marker.exists());
+    }
+
+    #[test]
+    fn unrestricted_startup_ignores_malformed_unused_capability_fields_for_both_frontends() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("brain");
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        std::fs::write(
+            root.join(".config/config.json"),
+            r#"{
+                "access_mode": "unrestricted",
+                "allowed_mcps": "malformed",
+                "allowed_skills": {"malformed": true},
+                "enable_triage_habits": true
+            }"#,
+        )
+        .unwrap();
+        let workspace = Arc::new(
+            WorkspaceContext::new(
+                temp.path(),
+                WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+                WorkspaceName::parse("brain").unwrap(),
+                &root,
+                "pablo",
+                temp.path(),
+            )
+            .unwrap(),
+        );
+
+        let config = load_startup_config(&workspace).expect("unrestricted startup config");
+
+        assert_eq!(config.access_mode, AccessMode::Unrestricted);
+        for frontend in [
+            Box::new(ClaudeFrontend::new(
+                "claude",
+                root,
+                PathBuf::from("/unused/projects"),
+            )) as Box<dyn AgentFrontend>,
+            Box::new(CodexFrontend::new("codex")),
+        ] {
+            let request = LaunchRequest::from_trusted_context(
+                Arc::clone(&workspace),
+                crate::actor::test_actor("pablo"),
+                SessionPlan::fresh(AgentSession::new("session-1").unwrap()),
+                None,
+                config.access_mode,
+            );
+            frontend
+                .launch_spec(&request)
+                .expect("unrestricted frontend startup spec");
+        }
+    }
+
+    #[test]
+    fn startup_remains_strict_for_access_mode_workspace_capabilities_and_live_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("brain");
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        let workspace = WorkspaceContext::new(
+            temp.path(),
+            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+            WorkspaceName::parse("brain").unwrap(),
+            &root,
+            "pablo",
+            temp.path(),
+        )
+        .unwrap();
+
+        for body in [
+            r#"{"access_mode":"invalid"}"#,
+            r#"{"access_mode":"workspace_only","allowed_mcps":"malformed"}"#,
+            r#"{"access_mode":"unrestricted","enable_triage_habits":"malformed"}"#,
+        ] {
+            std::fs::write(root.join(".config/config.json"), body).unwrap();
+            assert!(load_startup_config(&workspace).is_err(), "accepted {body}");
+        }
     }
 }

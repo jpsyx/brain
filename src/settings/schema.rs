@@ -16,7 +16,22 @@ pub(super) struct VarSpec {
 /// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
 /// or the `~/brain` default and edited by hand, never via `brain config`
 /// (see [`crate::paths`]).
-pub(super) const VARS: [VarSpec; 10] = [
+pub(super) const VARS: [VarSpec; 13] = [
+    VarSpec {
+        name: "access_mode",
+        description: "Portable workspace access policy: unrestricted or workspace_only (advisory, not a filesystem sandbox).",
+        default: Some("unrestricted"),
+    },
+    VarSpec {
+        name: "allowed_mcps",
+        description: "Portable logical MCP allowlist for workspace-only launches. Connection and credential material stays in brain env.",
+        default: Some("[]"),
+    },
+    VarSpec {
+        name: "allowed_skills",
+        description: "Portable logical skill allowlist for workspace-only launches. An explicit empty list disables all skills.",
+        default: Some("[\"contacts\",\"second-brain\",\"todo\",\"triage\"]"),
+    },
     VarSpec {
         name: "enable_triage_habits",
         description: "When true, Brain maintains protected daily and weekly triage habit chains. Disabling purges their managed rows and derived references.",

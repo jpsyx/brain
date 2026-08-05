@@ -384,16 +384,18 @@ and an empty `local_user_id`; the outcome marks local identity setup required,
 and migration does not invent that user identity.
 Existing flat bytes are copied exactly
 to the first free adjacent `env.json.legacy-backup[.N]` before atomic registry
-replacement. A valid v2 input is never rewritten or backed up, making reruns
-UUID-stable and byte-stable.
+replacement. A valid v2 registry input is never rewritten or backed up, making
+reruns UUID-stable and byte-stable. Before that path succeeds, Brain strictly
+validates each registered root's portable access mode and atomically seeds
+missing modes: the current default receives `unrestricted`, and nondefault
+roots receive `workspace_only`. Valid existing values are never rewritten.
 
-The valid-v2 path does not inspect the default workspace's portable config.
 On a machine with no registry, a first explicit create/attach establishes the
 requested workspace directly. A fresh ordinary or repair invocation instead
 synthesizes the compatible default `brain` workspace and then crosses the
 normal readiness boundary.
 
-### Current boundary versus planned policy
+### Current identity and schema boundary
 
 The current release resolves one immutable `ActorContext` at ordinary command
 bootstrap, before task, reindex, TUI, or local-agent work. Local/TUI work
@@ -454,18 +456,66 @@ malformed JSON, invalid UTF-8 indexes, and traversal errors abort the whole
 transaction before publication. A display reference shared with an unmanaged
 row is preserved because the surviving row remains its possible target.
 
-The release still does not implement access-mode enforcement, the
-agent-controller/OpenCode facade, or the final shared receiver lifecycle. It
-also does not activate the task-schema migrator or mutate a real legacy
-workspace; Phase 5 owns coordinated activation after the last legacy sync.
+## Portable access policy (`access/`, `.config/config.json`)
 
-The planned `workspace_only` mode is prompt-based guidance plus light
-guardrails. It is not a filesystem sandbox, authentication boundary,
-container, OS-account boundary, or defense against a malicious trusted user.
-Its purpose is limited to reducing accidental and naive cross-workspace
-leakage in a high-trust self-hosted installation. The migrated/default
-workspace remains unrestricted unless that later access-policy phase
-explicitly configures it otherwise.
+`AccessMode` accepts exactly `unrestricted` and `workspace_only`. It is
+portable workspace data, not a field in `MachineRegistry`: the first migrated
+or created root is seeded unrestricted, later created roots are seeded
+workspace-only, and a default-workspace change never rewrites either file.
+Attach and valid-v2 startup apply the same default/nondefault rule to missing
+values before registry publication or readiness succeeds. Existing config is
+strictly parsed, unrelated fields are preserved, and access writes use a
+same-directory temporary, file sync, atomic replace, and parent-directory sync.
+Malformed/non-object config and invalid stored modes are errors, never an
+implicit unrestricted fallback.
+
+At launch, `AccessPolicy` snapshots the trusted mode, selected
+`WorkspaceContext`, and resolved `ActorContext`. User and inbound message text
+remain only in `LaunchRequest::initial_prompt`; it cannot change the policy
+snapshot. Unrestricted mode has no boundary prompt. Workspace-only mode builds
+one advisory prompt naming the selected root and actor, then every interactive,
+SMS, email, fresh, resumed, and triage request carries it to the selected
+frontend. Initial prompt text follows the frontend's option terminator, so a
+leading `-` remains prompt data. The policy is easy-to-bypass prompt guidance
+plus capability filtering. It reduces accidents and naive leakage among
+trusted users, but it is not suitable for adversarial or sensitive isolation;
+that requires an external OS, VM, machine, or container boundary.
+
+`CapabilityPlan` is a separate immutable launch snapshot. Portable config owns
+only ordered logical `allowed_mcps` and `allowed_skills` names. Resolution reads
+only `agent_capabilities` from the already-selected machine registry record and
+retains that record's workspace UUID as credential provenance. Missing MCP
+connection data, incomplete credentials, and missing custom skill paths become
+`Unavailable`. Logical names use a lower-case canonical form derived from an
+ASCII letter/digit plus ASCII letters, digits, `.`, `_`, or `-`; whitespace,
+controls, Unicode, other punctuation, and duplicates after case normalization
+are configuration errors. MCP commands are exact non-whitespace executables
+with control-free argument strings. HTTP transports require exact `http` or
+`https` URLs with a host and control-free header data. Credential kinds must
+match their transport, and protected frontend environment names are rejected.
+Unrestricted plans delegate to frontend global configuration. Workspace-only
+plans preserve an explicit empty list, while a missing skill list receives the
+four core defaults. The controller requires one workspace-only plan and rejects
+a mode mismatch or credential provenance UUID from another workspace before
+frontend translation.
+
+A machine skill `path` is absolute. Its root-owned first component is the
+trusted source anchor. Brain canonicalizes that anchor and the complete path,
+requires the result to stay below the anchor, rejects symlinks in every
+component below it and in all source descendants, and stores the canonical
+path in the capability plan. This accommodates operating-system aliases such
+as `/var` without treating a configurable parent symlink as trusted.
+
+Capability artifacts use the selected workspace's UUID cache directory as
+their trusted filesystem root. Recursive cleanup validates that root and every
+ancestor of its target with `symlink_metadata`; the final target may be an
+unlinked symlink, but no ancestor symlink is followed. Missing targets are a
+no-op and any unexpected entry type fails closed.
+
+`classify_obvious_outside_path` is a pure defense-in-depth warning for literal
+absolute and `~/` paths. It does not resolve symlinks or aliases and does not
+attempt prompt-injection detection. Paraphrasing and indirect requests can
+bypass it.
 
 ## Persistent state (`state.rs`, `<workspace-cache>/state.db`)
 
@@ -486,6 +536,7 @@ brain_sessions(
   channel            TEXT NOT NULL,  -- interactive | sms | email
   created_at         INTEGER NOT NULL,
   last_active_at     INTEGER NOT NULL,
+  completion_status  TEXT NOT NULL,  -- active | completed
   PRIMARY KEY(agent_kind, agent_session_id, workspace_id, actor_id, channel)
 )
 meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)
@@ -503,31 +554,43 @@ without a manual `brain skills sync`.
 
 **The lock + recency model.** A session is "free" when `locked_pid IS NULL`.
 
-- `sessions_by_recency` selects free sessions only within the exact
+- `SessionStore::sessions_by_recency` selects free sessions only within the exact
   agent/workspace/actor/channel scope, newest (`last_active_at DESC`)
-  first. The caller walks them and resumes the first whose **transcript
-  exists** on disk (`tui::session_transcript_exists` +
-  `session::project_dir_name`) — a session opened but never chatted in has a
+  first. Claude walks them and resumes the first whose **transcript
+  exists** on disk (`ClaudeFrontend::resume_candidate_exists` +
+  `agent::claude::project_dir_name`); a session opened but never chatted in has a
   DB row but no `<id>.jsonl`, and `claude --resume` can't find it, so it's
   skipped (and the user gets a status-line alert when that forces a fresh
-  chat).
-- `claim` → lock a free session in the exact composite scope to this
+  chat). Codex participates in the same store but currently rejects resume
+  candidates and starts fresh.
+- `SessionStore::claim` → lock a free session in the exact composite scope to this
   shell's PID (loses cleanly if another shell grabbed that scoped row first).
-- `register_scoped_fresh` inserts a new Claude session with complete immutable
-  attribution. Hooks record actual Claude or Codex session IDs.
-- Legacy schema-v2 rows migrate transactionally as Claude, interactive rows
+- `SessionStore::register` inserts a fresh placeholder for either frontend with
+  complete immutable attribution and `active` status. SessionStart records the
+  actual Claude or Codex session ID only when the exact tuple is registered or
+  the ID rotates an already registered active shell lineage; every other hook
+  event is rejected. The authorization reads and accepted rotation mutation
+  share one `BEGIN IMMEDIATE` transaction, so concurrent target claims are
+  serialized and a rejected or failed attempt preserves both lineages.
+- `SessionStore::mark_completed` and the Stop hook transition the exact scoped
+  row to `completed`; an accepted SessionStart or
+  `SessionStore::mark_active` after a successful local or queued submit returns
+  it to `active`.
+- Legacy schema-v2 through schema-v4 rows migrate transactionally as Claude,
+  interactive rows
   for the selected workspace and its machine-local user; existing locks,
-  source, and timestamps are preserved.
+  source, and timestamps are preserved. Schema v5 adds
+  `completion_status`, defaulting every existing row to `active`.
 - Receiver runtime state distinguishes an active remote job
   (`receiver_started` is set) from a warm channel panel (`receiver_session_id`
   plus a three-minute `receiver_lease`). A warm lease never counts as active
   LLM work. This lets Stop-hook completion release queued work while keeping
   the completed SMS/email conversation visible and reusable.
-- `release` → when the panel closes (claude exits) or the shell quits, clear
+- `SessionStore::release` → when the panel closes (the agent exits) or the shell quits, clear
   this instance's locks and stamp `last_active` (floats it to the top of the
   next resume — so re-opening with "Message brain" picks it back up, and a
   second terminal could too).
-- `reap_dead_locks` → on startup, free exact scoped rows whose PID is no
+- `SessionStore::reap_dead_locks` → on startup, free exact scoped rows whose PID is no
   longer alive (`kill -0`), so a crashed shell doesn't strand its session.
   Equal opaque IDs in other frontend/workspace/actor/channel scopes remain
   independent.
@@ -539,12 +602,20 @@ hook frees the instance's others on every start, handling `/new`). The
 because it's the persisted layout value.
 
 **The daily-triage tab is deliberately *absent* from this table.** The
-ephemeral triage session (`App.triage_brain`) is launched with
-`session::env_for_triage`, which omits `BRAIN_INSTANCE_ID` / `BRAIN_STATE_DB`;
-the SessionStart hook no-ops without them, so no `brain_sessions` row is ever
-written and it is never a resume candidate. It lives only in process memory
-(`App.triage_brain` / `App.active_brain_tab: BrainTab` / `App.triage_token`) and
-is torn down when triage completes or the shell exits.
+ephemeral triage session (`App.triage_brain`) is launched by an
+`AgentController` from a fresh `LaunchRequest`. Its hook metadata carries the
+triage done URL and token but no `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, or
+`BRAIN_RESPONSE_ID`. The SessionStart hook no-ops without the tracking values,
+so no `brain_sessions` row is ever written and it is never a resume candidate.
+It lives only in process memory (`App.triage_brain` /
+`App.active_brain_tab: BrainTab` / `App.triage_token`) and is torn down when
+triage completes or the shell exits.
+
+Both main and triage values are `AgentController` instances, not raw PTYs.
+Their shared semantic API owns launch, input, session, completion, terminal,
+and shutdown behavior; only frontend adapters translate those operations.
+Whole-shell teardown explicitly shuts down both controllers before releasing
+the session-store lock.
 
 ## Daily-triage completion signal (`triage_signal.rs`, `~/.cache/brain/triage-done.json`)
 
@@ -626,8 +697,10 @@ See [config.md](config.md) for migration and storage details.
 | Variable | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
-| `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Read by `env::claude_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
-| `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Read by `env::codex_command`; blank falls back to `codex`. |
+| `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
+| `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to `codex`. |
+| `opencode_cmd` | `String` | `opencode` | Reserved command for the constructible OpenCode stub. Blank falls back to `opencode`; no lifecycle path executes it. |
+| `agent_capabilities` | `Object` | *(unset)* | Selected-workspace machine material. `mcps[]` contains a logical `name`, exactly one `command` plus optional `args` or `url`, and optional `credentials` (`environment`, `headers`, `bearer_token`). `skills[]` contains a logical `name` and machine-local directory `path`. Credential descendants render as `(set)` in env listings. |
 
 All declared env variables and recursively flattened nested values render
 through the same `Resolved { name, value, description }` type `brain config`

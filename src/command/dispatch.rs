@@ -48,6 +48,7 @@ pub fn run(
     agent_kind: crate::session::AgentKind,
     bootstrap: &BootstrapContext,
 ) -> Result<()> {
+    validate_agent_kind(agent_kind)?;
     let capability = capability_for(invocation_for(&cli), bootstrap)?;
     if let Some(Cmd::Workspace(args)) = &cli.command {
         crate::logging::log("dispatch workspace");
@@ -174,6 +175,22 @@ pub fn run(
             | Cmd::Workspace(_)
             | Cmd::User(_),
         ) => unreachable!("short-lived command dispatched above"),
+    }
+}
+
+/// Reject a known selection stub before workspace, TUI, hook, server, or PTY setup.
+///
+/// # Errors
+///
+/// Returns [`crate::agent::AgentError::UnsupportedFrontend`] for OpenCode.
+pub fn validate_agent_kind(
+    agent_kind: crate::session::AgentKind,
+) -> Result<(), crate::agent::AgentError> {
+    match agent_kind {
+        crate::session::AgentKind::Claude | crate::session::AgentKind::Codex => Ok(()),
+        crate::session::AgentKind::OpenCode => Err(crate::agent::AgentError::UnsupportedFrontend(
+            crate::session::AgentKind::OpenCode,
+        )),
     }
 }
 

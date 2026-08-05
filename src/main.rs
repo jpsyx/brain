@@ -4,11 +4,28 @@ use anyhow::Result;
 
 fn main() -> Result<()> {
     let mut cli = brain::cli::parse();
-    let agent_kind = cli.agent_kind();
+    let agent_kind = match cli.selected_agent() {
+        Ok(agent_kind) => agent_kind,
+        Err(error) => {
+            eprintln!(
+                "{}",
+                brain::theme::Theme::active().error_line("🔴", &error.to_string())
+            );
+            std::process::exit(2);
+        }
+    };
 
     if cli.print_version || matches!(&cli.command, Some(brain::cli::Cmd::Version)) {
         print!("{}", brain::cli::version_line());
         return Ok(());
+    }
+
+    if let Err(error) = brain::command::dispatch::validate_agent_kind(agent_kind) {
+        eprintln!(
+            "{}",
+            brain::theme::Theme::active().error_line("🔴", &error.to_string())
+        );
+        std::process::exit(2);
     }
 
     let log_guard = brain::logging::init(cli.verbose, true)?;

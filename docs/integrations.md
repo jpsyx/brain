@@ -92,33 +92,142 @@ helpers and shell-outs live in the tasks modules:
   download URLs. The listener stops with the owning TUI, so a machine does not
   receive remote messages unless the user explicitly starts it with
   `brain --with-receiver` or the command palette.
-- **`cd <root> && <agent_cmd> …`** — the brain panel's PTY, shared by both
-  main views (see below).
+- **`<agent_cmd> …` with cwd set to `<root>`**: the brain panel's PTY,
+  shared by both main views (see below).
 
 This is the "central dispatch" design: `brain` is the single terminal command,
 and each capability is either an in-process main view (tasks, brain-directory
 search) or a spawned process it drives (Claude or Codex for conversational work,
 Finder/editor for files, `markdown-to-pdf` for conversions).
 
-## The Brain Panel: Claude Or Codex
+## The Brain Panel: Claude, Codex, Or The OpenCode Stub
 
 The persistent shell's brain panel spawns the selected agent frontend itself,
 inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex`,
 `brain -cx`, `brain tasks --codex`, or `brain tasks -cx` to run Codex instead.
+`brain --open-code` and `brain -oc` select a constructible OpenCode adapter that
+always returns `UnsupportedFrontend(OpenCode)`. Selection exits before workspace
+bootstrap, the TUI, a PTY, hook installation, or server startup. Brain never
+executes `opencode`, looks up OpenCode sessions, installs OpenCode hooks, or
+delivers receiver work through it. Selecting both non-default frontends exits
+with `🔴 Choose one agent frontend: --codex or --open-code.`
 
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
-| Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `cd <root> && <claude_cmd> --resume <id>` or `--session-id <id>` |
-| Codex | `codex_cmd` in brain env, default `codex` | `cd <root> && <codex_cmd> resume <id>` when resuming a known Codex id; fresh launches are `cd <root> && <codex_cmd>` with no Claude-only flags |
+| Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `<claude_cmd> [--mcp-config <cache-json> --strict-mcp-config] --resume <id>` or `--session-id <id>` |
+| Codex | `codex_cmd` in brain env, default `codex` | Current panels launch fresh as `<codex_cmd> [-c <capability-override>...]`; the adapter retains `resume <id>` for a future validated resume source |
+| OpenCode stub | `opencode_cmd` in brain env, default `opencode` | No launch shape. The value is represented but never executed. |
 
-Both commands are built by `session::build_llm_command`, which splices the
-configured base command in verbatim so it may carry its own flags. brain never
-depends on a shell alias. The PTY's working directory is **also** set to the
-already-selected `WorkspaceContext::root()`, so the agent starts in that
-workspace from the first instant without consulting the default workspace.
+`agent::ClaudeFrontend` and `agent::CodexFrontend` own these command shapes and
+splice the configured base command in verbatim so it may carry its own flags.
+`agent::OpenCodeFrontend` owns only stable identity and typed unsupported
+results. All frontend operations are fallible so the controller can reject the
+stub before a transport side effect.
+Before the main panel claims a free resumable session, it resolves the selected
+workspace's capability plan and asks the adapter for the candidate's stable
+response identity. A validation or identity error therefore cannot strand a
+free session as claimed. If the later transport launch fails, Brain releases
+the instance claim and clears the response identity for the attempted
+interactive or receiver launch.
+The TUI owns an `AgentController` for each live main or triage panel and calls
+semantic submit, queue, new-session, snapshot, and shutdown operations. The
+crate-level `session::build_llm_command` remains a compatibility wrapper for
+pure callers. `PtyPane` implements the frontend-neutral transport and
+applies a complete launch spec; its working directory is set to the
+already-selected `WorkspaceContext::root()` before the child starts, so the
+agent begins in that workspace from the first instant without consulting the
+default workspace. The transport evaluates the configured command with fixed
+`/bin/sh -c`; it does not load a login or interactive profile and never depends
+on a shell alias.
 
-When brain injects a prompt into an already-open panel, it sends the text first
-and the final submit key a couple of event-loop ticks later so the frontend
+Trusted `HookMetadata` lives on `LaunchRequest` and is merged into the explicit
+child environment by each functional adapter. The separate hook slot retained
+on `LaunchSpec` is reserved and empty; the PTY transport does not interpret it.
+When the shell exits, Brain explicitly shuts down both live controllers before
+releasing the session lock, so teardown does not depend on `PtyPane::drop`.
+
+Every `LaunchRequest` also carries an immutable access-policy snapshot built
+from the selected workspace, resolved actor, and portable config before any
+user or inbound prompt is considered. In `workspace_only` mode, Claude receives
+that advisory through `--append-system-prompt`; Codex receives it through the
+`developer_instructions` config override. The ordinary user prompt remains a
+separate argument after the frontend's `--` option terminator, so prompt text
+that begins with `-` cannot become a Claude flag or Codex config override.
+Fresh, resumed, interactive, SMS, email, and daily-triage
+requests use the same policy construction. Unrestricted mode adds no policy
+instruction.
+
+Capability selection is separate from the boundary prompt. Portable config
+requests logical MCP and skill names; only the selected workspace registry
+record supplies commands, URLs, paths, and credentials. Claude writes selected
+available MCPs atomically to
+`~/.cache/brain/workspaces/<uuid>/capabilities/claude-mcp.json`, keeps the
+directory owner-only and the file mode `0600`, and launches with
+`--mcp-config` plus `--strict-mcp-config`. It does not use `--bare`, so the
+user's shared Claude authentication remains in effect. Strict selection is
+claimed only when the configured command can be parsed as a direct `claude`
+invocation without shell operators, comments, option terminators, or
+Brain-owned MCP/session/prompt flags. Other configured commands still receive
+the generated flags but are honestly reported as advisory because Brain cannot
+prove that the shell executes them. The installed Claude CLI has no verified
+select-some skill flag, so skills remain advisory.
+
+Codex receives only documented per-call `-c mcp_servers.*` overrides. Server
+keys use the full workspace UUID plus a byte-hex logical name, avoiding both
+global-name collisions and punctuation collisions. Credential values travel in
+the child environment and the overrides name their environment variables, so
+secrets do not appear in argv. For stdio servers, each selected server receives
+collision-free generated environment names through an owner-only wrapper; the
+wrapper remaps them to the server's requested child names immediately before
+`exec`. Frontend/auth/lifecycle names such as `HOME`, `PATH`, `CODEX_HOME`,
+provider API keys, and `BRAIN_*` are rejected as MCP credential targets.
+Because dotted overrides merge with Codex's base
+configuration and do not prove exclusion of unrelated global servers, Codex
+MCP and skill enforcement remains advisory. Brain does not set `CODEX_HOME` or
+select a separate profile.
+
+The selected skill view is rendered per workspace UUID and actor below the
+capability cache. It incorporates that root's extensions and contains only
+available selected sources. Machine sources are loaded from exactly their
+configured absolute directory. The root-owned first path component is the
+explicit trust anchor (so a platform alias such as `/var` can be canonicalized);
+the resolved directory must remain below that canonical anchor, and every
+component beneath the anchor, the skill root, and every descendant entry must
+be symlink-free. The canonical path is retained in the launch plan, so a
+retargeted parent link cannot redirect a later render. Brain never searches a
+sibling directory by logical name. It creates no links into the shared skill
+registry,
+so switching workspaces cannot prune or rewrite global skill state. Run
+`brain skills status` for requested, available, and frontend enforcement rows;
+the formatter never receives connection values or credentials.
+
+Capability artifacts are frontend-lifecycle state. A Claude launch removes
+stale Codex wrappers and abandoned Claude temporary files; a Codex launch
+removes stale Claude JSON and temporary files. Unrestricted launches remove the
+whole workspace capability cache. Cleanup treats symlinks as links rather than
+following them. Before any recursive removal, Brain validates the trusted
+workspace cache root and each existing component down through
+`capabilities/actors/<actor>/skills`; a symlinked ancestor fails the launch
+closed. Successful atomic publications sync their parent directory.
+Debug formatting exposes names and enforcement metadata only; connection
+material, credential values, prompts, hook values, commands, and launch
+environment values are redacted.
+
+The PTY clears inherited environment before launch. The explicit replacement
+contains only a narrow set of frontend runtime necessities (`HOME`, `PATH`,
+`SHELL`, user/locale/temp values, and `SSH_AUTH_SOCK` when present), the selected
+workspace and actor's `BRAIN_*` identity, frontend kind, and trusted hook
+metadata. It does not forward provider API keys, another workspace's secrets,
+or registry JSON. Using a non-profile shell also prevents startup files from
+rehydrating variables removed by the environment filter. This filtering and
+the trusted prompt reduce accidents and naive leakage among trusted users.
+They remain easy to bypass, are unsuitable for adversarial users or sensitive
+isolation, and do not replace an external OS, VM, machine, or container
+boundary.
+
+When brain injects a prompt into an already-open panel, the controller sends
+the text first and owns the final semantic queue action a couple of event-loop
+ticks later so the frontend
 doesn't treat the submit key as part of a paste. Claude receives `Enter`.
 Codex receives `Tab`, because Codex uses `Tab` to queue a message behind active
 work and treats `Enter` as immediate steering.
@@ -137,14 +246,15 @@ retry.
 Answering **Yes** to the startup daily-triage nudge spawns a *second*,
 ephemeral agent session as a brain-panel tab (`App::triage_brain`,
 `app_triage_tab.rs`) rather than typing `/triage` into the main session. It is
-launched through the same `session::build_llm_command` seeded with `/triage`,
-but with two deliberate differences from the main panel:
+launched through an `AgentController` and a fresh `LaunchRequest` seeded with
+`/triage`, but with two deliberate differences from the main panel:
 
-- **It is never tracked.** `session::env_for_triage` injects the five common
-  workspace/actor variables plus `BRAIN_TRIAGE_DONE_URL` and
-  `BRAIN_TRIAGE_TOKEN`, but **omits** `BRAIN_INSTANCE_ID` /
-  `BRAIN_STATE_DB`. The SessionStart hook requires those tracking variables in
-  addition to workspace identity, so the triage session is never written to
+- **It is never tracked.** Its `HookMetadata` contains only
+  `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. The selected adapter adds
+  the common workspace identity and `BRAIN_AGENT_KIND`, while
+  `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, and `BRAIN_RESPONSE_ID` remain absent.
+  The SessionStart hook requires those tracking variables in addition to
+  workspace identity, so the triage session is never written to
   `brain_sessions` and is never a resume candidate.
 - **Completion is signalled, not inferred.** A triage pass can involve
   back-and-forth with the user, so "the agent went idle" is not a reliable done
@@ -185,19 +295,22 @@ Which session to run is decided by the **lock + recency** model in
    frontend/workspace/actor/channel scope
    and resumes the first whose **transcript actually exists** on disk —
    `~/.claude/projects/<mangled selected-root>/<id>.jsonl`
-   (`session::project_dir_name` + a fallback scan). A session opened but
+   (the Claude adapter's project-dir rule plus a fallback scan). A session opened but
    never chatted in leaves a DB row with **no** transcript, which `claude
    --resume` can't find (the "couldn't find session with ID …" error); brain
    skips those. If it claims a valid candidate it `--resume`s it; otherwise
    it starts a fresh `--session-id` (registered, locked to this PID) and, if
    it skipped a missing-transcript candidate, shows a status-line alert:
-   *"couldn't find a session to resume — starting a new brain chat"*.
+   *"couldn't find a session to resume; starting a new brain chat"*.
 2. brain passes the selected workspace's `BRAIN_WORKSPACE_ID`,
    `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and
    `BRAIN_AGENT_KIND` plus
    `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` /
-   `BRAIN_RESPONSE_DIR` / `BRAIN_RESPONSE_ID` into the child environment
-   (`session::env_for`). Local work uses the resolved `local_user_id`.
+   `BRAIN_RESPONSE_DIR` / `BRAIN_RESPONSE_ID` into the child environment.
+   Live panels carry these as `LaunchRequest::HookMetadata`; the selected
+   adapter combines them with trusted workspace identity. `session::env_for`
+   remains a compatibility helper for pure callers and tests. Local work uses
+   the resolved `local_user_id`.
    Receiver work first authenticates the provider request, then resolves an
    enabled portable sender; the queued workspace UUID and actor override the
    machine default for that complete request lineage.
@@ -212,17 +325,35 @@ Which session to run is decided by the **lock + recency** model in
    `scripts/claude_session_start_hook.py`, wired into
    `<brain-root>/.claude/settings.json` under `hooks.SessionStart` — fires on
    every session start / resume / `/clear` / compact. Reading those env
-   vars, it upserts the actual frontend session id plus immutable attribution
-   (locked to `BRAIN_PID`) and frees
+   vars, it accepts only an exact registered frontend/workspace/session/actor/
+   channel tuple or a new frontend ID rotating an already registered active
+   shell lineage. Unregistered events are ignored. An accepted event records
+   the actual frontend session ID plus immutable attribution (locked to
+   `BRAIN_PID`), resets completion status to `active`, and frees
    the instance's other sessions, so a `/new` mid-run becomes the session
    brain resumes next time and the prior conversation stays resumable. With
    any common workspace identity or required session attribution variable
-   absent, the hook is a no-op.
+   absent, the hook is a no-op. Authorization reads, target ownership checks,
+   the accepted upsert, and prior-session release run inside one
+   `BEGIN IMMEDIATE` transaction. Concurrent rotations therefore serialize
+   before authorization; rejected or failed attempts roll back without
+   changing either lineage, and SQLite's busy timeout lets a contender retry
+   the decision after the current writer commits.
 4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
    `last_assistant_message` under
-   `<workspace-cache>/responses/<response-id>.json`. The stable response ID is
+   `<workspace-cache>/responses/<response-id>.json` only while the exact
+   frontend/workspace/session/actor/channel/instance tuple is still locked in
+   the session store; an unregistered, released, or rotated completion is
+   ignored. The hook stages a unique, synced file, starts `BEGIN IMMEDIATE`,
+   rechecks that locked tuple, and updates the same predicate only when exactly
+   one row matches. It publishes and syncs the artifact before committing the
+   `completed` state. A publication or commit failure rolls back the database
+   and removes or restores only the file owned by that attempt. A concurrent
+   SessionStart rotation serializes at the transaction boundary, so a stale
+   Stop event cannot complete the prior lineage. The stable response ID is
    independent of the frontend session ID, which gives fresh Codex turns the
-   same completion path as Claude. The artifact repeats actor and channel; the
+   same completion path as Claude. The artifact includes frontend, workspace,
+   session, response, actor, channel, and completion status. The
    TUI discards it unless both match the launched session context.
    For an interactive turn, the TUI consumes it as the completion signal that
    allows queued receiver work to switch sessions. For an active SMS/email
@@ -230,7 +361,12 @@ Which session to run is decided by the **lock + recency** model in
    and renews the three-minute channel lease. The PTY stays visible and can be
    reused by another message on the same channel. A different channel or local
    input switches only after active work has finished.
-5. When the panel closes (Claude exits) or the shell quits, brain `release`s
+   If the agent process exits during remote work before the artifact is
+   consumed, `App::close_brain` captures the transport snapshot plus the
+   controller's immutable initiating actor/channel before shutdown and hands
+   that captured value to the fallback delivery path. Mutable lease or local
+   actor state cannot retarget the completion.
+5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
 
@@ -242,7 +378,7 @@ synced JSON through a same-directory atomic rename. Concurrent workspace TUIs
 therefore preserve one another's registrations and unrelated settings; a
 failed replacement preserves the prior bytes. Current
 Codex CLI versions may ask you to trust those hooks once in the Codex UI.
-Claude and Codex remain separate session stores, but both frontends now report
+Claude and Codex remain separate scopes in one session store, and both report
 session starts and completed receiver turns through the same brain response
 protocol.
 Brain verifies the exact installed `hooks.json` command shape and executes both

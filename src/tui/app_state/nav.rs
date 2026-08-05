@@ -128,12 +128,12 @@ impl App<'_> {
     pub(crate) fn scroll_focused_half_page(&mut self, up: bool) {
         match self.focus {
             Panel::Brain => {
-                if let Some(pty) = self.brain.as_ref() {
-                    let step = half_page_step(pty.rows);
+                if let Some(pty) = self.active_brain_controller_mut() {
+                    let step = half_page_step(pty.terminal_rows().unwrap_or_default());
                     if up {
-                        pty.scroll_up(step);
+                        let _ = pty.scroll_up(step);
                     } else {
-                        pty.scroll_down(step);
+                        let _ = pty.scroll_down(step);
                     }
                 }
             }

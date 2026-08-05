@@ -5,7 +5,8 @@ Wired into `<brain-root>/.claude/settings.json` so it fires whenever a Claude
 session in that selected workspace starts, resumes, clears (`/new` /
 `/clear`), or compacts. It records the *current* session id for the launching
 `brain` shell so the next launch of that workspace can resume the right
-conversation, including a fresh session created mid-run by `/new`.
+conversation, including a fresh session created mid-run by `/new`. It never
+creates a session for an unregistered shell lineage.
 
 `brain` passes the common child-integration identity variables:
 
@@ -29,10 +30,9 @@ no-op. BRAIN_PID remains optional because an invalid or absent PID can safely
 produce an unlocked session row. BRAIN_RESPONSE_DIR is consumed by the Stop
 hook rather than this SessionStart hook.
 
-The hook upserts the session row (locked to BRAIN_PID, marked active now)
-and frees any *other* session this instance held — so exactly one session
-is current per shell, and the pre-`/new` conversation stays resumable
-later via the lock+recency model in `brain`'s `state` module.
+The hook updates an exact registered tuple or rotates an already registered
+live lineage to the frontend-reported id, then frees any other session this
+instance held. Ambient or forged workspace/session tuples are ignored.
 
 Failure modes are deliberately silent — the hook MUST NOT raise. A crash
 inside claude is loud and would distract from the session. We swallow
@@ -78,24 +78,66 @@ def main() -> None:
     now = int(time.time())
 
     try:
-        conn = sqlite3.connect(db_path, timeout=5)
+        conn = sqlite3.connect(db_path, timeout=5, isolation_level=None)
     except Exception:
         return
     try:
         conn.execute("PRAGMA busy_timeout = 5000;")
-        # Upsert the current session, locked to this brain shell.
+        conn.execute("BEGIN IMMEDIATE")
+        scope = (
+            launch["BRAIN_AGENT_KIND"],
+            launch["BRAIN_WORKSPACE_ID"],
+            launch["BRAIN_ACTOR_ID"],
+            launch["BRAIN_CHANNEL"],
+        )
+        exact = conn.execute(
+            """
+            SELECT 1 FROM brain_sessions
+            WHERE agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
+              AND actor_id = ? AND channel = ? AND brain_instance_id = ?
+            """,
+            (scope[0], session_id, scope[1], scope[2], scope[3], instance),
+        ).fetchone()
+        if not exact:
+            lineage = conn.execute(
+                """
+                SELECT 1 FROM brain_sessions
+                WHERE agent_kind = ? AND workspace_id = ? AND actor_id = ?
+                  AND channel = ? AND brain_instance_id = ?
+                  AND locked_pid IS NOT NULL
+                LIMIT 1
+                """,
+                (*scope, instance),
+            ).fetchone()
+            if not lineage:
+                conn.rollback()
+                return
+            target = conn.execute(
+                """
+                SELECT brain_instance_id, locked_pid FROM brain_sessions
+                WHERE agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
+                  AND actor_id = ? AND channel = ?
+                """,
+                (scope[0], session_id, scope[1], scope[2], scope[3]),
+            ).fetchone()
+            if target and target[0] != instance and target[1] is not None:
+                conn.rollback()
+                return
+
         conn.execute(
             """
             INSERT INTO brain_sessions
               (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
-               workspace_id, actor_id, channel, created_at, last_active_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               workspace_id, actor_id, channel, created_at, last_active_at,
+               completion_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
             ON CONFLICT(agent_kind, agent_session_id, workspace_id, actor_id, channel)
             DO UPDATE SET
               brain_instance_id = excluded.brain_instance_id,
               locked_pid        = excluded.locked_pid,
               source            = excluded.source,
-              last_active_at    = excluded.last_active_at
+              last_active_at    = excluded.last_active_at,
+              completion_status = 'active'
             """,
             (
                 launch["BRAIN_AGENT_KIND"],
@@ -132,7 +174,11 @@ def main() -> None:
         )
         conn.commit()
     except Exception:
-        pass
+        try:
+            if conn.in_transaction:
+                conn.rollback()
+        except Exception:
+            pass
     finally:
         conn.close()
 

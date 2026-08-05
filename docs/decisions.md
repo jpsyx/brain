@@ -241,13 +241,37 @@ rewriting either workspace record or portable files. Consequently, changing
 the default workspace never changes access mode, UUID, root, local user,
 receiver switch, aliases, or env.
 
-The current multi-workspace boundary stops short of access-policy enforcement.
-It intentionally does not pretend that path separation is access control. A
-later `workspace_only` mode will use prompt-based guidance and light guardrails to
-reduce accidental and naive leakage in a high-trust installation. It is not a
-filesystem sandbox, authentication boundary, container, OS-account boundary,
-or defense against a malicious trusted user. Real adversarial isolation must
-remain outside Brain.
+Access mode stays portable because it describes the workspace's intended agent
+behavior, while the machine default remains routing metadata. The first
+migrated or created workspace is unrestricted for compatibility; later created
+or attached workspaces start workspace-only. Existing valid portable values are
+preserved. Valid-v2 startup validates only the selected root and seeds a missing
+value from its current default/nondefault status before readiness succeeds.
+Commands for a nondefault workspace therefore never mutate the default root;
+whole-registry list and explicit migration are the only all-record checks.
+
+Access-mode persistence is strict and atomic because a malformed portable file
+must never be converted into an apparently valid unrestricted configuration.
+Brain parses the existing JSON object before mutation, preserves unrelated
+keys, syncs a same-directory temporary, atomically replaces the live file, and
+syncs the parent directory. An interruption before replacement leaves the live
+bytes untouched and cleans the temporary so a retry is safe.
+
+Workspace-only uses the strongest trusted instruction surface each supported
+frontend exposes, selected-root cwd, and a minimal child environment. It is
+easy to bypass and serves only to reduce accidents and naive leakage among
+trusted users. Adversarial users and sensitive isolation require an external
+OS, VM, machine, or container boundary.
+The naive literal-path classifier is only defense in depth: paraphrasing can
+bypass it, so it must never grow into a claimed prompt-injection detector.
+
+Clearing the inherited environment is insufficient if the PTY starts an
+interactive or login shell: a profile can recreate a secret that filtering
+removed. Agent commands therefore run through fixed `/bin/sh -c`. This keeps
+the configured command string's ordinary shell parsing while deliberately
+excluding profile, alias, and shell-function startup behavior. Initial prompts
+are appended only after a standalone `--`, which prevents option-looking user
+or inbound text from becoming a frontend flag or configuration override.
 
 Ordinary command bootstrap now pins one immutable local actor before task,
 reindex, TUI, or local-agent work. A ready legacy workspace with no portable
@@ -258,9 +282,10 @@ Inbound actor precedence remains immutable request context after provider
 authentication. Task `assigned_to` now defaults to that actor, while unrelated
 mutations preserve the existing assignment and explicit changes validate
 portable membership. This deliberately adds no owner, creator, audit, or device
-semantics. The agent-controller/OpenCode facade and shared receiver leases
-remain later phases. Actor context is attribution and routing,
-not a new authentication or access-control boundary.
+semantics. The agent-controller facade and fail-fast OpenCode selection stub
+are active; functional OpenCode behavior and shared receiver leases remain
+later phases. Actor context is attribution and routing, not a new
+authentication or access-control boundary.
 
 The same portable user ID may be selected on multiple computers because it
 names the person, not their machine. We intentionally add no cross-machine
@@ -354,10 +379,11 @@ brain panel so the resumed conversation is immediately typable; `Alt+H` /
 
 ## Why claude exiting closes the panel instead of quitting the shell
 
-Exiting claude (Ctrl-C, Ctrl-C) is a frequent gesture — you end a chat
+Exiting claude (Ctrl-C, Ctrl-C) is a frequent gesture: you end a chat
 without meaning to leave `brain`. So when the `claude` child dies the event
-loop **closes the panel** (drops the PTY, search goes full-width) rather than
-quitting; the closing Ctrl-C is forwarded to claude and never seen as a quit,
+loop **closes the panel** (explicitly shuts down its controller, search goes
+full-width) rather than quitting; the closing Ctrl-C is forwarded to claude
+and never seen as a quit,
 and the auto-close needs no extra keystroke. Quitting `brain` is a separate,
 deliberate gesture: `Esc` / `Ctrl-c` from the **search** panel. Re-opening is
 **Message brain** (`Ctrl-M` or the palette), which resumes your latest
@@ -400,18 +426,43 @@ resumes its last conversation; a second can't grab the one the first holds,
 so it takes the next-free session or a fresh one. Crashes don't strand a
 session — dead-PID locks are reaped (`kill -0`) on the next startup.
 
-## Why a SessionStart hook (and deliberately not a Stop hook)
+## Why SessionStart and Stop hooks have distinct jobs
 
 brain can choose a session id up front (`--session-id`), but if the user
 types `/new` (or `/clear`) mid-run, Claude may rotate to an id brain never
-saw — and that fresh conversation is the one they'd want to resume next
-time. A **SessionStart** hook fires on every start/resume/clear/compact with
-the live `session_id` (keyed to the shell via `BRAIN_INSTANCE_ID` /
-`BRAIN_PID` env), so brain always learns the current id — robust whether or
-not `/clear` rotates it. We do **not** add a `Stop` hook (the `tasks`
-project's "last assistant message" mechanism): brain-panel sessions are
-continuous conversations, not discrete runs, so there's no per-run
-completion to capture.
+saw. That fresh conversation is the one they would want to resume next time.
+A **SessionStart** hook fires on every start/resume/clear/compact with the live
+`session_id` (keyed to the shell via `BRAIN_INSTANCE_ID` / `BRAIN_PID` env),
+so brain always learns the current id and returns the exact scoped row to
+`active`.
+
+The **Stop** hook has a separate, per-turn responsibility. It writes the
+authenticated completion artifact and marks that same scoped row `completed`,
+which lets queued receiver work advance. It does not end the persistent
+conversation or make the PTY disposable. The next successful local or queued
+submit calls `SessionStore::mark_active`, so ordinary turns after the first one
+do not depend on another SessionStart event to reactivate the row.
+
+Stop authorization, artifact publication, and completion mutation form one
+ordered operation. The hook stages a unique synced response file, acquires
+`BEGIN IMMEDIATE`, and rechecks the exact currently locked frontend, session,
+workspace, actor, channel, and Brain-instance tuple. Its update uses that same
+predicate and must affect exactly one row. The response artifact is atomically
+published and its directory synced before the database commits `completed`.
+If publication or commit fails, the transaction rolls back and the hook
+removes or restores only its own published inode. This ordering forbids a
+committed completion without its artifact. It also makes a concurrent
+SessionStart rotation win or serialize before Stop rechecks the old lineage,
+instead of allowing a stale parsed payload to complete an unlocked row.
+
+Rotation authorization and mutation must be one write transaction. A target
+ownership `SELECT` followed by a later unconditional upsert leaves a race in
+which two shells can both authorize the same free target and the last writer
+can overwrite the first. The hook therefore acquires `BEGIN IMMEDIATE` before
+reading the exact tuple, source lineage, or target owner. Contenders wait at
+the transaction boundary, then re-read current ownership; authorization
+no-ops and exceptions explicitly roll back, while the target upsert and prior
+session release commit together.
 
 ## Why we verify a transcript exists before resuming a session
 
@@ -422,13 +473,19 @@ with no transcript; blindly `--resume`-ing it later produces "couldn't find
 session with ID …". brain therefore checks the transcript exists on disk
 before resuming and skips candidates that don't, falling back to the next
 valid one (or a fresh chat). This is also why brain forces the PTY's cwd to
-`<brain_root>` *and* prefixes the command with `cd <root>`: every session is
-scoped to the same project dir, so the existence check and `--resume` always
+`<brain_root>` before the child starts: every session is scoped to the same
+project dir, so the existence check and `--resume` always
 look in the same place. When the fallback to a fresh chat is caused by a
 missing transcript, we surface it in the status line rather than silently —
 the user asked to know when their conversation didn't carry over.
 
 ## Why the brain panel launch is frontend-aware
+
+The TUI and receiver call the `AgentController` facade's semantic launch,
+input, lifecycle, completion, terminal, and shutdown operations. Only the
+Claude and Codex adapters translate those requests. The inert OpenCode adapter
+implements the same shape but returns `UnsupportedFrontend` before transport
+access for every operation.
 
 The brain panel must control frontend-specific session arguments, so it can't
 defer to a shell alias that might inject incompatible flags. Claude remains the
@@ -451,12 +508,76 @@ composite scope, so equal opaque IDs in different scopes never overwrite or
 unlock one another. A separate stable response ID lets the Stop hook signal a
 fresh Codex turn without pretending Brain chose Codex's thread ID.
 
+Main-panel launch completes fallible capability resolution and adapter response
+identity lookup before claiming a resumable row. Once claimed, only request
+assembly and the guarded controller launch remain; a launch failure releases
+the instance claim. This keeps a malformed capability configuration or
+frontend identity error from removing an otherwise free conversation from the
+resume queue, and every failed path clears the response identity for the launch
+slot it attempted.
+
 Hook refresh follows workspace singleton acquisition, so a rejected second TUI
 cannot alter the lifecycle contract of the live process. Different-workspace
 TUIs remain concurrent, so their shared `~/.codex/hooks.json` updates use a
 machine-wide SQLite transaction lock plus same-directory atomic replacement.
 The lock prevents lost read-modify-write updates; the rename prevents readers
 from observing partial JSON and preserves the old bytes on failure.
+
+## Why workspace capabilities reuse shared frontend authentication
+
+Workspace capability selection is configuration, not a second identity. Brain
+therefore keeps portable logical allowlists in the root while commands, URLs,
+paths, and credentials stay in that workspace's selected machine record. It
+does not create Claude or Codex auth profiles.
+
+Claude has a conditionally verified strict MCP boundary: a cache-local
+generated JSON plus `--mcp-config --strict-mcp-config`, when Brain can safely
+parse the configured command as a direct Claude invocation. Shell-indirect,
+ambiguous, or conflicting commands remain supported but report advisory
+enforcement because appended flags are not proof that Claude receives them.
+`--bare` is intentionally excluded because it changes authentication behavior.
+Claude's installed skill controls cannot
+strictly select an arbitrary subset, so skill names remain advisory. Codex's
+documented `-c` overrides merge with base config. Namespacing generated server
+keys prevents collision with known global names, while per-server wrappers
+prevent same-named stdio secrets from colliding with frontend environment.
+Neither mechanism can prove that other global servers are excluded, so Codex
+remains advisory. Enforcement status is derived from the concrete command and
+launch flags and never upgraded from advisory by logical selection alone.
+
+Capability selection is mandatory controller context in workspace-only mode,
+not optional adapter decoration. The controller accepts exactly two context
+shapes: unrestricted mode without a plan, or workspace-only mode with a plan
+whose mode and credential provenance match the selected workspace. Every other
+mode/plan combination is rejected before frontend or transport work.
+Unrestricted launch construction deliberately skips capability parsing and
+clears stale capability artifacts, so malformed unused configuration cannot
+break or influence ordinary frontend behavior.
+
+That skip begins at TUI setup, before `App` construction. Startup first parses
+`access_mode` and every live non-capability setting strictly. It omits only the
+unused logical capability lists when the validated mode is unrestricted;
+workspace-only startup retains strict list parsing. This keeps malformed dead
+configuration from blocking either frontend without weakening the mode gate.
+
+Selected skill copies live under the workspace UUID and actor cache. They do
+not link to, prune, or rewrite the shared registry. This preserves the user's
+ordinary unrestricted environment and avoids one workspace launch changing
+another workspace's frontend state.
+Exact configured source loading and symlink rejection keep a logical name from
+redirecting rendering to a sibling or later-retargeted tree. Runtime MCP files
+and wrappers are short-lived frontend artifacts: frontend switches remove the
+other frontend's files, retries remove abandoned temporary files, and durable
+renames sync the containing directory.
+
+For machine skill sources, the root-owned first absolute path component is the
+trust anchor. Brain canonicalizes that anchor, proves the full source remains
+below it, rejects every lower ancestor symlink, then retains the canonical
+source path. This narrowly permits platform-owned aliases such as `/var` while
+rejecting parent links controlled within the configured tree. For generated
+artifacts, the selected UUID cache directory is the trust anchor instead;
+recursive removal validates it and each target ancestor without following a
+symlink, then fails closed on any mismatch.
 
 ## Why we disable alternate scroll (and motion) reporting for the mouse
 
@@ -1104,22 +1225,24 @@ above), which is the right audience for it.
 
 Starting a fresh conversation is a frequent gesture, and typing `/new` by hand
 each time is friction. `Ctrl-N` is intercepted before the brain-panel key
-forwarding (like `Alt+U`/`Alt+D`) and types `/new` into the PTY, so it works
+forwarding (like `Alt+U`/`Alt+D`) and calls the selected controller's
+`start_new_session`, so it works
 from either panel without first focusing the brain panel. We only intercept it
 **while the panel is open** — there's nothing to send to otherwise — which
 conveniently leaves `Ctrl-N`'s search meaning (move-down) intact when the panel
 is closed and search is full-width. A brand-new `--session-id` isn't used
-because `/new` is what makes Claude rotate its own id, which the SessionStart
-hook then records as the session to resume next time (the same path
-`/new`-typed-by-hand already takes).
+because `/new` is what makes Claude rotate its own id, which the authorized
+SessionStart lineage then records as the session to resume next time (the same
+path `/new`-typed-by-hand already takes). The frontend adapter owns the complete
+new-session input sequence, so App contains no agent-kind key switch.
 
-The submitting key is **deferred a couple of event-loop ticks**
-(`advance_submit_countdown` / `App::tick_brain_submit`), not appended to the
-`/new` burst: agent frontends can coalesce a chunk of bytes ending in a submit
-key into a single paste, leaving `/new` sitting unsent. Sending the final key as
-a distinct keystroke a beat later makes the frontend actually submit or queue
-it. Claude gets `Enter`; Codex gets `Tab`, because Codex treats `Enter` as an
-immediate steer/action key and uses `Tab` to queue a message behind active work.
+Injected work for an already active turn still needs a small timing gap between
+text and the final queue action: frontends can coalesce a byte burst ending in
+a submit key into one paste. `AgentController::queue_after_active_turn` types
+the text and owns a two-event-loop-tick pending semantic action. Claude's
+adapter translates that action to `Enter`; Codex translates it to `Tab`.
+Shutdown cancels pending controller input, so a closed panel cannot receive a
+late submit.
 
 ## Why personalization is just another brain config (in the brain root)
 
@@ -1728,20 +1851,23 @@ session blocked everything else until it finished. We moved it into its own
 brain-panel **tab** (`Alt+1` main / `Alt+2` daily triage) so the pass runs as a
 background task.
 
-**Why a dedicated `triage_brain` slot, not a general `Vec<PtyPane>` of sessions.**
-The requirement was explicitly narrow: users must *not* be able to spawn
-arbitrary sessions; a second session may exist *only* for daily triage. A
-dedicated `Option<PtyPane>` plus a two-variant `BrainTab` models exactly that,
-keeps the existing single-panel receiver/session machinery (which is woven
-through `App.brain`) untouched, and can't grow into an unbounded tab manager by
-accident. Generalizing to N sessions would have been a much larger, riskier
-refactor for capability we deliberately don't want.
+**Why a dedicated `triage_brain` slot, not a general
+`Vec<AgentController>` of sessions.** The requirement was explicitly narrow:
+users must *not* be able to spawn arbitrary sessions; a second session may
+exist *only* for daily triage. A dedicated `Option<AgentController>` plus a
+two-variant `BrainTab` models exactly that, keeps receiver/session state
+centered on the dedicated `App.brain` controller, and cannot grow into an
+unbounded tab manager by accident. Generalizing to N sessions would have been
+a much larger refactor for capability we deliberately do not want.
 
-**Why the session is untracked.** The triage tab is ephemeral by construction:
-`session::env_for_triage` omits `BRAIN_INSTANCE_ID` / `BRAIN_STATE_DB`, so the
-SessionStart hook never records it and it is never a resume candidate. If the
-shell closes mid-triage the session is lost and the startup nudge simply fires
-again next launch — which is the desired behavior, not a bug to engineer around.
+**Why the session is untracked.** The triage tab is ephemeral by construction.
+`App::open_triage_tab` builds an `AgentController` from a `LaunchRequest` whose
+hook metadata carries only `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`.
+The adapter adds the common workspace identity and agent kind, but the request
+has no instance ID, state DB, or response ID. The SessionStart hook therefore
+never records it, and it is never a resume candidate. If the shell closes
+mid-triage the session is lost and the startup nudge simply fires again next
+launch, which is the desired behavior.
 
 **Why a completion signal instead of idle-detection, and why via the brain
 server.** "The agent went idle" is unreliable — a triage pass asks the user

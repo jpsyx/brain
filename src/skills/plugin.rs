@@ -4,7 +4,9 @@
 //! committed to the public repo) and are installed by the same pipeline.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+
+use anyhow::{Context, Result, bail};
 
 use super::model::{Skill, SkillFile};
 
@@ -31,6 +33,150 @@ pub fn discover(dir: &Path) -> Vec<Skill> {
         }
     }
     plugins
+}
+
+/// Validate one exact machine skill directory and return its stable canonical path.
+pub(crate) fn validate_exact_path(path: &Path) -> Result<PathBuf> {
+    let canonical = canonical_path_below_trusted_root(path)?;
+    load_exact_from("validation", &canonical)?;
+    Ok(canonical)
+}
+
+/// Load only the configured machine skill directory without inspecting siblings.
+pub(crate) fn load_exact(name: &str, path: &Path) -> Result<Skill> {
+    let canonical = canonical_path_below_trusted_root(path)?;
+    load_exact_from(name, &canonical)
+}
+
+fn load_exact_from(name: &str, path: &Path) -> Result<Skill> {
+    validate_path_components(path)?;
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("reading machine skill directory {}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        bail!("machine skill path cannot be a symlink");
+    }
+    if !metadata.is_dir() {
+        bail!("machine skill path is not a directory");
+    }
+    let skill_file = path.join("SKILL.md");
+    let skill_metadata = fs::symlink_metadata(&skill_file)
+        .with_context(|| format!("reading {}", skill_file.display()))?;
+    if skill_metadata.file_type().is_symlink() || !skill_metadata.is_file() {
+        bail!("machine skill SKILL.md must be a regular file, not a symlink");
+    }
+    let mut files = Vec::new();
+    collect_exact(path, path, &mut files)?;
+    Ok(Skill {
+        name: name.to_owned(),
+        files,
+    })
+}
+
+fn canonical_path_below_trusted_root(path: &Path) -> Result<PathBuf> {
+    validate_path_components(path)?;
+    // The root-owned first component is the trust anchor. This permits
+    // platform aliases such as `/var` while every caller-controlled component
+    // below it must be a real directory. The canonical containment check keeps
+    // the anchor alias from resolving into an unrelated top-level tree.
+    let trusted_root = trusted_top_level(path)?;
+    let canonical_root = fs::canonicalize(&trusted_root).with_context(|| {
+        format!(
+            "canonicalizing trusted machine skill root {}",
+            trusted_root.display()
+        )
+    })?;
+    validate_ancestors_below(path, &trusted_root)?;
+    let canonical = fs::canonicalize(path)
+        .with_context(|| format!("canonicalizing machine skill directory {}", path.display()))?;
+    if !canonical.starts_with(&canonical_root) {
+        bail!(
+            "machine skill path resolves outside trusted root {}",
+            canonical_root.display()
+        );
+    }
+    validate_ancestors_below(&canonical, &trusted_top_level(&canonical)?)?;
+    Ok(canonical)
+}
+
+fn trusted_top_level(path: &Path) -> Result<PathBuf> {
+    let mut components = path.components();
+    if !matches!(components.next(), Some(Component::RootDir)) {
+        bail!("machine skill path must be absolute");
+    }
+    let Some(Component::Normal(first)) = components.next() else {
+        bail!("machine skill path must name a directory below a trusted top-level root");
+    };
+    Ok(Path::new("/").join(first))
+}
+
+fn validate_ancestors_below(path: &Path, trusted_root: &Path) -> Result<()> {
+    let relative = path.strip_prefix(trusted_root).with_context(|| {
+        format!(
+            "machine skill path {} left its trusted root",
+            path.display()
+        )
+    })?;
+    let mut current = trusted_root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            bail!("machine skill path cannot contain traversal components");
+        };
+        current.push(component);
+        let metadata = fs::symlink_metadata(&current)
+            .with_context(|| format!("reading machine skill ancestor {}", current.display()))?;
+        if metadata.file_type().is_symlink() {
+            bail!("machine skill path ancestor cannot be a symlink");
+        }
+        if !metadata.is_dir() {
+            bail!("machine skill path ancestor is not a directory");
+        }
+    }
+    Ok(())
+}
+
+fn validate_path_components(path: &Path) -> Result<()> {
+    if !path.is_absolute() {
+        bail!("machine skill path must be absolute");
+    }
+    if path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::CurDir | std::path::Component::ParentDir
+        )
+    }) {
+        bail!("machine skill path cannot contain traversal components");
+    }
+    Ok(())
+}
+
+fn collect_exact(root: &Path, dir: &Path, out: &mut Vec<SkillFile>) -> Result<()> {
+    let mut entries = fs::read_dir(dir)
+        .with_context(|| format!("reading machine skill directory {}", dir.display()))?
+        .collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(std::fs::DirEntry::path);
+    for entry in entries {
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("reading machine skill entry {}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            bail!("machine skill source cannot contain symlinks");
+        }
+        if metadata.is_dir() {
+            collect_exact(root, &path, out)?;
+        } else if metadata.is_file() {
+            out.push(SkillFile {
+                rel_path: path
+                    .strip_prefix(root)
+                    .expect("collected path stays below exact source")
+                    .to_path_buf(),
+                contents: fs::read(&path)
+                    .with_context(|| format!("reading machine skill file {}", path.display()))?,
+            });
+        } else {
+            bail!("machine skill source contains a non-file entry");
+        }
+    }
+    Ok(())
 }
 
 fn collect(root: &Path, dir: &Path, out: &mut Vec<SkillFile>) {
@@ -81,8 +227,16 @@ mod tests {
         let found = discover(&root);
         let mine = found.iter().find(|s| s.name == "my-plugin").unwrap();
         assert_eq!(mine.files.len(), 2);
-        assert!(mine.files.iter().any(|f| f.rel_path == Path::new("SKILL.md")));
-        assert!(mine.files.iter().any(|f| f.rel_path == Path::new("scripts/go.py")));
+        assert!(
+            mine.files
+                .iter()
+                .any(|f| f.rel_path == Path::new("SKILL.md"))
+        );
+        assert!(
+            mine.files
+                .iter()
+                .any(|f| f.rel_path == Path::new("scripts/go.py"))
+        );
         let _ = fs::remove_dir_all(&root);
     }
 

@@ -59,7 +59,8 @@ fn migration_preserves_legacy_rows_as_local_interactive_claude_sessions() {
     let conn = Connection::open(path).unwrap();
     let row = conn
         .query_row(
-            "SELECT agent_kind, agent_session_id, workspace_id, actor_id, channel
+            "SELECT agent_kind, agent_session_id, workspace_id, actor_id, channel,
+                    completion_status
              FROM brain_sessions",
             [],
             |row| {
@@ -69,6 +70,7 @@ fn migration_preserves_legacy_rows_as_local_interactive_claude_sessions() {
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
                 ))
             },
         )
@@ -81,6 +83,7 @@ fn migration_preserves_legacy_rows_as_local_interactive_claude_sessions() {
             WORKSPACE_ID.to_owned(),
             "pablo".to_owned(),
             "interactive".to_owned(),
+            "active".to_owned(),
         )
     );
 }

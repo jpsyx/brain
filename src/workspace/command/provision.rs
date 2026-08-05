@@ -9,6 +9,7 @@ use anyhow::{Context, anyhow, bail};
 use serde_json::Map;
 
 use super::mutate::Mutation;
+use crate::access::AccessMode;
 use crate::theme::Theme;
 use crate::workspace::{
     MachineRegistry, REGISTRY_SCHEMA_VERSION, RegistryError, RegistryOperation, RegistryStore,
@@ -44,6 +45,14 @@ pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
         let manifest = crate::workspace::WorkspaceManifest::new(workspace_id);
         if let Err(error) = manifest.write_new(&root) {
             return Err(manual_cleanup_required(error.into(), &created_directories));
+        }
+        let access_mode = if canonical_name == candidate.default_workspace {
+            AccessMode::Unrestricted
+        } else {
+            AccessMode::WorkspaceOnly
+        };
+        if let Err(error) = crate::access::ensure_portable_access_mode(&root, access_mode) {
+            return Err(manual_cleanup_required(error, &created_directories));
         }
         if let Err(error) = transaction.save(&candidate) {
             return Err(manual_cleanup_required(error.into(), &created_directories));
@@ -174,15 +183,23 @@ pub(super) fn attach(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
         }
         let manifest = crate::workspace::WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION"))?;
         let record = fresh_record(root.clone(), manifest.workspace_id());
-        match transaction.load() {
-            Ok(mut registry) => transaction.update(&mut registry, |candidate| {
-                candidate.attach_record(canonical_name.clone(), record)
-            })?,
+        let candidate = match transaction.load() {
+            Ok(mut registry) => {
+                registry.attach_record(canonical_name.clone(), record)?;
+                registry
+            }
             Err(error) if is_missing_registry(&error) => {
-                transaction.save(&first_registry(canonical_name.clone(), record))?;
+                first_registry(canonical_name.clone(), record)
             }
             Err(error) => return Err(error.into()),
-        }
+        };
+        let access_mode = if canonical_name == candidate.default_workspace {
+            AccessMode::Unrestricted
+        } else {
+            AccessMode::WorkspaceOnly
+        };
+        crate::access::ensure_portable_access_mode(&root, access_mode)?;
+        transaction.save(&candidate)?;
         Ok(())
     })?;
 

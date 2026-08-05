@@ -95,9 +95,12 @@ tui::run_tui(command_context, view, cli, …) (the persistent shell)
  ├─→ command_context.workspace.root()       (immutable selected root snapshot)
  ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)
  └─→ App event loop (tasks view + search view + agent PTY)
-       ├─ state::Db: reap dead locks, scoped resume / claim or register
-       ├─ session::build_llm_command(root, agent_kind, command, …) + env_for
-       │    → PtyPane spawns configured Claude (default) or Codex (`--codex` / `-cx`)
+       ├─ agent::SessionStore: reap dead locks, scoped resume / claim or register
+       ├─ App owns one AgentController per live main/triage panel
+       │    ├─ access::AccessPolicy snapshots trusted portable mode/root/actor
+       │    ├─ agent::{ClaudeFrontend,CodexFrontend} translate semantic operations
+       │    ├─ agent::OpenCodeFrontend rejects every operation before transport access
+       │    └─ PtyPane clears inherited env, spawns the complete spec, and carries bytes
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
        ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; status and log actions open the logs view)
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
@@ -119,7 +122,7 @@ boundaries:
 | --- | --- | --- |
 | Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, `.config/users.json`, config, personalization, extensions, and plugins |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
-| Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, portable-user transaction lock, inbox, responses, and sync lock/journal/current state/baselines |
+| Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, portable-user transaction lock, inbox, responses, capability artifacts, and sync lock/journal/current state/baselines |
 | Shared infrastructure | Machine server/control and transitional triage-signal paths only | Process coordination, never a default workspace payload path |
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
@@ -134,14 +137,21 @@ Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
 not use that UUID-scoped path.
 
-This is the current Phase 2 boundary, not the complete approved roadmap. Task
-assignment and managed triage-habit policy are active. Advisory access modes,
-the agent-controller/OpenCode facade, coordinated task-schema activation, and
-the shared receiver lease lifecycle remain later phases. In particular,
-`workspace_only` is planned prompt-based guidance and light guardrails. It is
-not a filesystem sandbox or an authentication boundary, and no access-mode
-enforcement ships in this foundation. Changing the default workspace never
-changes access mode.
+The frontend-neutral `agent` facade, concrete Claude/Codex adapters, PTY
+transport, main and triage controller ownership, receiver controller dispatch,
+advisory portable access modes, and a fail-fast OpenCode selection stub now
+exist. Functional OpenCode sessions, coordinated task-schema activation, and
+the final shared receiver lease lifecycle remain later phases.
+`workspace_only` is easy-to-bypass prompt guidance plus capability filtering,
+not a security or isolation boundary. It reduces accidents and naive leakage
+among trusted users; adversarial or sensitive workloads require an external
+OS, VM, machine, or container boundary. Changing the machine default never
+changes portable access mode. The controller accepts a workspace-only launch
+only when its capability plan has the same access mode and selected workspace
+UUID; unrestricted launches carry no plan and do not parse capability
+configuration. Those are the only accepted access contexts. Unrestricted with
+any plan, workspace-only without a plan, and mismatched workspace-only plans
+all fail before frontend or transport work.
 
 ## Modules
 
@@ -236,6 +246,61 @@ When readiness admits a legacy workspace with no portable user file,
 compatibility actor and writes nothing; the inactive portable migration remains
 inactive. Readiness rejects every nonblank ID that the `UserId` parser would
 reject, so actor bootstrap cannot discover a weaker legacy acceptance rule.
+
+### `agent/`
+
+The frontend-neutral agent boundary. `controller` owns the semantic
+`AgentController` facade and the transport trait, so callers can type, submit,
+queue, start sessions, launch, inspect completion and transcripts, snapshot,
+and shut down without constructing frontend keystrokes. `frontend` defines the
+frontend trait plus complete launch request and launch spec types; `input`,
+`session`, and `hooks` own the shared input, validated session-plan, completion,
+and hook metadata values. `session` owns the canonical `AgentKind` identity,
+frontend-neutral `SessionStore`, immutable `SessionScope`, and durable
+`CompletionStatus`;
+the crate-level `session.rs` re-exports it and keeps adapter-backed command/env
+wrappers for compatibility callers and pure tests. `claude` and `codex` own launch
+syntax, input sequences, completion, transcript, and session-lifecycle rules.
+`PtyPane` implements `AgentTransport`. The main panel and ephemeral triage tab
+are both stored as `Option<AgentController>`; keyboard, receiver, draw, scroll,
+close, and event-loop code call controller semantics and never construct
+frontend keystrokes. The controller also owns the short delayed queue action
+that keeps injected text separate from its final frontend input.
+`opencode` supplies a constructible frontend whose lifecycle, input, session,
+completion, and response operations all return typed unsupported errors before
+transport access.
+`LaunchRequest::HookMetadata` is trusted input that adapters merge into the
+explicit child environment. The plan-mandated `LaunchSpec::hooks` slot is
+currently reserved and empty; `PtyPane` does not consume a second hook channel.
+
+### `access/`
+
+Portable access policy. `mode` owns the two stable config values; `prompt`
+builds the trusted advisory text and deliberately naive literal outside-root
+warning; `capabilities` snapshots mode plus prompt; `skills` resolves portable
+logical names against the selected machine record; `enforcement` models honest
+frontend evidence and levels; `artifact` owns symlink-safe validation and
+removal below the selected workspace's trusted UUID cache root; `mcp` owns the
+machine schema plus frontend runtime translation; `store` strictly
+loads portable config, preserves unrelated keys, and
+publishes mode changes through a synced same-directory atomic replacement. It
+also validates or seeds the selected record before readiness, a new record
+before publication, and every record when listing or explicitly migrating the
+whole registry. Main, receiver, resumed, fresh, and triage launches all construct policy
+from the selected workspace, resolved actor, and already-loaded portable
+`Config`. Main and triage launch paths attach the same resolved capability plan.
+The controller validates the plan's mode and credential provenance before a
+frontend can render artifacts or reach the transport. Unrestricted launch
+assembly bypasses portable and machine capability parsing, preserving normal
+frontend pass-through even when unused capability data is malformed. TUI setup
+implements the same distinction before `App` construction: access mode and live
+settings remain strict, but unrestricted mode does not deserialize the unused
+logical capability lists.
+Inbound prompt text is not an input to policy construction.
+The main-panel launch path also resolves the capability plan and adapter-owned
+response identity before claiming a free resumable session. A later controller
+launch failure releases the instance claim and clears the attempted response
+identity.
 
 ### `users/`
 
@@ -391,7 +456,12 @@ computation), `install` (collect bundled + plugins, write built + create the
 two-hop symlinks; thin FS shell over `link_ops`), and `command`
 (`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the built
 dir, registry, frontend count, and extension/plugin sources before the FS shell
-runs). `resync_skills()` (the A seam) runs the pipeline, gated by
+runs; `brain skills status` reports capability selection and enforcement).
+For workspace-only launches, `layout` and `install` also render selected skills
+under the workspace UUID and actor cache without creating registry or frontend
+links. A machine skill is read only from its exact configured absolute
+directory; the source directory, `SKILL.md`, and every descendant must be real
+files or directories rather than symlinks. `resync_skills()` (the A seam) runs the pipeline, gated by
 `skills_auto_sync` (**default `true`** since the B4 cutover) so a mutation
 re-renders the live registry; set the flag `false` to manage skills only via
 explicit `brain skills sync`. jpsyx delegates to `brain skills sync` and never
@@ -765,9 +835,12 @@ The larger submodules are directories split by concern: `handlers/`
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
 `draw/mod.rs`), `palette/` (`command`/`state`), `app_state/`
 (`construct`/`nav`/`view`/`selection_query`), `app_actions/`
-(`commands`/`triage`), and `tests/` (split by area). `app_brain.rs` owns the
-main persistent session; `app_triage_tab.rs` owns the ephemeral daily-triage
-tab (open/close/select, the `BrainTab` resolution, and the `tick_triage_done`
+(`commands`/`triage`), `app_brain/` (`launch`/`lifecycle` plus receiver
+`dispatch`/`completion`/`state` and focused tests), and `tests/` (split by
+area). `app_brain/` owns the main persistent controller, receiver dispatch,
+and completion delivery;
+`app_triage_tab.rs` owns the ephemeral daily-triage controller and tab
+(open/close/select, the `BrainTab` resolution, and the `tick_triage_done`
 auto-close). The overlay-modal state
 structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `LinkPickerState`, and the confirm enums) live in `modal_state.rs` with
@@ -781,11 +854,13 @@ the transient palette flash.
 (`build_search`), and constructs the `App` from the selected `CommandContext`.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
-then spawns the initial `claude` PTY (resume-vs-fresh) and `focus_tasks()`
+then launches the selected frontend through an `AgentController`
+(Claude resume-vs-fresh; Codex fresh) and `focus_tasks()`
 returns focus to the tasks main view so `j`/`k` work at once. It then wires the auto-sync
 triggers (a mandatory detached pull-biased startup sync and, when
 `watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
-loop, then drops the watcher and releases the session lock. No exit sync or
+loop, explicitly shuts down the main and triage controllers, then drops the
+watcher and releases the session lock. No exit sync or
 idle timer exists. The **daily-triage nudge**
 is coupled to that startup sync: when a configured startup sync is pending, `run_tui`
 does *not* run the check immediately. It captures the sync journal's latest
@@ -802,7 +877,7 @@ decides resolution). `--no-daily-triage-check` disables only the final alert;
 the same gate still performs the strict config, managed-policy, and task-table
 refresh. With no startup sync, the check runs immediately as before. The
 brain
-panel is **closeable** (claude exit → `close_brain` drops the PTY and the main
+panel is **closeable** (agent exit → `close_brain` shuts down its controller and the main
 view goes full-width); `open_or_focus_brain` (`Ctrl+M`) re-opens it. The
 brain-directory view keeps its own `scope`/`rescope`/`search_refresh` for
 bucket rescoping (`Ctrl+R` / palette search rows). Unlike the pre-merge shell
@@ -811,27 +886,35 @@ there is no `Exit` enum — the shell just returns from the event loop on quit
 in-process rather than exiting.
 
 ### `pty_pane.rs`
-`PtyPane` spawns a shell command under a pseudoterminal (`portable-pty`),
+`PtyPane` is a dormant-capable `AgentTransport` that spawns a complete
+`LaunchSpec` under a pseudoterminal (`portable-pty`),
 streams its bytes through a `vt100` parser, and exposes the screen for
 rendering. Reader / writer / waiter threads; `send` / `resize` /
-`scroll_*` / `is_alive`. A near-verbatim port of `tasks/src/pty_pane.rs`.
+`scroll_*` / `is_alive`. It applies the spec's selected workspace cwd before
+the child starts and has no frontend-specific command or input knowledge. It
+clears the inherited process environment, then applies only the launch spec's
+selected workspace/actor values, hook metadata, narrow frontend necessities,
+and a fixed `TERM`. The command string runs through fixed `/bin/sh -c`, which
+preserves configured command parsing without sourcing login or interactive
+profiles that could recreate filtered environment values.
+Real-PTY transport regressions live in the owned `pty_pane/tests.rs` child so
+the production module remains focused on transport behavior.
 
 ### `session.rs`
-Pure launch planning: `AgentKind::{Claude,Codex}`, `Plan::{Resume,Fresh}`
-(chosen from actor-scoped DB resume candidates), `build_llm_command` (`cd <root> && <claude_cmd> --resume
-<id>` / `--session-id <id>` for Claude; `cd <root> && <codex_cmd> resume <id>`
-for a known Codex resume id; no Claude flags for fresh Codex), and `env_for`.
-Agent env starts with `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
-`BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and `BRAIN_AGENT_KIND`, then adds
-`BRAIN_INSTANCE_ID`, `BRAIN_PID`, the selected `BRAIN_STATE_DB`, and selected
-`BRAIN_RESPONSE_DIR`/`BRAIN_RESPONSE_ID` for the hooks. `claude_cmd`
-and `codex_cmd` are machine-local brain env values. Both configured commands
-are spliced in verbatim so they may carry their own flags, and brain never
-depends on a shell alias. `env_for_triage` starts with the five common
-workspace/actor variables plus `BRAIN_AGENT_KIND`, adds
-`BRAIN_TRIAGE_DONE_URL` / `BRAIN_TRIAGE_TOKEN`, and
-deliberately omits the session tracking vars so the daily-triage tab stays out
-of the session DB.
+Compatibility launch planning: re-exported `agent::AgentKind`,
+`Plan::{Resume,Fresh}` (chosen from actor-scoped DB resume candidates), and
+`build_llm_command`, which adds the legacy shell `cd` prefix around the command
+translated by the selected adapter and returns a typed error for a blank legacy
+session ID. `env_for` and `env_for_triage` remain only
+as compatibility helpers for pure callers and tests. Live TUI panels build
+complete `LaunchRequest` values: the adapter supplies common workspace identity
+and `BRAIN_AGENT_KIND`; the main panel's `HookMetadata` adds instance, PID,
+state DB, and response attribution, while the triage panel adds only
+`BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. `claude_cmd`, `codex_cmd`,
+and the reserved `opencode_cmd` are machine-local brain env values. The two
+functional configured commands are spliced in
+verbatim so they may carry their own flags, and brain never depends on a shell
+alias.
 
 ### `triage_signal.rs`
 The on-disk bridge for the daily-triage tab's completion signal. Pure
@@ -849,13 +932,14 @@ replacement belong to the approved shared-server phase.
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
 `brain_sessions` tracks Claude and Codex sessions by a composite agent-kind,
-session-ID, workspace-UUID, actor-ID, and channel key with a `locked_pid` lock;
+session-ID, workspace-UUID, actor-ID, and channel key with a `locked_pid` lock
+and `active`/`completed` completion status;
 `meta` stores the `panel_side` layout preference and the
 `skills_synced_version` render stamp (the brain version that last rendered this
 workspace's skills, read by `skills::resync_on_version_change`). The resume
-model is scoped lock + recency
-(`reap_dead_locks`, `sessions_by_recency`, `claim`, `register_scoped_fresh`,
-`release`). The `PanelSide` enum lives here since
+model is scoped lock + recency behind `agent::session::SessionStore`
+(`reap_dead_locks`, `sessions_by_recency`, `claim`, `register`, `release`,
+`mark_active`, `mark_completed`, `completion_status`). The `PanelSide` enum lives here since
 it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
@@ -930,14 +1014,24 @@ rebuild:
   stderr. The TUI renders to `/dev/tty`.
 - **Every `Choice` has exactly one palette row** (guarded by a test on
   `items(side, …)`) so the menu can't silently drop an action.
-- **The brain panel is open at startup but closeable.** `tui` spawns the
-  `claude` PTY at startup (resumed or fresh) and is two-panel; when claude
+- **The brain panel is open at startup but closeable.** `tui` launches the
+  selected controller at startup and is two-panel; when its agent
   exits the panel **closes** (search goes full-width) — it does not quit the
   shell. `open_or_focus_brain` ("Message brain" / `Ctrl-M`) re-opens it.
-- **Exactly one Claude session per brain instance is locked at a time.**
-  The SessionStart hook frees the instance's other sessions on every start
-  (so `/new` leaves the prior conversation resumable); `release` clears the
-  lock on exit; dead-PID locks are reaped on the next startup.
+- **Exactly one frontend session per brain instance is locked at a time.**
+  A SessionStart hook may update an exact registered tuple or rotate an
+  already registered active lineage; it rejects unregistered events and frees
+  the instance's other sessions on every accepted start
+  (so `/new` leaves the prior conversation resumable). Its authorization and
+  mutation share one `BEGIN IMMEDIATE` transaction, so concurrent rotations
+  recheck target ownership after serialization. `release` clears the lock on
+  exit; dead-PID locks are reaped on the next startup.
+- **A committed completion always has a durable response artifact.** The Stop
+  hook stages a unique synced file, acquires `BEGIN IMMEDIATE`, rechecks and
+  updates the same exact locked session scope, publishes and syncs the artifact,
+  then commits. A failed publication or commit rolls back and cleans up only
+  that attempt; a concurrent SessionStart rotation is rechecked after writer
+  serialization.
 
 ## Dependencies
 
