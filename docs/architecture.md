@@ -173,7 +173,9 @@ server lifecycle, and habits dispatch. Receiver command ownership is reflected
 on disk: `receiver/mod.rs` owns dispatch, `receiver/setup/` owns selected-record
 provider planning plus portable-user mapping. Its `setup/transaction.rs` owns
 bounded rollback across the selected machine record, portable users, and hook
-artifacts. `receiver/hooks.rs` owns
+artifacts. One workspace-local advisory lock spans snapshot, every write,
+commit, and rollback, so concurrent setup attempts cannot claim or restore one
+another's identical after-images. `receiver/hooks.rs` owns
 workspace-sensitive Claude/Codex hook installation;
 its focused installer tests live in the owned `receiver/hooks/tests.rs`
 submodule.
@@ -203,6 +205,9 @@ task CSV loads and writes, sync/rclone work, server lifecycle probes, doctor
 checks, and skill installation. `main.rs` passes argv through the pure central
 redactor before either file logging or verbose mirroring, so receiver provider
 credentials and portable phone/email values never cross the log boundary.
+Env assignment redaction delegates to the authoritative env sensitivity
+classifier, including whole `agent_capabilities` values and nested MCP
+credential fields.
 
 ### `paths.rs`
 Legacy single-root resolution only. `brain_root()` / `brain_root_path()` retain
@@ -1018,11 +1023,15 @@ offline queue or launches an agent.
   `http/sms.rs` and `http/email.rs` return typed provider outcomes while they
   verify and normalize provider input; Resend retrieval is capped at 1 MiB per
   response and ten seconds per request;
-  `dispatch.rs` resolves the selected workspace's portable actor and performs
-  transactional, workspace-scoped provider-ID deduplication;
-  `admission.rs` linearizes cancellable exact-lease admission with revocation, while
-  `dispatch/tests.rs` exercises that production pipeline's synchronized final
-  admission boundary; `transport.rs`
+  `dispatch.rs` resolves the selected workspace's portable actor, while
+  `dispatch/deliveries.rs` owns transactional, workspace-scoped provider-ID
+  deduplication. Verified
+  unavailable Resend IDs enter the same bounded memory cache before discard,
+  so later availability cannot replay them into a TUI;
+  `admission.rs` linearizes cancellable exact-lease admission with revocation,
+  while `dispatch/tests/late_revocation.rs` exercises the production pipeline's
+  synchronized final admission boundary and `dispatch/tests/deliveries.rs`
+  covers provider-ID state; `transport.rs`
   carries one short absolute deadline through nonblocking job-socket connect,
   frame write, and acknowledgment read; `job.rs` defines
   the immutable serialized `InboundJob`; `unavailable.rs` owns the one-response,
@@ -1040,7 +1049,12 @@ offline queue or launches an agent.
   immutable lease projections, so they never prune TTLs or advance lifecycle
   state. Ordinary register, heartbeat, enablement, unregister, ingress lookup,
   and routing-availability transitions opportunistically prune expiry. The
-  watchdog supplies periodic pruning and guarantees final crashed-lease
+  focused `server/` children keep the state machine separated by responsibility:
+  `listener.rs` owns socket IO, `registration.rs` owns live-TUI filesystem
+  validation, `shared_request.rs` owns two-phase deadline-bounded requests, and
+  `receiver_authority.rs` owns route/admission transitions plus exact watchdog
+  revocation. Their tests are split into request/deadline, route-authority,
+  receiver-admission, and shared-fixture modules. The watchdog supplies periodic pruning and guarantees final crashed-lease
   shutdown without traffic. The generation-bound workspace-ingress lookup
   returns only the ingress from that workspace's exact live accepted registration.
   `server.rs` copies validation capabilities under the state mutex, reopens registry plus
@@ -1062,8 +1076,9 @@ offline queue or launches an agent.
   mutex contention only while the exact parent token remains. Fallible token
   inspection reports filesystem and JSON failures without consuming the
   cleanup capability, so callers may repair and retry;
-  `process.rs` owns detached election orchestration, the hidden server loop,
-  and signal cleanup; `watchdog.rs`
+  `process.rs` owns detached election orchestration, retained elected-child
+  observation through `Child::try_wait`, the hidden server loop, and signal
+  cleanup; `watchdog.rs`
   applies clock-injected expiry plus the bounded initial-registration deadline;
   `lease.rs`, `table.rs`, and `decision.rs` own typed leases and latched
   final-shutdown decisions; `table/status.rs` owns immutable status
@@ -1107,13 +1122,18 @@ and at the start of that response reserve. It revalidates the retained
 generation, authority revision, receiver enablement, and live lease under the
 control mutex. The staged socket repeats the check and atomically commits a
 cancellable admission before enqueue. Disable, unregister, and disable-enable
-ABA either cancel before commit or wait for an already committed handoff
-outside the mutex. The same final admission boundary first reloads the selected
+ABA either cancel before commit or wait only until the control request's
+absolute deadline outside the mutex. A deadline rejection performs no later
+disable or unregister mutation. Watchdog expiry removes the exact lease and
+cancels every matching pre-commit admission before shutdown. The same final
+admission boundary first reloads the selected
 canonical registry record and requires the exact workspace UUID's persistent
 receiver intent to remain enabled, so a lost live-refresh notification cannot
 let a raced disable enqueue. It then carries that exact handoff deadline
 through nonblocking connect, the complete frame write, and acknowledgment
-read. Successful byte progress cannot renew it. Provider and socket IO never
+read. The TUI removes the just-staged queue item if its final `accepted`
+acknowledgment cannot be written, so the server observes a failed handoff and
+dedup state remains correct. Successful byte progress cannot renew it. Provider and socket IO never
 run while the control mutex is held.
 
 Queued inbound work is never allowed to interrupt an active agent turn.

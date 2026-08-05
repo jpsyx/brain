@@ -5,6 +5,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
+use fs2::FileExt as _;
 
 use super::SetupPlan;
 use crate::command::server::receiver::hooks::{self, InstallStep};
@@ -35,6 +36,34 @@ struct FileSnapshot {
 struct DirectorySnapshot {
     path: PathBuf,
     existed: bool,
+}
+
+struct SetupTransactionLock {
+    _file: std::fs::File,
+}
+
+impl SetupTransactionLock {
+    fn acquire(root: &Path) -> Result<Self> {
+        let path = root.join(".config/.receiver-setup.transaction.lock");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("create receiver setup lock directory {}", parent.display())
+            })?;
+        }
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let file = options
+            .open(&path)
+            .with_context(|| format!("open receiver setup lock {}", path.display()))?;
+        file.lock_exclusive()
+            .with_context(|| format!("lock receiver setup transaction {}", path.display()))?;
+        Ok(Self { _file: file })
+    }
 }
 
 impl SetupSnapshot {
@@ -203,6 +232,7 @@ fn persist_plan_with_hook(
     home: &Path,
     mut after_write: impl FnMut(CommitStep) -> Result<()>,
 ) -> Result<()> {
+    let _transaction = SetupTransactionLock::acquire(context.workspace.root())?;
     let mut snapshot = SetupSnapshot::capture(context, home)?;
     let result = (|| {
         crate::env::set_many(context, &plan.providers)?;

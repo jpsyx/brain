@@ -5,7 +5,7 @@ use std::net::Shutdown;
 use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -247,7 +247,7 @@ impl ServerClient {
             .context("connecting to the shared brain server")
     }
 
-    pub(crate) fn spawn(&self, generation: ServerGeneration, port: u16) -> Result<u32> {
+    pub(crate) fn spawn(&self, generation: ServerGeneration, port: u16) -> Result<Child> {
         use std::os::unix::process::CommandExt as _;
 
         fs::create_dir_all(self.paths.directory())
@@ -283,7 +283,7 @@ impl ServerClient {
             .process_group(0)
             .spawn()
             .context("spawning elected shared brain server")?;
-        Ok(child.id())
+        Ok(child)
     }
 }
 

@@ -69,6 +69,36 @@ pub fn signed_email_event(
     }
 }
 
+pub fn signed_received_email_event(
+    ingress: brain::server::IngressId,
+    secret: &[u8],
+    webhook_id: &str,
+    email_id: &str,
+) -> ProviderPost {
+    let body = format!(
+        r#"{{"type":"email.received","data":{{"from":"member@example.test","email_id":"{email_id}"}}}}"#
+    );
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret).unwrap();
+    mac.update(webhook_id.as_bytes());
+    mac.update(b".");
+    mac.update(timestamp.as_bytes());
+    mac.update(b".");
+    mac.update(body.as_bytes());
+    let signature = format!("v1,{}", STANDARD.encode(mac.finalize().into_bytes()));
+    ProviderPost {
+        path: format!("/w/{ingress}/email"),
+        headers: format!(
+            "svix-id: {webhook_id}\r\nsvix-timestamp: {timestamp}\r\nsvix-signature: {signature}\r\n"
+        ),
+        body,
+    }
+}
+
 pub fn post(port: u16, request: &ProviderPost) -> String {
     let wire = format!(
         "POST {} HTTP/1.1\r\nHost: localhost\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",

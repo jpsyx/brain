@@ -1969,7 +1969,10 @@ job in connection-local staging and returns `prepared`. Final registry and
 exact-revision checks authorize an in-flight admission; only its atomic commit
 allows the TUI to append and acknowledge. Disable and unregister cancel pending
 or authorized admissions. If commit already won, revocation waits outside the
-control-state mutex for that exact admission to complete. Disabled, missing,
+control-state mutex only until the original request deadline. A timeout rejects
+the control request and applies no later lease mutation. Watchdog expiry removes
+the exact lease first, preventing new admissions, then cancels every matching
+pre-commit admission. Disabled, missing,
 full, and failed endpoints receive one
 channel-specific unavailable response and the request is discarded.
 
@@ -1980,12 +1983,21 @@ applying fixed read and write timeouts. Some platforms can otherwise surface
 TUI into an intermittent unavailable response. Bounded deadline polling in the
 integration suite exercises this boundary without fixed sleeps.
 
+If the TUI appends after `commit` but cannot write its final `accepted`
+acknowledgment, it removes that exact staged tail item before releasing its
+exclusive queue borrow. The server therefore treats the handoff as failed and
+never commits an ID for work the TUI did not acknowledge.
+
 Webhook verification follows provider replay guidance: HMAC comparisons are
 constant-time and Resend timestamps have a five-minute tolerance. Provider
 delivery IDs use a 1024-entry accepted cache keyed by workspace, channel, and
 provider ID. An ID is retained only after a successful enqueue acknowledgment;
-failed handoffs release it, and an in-flight duplicate is unavailable rather
-than prematurely acknowledged.
+failed SMS handoffs release it, and an in-flight duplicate is unavailable
+rather than prematurely acknowledged. A known unavailable Resend ingress is
+still resolved before credentials; only that routed workspace's signing secret
+is then loaded to verify the event. A verified unavailable Resend ID is retained
+as a permanent discard, so later TUI availability cannot replay it. This is a
+bounded in-memory dedup record, not a queue, replay worker, or headless path.
 
 The accepting request captures immutable actor, channel, normalized sender,
 response email, and allowed authenticated-thread recipients. The TUI routes
@@ -2020,9 +2032,10 @@ nonblocking connect, full frame write, and acknowledgment read, so successful
 progress cannot consume a renewed timeout. One shared compile-time timing
 invariant prevents these bounds from drifting apart. The curl reader stops
 after one over-limit proof byte and reaps the child before returning a typed
-502. Resend receives HTTP success for unavailable, ignored, and permanent
-discard outcomes so discarded webhooks cannot be replayed into a later live
-TUI; signature failures remain authentication failures. Accepted email jobs
+502. Resend receives HTTP success only for verified unavailable, ignored, and
+permanent discard outcomes so discarded webhooks cannot be replayed into a
+later live TUI; signature failures remain authentication failures, while 500
+and 502 remain provider-visible failures. Accepted email jobs
 retain stable Resend email and attachment identifiers, and delayed dispatch
 refreshes signed download access using freshly loaded workspace credentials.
 Processing and final replies preserve accepted subject and message lineage
@@ -2260,8 +2273,10 @@ string; selected-channel credentials cannot be blank, and sender phone/email
 values are normalized without appearing in an error. Because provider env,
 portable users, and frontend hook settings live in separate stores, setup
 cannot use one filesystem transaction. It instead snapshots those exact
-selected artifacts, performs ordered writes, and uses bounded rollback on any
-later failure. Selected env rollback mutates only the UUID-pinned record, so a
+selected artifacts, holds one persistent workspace-local advisory lock across
+snapshot, ordered writes, commit, and bounded rollback, and then releases it.
+This transaction-wide ownership prevents an identical concurrent after-image
+from being mistaken for the failed attempt's bytes. Selected env rollback mutates only the UUID-pinned record, so a
 peer workspace update is never replaced by a whole-registry snapshot. Rollback
 failures are aggregated rather than hiding the original error.
 
@@ -2276,5 +2291,7 @@ routing-before-secrets boundary.
 Receiver setup places credentials and personal addresses on argv for complete
 headless parity, so raw argv is not safe observability data. The logging entry
 point centrally redacts those option values and `receiver set` assignments
-before both file persistence and verbose mirroring. Mode-`0600`, exclusive run
+before both file persistence and verbose mirroring. Env assignments consult the
+same `env::is_sensitive` classifier used by config display, including the whole
+`agent_capabilities` document and nested MCP credential fields. Mode-`0600`, exclusive run
 log creation is an additional local defense, not a substitute for redaction.

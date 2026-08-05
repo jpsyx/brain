@@ -215,3 +215,71 @@ fn failed_setup_rollback_preserves_a_concurrent_success_and_live_lock_inode() {
     );
     assert_eq!(std::fs::metadata(lock).unwrap().ino(), lock_inode);
 }
+
+#[test]
+fn setup_serializes_identical_after_images_across_rollback_ownership() {
+    let fixture = Fixture::new();
+    let failing_context = fixture.context.clone();
+    let failing_home = fixture.home.clone();
+    let provider_written = Arc::new(Barrier::new(2));
+    let release_failure = Arc::new(Barrier::new(2));
+    let thread_provider_written = Arc::clone(&provider_written);
+    let thread_release_failure = Arc::clone(&release_failure);
+    let failing = std::thread::spawn(move || {
+        persist_plan_with_hook(&plan(), &failing_context, &failing_home, |step| {
+            if step == CommitStep::Providers {
+                thread_provider_written.wait();
+                thread_release_failure.wait();
+            }
+            anyhow::ensure!(
+                step != CommitStep::Users,
+                "injected failure after identical concurrent setup"
+            );
+            Ok(())
+        })
+    });
+    provider_written.wait();
+
+    let concurrent_context = fixture.context.clone();
+    let concurrent_home = fixture.home.clone();
+    let (concurrent_tx, concurrent_rx) = std::sync::mpsc::sync_channel(1);
+    let concurrent = std::thread::spawn(move || {
+        concurrent_tx
+            .send(persist_plan_with_hook(
+                &plan(),
+                &concurrent_context,
+                &concurrent_home,
+                |_| Ok(()),
+            ))
+            .expect("report concurrent setup");
+    });
+    let early = concurrent_rx.recv_timeout(std::time::Duration::from_millis(250));
+    let concurrent_was_blocked = matches!(&early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
+    release_failure.wait();
+    let failing_result = failing.join().expect("failing setup worker");
+    let concurrent_result = match early {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => concurrent_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("serialized setup completion"),
+        Err(error) => panic!("concurrent setup channel failed: {error}"),
+    };
+    concurrent.join().expect("concurrent setup worker");
+
+    assert!(failing_result.is_err());
+    assert!(
+        concurrent_was_blocked,
+        "concurrent setup crossed the active transaction"
+    );
+    concurrent_result.expect("serialized concurrent setup");
+    assert_eq!(
+        crate::env::get(&fixture.context, "resend_api_key").as_deref(),
+        Some("re_secret")
+    );
+    assert!(
+        UsersStore::load(&fixture.context.workspace)
+            .expect("users after serialized setup")
+            .users
+            .is_empty()
+    );
+}

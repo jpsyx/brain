@@ -41,7 +41,8 @@ pub(crate) fn receiver_webhook_url(
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ProviderConfig {
+pub(in crate::server) struct ProviderConfig {
+    pub workspace_id: crate::workspace::WorkspaceId,
     pub twilio_auth_token: String,
     pub public_base_url: String,
     pub resend_signing_secret: String,
@@ -73,6 +74,7 @@ impl ProviderConfig {
                 .to_owned()
         };
         Ok(Self {
+            workspace_id: route.context().id(),
             twilio_auth_token: get("twilio_auth_token"),
             public_base_url: get("brain_receiver_public_url"),
             resend_signing_secret: get("resend_webhook_signing_secret"),
@@ -81,10 +83,41 @@ impl ProviderConfig {
             ingress_id: route.lease().ingress_id,
         })
     }
+
+    pub(in crate::server) fn load_for_workspace(
+        store: &crate::workspace::RegistryStore,
+        workspace_id: crate::workspace::WorkspaceId,
+        ingress_id: crate::server::IngressId,
+    ) -> anyhow::Result<Self> {
+        let registry = crate::workspace::RegistryStore::load_from(store.path())
+            .context("loading routed workspace provider configuration")?;
+        let record = registry
+            .workspaces
+            .values()
+            .find(|record| record.workspace_id == workspace_id)
+            .context("routed receiver workspace no longer exists")?;
+        let get = |name: &str| {
+            record
+                .env
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        Ok(Self {
+            workspace_id,
+            twilio_auth_token: get("twilio_auth_token"),
+            public_base_url: get("brain_receiver_public_url"),
+            resend_signing_secret: get("resend_webhook_signing_secret"),
+            resend_api_key: get("resend_api_key"),
+            resend_from_email: get("resend_from_email"),
+            ingress_id,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ProviderError {
+pub(in crate::server) enum ProviderError {
     BodyTooLarge,
     MalformedBody,
     NotConfigured(&'static str),
@@ -97,7 +130,7 @@ pub(super) enum ProviderError {
 }
 
 impl ProviderError {
-    pub(super) const fn status(self) -> u16 {
+    pub(in crate::server) const fn status(self) -> u16 {
         match self {
             Self::IgnoredEvent => 202,
             Self::InvalidSignature(_) => 401,
@@ -167,8 +200,30 @@ pub(super) fn authenticate(
         }
         Channel::Email => email::verify(request, &body, config)?,
     };
+    if crate::server::receiver::dispatch::provider_delivery_completed(
+        config.workspace_id,
+        Channel::Email,
+        pending_email.webhook_id(),
+    ) {
+        return Err(ProviderError::IgnoredEvent);
+    }
     request
         .begin_handler_phase()
         .map_err(|_| ProviderError::Deadline)?;
     email::fetch(pending_email, config)
+}
+
+pub(in crate::server) fn verify_unavailable_email(
+    request: &mut crate::server::http::Request,
+    config: &ProviderConfig,
+) -> Result<String, ProviderError> {
+    let body = request
+        .read_body(WEBHOOK_BODY_LIMIT)
+        .map_err(|error| match error {
+            crate::server::http::BodyError::TooLarge => ProviderError::BodyTooLarge,
+            crate::server::http::BodyError::Io(_) | crate::server::http::BodyError::Malformed => {
+                ProviderError::MalformedBody
+            }
+        })?;
+    email::verify(request, &body, config).map(|verified| verified.webhook_id().to_owned())
 }

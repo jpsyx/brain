@@ -185,6 +185,9 @@ fn receiver_response(
                 "receiver request unavailable channel={channel:?} status={} error={error}",
                 error.status()
             ));
+            if channel == receiver::Channel::Email {
+                return unavailable_email_response(control, ingress, now, request);
+            }
             return unavailable_receiver_response(channel);
         }
     };
@@ -236,6 +239,36 @@ fn receiver_response(
     }
 }
 
+fn unavailable_email_response(
+    control: &Mutex<control::ControlServer>,
+    ingress: IngressId,
+    now: std::time::Instant,
+    request: &mut http::Request,
+) -> http::Response {
+    let target = control
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .unavailable_receiver_target(ingress, now);
+    let Some((workspace_id, store)) = target else {
+        return http::Response::empty(503);
+    };
+    let config =
+        match receiver::http::ProviderConfig::load_for_workspace(&store, workspace_id, ingress) {
+            Ok(config) => config,
+            Err(error) => return http::Response::text(503, error.to_string()),
+        };
+    match receiver::http::verify_unavailable_email(request, &config) {
+        Ok(provider_id) => {
+            receiver::dispatch::remember_verified_unavailable_email(workspace_id, provider_id);
+            unavailable_receiver_response(receiver::Channel::Email)
+        }
+        Err(error) => http::Response::text(
+            provider_http_status(error.status(), false, receiver::Channel::Email),
+            error.to_string(),
+        ),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReceiverFailureLog {
     Unavailable,
@@ -268,7 +301,9 @@ fn unavailable_receiver_response(channel: receiver::Channel) -> http::Response {
 }
 
 const fn provider_http_status(status: u16, unavailable: bool, channel: receiver::Channel) -> u16 {
-    if matches!(channel, receiver::Channel::Email) && (unavailable || status != 401) {
+    if matches!(channel, receiver::Channel::Email)
+        && (unavailable || status == 202 || (status >= 400 && status < 500 && status != 401))
+    {
         200
     } else {
         status
@@ -426,6 +461,14 @@ mod tests {
         assert_eq!(
             provider_http_status(401, false, crate::server::receiver::Channel::Email),
             401
+        );
+        assert_eq!(
+            provider_http_status(500, false, crate::server::receiver::Channel::Email),
+            500
+        );
+        assert_eq!(
+            provider_http_status(502, false, crate::server::receiver::Channel::Email),
+            502
         );
     }
 }

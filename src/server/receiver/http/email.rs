@@ -40,6 +40,12 @@ pub(super) struct VerifiedEmail {
     email_id: String,
 }
 
+impl VerifiedEmail {
+    pub(super) fn webhook_id(&self) -> &str {
+        &self.webhook_id
+    }
+}
+
 pub(super) fn verify(
     request: &crate::server::http::Request,
     body: &[u8],
@@ -381,6 +387,7 @@ mod tests {
             signature: &signature,
         };
         let config = super::ProviderConfig {
+            workspace_id: crate::workspace::WorkspaceId::new(),
             twilio_auth_token: String::new(),
             public_base_url: String::new(),
             resend_signing_secret: format!("whsec_{}", STANDARD.encode(key)),

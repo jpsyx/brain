@@ -248,8 +248,14 @@ first move is a failing test that reproduces it, *then* the fix.
   process alive. It also covers absent-process silence, failed sockets, a full
   64-job queue,
   enqueue acknowledgment, and rollback when the acknowledgment write fails.
-  Pure dispatch tests pin the credential/signature/actor order and transactional
-  provider-ID state: failed handoffs retain no ID, in-flight duplicates are not
+  The rollback case performs the complete frame, `prepared`, `commit`, and
+  peer-close sequence, then polls the production socket and requires an empty
+  queue. A signed Resend event submitted while its exact TUI is unavailable is
+  replayed after re-registration; the replay must remain outside the queue and
+  must not reach the Receiving API.
+  Pure tests under `server/receiver/dispatch/tests/` pin the synchronized late
+  revocation boundary separately from transactional provider-ID state: failed
+  handoffs retain no ID, in-flight duplicates are not
   acknowledged, successful duplicates are idempotent, and the 1024-entry cache
   is scoped by workspace and channel. Barrier-driven dispatch tests disable
   exact live authority after actor resolution and prove revalidation prevents
@@ -353,6 +359,10 @@ first move is a failing test that reproduces it, *then* the fix.
   that removes authorized-state cancellation makes the real pipeline accept
   and enqueue, so the regression cannot pass through a copied test decision
   path.
+  The same synchronized production race expires the exact lease through the
+  watchdog/control seam after authorization and before commit. A committed
+  admission held past an injected short control deadline proves unregister
+  returns bounded rejection and cannot mutate authority later.
   Exact status tests distinguish a
   live disabled lease from an accepting lease. Actual parsed CLI start/stop and
   startup `--with-receiver -b` paths, plus keyboard-driven tasks and search
@@ -428,6 +438,10 @@ first move is a failing test that reproduces it, *then* the fix.
   retry succeeds while competing lease IDs and changed identities remain
   rejected. The pure heartbeat classifier proves both missing and stale
   generations enter recovery.
+  Real elected-starter wrappers exit once before publication with the token
+  both retained and removed, then exec the real binary. Both cases prove
+  retained-`Child` observation re-enters election inside the original deadline,
+  without fixed sleeps or PID zombie assumptions.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable

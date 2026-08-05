@@ -4,7 +4,7 @@ use brain::server::lifecycle::{
 use std::io::{Read as _, Write as _};
 use std::os::unix::net::UnixListener;
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::support::{LiveTui, RunningServer, wait_for};
 
@@ -16,6 +16,66 @@ fn connect_or_elect_reuses_an_existing_generation() {
 
     assert_eq!(connected.generation, server.generation);
     server.shutdown_with_two_leases();
+}
+
+#[test]
+fn elected_starter_exit_with_retained_token_retries_within_original_deadline() {
+    elected_starter_exit_retries(false);
+}
+
+#[test]
+fn elected_starter_exit_after_token_removal_retries_within_original_deadline() {
+    elected_starter_exit_retries(true);
+}
+
+fn elected_starter_exit_retries(remove_token: bool) {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let home = tempfile::tempdir().expect("temporary server home");
+    let paths = ServerPaths::from_home(home.path());
+    let wrapper = home.path().join("elected-starter");
+    let token_action = if remove_token {
+        "rm -f \"$HOME/.cache/brain/server/election.lock\""
+    } else {
+        ":"
+    };
+    std::fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\ncount_file=\"$HOME/starter-count\"\ncount=0\n[ -f \"$count_file\" ] && count=$(cat \"$count_file\")\ncount=$((count + 1))\nprintf '%s\\n' \"$count\" > \"$count_file\"\nif [ \"$count\" -eq 1 ]; then\n  {token_action}\n  exit 19\nfi\nexec '{}' \"$@\"\n",
+            env!("CARGO_BIN_EXE_brain")
+        ),
+    )
+    .expect("write elected starter wrapper");
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700))
+        .expect("make elected starter executable");
+    let client = brain::server::control::ServerClient::with_launch_context(
+        paths.clone(),
+        wrapper,
+        home.path().to_path_buf(),
+    );
+
+    let record = connect_or_elect(&client).expect("retry exited elected starter");
+
+    assert_eq!(
+        std::fs::read_to_string(home.path().join("starter-count"))
+            .expect("read starter count")
+            .trim(),
+        "2"
+    );
+    let status = Command::new("kill")
+        .args(["-TERM", &record.pid.to_string()])
+        .status()
+        .expect("stop replacement server");
+    assert!(status.success());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while paths.process_record().exists()
+        || paths.control_socket().exists()
+        || paths.election_lock().exists()
+    {
+        assert!(Instant::now() < deadline, "replacement cleanup timed out");
+        std::thread::yield_now();
+    }
 }
 
 #[test]

@@ -94,7 +94,7 @@ pub fn redact_argv(argv: &[String]) -> Vec<String> {
                 return argument.clone();
             }
             if let Some((name, _)) = argument.split_once('=')
-                && is_private_receiver_field(name)
+                && (is_private_receiver_field(name) || crate::env::is_sensitive(name))
             {
                 return format!("{name}=[REDACTED]");
             }
@@ -239,6 +239,31 @@ mod tests {
                 "--verbose",
             ]
         );
+    }
+
+    #[test]
+    fn argv_logging_boundary_uses_env_sensitivity_for_nested_agent_credentials() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("argv.log");
+        let mut logger = Logger::open(&path).unwrap();
+        let argv = [
+            "brain",
+            "env",
+            "set",
+            r#"agent_capabilities={"mcps":{"search":{"credentials":{"token":"top-level-secret"}}}}"#,
+            "agent_capabilities.mcps.search.credentials.bearer_token=nested-secret",
+            "codex_cmd=codex --safe",
+        ]
+        .map(str::to_owned);
+
+        logger
+            .write(&format!("argv {:?}", redact_argv(&argv)))
+            .unwrap();
+
+        let contents = std::fs::read_to_string(path).unwrap();
+        assert!(!contents.contains("top-level-secret"), "{contents}");
+        assert!(!contents.contains("nested-secret"), "{contents}");
+        assert!(contents.contains("codex_cmd=codex --safe"), "{contents}");
     }
 
     #[cfg(unix)]

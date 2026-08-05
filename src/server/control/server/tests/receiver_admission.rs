@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
-use super::*;
+use super::fixtures::{lease, registry_with_receiver, workspace_id};
+use crate::server::control::{ControlRequest, ControlResponse, ControlServer, ServerSnapshot};
 use crate::server::lifecycle::ServerGeneration;
 use crate::workspace::RegistryStore;
 

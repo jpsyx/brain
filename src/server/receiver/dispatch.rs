@@ -4,6 +4,15 @@ use anyhow::{Context, Result};
 
 use super::InboundJob;
 
+#[path = "dispatch/deliveries.rs"]
+mod deliveries;
+use deliveries::{DELIVERIES, forward_provider_delivery};
+#[cfg(test)]
+use deliveries::{ProviderDeliveries, ProviderKey};
+pub(in crate::server) use deliveries::{
+    provider_delivery_completed, remember_verified_unavailable_email,
+};
+
 pub(crate) const JOB_FRAME_LIMIT: usize = 1024 * 1024;
 
 /// Ordered decision boundary for one inbound receiver request.
@@ -238,8 +247,6 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
     }
 
     fn forward(&mut self, workspace: &Self::Workspace, job: &Self::Job) -> Result<()> {
-        static DELIVERIES: std::sync::LazyLock<std::sync::Mutex<ProviderDeliveries>> =
-            std::sync::LazyLock::new(|| std::sync::Mutex::new(ProviderDeliveries::default()));
         let handoff_deadline = self
             .handoff_deadline
             .as_ref()
@@ -343,79 +350,6 @@ fn final_admission(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .revalidate_workspace_route(workspace, std::time::Instant::now())
         .map_err(|error| std::io::Error::other(error.to_string()))
-}
-
-type ProviderKey = (crate::workspace::WorkspaceId, super::Channel, String);
-
-fn forward_provider_delivery(
-    deliveries: &std::sync::Mutex<ProviderDeliveries>,
-    key: &ProviderKey,
-    forward: impl FnOnce() -> Result<()>,
-) -> Result<()> {
-    let reservation = deliveries
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .begin(key.clone());
-    match reservation {
-        ProviderReservation::Duplicate => return Ok(()),
-        ProviderReservation::InFlight => {
-            anyhow::bail!("provider delivery is already being accepted")
-        }
-        ProviderReservation::Started => {}
-    }
-    let result = forward();
-    deliveries
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .finish(key, result.is_ok());
-    result
-}
-
-#[derive(Default)]
-struct ProviderDeliveries {
-    pending: std::collections::HashSet<ProviderKey>,
-    order: std::collections::VecDeque<ProviderKey>,
-    accepted: std::collections::HashSet<ProviderKey>,
-}
-
-impl ProviderDeliveries {
-    fn begin(&mut self, key: ProviderKey) -> ProviderReservation {
-        if self.accepted.contains(&key) {
-            return ProviderReservation::Duplicate;
-        }
-        if !self.pending.insert(key) {
-            return ProviderReservation::InFlight;
-        }
-        ProviderReservation::Started
-    }
-
-    fn finish(&mut self, key: &ProviderKey, accepted: bool) {
-        const RECENT_PROVIDER_IDS: usize = 1024;
-        self.pending.remove(key);
-        if !accepted || !self.accepted.insert(key.clone()) {
-            return;
-        }
-        self.order.push_back(key.clone());
-        while self.order.len() > RECENT_PROVIDER_IDS {
-            if let Some(expired) = self.order.pop_front() {
-                self.accepted.remove(&expired);
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ProviderReservation {
-    Started,
-    Duplicate,
-    InFlight,
-}
-
-impl ProviderReservation {
-    #[cfg(test)]
-    const fn started(self) -> bool {
-        matches!(self, Self::Started)
-    }
 }
 
 /// Forward one bounded job frame to an already-live TUI and await enqueue.

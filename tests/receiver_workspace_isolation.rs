@@ -2,7 +2,7 @@
 mod complete_lifecycle;
 mod receiver_workspace_support;
 
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
@@ -234,9 +234,7 @@ fn missing_email_target_returns_one_json_unavailable_and_enqueues_nothing() {
     let mut queue = Vec::new();
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
 
-    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-    assert_eq!(response.matches("Brain is unavailable").count(), 1);
-    assert!(response.contains("Content-Type: application/json"));
+    assert!(response.starts_with("HTTP/1.1 401"), "{response}");
     assert!(queue.is_empty());
     fixture.shutdown();
 }
@@ -283,6 +281,32 @@ fn repeated_resend_discard_outcomes_ack_without_enqueue_or_retry() {
     }
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
     assert!(queue.is_empty());
+    fixture.shutdown();
+}
+
+#[test]
+fn signed_resend_event_unavailable_before_credentials_is_rejected_on_live_replay() {
+    let mut fixture = SharedReceiverFixture::start_with_anchor();
+    fixture.unregister_target();
+
+    let unavailable = fixture.post_received_email_event();
+    fixture.register_target();
+    let replay = fixture.post_received_email_event();
+    let mut queue = Vec::new();
+    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
+
+    assert!(unavailable.starts_with("HTTP/1.1 200"), "{unavailable}");
+    assert!(replay.starts_with("HTTP/1.1 200"), "{replay}");
+    assert!(
+        !replay.contains("Resend"),
+        "replayed unavailable event reached provider fetch: {replay}"
+    );
+    assert!(queue.is_empty());
+    let log = fixture.server_log();
+    assert!(
+        !log.contains("Resend"),
+        "replayed unavailable event reached provider fetch: {log}"
+    );
     fixture.shutdown();
 }
 
@@ -337,14 +361,27 @@ fn failed_ack_write_rolls_back_the_just_enqueued_job() {
     let personal = workspace(&temp, PERSONAL_ID, "personal");
     let socket = JobSocket::bind(&personal).unwrap();
     let mut client = UnixStream::connect(personal.paths().job_socket()).unwrap();
+    let staged = job(&personal, "must roll back");
     client
-        .write_all(&serde_json::to_vec(&job(&personal, "must roll back")).unwrap())
+        .write_all(&serde_json::to_vec(&staged).unwrap())
         .unwrap();
+    client.write_all(b"\n").unwrap();
+    let workspace_id = personal.id();
+    let (queue_tx, queue_rx) = std::sync::mpsc::sync_channel(1);
+    let worker = std::thread::spawn(move || {
+        let mut queue = Vec::new();
+        socket.poll_jobs(workspace_id, &mut queue);
+        queue_tx.send(queue).unwrap();
+    });
+    let mut prepared = [0_u8; 9];
+    client.read_exact(&mut prepared).unwrap();
+    assert_eq!(&prepared, b"prepared\n");
+    client.write_all(b"commit\n").unwrap();
     client.shutdown(std::net::Shutdown::Both).unwrap();
     drop(client);
 
-    let mut queue = Vec::new();
-    socket.poll_jobs(personal.id(), &mut queue);
+    let queue = queue_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    worker.join().unwrap();
 
     assert!(queue.is_empty());
 }

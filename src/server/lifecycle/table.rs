@@ -337,6 +337,19 @@ impl LeaseTable {
         }
     }
 
+    pub(crate) fn unavailable_workspace(
+        &mut self,
+        ingress_id: IngressId,
+        now: Instant,
+    ) -> Option<WorkspaceId> {
+        self.prune_expired(now);
+        let workspace_id = *self.known_ingresses.get(&ingress_id)?;
+        self.live
+            .get(&workspace_id)
+            .is_none_or(|lease| !lease.receiver_enabled)
+            .then_some(workspace_id)
+    }
+
     /// Exact authority incarnation for one current workspace lease.
     #[must_use]
     pub(crate) fn authority_revision(
@@ -344,6 +357,13 @@ impl LeaseTable {
         workspace_id: WorkspaceId,
     ) -> Option<AuthorityRevision> {
         self.authority_revisions.get(&workspace_id).copied()
+    }
+
+    pub(crate) fn expired_lease_ids(&self, now: Instant) -> Vec<LeaseId> {
+        self.live
+            .values()
+            .filter_map(|lease| (lease.expires_at <= now).then_some(lease.lease_id))
+            .collect()
     }
 
     fn prune_expired(&mut self, now: Instant) -> bool {

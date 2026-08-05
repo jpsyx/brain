@@ -167,6 +167,12 @@ registration. A failed late heartbeat, receiver update, or rejected
 registration therefore cannot consume the final-expiry signal before the
 watchdog observes it.
 
+Watchdog expiry first removes exact lease authority under the control-state
+mutex, then revokes matching admissions outside it with one absolute deadline.
+Pending and authorized admissions become cancelled; work whose socket commit
+already linearized may finish. Orderly disable and unregister wait only to the
+request deadline, and a timeout leaves their lease mutation unapplied.
+
 Every mutating control request is tagged with the process generation. A stale
 generation yields `StaleGeneration` without touching the table. Registration
 contains workspace, lease, and ingress UUIDs, canonical name, TUI PID, and the
@@ -212,6 +218,13 @@ A registration replay or enablement refresh
 computes its next revision before changing expiry, enablement, or registration
 state; revision overflow rejects the complete transition without extending or
 reviving authority.
+
+For Resend only, a known unavailable ingress can yield its remembered workspace
+UUID without yielding a live route ticket. That UUID selects exactly one
+registry record for signature verification and bounded in-memory provider-ID
+deduplication. It never constructs `WorkspaceContext`, loads portable users, or
+opens the job socket. A verified unavailable ID is a permanent discard in the
+same 1024-key workspace/channel cache, not a queued job or durable replay item.
 The accepted registration is also the source for local habits and triage URL
 generation, so a later portable-manifest change cannot redirect a live TUI or
 selected short-lived command through a peer workspace's ingress.

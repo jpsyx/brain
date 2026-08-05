@@ -297,7 +297,10 @@ releases the mutex only through an explicit handoff that leaves its generation
 token for the child while retaining exact cleanup responsibility. A successful
 child adoption changes the token owner, making parent cleanup a no-op; child
 loss before adoption leaves the token unchanged, so the parent removes it when
-the bounded publication wait ends. If another startup contender briefly holds
+the bounded publication wait ends. During that wait the parent retains the
+elected `Child` and uses `try_wait`, rather than PID liveness, so a zombie is an
+observed failed starter and election retries within the original deadline. If
+another startup contender briefly holds
 the advisory mutex at that boundary, explicit cleanup retries at a fixed
 interval for at most two seconds while the exact parent token remains instead
 of abandoning it. Adoption or replacement changes the record and ends the
@@ -613,8 +616,9 @@ the commit point with a warning.
 
 Before setup writes, it snapshots the selected provider values, exact
 portable-user bytes, and selected Claude/Codex hook artifacts, excluding their
-transaction lock pathnames. Provider, user, and hook writes are ordered under a
-bounded rollback boundary. A failure conditionally restores only values and
+transaction lock pathnames. Provider, user, and hook writes are ordered under
+one persistent workspace-local advisory lock that remains held through
+rollback. A failure conditionally restores only values and
 files still equal to this attempt's after-image, preserving concurrent success,
 peer records, and live lock inodes. Manifest identity and URL validation complete before the
 first write, and live reload happens only after the whole transaction succeeds.
@@ -622,7 +626,10 @@ first write, and live reload happens only after the whole transaction succeeds.
 Run logging applies a central argv redactor before the timestamped file or
 `--verbose` mirror sees a line. Receiver provider fields and portable
 phone/email values are replaced for `--flag value`, `--flag=value`, and
-`receiver set name=value` forms. Each run log is created exclusively with mode
+`receiver set name=value` forms. Env assignments use `env::is_sensitive`, so
+whole `agent_capabilities` documents and nested
+`agent_capabilities.mcps.*.credentials.*` values use the same authoritative
+policy. Each run log is created exclusively with mode
 `0600` as defense in depth.
 
 The receiver handoff endpoint is the selected workspace's mode-`0600`
@@ -631,12 +638,19 @@ workspace UUID, immutable actor and channel, normalized sender, prompt, stable
 provider email/attachment IDs, provider ID, and acceptance-time response
 metadata. The TUI stages the decoded job, returns `prepared`, and adds it to its
 64-entry memory queue only after the server's exact-revision admission commits.
+If the final `accepted` write fails, it removes that just-appended job before
+the event-loop poll releases its exclusive queue borrow.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.
-Only acknowledged jobs enter the cache. A failed or in-flight handoff returns
-unavailable and schedules no retry; a later provider retry may attempt a fresh
-handoff. Dispatch retains the original route ticket, reserves five seconds for
+Only acknowledged SMS jobs enter the cache. A failed or in-flight SMS handoff
+returns unavailable and schedules no retry; a later provider retry may attempt
+a fresh handoff. A signature-verified unavailable Resend ID is retained as a
+permanent discard in the same bounded cache. Known unavailable ingress is
+resolved before selecting that exact workspace's signing credential, and no
+root, user, prompt, or job socket is opened for this verification. A later live
+replay is rejected before Receiving API access. Dispatch retains the original
+route ticket, reserves five seconds for
 the response, derives one handoff deadline capped at two seconds and at that
 response cutoff, then revalidates the exact generation, authority incarnation,
 enabled state, and live lease immediately before socket IO. The safe
@@ -644,9 +658,10 @@ nonblocking connector, complete frame write, and acknowledgment read all use
 that same absolute handoff deadline; continuous progress cannot renew it.
 Resend's received-email and attachment-metadata calls each have a ten-second
 maximum and a 1 MiB response cap; an oversized stream is stopped after one
-proof byte beyond the cap, before JSON parsing. Unavailable, ignored, and
-permanent discarded Resend events return provider success and remain outside
-the queue; invalid signatures remain authentication failures. Delayed email
+proof byte beyond the cap, before JSON parsing. Verified unavailable, ignored,
+and permanent discarded Resend events return provider success and remain
+outside the queue; invalid signatures remain authentication failures, and
+internal 500/502 outcomes remain failures rather than provider success. Delayed email
 dispatch refreshes signed attachment access from stable provider IDs, and
 processing plus final replies preserve the original subject and message
 lineage without widening recipients. Receiving-API rejection or malformed

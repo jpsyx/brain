@@ -8,7 +8,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
-use super::provider_request::{post, signed_email_event, signed_sms};
+use super::provider_request::{post, signed_email_event, signed_received_email_event, signed_sms};
 use super::{FAMILY_ID, PERSONAL_ID, poll_until};
 
 pub struct SharedReceiverFixture {
@@ -172,6 +172,17 @@ impl SharedReceiverFixture {
         self.target_registered = false;
     }
 
+    pub fn register_target(&mut self) {
+        assert!(!self.target_registered, "target is already registered");
+        self.heartbeat = Some(register_workspace(
+            &self.client,
+            self.generation,
+            &self.workspace,
+            self.ingress,
+        ));
+        self.target_registered = true;
+    }
+
     pub fn post_sms(&self, provider_id: &str, prompt: &str) -> String {
         post(
             self.port,
@@ -227,6 +238,22 @@ impl SharedReceiverFixture {
                 "email.received",
             ),
         )
+    }
+
+    pub fn post_received_email_event(&self) -> String {
+        post(
+            self.port,
+            &signed_received_email_event(
+                self.ingress,
+                b"personal-resend-secret",
+                "unavailable-replay-webhook",
+                "email-for-unavailable-replay",
+            ),
+        )
+    }
+
+    pub fn server_log(&self) -> String {
+        std::fs::read_to_string(self.client.paths().log()).unwrap_or_default()
     }
 
     pub fn post_permanent_email_event(&self) -> String {

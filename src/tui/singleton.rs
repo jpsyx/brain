@@ -116,7 +116,8 @@ impl JobSocket {
     /// Accept bounded job frames into this TUI's in-memory queue.
     ///
     /// An acknowledgment is written only after a matching job has been
-    /// appended. Full, malformed, and cross-workspace frames are discarded.
+    /// appended. A failed final acknowledgment removes that staged append.
+    /// Full, malformed, and cross-workspace frames are discarded.
     pub fn poll_jobs(
         &self,
         workspace_id: crate::workspace::WorkspaceId,
@@ -156,6 +157,9 @@ impl JobSocket {
                         format!("rejected: {error:#}\n").replace(['\r', '\n'], " ")
                     };
                     if let Err(error) = stream.write_all(message.as_bytes()) {
+                        if accepted {
+                            queue.pop();
+                        }
                         crate::logging::log(format!(
                             "workspace job acknowledgment failed: {error}"
                         ));

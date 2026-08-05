@@ -2,6 +2,7 @@
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Condvar, Mutex};
+use std::time::Instant;
 
 const PENDING: u8 = 0;
 const AUTHORIZED: u8 = 1;
@@ -61,7 +62,11 @@ impl ReceiverAdmission {
         ready.notify_all();
     }
 
-    pub(crate) fn revoke_or_wait(&self) {
+    pub(crate) fn revoke_or_wait_until(
+        &self,
+        deadline: Instant,
+        clock: &impl Fn() -> Instant,
+    ) -> bool {
         loop {
             match self.state.load(Ordering::Acquire) {
                 PENDING | AUTHORIZED => {
@@ -77,7 +82,7 @@ impl ReceiverAdmission {
                             )
                             .is_ok()
                     {
-                        return;
+                        return true;
                     }
                 }
                 COMMITTED => {
@@ -86,14 +91,22 @@ impl ReceiverAdmission {
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     while !*completed {
-                        completed = ready
-                            .wait(completed)
+                        let now = clock();
+                        if now >= deadline {
+                            return false;
+                        }
+                        let (next, timeout) = ready
+                            .wait_timeout(completed, deadline.duration_since(now))
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        completed = next;
+                        if timeout.timed_out() && !*completed {
+                            return false;
+                        }
                     }
                     drop(completed);
-                    return;
+                    return true;
                 }
-                _ => return,
+                _ => return true,
             }
         }
     }
@@ -115,7 +128,10 @@ mod tests {
         let admission = admission();
         admission.authorize().expect("final revalidation");
 
-        admission.revoke_or_wait();
+        assert!(admission.revoke_or_wait_until(
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            &std::time::Instant::now,
+        ));
 
         assert!(admission.commit().is_err());
     }
@@ -131,7 +147,10 @@ mod tests {
         let worker_finished = std::sync::Arc::clone(&finished);
         let worker = std::thread::spawn(move || {
             entered_tx.send(()).unwrap();
-            worker_admission.revoke_or_wait();
+            assert!(worker_admission.revoke_or_wait_until(
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+                &std::time::Instant::now,
+            ));
             worker_finished.store(true, std::sync::atomic::Ordering::Release);
         });
         entered_rx

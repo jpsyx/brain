@@ -111,9 +111,9 @@ pub(crate) fn connect_or_elect_until(
                     remove_stale_socket(client.paths())?;
                 }
                 let port = choose_port(preferred_is_free(PREFERRED_PORT), PREFERRED_PORT);
-                let starter_pid = client.spawn(guard.generation(), port)?;
+                let mut starter = client.spawn(guard.generation(), port)?;
                 let handoff = guard.handoff();
-                let connection = wait_for_started_connection(client, deadline, starter_pid);
+                let connection = wait_for_started_connection(client, deadline, &mut starter);
                 handoff.cleanup()?;
                 if let Some(found) = connection? {
                     return Ok(found);
@@ -151,14 +151,18 @@ fn wait_for_winner(client: &ServerClient, deadline: Instant) -> Result<Option<Pr
 fn wait_for_started_connection(
     client: &ServerClient,
     deadline: Instant,
-    starter_pid: u32,
+    starter: &mut std::process::Child,
 ) -> Result<Option<ProcessRecord>> {
     loop {
         let observation_deadline = deadline.min(Instant::now() + Duration::from_millis(100));
         if let Ok(record) = client.connect_existing_until(observation_deadline) {
             return Ok(Some(record));
         }
-        if retry_after_starter_wait(pid_alive(starter_pid), Instant::now(), deadline) {
+        let starter_exited = starter
+            .try_wait()
+            .context("observing elected shared-server starter")?
+            .is_some();
+        if retry_after_starter_wait(starter_exited, Instant::now(), deadline) {
             return Ok(None);
         }
         std::thread::park_timeout(POLL_INTERVAL);
@@ -173,8 +177,8 @@ fn retry_winner_election(
     !election_token_exists || now >= observation_deadline
 }
 
-fn retry_after_starter_wait(starter_alive: bool, now: Instant, deadline: Instant) -> bool {
-    !starter_alive || now >= deadline
+fn retry_after_starter_wait(starter_exited: bool, now: Instant, deadline: Instant) -> bool {
+    starter_exited || now >= deadline
 }
 
 /// Pick the preferred port when free, otherwise request an ephemeral port.
@@ -243,10 +247,22 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
             if control_decision == ServerDecision::ShutdownNow {
                 control_decision
             } else {
-                let mut control_server = control_server
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                watchdog.tick(control_server.leases_mut(), Instant::now())?
+                let now = Instant::now();
+                let deadline = now + Duration::from_secs(2);
+                let expiry_decision = ControlServer::expire_shared_until(
+                    &control_server,
+                    now,
+                    deadline,
+                    &Instant::now,
+                )?;
+                if expiry_decision == ServerDecision::ShutdownNow {
+                    expiry_decision
+                } else {
+                    let mut control_server = control_server
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    watchdog.tick(control_server.leases_mut(), now)?
+                }
             }
         };
         if decision == ServerDecision::ShutdownNow {
@@ -328,7 +344,7 @@ mod retry_tests {
     fn starter_failure_before_publication_returns_the_owner_to_election() {
         let now = Instant::now();
         assert!(retry_after_starter_wait(
-            false,
+            true,
             now,
             now + Duration::from_secs(1)
         ));
