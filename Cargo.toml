@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.28.4"
+version = "0.29.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
@@ -59,11 +59,6 @@ sha2 = "0.10"
 # Safe SIGINT/SIGTERM flags let the shared process run generation-guarded
 # cleanup without introducing unsafe signal handlers.
 signal-hook = "0.3"
-# The shared local process and TUI-owned receiver are small synchronous HTTP
-# services bound to loopback. The receiver uses a fixed worker pool behind the user's
-# reverse proxy; an async runtime would add substantial machinery for two
-# low-volume webhook routes.
-tiny_http = "0.12"
 tui-term = "0.2"
 # Per-shell/session/task ids plus deterministic legacy task migration ids.
 uuid = { version = "1", features = ["v4", "v5"] }

@@ -954,8 +954,8 @@ it's the persisted value. Mirrors `tasks/src/state`. See
 
 ### `server/`
 Brain has one machine-wide, TUI-lifetime shared process. It serves the local
-habits and triage routes and owns the public route grammar; the transitional
-receiver worker remains TUI-owned and cannot outlive the interactive shell.
+habits and triage routes, owns the public route grammar, and authenticates and
+forwards receiver requests only to live workspace TUIs.
 - `server/router.rs` — pure exact-component mapping for
   `/w/<ingress>/{habits,habits/done,triage/done,sms,email}`. Global,
   malformed, missing, and extra-component routes are rejected.
@@ -986,11 +986,13 @@ receiver worker remains TUI-owned and cannot outlive the interactive shell.
   local action body, and local habits and triage bodies are capped at 16 KiB.
   The lifecycle/control loop never owns body IO or waits to join a held worker
   during final-TUI shutdown.
-- `server/receiver.rs` + `server/receiver/` — the receiver facade and its
-  single-responsibility modules: `http/` owns the bounded four-worker
-  `tiny_http` listener and channel queue, `http/sms.rs` and `http/email.rs`
-  own provider parsing, and `attachments.rs` stages media. Transitional
-  receiver commands use the selected TUI's UUID-scoped job socket.
+- `server/receiver/` owns the ordered inbound pipeline. `http/` loads only the
+  selected workspace's provider configuration after ingress resolution;
+  `http/sms.rs` and `http/email.rs` verify and normalize provider input;
+  `dispatch.rs` resolves the selected workspace's portable actor and performs
+  transactional, workspace-scoped provider-ID deduplication; `job.rs` defines
+  the immutable serialized `InboundJob`; `unavailable.rs` owns the one-response,
+  no-retry discard result; and `attachments.rs` stages media for the TUI.
 - `server/control/` owns the bounded newline-delimited JSON protocol. `codec.rs`
   caps frames, requires one frame followed by EOF, and applies one absolute
   deadline before every read, write, and flush attempt, including successful
@@ -1035,11 +1037,18 @@ receiver worker remains TUI-owned and cannot outlive the interactive shell.
   ephemeral daily-triage session's workspace-scoped completion signal (see
   `triage_signal.rs`).
 
-`brain --with-receiver` starts the receiver listener after the TUI singleton is
-acquired. The global palette can start, stop, restart, and inspect it while
-the TUI is alive. Inbound work is queued as workspace UUID plus immutable
-actor context in a bounded in-memory channel and
-is never allowed to interrupt an active agent turn. `tui/receiver_state.rs`
+The shared HTTP process resolves receiver ingress availability before loading
+credentials, users, prompt data, or the workspace job socket. A request is
+accepted only after provider authentication, actor resolution, and an
+acknowledged append to the exact live TUI's 64-entry in-memory queue. The
+mode-`0600` UUID-local socket bounds serialized frames at 1 MiB and rolls back
+the append if the acknowledgment cannot be written. Failed, full, disabled,
+and missing targets receive one channel-specific unavailable response and are
+not retained or retried. Provider IDs are retained only after an enqueue ack;
+the accepted cache is bounded at 1024 keys scoped by workspace and channel.
+
+Queued inbound work is never allowed to interrupt an active agent turn.
+`tui/receiver_state.rs`
 distinguishes a submitted turn from an idle open PTY, so an idle startup panel
 can switch to the receiver session even when a modal is on screen. It also
 distinguishes active receiver work from a three-minute warm channel lease:
@@ -1049,10 +1058,10 @@ reuses the warm PTY, and another channel replaces it only after work finishes.
 more than two hours old and exposes current sync state to the footer and
 palette. Failed PTY launches retain the message for a backoff retry. Provider replies are handed
 to the bounded background worker in `server/delivery.rs`, keeping network
-latency off the TUI event loop. The listener rejects
-bodies over 1 MiB, uses a fixed worker pool so one slow provider call cannot
-block every route, treats idle time as normal, and uses
-`tiny_http::unblock()` only for graceful shutdown.
+latency off the TUI event loop. Receiver bodies are capped at 1 MiB by the
+shared parser, and the shared fixed worker set prevents one slow provider call
+from blocking every route. The final orderly lease stops the process
+immediately; final crashed-lease cleanup follows the lifecycle TTL.
 
 ### `lib.rs`
 Re-exports the modules so integration tests in `tests/` and the thin binary
@@ -1115,13 +1124,6 @@ sibling so the two projects share a stack:
 - `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
   them out. Multi-file skill assets rule out `include_str!`.
-- `tiny_http` — the transitional TUI-owned receiver under `src/server/`. It uses a
-  fixed four-worker pool, bounded request bodies, and a bounded handoff queue;
-  this preserves concurrency and backpressure without pulling a Tokio runtime
-  into an otherwise synchronous CLI. The machine-wide shared process uses a
-  small `std::net::TcpListener` transport instead because `tiny_http` 0.12's
-  private accept task pool and request queue cannot be bounded through its
-  public API.
 - `signal-hook`: installs safe SIGINT/SIGTERM flags for the shared process.
   The accept loop observes the flag and lets its generation owner remove only
   the matching process record and control socket, without unsafe signal code.

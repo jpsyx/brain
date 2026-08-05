@@ -120,6 +120,12 @@ impl JobSocket {
         loop {
             match self.listener.accept() {
                 Ok((mut stream, _)) => {
+                    if let Err(error) = stream.set_nonblocking(false) {
+                        crate::logging::log(format!(
+                            "workspace job stream configuration failed: {error}"
+                        ));
+                        continue;
+                    }
                     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(250)));
                     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
                     let mut command = String::new();
@@ -141,6 +147,79 @@ impl JobSocket {
         }
         requests
     }
+
+    /// Accept bounded job frames into this TUI's in-memory queue.
+    ///
+    /// An acknowledgment is written only after a matching job has been
+    /// appended. Full, malformed, and cross-workspace frames are discarded.
+    pub fn poll_jobs(
+        &self,
+        workspace_id: crate::workspace::WorkspaceId,
+        queue: &mut Vec<crate::server::receiver::InboundJob>,
+    ) {
+        loop {
+            match self.listener.accept() {
+                Ok((mut stream, _)) => {
+                    if let Err(error) = stream.set_nonblocking(false) {
+                        crate::logging::log(format!(
+                            "workspace job stream configuration failed: {error}"
+                        ));
+                        continue;
+                    }
+                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
+                    let queue_len = queue.len();
+                    let response = read_job(&mut stream).and_then(|job| {
+                        if job.workspace_id != workspace_id {
+                            anyhow::bail!("inbound job targets another workspace");
+                        }
+                        if queue.len() >= crate::server::receiver::INBOUND_QUEUE_CAPACITY {
+                            anyhow::bail!("inbound queue is full");
+                        }
+                        queue.push(job);
+                        Ok(())
+                    });
+                    let accepted = response.is_ok();
+                    let message = if accepted {
+                        "accepted\n".to_owned()
+                    } else {
+                        let error = response.expect_err("checked error");
+                        format!("rejected: {error:#}\n").replace(['\r', '\n'], " ")
+                    };
+                    if let Err(error) = stream.write_all(message.as_bytes()) {
+                        if accepted {
+                            queue.truncate(queue_len);
+                        }
+                        crate::logging::log(format!(
+                            "workspace job acknowledgment failed: {error}"
+                        ));
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => {
+                    crate::logging::log(format!("workspace job accept failed: {error}"));
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn read_job(stream: &mut UnixStream) -> Result<crate::server::receiver::InboundJob> {
+    let mut bytes = Vec::new();
+    Read::by_ref(stream)
+        .take(
+            u64::try_from(crate::server::receiver::dispatch::JOB_FRAME_LIMIT)
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+        )
+        .read_to_end(&mut bytes)
+        .context("reading inbound job")?;
+    anyhow::ensure!(
+        bytes.len() <= crate::server::receiver::dispatch::JOB_FRAME_LIMIT,
+        "inbound job exceeds the socket frame limit"
+    );
+    serde_json::from_slice(&bytes).context("decoding inbound job")
 }
 
 impl Drop for JobSocket {

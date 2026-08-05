@@ -202,6 +202,7 @@ impl ControlServer {
         Ok(crate::server::workspace_route::ResolvedWorkspaceRoute::new(
             context,
             ticket.lease().clone(),
+            self.registry_store.clone(),
         ))
     }
 

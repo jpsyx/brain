@@ -489,7 +489,15 @@ resolves `local_user_id`; authenticated
 SMS/email work resolves an enabled portable identity and takes precedence over
 that machine default. A queued receiver job contains the workspace UUID and
 the resolved actor, never an untrusted sender string as `BRAIN_ACTOR_ID`.
-Follow-ups retain the initiating actor. A ready legacy workspace whose portable
+`InboundJob` is a bounded JSON frame containing a fresh job UUID, workspace
+UUID, `ActorContext`, channel, normalized authenticated sender, prompt,
+attachment references, receipt time, provider delivery ID, authenticated
+thread participants, the actor's acceptance-time normalized response email,
+and the acceptance-time allowed response recipients. It exists only in the
+matching live TUI's in-memory queue. A socket acknowledgment means that append
+succeeded; failed acknowledgment writes roll it back. Follow-ups retain the
+initiating actor and channel even if machine registry or portable user data
+changes during the turn. A ready legacy workspace whose portable
 user store is absent uses its exact lower-case kebab local ID as an immutable
 compatibility actor and does not create `users.json`. Malformed nonblank legacy
 IDs are readiness errors with an explicit machine-local repair command. This

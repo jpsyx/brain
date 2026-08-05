@@ -230,7 +230,23 @@ first move is a failing test that reproduces it, *then* the fix.
   `sync/freshness.rs` tests the strict two-hour message threshold;
   `sync/journal.rs` proves push-only/aborted rows do not refresh it.
   `server/delivery.rs` verifies that provider delivery is dispatched off the
-  TUI thread.
+  TUI thread. The app receiver tests mutate `users.json` and the machine
+  registry after queue acceptance, then prove Claude and Codex both launch
+  through `AgentController` with the captured actor, channel, response email,
+  and allowed participant recipients.
+- **Receiver admission and workspace isolation.**
+  `tests/receiver_workspace_isolation.rs` uses focused fixture and model
+  support modules with deadline-bounded polling and no fixed sleeps. It drives
+  signed SMS through the real shared process and exact live TUI socket, rejects
+  an unknown sender and cross-workspace frames, verifies the 1 MiB body cap,
+  and proves disabled or missing targets return one channel-specific
+  unavailable response while another workspace keeps the process alive. It
+  also covers absent-process silence, failed sockets, a full 64-job queue,
+  enqueue acknowledgment, and rollback when the acknowledgment write fails.
+  Pure dispatch tests pin the credential/signature/actor order and transactional
+  provider-ID state: failed handoffs retain no ID, in-flight duplicates are not
+  acknowledged, successful duplicates are idempotent, and the 1024-entry cache
+  is scoped by workspace and channel.
 - **Shared-server lease state.** `server/lifecycle/table.rs` uses injected
   monotonic instants and timing values to prove that different workspace leases
   coexist, duplicate live workspace, ingress, or lease identities fail, an

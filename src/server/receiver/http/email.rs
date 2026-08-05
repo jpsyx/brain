@@ -1,8 +1,8 @@
+use anyhow::Result;
 use serde::Deserialize;
-use tiny_http::Request;
 
-use super::SecurityConfig;
-use crate::server::receiver::{Attachment, Channel, InboundMessage};
+use super::{AuthenticatedInbound, ProviderConfig};
+use crate::server::receiver::{AttachmentRef, Channel};
 
 #[derive(Deserialize)]
 struct ResendWebhook {
@@ -23,83 +23,71 @@ struct FetchedEmail {
     body: String,
     sender: String,
     participants: Vec<String>,
-    attachments: Vec<Attachment>,
+    attachments: Vec<AttachmentRef>,
 }
 
-pub(super) fn parse_email(
-    request: &Request,
+struct EmailHeaders<'a> {
+    webhook_id: &'a str,
+    timestamp: &'a str,
+    signature: &'a str,
+}
+
+pub(super) fn authenticate(
+    request: &crate::server::http::Request,
     body: &[u8],
-    security: &SecurityConfig,
-) -> Result<InboundMessage, (u16, String)> {
-    if security.resend_signing_secret.is_empty() {
-        return Err((503, "Resend security is not configured".to_owned()));
-    }
-    let header = |name: &str| {
-        request
-            .headers()
-            .iter()
-            .find(|header| header.field.to_string().eq_ignore_ascii_case(name))
-            .map(|header| header.value.as_str())
-            .unwrap_or_default()
+    config: &ProviderConfig,
+) -> Result<AuthenticatedInbound> {
+    let headers = EmailHeaders {
+        webhook_id: request.header("svix-id").unwrap_or_default(),
+        timestamp: request.header("svix-timestamp").unwrap_or_default(),
+        signature: request.header("svix-signature").unwrap_or_default(),
     };
-    let webhook_id = header("svix-id");
-    let timestamp = header("svix-timestamp");
-    let authenticated = crate::server::security::verify_resend(
-        &security.resend_signing_secret,
-        webhook_id,
-        timestamp,
-        body,
-        header("svix-signature"),
+    authenticate_payload(&headers, body, config, fetch_resend_email)
+}
+
+fn authenticate_payload(
+    headers: &EmailHeaders<'_>,
+    body: &[u8],
+    config: &ProviderConfig,
+    fetch: impl FnOnce(&str, &str) -> Result<FetchedEmail>,
+) -> Result<AuthenticatedInbound> {
+    anyhow::ensure!(
+        !config.resend_signing_secret.is_empty(),
+        "Resend security is not configured"
     );
-    let webhook: ResendWebhook = serde_json::from_slice(body)
-        .map_err(|_| (400, "invalid Resend webhook JSON".to_owned()))?;
-    if webhook.event_type != "email.received" {
-        return Err((202, "event ignored".to_owned()));
-    }
-    security
-        .resolve_actor(
-            authenticated,
-            crate::actor::RequestIdentity::Email {
-                from: &webhook.data.from,
-            },
-        )
-        .map_err(|error| match error {
-            crate::server::security::AuthenticatedActorError::ProviderAuthenticationFailed => {
-                (403, "invalid Resend signature".to_owned())
-            }
-            crate::server::security::AuthenticatedActorError::UnknownOrDisallowedSender => {
-                (403, "email sender is not allowed".to_owned())
-            }
-        })?;
+    let authenticated = crate::server::security::verify_resend(
+        &config.resend_signing_secret,
+        headers.webhook_id,
+        headers.timestamp,
+        body,
+        headers.signature,
+    );
+    anyhow::ensure!(authenticated, "invalid Resend signature");
+    let webhook: ResendWebhook =
+        serde_json::from_slice(body).map_err(|_| anyhow::anyhow!("invalid Resend webhook JSON"))?;
+    anyhow::ensure!(webhook.event_type == "email.received", "event ignored");
+    anyhow::ensure!(
+        !webhook.data.from.trim().is_empty(),
+        "email sender is missing"
+    );
     let Some(email_id) = webhook.data.email_id.as_deref() else {
-        return Err((400, "received email has no email id".to_owned()));
+        anyhow::bail!("received email has no email id");
     };
-    let fetched = fetch_resend_email(email_id, &security.resend_api_key)?;
-    let actor = security
-        .resolve_actor(
-            true,
-            crate::actor::RequestIdentity::Email {
-                from: &fetched.sender,
-            },
-        )
-        .map_err(|_| (403, "email sender is not allowed".to_owned()))?;
-    if fetched.body.trim().is_empty() && fetched.attachments.is_empty() {
-        return Err((
-            400,
-            "received email has no text body or attachment".to_owned(),
-        ));
-    }
+    let fetched = fetch(email_id, &config.resend_api_key)?;
+    anyhow::ensure!(
+        !fetched.body.trim().is_empty() || !fetched.attachments.is_empty(),
+        "received email has no text body or attachment"
+    );
     let sender = crate::users::normalize_email(&fetched.sender)
-        .map_err(|_| (403, "email sender is not allowed".to_owned()))?;
-    Ok(InboundMessage {
-        workspace_id: security.workspace_id,
-        actor,
+        .map_err(|_| anyhow::anyhow!("email sender is not allowed"))?;
+    Ok(AuthenticatedInbound {
         channel: Channel::Email,
-        body: fetched.body,
         sender,
+        prompt: fetched.body,
         participants: fetched.participants,
-        provider_id: Some(webhook_id.to_owned()),
         attachments: fetched.attachments,
+        receiving_address: config.resend_from_email.clone(),
+        provider_id: Some(headers.webhook_id.to_owned()),
     })
 }
 
@@ -123,17 +111,11 @@ fn email_participants(data: &serde_json::Value) -> Vec<String> {
     participants
 }
 
-fn fetch_resend_email(email_id: &str, key: &str) -> Result<FetchedEmail, (u16, String)> {
-    if key.trim().is_empty() {
-        return Err((503, "RESEND_API_KEY is not configured".to_owned()));
-    }
+fn fetch_resend_email(email_id: &str, key: &str) -> Result<FetchedEmail> {
+    anyhow::ensure!(!key.trim().is_empty(), "RESEND_API_KEY is not configured");
     let email = fetch_resend_json(key, &received_email_url(email_id))?;
-    let email_value: serde_json::Value = serde_json::from_slice(&email).map_err(|_| {
-        (
-            502,
-            "Resend returned invalid received email content".to_owned(),
-        )
-    })?;
+    let email_value: serde_json::Value = serde_json::from_slice(&email)
+        .map_err(|_| anyhow::anyhow!("Resend returned invalid received email content"))?;
     let has_attachments = email_value
         .get("attachments")
         .and_then(serde_json::Value::as_array)
@@ -146,7 +128,7 @@ fn fetch_resend_email(email_id: &str, key: &str) -> Result<FetchedEmail, (u16, S
     parse_received_email(&email, &attachments)
 }
 
-fn fetch_resend_json(key: &str, url: &str) -> Result<Vec<u8>, (u16, String)> {
+fn fetch_resend_json(key: &str, url: &str) -> Result<Vec<u8>> {
     let output = crate::server::provider::CurlRequest::new()
         .flag("silent")
         .flag("show-error")
@@ -157,22 +139,19 @@ fn fetch_resend_json(key: &str, url: &str) -> Result<Vec<u8>, (u16, String)> {
         .option("header", &format!("Authorization: Bearer {key}"))
         .option("url", url)
         .output()
-        .map_err(|error| (502, format!("fetching Resend receiving API: {error}")))?;
-    if !output.status.success() {
-        return Err((502, "Resend receiving API rejected the request".to_owned()));
-    }
+        .map_err(|error| anyhow::anyhow!("fetching Resend receiving API: {error}"))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "Resend receiving API rejected the request"
+    );
     Ok(output.stdout)
 }
 
-fn parse_received_email(email: &[u8], attachments: &[u8]) -> Result<FetchedEmail, (u16, String)> {
-    let email: serde_json::Value = serde_json::from_slice(email).map_err(|_| {
-        (
-            502,
-            "Resend returned invalid received email content".to_owned(),
-        )
-    })?;
+fn parse_received_email(email: &[u8], attachments: &[u8]) -> Result<FetchedEmail> {
+    let email: serde_json::Value = serde_json::from_slice(email)
+        .map_err(|_| anyhow::anyhow!("Resend returned invalid received email content"))?;
     let attachment_list: serde_json::Value = serde_json::from_slice(attachments)
-        .map_err(|_| (502, "Resend returned invalid attachment content".to_owned()))?;
+        .map_err(|_| anyhow::anyhow!("Resend returned invalid attachment content"))?;
     let body = email
         .get("text")
         .and_then(serde_json::Value::as_str)
@@ -194,7 +173,7 @@ fn parse_received_email(email: &[u8], attachments: &[u8]) -> Result<FetchedEmail
                 .iter()
                 .filter_map(|item| {
                     let url = item.get("download_url")?.as_str()?.to_owned();
-                    Some(Attachment {
+                    Some(AttachmentRef {
                         url,
                         content_type: item
                             .get("content_type")
@@ -228,9 +207,53 @@ fn received_attachments_url(email_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        email_participants, parse_received_email, received_attachments_url, received_email_url,
+        EmailHeaders, FetchedEmail, authenticate_payload, email_participants, parse_received_email,
+        received_attachments_url, received_email_url,
     };
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use hmac::{Hmac, Mac as _};
     use serde_json::json;
+    use sha2::Sha256;
+
+    #[test]
+    fn authenticated_email_uses_injected_fetch_without_external_io() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .to_string();
+        let body = br#"{"type":"email.received","data":{"from":"member@example.test","email_id":"email-1"}}"#;
+        let key = b"email-test-secret";
+        let signature = resend_signature(key, "webhook-1", &timestamp, body);
+        let headers = EmailHeaders {
+            webhook_id: "webhook-1",
+            timestamp: &timestamp,
+            signature: &signature,
+        };
+        let config = super::ProviderConfig {
+            twilio_auth_token: String::new(),
+            public_base_url: String::new(),
+            resend_signing_secret: format!("whsec_{}", STANDARD.encode(key)),
+            resend_api_key: "selected-api-key".to_owned(),
+            resend_from_email: "brain@example.test".to_owned(),
+            ingress_id: crate::server::IngressId::new(),
+        };
+        let inbound = authenticate_payload(&headers, body, &config, |email_id, api_key| {
+            assert_eq!(email_id, "email-1");
+            assert_eq!(api_key, "selected-api-key");
+            Ok(FetchedEmail {
+                body: "private prompt".to_owned(),
+                sender: "member@example.test".to_owned(),
+                participants: vec!["member@example.test".to_owned()],
+                attachments: Vec::new(),
+            })
+        })
+        .unwrap();
+
+        assert_eq!(inbound.sender, "member@example.test");
+        assert_eq!(inbound.prompt, "private prompt");
+        assert_eq!(inbound.receiving_address, "brain@example.test");
+    }
 
     #[test]
     fn participants_include_from_to_cc_and_reply_to() {
@@ -305,5 +328,15 @@ mod tests {
             fetched.attachments[0].filename.as_deref(),
             Some("paper.pdf")
         );
+    }
+
+    fn resend_signature(key: &[u8], id: &str, timestamp: &str, body: &[u8]) -> String {
+        let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
+        mac.update(id.as_bytes());
+        mac.update(b".");
+        mac.update(timestamp.as_bytes());
+        mac.update(b".");
+        mac.update(body);
+        format!("v1,{}", STANDARD.encode(mac.finalize().into_bytes()))
     }
 }

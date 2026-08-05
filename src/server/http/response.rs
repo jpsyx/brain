@@ -31,6 +31,14 @@ impl Response {
         }
     }
 
+    pub(in crate::server) fn xml(status: u16, body: impl Into<Vec<u8>>) -> Self {
+        Self {
+            status,
+            content_type: Some("application/xml"),
+            body: body.into(),
+        }
+    }
+
     pub(in crate::server) fn empty(status: u16) -> Self {
         Self {
             status,

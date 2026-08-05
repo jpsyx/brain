@@ -80,17 +80,16 @@ helpers and shell-outs live in the tasks modules:
   which reuses `tasks::complete`'s `locate` (id/fuzzy resolution, rejecting task
   ids) and `spawn_next_occurrence`. Native port of the retired `skip_habit.py`.
   See [features.md](features.md).
-- **Receiver server** — the opt-in transitional TUI-owned worker accepts only
+- **Receiver server** - the machine-wide TUI-lifetime process accepts
   `POST /w/<selected-ingress>/sms` and
-  `POST /w/<selected-ingress>/email`. It rejects any other ingress before body
-  or provider parsing. Twilio requests must pass the exact URL/form HMAC and SMS
-  sender allowlist. Resend requests must pass the official `v1,<signature>`
-  Svix verification, a five-minute timestamp window, and the email sender
-  allowlist. Successful Resend deliveries receive HTTP 200, and the Receiving
-  Email plus Receiving Attachments APIs supply the full body and signed
-  download URLs. The listener stops with the owning TUI, so a machine does not
-  receive remote messages unless the user explicitly starts it with
-  `brain --with-receiver` or the command palette.
+  `POST /w/<selected-ingress>/email` only for an enabled workspace with a live
+  lease. Ingress resolution precedes all workspace provider and user reads.
+  Twilio requests must pass the exact URL/form HMAC and SMS sender allowlist.
+  Resend requests must pass the official `v1,<signature>` Svix verification, a
+  five-minute timestamp window, and the email sender allowlist. Successful
+  Resend deliveries receive HTTP 200, and the Receiving Email plus Receiving
+  Attachments APIs supply the full body and signed download URLs. The process
+  stops when its final live TUI lease is removed or expires.
 - **`<agent_cmd> …` with cwd set to `<root>`**: the brain panel's PTY,
   shared by both main views (see below).
 
@@ -426,7 +425,12 @@ Which session to run is decided by the **lock + recency** model in
    the resolved `local_user_id`.
    Receiver work first authenticates the provider request, then resolves an
    enabled portable sender; the queued workspace UUID and actor override the
-   machine default for that complete request lineage.
+   machine default for that complete request lineage. The accepting pipeline
+   also captures the initiating user's normalized `response_email` and only
+   allowlisted participants from that authenticated thread. Claude and Codex
+   receive the same immutable actor/channel through `AgentController`, and
+   later registry or `users.json` changes cannot substitute another response
+   identity while the turn is running.
    Multiple machines may select the same portable person ID. That ID represents
    one person, not one device, owner, creator, or audit principal.
    Bundled task mutators resolve their selected root and actor only from this
@@ -538,12 +542,17 @@ uses only that selected record; Brain does not treat process-level `TWILIO_*`,
 `RESEND_*`, or `BRAIN_RECEIVER_PUBLIC_URL` values as runtime overrides. Secret
 values are redacted by `brain env list` and `brain env get`.
 
-The transitional receiver command endpoint is the selected workspace's
-mode-`0600` `<workspace-cache>/jobs.sock`. It refuses to replace a live TUI's
-socket, limits commands to 128 bytes, and applies read/write timeouts. The HTTP
-listener uses four blocking workers, a 1 MiB body limit, a 64-message handoff
-queue, constant-time HMAC verification, and an in-process recent-delivery cache
-to absorb normal Twilio/Resend retries without duplicating LLM work. Provider
+The receiver handoff endpoint is the selected workspace's mode-`0600`
+`<workspace-cache>/jobs.sock`. One bounded serialized `InboundJob` carries the
+workspace UUID, immutable actor and channel, normalized sender, prompt,
+attachments, provider ID, and acceptance-time response metadata. The TUI
+acknowledges only after adding the matching job to its 64-entry memory queue;
+an ack-write failure rolls back that append. The shared HTTP listener uses four
+blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
+1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.
+Only acknowledged jobs enter the cache. A failed or in-flight handoff returns
+unavailable and schedules no retry; a later provider retry may attempt a fresh
+handoff. Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through
 standard input rather than process arguments. Provider output is captured so it
 cannot corrupt the TUI. Outbound Twilio/Resend calls are serialized through a

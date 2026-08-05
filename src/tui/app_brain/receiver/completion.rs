@@ -70,9 +70,10 @@ impl App<'_> {
                 );
             }
             crate::server::receiver::Channel::Email => {
-                let recipients = self.session_actor.as_ref().map_or_else(Vec::new, |actor| {
-                    self.receiver_email_recipients(&self.receiver_recipients, actor)
-                });
+                let recipients = crate::server::delivery::trusted_response_recipients(
+                    self.receiver_response_email.as_deref(),
+                    &self.receiver_recipients,
+                );
                 if !recipients.is_empty() {
                     let html = crate::server::reply::email_html(&notice.text);
                     crate::server::delivery::send_email_background(
@@ -137,9 +138,10 @@ impl App<'_> {
                 );
             }
             crate::server::receiver::Channel::Email => {
-                let recipients = self.session_actor.as_ref().map_or_else(Vec::new, |actor| {
-                    self.receiver_email_recipients(&self.receiver_recipients, actor)
-                });
+                let recipients = crate::server::delivery::trusted_response_recipients(
+                    self.receiver_response_email.as_deref(),
+                    &self.receiver_recipients,
+                );
                 if !recipients.is_empty() {
                     let reply = crate::server::reply::email(message);
                     let html = crate::server::reply::email_html(&reply.text);
@@ -157,6 +159,7 @@ impl App<'_> {
         self.brain_turn_active = false;
         self.receiver_sender = None;
         self.receiver_recipients.clear();
+        self.receiver_response_email = None;
         self.receiver_started = None;
         self.receiver_delay_sent = false;
         self.receiver_generation = self.receiver_generation.saturating_add(1);
@@ -166,18 +169,5 @@ impl App<'_> {
             std::time::Instant::now(),
         ));
         self.reload_after_brain();
-    }
-
-    pub(in crate::tui::app_brain) fn receiver_email_recipients(
-        &self,
-        participants: &[String],
-        actor: &crate::actor::ActorContext,
-    ) -> Vec<String> {
-        let Ok(users) = crate::users::UsersStore::load(&self.command_context.workspace) else {
-            return Vec::new();
-        };
-        let receiving =
-            crate::env::get(&self.command_context, "resend_from_email").unwrap_or_default();
-        crate::server::delivery::actor_thread_recipients(participants, &users, actor, &receiving)
     }
 }

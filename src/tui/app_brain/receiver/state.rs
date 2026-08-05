@@ -6,9 +6,7 @@ use crate::agent::SessionStore;
 
 impl App<'_> {
     pub(crate) fn receiver_server_running(&self) -> bool {
-        self.receiver_server
-            .as_ref()
-            .is_some_and(crate::server::receiver::ReceiverServer::is_running)
+        self.receiver_control.is_some()
     }
 
     pub(in crate::tui::app_brain) fn close_receiver_panel(&mut self, restore_interactive: bool) {
@@ -50,6 +48,7 @@ impl App<'_> {
     pub(in crate::tui::app_brain) fn clear_receiver_panel_state(&mut self) {
         self.receiver_sender = None;
         self.receiver_recipients.clear();
+        self.receiver_response_email = None;
         self.receiver_session_id = None;
         self.receiver_lease = None;
         self.receiver_started = None;

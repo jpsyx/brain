@@ -1,4 +1,4 @@
-//! The shared local HTTP server and transitional TUI-owned receiver server.
+//! The machine-wide TUI-lifetime HTTP server and receiver admission boundary.
 //!
 //! One shared daemon per machine, reused across every `brain` invocation and
 //! tab. [`lifecycle`] owns election, generation state, leases, and final-TUI
@@ -117,17 +117,17 @@ pub(in crate::server) fn respond(
             },
             Err(error) => workspace_route_error_response(&error),
         },
-        Route::Sms { ingress } | Route::Email { ingress } => {
-            match resolve_workspace_route(control, ingress, now) {
-                Ok(_) => http::Response::text(503, "receiver forwarding is not available yet"),
-                Err(error) => http::Response::text(error.status(), error.to_string()),
-            }
+        Route::Sms { ingress } => {
+            receiver_response(control, ingress, now, request, receiver::Channel::Sms)
+        }
+        Route::Email { ingress } => {
+            receiver_response(control, ingress, now, request, receiver::Channel::Email)
         }
         Route::NotFound => http::Response::empty(404),
     }
 }
 
-fn resolve_workspace_route(
+pub(in crate::server) fn resolve_workspace_route(
     control: &Mutex<control::ControlServer>,
     ingress: IngressId,
     now: std::time::Instant,
@@ -141,6 +141,71 @@ fn resolve_workspace_route(
         route
     };
     resolve_workspace_route_ticket(control, &ticket, std::time::Instant::now, &loader)
+}
+
+fn receiver_response(
+    control: &Mutex<control::ControlServer>,
+    ingress: IngressId,
+    now: std::time::Instant,
+    request: &mut http::Request,
+    channel: receiver::Channel,
+) -> http::Response {
+    let route = match resolve_workspace_route(control, ingress, now) {
+        Ok(route) => route,
+        Err(error) if error.status() == 404 => return http::Response::empty(404),
+        Err(error) => {
+            crate::logging::log(format!(
+                "receiver request unavailable channel={channel:?} status={} error={error}",
+                error.status()
+            ));
+            return unavailable_receiver_response(channel);
+        }
+    };
+    match receiver::dispatch::dispatch_http(route, request, channel) {
+        Ok(job) => {
+            crate::logging::log(format!(
+                "receiver job accepted workspace={} job={} channel={:?}",
+                job.workspace_id, job.job_id, job.channel
+            ));
+            match channel {
+                receiver::Channel::Sms => http::Response::xml(
+                    200,
+                    "<Response><Message>Received. I’ll get back to you shortly.</Message></Response>",
+                ),
+                receiver::Channel::Email => {
+                    http::Response::json(200, r#"{"ok":true,"queued":true}"#)
+                }
+            }
+        }
+        Err(error) if error.unavailable() => {
+            crate::logging::log(format!(
+                "receiver request unavailable channel={channel:?} status={} error={error}",
+                error.status()
+            ));
+            unavailable_receiver_response(channel)
+        }
+        Err(error) => {
+            crate::logging::log(format!(
+                "receiver request rejected channel={channel:?} status={} error={error}",
+                error.status()
+            ));
+            http::Response::text(error.status(), error.to_string())
+        }
+    }
+}
+
+fn unavailable_receiver_response(channel: receiver::Channel) -> http::Response {
+    let message = receiver::unavailable_message();
+    match channel {
+        receiver::Channel::Sms => http::Response::xml(
+            200,
+            format!("<Response><Message>{message}</Message></Response>"),
+        ),
+        receiver::Channel::Email => http::Response::json(
+            503,
+            serde_json::json!({"ok": false, "error": message}).to_string(),
+        ),
+    }
 }
 
 #[cfg(test)]

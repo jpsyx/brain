@@ -150,6 +150,21 @@ pub fn actor_thread_recipients(
     allowed_thread_recipients(participants, &allowed, receiving_address)
 }
 
+/// Use only acceptance-time trusted email destinations for a remote turn.
+#[must_use]
+pub fn trusted_response_recipients(
+    response_email: Option<&str>,
+    allowed_thread_participants: &[String],
+) -> Vec<String> {
+    response_email
+        .into_iter()
+        .chain(allowed_thread_participants.iter().map(String::as_str))
+        .filter_map(|address| crate::users::normalize_email(address).ok())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 /// Send a final SMS through Twilio. The credentials are read only when a
 /// remote job completes, never from the portable brain config.
 pub fn send_sms(

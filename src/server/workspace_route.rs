@@ -17,11 +17,20 @@ use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceManifest};
 pub struct ResolvedWorkspaceRoute {
     context: WorkspaceContext,
     lease: WorkspaceLease,
+    registry_store: RegistryStore,
 }
 
 impl ResolvedWorkspaceRoute {
-    pub(crate) const fn new(context: WorkspaceContext, lease: WorkspaceLease) -> Self {
-        Self { context, lease }
+    pub(crate) const fn new(
+        context: WorkspaceContext,
+        lease: WorkspaceLease,
+        registry_store: RegistryStore,
+    ) -> Self {
+        Self {
+            context,
+            lease,
+            registry_store,
+        }
     }
 
     /// The freshly reloaded, verified workspace context.
@@ -34,6 +43,12 @@ impl ResolvedWorkspaceRoute {
     #[must_use]
     pub const fn lease(&self) -> &WorkspaceLease {
         &self.lease
+    }
+
+    /// The exact machine registry capability used to verify this route.
+    #[must_use]
+    pub const fn registry_store(&self) -> &RegistryStore {
+        &self.registry_store
     }
 }
 
@@ -119,7 +134,11 @@ impl<'a> WorkspaceRouteResolver<'a> {
     ) -> Result<ResolvedWorkspaceRoute, WorkspaceRouteError> {
         let lease = accepting_lease(self.leases, ingress, self.now)?;
         let context = load_verified_context(self.registry_store, self.runtime_home, &lease)?;
-        Ok(ResolvedWorkspaceRoute::new(context, lease))
+        Ok(ResolvedWorkspaceRoute::new(
+            context,
+            lease,
+            self.registry_store.clone(),
+        ))
     }
 }
 

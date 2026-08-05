@@ -1912,27 +1912,42 @@ therefore idempotently accepted and refreshes the deadline. Treating only this
 identity-exact replay as success preserves the duplicate-workspace and
 duplicate-lease exclusions for real contenders.
 
-## TUI-owned receiver server
+## Shared receiver admission with TUI-only execution
 
-The external receiver listener is deliberately owned by the singleton brain
-TUI. `brain --with-receiver` or an explicit command-palette action starts it;
-ordinary TUI startup does not. This keeps synced brain installations on
-non-public machines from accepting SMS or email, and guarantees that incoming
-messages always have a live agent panel to receive them. Work is queued rather
-than interrupting an active LLM turn.
+The machine-wide shared process owns HTTP admission, but it never provides
+offline availability. Receiver ingress must first select an enabled, live TUI
+lease. Only then may Brain load that workspace's provider configuration,
+authenticate the provider, load its portable users, resolve `ActorContext`, and
+forward to the lease's server-derived UUID-local job socket. The shared process
+does not start for inbound traffic and contains no durable queue, replay worker,
+headless agent, or availability-only responder.
 
-The habits server remains a separate local-only service. The generic capture
-placeholder was removed because it did not provide authenticated, channel-aware
-assistant behavior.
+The shared fixed four-worker boundary covers habits, triage, SMS, and email.
+Receiver bodies and serialized job frames are limited to 1 MiB, and each TUI's
+in-memory handoff queue is bounded at 64 jobs. The socket acknowledges only
+after a matching append and rolls that append back if the acknowledgment write
+fails. Disabled, missing, full, and failed endpoints receive one
+channel-specific unavailable response and the request is discarded.
 
-The receiver stays synchronous, but it is not a single unbounded request loop.
-Four fixed workers isolate slow provider operations, request bodies are limited
-to 1 MiB, and the TUI handoff queue is bounded at 64 messages. `tiny_http`'s
-blocking `recv()` is intentional: idle time remains blocked without polling,
-and `unblock()` cleanly releases each worker when the TUI stops. Webhook
-verification follows provider replay guidance: HMAC comparisons are
-constant-time, Resend timestamps have a five-minute tolerance, and recent
-provider delivery IDs are ignored within the receiver process.
+The TUI keeps its listener nonblocking so each event-loop poll stays bounded,
+but explicitly returns every accepted job stream to blocking mode before
+applying fixed read and write timeouts. Some platforms can otherwise surface
+`WouldBlock` while a sender is still completing a frame, turning a healthy live
+TUI into an intermittent unavailable response. Bounded deadline polling in the
+integration suite exercises this boundary without fixed sleeps.
+
+Webhook verification follows provider replay guidance: HMAC comparisons are
+constant-time and Resend timestamps have a five-minute tolerance. Provider
+delivery IDs use a 1024-entry accepted cache keyed by workspace, channel, and
+provider ID. An ID is retained only after a successful enqueue acknowledgment;
+failed handoffs release it, and an in-flight duplicate is unavailable rather
+than prematurely acknowledged.
+
+The accepting request captures immutable actor, channel, normalized sender,
+response email, and allowed authenticated-thread recipients. The TUI routes
+that same context through `AgentController` for Claude and Codex. Configuration
+changes during the turn cannot replace the initiating actor or broaden reply
+recipients.
 
 Provider requests still use the system `curl` binary to avoid adding a second
 HTTP client stack, but the complete curl configuration is written through the

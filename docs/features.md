@@ -982,26 +982,31 @@ bodies larger than 16 KiB return 413. TUI links retain the ingress accepted at
 registration, while `brain habits -b <workspace>` asks the live shared process
 for the exact selected workspace's accepted ingress.
 
-The transitional receiver worker is owned by the running TUI and is opt-in. It
-exposes only authenticated `POST /w/<selected-ingress>/sms` and
-`POST /w/<selected-ingress>/email` routes. It rejects another workspace's
-ingress before reading or parsing provider content. Brain verifies the Twilio
-or Resend/Svix signature before resolving the normalized sender through the
-selected workspace's enabled portable phone or email identities. Unknown and
-disabled senders are rejected. Resend timestamps must be within five minutes, recent provider delivery
-IDs are deduplicated for the life of the receiver, request bodies are capped at
-1 MiB, and a bounded queue returns `503` backpressure instead of growing
-without limit. SMS numbers use exact E.164 matching, including the leading `+`
-and country code. A malformed configured SMS number produces a persistent
-yellow warning in the TUI status line. The former generic
-`/webhooks/capture` route has been removed.
+The shared process exposes authenticated
+`POST /w/<selected-ingress>/sms` and
+`POST /w/<selected-ingress>/email` routes only while that exact workspace has
+receiver enablement and a live TUI lease. It resolves the opaque ingress before
+loading provider credentials, users, prompt content, or the UUID-local job
+socket. Brain then verifies the Twilio or Resend/Svix signature before resolving
+the normalized sender through the selected workspace's enabled portable phone
+or email identities. Unknown and disabled senders are rejected. Resend
+timestamps must be within five minutes. Request bodies and serialized job
+frames are capped at 1 MiB, and the live TUI queue is bounded at 64 jobs.
+Accepted provider IDs are deduplicated in a bounded cache scoped by workspace
+and channel; failed handoffs retain no retry state. SMS numbers use exact E.164
+matching, including the leading `+` and country code. A malformed configured
+SMS number produces a persistent yellow warning in the TUI status line. The
+former generic `/webhooks/capture` route has been removed.
 
-The one-process control plane and HTTP route boundary have shipped: each ready
+Each ready
 TUI binds a UUID-scoped job socket, registers a validated live lease, heartbeats
 it, recovers the shared process after a crash, and unregisters before removing
 its socket. Every shared-process endpoint has an opaque ingress prefix and is
-resolved to a verified live workspace before route behavior. Shared-process
-authentication and in-memory job forwarding remain later work.
+resolved to a verified live workspace before route behavior. The job socket
+acknowledges only a successful in-memory enqueue and rolls that append back if
+the acknowledgment write fails. Disabled, missing, full, and failed-socket
+targets receive one channel-appropriate unavailable response, with no durable
+queue, replay, or headless execution.
 
 The shared HTTP boundary admits exactly four active connections with a fixed
 worker set and no application request queue. It caps request heads and local
@@ -1076,13 +1081,12 @@ credentials, one public base URL, the response email, and sender allowlists.
 Secrets are hidden while typing and stored in machine-local brain env. Blank
 keeps an existing value and `/clear` erases it. The setup output shows the
 exact `/sms` and/or `/email` webhook URL to enter in the provider portal. The
-shared process prefers port `8787`. The receiver listener uses port `8788`
-and exists only while its owning TUI exists. Start it with `brain --with-receiver`
-or the global palette. `brain receiver status` works from another
-terminal through the selected workspace's job socket; start/stop/restart also
-route through that owner-only socket and never create a second brain shell. Email body and
-attachment content is retrieved through Resend's Receiving APIs; HTML-only
-messages and attachment download URLs are preserved for the agent.
+shared process prefers port `8787` and serves receiver routes only while at
+least one TUI lease keeps that process alive. A selected workspace accepts
+receiver work only while its own lease is live and enabled; another live
+workspace cannot make that route accept. Email body and attachment content is
+retrieved through Resend's Receiving APIs; HTML-only messages and attachment
+download URLs are preserved for the agent.
 
 `brain habits` and the habits palette action connect only to the process
 already attached to a live TUI. They never elect or spawn one independently.

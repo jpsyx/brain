@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::{Channel, InboundMessage};
+use super::{Channel, InboundJob};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StagedAttachment {
@@ -15,7 +15,7 @@ pub struct StagedAttachment {
 pub fn stage_attachments(
     workspace: &crate::workspace::WorkspaceContext,
     command: &crate::workspace::CommandContext,
-    message: &InboundMessage,
+    message: &InboundJob,
 ) -> Vec<StagedAttachment> {
     let job = uuid::Uuid::new_v4().to_string();
     let dir = workspace.paths().inbox_dir().join(&job);
