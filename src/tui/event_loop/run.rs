@@ -14,7 +14,11 @@ use crate::tui::*;
 
 use super::modal_route::route_modal_key;
 
-pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'_>) -> Result<()> {
+pub(crate) fn event_loop<B: Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut App<'_>,
+    server_lease: &crate::server::control::HeartbeatWorker,
+) -> Result<()> {
     // Poll often enough that PTY output appears responsive without burning
     // CPU when idle. 50ms feels live to a typing user.
     let poll_interval = StdDuration::from_millis(50);
@@ -25,6 +29,21 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // the two presses that quit the agent now auto-close the panel.
         app.close_exited_brain_panel();
         app.tick_agent_controllers();
+        for event in server_lease.poll() {
+            match event {
+                crate::server::control::HeartbeatEvent::Recovered(generation) => {
+                    crate::logging::log(format!(
+                        "shared server recovered at generation {generation}"
+                    ));
+                }
+                crate::server::control::HeartbeatEvent::RecoveryFailed(error) => {
+                    crate::logging::log(format!("shared server recovery failed: {error}"));
+                    app.flash = Some(FlashKind::Error(
+                        "shared server unavailable; reconnecting".to_owned(),
+                    ));
+                }
+            }
+        }
 
         // Auto-close the ephemeral daily-triage tab when its session exits or
         // the `/triage` skill signals completion (matching one-time token).

@@ -73,7 +73,7 @@ impl App<'_> {
         let control_requests = self
             .receiver_control
             .as_ref()
-            .map(crate::server::receiver::ControlSocket::poll)
+            .map(crate::tui::singleton::JobSocket::poll)
             .unwrap_or_default();
         for (mut stream, command) in control_requests {
             let response = match command.as_str() {

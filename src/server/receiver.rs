@@ -5,11 +5,9 @@
 //! detached service on machines that are not meant to receive messages.
 
 mod attachments;
-mod control;
 mod http;
 
 pub use attachments::stage_attachments;
-pub use control::{ControlSocket, send_control};
 pub use http::ReceiverServer;
 
 pub const DEFAULT_PORT: u16 = 8788;

@@ -41,6 +41,12 @@ impl WorkspacePaths {
         self.cache_dir.join("tui.lock")
     }
 
+    /// The workspace-scoped socket on which its live TUI accepts jobs.
+    #[must_use]
+    pub fn job_socket(&self) -> PathBuf {
+        self.cache_dir.join("jobs.sock")
+    }
+
     /// The workspace-scoped portable-user transaction lock.
     #[must_use]
     pub fn user_transaction_lock(&self) -> PathBuf {

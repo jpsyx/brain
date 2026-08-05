@@ -990,9 +990,11 @@ and country code. A malformed configured SMS number produces a persistent
 yellow warning in the TUI status line. The former generic
 `/webhooks/capture` route has been removed.
 
-This is the existing per-TUI receiver behavior. The planned one-process,
-multi-workspace receiver with workspace leases and final-TUI shutdown has not
-shipped in the foundation release.
+This remains the per-TUI external receiver behavior. The one-process control
+plane has shipped: each ready TUI binds a UUID-scoped job socket, registers a
+validated live lease, heartbeats it, recovers the shared process after a crash,
+and unregisters before removing its socket. Multi-workspace HTTP ingress
+routing and job forwarding remain later work.
 
 Inbound messages wait only for a submitted agent turn, not merely for the
 brain panel to exist. An idle startup panel is closed and replaced by the
@@ -1031,8 +1033,11 @@ exits and cleans its PID, control socket, and election token instead of becoming
 an unowned background daemon.
 
 There is no public server start or kill command. The lifecycle layer exposes
-`connect_or_elect` only for long-lived TUI startup and crash recovery; the TUI
-registration/heartbeat wiring arrives with the shared control protocol.
+`connect_or_elect` only for long-lived TUI startup and crash recovery. The TUI
+registers before launching its agent, heartbeats once per second, re-elects and
+re-registers after a missing or stale generation, and unregisters before its
+workspace job socket is removed. Two workspaces may hold leases concurrently;
+the last orderly exit shuts the shared process down.
 
 `brain receiver setup` walks through the selected channel's provider
 credentials, one public base URL, the response email, and sender allowlists.
@@ -1042,8 +1047,8 @@ exact `/sms` and/or `/email` webhook URL to enter in the provider portal. The
 shared process prefers port `8787`. The receiver listener uses port `8788`
 and exists only while its owning TUI exists. Start it with `brain --with-receiver`
 or the global palette. `brain receiver status` works from another
-terminal through the TUI control socket; start/stop/restart also route through
-that owner-only socket and never create a second brain shell. Email body and
+terminal through the selected workspace's job socket; start/stop/restart also
+route through that owner-only socket and never create a second brain shell. Email body and
 attachment content is retrieved through Resend's Receiving APIs; HTML-only
 messages and attachment download URLs are preserved for the agent.
 

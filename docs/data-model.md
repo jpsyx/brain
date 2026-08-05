@@ -134,7 +134,7 @@ reference.
 
 ### Shared-server lease routing (`server/lifecycle/`)
 
-The shared process will receive only live TUI registrations. Its pure
+The shared process receives only live TUI registrations. Its pure
 `LeaseTable` records each `WorkspaceLease` by stable `WorkspaceId` and keeps a
 separate catalog of previously seen opaque `IngressId` values. A lease contains
 its unique `LeaseId`, canonical workspace name, ingress ID, TUI PID,
@@ -164,6 +164,14 @@ registration. A failed late heartbeat, receiver update, or rejected
 registration therefore cannot consume the final-expiry signal before the
 watchdog observes it.
 
+Every mutating control request is tagged with the process generation. A stale
+generation yields `StaleGeneration` without touching the table. Registration
+contains workspace, lease, and ingress UUIDs, canonical name, TUI PID, and the
+UUID-local job socket, but no root or receiver-enable claim. The server reloads
+the registry and manifest to verify the identity tuple and derives enablement
+from the authoritative registry. The read-only snapshot exposes only the
+generation and live-lease count.
+
 The machine-wide lifecycle record is deliberately smaller than a lease. Brain
 publishes `~/.cache/brain/server/process.json` with only the process PID,
 loopback HTTP port, generation UUID, and RFC3339 start time. Sibling
@@ -181,6 +189,7 @@ artifacts, covering a starter TUI that disappears before registration.
 ~/.cache/brain/workspaces/<workspace-uuid>/
 ├── state.db
 ├── tui.lock
+├── jobs.sock              (live TUI only, mode 0600)
 ├── inbox/
 ├── responses/
 ├── logs/                  (reserved, currently unused)
@@ -193,8 +202,8 @@ artifacts, covering a starter TUI that disappears before registration.
     └── baselines/
 ```
 
-Its state database, TUI lock, inbox, responses, reserved log path, and sync
-working data are all children of that base. `cache_dir()` borrows the stored
+Its state database, TUI lock, live job socket, inbox, responses, reserved log
+path, and sync working data are all children of that base. `cache_dir()` borrows the stored
 base; each child accessor derives an owned path. Distinct IDs therefore cannot
 share runtime paths. Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the

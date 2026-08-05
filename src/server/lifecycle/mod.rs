@@ -10,6 +10,7 @@ mod state;
 mod table;
 mod watchdog;
 
+pub use crate::server::control::ServerClient;
 pub use decision::ServerDecision;
 pub use election::{
     ElectionGuard, ElectionHandoff, StartDecision, decide_start, validate_election_token,
@@ -19,7 +20,8 @@ pub use lease::{
     WorkspaceAvailability, WorkspaceLease,
 };
 pub use paths::ServerPaths;
-pub use process::{ServerClient, choose_port, connect_or_elect, logs, run_process, status};
+pub use process::{choose_port, connect_or_elect, logs, run_process, status};
+pub(crate) use state::read_record;
 pub use state::{ProcessRecord, ServerGeneration, ServerGenerationError};
 pub use table::{LeaseAction, LeaseError, LeaseTable};
 

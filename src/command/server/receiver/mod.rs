@@ -26,7 +26,7 @@ pub fn run_receiver(
                 ReceiverServerAction::Logs => "logs",
                 ReceiverServerAction::Setup | ReceiverServerAction::Set { .. } => unreachable!(),
             };
-            match crate::server::receiver::send_control(command) {
+            match crate::tui::singleton::send_job_control(&context.workspace, command) {
                 Ok(response) => {
                     print!("{response}");
                     Ok(())

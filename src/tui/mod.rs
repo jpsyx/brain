@@ -353,7 +353,7 @@ pub(crate) struct App<'a> {
     /// cannot outlive it. Inbound work waits here until the active agent turn
     /// is safe to switch.
     pub(crate) receiver_server: Option<crate::server::receiver::ReceiverServer>,
-    pub(crate) receiver_control: Option<crate::server::receiver::ControlSocket>,
+    pub(crate) receiver_control: Option<crate::tui::singleton::JobSocket>,
     pub(crate) receiver_rx: Option<Receiver<crate::server::receiver::InboundMessage>>,
     pub(crate) receiver_queue: Vec<crate::server::receiver::InboundMessage>,
     pub(crate) requested_receiver_actor: Option<crate::actor::ActorContext>,

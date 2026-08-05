@@ -1,3 +1,4 @@
+use brain::server::control::{HeartbeatEvent, HeartbeatWorker, LeaseRegistration};
 use brain::server::lifecycle::{
     ElectionGuard, ProcessRecord, ServerClient, ServerDecision, ServerGeneration, ServerPaths,
     StartDecision, connect_or_elect, decide_start, validate_election_token,
@@ -242,6 +243,63 @@ fn final_unregister_stops_the_process_and_removes_generation_artifacts() {
 }
 
 #[test]
+fn two_tui_heartbeats_race_recovery_and_share_one_replacement_generation() {
+    let mut server = RunningServer::start();
+    let family = lease(
+        "family",
+        "e806258e-491a-436d-9db4-a5ca9903e0d4",
+        "57b162df-983a-45c3-ac7e-bad94eb27a99",
+        "00000000-0000-0000-0000-000000000011",
+    );
+    let personal = lease(
+        "personal",
+        "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+        "91a0cfc2-7427-49d5-a2f1-258f985cd7e5",
+        "00000000-0000-0000-0000-000000000012",
+    );
+    let family_registration = registration(server.generation, &family);
+    let personal_registration = registration(server.generation, &personal);
+    server
+        .client
+        .register_generation(&family_registration)
+        .expect("register family");
+    server
+        .client
+        .register_generation(&personal_registration)
+        .expect("register personal");
+    let mut family_worker = HeartbeatWorker::start(server.client.clone(), family_registration);
+    let mut personal_worker = HeartbeatWorker::start(server.client.clone(), personal_registration);
+
+    server.child.kill().expect("crash shared server");
+    server.child.wait().expect("reap crashed server");
+    let mut family_recovered = None;
+    let mut personal_recovered = None;
+    wait_for("both TUI leases to recover", || {
+        for event in family_worker.poll() {
+            if let HeartbeatEvent::Recovered(generation) = event {
+                family_recovered = Some(generation);
+            }
+        }
+        for event in personal_worker.poll() {
+            if let HeartbeatEvent::Recovered(generation) = event {
+                personal_recovered = Some(generation);
+            }
+        }
+        family_recovered.is_some() && personal_recovered.is_some()
+    });
+
+    assert_eq!(family_recovered, personal_recovered);
+    assert_ne!(family_recovered, Some(server.generation));
+    family_worker.shutdown().expect("unregister family");
+    personal_worker.shutdown().expect("unregister personal");
+    wait_for("replacement generation cleanup", || {
+        !server.paths.process_record().exists()
+            && !server.paths.control_socket().exists()
+            && !server.paths.election_lock().exists()
+    });
+}
+
+#[test]
 fn elected_process_stops_when_its_caller_never_registers() {
     let mut server = RunningServer::start();
 
@@ -419,6 +477,18 @@ fn lease(name: &str, workspace_id: &str, ingress_id: &str, lease_id: &str) -> Wo
     }
 }
 
+fn registration(generation: ServerGeneration, lease: &WorkspaceLease) -> LeaseRegistration {
+    LeaseRegistration {
+        generation,
+        lease_id: lease.lease_id,
+        workspace_id: lease.workspace_id,
+        canonical_name: lease.canonical_name.to_string(),
+        ingress_id: lease.ingress_id,
+        tui_pid: lease.tui_pid,
+        job_socket: lease.job_socket.clone(),
+    }
+}
+
 struct RunningServer {
     child: Child,
     _home: tempfile::TempDir,
@@ -430,6 +500,7 @@ struct RunningServer {
 impl RunningServer {
     fn start() -> Self {
         let home = tempfile::tempdir().expect("temporary server home");
+        prepare_workspace_registry(home.path());
         let paths = ServerPaths::from_home(home.path());
         let generation = ServerGeneration::new();
         let election = ElectionGuard::try_acquire(&paths, generation)
@@ -451,7 +522,11 @@ impl RunningServer {
             .spawn()
             .expect("spawn hidden server");
         let handoff = election.handoff();
-        let client = ServerClient::new(paths.clone());
+        let client = ServerClient::with_launch_context(
+            paths.clone(),
+            std::path::PathBuf::from(env!("CARGO_BIN_EXE_brain")),
+            home.path().to_path_buf(),
+        );
         wait_for("shared server reachability", || {
             client.connect_existing().is_ok()
         });
@@ -490,6 +565,65 @@ impl RunningServer {
             self.child.try_wait().ok().flatten().is_some()
         });
     }
+}
+
+fn prepare_workspace_registry(home: &std::path::Path) {
+    let config = home.join(".config/brain");
+    let family = home.join("family");
+    let personal = home.join("personal");
+    std::fs::create_dir_all(&config).expect("machine config");
+    for (root, workspace_id, ingress_id) in [
+        (
+            &family,
+            "e806258e-491a-436d-9db4-a5ca9903e0d4",
+            "57b162df-983a-45c3-ac7e-bad94eb27a99",
+        ),
+        (
+            &personal,
+            "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+            "91a0cfc2-7427-49d5-a2f1-258f985cd7e5",
+        ),
+    ] {
+        std::fs::create_dir_all(root.join(".config")).expect("workspace config");
+        let manifest = serde_json::json!({
+            "schema_version": 1,
+            "workspace_id": workspace_id,
+            "receiver_ingress_id": ingress_id,
+            "minimum_brain_version": env!("CARGO_PKG_VERSION")
+        });
+        std::fs::write(
+            root.join(".config/workspace.json"),
+            serde_json::to_vec_pretty(&manifest).expect("manifest JSON"),
+        )
+        .expect("workspace manifest");
+    }
+    let registry = serde_json::json!({
+        "schema_version": 2,
+        "default_workspace": "personal",
+        "workspaces": {
+            "family": {
+                "workspace_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
+                "root": family,
+                "aliases": [],
+                "local_user_id": "tester",
+                "receiver_enabled": true,
+                "env": {}
+            },
+            "personal": {
+                "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+                "root": personal,
+                "aliases": [],
+                "local_user_id": "tester",
+                "receiver_enabled": true,
+                "env": {}
+            }
+        }
+    });
+    std::fs::write(
+        config.join("env.json"),
+        serde_json::to_vec_pretty(&registry).expect("registry JSON"),
+    )
+    .expect("machine registry");
 }
 
 impl Drop for RunningServer {

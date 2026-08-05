@@ -262,10 +262,19 @@ first move is a failing test that reproduces it, *then* the fix.
   cleanup inspections propagate errors, preserve the artifact, and allow the
   same handoff value to remove a restored exact parent token on retry. An
   elected child that never receives its first registration exits within its
-  bounded bootstrap deadline. All process waits use bounded condition polling.
+  bounded bootstrap deadline. Two fake TUI clients also register distinct
+  workspaces, observe a deliberately killed generation, race recovery, converge
+  on one replacement generation, re-register, and drive final-unregister
+  cleanup. All process waits use bounded condition polling.
   `server/lifecycle/watchdog.rs` injects expiry and bootstrap instants directly,
   so crashed-final-lease and no-first-registration decisions have no timing
   sleep.
+- **Shared-server control protocol.** `tests/server_control.rs` covers bounded
+  newline-delimited JSON round trips, malformed and oversized rejection,
+  authoritative register validation, duplicate workspace rejection, heartbeat,
+  receiver-enable update, unregister, non-sensitive snapshot, and stale
+  generation refusal. The pure heartbeat classifier proves both missing and
+  stale generations enter recovery.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable
@@ -348,7 +357,8 @@ No test reads or writes a real user workspace.
 
 The suite does not claim a filesystem sandbox, a general prompt-injection
 detector, coordinated task migration activation against a real workspace,
-functional OpenCode behavior, or the final shared-server lease lifecycle.
+functional OpenCode behavior, or the later shared HTTP receiver routing and
+job-forwarding stages.
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to

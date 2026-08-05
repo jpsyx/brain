@@ -9,6 +9,7 @@
 //! to brain's own completion machinery. External `/sms` and `/email` routes
 //! are served only by [`receiver`] while an interactive TUI owns the listener.
 
+pub mod control;
 pub mod delivery;
 pub mod lifecycle;
 pub(super) mod provider;

@@ -65,6 +65,31 @@ fn load_startup_config(workspace: &crate::workspace::WorkspaceContext) -> Result
     Config::try_load_for_startup(workspace)
 }
 
+fn register_server_lease(
+    command_context: &crate::workspace::CommandContext,
+) -> Result<crate::server::control::HeartbeatWorker> {
+    let client = crate::server::control::ServerClient::default();
+    let record = crate::server::lifecycle::connect_or_elect(&client)?;
+    let manifest = crate::workspace::WorkspaceManifest::load(
+        command_context.workspace.root(),
+        env!("CARGO_PKG_VERSION"),
+    )?;
+    let registration = crate::server::control::LeaseRegistration {
+        generation: record.generation,
+        lease_id: crate::server::lifecycle::LeaseId::new(),
+        workspace_id: command_context.workspace.id(),
+        canonical_name: command_context.workspace.name().to_string(),
+        ingress_id: manifest.receiver_ingress_id().into(),
+        tui_pid: std::process::id(),
+        job_socket: command_context.workspace.paths().job_socket(),
+    };
+    client.register_generation(&registration)?;
+    Ok(crate::server::control::HeartbeatWorker::start(
+        client,
+        registration,
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_tui(
     command_context: &crate::workspace::CommandContext,
@@ -84,6 +109,8 @@ pub fn run_tui(
         &command_context.workspace,
         crate::command::server::refresh_agent_hooks,
     )?;
+    let job_socket = crate::tui::singleton::JobSocket::bind(&command_context.workspace)?;
+    let mut server_lease = register_server_lease(command_context)?;
     // First-run onboarding: seed personalization with a short skippable prompt
     // on the normal terminal, *before* we take over the screen. No-op when
     // already personalized or when there is no tty. Never blocks startup.
@@ -168,18 +195,8 @@ pub fn run_tui(
         panel_side,
         skip_daily_triage_check,
     );
-    match crate::server::receiver::ControlSocket::bind() {
-        Ok(control) => {
-            crate::logging::log("receiver control socket ready");
-            app.receiver_control = Some(control);
-        }
-        Err(error) => {
-            crate::logging::log(format!("receiver control socket unavailable: {error:#}"));
-            app.flash = Some(FlashKind::Error(format!(
-                "receiver commands unavailable: {error}"
-            )));
-        }
-    }
+    crate::logging::log("workspace job socket and shared-server lease ready");
+    app.receiver_control = Some(job_socket);
     if with_receiver {
         app.start_receiver_server();
     }
@@ -239,8 +256,11 @@ pub fn run_tui(
     } else {
         None
     };
-    let result = event_loop(&mut terminal, &mut app);
+    let result = event_loop(&mut terminal, &mut app, &server_lease);
 
+    if let Err(error) = server_lease.shutdown() {
+        crate::logging::log(format!("shared-server lease unregister failed: {error:#}"));
+    }
     app.shutdown_agent_controllers();
 
     // Local changes are already pushed by the watcher. Exit performs no pull

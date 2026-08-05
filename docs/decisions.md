@@ -1811,6 +1811,22 @@ exist before state publication, closing the startup signal window. The design
 deliberately has no durable inbound queue, replay worker, headless agent,
 manual restart, or always-on responder.
 
+## Why control registration reopens authoritative workspace identity
+
+The TUI knows its selected workspace, but the machine-wide server must not
+accept a client-supplied root or enablement value. Control registration carries
+only stable identity plus the UUID-scoped job endpoint. The server reloads the
+machine registry by exact canonical name, checks the workspace UUID, reopens
+that record's manifest, checks workspace and ingress UUIDs, and takes receiver
+enablement from the registry. This keeps roots and credentials out of process
+state while preventing a local client from redirecting a lease across silos.
+
+Control frames are newline-delimited JSON with a fixed size cap and bounded I/O
+time. Every mutation names the process generation, so a heartbeat or shutdown
+from a dead generation cannot alter a replacement winner. A missed heartbeat
+causes the TUI to use the same election path as startup and then re-register;
+the election lock, rather than timing, chooses the single replacement.
+
 ## TUI-owned receiver server
 
 The external receiver listener is deliberately owned by the singleton brain

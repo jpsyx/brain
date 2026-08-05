@@ -317,6 +317,23 @@ cleanup owner and safe `signal-hook` flags are installed before state
 publication; the process loop observes flags outside the handler and performs
 ordinary Rust cleanup.
 
+The control socket exchanges one newline-delimited JSON request and response
+per connection, with a 16 KiB frame cap and two-second read/write timeouts.
+Register, heartbeat, receiver-enable update, and unregister requests carry the
+target process generation; stale generations are rejected before lease state
+can change. Snapshot is read-only and returns only generation plus live-lease
+count. Registration never supplies a root: the process reloads the machine
+registry, requires the exact canonical name and workspace UUID, reopens that
+record's portable manifest, and verifies its workspace and ingress UUIDs. It
+derives receiver intent from the registry record rather than trusting the TUI.
+
+TUI startup orders ownership as workspace readiness, UUID singleton, UUID-local
+`jobs.sock`, connect/elect, register, heartbeat worker, then agent/event loop.
+The worker sends one heartbeat per second. Missing transport, a stale
+generation, or a lost lease triggers bounded election/reuse and re-registration;
+concurrent TUIs use the same election path so only one replacement wins.
+Orderly exit stops the worker and unregisters before removing `jobs.sock`.
+
 ## Claude Sessions: SessionStart/Stop Hooks + State DB
 
 Which session to run is decided by the **lock + recency** model in
@@ -460,7 +477,8 @@ uses only that selected record; Brain does not treat process-level `TWILIO_*`,
 `RESEND_*`, or `BRAIN_RECEIVER_PUBLIC_URL` values as runtime overrides. Secret
 values are redacted by `brain env list` and `brain env get`.
 
-The receiver control socket is mode `0600`, refuses to replace a live TUI's
+The transitional receiver command endpoint is the selected workspace's
+mode-`0600` `<workspace-cache>/jobs.sock`. It refuses to replace a live TUI's
 socket, limits commands to 128 bytes, and applies read/write timeouts. The HTTP
 listener uses four blocking workers, a 1 MiB body limit, a 64-message handoff
 queue, constant-time HMAC verification, and an in-process recent-delivery cache
@@ -788,11 +806,12 @@ bookkeeping.
   Invalid metadata, malformed records, and duplicate active identities render a
   warning naming the generation and relative CSV; they never panic or emit a
   false clean result.
-- **Phase 2 does not activate migration or the final receiver architecture.**
+- **Phase 2 does not activate migration or shared HTTP receiver routing.**
   The task-schema migrator remains an inactive fixture-tested interface; Phase
   5 owns its last legacy sync, backups, activation, and real-workspace rollout.
-  The final shared-server lease and receiver-routing lifecycle remain Phase 4
-  work. Current actor propagation does not imply that later lifecycle is done.
+  Shared-server control and TUI lease recovery are now active; public ingress
+  routing and job forwarding remain Phase 4 work. Current actor propagation
+  does not imply those later delivery stages are done.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.
