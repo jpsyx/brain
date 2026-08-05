@@ -1,6 +1,6 @@
 //! Receiver setup and lifecycle command dispatch.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 mod hooks;
 
@@ -17,30 +17,87 @@ pub fn run_receiver(
     match &args.action {
         ReceiverServerAction::Setup => receiver_setup(context),
         ReceiverServerAction::Set { assignment } => receiver_set(context, assignment.as_deref()),
-        action => {
-            let command = match action {
-                ReceiverServerAction::Start => "start",
-                ReceiverServerAction::Stop => "stop",
-                ReceiverServerAction::Restart => "restart",
-                ReceiverServerAction::Status => "status",
-                ReceiverServerAction::Logs => "logs",
-                ReceiverServerAction::Setup | ReceiverServerAction::Set { .. } => unreachable!(),
-            };
-            match crate::tui::singleton::send_job_control(&context.workspace, command) {
-                Ok(response) => {
-                    print!("{response}");
-                    Ok(())
-                }
-                Err(_) if matches!(action, ReceiverServerAction::Status) => {
-                    println!("receiver server is stopped (no brain TUI is running)");
-                    Ok(())
-                }
-                Err(_) => anyhow::bail!(
-                    "the receiver server belongs to the running brain TUI; use `brain --with-receiver` or the command palette"
-                ),
-            }
+        ReceiverServerAction::Start => {
+            let enabled = apply_receiver_action(context, crate::workspace::ReceiverAction::Start)?;
+            print_receiver_change(enabled);
+            Ok(())
         }
+        ReceiverServerAction::Stop => {
+            let enabled = apply_receiver_action(context, crate::workspace::ReceiverAction::Stop)?;
+            print_receiver_change(enabled);
+            Ok(())
+        }
+        ReceiverServerAction::Status => print_receiver_status(context),
+        ReceiverServerAction::Logs => crate::server::lifecycle::logs(),
     }
+}
+
+/// Persist receiver intent for one immutable selected record, then refresh a
+/// matching live lease without electing a process.
+pub(crate) fn apply_receiver_action(
+    context: &crate::workspace::CommandContext,
+    action: crate::workspace::ReceiverAction,
+) -> Result<bool> {
+    let enabled = context
+        .registry_store
+        .transition_receiver(context.workspace.name(), context.workspace.id(), action)
+        .context("persisting receiver intent for the selected workspace")?;
+    let client = crate::server::lifecycle::ServerClient::default();
+    if let Ok(record) = client.connect_existing() {
+        client
+            .refresh_enabled_generation(record.generation, context.workspace.id())
+            .context("refreshing receiver intent in the live shared server")?;
+    }
+    Ok(enabled)
+}
+
+pub(crate) fn receiver_enabled(context: &crate::workspace::CommandContext) -> Result<bool> {
+    let registry = crate::workspace::RegistryStore::load_from(context.registry_store.path())?;
+    let selected = registry.select(Some(context.workspace.name().as_str()))?;
+    if selected.record().workspace_id != context.workspace.id() {
+        anyhow::bail!("selected workspace identity changed while reading receiver intent");
+    }
+    Ok(selected.record().receiver_enabled)
+}
+
+fn print_receiver_change(enabled: bool) {
+    let theme = crate::theme::Theme::active();
+    let state = if enabled { "enabled" } else { "disabled" };
+    println!("{}", theme.success(&format!("Receiver {state}")));
+}
+
+fn print_receiver_status(context: &crate::workspace::CommandContext) -> Result<()> {
+    let enabled = receiver_enabled(context)?;
+    let client = crate::server::lifecycle::ServerClient::default();
+    let server_running = client.connect_existing().is_ok();
+    let tui_live = server_running && client.workspace_ingress(context.workspace.id()).is_ok();
+    let accepting = enabled && tui_live;
+    let theme = crate::theme::Theme::active();
+    println!(
+        "{}  {}",
+        theme.muted("Receiver"),
+        theme.value(if enabled { "enabled" } else { "disabled" })
+    );
+    println!(
+        "{}       {}",
+        theme.muted("TUI"),
+        theme.value(if tui_live { "live" } else { "not live" })
+    );
+    println!(
+        "{}    {}",
+        theme.muted("Server"),
+        theme.value(if server_running {
+            "running"
+        } else {
+            "not running"
+        })
+    );
+    println!(
+        "{} {}",
+        theme.muted("Accepting"),
+        theme.value(if accepting { "yes" } else { "no" })
+    );
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -103,7 +103,7 @@ pub fn run_tui(
     all_habits: Vec<Task>,
     active_view: Option<View>,
     initial_search: Option<String>,
-    with_receiver: bool,
+    _with_receiver: bool,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
     let _singleton = acquire_singleton_then_refresh(
@@ -199,9 +199,6 @@ pub fn run_tui(
     );
     crate::logging::log("workspace job socket and shared-server lease ready");
     app.receiver_control = Some(job_socket);
-    if with_receiver {
-        app.start_receiver_server();
-    }
     // The brain panel opens at startup (resuming the latest session), but focus
     // stays on the tasks main view so `j`/`k` work immediately. `open_or_focus_
     // brain` focuses the panel, so flip focus back to the main view afterward.

@@ -5,10 +5,6 @@ use crate::tui::*;
 use crate::agent::SessionStore;
 
 impl App<'_> {
-    pub(crate) fn receiver_server_running(&self) -> bool {
-        self.receiver_control.is_some()
-    }
-
     pub(in crate::tui::app_brain) fn close_receiver_panel(&mut self, restore_interactive: bool) {
         let can_resume = self
             .brain

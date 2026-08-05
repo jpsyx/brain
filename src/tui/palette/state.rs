@@ -31,7 +31,7 @@ impl PaletteState {
             context_links,
             task_actions_modal: false,
             brain_open,
-            receiver_server_running: false,
+            receiver_enabled: false,
             triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
@@ -63,7 +63,7 @@ impl PaletteState {
             // The task actions modal only shows task-scoped commands, so the
             // global "Close brain" never appears here regardless.
             brain_open: false,
-            receiver_server_running: false,
+            receiver_enabled: false,
             triage_open: false,
             logs_view: false,
             daily_triage_alert_disabled: false,
@@ -71,7 +71,7 @@ impl PaletteState {
         }
     }
 
-    pub(crate) const fn new_logs_view(receiver_server_running: bool) -> Self {
+    pub(crate) const fn new_logs_view(receiver_enabled: bool) -> Self {
         Self {
             filter: String::new(),
             selected: 0,
@@ -83,7 +83,7 @@ impl PaletteState {
             context_links: LinkKind::None,
             task_actions_modal: false,
             brain_open: false,
-            receiver_server_running,
+            receiver_enabled,
             triage_open: false,
             logs_view: true,
             daily_triage_alert_disabled: false,
@@ -132,6 +132,13 @@ impl PaletteState {
                 "Disable daily triage alert".to_owned()
             };
         }
+        if matches!(cmd.action, PaletteAction::ToggleReceiver) {
+            return if self.receiver_enabled {
+                "Disable receiver".to_owned()
+            } else {
+                "Enable receiver".to_owned()
+            };
+        }
         // The "open link" command's wording depends on what it'll open:
         // a lone Linear issue, a lone notes URL, or several links (→ picker).
         // The global palette names the task; the actions modal doesn't (its
@@ -176,9 +183,7 @@ impl PaletteState {
             | PaletteAction::ShowSyncStatus
             | PaletteAction::OpenAgenda
             | PaletteAction::ToggleNotes
-            | PaletteAction::StartReceiverServer
-            | PaletteAction::StopReceiverServer
-            | PaletteAction::RestartReceiverServer
+            | PaletteAction::ToggleReceiver
             | PaletteAction::ShowReceiverServerStatus
             | PaletteAction::ShowReceiverServerLogs
             | PaletteAction::ShowBrainLogs
@@ -209,10 +214,11 @@ impl PaletteState {
         if self.logs_view {
             // The logs palette shows only this fixed set of read-only /
             // navigation commands; each command's own `is_visible` still
-            // applies (e.g. "Show receiver logs" needs a running server).
+            // applies.
             return matches!(
                 c.action,
-                PaletteAction::ShowReceiverServerStatus
+                PaletteAction::ToggleReceiver
+                    | PaletteAction::ShowReceiverServerStatus
                     | PaletteAction::ShowSyncStatus
                     | PaletteAction::ShowReceiverServerLogs
                     | PaletteAction::ShowBrainLogs

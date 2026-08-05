@@ -125,6 +125,12 @@ pub fn run(
         return super::reindex::run(args, context);
     }
 
+    if cli.with_receiver && matches!(cli.command, None | Some(Cmd::Tasks(_))) {
+        super::server::apply_receiver_action(
+            context,
+            crate::workspace::ReceiverAction::WithReceiverFlag,
+        )?;
+    }
     crate::settings::ensure_markdown_to_pdf(context);
     match cli.command {
         None => super::tasks::launch(

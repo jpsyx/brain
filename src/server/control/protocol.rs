@@ -42,14 +42,12 @@ pub enum ControlRequest {
         /// Lease to renew.
         lease_id: LeaseId,
     },
-    /// Change whether this TUI accepts inbound receiver work.
-    UpdateEnabled {
+    /// Reload persistent receiver intent for one exact workspace.
+    RefreshEnabled {
         /// Target process generation.
         generation: ServerGeneration,
-        /// Lease to update.
-        lease_id: LeaseId,
-        /// New receiver state.
-        receiver_enabled: bool,
+        /// Stable workspace whose live lease should be refreshed.
+        workspace_id: WorkspaceId,
     },
     /// Remove one live lease before its TUI tears down.
     Unregister {
@@ -74,7 +72,7 @@ impl ControlRequest {
         match self {
             Self::Register(registration) => Some(registration.generation),
             Self::Heartbeat { generation, .. }
-            | Self::UpdateEnabled { generation, .. }
+            | Self::RefreshEnabled { generation, .. }
             | Self::Unregister { generation, .. }
             | Self::WorkspaceIngress { generation, .. } => Some(*generation),
             Self::Snapshot => None,

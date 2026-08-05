@@ -482,6 +482,9 @@ cargo test --release picker::
 # one integration file
 cargo test --release --test entry_collect
 
+# persistent receiver intent, exact-record isolation, and shared transition
+cargo test --release --test receiver_enablement
+
 # workspace documentation contract
 cargo test --release --test workspace_docs
 
@@ -503,3 +506,10 @@ cargo test --release -- --nocapture
    `pub fn make_test_*` on a production module.
 5. If the behavior is user-visible (a new key, menu item, or config
    variable), update the relevant `docs/` file in the same change.
+
+Receiver enablement tests keep persistent intent separate from live process
+state. They cover the shared pure transition, exact selected-record mutation,
+stale identity rejection with byte preservation, authoritative control refresh,
+reduced clap grammar, and dynamic labels in both palette models. Lifecycle
+tests use injected instants or bounded polling; they never depend on fixed
+sleeps.

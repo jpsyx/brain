@@ -8,7 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::lock;
 use super::model::RawMachineRegistry;
-use super::{MachineRegistry, RegistryError, RegistryOperation, validate_registry};
+use super::{MachineRegistry, ReceiverAction, RegistryError, RegistryOperation, validate_registry};
+use crate::workspace::{WorkspaceId, WorkspaceName};
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -154,6 +155,21 @@ impl RegistryStore {
             let result = transaction.update(&mut latest, mutation)?;
             *registry = latest;
             Ok(result)
+        })
+    }
+
+    /// Reload and mutate receiver intent for the exact selected record.
+    pub fn transition_receiver(
+        &self,
+        canonical_name: &WorkspaceName,
+        expected_id: WorkspaceId,
+        action: ReceiverAction,
+    ) -> Result<bool, RegistryError> {
+        self.transaction(|transaction| {
+            let mut latest = transaction.load()?;
+            transaction.update(&mut latest, |registry| {
+                registry.transition_receiver(canonical_name, expected_id, action)
+            })
         })
     }
 }

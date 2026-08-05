@@ -189,22 +189,8 @@ impl App<'_> {
             PaletteAction::CloseBrain => {
                 self.close_brain();
             }
-            PaletteAction::StartReceiverServer => self.start_receiver_server(),
-            PaletteAction::StopReceiverServer => {
-                self.flash = Some(FlashKind::Info(
-                    "receiver enablement is managed by the shared server".to_owned(),
-                ));
-            }
-            PaletteAction::RestartReceiverServer => {
-                crate::logging::log("palette request receiver server restart");
-                self.start_receiver_server();
-            }
-            PaletteAction::ShowReceiverServerStatus => {
-                crate::logging::log("palette request receiver server status");
-                self.flash = Some(FlashKind::ReceiverStatus {
-                    running: self.receiver_server_running(),
-                });
-            }
+            PaletteAction::ToggleReceiver => self.toggle_receiver(),
+            PaletteAction::ShowReceiverServerStatus => self.show_receiver_status(),
             PaletteAction::ShowReceiverServerLogs => {
                 crate::logging::log("palette request receiver server logs");
                 self.show_logs_view(LogKind::Receiver);

@@ -256,6 +256,12 @@ fn load_verified_context(
             "workspace registry identity does not match its live lease",
         ));
     }
+    if !record.receiver_enabled {
+        return Err(WorkspaceRouteError::new(
+            503,
+            "workspace receiver route is disabled",
+        ));
+    }
     if !record.root.is_dir() {
         return Err(WorkspaceRouteError::new(
             503,

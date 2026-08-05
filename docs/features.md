@@ -177,7 +177,9 @@ a direct keystroke show it dimmed in `[…]`):
 5. **Search resources:** rescope search to the selected workspace's `resources/`.
 6. **Search archive:** rescope search to the selected workspace's `archive/` (retired material).
 7. **Global search** — search across projects, areas, resources, and archive.
-8. **Move brain panel to the left / right** — swap the layout (label names
+8. **Enable receiver / Disable receiver** toggles persistent intent for the
+   selected workspace without starting or stopping the shared process.
+9. **Move brain panel to the left / right**: swap the layout (label names
    the direction the panel would move).
 - **Delete '<file>'** `[^D]` — move the highlighted entry (file **or**
   directory) to the Trash. **Shown whenever something is highlighted**, and it
@@ -230,9 +232,9 @@ management and reporting commands stay outside the persistent shell.
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex enforcement level without printing connection material or credentials. |
 | `brain server {status\|logs}` | Inspect the TUI-lifetime shared process without starting, stopping, or repairing it (see below). |
-| `brain --with-receiver` | Open the TUI and explicitly start its TUI-owned receiver server. |
+| `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
 | `brain --no-daily-triage-check` | Open the TUI without ever showing the daily-triage startup nudge. Process-scoped (this run only); not a persistent config change. Combines with any other flag/subcommand. |
-| `brain receiver {setup\|set\|start\|status\|stop\|restart\|logs}` | Configure, edit, or control the TUI-owned SMS/email listener. `receiver set` edits one receiver environment variable or opens a described selector. |
+| `brain receiver {setup\|set\|start\|stop\|status\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, or read shared-process logs. No receiver command starts or restarts a process. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
@@ -1058,9 +1060,18 @@ freshness gate described above. The HTTP acknowledgement remains immediate,
 but stale local state is pulled before the queued message reaches Claude or
 Codex.
 
-- `brain server status` reports the live process PID, port, and generation, or
-  says that no process is running. It neither elects a starter nor cleans stale
-  state and needs no selected workspace.
+Receiver enablement is persistent workspace intent, separate from process and
+lease availability. `brain receiver start`, `brain receiver stop`, startup
+`--with-receiver`, and both command palettes share one transition and an exact
+canonical-name plus UUID registry transaction. A live shared process is
+notified by workspace UUID after persistence and reloads the authoritative
+record; no process is elected for a short-lived mutation. `brain receiver
+status` reports Receiver, TUI, Server, and Accepting independently. An enabled
+workspace without a live TUI therefore reports `Accepting no`.
+
+- `brain server status` reports process reachability and the live TUI lease
+  count only, or says that no process is running. It neither elects a starter
+  nor exposes workspace message data and needs no selected workspace.
 - `brain server logs` prints the machine-wide infrastructure log, or says that
   no log exists. It is likewise read-only and workspace-independent.
 - `brain server run --generation <uuid> --port <p>` is the hidden blocking

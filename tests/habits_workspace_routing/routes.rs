@@ -150,10 +150,7 @@ fn known_ingress_without_its_live_tui_is_unavailable_while_peer_stays_routable()
 #[test]
 fn receiver_disabled_live_ingress_is_unavailable_while_peer_stays_routable() {
     let server = ServerFixture::new(FAMILY_ID);
-    server
-        .client
-        .update_enabled(server.generation, server.family_lease, false)
-        .expect("disable family receiver route");
+    server.disable_family_receiver();
 
     let family = server.get(&format!("/w/{}/habits", server.family_ingress));
     let family_triage = server.post(
@@ -166,4 +163,16 @@ fn receiver_disabled_live_ingress_is_unavailable_while_peer_stays_routable() {
     assert!(family_triage.starts_with("HTTP/1.1 503"), "{family_triage}");
     assert!(personal.starts_with("HTTP/1.1 200"), "{personal}");
     assert!(personal.contains("Personal habit"), "{personal}");
+}
+
+#[test]
+fn persisted_disable_rejects_before_the_live_lease_refreshes() {
+    let server = ServerFixture::new(FAMILY_ID);
+    server.persist_family_receiver_disabled();
+
+    let family = server.get(&format!("/w/{}/habits", server.family_ingress));
+    let personal = server.get(&format!("/w/{}/habits", server.personal_ingress));
+
+    assert!(family.starts_with("HTTP/1.1 503"), "{family}");
+    assert!(personal.starts_with("HTTP/1.1 200"), "{personal}");
 }

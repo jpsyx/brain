@@ -15,6 +15,29 @@ use crate::workspace::{WorkspaceId, WorkspaceName};
 /// The only registry schema this release accepts.
 pub const REGISTRY_SCHEMA_VERSION: u32 = 2;
 
+/// A user-facing surface that changes persistent receiver intent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiverAction {
+    /// Enable through `brain receiver start`.
+    Start,
+    /// Disable through `brain receiver stop`.
+    Stop,
+    /// Enable before a `--with-receiver` TUI registers.
+    WithReceiverFlag,
+    /// Invert the current value from either command palette.
+    Toggle,
+}
+
+/// Decide the next persistent receiver value for every mutation surface.
+#[must_use]
+pub const fn receiver_transition(current: bool, action: ReceiverAction) -> bool {
+    match action {
+        ReceiverAction::Start | ReceiverAction::WithReceiverFlag => true,
+        ReceiverAction::Stop => false,
+        ReceiverAction::Toggle => !current,
+    }
+}
+
 /// Every workspace attached to this machine and the canonical default.
 ///
 /// Successful deserialization establishes all whole-registry invariants.
@@ -281,6 +304,33 @@ impl MachineRegistry {
                 })?
                 .local_user_id = user_id.to_string();
             Ok(())
+        })
+    }
+
+    /// Change receiver intent only when the canonical name still has the
+    /// immutable identity selected by the caller.
+    pub fn transition_receiver(
+        &mut self,
+        canonical_name: &WorkspaceName,
+        expected_id: WorkspaceId,
+        action: ReceiverAction,
+    ) -> Result<bool, RegistryError> {
+        self.mutate(|candidate| {
+            let record = candidate
+                .workspaces
+                .get_mut(canonical_name)
+                .ok_or_else(|| RegistryError::UnknownWorkspace {
+                    canonical_name: canonical_name.to_string(),
+                })?;
+            if record.workspace_id != expected_id {
+                return Err(RegistryError::WorkspaceIdentityChanged {
+                    canonical_name: canonical_name.clone(),
+                    expected: expected_id,
+                    found: record.workspace_id,
+                });
+            }
+            record.receiver_enabled = receiver_transition(record.receiver_enabled, action);
+            Ok(record.receiver_enabled)
         })
     }
 

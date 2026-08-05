@@ -146,9 +146,20 @@ impl SharedReceiverFixture {
     }
 
     pub fn disable_target(&self) {
+        self.persist_target_disabled();
         self.client
-            .update_enabled(self.generation, self.lease_id, false)
+            .refresh_enabled_generation(self.generation, self.workspace.id())
             .unwrap();
+    }
+
+    pub fn persist_target_disabled(&self) {
+        brain::workspace::RegistryStore::from_path(self.home.path().join(".config/brain/env.json"))
+            .transition_receiver(
+                self.workspace.name(),
+                self.workspace.id(),
+                brain::workspace::ReceiverAction::Stop,
+            )
+            .expect("persist disabled receiver intent");
     }
 
     pub fn unregister_target(&mut self) {

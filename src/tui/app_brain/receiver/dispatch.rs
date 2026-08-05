@@ -3,17 +3,6 @@
 use crate::tui::*;
 
 impl App<'_> {
-    /// Report the already-owned shared receiver endpoint.
-    ///
-    /// Task 6 replaces the transitional palette action with persisted lease
-    /// enablement; no TUI-owned HTTP listener is created here.
-    pub(crate) fn start_receiver_server(&mut self) {
-        crate::logging::log("receiver uses the registered shared-server lease");
-        self.flash = Some(FlashKind::Info(
-            "receiver is attached to the shared server".to_owned(),
-        ));
-    }
-
     /// Drain jobs received on the UUID-local socket. Active agent work is
     /// never interrupted; the queue is consumed when the panel is available.
     pub(crate) fn tick_receiver(&mut self) {

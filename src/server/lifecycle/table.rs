@@ -227,6 +227,29 @@ impl LeaseTable {
         Ok(())
     }
 
+    /// Refresh receiver intent for an exact workspace when its lease is live.
+    ///
+    /// A missing or expired lease is a successful no-op because persistent
+    /// intent remains authoritative for the next registration.
+    pub fn refresh_workspace_receiver_enabled(
+        &mut self,
+        workspace_id: WorkspaceId,
+        receiver_enabled: bool,
+        now: Instant,
+    ) -> Result<(), LeaseError> {
+        self.prune_expired(now);
+        let Some(lease) = self.live.get_mut(&workspace_id) else {
+            return Ok(());
+        };
+        if lease.receiver_enabled == receiver_enabled {
+            return Ok(());
+        }
+        let next_revision = next_authority_revision(&self.authority_revisions, workspace_id)?;
+        lease.receiver_enabled = receiver_enabled;
+        self.authority_revisions.insert(workspace_id, next_revision);
+        Ok(())
+    }
+
     /// Remove one orderly lease and decide whether the process must exit.
     #[must_use]
     pub fn unregister(&mut self, lease_id: LeaseId, now: Instant) -> ServerDecision {

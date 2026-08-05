@@ -80,7 +80,7 @@ pub enum Cmd {
     /// Inspect the TUI-lifetime shared HTTP server (`status`, `logs`).
     Server(ServerArgs),
 
-    /// Control the TUI-owned external receiver server.
+    /// Configure and enable receiver ingress for the selected workspace.
     #[command(name = "receiver")]
     Receiver(ReceiverArgs),
 

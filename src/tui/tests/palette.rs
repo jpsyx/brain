@@ -312,7 +312,9 @@ fn logs_view_palette_only_lists_log_actions_and_return() {
     assert_eq!(
         action_order(&state),
         vec![
+            PaletteAction::ToggleReceiver,
             PaletteAction::ShowReceiverServerStatus,
+            PaletteAction::ShowReceiverServerLogs,
             PaletteAction::ShowSyncStatus,
             PaletteAction::ShowBrainLogs,
             PaletteAction::ReturnToMainView
@@ -359,6 +361,23 @@ fn daily_triage_label(state: &PaletteState) -> Option<String> {
         .map(|c| state.label_for(c))
 }
 
+fn receiver_label(state: &PaletteState) -> Option<String> {
+    state
+        .visible()
+        .iter()
+        .find(|c| matches!(c.action, PaletteAction::ToggleReceiver))
+        .map(|c| state.label_for(c))
+}
+
+#[test]
+fn receiver_toggle_label_names_the_next_persistent_action() {
+    let mut state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    assert_eq!(receiver_label(&state).as_deref(), Some("Enable receiver"));
+
+    state.receiver_enabled = true;
+    assert_eq!(receiver_label(&state).as_deref(), Some("Disable receiver"));
+}
+
 #[test]
 fn daily_triage_toggle_is_globally_available() {
     // A long-running TUI needs to flip the alert mid-session, so the toggle is
@@ -379,8 +398,8 @@ fn daily_triage_toggle_reads_disable_when_alert_enabled() {
 
 #[test]
 fn daily_triage_toggle_reads_enable_when_alert_disabled() {
-    // Seeded from `App::skip_daily_triage_check` at open time (like
-    // `receiver_server_running`); when disabled the command offers to re-enable.
+    // Seeded from `App::skip_daily_triage_check` at open time; when disabled
+    // the command offers to re-enable.
     let mut state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
     state.daily_triage_alert_disabled = true;
     assert_eq!(
@@ -404,8 +423,8 @@ fn triage_switch_commands_are_hidden_without_a_triage_tab() {
 #[test]
 fn triage_switch_commands_appear_while_a_triage_tab_is_open() {
     // `triage_open` is seeded from `App::triage_brain.is_some()` at open time,
-    // like `receiver_server_running`. With it set, both tab-switch rows show —
-    // the reliable palette alternative to the terminal-flaky Alt+1 / Alt+2.
+    // With it set, both tab-switch rows show. The palette remains the reliable
+    // alternative to the terminal-flaky Alt+1 / Alt+2.
     let mut state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
     state.triage_open = true;
     let actions = action_order(&state);
@@ -433,8 +452,9 @@ fn full_palette_lists_actions_in_canonical_order() {
             PaletteAction::MarkTaskComplete,
             PaletteAction::MessageBrainAboutTask,
             PaletteAction::SendBrainMessage,
-            PaletteAction::StartReceiverServer,
+            PaletteAction::ToggleReceiver,
             PaletteAction::ShowReceiverServerStatus,
+            PaletteAction::ShowReceiverServerLogs,
             PaletteAction::ToggleNotes,
             PaletteAction::RemoveTask,
             PaletteAction::DeferTask(1),

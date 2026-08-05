@@ -23,21 +23,19 @@ pub enum ReceiverServerAction {
         /// `name=value`; omit to choose from the receiver environment variables.
         assignment: Option<String>,
     },
-    /// Ask the running brain TUI to start receiving SMS and email.
+    /// Persistently enable receiver ingress for the selected workspace.
     Start,
-    /// Show the receiver server state.
+    /// Show persistent receiver intent and current availability.
     Status,
-    /// Ask the running brain TUI to stop receiving messages.
+    /// Persistently disable receiver ingress for the selected workspace.
     Stop,
-    /// Restart the TUI-owned receiver server.
-    Restart,
     /// Show recent receiver logs.
     Logs,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum ServerAction {
-    /// Show whether the brain server is running and where.
+    /// Show whether the shared process is running and its live TUI count.
     Status,
     /// Show recent shared-server lifecycle logs.
     Logs,
@@ -59,10 +57,30 @@ mod tests {
     use crate::cli::{Cli, Cmd};
 
     #[test]
-    fn receiver_server_commands_parse() {
-        let cli = Cli::try_parse_from(["brain", "receiver", "restart"]).expect("parse");
-        assert!(matches!(cli.command, Some(Cmd::Receiver(args))
-            if matches!(args.action, ReceiverServerAction::Restart)));
+    fn receiver_commands_expose_enablement_but_no_manual_lifecycle() {
+        for action in ["setup", "set", "start", "stop", "status", "logs"] {
+            assert!(
+                Cli::try_parse_from(["brain", "receiver", action]).is_ok(),
+                "receiver {action} should parse"
+            );
+        }
+        for args in [
+            vec!["brain", "receiver", "restart"],
+            vec!["brain", "server", "start"],
+            vec!["brain", "server", "kill"],
+            vec!["brain", "server", "restart"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+    }
+
+    #[test]
+    fn with_receiver_and_workspace_selector_parse_together() {
+        let cli = crate::cli::try_parse_from(["brain", "--with-receiver", "-b", "family"])
+            .expect("parse startup receiver selection");
+
+        assert!(cli.with_receiver);
+        assert_eq!(cli.brain.as_deref(), Some("family"));
     }
 
     #[test]

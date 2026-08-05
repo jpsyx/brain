@@ -243,17 +243,21 @@ impl ControlServer {
                 })?;
                 ControlOutcome::Decision(decision)
             }
-            ControlRequest::UpdateEnabled {
-                lease_id,
-                receiver_enabled,
-                ..
-            } => {
-                let decision = self.leases.apply(LeaseAction::SetReceiverEnabled {
-                    lease_id,
+            ControlRequest::RefreshEnabled { workspace_id, .. } => {
+                let registry = RegistryStore::load_from(self.registry_store.path())
+                    .context("reopening receiver intent from the machine workspace registry")?;
+                let receiver_enabled = registry
+                    .workspaces
+                    .values()
+                    .find(|record| record.workspace_id == workspace_id)
+                    .context("receiver workspace no longer exists in the machine registry")?
+                    .receiver_enabled;
+                self.leases.refresh_workspace_receiver_enabled(
+                    workspace_id,
                     receiver_enabled,
                     now,
-                })?;
-                ControlOutcome::Decision(decision)
+                )?;
+                ControlOutcome::Decision(ServerDecision::KeepRunning)
             }
             ControlRequest::Unregister { lease_id, .. } => {
                 let decision = self

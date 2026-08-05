@@ -8,10 +8,7 @@ use super::support::*;
 #[test]
 fn unavailable_posts_reject_before_body_io_and_leave_control_responsive() {
     let server = ServerFixture::new(FAMILY_ID);
-    server
-        .client
-        .update_enabled(server.generation, server.family_lease, false)
-        .expect("disable family receiver route");
+    server.disable_family_receiver();
 
     for (path, expected_status) in [
         (format!("/w/{UNKNOWN_ID}/habits/done"), "404"),

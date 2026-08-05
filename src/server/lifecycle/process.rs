@@ -25,15 +25,22 @@ const POLL_INTERVAL: Duration = Duration::from_millis(25);
 pub fn status() -> Result<()> {
     let theme = Theme::active();
     let mut output = std::io::stdout().lock();
-    match ServerClient::default().connect_existing() {
-        Ok(record) => writeln!(
-            output,
-            "{}",
-            theme.success(&format!(
-                "✓ brain server running (pid {}, port {}, generation {})",
-                record.pid, record.port, record.generation
-            ))
-        )?,
+    match ServerClient::default().snapshot() {
+        Ok((record, snapshot)) => {
+            writeln!(output, "{}", theme.success("Brain server  running"))?;
+            writeln!(
+                output,
+                "{}  {}",
+                theme.muted("Process"),
+                theme.value(&record.pid.to_string())
+            )?;
+            writeln!(
+                output,
+                "{}       {}",
+                theme.muted("Live TUIs"),
+                theme.value(&snapshot.live_leases.to_string())
+            )?;
+        }
         Err(_) => writeln!(output, "{}", theme.muted("brain server is not running"))?,
     }
     Ok(())

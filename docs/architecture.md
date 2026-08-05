@@ -837,7 +837,7 @@ The larger submodules are directories split by concern: `handlers/`
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
 `draw/mod.rs`), `palette/` (`command`/`state`), `app_state/`
 (`construct`/`nav`/`view`/`selection_query`), `app_actions/`
-(`commands`/`triage`), `app_brain/` (`launch`/`lifecycle` plus receiver
+(`commands`/`receiver`/`triage`), `app_brain/` (`launch`/`lifecycle` plus receiver
 `dispatch`/`completion`/`state` and focused tests), and `tests/` (split by
 area). `app_brain/` owns the main persistent controller, receiver dispatch,
 and completion delivery;
@@ -1036,6 +1036,15 @@ forwards receiver requests only to live workspace TUIs.
   state publication. The table and process record never contain roots, users,
   credentials, prompts, logs, or message bodies.
   `lifecycle::pid_alive` remains the stable seam for sync callers.
+- Receiver intent mutations live at the registry boundary. One pure
+  `receiver_transition` decision feeds CLI start/stop, startup
+  `--with-receiver`, and palette toggles. `RegistryStore` reloads under its
+  interprocess transaction and verifies the selected canonical name still owns
+  the expected UUID before saving. After persistence, a generation-bound
+  control refresh names only the workspace UUID; the shared process reloads
+  the authoritative record and updates a matching live lease if present. This
+  path never elects a process. The UUID-local job socket accepts only JSON
+  inbound jobs and has no text lifecycle control grammar.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST handlers receive an already-resolved workspace context;
   the rendered page preserves only that context's opaque ingress in its POST

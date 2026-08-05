@@ -190,7 +190,7 @@ generation-bound `WorkspaceRouteTicket`. Registry, root, and manifest IO then
 occurs without the control-state mutex. The route revalidates that the same
 generation and exact authority revision are still accepting before
 constructing the immutable `WorkspaceContext`. A heartbeat renews expiry without changing
-the revision. Registration and receiver enablement changes advance the
+the revision. Registration and receiver enablement refreshes advance the
 workspace's remembered revision. Removal or expiry leaves no accepting
 authority, and any later registration advances that remembered revision, so
 even a later lease that reuses the same ID, workspace, ingress, TUI PID, and
@@ -204,7 +204,7 @@ the socket handoff, so a disable, unregister, expiry, or replacement during
 provider work cannot enqueue. It also derives one absolute handoff deadline,
 capped at two seconds and before the separately reserved response window, and
 carries it through nonblocking connect, frame write, and acknowledgment read.
-A registration replay or enablement update
+A registration replay or enablement refresh
 computes its next revision before changing expiry, enablement, or registration
 state; revision overflow rejects the complete transition without extending or
 reviving authority.
@@ -285,6 +285,16 @@ fallible conversion that runs all whole-registry validation. Both public
 boundary. The store parses the raw DTO directly only to preserve the distinction
 between structural JSON errors (operation, path, and parser message) and typed
 domain validation errors.
+
+`receiver_enabled` is persistent intent, not evidence of a server or live TUI.
+All mutation surfaces use `ReceiverAction` plus the pure
+`receiver_transition(current, action)` decision. Persistence reloads under the
+registry transaction and requires both the selected canonical key and the UUID
+captured at bootstrap. A replaced record therefore fails without changing the
+new record or any peer. Runtime availability is the conjunction of persistent
+intent and an unexpired exact-workspace lease in the current shared-process
+generation. Authoritative route loading rechecks the exact record's persistent
+intent, so a disable takes effect even before the live lease refresh arrives.
 
 Every record is a silo. Canonical, alias, and omitted-selector/default lookup
 returns a borrowed `(canonical_name, record)` view of exactly one record; no

@@ -328,7 +328,7 @@ consumes through EOF and rejects trailing frames, so a slow byte stream cannot
 extend the budget one syscall at a time. Connect uses a safe nonblocking Unix
 socket plus bounded readiness polling; it creates no connector worker that can
 outlive the caller's deadline.
-Register, heartbeat, receiver-enable update, and unregister requests carry the
+Register, heartbeat, receiver-enable refresh, and unregister requests carry the
 target process generation; stale generations are rejected before lease state
 can change. The read-only workspace-ingress lookup is also generation-bound and
 returns a value only for the exact requested live workspace lease. Snapshot is
@@ -344,6 +344,20 @@ than the TUI. If an accepted response is lost, retrying the exact same
 generation, lease, workspace identity, PID, and derived endpoint is accepted
 idempotently and renews the lease deadline. A competing lease or changed
 identity is still rejected.
+
+`brain receiver start`, `brain receiver stop`, `--with-receiver`, and the two
+TUI command palettes persist intent through the same pure transition. The
+transaction reloads the selected canonical record and verifies its immutable
+UUID before changing only `receiver_enabled`. A running shared process receives
+a generation-bound workspace UUID notification and reloads that record before
+changing live routing authority. Missing processes and missing live leases are
+valid: persistent intent governs the next registration, and the short-lived
+caller never elects or hosts ingress. Startup applies `--with-receiver` before
+the selected TUI binds its job socket and registers its lease.
+The route loader also requires that already-selected exact registry record to
+remain enabled before credentials, users, prompts, or sockets are opened. This
+closes the persistence-to-control-refresh race without changing ingress-first
+routing.
 
 For every HTTP request, the pure router first parses an exact typed
 `/w/<ingress>/...` route. The shared process then captures a generation-bound

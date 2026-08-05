@@ -1,12 +1,51 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use super::*;
-use crate::server::lifecycle::{IngressId, LeaseAction, LeaseId, WorkspaceLease};
+use crate::server::lifecycle::{
+    IngressId, LeaseAction, LeaseId, WorkspaceAvailability, WorkspaceLease,
+};
 use crate::server::workspace_route::{WorkspaceContextLoader, WorkspaceRouteError};
-use crate::workspace::{WorkspaceContext, WorkspaceId};
+use crate::workspace::{
+    MachineRegistry, REGISTRY_SCHEMA_VERSION, WorkspaceContext, WorkspaceId, WorkspaceRecord,
+};
+
+#[test]
+fn refresh_enabled_reloads_persistent_intent_for_the_exact_live_workspace() {
+    let fixture = tempfile::tempdir().expect("registry fixture");
+    let store = RegistryStore::from_path(fixture.path().join("env.json"));
+    store
+        .replace(&registry_with_receiver(false))
+        .expect("persist receiver intent");
+    let now = Instant::now();
+    let generation = ServerGeneration::new();
+    let mut server = ControlServer::new(generation, store, fixture.path().to_path_buf());
+    server
+        .leases
+        .register(lease(now + Duration::from_secs(30)), now)
+        .expect("register enabled fixture lease");
+
+    assert!(matches!(
+        server.apply(
+            ControlRequest::RefreshEnabled {
+                generation,
+                workspace_id: workspace_id(),
+            },
+            now,
+        ),
+        ControlResponse::Accepted {
+            shutdown: false,
+            ..
+        }
+    ));
+    assert_eq!(
+        server.leases.availability(ingress(), now),
+        WorkspaceAvailability::Disabled
+    );
+}
 #[test]
 fn blocked_context_load_does_not_block_control_and_stale_ticket_cannot_route() {
     let now = Instant::now();
@@ -343,4 +382,23 @@ fn workspace_context() -> WorkspaceContext {
         Path::new("/tmp"),
     )
     .unwrap()
+}
+
+fn registry_with_receiver(receiver_enabled: bool) -> MachineRegistry {
+    let name = WorkspaceName::parse("personal").unwrap();
+    MachineRegistry {
+        schema_version: REGISTRY_SCHEMA_VERSION,
+        default_workspace: name.clone(),
+        workspaces: BTreeMap::from([(
+            name,
+            WorkspaceRecord {
+                workspace_id: workspace_id(),
+                root: PathBuf::from("/tmp/workspace"),
+                aliases: BTreeSet::new(),
+                local_user_id: "tester".to_owned(),
+                receiver_enabled,
+                env: serde_json::Map::new(),
+            },
+        )]),
+    }
 }

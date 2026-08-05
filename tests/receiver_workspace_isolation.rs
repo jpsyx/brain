@@ -209,6 +209,21 @@ fn disabled_sms_target_returns_one_xml_unavailable_and_enqueues_nothing() {
 }
 
 #[test]
+fn persisted_disable_rejects_and_enqueues_nothing_before_control_refresh() {
+    let mut fixture = SharedReceiverFixture::start_with_anchor();
+    fixture.persist_target_disabled();
+
+    let response = fixture.post_sms("SM-persisted-disable", "must not enqueue");
+    let mut queue = Vec::new();
+    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
+
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert_eq!(response.matches("Brain is unavailable").count(), 1);
+    assert!(queue.is_empty());
+    fixture.shutdown();
+}
+
+#[test]
 fn missing_email_target_returns_one_json_unavailable_and_enqueues_nothing() {
     let mut fixture = SharedReceiverFixture::start_with_anchor();
     fixture.unregister_target();

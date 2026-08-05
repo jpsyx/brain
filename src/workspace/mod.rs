@@ -24,8 +24,9 @@ pub use readiness::{
     readiness_action_with_users,
 };
 pub use registry::{
-    MachineRegistry, MigrationOutcome, REGISTRY_SCHEMA_VERSION, RegistryError, RegistryOperation,
-    RegistryStore, SelectedWorkspace, WorkspaceRecord, migrate_legacy, validate_registry,
+    MachineRegistry, MigrationOutcome, REGISTRY_SCHEMA_VERSION, ReceiverAction, RegistryError,
+    RegistryOperation, RegistryStore, SelectedWorkspace, WorkspaceRecord, migrate_legacy,
+    receiver_transition, validate_registry,
 };
 
 #[cfg(test)]

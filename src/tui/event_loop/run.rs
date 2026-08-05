@@ -229,8 +229,10 @@ pub(crate) fn event_loop<B: Backend>(
             && matches!(app.main_view, MainView::Tasks | MainView::Logs)
         {
             app.palette = if app.main_view == MainView::Logs {
-                Some(PaletteState::new_logs_view(app.receiver_server_running()))
+                app.refresh_receiver_enabled();
+                Some(PaletteState::new_logs_view(app.receiver_enabled))
             } else {
+                app.refresh_receiver_enabled();
                 let task_id = app.current_task_id();
                 let is_habit = app.current_is_habit();
                 let has_notes = app.current_has_notes();
@@ -249,11 +251,11 @@ pub(crate) fn event_loop<B: Backend>(
                     .with_assignment_mode(app.assignment.mode()),
                 )
             };
-            let receiver_server_running = app.receiver_server_running();
+            let receiver_enabled = app.receiver_enabled;
             let daily_triage_alert_disabled = app.skip_daily_triage_check;
             let triage_open = app.triage_brain.is_some();
             if let Some(palette) = app.palette.as_mut() {
-                palette.receiver_server_running = receiver_server_running;
+                palette.receiver_enabled = receiver_enabled;
                 palette.daily_triage_alert_disabled = daily_triage_alert_disabled;
                 palette.triage_open = triage_open;
             }

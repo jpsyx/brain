@@ -113,7 +113,7 @@ pub struct Cli {
     #[arg(long = "open-code", global = true)]
     pub open_code: bool,
 
-    /// Start the TUI-owned receiver server alongside the brain shell.
+    /// Persistently enable receiver ingress before the selected TUI registers.
     #[arg(long, global = true)]
     pub with_receiver: bool,
 

@@ -353,6 +353,8 @@ pub(crate) struct App<'a> {
     /// The UUID-local job socket is owned by this TUI. Accepted inbound work
     /// waits only in the bounded in-memory queue below.
     pub(crate) receiver_control: Option<crate::tui::singleton::JobSocket>,
+    /// Persistent receiver intent for this exact selected workspace.
+    pub(crate) receiver_enabled: bool,
     pub(crate) receiver_queue: Vec<crate::server::receiver::InboundJob>,
     pub(crate) requested_receiver_actor: Option<crate::actor::ActorContext>,
     pub(crate) receiver_lease: Option<receiver_state::Lease>,

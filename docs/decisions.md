@@ -2096,7 +2096,7 @@ bool` predicate (default `always`). `scoped` applies the *structural* gate
 the task-actions-modal restriction) and then the command's own predicate. The
 conditional logic lives next to the command it governs, new conditional commands
 are a one-line predicate, and `PaletteState` is the single snapshot of TUI state
-the predicates read (seeded at open time like `receiver_server_running`).
+the predicates read, seeded at open time from the relevant `App` fields.
 
 **Why the tab-switch commands exist at all.** `Alt+1` / `Alt+2` are the intended
 tab switches, but terminal `Alt+digit` handling is unreliable — many terminals
@@ -2159,3 +2159,24 @@ set it wrong; do not silently overwrite), and two or more people with no local
 selection still prompt interactively or fail headlessly with the exact repair
 commands. Only the unambiguous case, blank id plus exactly one member, is
 auto-resolved.
+
+## Why receiver enablement is persistent intent, not process state
+
+The shared server exists only while at least one workspace TUI lease is live,
+so starting or stopping receiver ingress cannot mean starting or stopping a
+daemon. Enablement instead belongs to the exact workspace registry record.
+CLI start/stop, startup `--with-receiver`, and both command palettes share one
+pure transition and one canonical-name plus immutable-UUID transaction. This
+keeps CLI and runtime labels in lock-step and prevents a stale selection from
+changing a replacement or peer record.
+
+After persistence, a caller may notify an already-running process by generation
+and workspace UUID. The process reloads authoritative intent and refreshes only
+that live lease; it does not trust a client-supplied boolean. No process or live
+lease is a successful no-op because the next registration reads the persisted
+value. Route loading also rechecks persistent intent on the exact record before
+workspace-sensitive data or the job socket is opened, closing the notification
+race. Status deliberately prints intent, TUI liveness, process reachability,
+and effective acceptance separately. This preserves TUI-only execution without
+inventing a durable queue, replay path, headless agent, manual lifecycle, or
+always-on responder.

@@ -167,6 +167,23 @@ impl ServerFixture {
     pub(super) fn pid(&self) -> u32 {
         self.child.id()
     }
+
+    pub(super) fn disable_family_receiver(&self) {
+        self.persist_family_receiver_disabled();
+        self.client
+            .refresh_enabled_generation(self.generation, workspace_id(FAMILY_ID))
+            .expect("refresh disabled family receiver intent");
+    }
+
+    pub(super) fn persist_family_receiver_disabled(&self) {
+        RegistryStore::from_path(self.home.path().join(".config/brain/env.json"))
+            .transition_receiver(
+                &WorkspaceName::parse("family").expect("family name"),
+                workspace_id(FAMILY_ID),
+                brain::workspace::ReceiverAction::Stop,
+            )
+            .expect("persist disabled family receiver intent");
+    }
 }
 
 impl Drop for ServerFixture {

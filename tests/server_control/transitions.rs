@@ -1,4 +1,4 @@
-use super::support::{ControlFixture, generation, lease_id, stale_generation};
+use super::support::{ControlFixture, generation, lease_id, stale_generation, workspace_id};
 use brain::server::control::{
     ControlRequest, ControlResponse, ControlServer, HeartbeatDisposition, heartbeat_disposition,
 };
@@ -21,7 +21,7 @@ fn heartbeat_recovery_is_required_for_missing_or_stale_generations() {
 }
 
 #[test]
-fn register_heartbeat_update_snapshot_and_unregister_are_generation_guarded() {
+fn register_heartbeat_refresh_snapshot_and_unregister_are_generation_guarded() {
     let fixture = ControlFixture::new();
     let mut server = ControlServer::new(
         generation(),
@@ -68,12 +68,19 @@ fn register_heartbeat_update_snapshot_and_unregister_are_generation_guarded() {
             ..
         }
     ));
+    fixture
+        .registry_store()
+        .transition_receiver(
+            &brain::workspace::WorkspaceName::parse("personal").unwrap(),
+            workspace_id(),
+            brain::workspace::ReceiverAction::Stop,
+        )
+        .expect("persist disabled receiver intent");
     assert!(matches!(
         server.apply(
-            ControlRequest::UpdateEnabled {
+            ControlRequest::RefreshEnabled {
                 generation: generation(),
-                lease_id: lease_id(),
-                receiver_enabled: false,
+                workspace_id: workspace_id(),
             },
             now + Duration::from_secs(1),
         ),

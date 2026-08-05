@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use super::{ControlRequest, ControlResponse, LeaseRegistration, codec};
+use super::{ControlRequest, ControlResponse, LeaseRegistration, ServerSnapshot, codec};
 use crate::server::lifecycle::{
     IngressId, LeaseId, ProcessRecord, ServerDecision, ServerGeneration, ServerPaths,
     connect_or_elect_until, pid_alive,
@@ -81,13 +81,26 @@ impl ServerClient {
     ///
     /// Returns an error when no matching live process and control socket exist.
     pub fn connect_existing(&self) -> Result<ProcessRecord> {
+        self.snapshot().map(|(record, _)| record)
+    }
+
+    /// Read non-sensitive process and live-lease status without electing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no matching live process and control socket exist.
+    pub fn snapshot(&self) -> Result<(ProcessRecord, ServerSnapshot)> {
         let deadline = Instant::now()
             .checked_add(REQUEST_TIMEOUT)
             .context("server connection timeout exceeds the monotonic clock range")?;
-        self.connect_existing_until(deadline)
+        self.snapshot_until(deadline)
     }
 
     pub(crate) fn connect_existing_until(&self, deadline: Instant) -> Result<ProcessRecord> {
+        self.snapshot_until(deadline).map(|(record, _)| record)
+    }
+
+    fn snapshot_until(&self, deadline: Instant) -> Result<(ProcessRecord, ServerSnapshot)> {
         let record = crate::server::lifecycle::read_record(&self.paths)
             .context("brain server is not running; open a brain TUI first")?;
         if !pid_alive(record.pid) {
@@ -95,7 +108,7 @@ impl ServerClient {
         }
         match self.request_until(&ControlRequest::Snapshot, deadline)? {
             ControlResponse::Snapshot(snapshot) if snapshot.generation == record.generation => {
-                Ok(record)
+                Ok((record, snapshot))
             }
             ControlResponse::Snapshot(_) => {
                 anyhow::bail!("brain server generation changed while connecting")
@@ -183,21 +196,29 @@ impl ServerClient {
         })?)
     }
 
-    /// Update receiver intent for one live lease.
+    /// Reload persistent receiver intent into one live workspace lease.
     ///
     /// # Errors
     ///
-    /// Returns an error when transport or lease validation fails.
-    pub fn update_enabled(
+    /// Returns an error when no shared process exists or rejects the refresh.
+    pub fn refresh_enabled(&self, workspace_id: WorkspaceId) -> Result<ServerDecision> {
+        let generation = self.connect_existing()?.generation;
+        self.refresh_enabled_generation(generation, workspace_id)
+    }
+
+    /// Reload persistent receiver intent against an already observed process.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the generation is stale or rejects the refresh.
+    pub fn refresh_enabled_generation(
         &self,
         generation: ServerGeneration,
-        lease_id: LeaseId,
-        receiver_enabled: bool,
+        workspace_id: WorkspaceId,
     ) -> Result<ServerDecision> {
-        response_decision(self.request(&ControlRequest::UpdateEnabled {
+        response_decision(self.request(&ControlRequest::RefreshEnabled {
             generation,
-            lease_id,
-            receiver_enabled,
+            workspace_id,
         })?)
     }
 

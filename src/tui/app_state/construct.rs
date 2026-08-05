@@ -60,6 +60,11 @@ impl<'a> App<'a> {
             (all_tasks, all_habits)
         });
         let interactive_actor = command_context.actor.clone();
+        let receiver_enabled = crate::command::server::receiver_enabled(&command_context)
+            .unwrap_or_else(|error| {
+                crate::logging::log(format!("receiver intent load failed: {error:#}"));
+                false
+            });
         let query = initial_search.unwrap_or_default();
         let in_search = !query.is_empty();
         let twilio_from = crate::env::get(&command_context, "twilio_from_number");
@@ -134,6 +139,7 @@ impl<'a> App<'a> {
             open_runner,
             db,
             receiver_control: None,
+            receiver_enabled,
             receiver_queue: Vec::new(),
             requested_receiver_actor: None,
             receiver_lease: None,

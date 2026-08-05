@@ -113,41 +113,6 @@ impl JobSocket {
         Ok(Self { listener, path })
     }
 
-    /// Drain the transitional receiver commands queued on this job endpoint.
-    #[must_use]
-    pub fn poll(&self) -> Vec<(UnixStream, String)> {
-        let mut requests = Vec::new();
-        loop {
-            match self.listener.accept() {
-                Ok((mut stream, _)) => {
-                    if let Err(error) = stream.set_nonblocking(false) {
-                        crate::logging::log(format!(
-                            "workspace job stream configuration failed: {error}"
-                        ));
-                        continue;
-                    }
-                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(250)));
-                    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
-                    let mut command = String::new();
-                    if let Err(error) = Read::by_ref(&mut stream)
-                        .take(128)
-                        .read_to_string(&mut command)
-                    {
-                        crate::logging::log(format!("workspace job read failed: {error}"));
-                        continue;
-                    }
-                    requests.push((stream, command.trim().to_owned()));
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(error) => {
-                    crate::logging::log(format!("workspace job accept failed: {error}"));
-                    break;
-                }
-            }
-        }
-        requests
-    }
-
     /// Accept bounded job frames into this TUI's in-memory queue.
     ///
     /// An acknowledgment is written only after a matching job has been
@@ -226,34 +191,6 @@ impl Drop for JobSocket {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
-}
-
-/// Send one transitional receiver command to the selected workspace's TUI.
-///
-/// # Errors
-///
-/// Returns an error when no TUI is listening or the bounded exchange fails.
-pub fn send_job_control(
-    workspace: &crate::workspace::WorkspaceContext,
-    command: &str,
-) -> Result<String> {
-    let mut stream = UnixStream::connect(workspace.paths().job_socket())
-        .context("connecting to the running brain TUI")?;
-    stream
-        .set_write_timeout(Some(std::time::Duration::from_secs(2)))
-        .context("setting receiver command write timeout")?;
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
-        .context("setting receiver command read timeout")?;
-    stream
-        .write_all(command.as_bytes())
-        .context("sending receiver command")?;
-    stream.shutdown(std::net::Shutdown::Write).ok();
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .context("reading receiver command response")?;
-    Ok(response)
 }
 
 #[cfg(test)]

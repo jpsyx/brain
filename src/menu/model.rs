@@ -35,6 +35,8 @@ pub enum Choice {
     SearchResources,
     SearchArchive,
     GlobalSearch,
+    /// Persistently invert receiver intent for the selected workspace.
+    ToggleReceiver,
     /// Swap which side the brain panel sits on. Only meaningful in the
     /// persistent two-panel TUI; a no-op for the one-shot picker.
     ToggleLayout,
@@ -71,6 +73,9 @@ pub const fn layout_choice_label(side: PanelSide) -> &'static str {
 /// site unambiguous.
 #[derive(Debug, Default, Clone)]
 pub struct Targets {
+    /// Persistent receiver intent when this palette belongs to a live TUI.
+    /// `None` omits the action from context-free picker uses.
+    pub receiver_enabled: Option<bool>,
     /// Highlighted markdown filename → "Create PDF for '…'".
     pub pdf: Option<String>,
     /// Highlighted file's filename → "Open file '…'" (files only).
@@ -87,7 +92,11 @@ pub struct Targets {
 /// it while the brain panel is already open (there's nothing to open), and
 /// shows it (to re-open the panel) once it's closed. The one-shot picker
 /// always includes it.
-pub(super) fn items(side: PanelSide, include_msg: bool, targets: &Targets) -> Vec<(Choice, String)> {
+pub(super) fn items(
+    side: PanelSide,
+    include_msg: bool,
+    targets: &Targets,
+) -> Vec<(Choice, String)> {
     let mut v: Vec<(Choice, String)> = Vec::new();
     // The contextual entry-action rows lead the list so a common action is
     // the default-selected one on open. "Create PDF" keeps the lead when a
@@ -107,6 +116,17 @@ pub(super) fn items(side: PanelSide, include_msg: bool, targets: &Targets) -> Ve
             .filter(|(c, _)| include_msg || *c != Choice::Msg)
             .map(|(c, l)| (*c, (*l).to_owned())),
     );
+    if let Some(enabled) = targets.receiver_enabled {
+        v.push((
+            Choice::ToggleReceiver,
+            if enabled {
+                "Disable receiver"
+            } else {
+                "Enable receiver"
+            }
+            .to_owned(),
+        ));
+    }
     v.push((Choice::ToggleLayout, layout_choice_label(side).to_owned()));
     // "Delete" trails the list, deliberately never the default-selected row:
     // a destructive action should not fire from a stray Enter on palette open.
@@ -135,7 +155,8 @@ pub const fn shortcut_for(choice: Choice) -> Option<&'static str> {
         | Choice::SearchResources
         | Choice::SearchArchive
         | Choice::GlobalSearch
-        | Choice::ToggleLayout => None,
+        | Choice::ToggleLayout
+        | Choice::ToggleReceiver => None,
     }
 }
 
@@ -145,6 +166,29 @@ mod tests {
 
     fn rows() -> Vec<(Choice, String)> {
         items(PanelSide::Right, true, &Targets::default())
+    }
+
+    #[test]
+    fn receiver_toggle_uses_persistent_intent_in_the_search_palette() {
+        let enabled = items(
+            PanelSide::Right,
+            true,
+            &Targets {
+                receiver_enabled: Some(true),
+                ..Targets::default()
+            },
+        );
+        let disabled = items(
+            PanelSide::Right,
+            true,
+            &Targets {
+                receiver_enabled: Some(false),
+                ..Targets::default()
+            },
+        );
+
+        assert!(enabled.contains(&(Choice::ToggleReceiver, "Disable receiver".to_owned())));
+        assert!(disabled.contains(&(Choice::ToggleReceiver, "Enable receiver".to_owned())));
     }
 
     /// A `Targets` with just the PDF field set (the common single-row case).
@@ -223,6 +267,7 @@ mod tests {
             PanelSide::Right,
             true,
             &Targets {
+                receiver_enabled: None,
                 pdf: Some("plan.md".to_owned()),
                 open_file: Some("plan.md".to_owned()),
                 open_dir: Some("projects/foo".to_owned()),

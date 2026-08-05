@@ -76,6 +76,11 @@ only the machine record and never deletes the root.
 mutation through `RegistryStore`'s interprocess transaction and atomic-save
 boundaries. Startup migration and selected-record `brain env` writes use the
 same lock, so they cannot overwrite a workspace command.
+Receiver intent uses this same transaction boundary. `brain receiver start`,
+`brain receiver stop`, startup `--with-receiver`, and the command palettes
+mutate only the selected canonical record after rechecking its immutable UUID.
+The status command reads the persistent value independently from current TUI
+and shared-process availability.
 Its global `--brain/-b` selector resolves canonical names and aliases once at
 the bootstrap boundary. Ordinary commands receive a ready selected context;
 env writes verify both canonical name and immutable UUID, while config,
