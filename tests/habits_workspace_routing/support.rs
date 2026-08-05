@@ -163,6 +163,10 @@ impl ServerFixture {
     pub(super) fn post(&self, path: &str, body: &str) -> String {
         request(self.port, "POST", path, body)
     }
+
+    pub(super) fn pid(&self) -> u32 {
+        self.child.id()
+    }
 }
 
 impl Drop for ServerFixture {

@@ -347,21 +347,27 @@ idempotently and renews the lease deadline. A competing lease or changed
 identity is still rejected.
 
 For every HTTP request, the pure router first parses an exact typed
-`/w/<ingress>/...` route. `WorkspaceRouteResolver` then asks the live lease
-table for that ingress. Only a live lease permits registry, root, manifest, or
-workspace-runtime selection; the resolver rechecks the registry workspace UUID
-and portable manifest workspace/ingress UUIDs before returning a context.
+`/w/<ingress>/...` route. The shared process then captures a generation-bound
+ticket for the exact accepting lease. Only that ticket permits registry, root,
+manifest, or workspace-runtime selection. Those filesystem checks occur
+without holding the control-state mutex, and the process revalidates the same
+live authority after loading before returning a context.
 Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
 live TUI returns 503 before local route behavior or receiver dispatch; it is
 never acknowledged as accepted work.
 
-The shared listener uses four fixed process-lifetime workers. Each worker
-finishes routing and live-lease validation before reading a POST body, then
-caps local habits and triage action bodies at 16 KiB. This keeps stalled or
-oversized body IO out of the lifecycle/control loop. A TUI retains the ingress
-accepted with its registration for habits and triage URLs; a short-lived
-habits command asks the current generation for that selected workspace's live
-accepted ingress. Neither path reselects an ingress from a later manifest read.
+The shared listener uses four fixed process-lifetime accept workers and no
+application request queue. Each connection carries one request, request heads
+and local action bodies are capped at 16 KiB, and reads and writes have a
+two-second timeout. Workers cannot accept until all four spawns succeed, and a
+partial start is aborted before any body read. Each worker finishes routing and
+post-load live-lease revalidation before reading a POST body. This keeps
+stalled or oversized body IO out of the lifecycle/control loop and keeps the
+thread set fixed under incomplete headers. Final process exit signals workers
+without joining a worker held in client IO. A TUI retains the ingress accepted
+with its registration for habits and triage URLs; a short-lived habits command
+asks the current generation for that selected workspace's live accepted
+ingress. Neither path reselects an ingress from a later manifest read.
 
 TUI startup orders ownership as workspace readiness, UUID singleton, UUID-local
 `jobs.sock`, bounded connect/elect/register handshake, heartbeat worker, then

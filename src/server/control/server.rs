@@ -158,23 +158,51 @@ impl ControlServer {
         &mut self.leases
     }
 
-    /// Resolve an HTTP ingress through current live leases before loading any
-    /// workspace-specific state.
-    pub(crate) fn resolve_workspace_route(
+    /// Capture route authority and a filesystem loader without doing IO.
+    pub(crate) fn begin_workspace_route(
         &mut self,
         ingress: crate::server::IngressId,
+        now: Instant,
+    ) -> Result<
+        (
+            crate::server::workspace_route::WorkspaceRouteTicket,
+            crate::server::workspace_route::VerifiedWorkspaceContextLoader,
+        ),
+        crate::server::workspace_route::WorkspaceRouteError,
+    > {
+        let ticket = crate::server::workspace_route::WorkspaceRouteAuthority::begin(
+            &mut self.leases,
+            self.generation,
+            ingress,
+            now,
+        )?;
+        let loader = crate::server::workspace_route::VerifiedWorkspaceContextLoader::new(
+            self.registry_store.clone(),
+            self.runtime_home.clone(),
+        );
+        Ok((ticket, loader))
+    }
+
+    /// Revalidate captured route authority after filesystem loading.
+    pub(crate) fn finish_workspace_route(
+        &mut self,
+        ticket: &crate::server::workspace_route::WorkspaceRouteTicket,
+        context: crate::workspace::WorkspaceContext,
         now: Instant,
     ) -> Result<
         crate::server::workspace_route::ResolvedWorkspaceRoute,
         crate::server::workspace_route::WorkspaceRouteError,
     > {
-        crate::server::workspace_route::WorkspaceRouteResolver::new(
+        crate::server::workspace_route::WorkspaceRouteAuthority::finish(
             &mut self.leases,
-            &self.registry_store,
-            &self.runtime_home,
+            self.generation,
+            ticket,
             now,
-        )
-        .resolve(ingress)
+        )?;
+        Ok(crate::server::workspace_route::ResolvedWorkspaceRoute::new(
+            context,
+            ticket.lease().clone(),
+        ))
     }
 
     fn apply_current(
@@ -309,3 +337,6 @@ enum ControlOutcome {
     Snapshot(ServerSnapshot),
     WorkspaceIngress(Option<crate::server::IngressId>),
 }
+
+#[cfg(test)]
+mod tests;

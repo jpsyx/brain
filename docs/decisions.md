@@ -1784,25 +1784,33 @@ pure router parses the portable UUID into `IngressId` before any handler runs.
 Global, malformed, missing, extra-component, or unknown routes are rejected;
 there is no fallback to the machine default.
 
-`WorkspaceRouteResolver` next asks the shared `LeaseTable` for a live lease.
-Only after that decision does it reload the lease's exact canonical registry
-record, check the workspace UUID and root, reopen the portable manifest, and
-check both workspace and ingress UUIDs. Handlers receive the resulting
-`WorkspaceContext` explicitly. They never reopen a global root or choose a
-workspace independently. This ordering prevents one route from selecting
-another workspace's tasks, triage signal, credentials, users, prompts, logs,
-or job socket. Disabled and no-live-TUI routes return 503 before handler
-behavior; receiver dispatch never accepts unavailable work.
+The shared route boundary next asks the `LeaseTable` for a live lease and
+captures its exact authority in a generation-bound ticket. Only after that
+decision does it release the control mutex, reload the lease's canonical
+registry record, check the workspace UUID and root, reopen the portable
+manifest, and check both workspace and ingress UUIDs. It then reacquires the
+mutex and rejects the result unless the same lease authority is still
+accepting. Handlers receive the resulting `WorkspaceContext` explicitly. They
+never reopen a global root or choose a workspace independently. This ordering
+prevents slow filesystem IO from blocking heartbeat or shutdown and prevents
+one route from selecting another workspace's tasks, triage signal,
+credentials, users, prompts, logs, or job socket. Disabled and no-live-TUI
+routes return 503 before handler behavior; receiver dispatch never accepts
+unavailable work.
 
 Routing precedes body IO as well as workspace-specific state. Local action
-bodies are capped at 16 KiB. `tiny_http` synchronously drains an advertised
-request body after sending an early response and exposes no per-request socket
-shutdown or read-timeout control. The shared process therefore uses four fixed
-process-lifetime HTTP workers instead of handling requests on the
-lifecycle/control loop or creating one thread per request. A stalled client can
-occupy one bounded worker and eventually apply backpressure, but cannot occupy
-the lifecycle loop, grow an unbounded worker set, or make the control socket
-unresponsive. Final process exit ends that fixed worker set with the process.
+bodies are capped at 16 KiB. `tiny_http` 0.12 internally owns an accept thread,
+a task pool that may spawn when no task is waiting, and a request queue whose
+capacity constructor is only an allocation hint; its public listener API does
+not expose limits for those mechanisms. The shared process therefore uses a
+small connection-closing `std` HTTP transport with four fixed accept workers,
+no application request queue, a 16 KiB request-head limit, and two-second
+socket timeouts. A start gate lets workers accept only after all spawns
+succeed, so partial startup rollback cannot consume a request body. A stalled
+client can occupy one bounded worker and apply backpressure, but cannot occupy
+the lifecycle loop, grow an unbounded thread set, or make the control socket
+unresponsive. Final process exit signals the workers but never waits to join a
+worker held by a client, preserving immediate final-TUI shutdown.
 
 Local URL generation also treats the accepted lease as authoritative. The TUI
 retains its verified registration ingress, and short-lived commands use a

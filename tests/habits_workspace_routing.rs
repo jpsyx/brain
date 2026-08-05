@@ -1,3 +1,5 @@
+#[path = "habits_workspace_routing/admission.rs"]
+mod admission;
 #[path = "habits_workspace_routing/body_ordering.rs"]
 mod body_ordering;
 #[path = "habits_workspace_routing/cli_urls.rs"]

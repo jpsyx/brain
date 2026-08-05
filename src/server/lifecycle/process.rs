@@ -9,15 +9,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
-use tiny_http::Server;
-
 use super::{
     ElectionGuard, ProcessRecord, ServerClient, ServerDecision, ServerGeneration, ServerPaths,
     StartDecision, decide_start, pid_alive, watchdog::Watchdog,
 };
 use crate::server::control::{ControlListener, ControlServer};
 use crate::theme::Theme;
+use anyhow::{Context, Result};
 
 const PREFERRED_PORT: u16 = 8787;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -171,13 +169,10 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
     };
     let terminate = termination_flag()?;
     let control = ControlListener::bind(paths)?;
-    let server = Arc::new(
-        Server::http(("127.0.0.1", port))
-            .map_err(|error| anyhow::anyhow!("binding 127.0.0.1:{port}: {error}"))?,
-    );
+    let server = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
+        .with_context(|| format!("binding 127.0.0.1:{port}"))?;
     let actual_port = server
-        .server_addr()
-        .to_ip()
+        .local_addr()
         .context("resolving the bound server address")?
         .port();
     let record = ProcessRecord {
@@ -198,7 +193,7 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
         crate::workspace::RegistryStore::real(),
         runtime_home,
     )));
-    let http_workers = crate::server::http_workers::HttpWorkers::start(&server, &control_server)?;
+    let http_workers = crate::server::http_workers::HttpWorkers::start(server, &control_server)?;
     let watchdog = Watchdog::new(Instant::now(), INITIAL_REGISTRATION_TIMEOUT);
 
     while !terminate.load(Ordering::Relaxed) {

@@ -290,6 +290,13 @@ first move is a failing test that reproduces it, *then* the fix.
   responsive; oversized accepted local actions prove the 16 KiB cap. A real
   `brain habits -b` call and TUI URL helpers prove a later manifest mismatch
   cannot replace the ingress accepted for the selected live registration.
+  A channel-blocked context loader proves registry and manifest IO never holds
+  the control mutex: snapshot, heartbeat, and unregister remain responsive,
+  and the loaded ticket is rejected after unregister. Fixed-worker admission
+  tests hold four partial bodies, prove a fifth connection waits while control
+  remains responsive, and open 24 incomplete request heads without increasing
+  the server thread count. An injected second-worker spawn failure proves the
+  start gate rolls back before any partially received body is consumed.
   Server observation uses deadline-bounded polling; lifecycle decisions use
   injected clocks rather than fixed timing sleeps.
 - **Shared-server control protocol.** `tests/server_control.rs` is split into

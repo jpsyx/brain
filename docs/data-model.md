@@ -184,14 +184,17 @@ back to a known historical ingress or another workspace's lease.
 
 The public route identity is a typed portable `IngressId`, never a canonical
 name, root, default selection, or query parameter. Every accepted path has the
-exact shape `/w/<ingress>/<endpoint>`. `WorkspaceRouteResolver` consults
-`LeaseTable::availability` first. Only `Accepting` yields a live lease from
-which the server may select a canonical registry record. It then
-revalidates registry workspace UUID, root availability, portable manifest
-workspace UUID, and portable manifest ingress UUID before constructing the
-immutable `WorkspaceContext`. Unknown ingress maps to 404; a known ingress with
-receiver-disabled or has no live TUI maps to 503. The returned context and
-lease remain paired for later forwarding without reopening another selector.
+exact shape `/w/<ingress>/<endpoint>`. Shared-process routing first consults
+`LeaseTable::availability`. Only `Accepting` yields a live lease and a
+generation-bound `WorkspaceRouteTicket`. Registry, root, and manifest IO then
+occurs without the control-state mutex. The route revalidates that the same
+generation and exact lease authority are still accepting before constructing
+the immutable `WorkspaceContext`. Heartbeat expiry renewal may change, but
+lease identity, workspace, ingress, TUI PID, and job socket may not. An
+unregister, disable, replacement, or expiry makes the ticket stale. Unknown
+ingress maps to 404; a known ingress with receiver disabled or no live TUI maps
+to 503. The returned context and lease remain paired for later forwarding
+without reopening another selector.
 The accepted registration is also the source for local habits and triage URL
 generation, so a later portable-manifest change cannot redirect a live TUI or
 selected short-lived command through a peer workspace's ingress.

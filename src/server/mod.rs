@@ -10,6 +10,7 @@
 
 pub mod control;
 pub mod delivery;
+pub(super) mod http;
 pub(super) mod http_workers;
 pub mod lifecycle;
 pub(super) mod provider;
@@ -22,11 +23,9 @@ pub mod workspace_route;
 
 pub use lifecycle::IngressId;
 
-use std::io::Read as _;
 use std::sync::Mutex;
 
 use anyhow::Result;
-use tiny_http::{Header, Request, Response};
 
 use self::router::Route;
 
@@ -84,30 +83,25 @@ pub fn run(generation: lifecycle::ServerGeneration, port: u16) -> Result<()> {
 
 /// Build the response for a single request. The routing decision itself is the
 /// pure [`router::route`]; the handlers ([`routes::habits`]) own the HTML/JSON.
-pub(super) fn respond(
-    request: &mut Request,
+pub(in crate::server) fn respond(
+    request: &mut http::Request,
     control: &Mutex<control::ControlServer>,
     now: std::time::Instant,
-) -> Response<std::io::Cursor<Vec<u8>>> {
-    let route = router::route(request.method().as_str(), request.url());
+) -> http::Response {
+    let route = router::route(request.method(), request.url());
     match route {
         Route::HabitsPage { ingress } => match resolve_workspace_route(control, ingress, now) {
             Ok(workspace) => {
-                Response::from_string(routes::habits::page(workspace.context(), ingress))
-                    .with_header(content_type("text/html; charset=utf-8"))
+                http::Response::html(200, routes::habits::page(workspace.context(), ingress))
             }
-            Err(error) => Response::from_string(error.to_string())
-                .with_status_code(error.status())
-                .with_header(content_type("text/plain; charset=utf-8")),
+            Err(error) => http::Response::text(error.status(), error.to_string()),
         },
         Route::HabitsDone { ingress } => match resolve_workspace_route(control, ingress, now) {
             Ok(workspace) => match read_local_action_body(request) {
                 Ok(body) => {
                     let (status, json) =
                         routes::habits::done(workspace.context(), &body).response();
-                    Response::from_string(json)
-                        .with_status_code(status)
-                        .with_header(content_type("application/json"))
+                    http::Response::json(status, json)
                 }
                 Err(error) => error.response(),
             },
@@ -117,9 +111,7 @@ pub(super) fn respond(
             Ok(workspace) => match read_local_action_body(request) {
                 Ok(body) => {
                     let (status, json) = routes::triage::done(workspace.context(), &body);
-                    Response::from_string(json)
-                        .with_status_code(status)
-                        .with_header(content_type("application/json"))
+                    http::Response::json(status, json)
                 }
                 Err(error) => error.response(),
             },
@@ -127,14 +119,11 @@ pub(super) fn respond(
         },
         Route::Sms { ingress } | Route::Email { ingress } => {
             match resolve_workspace_route(control, ingress, now) {
-                Ok(_) => Response::from_string("receiver forwarding is not available yet")
-                    .with_status_code(503),
-                Err(error) => {
-                    Response::from_string(error.to_string()).with_status_code(error.status())
-                }
+                Ok(_) => http::Response::text(503, "receiver forwarding is not available yet"),
+                Err(error) => http::Response::text(error.status(), error.to_string()),
             }
         }
-        Route::NotFound => Response::from_string(String::new()).with_status_code(404),
+        Route::NotFound => http::Response::empty(404),
     }
 }
 
@@ -143,42 +132,61 @@ fn resolve_workspace_route(
     ingress: IngressId,
     now: std::time::Instant,
 ) -> Result<workspace_route::ResolvedWorkspaceRoute, workspace_route::WorkspaceRouteError> {
+    let (ticket, loader) = {
+        let mut server = control
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let route = server.begin_workspace_route(ingress, now)?;
+        drop(server);
+        route
+    };
+    resolve_workspace_route_ticket(control, &ticket, std::time::Instant::now, &loader)
+}
+
+#[cfg(test)]
+pub(super) fn resolve_workspace_route_with_loader(
+    control: &Mutex<control::ControlServer>,
+    ingress: IngressId,
+    now: impl Fn() -> std::time::Instant,
+    loader: &impl workspace_route::WorkspaceContextLoader,
+) -> Result<workspace_route::ResolvedWorkspaceRoute, workspace_route::WorkspaceRouteError> {
+    let ticket = control
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .begin_workspace_route(ingress, now())?
+        .0;
+    resolve_workspace_route_ticket(control, &ticket, now, loader)
+}
+
+fn resolve_workspace_route_ticket(
+    control: &Mutex<control::ControlServer>,
+    ticket: &workspace_route::WorkspaceRouteTicket,
+    now: impl Fn() -> std::time::Instant,
+    loader: &impl workspace_route::WorkspaceContextLoader,
+) -> Result<workspace_route::ResolvedWorkspaceRoute, workspace_route::WorkspaceRouteError> {
+    let context = loader.load(ticket.lease())?;
     control
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .resolve_workspace_route(ingress, now)
+        .finish_workspace_route(ticket, context, now())
 }
 
-fn read_local_action_body(request: &mut Request) -> Result<String, LocalActionBodyError> {
-    if request
-        .body_length()
-        .is_some_and(|length| length > LOCAL_ACTION_BODY_LIMIT_BYTES)
-    {
-        return Err(LocalActionBodyError::TooLarge);
-    }
-    let mut bytes = Vec::with_capacity(
-        request
-            .body_length()
-            .unwrap_or_default()
-            .min(LOCAL_ACTION_BODY_LIMIT_BYTES),
-    );
-    request
-        .as_reader()
-        .take((LOCAL_ACTION_BODY_LIMIT_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|_| LocalActionBodyError::Unreadable)?;
-    if bytes.len() > LOCAL_ACTION_BODY_LIMIT_BYTES {
-        return Err(LocalActionBodyError::TooLarge);
-    }
+fn read_local_action_body(request: &mut http::Request) -> Result<String, LocalActionBodyError> {
+    let bytes = request
+        .read_body(LOCAL_ACTION_BODY_LIMIT_BYTES)
+        .map_err(|error| match error {
+            http::BodyError::TooLarge => LocalActionBodyError::TooLarge,
+            http::BodyError::Io(error) => {
+                crate::logging::log(format!("shared-server HTTP body read failed: {error}"));
+                LocalActionBodyError::Unreadable
+            }
+            http::BodyError::Malformed => LocalActionBodyError::Unreadable,
+        })?;
     String::from_utf8(bytes).map_err(|_| LocalActionBodyError::Unreadable)
 }
 
-fn workspace_route_error_response(
-    error: &workspace_route::WorkspaceRouteError,
-) -> Response<std::io::Cursor<Vec<u8>>> {
-    Response::from_string(error.to_string())
-        .with_status_code(error.status())
-        .with_header(content_type("text/plain; charset=utf-8"))
+fn workspace_route_error_response(error: &workspace_route::WorkspaceRouteError) -> http::Response {
+    http::Response::text(error.status(), error.to_string())
 }
 
 enum LocalActionBodyError {
@@ -187,22 +195,13 @@ enum LocalActionBodyError {
 }
 
 impl LocalActionBodyError {
-    fn response(self) -> Response<std::io::Cursor<Vec<u8>>> {
+    fn response(self) -> http::Response {
         let (status, message) = match self {
             Self::TooLarge => (413, "request body is too large"),
             Self::Unreadable => (400, "request body is invalid"),
         };
-        Response::from_string(message)
-            .with_status_code(status)
-            .with_header(content_type("text/plain; charset=utf-8"))
+        http::Response::text(status, message)
     }
-}
-
-/// A `Content-Type` header. The value is a compile-time-safe ASCII literal, so
-/// [`Header::from_bytes`] cannot fail here.
-fn content_type(value: &str) -> Header {
-    Header::from_bytes(&b"Content-Type"[..], value.as_bytes())
-        .unwrap_or_else(|()| unreachable!("static content-type header is valid ASCII"))
 }
 
 #[cfg(test)]

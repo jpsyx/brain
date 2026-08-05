@@ -960,12 +960,20 @@ receiver worker remains TUI-owned and cannot outlive the interactive shell.
   `/w/<ingress>/{habits,habits/done,triage/done,sms,email}`. Global,
   malformed, missing, and extra-component routes are rejected.
 - `server/workspace_route.rs` — resolves the typed ingress through the live
-  lease table first, then reloads and revalidates the matching registry record,
-  root, and portable manifest before returning a `WorkspaceContext`.
-- `server/http_workers.rs` — a fixed four-worker, process-lifetime HTTP set.
-  Workers resolve ingress under the short-lived control-state mutex before
-  reading any local action body; the lifecycle/control loop never owns body IO.
-  Local habits and triage POST bodies are capped at 16 KiB.
+  lease table first. Shared-process routing captures a generation-bound lease
+  ticket under the control-state mutex, reloads and verifies the registry,
+  root, and portable manifest without that mutex, then revalidates the exact
+  live authority before returning a `WorkspaceContext`.
+- `server/http/` — the shared process's bounded, connection-closing HTTP/1.x
+  request parser and response writer. Request heads are capped at 16 KiB, IO
+  has a two-second timeout, and each accepted connection carries one request.
+- `server/http_workers.rs` — a fixed four-worker, process-lifetime HTTP set
+  over a loopback `std::net::TcpListener`. A start gate prevents any worker
+  from accepting until all four spawns succeed; partial startup therefore
+  rolls back before a body can be consumed. Workers route before reading any
+  local action body, and local habits and triage bodies are capped at 16 KiB.
+  The lifecycle/control loop never owns body IO or waits to join a held worker
+  during final-TUI shutdown.
 - `server/receiver.rs` + `server/receiver/` — the receiver facade and its
   single-responsibility modules: `http/` owns the bounded four-worker
   `tiny_http` listener and channel queue, `http/sms.rs` and `http/email.rs`
@@ -1095,12 +1103,13 @@ sibling so the two projects share a stack:
 - `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
   them out. Multi-file skill assets rule out `include_str!`.
-- `tiny_http` — the two small synchronous HTTP services under `src/server/`:
-  the machine-wide shared local process and the transitional TUI-owned
-  receiver. The receiver uses a
+- `tiny_http` — the transitional TUI-owned receiver under `src/server/`. It uses a
   fixed four-worker pool, bounded request bodies, and a bounded handoff queue;
   this preserves concurrency and backpressure without pulling a Tokio runtime
-  into an otherwise synchronous CLI.
+  into an otherwise synchronous CLI. The machine-wide shared process uses a
+  small `std::net::TcpListener` transport instead because `tiny_http` 0.12's
+  private accept task pool and request queue cannot be bounded through its
+  public API.
 - `signal-hook`: installs safe SIGINT/SIGTERM flags for the shared process.
   The accept loop observes the flag and lets its generation owner remove only
   the matching process record and control socket, without unsafe signal code.

@@ -1003,6 +1003,13 @@ its socket. Every shared-process endpoint has an opaque ingress prefix and is
 resolved to a verified live workspace before route behavior. Shared-process
 authentication and in-memory job forwarding remain later work.
 
+The shared HTTP boundary admits exactly four active connections with a fixed
+worker set and no application request queue. It caps request heads and local
+action bodies at 16 KiB, bounds connection IO to two seconds, and revalidates a
+captured live route ticket after workspace filesystem checks. Slow or partial
+clients therefore cannot grow the thread set, block control requests, or make
+a stale lease authoritative.
+
 Inbound messages wait only for a submitted agent turn, not merely for the
 brain panel to exist. An idle startup panel is closed and replaced by the
 SMS- or email-specific session immediately, including while the daily-triage
