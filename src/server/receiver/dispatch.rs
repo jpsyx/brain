@@ -1,15 +1,10 @@
-use std::io::{Read as _, Write as _};
-use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 
 use super::InboundJob;
 
 pub(crate) const JOB_FRAME_LIMIT: usize = 1024 * 1024;
-const JOB_SOCKET_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Ordered decision boundary for one inbound receiver request.
 pub trait DispatchPipeline {
@@ -92,6 +87,7 @@ pub(in crate::server) fn dispatch_http(
         request,
         control,
         channel,
+        handoff_deadline: None,
     };
     execute_pipeline(&mut pipeline).map_err(|error| {
         error
@@ -109,6 +105,7 @@ struct SharedReceiverPipeline<'a> {
     request: &'a mut crate::server::http::Request,
     control: &'a std::sync::Mutex<crate::server::control::ControlServer>,
     channel: super::Channel,
+    handoff_deadline: Option<crate::server::http::deadline::HandoffDeadline>,
 }
 
 struct ResolvedActor {
@@ -236,12 +233,16 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
     fn forward(&mut self, workspace: &Self::Workspace, job: &Self::Job) -> Result<()> {
         static DELIVERIES: std::sync::LazyLock<std::sync::Mutex<ProviderDeliveries>> =
             std::sync::LazyLock::new(|| std::sync::Mutex::new(ProviderDeliveries::default()));
+        let handoff_deadline = self
+            .handoff_deadline
+            .as_ref()
+            .context("receiver handoff deadline was not prepared")?;
         let result = job.provider_id.as_ref().map_or_else(
-            || forward_job(&workspace.lease().job_socket, job),
+            || forward_job_until(&workspace.lease().job_socket, job, handoff_deadline),
             |provider_id| {
                 let key = (job.workspace_id, job.channel, provider_id.clone());
                 forward_provider_delivery(&DELIVERIES, &key, || {
-                    forward_job(&workspace.lease().job_socket, job)
+                    forward_job_until(&workspace.lease().job_socket, job, handoff_deadline)
                 })
             },
         );
@@ -260,7 +261,7 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
         workspace: &Self::Workspace,
         _job: &Self::Job,
     ) -> Result<()> {
-        self.request.ensure_acceptance_budget().map_err(|error| {
+        let handoff_deadline = self.request.job_handoff_deadline().map_err(|error| {
             anyhow::Error::new(DispatchHttpError {
                 status: 503,
                 unavailable: true,
@@ -272,13 +273,14 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .revalidate_workspace_route(workspace, std::time::Instant::now())
             .map_err(|error| {
-                DispatchHttpError {
+                anyhow::Error::new(DispatchHttpError {
                     status: 503,
                     unavailable: true,
                     message: error.to_string(),
-                }
-                .into()
-            })
+                })
+            })?;
+        self.handoff_deadline = Some(handoff_deadline);
+        Ok(())
     }
 }
 
@@ -362,28 +364,24 @@ impl ProviderReservation {
 /// Returns an error when the live socket cannot be reached, the frame is too
 /// large, or the receiving TUI does not acknowledge its in-memory enqueue.
 pub fn forward_job(path: &Path, job: &InboundJob) -> Result<()> {
+    let deadline = crate::server::http::deadline::HandoffDeadline::from_now(
+        super::http::RECEIVER_JOB_HANDOFF_TIMEOUT,
+    )?;
+    forward_job_until(path, job, &deadline)
+}
+
+fn forward_job_until(
+    path: &Path,
+    job: &InboundJob,
+    deadline: &crate::server::http::deadline::HandoffDeadline,
+) -> Result<()> {
     let frame = serde_json::to_vec(job).context("serializing inbound job")?;
     anyhow::ensure!(
         frame.len() <= JOB_FRAME_LIMIT,
         "inbound job exceeds the socket frame limit"
     );
-    let mut stream = UnixStream::connect(path).context("connecting to the live workspace TUI")?;
-    stream
-        .set_read_timeout(Some(JOB_SOCKET_TIMEOUT))
-        .context("setting job acknowledgment timeout")?;
-    stream
-        .set_write_timeout(Some(JOB_SOCKET_TIMEOUT))
-        .context("setting job forwarding timeout")?;
-    stream.write_all(&frame).context("writing inbound job")?;
-    stream.shutdown(Shutdown::Write).ok();
-
-    let mut response = String::new();
-    stream
-        .take(256)
-        .read_to_string(&mut response)
-        .context("reading job enqueue acknowledgment")?;
-    anyhow::ensure!(response.trim() == "accepted", "{response}");
-    Ok(())
+    super::transport::forward_serialized_until(path, &frame, deadline)
+        .context("forwarding job to the live workspace TUI")
 }
 
 #[cfg(test)]

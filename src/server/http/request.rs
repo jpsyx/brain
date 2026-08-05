@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::Response;
-use super::deadline::{ConnectionClock, DeadlineStream, SystemClock};
+use super::deadline::{ConnectionClock, DeadlineStream, HandoffDeadline, SystemClock};
 
 const HEAD_LIMIT_BYTES: usize = 16 * 1024;
 const CHUNK_LINE_LIMIT_BYTES: usize = 128;
@@ -127,10 +127,11 @@ impl Request {
             .restart_budget(crate::server::receiver::http::RECEIVER_HANDLER_TIMEOUT)
     }
 
-    pub(in crate::server) fn ensure_acceptance_budget(&self) -> std::io::Result<()> {
-        self.reader
-            .get_ref()
-            .ensure_remaining(crate::server::receiver::http::RECEIVER_ACCEPTANCE_RESERVE)
+    pub(in crate::server) fn job_handoff_deadline(&self) -> std::io::Result<HandoffDeadline> {
+        self.reader.get_ref().handoff_deadline(
+            crate::server::receiver::http::RECEIVER_JOB_HANDOFF_TIMEOUT,
+            crate::server::receiver::http::RECEIVER_RESPONSE_RESERVE,
+        )
     }
 }
 

@@ -5,7 +5,7 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub(super) trait ConnectionClock: Send + Sync {
+pub(in crate::server) trait ConnectionClock: Send + Sync {
     fn now(&self) -> Instant;
 }
 
@@ -14,6 +14,43 @@ pub(super) struct SystemClock;
 impl ConnectionClock for SystemClock {
     fn now(&self) -> Instant {
         Instant::now()
+    }
+}
+
+#[derive(Clone)]
+pub(in crate::server) struct HandoffDeadline {
+    clock: Arc<dyn ConnectionClock>,
+    expires_at: Instant,
+}
+
+impl HandoffDeadline {
+    pub(in crate::server) fn new(clock: Arc<dyn ConnectionClock>, expires_at: Instant) -> Self {
+        Self { clock, expires_at }
+    }
+
+    pub(in crate::server) fn from_now(budget: Duration) -> std::io::Result<Self> {
+        let clock: Arc<dyn ConnectionClock> = Arc::new(SystemClock);
+        let expires_at = clock
+            .now()
+            .checked_add(budget)
+            .ok_or_else(|| std::io::Error::other("receiver handoff deadline overflow"))?;
+        Ok(Self::new(clock, expires_at))
+    }
+
+    pub(in crate::server) fn ensure_open(&self) -> std::io::Result<Duration> {
+        self.expires_at
+            .checked_duration_since(self.clock.now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "receiver job handoff deadline elapsed",
+                )
+            })
+    }
+
+    pub(in crate::server) const fn expires_at(&self) -> Instant {
+        self.expires_at
     }
 }
 
@@ -53,23 +90,42 @@ impl DeadlineStream {
     }
 
     pub(super) fn restart_budget(&mut self, budget: Duration) -> std::io::Result<()> {
-        self.deadline = self
-            .clock
-            .now()
+        let now = self.clock.now();
+        if now >= self.deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "HTTP connection deadline elapsed",
+            ));
+        }
+        self.deadline = now
             .checked_add(budget)
             .ok_or_else(|| std::io::Error::other("HTTP handler deadline overflow"))?;
         Ok(())
     }
 
-    pub(super) fn ensure_remaining(&self, required: Duration) -> std::io::Result<()> {
-        let remaining = self.ensure_open()?;
-        if remaining < required {
+    pub(super) fn handoff_deadline(
+        &self,
+        handoff_budget: Duration,
+        response_reserve: Duration,
+    ) -> std::io::Result<HandoffDeadline> {
+        let now = self.clock.now();
+        let response_cutoff = self.deadline.checked_sub(response_reserve).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "HTTP handler deadline cannot reserve response time",
+            )
+        })?;
+        let short_cutoff = now
+            .checked_add(handoff_budget)
+            .ok_or_else(|| std::io::Error::other("receiver handoff deadline overflow"))?;
+        let expires_at = response_cutoff.min(short_cutoff);
+        if now >= expires_at {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "HTTP handler deadline cannot cover job handoff and response",
             ));
         }
-        Ok(())
+        Ok(HandoffDeadline::new(Arc::clone(&self.clock), expires_at))
     }
 
     fn prepare_read(&self) -> std::io::Result<()> {

@@ -7,13 +7,13 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use nix::errno::Errno;
-use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
-use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl};
+use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 use nix::sys::socket::{
-    connect, getsockopt, socket, sockopt::SocketError, AddressFamily, SockFlag, SockType, UnixAddr,
+    AddressFamily, SockFlag, SockType, UnixAddr, connect, getsockopt, socket, sockopt::SocketError,
 };
 
-pub(super) fn connect_until(path: &Path, deadline: Instant) -> Result<UnixStream> {
+pub(crate) fn connect_until(path: &Path, deadline: Instant) -> Result<UnixStream> {
     ensure_before_deadline(deadline)?;
     let socket = socket(
         AddressFamily::Unix,

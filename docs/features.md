@@ -1017,9 +1017,13 @@ action bodies at 16 KiB, starts every connection with one absolute two-second
 parse deadline, and revalidates a captured live route ticket after workspace
 filesystem checks. Receiver body plus local provider verification remain in
 that phase; successful verification starts one bounded 30-second provider,
-handoff, and response phase. Brain requires five seconds to remain and
-revalidates the retained route ticket again immediately before enqueue.
-Byte-by-byte progress and a slow response drain cannot renew either deadline.
+handoff, and response phase only if the parse deadline is still open. Brain
+reserves the final five seconds for the response, caps the local handoff at two
+seconds, and revalidates the retained route ticket again immediately before
+enqueue. One absolute handoff deadline covers nonblocking connect, full frame
+write, and acknowledgment read. Byte-by-byte progress and a slow response
+drain cannot renew any deadline. Signed ignored email events are logged as
+accepted without enqueue, not as rejected requests.
 Conflicting `Content-Length`/`Transfer-Encoding`, repeated
 or unsupported transfer codings, invalid field names, and malformed bounded
 chunk/trailer grammar are rejected. Framing values accept only `SP`/`HTAB` as

@@ -177,20 +177,46 @@ fn receiver_response(
                 }
             }
         }
-        Err(error) if error.unavailable() => {
-            crate::logging::log(format!(
-                "receiver request unavailable channel={channel:?} status={} error={error}",
-                error.status()
-            ));
-            unavailable_receiver_response(channel)
-        }
-        Err(error) => {
-            crate::logging::log(format!(
-                "receiver request rejected channel={channel:?} status={} error={error}",
-                error.status()
-            ));
-            http::Response::text(error.status(), error.to_string())
-        }
+        Err(error) => match receiver_failure_log(error.status(), error.unavailable()) {
+            ReceiverFailureLog::Unavailable => {
+                crate::logging::log(format!(
+                    "receiver request unavailable channel={channel:?} status={} error={error}",
+                    error.status()
+                ));
+                unavailable_receiver_response(channel)
+            }
+            ReceiverFailureLog::AcceptedWithoutEnqueue => {
+                crate::logging::log(format!(
+                    "receiver event accepted without enqueue channel={channel:?} status={}",
+                    error.status()
+                ));
+                http::Response::text(error.status(), error.to_string())
+            }
+            ReceiverFailureLog::Rejected => {
+                crate::logging::log(format!(
+                    "receiver request rejected channel={channel:?} status={} error={error}",
+                    error.status()
+                ));
+                http::Response::text(error.status(), error.to_string())
+            }
+        },
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReceiverFailureLog {
+    Unavailable,
+    AcceptedWithoutEnqueue,
+    Rejected,
+}
+
+const fn receiver_failure_log(status: u16, unavailable: bool) -> ReceiverFailureLog {
+    if unavailable {
+        ReceiverFailureLog::Unavailable
+    } else if status == 202 {
+        ReceiverFailureLog::AcceptedWithoutEnqueue
+    } else {
+        ReceiverFailureLog::Rejected
     }
 }
 
@@ -271,7 +297,10 @@ impl LocalActionBodyError {
 
 #[cfg(test)]
 mod tests {
-    use super::{habits_done_path, habits_url, triage_done_path, url};
+    use super::{
+        ReceiverFailureLog, habits_done_path, habits_url, receiver_failure_log, triage_done_path,
+        url,
+    };
 
     const FAMILY_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
 
@@ -301,6 +330,22 @@ mod tests {
         assert_eq!(
             triage_done_path(ingress),
             format!("/w/{FAMILY_ID}/triage/done")
+        );
+    }
+
+    #[test]
+    fn ignored_provider_events_are_logged_as_accepted_without_enqueue() {
+        assert_eq!(
+            receiver_failure_log(202, false),
+            ReceiverFailureLog::AcceptedWithoutEnqueue
+        );
+        assert_eq!(
+            receiver_failure_log(403, false),
+            ReceiverFailureLog::Rejected
+        );
+        assert_eq!(
+            receiver_failure_log(503, true),
+            ReceiverFailureLog::Unavailable
         );
     }
 }

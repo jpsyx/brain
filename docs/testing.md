@@ -330,9 +330,12 @@ first move is a failing test that reproduces it, *then* the fix.
   partially received body is consumed.
   Injected-clock request tests advance the parse deadline across successful
   head and body bytes and the later response, proving drip progress cannot
-  renew it without relying on sleeps. A separate injected-clock case starts
-  the bounded receiver handler phase and proves enqueue is refused once the
-  job-handoff plus response reserve no longer fits. Parser tests reject
+  renew it without relying on sleeps. Separate injected-clock cases prove an
+  expired parse phase cannot be revived, the two-second handoff cutoff leaves
+  the response reserve open, and synchronized expiry after provider work does
+  not enter the job socket. Real Unix-stream step-clock tests advance the same
+  handoff deadline between successful frame bytes and acknowledgment bytes,
+  proving continuous progress cannot renew it. Parser tests reject
   conflicting or repeated framing, unsupported transfer codings, invalid
   field names, malformed chunk sizes, forbidden framing trailers, and bounded
   chunk/trailer violations while accepting the exact supported chunked form.

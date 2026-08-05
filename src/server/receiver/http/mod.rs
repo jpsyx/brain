@@ -10,12 +10,16 @@ use super::{AttachmentRef, Channel};
 pub(super) const WEBHOOK_BODY_LIMIT: usize = 1024 * 1024;
 pub(in crate::server) const RECEIVER_HANDLER_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(30);
-pub(in crate::server) const RECEIVER_ACCEPTANCE_RESERVE: std::time::Duration =
+pub(in crate::server) const RECEIVER_JOB_HANDOFF_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(2);
+pub(in crate::server) const RECEIVER_RESPONSE_RESERVE: std::time::Duration =
     std::time::Duration::from_secs(5);
 pub(super) const RESEND_FETCH_TIMEOUT_SECONDS: u64 = 10;
 const MAX_RESEND_FETCHES: u64 = 2;
 const _: () = assert!(
-    RESEND_FETCH_TIMEOUT_SECONDS * MAX_RESEND_FETCHES + RECEIVER_ACCEPTANCE_RESERVE.as_secs()
+    RESEND_FETCH_TIMEOUT_SECONDS * MAX_RESEND_FETCHES
+        + RECEIVER_JOB_HANDOFF_TIMEOUT.as_secs()
+        + RECEIVER_RESPONSE_RESERVE.as_secs()
         < RECEIVER_HANDLER_TIMEOUT.as_secs()
 );
 

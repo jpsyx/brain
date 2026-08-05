@@ -81,7 +81,7 @@ fn drip_fed_body_and_response_share_the_request_head_deadline() {
 }
 
 #[test]
-fn bounded_handler_phase_replaces_the_parse_deadline_and_reserves_handoff_response_time() {
+fn handler_phase_cannot_revive_an_expired_parse_deadline() {
     let (mut client, server) = tcp_pair();
     client
         .write_all(b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\n")
@@ -91,18 +91,38 @@ fn bounded_handler_phase_replaces_the_parse_deadline_and_reserves_handoff_respon
         .expect("parse request head");
     clock.advance(Duration::from_secs(2));
 
+    let error = request
+        .begin_handler_phase()
+        .expect_err("expired parse work must not enter the handler phase");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+}
+
+#[test]
+fn live_handler_limits_handoff_to_two_seconds_and_keeps_response_budget_separate() {
+    let (mut client, server) = tcp_pair();
+    client
+        .write_all(b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")
+        .expect("write request");
+    let clock = Arc::new(ManualClock::new());
+    let mut request = Request::read_with_clock(server, clock.clone(), Duration::from_secs(2))
+        .expect("parse request head");
     request
         .begin_handler_phase()
         .expect("start bounded handler phase");
-    client
-        .write_all(b"ok")
-        .expect("write body in handler phase");
-    assert_eq!(request.read_body(16).unwrap(), b"ok");
 
-    clock.advance(Duration::from_secs(26));
+    let handoff = request
+        .job_handoff_deadline()
+        .expect("derive one bounded handoff deadline");
+    clock.advance(Duration::from_secs(2));
+
+    let error = handoff
+        .ensure_open()
+        .expect_err("the short handoff deadline must expire without renewal");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
     request
-        .ensure_acceptance_budget()
-        .expect_err("enqueue must stop when handoff plus response no longer fit");
+        .write_response(&Response::text(200, "still reserved"))
+        .expect("response reserve remains open after handoff cutoff");
 }
 
 struct ManualClock {

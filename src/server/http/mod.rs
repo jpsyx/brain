@@ -1,6 +1,6 @@
 //! Bounded one-request HTTP/1.x transport for the shared process.
 
-mod deadline;
+pub(in crate::server) mod deadline;
 mod request;
 mod response;
 

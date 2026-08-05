@@ -201,7 +201,10 @@ to 503. The returned context and lease remain paired with the original ticket
 for later forwarding without reopening another selector. Receiver dispatch
 revalidates that ticket after actor/job construction and immediately before
 the socket handoff, so a disable, unregister, expiry, or replacement during
-provider work cannot enqueue. A registration replay or enablement update
+provider work cannot enqueue. It also derives one absolute handoff deadline,
+capped at two seconds and before the separately reserved response window, and
+carries it through nonblocking connect, frame write, and acknowledgment read.
+A registration replay or enablement update
 computes its next revision before changing expiry, enablement, or registration
 state; revision overflow rejects the complete transition without extending or
 reviving authority.

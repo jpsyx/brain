@@ -1960,12 +1960,17 @@ second linearization point rejects revocation during provider IO without
 blocking heartbeats on filesystem, provider, or socket work.
 
 Resend's two possible Receiving API calls are bounded independently at ten
-seconds and 1 MiB, leaving the handler's five-second handoff/response reserve
-inside its 30-second total. One shared compile-time timing invariant prevents
-those bounds from drifting apart. The curl reader stops after one over-limit
-proof byte and reaps the child before returning a typed 502. Typed provider
-outcomes also preserve 202 for irrelevant signed webhook events instead of
-classifying errors by message text.
+seconds and 1 MiB inside the 30-second handler total. The parse phase must
+still be live before that handler phase can begin. After provider work, Brain
+reserves the final five seconds exclusively for the HTTP response and caps the
+job handoff at two seconds. One absolute handoff deadline covers the safe
+nonblocking connect, full frame write, and acknowledgment read, so successful
+progress cannot consume a renewed timeout. One shared compile-time timing
+invariant prevents these bounds from drifting apart. The curl reader stops
+after one over-limit proof byte and reaps the child before returning a typed
+502. Typed provider outcomes also preserve 202 for irrelevant signed webhook
+events instead of classifying errors by message text; operational logs call
+those events accepted without enqueue rather than rejected.
 
 Provider requests still use the system `curl` binary to avoid adding a second
 HTTP client stack, but the complete curl configuration is written through the

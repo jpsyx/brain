@@ -4,6 +4,7 @@ mod attachments;
 pub(crate) mod dispatch;
 pub(crate) mod http;
 mod job;
+mod transport;
 mod unavailable;
 
 pub use attachments::stage_attachments;

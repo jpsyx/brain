@@ -369,7 +369,8 @@ absolute two-second monotonic deadline established before the request head.
 Successful bytes do not renew it. Local actions retain that deadline through
 their response. Receiver bodies and local signature/event parsing also stay
 inside it; only after they succeed does the request enter a separate fixed
-30-second provider/handoff/response phase. HTTP framing accepts at most one
+30-second provider/handoff/response phase. An expired parse phase cannot be
+revived at that transition. HTTP framing accepts at most one
 `Content-Length` or the one supported `chunked` transfer coding, never both,
 and rejects repeated or unsupported codings, invalid field-name syntax,
 malformed chunk sizes, forbidden framing trailers, and over-limit chunks or
@@ -554,13 +555,17 @@ blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.
 Only acknowledged jobs enter the cache. A failed or in-flight handoff returns
 unavailable and schedules no retry; a later provider retry may attempt a fresh
-handoff. Dispatch retains the original route ticket, requires five seconds of
-remaining handler budget, then revalidates the exact generation, authority
-incarnation, enabled state, and live lease immediately before socket IO.
+handoff. Dispatch retains the original route ticket, reserves five seconds for
+the response, derives one handoff deadline capped at two seconds and at that
+response cutoff, then revalidates the exact generation, authority incarnation,
+enabled state, and live lease immediately before socket IO. The safe
+nonblocking connector, complete frame write, and acknowledgment read all use
+that same absolute handoff deadline; continuous progress cannot renew it.
 Resend's received-email and attachment-metadata calls each have a ten-second
 maximum and a 1 MiB response cap; an oversized stream is stopped after one
 proof byte beyond the cap, before JSON parsing. Ignored webhook events return
-202, while receiving-API rejection or malformed provider JSON returns 502.
+202 and are logged as accepted without enqueue, while receiving-API rejection
+or malformed provider JSON returns 502.
 Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through
 standard input rather than process arguments. Provider output is captured so it

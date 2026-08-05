@@ -976,7 +976,8 @@ forwards receiver requests only to live workspace TUIs.
   accepted connection carries one request. Local actions retain that deadline
   through response flush. Receiver requests keep it through the bounded body
   and local provider verification, then enter one fixed 30-second
-  provider/handoff/response phase. The parser rejects conflicting or repeated
+  provider/handoff/response phase, but cannot enter it after the parse
+  deadline has elapsed. The parser rejects conflicting or repeated
   framing, unsupported transfer codings, invalid field names, and malformed
   or over-limit chunk/trailer grammar. Field values strip only HTTP
   `SP`/`HTAB` optional whitespace; forbidden controls and Unicode whitespace
@@ -995,7 +996,9 @@ forwards receiver requests only to live workspace TUIs.
   verify and normalize provider input; Resend retrieval is capped at 1 MiB per
   response and ten seconds per request;
   `dispatch.rs` resolves the selected workspace's portable actor and performs
-  transactional, workspace-scoped provider-ID deduplication; `job.rs` defines
+  transactional, workspace-scoped provider-ID deduplication; `transport.rs`
+  carries one short absolute deadline through nonblocking job-socket connect,
+  frame write, and acknowledgment read; `job.rs` defines
   the immutable serialized `InboundJob`; `unavailable.rs` owns the one-response,
   no-retry discard result; and `attachments.rs` stages media for the TUI.
 - `server/control/` owns the bounded newline-delimited JSON protocol. `codec.rs`
@@ -1051,10 +1054,14 @@ the append if the acknowledgment cannot be written. Failed, full, disabled,
 and missing targets receive one channel-specific unavailable response and are
 not retained or retried. Provider IDs are retained only after an enqueue ack;
 the accepted cache is bounded at 1024 keys scoped by workspace and channel.
-Immediately before socket handoff, dispatch requires at least five seconds of
-handler budget and revalidates the retained generation, authority revision,
-receiver enablement, and live lease under the control mutex. Provider,
-filesystem, and socket IO never run while that mutex is held.
+Immediately before socket handoff, dispatch reserves the final five seconds
+for the HTTP response and derives one handoff deadline capped at two seconds
+and at the start of that response reserve. It revalidates the retained
+generation, authority revision, receiver enablement, and live lease under the
+control mutex, then carries that exact handoff deadline through nonblocking
+connect, the complete frame write, and acknowledgment read. Successful byte
+progress cannot renew it. Provider, filesystem, and socket IO never run while
+that mutex is held.
 
 Queued inbound work is never allowed to interrupt an active agent turn.
 `tui/receiver_state.rs`
