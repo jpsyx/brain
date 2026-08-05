@@ -1774,6 +1774,10 @@ makes a one-second production heartbeat and five-second TTL deterministic in
 tests, allows final-lease shutdown to be a pure decision, and avoids timing
 sleeps or an always-on availability responder. Process election, socket IO,
 and the watchdog remain separate thin layers built on this state machine.
+Ordinary mutating and routing transitions prune expired leases opportunistically
+before acting, while immutable status projections only filter them from the
+reported view. The watchdog owns the periodic guarantee: it expires a crashed
+final lease and shuts the process down even when no request arrives.
 
 ## Why every HTTP route resolves opaque ingress before workspace state
 

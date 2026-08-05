@@ -390,10 +390,17 @@ first move is a failing test that reproduces it, *then* the fix.
   symlink target, and recursively traversed referent before and after. Referent
   traversal records cycles rather than following them forever. The suite covers
   absent and active servers, symlinked machine/workspace paths, eight concurrent
-  status commands, live control failure, and generation replacement. It checks
-  that no PID-specific `/tmp` run log exists, checks that no server state was
-  created, and pins all four receiver status rows. Exact lease-table tests prove
-  both process and workspace status leave expired leases, authority revisions,
+  status commands, live control failure, and generation replacement. Socket and
+  other entries include Unix type, device, inode, ownership, size, link count,
+  and modification/change times, so same-mode replacement is visible. Before
+  spawning the eight active probes, the test snapshots every candidate run log;
+  it retains every child PID and proves that each exact matching log subset is
+  unchanged afterward, including pre-existing names from PID reuse. It also
+  compares the exact control-socket identity, checks that absent-server probes
+  create no server state, and pins all four receiver status rows. Mutation tests
+  replace a socket with a same-mode socket and rewrite a same-size reused-PID
+  log, proving both observers fail on the defects they guard. Exact lease-table
+  tests prove both process and workspace status leave expired leases, authority revisions,
   and shutdown state untouched for the watchdog. This catches accidental
   migration, config initialization, users transaction locks, skill rendering,
   state-DB/render-stamp writes, election, control-error suppression, and status

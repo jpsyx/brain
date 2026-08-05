@@ -190,7 +190,10 @@ Active run logs remain under `/tmp` through `logging.rs`. The literal read-only
 exception: they create no run log, skill render, render stamp, config repair,
 or server state. Receiver status obtains process and exact-workspace lease facts
 from one generation-bound control response. Both status requests use immutable
-lease projections, leaving TTL cleanup solely to the watchdog.
+lease projections and never prune or advance lifecycle state. Registration,
+heartbeat, enablement, unregister, ingress lookup, and routing availability
+opportunistically discard expired leases. The watchdog provides periodic
+expiry and guarantees final crashed-lease shutdown when no traffic arrives.
 `WorkspacePaths::logs_dir` is reserved and unused; it is not the destination
 for current diagnostic logs.
 

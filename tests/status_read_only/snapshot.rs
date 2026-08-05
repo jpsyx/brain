@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
-use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest as _, Sha256};
@@ -22,8 +22,34 @@ pub(super) enum Entry {
         referent: Box<Referent>,
     },
     Other {
-        mode: u32,
+        file_type: OtherFileType,
+        metadata: UnixIdentity,
     },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum OtherFileType {
+    BlockDevice,
+    CharacterDevice,
+    Fifo,
+    Socket,
+    Other,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct UnixIdentity {
+    device: u64,
+    inode: u64,
+    mode: u32,
+    hard_links: u64,
+    uid: u32,
+    gid: u32,
+    special_device: u64,
+    size: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+    changed_seconds: i64,
+    changed_nanoseconds: i64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -37,6 +63,12 @@ pub(super) fn snapshot(root: &Path) -> Entry {
     let metadata = std::fs::metadata(root).expect("snapshot root metadata");
     let mut ancestors = BTreeSet::from([(metadata.dev(), metadata.ino())]);
     snapshot_referent(root, &metadata, &mut ancestors)
+}
+
+pub(super) fn snapshot_entry(path: &Path) -> Entry {
+    let metadata = std::fs::symlink_metadata(path).expect("snapshot entry metadata");
+    let mut ancestors = BTreeSet::new();
+    snapshot_child_referent(path, &metadata, &mut ancestors)
 }
 
 fn snapshot_referent(
@@ -61,8 +93,40 @@ fn snapshot_referent(
         }
     } else {
         Entry::Other {
-            mode: metadata.mode(),
+            file_type: other_file_type(metadata.file_type()),
+            metadata: unix_identity(metadata),
         }
+    }
+}
+
+fn other_file_type(file_type: std::fs::FileType) -> OtherFileType {
+    if file_type.is_socket() {
+        OtherFileType::Socket
+    } else if file_type.is_fifo() {
+        OtherFileType::Fifo
+    } else if file_type.is_block_device() {
+        OtherFileType::BlockDevice
+    } else if file_type.is_char_device() {
+        OtherFileType::CharacterDevice
+    } else {
+        OtherFileType::Other
+    }
+}
+
+fn unix_identity(metadata: &std::fs::Metadata) -> UnixIdentity {
+    UnixIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        mode: metadata.mode(),
+        hard_links: metadata.nlink(),
+        uid: metadata.uid(),
+        gid: metadata.gid(),
+        special_device: metadata.rdev(),
+        size: metadata.size(),
+        modified_seconds: metadata.mtime(),
+        modified_nanoseconds: metadata.mtime_nsec(),
+        changed_seconds: metadata.ctime(),
+        changed_nanoseconds: metadata.ctime_nsec(),
     }
 }
 
@@ -155,4 +219,18 @@ fn detects_a_symlink_referent_mutation_and_terminates_cycles() {
     std::fs::write(&referent, b"after").expect("mutate referent");
 
     assert_ne!(snapshot(home.path()), before);
+}
+
+#[test]
+fn detects_same_mode_unix_socket_replacement() {
+    let home = tempfile::tempdir().expect("temporary home");
+    let socket = home.path().join("control.sock");
+    let first = std::os::unix::net::UnixListener::bind(&socket).expect("first socket");
+    let before = snapshot(home.path());
+
+    std::fs::remove_file(&socket).expect("remove first socket name");
+    let second = std::os::unix::net::UnixListener::bind(&socket).expect("replacement socket");
+
+    assert_ne!(snapshot(home.path()), before);
+    drop((first, second));
 }

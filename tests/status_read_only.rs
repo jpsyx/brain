@@ -12,7 +12,7 @@ use std::process::{Command, Output, Stdio};
 use sha2::{Digest as _, Sha256};
 
 use receiver_workspace_support::DualWorkspaceReceiverFixture;
-use snapshot::snapshot;
+use snapshot::{snapshot, snapshot_entry};
 
 #[test]
 fn server_status_is_a_literal_read_only_process_probe() {
@@ -117,6 +117,9 @@ fn concurrent_status_commands_leave_an_active_generation_exactly_unchanged() {
     let mut fixture = DualWorkspaceReceiverFixture::start();
     let before_filesystem = snapshot(fixture.home());
     let before_server = fixture.server_snapshot();
+    let control_socket = fixture.home().join(".cache/brain/server/control.sock");
+    let before_control_socket = snapshot_entry(&control_socket);
+    let before_logs = run_log_snapshot();
 
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(9));
     let workers = (0..8)
@@ -126,22 +129,32 @@ fn concurrent_status_commands_leave_an_active_generation_exactly_unchanged() {
             std::thread::spawn(move || {
                 barrier.wait();
                 if index % 2 == 0 {
-                    run(&home, &["server", "status"]).1
+                    run(&home, &["server", "status"])
                 } else {
-                    run(&home, &["-b", "personal", "receiver", "status"]).1
+                    run(&home, &["-b", "personal", "receiver", "status"])
                 }
             })
         })
         .collect::<Vec<_>>();
     barrier.wait();
+    let mut pids = Vec::with_capacity(workers.len());
     for worker in workers {
-        let output = worker.join().expect("status worker");
+        let (pid, output) = worker.join().expect("status worker");
+        pids.push(pid);
         assert!(output.status.success(), "{output:?}");
+    }
+    let after_logs = run_log_snapshot();
+    for pid in pids {
+        assert!(
+            pid_run_logs_unchanged(pid, &before_logs, &after_logs),
+            "active status created or modified a PID run log for {pid}"
+        );
     }
 
     let after_server = fixture.server_snapshot();
     assert_eq!(after_server, before_server);
     assert_eq!(snapshot(fixture.home()), before_filesystem);
+    assert_eq!(snapshot_entry(&control_socket), before_control_socket);
     assert!(fixture.server_is_running());
     fixture.shutdown();
 }
@@ -186,9 +199,17 @@ fn run(home: &Path, arguments: &[&str]) -> (u32, Output) {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RunLogEntry {
+    device: u64,
+    inode: u64,
     mode: u32,
+    hard_links: u64,
+    uid: u32,
+    gid: u32,
     size: u64,
-    modified: Option<std::time::Duration>,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+    changed_seconds: i64,
+    changed_nanoseconds: i64,
     bytes: Vec<u8>,
     sha256: [u8; 32],
 }
@@ -200,28 +221,42 @@ fn run_log_snapshot() -> BTreeMap<PathBuf, RunLogEntry> {
         .flatten()
         .filter_map(|entry| {
             let path = entry.path();
-            path.file_name()
-                .is_some_and(|name| name.to_string_lossy().ends_with(".log"))
-                .then(|| {
-                    let metadata = std::fs::metadata(&path).expect("run log metadata");
-                    let bytes = std::fs::read(&path).expect("run log bytes");
-                    let sha256 = Sha256::digest(&bytes).into();
-                    (
-                        path,
-                        RunLogEntry {
-                            mode: metadata.mode(),
-                            size: metadata.len(),
-                            modified: metadata
-                                .modified()
-                                .ok()
-                                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok()),
-                            bytes,
-                            sha256,
-                        },
-                    )
-                })
+            let name = path.file_name()?.to_string_lossy();
+            is_brain_run_log_name(&name).then(|| {
+                let metadata = std::fs::metadata(&path).expect("run log metadata");
+                let bytes = std::fs::read(&path).expect("run log bytes");
+                let sha256 = Sha256::digest(&bytes).into();
+                (
+                    path,
+                    RunLogEntry {
+                        device: metadata.dev(),
+                        inode: metadata.ino(),
+                        mode: metadata.mode(),
+                        hard_links: metadata.nlink(),
+                        uid: metadata.uid(),
+                        gid: metadata.gid(),
+                        size: metadata.len(),
+                        modified_seconds: metadata.mtime(),
+                        modified_nanoseconds: metadata.mtime_nsec(),
+                        changed_seconds: metadata.ctime(),
+                        changed_nanoseconds: metadata.ctime_nsec(),
+                        bytes,
+                        sha256,
+                    },
+                )
+            })
         })
         .collect()
+}
+
+fn is_brain_run_log_name(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(".log") else {
+        return false;
+    };
+    let Some((timestamp, pid)) = stem.rsplit_once('-') else {
+        return false;
+    };
+    timestamp.contains('T') && pid.chars().all(|character| character.is_ascii_digit())
 }
 
 fn pid_run_logs(
@@ -237,6 +272,32 @@ fn pid_run_logs(
         })
         .map(|(path, entry)| (path.clone(), entry.clone()))
         .collect()
+}
+
+fn pid_run_logs_unchanged(
+    pid: u32,
+    before: &BTreeMap<PathBuf, RunLogEntry>,
+    after: &BTreeMap<PathBuf, RunLogEntry>,
+) -> bool {
+    pid_run_logs(pid, before) == pid_run_logs(pid, after)
+}
+
+#[test]
+fn pid_log_observer_detects_same_size_reused_pid_log_mutation() {
+    let pid = std::process::id();
+    let suffix = format!("-{pid}.log");
+    let log = tempfile::Builder::new()
+        .prefix("2026-08-05T00:00:00.000000000-04:00-")
+        .suffix(&suffix)
+        .tempfile_in("/tmp")
+        .expect("unique reused-PID run log");
+    std::fs::write(log.path(), b"before").expect("seed reused-PID run log");
+    let before = run_log_snapshot();
+
+    std::fs::write(log.path(), b"after!").expect("mutate reused-PID run log");
+    let after = run_log_snapshot();
+
+    assert!(!pid_run_logs_unchanged(pid, &before, &after));
 }
 
 fn seed_ready_workspace(home: &Path) {

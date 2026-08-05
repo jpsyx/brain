@@ -1035,9 +1035,12 @@ offline queue or launches an agent.
   `status.rs` owns non-electing process and exact-workspace inspection. Receiver
   status reads the process record once, then obtains live lease count and exact
   receiver state from one generation-bound response. Both status requests use
-  immutable lease projections, so only the watchdog prunes TTLs or advances
-  final-expiry shutdown. The generation-bound workspace-ingress lookup returns
-  only the ingress from that workspace's exact live accepted registration.
+  immutable lease projections, so they never prune TTLs or advance lifecycle
+  state. Ordinary register, heartbeat, enablement, unregister, ingress lookup,
+  and routing-availability transitions opportunistically prune expiry. The
+  watchdog supplies periodic pruning and guarantees final crashed-lease
+  shutdown without traffic. The generation-bound workspace-ingress lookup
+  returns only the ingress from that workspace's exact live accepted registration.
   `server.rs` reopens registry plus
   manifest identity, compares the TUI-resolved root without retaining it,
   derives the UUID-local job socket, and verifies the live singleton and

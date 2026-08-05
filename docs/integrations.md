@@ -330,7 +330,10 @@ Receiver status reads the published process generation once and obtains live
 process plus exact-workspace facts from one generation-bound control request.
 A live-process transport, protocol, or replacement-generation failure is
 reported. Process and workspace status use immutable lease views; watchdog
-ticks remain the sole owner of TTL pruning and final-expiry shutdown.
+ticks provide periodic pruning and guarantee final crashed-lease shutdown when
+no traffic arrives. Ordinary registration, heartbeat, enablement, unregister,
+ingress lookup, routing, and availability transitions also opportunistically
+discard expired leases. Status probes never prune or advance lifecycle state.
 
 The externally observable lifetime is exact. Personal and family TUIs can hold
 two leases in the same generation and receive one message through their own
