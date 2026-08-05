@@ -99,7 +99,11 @@ first move is a failing test that reproduces it, *then* the fix.
   atomic replacement fails. TUI setup tests prove a held workspace singleton
   prevents hook refresh.
   `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
-  completion contract for a Codex-style `thread_id` payload.
+  completion contract for a Codex-style `thread_id` payload. It also pauses a
+  real Stop hook after payload parsing, rotates the same live Claude lineage
+  through the real SessionStart hook, and proves the stale completion is
+  rejected after serialization. A deterministic publication-failure fixture
+  proves both Claude and Codex retain `active` state and leave no staged file.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
   map (defaults vs overrides — never the real store), the `config list` table
   layout and coloring, value coercion (`4`→number), name normalization, the
@@ -193,8 +197,11 @@ first move is a failing test that reproduces it, *then* the fix.
   workspace-only capability fields stay strict. App-level tests prove
   unrestricted launch assembly does not parse unused malformed capability data
   and both workspace-only main and triage requests attach the same plan.
-  Controller unit tests reject missing, wrong-mode, and foreign-provenance
-  plans before transport launch.
+  Controller unit tests exercise the complete access-mode/capability-plan
+  matrix and prove only unrestricted-without-plan and matching
+  workspace-only-with-plan reach frontend or transport work. App launch tests
+  also prove malformed capability configuration leaves a free resumable
+  session unclaimed and clears the attempted response identity.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).
@@ -211,8 +218,10 @@ first move is a failing test that reproduces it, *then* the fix.
   visible triage controller and whole-shell teardown explicitly shuts down both
   controllers. The actual `App::open_triage_tab` path uses
   the selected adapter, includes only ephemeral hook metadata, and creates no
-  session row. Fallback completion captures the transport snapshot with the
-  controller's initiating actor/channel before teardown.
+  session row. Prelaunch validation tests prove capability and response
+  identity errors happen before a resumable claim and clear the attempted
+  response identity. Fallback completion captures the transport snapshot with
+  the controller's initiating actor/channel before teardown.
 - **Receiver dispatch state.** `tui/receiver_state.rs` proves that an idle
   open panel switches to queued receiver work, an active submitted turn waits,
   a same-channel warm panel is reused, a different channel replaces it, and a

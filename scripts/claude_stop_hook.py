@@ -7,6 +7,81 @@ import os
 import pathlib
 import sqlite3
 import sys
+import tempfile
+
+
+def stage_response(target: pathlib.Path, body: str) -> pathlib.Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(
+        dir=target.parent,
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as staged:
+            staged.write(body)
+            staged.flush()
+            os.fsync(staged.fileno())
+    except Exception:
+        try:
+            os.close(descriptor)
+        except Exception:
+            pass
+        pathlib.Path(name).unlink(missing_ok=True)
+        raise
+    return pathlib.Path(name)
+
+
+def backup_target(target: pathlib.Path) -> pathlib.Path | None:
+    if not target.exists():
+        return None
+    descriptor, name = tempfile.mkstemp(
+        dir=target.parent,
+        prefix=f".{target.name}.",
+        suffix=".backup",
+    )
+    os.close(descriptor)
+    backup = pathlib.Path(name)
+    backup.unlink()
+    try:
+        os.link(target, backup)
+    except Exception:
+        backup.unlink(missing_ok=True)
+        raise
+    return backup
+
+
+def sync_directory(path: pathlib.Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def same_file(path: pathlib.Path, identity: os.stat_result) -> bool:
+    try:
+        current = path.stat()
+    except OSError:
+        return False
+    return (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino)
+
+
+def rollback_publication(
+    target: pathlib.Path,
+    identity: os.stat_result,
+    backup: pathlib.Path | None,
+) -> None:
+    if not same_file(target, identity):
+        return
+    try:
+        if backup is None:
+            target.unlink()
+        else:
+            os.replace(backup, target)
+        sync_directory(target.parent)
+    except Exception:
+        pass
 
 
 def main() -> None:
@@ -22,6 +97,13 @@ def main() -> None:
     launch = {name: os.environ.get(name) for name in required}
     if not all(launch.values()):
         return
+    conn = None
+    temporary = None
+    target = None
+    backup = None
+    published_identity = None
+    published = False
+    committed = False
     try:
         payload = json.load(sys.stdin)
         session_id = payload.get("session_id") or payload.get("thread_id")
@@ -29,47 +111,10 @@ def main() -> None:
         message = payload.get("last_assistant_message")
         if not session_id or not response_id or not isinstance(message, str) or not message.strip():
             return
-        conn = sqlite3.connect(launch["BRAIN_STATE_DB"], timeout=5)
-        try:
-            registered = conn.execute(
-                """
-                SELECT 1 FROM brain_sessions
-                WHERE agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
-                  AND actor_id = ? AND channel = ? AND brain_instance_id = ?
-                """,
-                (
-                    launch["BRAIN_AGENT_KIND"],
-                    session_id,
-                    launch["BRAIN_WORKSPACE_ID"],
-                    launch["BRAIN_ACTOR_ID"],
-                    launch["BRAIN_CHANNEL"],
-                    launch["BRAIN_INSTANCE_ID"],
-                ),
-            ).fetchone()
-            if not registered:
-                return
-            conn.execute(
-                """
-                UPDATE brain_sessions SET completion_status = 'completed'
-                WHERE agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
-                  AND actor_id = ? AND channel = ?
-                """,
-                (
-                    launch["BRAIN_AGENT_KIND"],
-                    session_id,
-                    launch["BRAIN_WORKSPACE_ID"],
-                    launch["BRAIN_ACTOR_ID"],
-                    launch["BRAIN_CHANNEL"],
-                ),
-            )
-            conn.commit()
-        finally:
-            conn.close()
         target_dir = pathlib.Path(launch["BRAIN_RESPONSE_DIR"])
-        target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / f"{response_id}.json"
-        temporary = target.with_suffix(".tmp")
-        temporary.write_text(
+        temporary = stage_response(
+            target,
             json.dumps({
                 "session_id": session_id,
                 "response_id": response_id,
@@ -80,11 +125,71 @@ def main() -> None:
                 "completion_status": "completed",
                 "message": message,
             }),
-            encoding="utf-8",
         )
-        temporary.replace(target)
+        scope = (
+            launch["BRAIN_AGENT_KIND"],
+            session_id,
+            launch["BRAIN_WORKSPACE_ID"],
+            launch["BRAIN_ACTOR_ID"],
+            launch["BRAIN_CHANNEL"],
+            launch["BRAIN_INSTANCE_ID"],
+        )
+        conn = sqlite3.connect(
+            launch["BRAIN_STATE_DB"],
+            timeout=5,
+            isolation_level=None,
+        )
+        conn.execute("PRAGMA busy_timeout = 5000;")
+        conn.execute("BEGIN IMMEDIATE")
+        registered = conn.execute(
+            """
+            SELECT 1 FROM brain_sessions
+            WHERE agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
+              AND actor_id = ? AND channel = ? AND brain_instance_id = ?
+              AND locked_pid IS NOT NULL
+            """,
+            scope,
+        ).fetchone()
+        if not registered:
+            conn.rollback()
+            return
+        updated = conn.execute(
+            """
+            UPDATE brain_sessions SET completion_status = 'completed'
+            WHERE agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
+              AND actor_id = ? AND channel = ? AND brain_instance_id = ?
+              AND locked_pid IS NOT NULL
+            """,
+            scope,
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("completion authorization changed")
+        backup = backup_target(target)
+        published_identity = temporary.stat()
+        os.replace(temporary, target)
+        published = True
+        sync_directory(target.parent)
+        conn.commit()
+        committed = True
     except Exception:
-        return
+        if published and not committed and target is not None and published_identity is not None:
+            rollback_publication(target, published_identity, backup)
+        if conn is not None:
+            try:
+                if conn.in_transaction:
+                    conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        if backup is not None:
+            backup.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

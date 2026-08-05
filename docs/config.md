@@ -311,12 +311,15 @@ compatibility seam for legacy migration only: pre-migration flat `root`, then
 the read-only `~/.config/brain-root` pointer, then `~/brain`. It is not an
 ordinary TUI, config, task, receiver-payload, or sync workspace selector.
 
-**Migration.** When an invocation's bootstrap policy permits registry access,
-brain checks `env.json` through `env::migrate`. A valid schema-v2 registry is a
-byte-for-byte registry no-op, but Brain validates every registered root's
-portable access mode and seeds a missing value before reporting success. Any other
-body is interpreted as the legacy flat JSON object; invalid or non-object JSON
-is treated as an empty object. Migration creates exactly one default record:
+**Migration.** When bootstrap finds an invalid or non-v2 `env.json`, Brain
+passes it through `env::migrate`. A valid schema-v2 registry remains
+byte-for-byte unchanged. Ordinary selected-workspace startup and selected
+`brain workspace repair` validate or seed only the selected root's portable
+access mode; they do not inspect other registered roots. `brain workspace
+list` and the explicit whole-registry migration path validate or seed every
+registered root before succeeding. Any body that requires legacy migration is
+interpreted as the legacy flat JSON object; invalid or non-object JSON is
+treated as an empty object. Migration creates exactly one default record:
 
 1. Root precedence remains flat nonblank `root`, then the nonblank legacy
    `~/.config/brain-root` pointer, then `<home>/brain`.

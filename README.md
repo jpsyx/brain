@@ -254,13 +254,16 @@ workspace during migration. After migration, `brain workspace create` and
 Migration uses a legacy flat `root`, then that read-only pointer, then
 `~/brain` only as compatibility inputs. Existing installs become one default
 canonical workspace without losing machine env; an existing portable manifest
-supplies its identity. A valid schema-v2 registry is a byte-for-byte no-op and
-does not inspect the default workspace's portable config. Fresh ordinary or
-repair startup synthesizes the compatible `brain` workspace before readiness
-repair, while a first explicit create or attach establishes exactly the
-requested workspace. Interactive ordinary commands ask for missing required
-setup and continue; headless commands print exact `brain workspace repair`
-instructions.
+supplies its identity. A valid schema-v2 registry remains byte-for-byte
+unchanged. Ordinary selected-workspace startup and selected
+`brain workspace repair` validate or seed only that selected root's portable
+access mode; they never inspect another registered root. `brain workspace
+list` and an explicit whole-registry migration check validate or seed every
+registered root. Fresh ordinary or repair startup synthesizes the compatible
+`brain` workspace before readiness repair, while a first explicit create or
+attach establishes exactly the requested workspace. Interactive ordinary
+commands ask for missing required setup and continue; headless commands print
+exact `brain workspace repair` instructions.
 
 ### Agent access and workspace boundaries
 

@@ -100,12 +100,13 @@ impl AccessPolicy {
         &self,
         workspace: crate::workspace::WorkspaceId,
     ) -> bool {
-        self.capability_plan.as_ref().map_or_else(
-            || self.mode == AccessMode::Unrestricted,
-            |plan| {
+        match (self.mode, self.capability_plan.as_ref()) {
+            (AccessMode::Unrestricted, None) => true,
+            (AccessMode::WorkspaceOnly, Some(plan)) => {
                 plan.access_mode() == self.mode && plan.credentials.source_workspace() == workspace
-            },
-        )
+            }
+            (AccessMode::Unrestricted, Some(_)) | (AccessMode::WorkspaceOnly, None) => false,
+        }
     }
 }
 

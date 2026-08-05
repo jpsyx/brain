@@ -443,6 +443,18 @@ conversation or make the PTY disposable. The next successful local or queued
 submit calls `SessionStore::mark_active`, so ordinary turns after the first one
 do not depend on another SessionStart event to reactivate the row.
 
+Stop authorization, artifact publication, and completion mutation form one
+ordered operation. The hook stages a unique synced response file, acquires
+`BEGIN IMMEDIATE`, and rechecks the exact currently locked frontend, session,
+workspace, actor, channel, and Brain-instance tuple. Its update uses that same
+predicate and must affect exactly one row. The response artifact is atomically
+published and its directory synced before the database commits `completed`.
+If publication or commit fails, the transaction rolls back and the hook
+removes or restores only its own published inode. This ordering forbids a
+committed completion without its artifact. It also makes a concurrent
+SessionStart rotation win or serialize before Stop rechecks the old lineage,
+instead of allowing a stale parsed payload to complete an unlocked row.
+
 Rotation authorization and mutation must be one write transaction. A target
 ownership `SELECT` followed by a later unconditional upsert leaves a race in
 which two shells can both authorize the same free target and the last writer
@@ -496,6 +508,14 @@ composite scope, so equal opaque IDs in different scopes never overwrite or
 unlock one another. A separate stable response ID lets the Stop hook signal a
 fresh Codex turn without pretending Brain chose Codex's thread ID.
 
+Main-panel launch completes fallible capability resolution and adapter response
+identity lookup before claiming a resumable row. Once claimed, only request
+assembly and the guarded controller launch remain; a launch failure releases
+the instance claim. This keeps a malformed capability configuration or
+frontend identity error from removing an otherwise free conversation from the
+resume queue, and every failed path clears the response identity for the launch
+slot it attempted.
+
 Hook refresh follows workspace singleton acquisition, so a rejected second TUI
 cannot alter the lifecycle contract of the live process. Different-workspace
 TUIs remain concurrent, so their shared `~/.codex/hooks.json` updates use a
@@ -526,8 +546,10 @@ remains advisory. Enforcement status is derived from the concrete command and
 launch flags and never upgraded from advisory by logical selection alone.
 
 Capability selection is mandatory controller context in workspace-only mode,
-not optional adapter decoration. A plan records its access mode and selected
-workspace credential provenance; the controller checks both before launch.
+not optional adapter decoration. The controller accepts exactly two context
+shapes: unrestricted mode without a plan, or workspace-only mode with a plan
+whose mode and credential provenance match the selected workspace. Every other
+mode/plan combination is rejected before frontend or transport work.
 Unrestricted launch construction deliberately skips capability parsing and
 clears stale capability artifacts, so malformed unused configuration cannot
 break or influence ordinary frontend behavior.

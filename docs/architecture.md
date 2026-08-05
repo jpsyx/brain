@@ -147,8 +147,11 @@ not a security or isolation boundary. It reduces accidents and naive leakage
 among trusted users; adversarial or sensitive workloads require an external
 OS, VM, machine, or container boundary. Changing the machine default never
 changes portable access mode. The controller accepts a workspace-only launch
-only when its capability plan has the same access mode and selected workspace UUID;
-unrestricted launches carry no plan and do not parse capability configuration.
+only when its capability plan has the same access mode and selected workspace
+UUID; unrestricted launches carry no plan and do not parse capability
+configuration. Those are the only accepted access contexts. Unrestricted with
+any plan, workspace-only without a plan, and mismatched workspace-only plans
+all fail before frontend or transport work.
 
 ## Modules
 
@@ -294,6 +297,10 @@ implements the same distinction before `App` construction: access mode and live
 settings remain strict, but unrestricted mode does not deserialize the unused
 logical capability lists.
 Inbound prompt text is not an input to policy construction.
+The main-panel launch path also resolves the capability plan and adapter-owned
+response identity before claiming a free resumable session. A later controller
+launch failure releases the instance claim and clears the attempted response
+identity.
 
 ### `users/`
 
@@ -1019,6 +1026,12 @@ rebuild:
   mutation share one `BEGIN IMMEDIATE` transaction, so concurrent rotations
   recheck target ownership after serialization. `release` clears the lock on
   exit; dead-PID locks are reaped on the next startup.
+- **A committed completion always has a durable response artifact.** The Stop
+  hook stages a unique synced file, acquires `BEGIN IMMEDIATE`, rechecks and
+  updates the same exact locked session scope, publishes and syncs the artifact,
+  then commits. A failed publication or commit rolls back and cleans up only
+  that attempt; a concurrent SessionStart rotation is rechecked after writer
+  serialization.
 
 ## Dependencies
 

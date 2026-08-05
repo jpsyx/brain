@@ -128,9 +128,32 @@ impl App<'_> {
             self.close_brain();
         }
 
+        let receiver_request = self.requested_receiver_actor.is_some();
+        if receiver_request {
+            self.receiver_session_id = None;
+        } else {
+            self.interactive_session_id = None;
+        }
+        let frontend = crate::agent::configured_frontend(&self.command_context, self.agent_kind);
+        if let Err(error) = frontend.ensure_available() {
+            crate::logging::log(format!("brain panel frontend unavailable: {error}"));
+            self.flash = Some(FlashKind::Error(error.to_string()));
+            return false;
+        }
+        let capability_plan = match self.launch_capability_plan() {
+            Ok(plan) => plan,
+            Err(error) => {
+                crate::logging::log(format!("brain panel capability resolution failed: {error}"));
+                self.session_actor = None;
+                self.flash = Some(FlashKind::Error(format!(
+                    "agent capabilities are invalid: {error}"
+                )));
+                return false;
+            }
+        };
+
         let pid = i32::try_from(std::process::id()).unwrap_or(0);
-        let requested_actor = self.requested_receiver_actor.take();
-        let receiver_request = requested_actor.is_some();
+        let requested_actor = self.requested_receiver_actor.clone();
         let actor = requested_actor
             .unwrap_or_else(|| crate::actor::ActorContext::follow_up(&self.interactive_actor));
         let scope = crate::state::SessionScope::new(
@@ -138,14 +161,8 @@ impl App<'_> {
             self.command_context.workspace.id(),
             actor.clone(),
         );
-        let resume_override = self.receiver_resume_session.take();
-        let frontend = crate::agent::configured_frontend(&self.command_context, self.agent_kind);
-        if let Err(error) = frontend.ensure_available() {
-            crate::logging::log(format!("brain panel frontend unavailable: {error}"));
-            self.flash = Some(FlashKind::Error(error.to_string()));
-            return false;
-        }
-        let mut resume = None;
+        let resume_override = self.receiver_resume_session.clone();
+        let mut resume = None::<(String, String)>;
         let mut skipped_missing = false;
         {
             let candidates = resume_override.map_or_else(
@@ -163,30 +180,48 @@ impl App<'_> {
                     skipped_missing = true;
                     continue;
                 }
+                let response_id = match frontend.response_id(&candidate) {
+                    Ok(response_id) => response_id,
+                    Err(error) => {
+                        crate::logging::log(format!(
+                            "brain panel response identity failed: {error}"
+                        ));
+                        self.session_actor = None;
+                        self.flash = Some(FlashKind::Error(error.to_string()));
+                        return false;
+                    }
+                };
                 if SessionStore::claim(&self.db, &candidate, &self.instance, pid, &scope)
                     .unwrap_or(false)
                 {
-                    resume = Some(id);
+                    resume = Some((id, response_id));
                     break;
                 }
             }
         }
 
+        let resume_id = resume.as_ref().map(|(id, _)| id.clone());
         let new_id = uuid::Uuid::new_v4().to_string();
-        let plan = Plan::decide(resume, new_id);
+        let plan = Plan::decide(resume_id, new_id);
         let session_id = match &plan {
             Plan::Resume(id) | Plan::Fresh(id) => id.clone(),
         };
         let agent_session = crate::agent::AgentSession::new(&session_id)
             .expect("selected session IDs are non-blank");
-        let response_id = match frontend.response_id(&agent_session) {
-            Ok(response_id) => response_id,
-            Err(error) => {
-                crate::logging::log(format!("brain panel response identity failed: {error}"));
-                self.flash = Some(FlashKind::Error(error.to_string()));
-                return false;
-            }
+        let response_id = match resume {
+            Some((_, response_id)) => response_id,
+            None => match frontend.response_id(&agent_session) {
+                Ok(response_id) => response_id,
+                Err(error) => {
+                    crate::logging::log(format!("brain panel response identity failed: {error}"));
+                    self.session_actor = None;
+                    self.flash = Some(FlashKind::Error(error.to_string()));
+                    return false;
+                }
+            },
         };
+        self.requested_receiver_actor = None;
+        self.receiver_resume_session = None;
         if receiver_request {
             self.receiver_session_id = Some(response_id.clone());
             let response_path =
@@ -234,18 +269,6 @@ impl App<'_> {
                     .to_string(),
             ),
         ]);
-        let capability_plan = match self.launch_capability_plan() {
-            Ok(plan) => plan,
-            Err(error) => {
-                crate::logging::log(format!("brain panel capability resolution failed: {error}"));
-                self.receiver_session_id = None;
-                self.session_actor = None;
-                self.flash = Some(FlashKind::Error(format!(
-                    "agent capabilities are invalid: {error}"
-                )));
-                return false;
-            }
-        };
         let mut request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.command_context.workspace),
             actor.clone(),
@@ -300,7 +323,11 @@ impl App<'_> {
                 ));
                 self.brain = None;
                 self.brain_turn_active = false;
-                self.receiver_session_id = None;
+                if receiver_request {
+                    self.receiver_session_id = None;
+                } else {
+                    self.interactive_session_id = None;
+                }
                 self.session_actor = None;
                 let _ = SessionStore::release(&self.db, &self.instance);
                 self.flash = Some(FlashKind::Error(format!(

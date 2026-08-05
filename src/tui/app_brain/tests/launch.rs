@@ -102,6 +102,49 @@ fn app_main_refuses_malformed_portable_capability_configuration() {
 }
 
 #[test]
+fn capability_failure_leaves_a_resumable_session_free_and_clears_response_identity() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    app.interactive_session_id = Some("stale-interactive-response".to_owned());
+    let scope = SessionScope::new(
+        AgentKind::Claude,
+        app.command_context.workspace.id(),
+        app.interactive_actor.clone(),
+    );
+    let session = AgentSession::new("free-after-prelaunch-failure").unwrap();
+    SessionStore::register(&app.db, &session, "prior-shell", 42, &scope).unwrap();
+    SessionStore::release(&app.db, "prior-shell").unwrap();
+    let _transcript =
+        ClaudeTranscript::create(app.command_context.workspace.root(), session.as_str());
+    std::fs::write(
+        app.command_context
+            .workspace
+            .root()
+            .join(".config/config.json"),
+        r#"{"access_mode":"workspace_only","allowed_skills":"todo"}"#,
+    )
+    .expect("malformed capability config");
+    let recording = LaunchRecording::default();
+    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
+        recording: recording.clone(),
+        alive: false,
+    }));
+
+    assert!(!app.open_or_focus_brain(None));
+
+    assert_eq!(
+        SessionStore::sessions_by_recency(&app.db, &scope),
+        [session.as_str()],
+        "fallible prelaunch work must finish before claiming the candidate"
+    );
+    assert!(app.interactive_session_id.is_none());
+    assert!(app.receiver_session_id.is_none());
+    assert!(recording.0.lock().expect("launch recording").is_empty());
+}
+
+#[test]
 fn app_main_unrestricted_launch_does_not_parse_malformed_capability_configuration() {
     let cli = Cli::parse_from(["tasks"]);
 

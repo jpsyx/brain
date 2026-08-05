@@ -629,6 +629,104 @@ mod tests {
     }
 
     #[test]
+    fn access_context_accepts_only_unrestricted_without_a_plan_or_matching_workspace_only() {
+        let cases = [
+            (
+                "unrestricted without plan",
+                AccessMode::Unrestricted,
+                None,
+                true,
+                true,
+            ),
+            (
+                "unrestricted with matching unrestricted plan",
+                AccessMode::Unrestricted,
+                Some(AccessMode::Unrestricted),
+                true,
+                false,
+            ),
+            (
+                "unrestricted with workspace-only plan",
+                AccessMode::Unrestricted,
+                Some(AccessMode::WorkspaceOnly),
+                true,
+                false,
+            ),
+            (
+                "unrestricted with foreign unrestricted plan",
+                AccessMode::Unrestricted,
+                Some(AccessMode::Unrestricted),
+                false,
+                false,
+            ),
+            (
+                "unrestricted with foreign workspace-only plan",
+                AccessMode::Unrestricted,
+                Some(AccessMode::WorkspaceOnly),
+                false,
+                false,
+            ),
+            (
+                "workspace-only without plan",
+                AccessMode::WorkspaceOnly,
+                None,
+                true,
+                false,
+            ),
+            (
+                "workspace-only with matching plan",
+                AccessMode::WorkspaceOnly,
+                Some(AccessMode::WorkspaceOnly),
+                true,
+                true,
+            ),
+            (
+                "workspace-only with unrestricted plan",
+                AccessMode::WorkspaceOnly,
+                Some(AccessMode::Unrestricted),
+                true,
+                false,
+            ),
+            (
+                "workspace-only with foreign plan",
+                AccessMode::WorkspaceOnly,
+                Some(AccessMode::WorkspaceOnly),
+                false,
+                false,
+            ),
+            (
+                "workspace-only with foreign unrestricted plan",
+                AccessMode::WorkspaceOnly,
+                Some(AccessMode::Unrestricted),
+                false,
+                false,
+            ),
+        ];
+        let foreign = WorkspaceId::parse("6fd873b7-f05a-4eb1-b92e-4b8ae3df8e11")
+            .expect("foreign workspace id");
+
+        for (label, mode, plan_mode, matching_workspace, accepted) in cases {
+            let (mut controller, recording, workspace, actor) = controller();
+            let mut request = trusted_request(Arc::clone(&workspace), actor, mode);
+            if let Some(plan_mode) = plan_mode {
+                let source = if matching_workspace {
+                    workspace.id()
+                } else {
+                    foreign
+                };
+                request = request.with_capability_plan(capabilities(source, plan_mode));
+            }
+
+            assert_eq!(controller.launch(&request).is_ok(), accepted, "{label}");
+            assert_eq!(
+                recording.events().is_empty(),
+                !accepted,
+                "{label} reached frontend or transport unexpectedly"
+            );
+        }
+    }
+
+    #[test]
     fn completion_strategy_and_transcript_lookup_delegate_to_the_frontend() {
         let (controller, recording, _, _) = controller();
         let session = AgentSession::new("session-1").expect("session");

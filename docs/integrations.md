@@ -123,6 +123,12 @@ splice the configured base command in verbatim so it may carry its own flags.
 `agent::OpenCodeFrontend` owns only stable identity and typed unsupported
 results. All frontend operations are fallible so the controller can reject the
 stub before a transport side effect.
+Before the main panel claims a free resumable session, it resolves the selected
+workspace's capability plan and asks the adapter for the candidate's stable
+response identity. A validation or identity error therefore cannot strand a
+free session as claimed. If the later transport launch fails, Brain releases
+the instance claim and clears the response identity for the attempted
+interactive or receiver launch.
 The TUI owns an `AgentController` for each live main or triage panel and calls
 semantic submit, queue, new-session, snapshot, and shutdown operations. The
 crate-level `session::build_llm_command` remains a compatibility wrapper for
@@ -335,13 +341,19 @@ Which session to run is decided by the **lock + recency** model in
    the decision after the current writer commits.
 4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
    `last_assistant_message` under
-   `<workspace-cache>/responses/<response-id>.json` only after the exact
-   frontend/workspace/session/actor/channel/instance tuple is found in the
-   session store; an unregistered completion is ignored. The stable response ID is
+   `<workspace-cache>/responses/<response-id>.json` only while the exact
+   frontend/workspace/session/actor/channel/instance tuple is still locked in
+   the session store; an unregistered, released, or rotated completion is
+   ignored. The hook stages a unique, synced file, starts `BEGIN IMMEDIATE`,
+   rechecks that locked tuple, and updates the same predicate only when exactly
+   one row matches. It publishes and syncs the artifact before committing the
+   `completed` state. A publication or commit failure rolls back the database
+   and removes or restores only the file owned by that attempt. A concurrent
+   SessionStart rotation serializes at the transaction boundary, so a stale
+   Stop event cannot complete the prior lineage. The stable response ID is
    independent of the frontend session ID, which gives fresh Codex turns the
-   same completion path as Claude. The hook marks the session `completed`; the
-   artifact includes frontend, workspace, session, response, actor, channel,
-   and completion status. The
+   same completion path as Claude. The artifact includes frontend, workspace,
+   session, response, actor, channel, and completion status. The
    TUI discards it unless both match the launched session context.
    For an interactive turn, the TUI consumes it as the completion signal that
    allows queued receiver work to switch sessions. For an active SMS/email
