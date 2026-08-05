@@ -233,9 +233,11 @@ first move is a failing test that reproduces it, *then* the fix.
   TUI thread.
 - **Shared-server lease state.** `server/lifecycle/table.rs` uses injected
   monotonic instants and timing values to prove that different workspace leases
-  coexist, duplicate live workspace or ingress identities fail, heartbeats
-  renew only their matching lease, expiry cannot expose stale routing data, and
-  final orderly or expired removal requests shutdown. The suite also proves
+  coexist, duplicate live workspace, ingress, or lease identities fail, an
+  already-expired incoming lease is rejected, heartbeats renew only their
+  matching lease, expiry cannot expose stale routing data, and final orderly or
+  expired removal requests shutdown. It drives every `LeaseTable::apply`
+  action branch directly. The suite also proves
   that a previously registered ingress stays distinguishable as `NoLiveTui`
   after its lease is gone, rather than becoming `Unknown`. These tests have no
   process, socket, filesystem, or sleep dependency; process election and

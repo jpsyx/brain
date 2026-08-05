@@ -150,8 +150,9 @@ workspace selector. A future manifest migration is therefore unnecessary for
 this type split.
 
 At every injected monotonic instant the table first removes expired leases.
-It accepts one live lease per workspace and ingress, renews only the matching
-lease ID, and keeps a known ingress after orderly removal or expiry. Routing is
+It rejects an incoming lease whose expiry is already elapsed and accepts one
+live lease per workspace, ingress, and lease ID. It renews only the matching
+lease ID and keeps a known ingress after orderly removal or expiry. Routing is
 therefore one of `Accepting(live lease)`, `Disabled` (a live lease with the
 receiver off), `NoLiveTui` (known but no live lease), or `Unknown`. Expired
 leases are never returned. Removing or expiring the final live lease yields
