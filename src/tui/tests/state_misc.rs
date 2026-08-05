@@ -142,17 +142,12 @@ fn binary_confirm_focus_never_reaches_skip() {
     assert_eq!(s.focus, ConfirmChoice::No, "no Skip button to move onto");
 }
 
-#[test]
-fn skip_triage_prompt_uses_the_documented_skip_language() {
-    // The brain agent recognizes "skip daily triage" (the /triage +
-    // /todo skills' skip trigger) and marks the Morning Triage habit
-    // done rather than running a pass. Keep the phrase intact.
-    let p = SKIP_TRIAGE_PROMPT.to_lowercase();
-    assert!(
-        p.contains("skip daily triage"),
-        "prompt was: {SKIP_TRIAGE_PROMPT}"
-    );
-}
+// The daily-triage modal's Skip button no longer sends a brain prompt: it
+// completes the managed daily-triage occurrence deterministically in-process.
+// The end-to-end App test lives in `app_brain::tests::triage`
+// (`skip_button_marks_managed_daily_triage_done_without_launching_an_agent`);
+// the pure completion logic is covered in
+// `tasks::triage_habits::complete_managed`.
 
 // --- ConfirmIntent: green for constructive, red for destructive ---
 

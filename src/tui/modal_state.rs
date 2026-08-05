@@ -94,28 +94,21 @@ pub(crate) enum ConfirmKind {
     GenerateAgenda,
     /// Triggered at tasks-shell startup when the configured daily-triage habit
     /// has not been completed today. Yes path spawns the brain panel
-    /// with a `/triage` prompt; the Skip path tells the brain to skip
-    /// triage for the day (see [`ConfirmChoice::Skip`]).
+    /// with a `/triage` prompt; the Skip path marks today's triage habit done
+    /// deterministically in-process, no agent (see [`ConfirmChoice::Skip`]).
     RunTriage,
 }
 
 /// A button in the confirm modal. Every modal has `Yes` / `No`; only the
-/// [`ConfirmKind::RunTriage`] modal additionally offers `Skip`, which
-/// hands off to the brain with the documented "skip daily triage" prompt
-/// so today's triage habit is marked done without running a pass.
+/// [`ConfirmKind::RunTriage`] modal additionally offers `Skip`, which marks
+/// today's Morning Triage habit done deterministically in-process (native
+/// completion, no agent) rather than running a pass. See `App::skip_triage`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum ConfirmChoice {
     Yes,
     No,
     Skip,
 }
-
-/// Prompt sent to the brain panel when the user picks **Skip** on the
-/// daily-triage modal. It uses the `/triage` + `/todo` skills' documented
-/// skip trigger ("skip daily triage") so the brain marks today's Morning
-/// Triage habit done and runs no triage pass.
-pub(crate) const SKIP_TRIAGE_PROMPT: &str = "Skip daily triage today. Per the triage skill's \
-skip rule, mark today's Morning Triage habit done and run nothing else.";
 
 /// State for the confirmation modal. Most modals are Yes/No; the
 /// daily-triage modal also offers Skip (see [`ConfirmState::choices`]).

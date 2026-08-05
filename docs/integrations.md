@@ -45,8 +45,10 @@ helpers and shell-outs live in the tasks modules:
   Verbose runs log the resolved brain root, normalized id (when applicable),
   CSV files read/written, and completion result.
   Managed triage rows are rejected at each of those user-facing entry points;
-  `/triage` alone uses `apply_sync_rules.py --complete-managed-triage
-  daily|weekly`, which becomes a no-op when the portable feature is disabled.
+  the sanctioned path that mutates them is
+  `brain habits complete-managed-triage daily|weekly` (native) or the equivalent
+  `apply_sync_rules.py --complete-managed-triage daily|weekly`, either of which
+  becomes a no-op when the portable feature is disabled.
   All Rust task mutations and bundled Python CSV/counter writers acquire the
   same SQLite immediate transaction at
   `<workspace-cache>/tasks.transaction.lock`. Portable config read-modify-write
@@ -83,6 +85,16 @@ helpers and shell-outs live in the tasks modules:
   which reuses `tasks::complete`'s `locate` (id/fuzzy resolution, rejecting task
   ids) and `spawn_next_occurrence`. Native port of the retired `skip_habit.py`.
   See [features.md](features.md).
+- **`brain habits complete-managed-triage <daily|weekly>`** — deterministically
+  complete Brain's *protected* managed triage occurrence (which the ordinary
+  complete/skip CLIs refuse while enabled): mark today's occurrence done + spawn
+  the next, keyed on the stable `system_key`. The logic lives in
+  `tasks::triage_habits::complete_managed` (reusing `tasks::complete`'s
+  `read_csv`/`write_csv`/`spawn_next_occurrence`); the same
+  `complete_managed_triage` entry point backs the daily-triage nudge's **Skip**
+  button (`App::skip_triage`), so the button and the CLI share one Rust path. A
+  no-op that mutates nothing when `enable_triage_habits` is off. The native
+  equivalent of `apply_sync_rules.py --complete-managed-triage`.
 - **Receiver server** — the opt-in TUI-owned listener accepts only `POST /sms`
   and `POST /email`. Twilio requests must pass the exact URL/form HMAC and SMS
   sender allowlist. Resend requests must pass the official `v1,<signature>`
@@ -281,6 +293,17 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
 `brain server`'s route table therefore gains `POST /triage/done` (see
 `server/router.rs` + `server/routes/triage/`), an unauthenticated
 localhost-only endpoint consistent with `/habits/done`.
+
+The nudge's **Skip** button takes a different route entirely. Skipping is
+deterministic — it only marks today's protected Morning Triage occurrence done
+and spawns the next — so `App::skip_triage` calls
+`tasks::triage_habits::complete_managed_triage(Daily)` **in-process** and then
+`reload_tasks()`, with **no** brain-panel launch, prompt, or completion signal.
+There is no agent in the loop and therefore nothing to signal: unlike the Yes
+tab, the mutation is complete and observable the moment the button is pressed.
+It respects `enable_triage_habits` (a disabled feature is a `Disabled` no-op
+that still dismisses the nudge). This is why only the Yes path needs the
+tab/token/`require` machinery above.
 
 ## Claude Sessions: SessionStart/Stop Hooks + State DB
 

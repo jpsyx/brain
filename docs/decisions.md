@@ -1958,3 +1958,32 @@ set it wrong; do not silently overwrite), and two or more people with no local
 selection still prompt interactively or fail headlessly with the exact repair
 commands. Only the unambiguous case, blank id plus exactly one member, is
 auto-resolved.
+
+## Skipping the daily-triage nudge is deterministic, not agent-driven
+
+The daily-triage nudge offers three buttons. **Yes** and the sibling "generate
+agenda" flow hand off to the brain panel because they involve judgement (which
+past-due tasks to defer/drop, which MITs to pick, back-and-forth with the user).
+**Skip** does not: "skip triage today" is pure bookkeeping — mark today's
+protected Morning Triage occurrence done and spawn tomorrow's, keyed on the
+stable `system_key`. There is nothing to decide.
+
+So Skip no longer injects a natural-language prompt (`SKIP_TRIAGE_PROMPT`, now
+deleted) into the main session and rely on the agent to run the `/triage` skill's
+skip rule. `App::skip_triage` calls
+`tasks::triage_habits::complete_managed_triage(Daily)` in-process and reloads the
+tables — no panel, no prompt, no agent, no completion signal (nothing is watching
+a tab, because no tab opens). The same entry point is exposed as
+`brain habits complete-managed-triage <daily|weekly>`, so the button and the CLI
+share one Rust path and an agent can perform the skip non-interactively. Using an
+LLM to run a fixed CSV mutation was cost and latency with no upside, and it could
+fail or drift; a direct call cannot.
+
+Two invariants keep this honest. It **respects `enable_triage_habits`**: with the
+feature off the call is a `Disabled` no-op that reads and writes nothing (so a
+fork with the feature disabled behaves identically, and the nudge — which itself
+only fires when the feature is on — is still dismissed). And it goes through the
+one sanctioned managed-habit mutation path: the ordinary complete/skip CLIs still
+refuse managed rows (`protect_system_key`); `complete_managed` is the deliberate,
+protection-bypassing exception, mirroring the bundled
+`apply_sync_rules.py --complete-managed-triage`.

@@ -60,6 +60,51 @@ fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
 }
 
 #[test]
+fn skip_button_marks_managed_daily_triage_done_without_launching_an_agent() {
+    let cli = Cli::parse_from(["tasks"]);
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.config.enable_triage_habits = true;
+
+    let habits_path = app
+        .command_context
+        .workspace
+        .root()
+        .join("tasks/habits.csv");
+    std::fs::write(
+        &habits_path,
+        "task_uuid,task_id,task_name,status,due_date,recur_interval,recur_unit,created_date,completed_date,last_touched,assigned_to,system_key\n\
+         u1,H35,Morning Triage,not_started,2026-08-04,1,days,2026-08-04,,,pablo,brain.triage.daily\n",
+    )
+    .expect("write managed daily triage habit");
+    app.reload_tasks().expect("reload after seeding the managed habit");
+
+    // Press Skip on the daily-triage nudge.
+    app.confirm = Some(crate::tui::ConfirmState::run_triage(
+        "H35".to_owned(),
+        "Morning Triage".to_owned(),
+    ));
+    crate::tui::handlers::run_confirm_skip(&mut app);
+
+    // The modal is dismissed and no agent panel was launched — Skip is a pure
+    // in-process CSV mutation.
+    assert!(app.confirm.is_none(), "modal should be dismissed");
+    assert!(app.brain.is_none(), "Skip must not launch the main brain panel");
+    assert!(app.triage_brain.is_none(), "Skip must not open a triage tab");
+
+    // Today's occurrence is completed and tomorrow's is spawned.
+    let csv = std::fs::read_to_string(&habits_path).expect("read habits");
+    assert!(
+        csv.contains("H35,Morning Triage,done,2026-08-04"),
+        "today's occurrence not marked done; got:\n{csv}"
+    );
+    assert!(
+        csv.contains("Morning Triage,not_started,2026-08-05,1,days"),
+        "next occurrence not spawned; got:\n{csv}"
+    );
+}
+
+#[test]
 fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
     use std::collections::{BTreeMap, BTreeSet};
 
