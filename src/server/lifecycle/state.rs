@@ -144,6 +144,15 @@ pub(super) fn remove_generation(paths: &ServerPaths, generation: ServerGeneratio
     Ok(true)
 }
 
+/// Remove a control socket created before this generation published a record.
+pub(super) fn remove_unpublished(paths: &ServerPaths) -> Result<bool> {
+    if read_record(paths).is_some() {
+        return Ok(false);
+    }
+    remove_if_present(&paths.control_socket())?;
+    Ok(true)
+}
+
 fn remove_if_present(path: &std::path::Path) -> Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),

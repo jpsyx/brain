@@ -961,12 +961,15 @@ and cannot outlive the interactive shell.
 - `server/lifecycle/` owns the shared-process boundary. `paths.rs` places
   `process.json`, `control.sock`, `election.lock`, and `server.log` below one
   machine-wide directory. `state.rs` owns the minimal generation-tagged record;
-  `election.rs` owns the pure start decision and atomic owner lock;
+  `election.rs` owns the pure start decision, directory advisory mutex, exact
+  owner checks, and parent-to-child token handoff;
   `process.rs` owns the non-electing client, detached elected spawn, hidden
   server loop, signal cleanup, and narrow registration seam; `watchdog.rs`
-  applies clock-injected expiry; `lease.rs`, `table.rs`, and `decision.rs` own
-  typed leases and final-shutdown decisions. The table and process record never
-  contain roots, users, credentials, prompts, logs, or message bodies.
+  applies clock-injected expiry plus the bounded initial-registration deadline;
+  `lease.rs`, `table.rs`, and `decision.rs` own typed leases and latched
+  final-shutdown decisions. Signal flags and cleanup ownership precede process
+  state publication. The table and process record never contain roots, users,
+  credentials, prompts, logs, or message bodies.
   `lifecycle::pid_alive` remains the stable seam for sync callers.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST requests carry `workspace_id`; the shared process
@@ -1066,6 +1069,9 @@ sibling so the two projects share a stack:
 - `signal-hook`: installs safe SIGINT/SIGTERM flags for the shared process.
   The accept loop observes the flag and lets its generation owner remove only
   the matching process record and control socket, without unsafe signal code.
+- `fs2`: provides Rust-1.85-compatible advisory locking for the shared-server
+  election mutex, avoiding unsafe platform calls while serializing exact owner
+  reaping and parent-to-child adoption.
 - `notify` (8.x) — cross-platform filesystem observation for the **C4
   auto-sync watcher** (`src/sync/watch.rs`). Linux uses the recommended native
   backend. macOS uses notify's one-second `PollWatcher`, because FSEvents can

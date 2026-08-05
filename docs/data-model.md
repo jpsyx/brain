@@ -158,7 +158,11 @@ receiver off), `NoLiveTui` (known but no live lease), or `Unknown`. Expired
 leases are never returned. Removing or expiring the final live lease yields
 `ShutdownNow`; otherwise the process receives `KeepRunning`. The production
 schedule uses a one-second heartbeat and five-second TTL, while tests inject
-their own `LeaseTiming` and never sleep.
+their own `LeaseTiming` and never sleep. Once pruning removes the final lease,
+the table latches that shutdown decision until a successful replacement
+registration. A failed late heartbeat, receiver update, or rejected
+registration therefore cannot consume the final-expiry signal before the
+watchdog observes it.
 
 The machine-wide lifecycle record is deliberately smaller than a lease. Brain
 publishes `~/.cache/brain/server/process.json` with only the process PID,
@@ -167,7 +171,9 @@ loopback HTTP port, generation UUID, and RFC3339 start time. Sibling
 not workspace state. The record never contains a workspace UUID or root,
 ingress ID, job socket, actor, sender, credential, prompt, log payload, or
 message body. A generation UUID guards cleanup so a stale owner cannot remove a
-new winner's record or socket.
+new winner's record or socket. The elected process must receive its first
+registration within two seconds or it exits and removes its generation
+artifacts, covering a starter TUI that disappears before registration.
 
 `WorkspacePaths` derives its full base from the ID:
 

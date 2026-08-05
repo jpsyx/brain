@@ -18,13 +18,14 @@ use tiny_http::Server;
 use super::{
     ElectionGuard, IngressId, LeaseAction, LeaseId, LeaseTable, ProcessRecord, ServerDecision,
     ServerGeneration, ServerPaths, StartDecision, WorkspaceLease, decide_start, pid_alive,
-    watchdog,
+    watchdog::Watchdog,
 };
 use crate::theme::Theme;
 use crate::workspace::{WorkspaceId, WorkspaceName};
 
 const PREFERRED_PORT: u16 = 8787;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
+const INITIAL_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 const STREAM_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -231,11 +232,10 @@ pub fn connect_or_elect(client: &ServerClient) -> Result<ProcessRecord> {
                 }
                 let port = choose_port(preferred_is_free(PREFERRED_PORT), PREFERRED_PORT);
                 client.spawn(guard.generation(), port)?;
+                guard.handoff();
                 if let Some(found) = wait_for_connection(client, deadline)? {
-                    drop(guard);
                     return Ok(found);
                 }
-                drop(guard);
             }
             StartDecision::WaitForWinner => {
                 if let Some(found) = wait_for_connection(client, deadline)? {
@@ -287,6 +287,12 @@ fn remove_stale_socket(paths: &ServerPaths) -> Result<()> {
 /// the process loop fails.
 pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16) -> Result<()> {
     let election = ElectionGuard::adopt(paths, generation)?;
+    let _owner = ProcessOwner {
+        paths: paths.clone(),
+        generation,
+        _election: election,
+    };
+    let terminate = termination_flag()?;
     let control = bind_control(paths)?;
     let server = Server::http(("127.0.0.1", port))
         .map_err(|error| anyhow::anyhow!("binding 127.0.0.1:{port}: {error}"))?;
@@ -302,23 +308,19 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
         started_at: chrono::Utc::now().to_rfc3339(),
     };
     super::state::write_record(paths, &record)?;
+    wait_at_test_startup_gate()?;
     append_log(
         paths,
         &format!("server generation {generation} started on port {actual_port}"),
     );
-    let _owner = ProcessOwner {
-        paths: paths.clone(),
-        generation,
-        _election: election,
-    };
-    let terminate = termination_flag()?;
     let mut leases = LeaseTable::default();
+    let watchdog = Watchdog::new(Instant::now(), INITIAL_REGISTRATION_TIMEOUT);
 
     while !terminate.load(Ordering::Relaxed) {
         if drain_control(&control, generation, &mut leases)? == ServerDecision::ShutdownNow {
             break;
         }
-        if watchdog::tick(&mut leases, Instant::now())? == ServerDecision::ShutdownNow {
+        if watchdog.tick(&mut leases, Instant::now())? == ServerDecision::ShutdownNow {
             break;
         }
         if let Some(mut request) = server.recv_timeout(POLL_INTERVAL)? {
@@ -330,6 +332,19 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
     Ok(())
 }
 
+fn wait_at_test_startup_gate() -> Result<()> {
+    let Some(path) = std::env::var_os("BRAIN_TEST_SERVER_STARTUP_GATE") else {
+        return Ok(());
+    };
+    let mut gate =
+        UnixStream::connect(PathBuf::from(path)).context("connecting startup test gate")?;
+    gate.write_all(b"ready")
+        .context("signaling startup test gate")?;
+    let mut release = [0];
+    gate.read_exact(&mut release)
+        .context("waiting for startup test gate")
+}
+
 struct ProcessOwner {
     paths: ServerPaths,
     generation: ServerGeneration,
@@ -338,7 +353,13 @@ struct ProcessOwner {
 
 impl Drop for ProcessOwner {
     fn drop(&mut self) {
-        let _ = super::state::remove_generation(&self.paths, self.generation);
+        if matches!(
+            super::state::remove_generation(&self.paths, self.generation),
+            Ok(false)
+        ) && super::validate_election_token(&self.paths, self.generation).is_ok()
+        {
+            let _ = super::state::remove_unpublished(&self.paths);
+        }
     }
 }
 

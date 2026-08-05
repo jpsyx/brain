@@ -40,9 +40,16 @@ pub struct LeaseTable {
     live: HashMap<WorkspaceId, WorkspaceLease>,
     known_ingresses: HashMap<IngressId, WorkspaceId>,
     known_workspace_ingresses: HashMap<WorkspaceId, IngressId>,
+    shutdown_pending: bool,
 }
 
 impl LeaseTable {
+    /// Whether no live TUI lease remains.
+    #[must_use]
+    pub(super) fn is_empty(&self) -> bool {
+        self.live.is_empty()
+    }
+
     /// Apply one lease transition.
     ///
     /// # Errors
@@ -139,6 +146,7 @@ impl LeaseTable {
         self.known_workspace_ingresses
             .insert(lease.workspace_id, lease.ingress_id);
         self.live.insert(lease.workspace_id, lease);
+        self.shutdown_pending = false;
         Ok(())
     }
 
@@ -200,13 +208,17 @@ impl LeaseTable {
             .find_map(|(workspace_id, lease)| (lease.lease_id == lease_id).then_some(*workspace_id))
             .and_then(|workspace_id| self.live.remove(&workspace_id))
             .is_some();
-        shutdown_decision(expired || removed, self.live.is_empty())
+        shutdown_decision(
+            self.shutdown_pending || expired || removed,
+            self.live.is_empty(),
+        )
     }
 
     /// Reap expired leases and decide whether the final lease was lost.
     #[must_use]
     pub fn expire(&mut self, now: Instant) -> ServerDecision {
-        shutdown_decision(self.prune_expired(now), self.live.is_empty())
+        let expired = self.prune_expired(now);
+        shutdown_decision(self.shutdown_pending || expired, self.live.is_empty())
     }
 
     /// List each live workspace in canonical-name order after reaping expiry.
@@ -247,6 +259,9 @@ impl LeaseTable {
         let removed_any = !expired.is_empty();
         for workspace_id in expired {
             self.live.remove(&workspace_id);
+        }
+        if removed_any && self.live.is_empty() {
+            self.shutdown_pending = true;
         }
         removed_any
     }

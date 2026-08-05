@@ -276,6 +276,93 @@ fn disabled_no_live_tui_and_unknown_ingress_remain_distinct() {
     );
 }
 
+#[test]
+fn late_heartbeat_cannot_consume_final_expiry_shutdown() {
+    let now = Instant::now();
+    let mut table = table_with_final_lease(now);
+
+    assert!(matches!(
+        table.apply(LeaseAction::Heartbeat {
+            lease_id: lease_id(1),
+            now: now + Duration::from_secs(5),
+            timing: LeaseTiming::new(Duration::from_secs(1), Duration::from_secs(5)),
+        }),
+        Err(LeaseError::LeaseNotLive { .. })
+    ));
+    assert_eq!(
+        table
+            .apply(LeaseAction::Expire {
+                now: now + Duration::from_secs(5),
+            })
+            .unwrap(),
+        ServerDecision::ShutdownNow
+    );
+}
+
+#[test]
+fn late_receiver_update_cannot_consume_final_expiry_shutdown() {
+    let now = Instant::now();
+    let mut table = table_with_final_lease(now);
+
+    assert!(matches!(
+        table.apply(LeaseAction::SetReceiverEnabled {
+            lease_id: lease_id(1),
+            receiver_enabled: false,
+            now: now + Duration::from_secs(5),
+        }),
+        Err(LeaseError::LeaseNotLive { .. })
+    ));
+    assert_eq!(
+        table
+            .apply(LeaseAction::Expire {
+                now: now + Duration::from_secs(5),
+            })
+            .unwrap(),
+        ServerDecision::ShutdownNow
+    );
+}
+
+#[test]
+fn rejected_registration_cannot_consume_final_expiry_shutdown() {
+    let now = Instant::now();
+    let mut table = table_with_final_lease(now);
+    let replacement = lease(
+        "personal",
+        PERSONAL_ID,
+        FAMILY_INGRESS,
+        lease_id(2),
+        now + Duration::from_secs(5),
+        true,
+    );
+
+    assert!(matches!(
+        table.apply(LeaseAction::Register {
+            lease: replacement,
+            now: now + Duration::from_secs(5),
+        }),
+        Err(LeaseError::IngressAlreadyKnown { .. })
+    ));
+    assert_eq!(
+        table
+            .apply(LeaseAction::Expire {
+                now: now + Duration::from_secs(5),
+            })
+            .unwrap(),
+        ServerDecision::ShutdownNow
+    );
+}
+
+fn table_with_final_lease(now: Instant) -> LeaseTable {
+    let mut table = LeaseTable::default();
+    table
+        .register(
+            lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true),
+            now,
+        )
+        .unwrap();
+    table
+}
+
 fn lease(
     name: &str,
     workspace: &str,

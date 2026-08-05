@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.26.10"
+version = "0.26.11"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
@@ -21,6 +21,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.28"
 csv = "1.3"
+# MSRV-compatible advisory file locking serializes exact shared-server election
+# owner replacement without unsafe platform calls.
+fs2 = "0.4"
 # The tasks view keeps its own fuzzy matcher (`fuzzy-matcher`) distinct from
 # the brain-search picker's `nucleo-matcher`; the two views were built against
 # different libraries and unifying them is a follow-up, not a merge blocker.

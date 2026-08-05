@@ -236,8 +236,10 @@ first move is a failing test that reproduces it, *then* the fix.
   coexist, duplicate live workspace, ingress, or lease identities fail, an
   already-expired incoming lease is rejected, heartbeats renew only their
   matching lease, expiry cannot expose stale routing data, and final orderly or
-  expired removal requests shutdown. It drives every `LeaseTable::apply`
-  action branch directly. The suite also proves
+  expired removal requests shutdown. Late heartbeat/update errors and a
+  rejected registration also preserve a latched final-expiry shutdown for the
+  next watchdog tick. It drives every `LeaseTable::apply` action branch
+  directly. The suite also proves
   that a previously registered ingress stays distinguishable as `NoLiveTui`
   after its lease is gone, rather than becoming `Unknown`. These tests have no
   process, socket, filesystem, or sleep dependency.
@@ -247,9 +249,16 @@ first move is a failing test that reproduces it, *then* the fix.
   tests prove the hidden loop rejects a missing generation token, two distinct
   workspace leases coexist, the first orderly unregister leaves the process
   reachable, the final unregister exits and removes generation artifacts, and
-  SIGTERM takes the same guarded cleanup path. All process waits use bounded
-  condition polling. `server/lifecycle/watchdog.rs` injects the expiry instant
-  directly, so crashed-final-lease shutdown has no timing sleep.
+  SIGTERM takes the same guarded cleanup path. A Unix-socket startup gate
+  synchronizes SIGTERM immediately after state publication, and an occupied
+  HTTP port proves the pre-publication cleanup owner removes an already-bound
+  control socket. Barrier-driven unit races prove stale reaping and child
+  adoption exclude contenders through exact identity transfer. An elected
+  child that never receives its first registration exits within its bounded
+  bootstrap deadline. All process waits use bounded condition polling.
+  `server/lifecycle/watchdog.rs` injects expiry and bootstrap instants directly,
+  so crashed-final-lease and no-first-registration decisions have no timing
+  sleep.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable

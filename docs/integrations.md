@@ -287,18 +287,24 @@ One machine-wide process stores its infrastructure below
 generation UUID, and start time. It carries no selected workspace or portable
 payload. A starter must atomically own the election lock, and the hidden
 `brain server run --generation <uuid> --port <port>` loop validates that token
-before binding. Losing TUI contenders use bounded polling for the published
-winner.
+before binding. An advisory lock on the shared server directory serializes
+exact observed-owner reaping and parent-to-child token adoption; the parent
+releases the mutex only through an explicit handoff that leaves its generation
+token for the child. Losing TUI contenders use bounded polling for the
+published winner.
 
 The process is not an independently managed daemon. Public `brain server`
 actions are read-only `status` and `logs`; there is no start, kill, or restart
 surface. Only live TUI startup and heartbeat recovery may call the electing
 client. Habits and triage callers attach without electing. The final orderly
 lease removal returns `ShutdownNow` immediately; an injected-clock watchdog
-expires crashed leases and stops after the final TTL. Drop and SIGINT/SIGTERM
-cleanup remove the process record and socket only when their generation still
-owns them. Safe signal flags come from `signal-hook`; the process loop observes
-them outside the handler and performs ordinary Rust cleanup.
+expires crashed leases, preserves final-expiry shutdown across rejected late
+control transitions, and stops an elected process that receives no first
+registration within two seconds. Drop and SIGINT/SIGTERM cleanup remove the
+process record and socket only when their generation still owns them. The
+cleanup owner and safe `signal-hook` flags are installed before state
+publication; the process loop observes flags outside the handler and performs
+ordinary Rust cleanup.
 
 ## Claude Sessions: SessionStart/Stop Hooks + State DB
 

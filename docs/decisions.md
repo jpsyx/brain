@@ -1779,19 +1779,26 @@ Several workspace TUIs can start concurrently, but one machine must expose only
 one loopback server and one control socket. Startup therefore uses an atomic
 `election.lock`: a live process and reachable socket are reused, one lock owner
 may remove stale infrastructure and spawn, and losing contenders poll for that
-winner within a fixed deadline. The hidden `server run` command requires the
-elected generation token, so it is not a manual availability surface. Public
-server commands are read-only `status` and `logs`; short-lived habits and
-triage paths attach to an existing process and never elect one.
+winner within a fixed deadline. A process-scoped advisory lock on the shared
+server directory serializes every exact observed-owner compare/remove/transfer,
+so a replacement winner cannot be reaped between validation and mutation. The
+starter explicitly hands its generation token to the child before releasing
+that mutex. The hidden `server run` command requires the elected generation
+token, so it is not a manual availability surface. Public server commands are
+read-only `status` and `logs`; short-lived habits and triage paths attach to an
+existing process and never elect one.
 
 The process publishes only PID, port, generation UUID, and start time. Its
 owner holds the election lock while generation-checked cleanup removes the
 record and socket. This prevents an exiting or signalled stale process from
 deleting a newer winner's artifacts. An orderly final unregister exits
 immediately; the watchdog applies injected-clock lease expiry and exits after
-the final crashed lease reaches TTL. The design deliberately has no durable
-inbound queue, replay worker, headless agent, manual restart, or always-on
-responder.
+the final crashed lease reaches TTL. Final-expiry shutdown is latched across
+failed late control transitions, and a child without its first registration
+exits after a two-second bootstrap deadline. Signal flags and the cleanup owner
+exist before state publication, closing the startup signal window. The design
+deliberately has no durable inbound queue, replay worker, headless agent,
+manual restart, or always-on responder.
 
 ## TUI-owned receiver server
 

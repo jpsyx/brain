@@ -88,8 +88,8 @@ impl ServerFixture {
             .stderr(Stdio::null())
             .spawn()
             .expect("start brain server");
+        election.handoff();
         wait_for_server(port);
-        drop(election);
 
         Self {
             _home: home,

@@ -5,6 +5,8 @@ use brain::server::lifecycle::{
 use brain::server::lifecycle::{IngressId, LeaseId, WorkspaceLease};
 use brain::workspace::{WorkspaceId, WorkspaceName};
 use clap::Parser as _;
+use std::io::{Read as _, Write as _};
+use std::os::unix::net::UnixListener;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -121,6 +123,11 @@ fn election_lock_selects_one_starter_and_carries_the_hidden_run_token() {
 
     drop(guard);
     assert!(
+        !paths.election_lock().exists(),
+        "released winner token remained at {}",
+        paths.election_lock().display()
+    );
+    assert!(
         ElectionGuard::try_acquire(&paths, loser)
             .expect("election after release")
             .is_some()
@@ -235,6 +242,20 @@ fn final_unregister_stops_the_process_and_removes_generation_artifacts() {
 }
 
 #[test]
+fn elected_process_stops_when_its_caller_never_registers() {
+    let mut server = RunningServer::start();
+
+    wait_for("unregistered elected process exit", || {
+        server.child.try_wait().ok().flatten().is_some()
+    });
+    wait_for("unregistered generation artifact cleanup", || {
+        !server.paths.process_record().exists()
+            && !server.paths.control_socket().exists()
+            && !server.paths.election_lock().exists()
+    });
+}
+
+#[test]
 fn termination_signal_runs_generation_guarded_cleanup() {
     let mut server = RunningServer::start();
     let personal = lease(
@@ -261,6 +282,105 @@ fn termination_signal_runs_generation_guarded_cleanup() {
             && !server.paths.control_socket().exists()
             && !server.paths.election_lock().exists()
     });
+}
+
+#[test]
+fn signal_after_publication_in_the_startup_window_cleans_all_artifacts() {
+    let home = tempfile::tempdir().expect("temporary server home");
+    let paths = ServerPaths::from_home(home.path());
+    let generation = ServerGeneration::new();
+    let election = ElectionGuard::try_acquire(&paths, generation)
+        .expect("election probe")
+        .expect("test process wins election");
+    let gate_path = home.path().join("startup-gate.sock");
+    let gate = UnixListener::bind(&gate_path).expect("bind startup gate");
+    gate.set_nonblocking(true)
+        .expect("make startup gate nonblocking");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .args([
+            "server",
+            "run",
+            "--generation",
+            &generation.to_string(),
+            "--port",
+            "0",
+        ])
+        .env("HOME", home.path())
+        .env("BRAIN_TEST_SERVER_STARTUP_GATE", &gate_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn gated hidden server");
+    election.handoff();
+    let mut gated = None;
+    wait_for("server startup gate", || match gate.accept() {
+        Ok((stream, _)) => {
+            gated = Some(stream);
+            true
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => false,
+        Err(error) => panic!("accept startup gate: {error}"),
+    });
+    let mut gated = gated.expect("accepted startup gate");
+    gated
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("bound startup gate read");
+    let mut ready = [0; 5];
+    gated.read_exact(&mut ready).expect("read startup ready");
+    assert_eq!(&ready, b"ready");
+    assert!(paths.process_record().exists());
+    assert!(paths.control_socket().exists());
+    assert!(paths.election_lock().exists());
+    let status = Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .expect("signal gated shared server");
+    assert!(status.success());
+    let _ = gated.write_all(b"release");
+    wait_for("gated server exit", || {
+        child.try_wait().ok().flatten().is_some()
+    });
+
+    assert!(!paths.process_record().exists());
+    assert!(!paths.control_socket().exists());
+    assert!(!paths.election_lock().exists());
+}
+
+#[test]
+fn bind_failure_before_publication_cleans_early_artifacts() {
+    let home = tempfile::tempdir().expect("temporary server home");
+    let paths = ServerPaths::from_home(home.path());
+    let occupied = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("occupy loopback port");
+    let port = occupied.local_addr().expect("occupied address").port();
+    let generation = ServerGeneration::new();
+    let election = ElectionGuard::try_acquire(&paths, generation)
+        .expect("election probe")
+        .expect("test process wins election");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .args([
+            "server",
+            "run",
+            "--generation",
+            &generation.to_string(),
+            "--port",
+            &port.to_string(),
+        ])
+        .env("HOME", home.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn hidden server with occupied port");
+    election.handoff();
+
+    wait_for("failed server exit", || {
+        child.try_wait().ok().flatten().is_some()
+    });
+
+    assert!(!paths.process_record().exists());
+    assert!(!paths.control_socket().exists());
+    assert!(!paths.election_lock().exists());
 }
 
 #[test]
@@ -328,11 +448,11 @@ impl RunningServer {
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn hidden server");
+        election.handoff();
         let client = ServerClient::new(paths.clone());
         wait_for("shared server reachability", || {
             client.connect_existing().is_ok()
         });
-        drop(election);
         Self {
             child,
             _home: home,

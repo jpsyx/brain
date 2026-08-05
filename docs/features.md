@@ -1023,7 +1023,12 @@ Codex.
   no log exists. It is likewise read-only and workspace-independent.
 - `brain server run --generation <uuid> --port <p>` is the hidden blocking
   loop used only by an elected starter. A matching token must already own
-  `election.lock`; direct or tokenless startup is rejected.
+`election.lock`; direct or tokenless startup is rejected.
+
+An elected child has a two-second bootstrap window to receive its first live
+TUI registration. If the electing TUI disappears before registering, the child
+exits and cleans its PID, control socket, and election token instead of becoming
+an unowned background daemon.
 
 There is no public server start or kill command. The lifecycle layer exposes
 `connect_or_elect` only for long-lived TUI startup and crash recovery; the TUI
