@@ -58,6 +58,13 @@ pub enum ControlRequest {
         /// Lease to remove.
         lease_id: LeaseId,
     },
+    /// Resolve the accepted ingress of one live workspace registration.
+    WorkspaceIngress {
+        /// Target process generation.
+        generation: ServerGeneration,
+        /// Exact workspace whose accepted ingress is requested.
+        workspace_id: WorkspaceId,
+    },
     /// Return non-sensitive process and lease status.
     Snapshot,
 }
@@ -68,7 +75,8 @@ impl ControlRequest {
             Self::Register(registration) => Some(registration.generation),
             Self::Heartbeat { generation, .. }
             | Self::UpdateEnabled { generation, .. }
-            | Self::Unregister { generation, .. } => Some(*generation),
+            | Self::Unregister { generation, .. }
+            | Self::WorkspaceIngress { generation, .. } => Some(*generation),
             Self::Snapshot => None,
         }
     }
@@ -97,6 +105,13 @@ pub enum ControlResponse {
     },
     /// Current non-sensitive server status.
     Snapshot(ServerSnapshot),
+    /// The accepted ingress of an exact live workspace registration.
+    WorkspaceIngress {
+        /// Current process generation.
+        generation: ServerGeneration,
+        /// `None` when that workspace has no live lease in this generation.
+        ingress_id: Option<IngressId>,
+    },
     /// The request targeted a previous process generation.
     StaleGeneration,
     /// The request was syntactically valid but could not be accepted.

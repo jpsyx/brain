@@ -177,7 +177,10 @@ the authoritative socket path from machine state and workspace UUID, and
 requires both the singleton PID and job listener to be live. Only that derived
 socket enters the lease, and its liveness probe shares the control request's
 absolute deadline. Enablement comes from the authoritative registry. The
-read-only snapshot exposes only the generation and live-lease count.
+read-only snapshot exposes only the generation and live-lease count. The
+generation-bound workspace-ingress query exposes only an optional ingress for
+the exact requested live workspace UUID. It prunes expiry first and never falls
+back to a known historical ingress or another workspace's lease.
 
 The public route identity is a typed portable `IngressId`, never a canonical
 name, root, default selection, or query parameter. Every accepted path has the
@@ -189,6 +192,9 @@ workspace UUID, and portable manifest ingress UUID before constructing the
 immutable `WorkspaceContext`. Unknown ingress maps to 404; a known ingress with
 receiver-disabled or has no live TUI maps to 503. The returned context and
 lease remain paired for later forwarding without reopening another selector.
+The accepted registration is also the source for local habits and triage URL
+generation, so a later portable-manifest change cannot redirect a live TUI or
+selected short-lived command through a peer workspace's ingress.
 
 The machine-wide lifecycle record is deliberately smaller than a lease. Brain
 publishes `~/.cache/brain/server/process.json` with only the process PID,

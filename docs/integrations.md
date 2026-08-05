@@ -331,8 +331,9 @@ socket plus bounded readiness polling; it creates no connector worker that can
 outlive the caller's deadline.
 Register, heartbeat, receiver-enable update, and unregister requests carry the
 target process generation; stale generations are rejected before lease state
-can change. Snapshot is read-only and returns only generation plus live-lease
-count. Registration supplies the TUI-resolved root only for an ephemeral,
+can change. The read-only workspace-ingress lookup is also generation-bound and
+returns a value only for the exact requested live workspace lease. Snapshot is
+read-only and returns only generation plus live-lease count. Registration supplies the TUI-resolved root only for an ephemeral,
 normalized comparison. The process reloads the machine registry, requires the
 exact canonical name and workspace UUID, reopens that record's portable
 manifest, and verifies its workspace and ingress UUIDs. It derives the expected
@@ -353,6 +354,14 @@ and portable manifest workspace/ingress UUIDs before returning a context.
 Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
 live TUI returns 503 before local route behavior or receiver dispatch; it is
 never acknowledged as accepted work.
+
+The shared listener uses four fixed process-lifetime workers. Each worker
+finishes routing and live-lease validation before reading a POST body, then
+caps local habits and triage action bodies at 16 KiB. This keeps stalled or
+oversized body IO out of the lifecycle/control loop. A TUI retains the ingress
+accepted with its registration for habits and triage URLs; a short-lived
+habits command asks the current generation for that selected workspace's live
+accepted ingress. Neither path reselects an ingress from a later manifest read.
 
 TUI startup orders ownership as workspace readiness, UUID singleton, UUID-local
 `jobs.sock`, bounded connect/elect/register handshake, heartbeat worker, then

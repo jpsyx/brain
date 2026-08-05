@@ -1,6 +1,7 @@
 use super::*;
 
 const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
+pub(super) const ACCEPTED_INGRESS: &str = "57b162df-983a-45c3-ac7e-bad94eb27a99";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ControllerEvent {
@@ -256,6 +257,7 @@ pub(super) fn test_app<'a>(
         crate::picker::App::new(&[], ""),
         PanelSide::Right,
         true,
+        crate::server::IngressId::parse(ACCEPTED_INGRESS).expect("valid accepted ingress"),
     )
 }
 

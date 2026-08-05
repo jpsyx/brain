@@ -10,6 +10,7 @@
 
 pub mod control;
 pub mod delivery;
+pub(super) mod http_workers;
 pub mod lifecycle;
 pub(super) mod provider;
 pub mod receiver;
@@ -21,10 +22,15 @@ pub mod workspace_route;
 
 pub use lifecycle::IngressId;
 
+use std::io::Read as _;
+use std::sync::Mutex;
+
 use anyhow::Result;
 use tiny_http::{Header, Request, Response};
 
 use self::router::Route;
+
+const LOCAL_ACTION_BODY_LIMIT_BYTES: usize = 16 * 1024;
 
 /// The URL of a brain-server route on localhost. Pure.
 ///
@@ -80,12 +86,12 @@ pub fn run(generation: lifecycle::ServerGeneration, port: u16) -> Result<()> {
 /// pure [`router::route`]; the handlers ([`routes::habits`]) own the HTML/JSON.
 pub(super) fn respond(
     request: &mut Request,
-    control: &mut control::ControlServer,
+    control: &Mutex<control::ControlServer>,
     now: std::time::Instant,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let route = router::route(request.method().as_str(), request.url());
     match route {
-        Route::HabitsPage { ingress } => match control.resolve_workspace_route(ingress, now) {
+        Route::HabitsPage { ingress } => match resolve_workspace_route(control, ingress, now) {
             Ok(workspace) => {
                 Response::from_string(routes::habits::page(workspace.context(), ingress))
                     .with_header(content_type("text/html; charset=utf-8"))
@@ -94,39 +100,33 @@ pub(super) fn respond(
                 .with_status_code(error.status())
                 .with_header(content_type("text/plain; charset=utf-8")),
         },
-        Route::HabitsDone { ingress } => {
-            let mut body = String::new();
-            let _ = request.as_reader().read_to_string(&mut body);
-            match control.resolve_workspace_route(ingress, now) {
-                Ok(workspace) => {
+        Route::HabitsDone { ingress } => match resolve_workspace_route(control, ingress, now) {
+            Ok(workspace) => match read_local_action_body(request) {
+                Ok(body) => {
                     let (status, json) =
                         routes::habits::done(workspace.context(), &body).response();
                     Response::from_string(json)
                         .with_status_code(status)
                         .with_header(content_type("application/json"))
                 }
-                Err(error) => Response::from_string(error.to_string())
-                    .with_status_code(error.status())
-                    .with_header(content_type("text/plain; charset=utf-8")),
-            }
-        }
-        Route::TriageDone { ingress } => {
-            let mut body = String::new();
-            let _ = request.as_reader().read_to_string(&mut body);
-            match control.resolve_workspace_route(ingress, now) {
-                Ok(workspace) => {
+                Err(error) => error.response(),
+            },
+            Err(error) => workspace_route_error_response(&error),
+        },
+        Route::TriageDone { ingress } => match resolve_workspace_route(control, ingress, now) {
+            Ok(workspace) => match read_local_action_body(request) {
+                Ok(body) => {
                     let (status, json) = routes::triage::done(workspace.context(), &body);
                     Response::from_string(json)
                         .with_status_code(status)
                         .with_header(content_type("application/json"))
                 }
-                Err(error) => Response::from_string(error.to_string())
-                    .with_status_code(error.status())
-                    .with_header(content_type("text/plain; charset=utf-8")),
-            }
-        }
+                Err(error) => error.response(),
+            },
+            Err(error) => workspace_route_error_response(&error),
+        },
         Route::Sms { ingress } | Route::Email { ingress } => {
-            match control.resolve_workspace_route(ingress, now) {
+            match resolve_workspace_route(control, ingress, now) {
                 Ok(_) => Response::from_string("receiver forwarding is not available yet")
                     .with_status_code(503),
                 Err(error) => {
@@ -135,6 +135,66 @@ pub(super) fn respond(
             }
         }
         Route::NotFound => Response::from_string(String::new()).with_status_code(404),
+    }
+}
+
+fn resolve_workspace_route(
+    control: &Mutex<control::ControlServer>,
+    ingress: IngressId,
+    now: std::time::Instant,
+) -> Result<workspace_route::ResolvedWorkspaceRoute, workspace_route::WorkspaceRouteError> {
+    control
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .resolve_workspace_route(ingress, now)
+}
+
+fn read_local_action_body(request: &mut Request) -> Result<String, LocalActionBodyError> {
+    if request
+        .body_length()
+        .is_some_and(|length| length > LOCAL_ACTION_BODY_LIMIT_BYTES)
+    {
+        return Err(LocalActionBodyError::TooLarge);
+    }
+    let mut bytes = Vec::with_capacity(
+        request
+            .body_length()
+            .unwrap_or_default()
+            .min(LOCAL_ACTION_BODY_LIMIT_BYTES),
+    );
+    request
+        .as_reader()
+        .take((LOCAL_ACTION_BODY_LIMIT_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| LocalActionBodyError::Unreadable)?;
+    if bytes.len() > LOCAL_ACTION_BODY_LIMIT_BYTES {
+        return Err(LocalActionBodyError::TooLarge);
+    }
+    String::from_utf8(bytes).map_err(|_| LocalActionBodyError::Unreadable)
+}
+
+fn workspace_route_error_response(
+    error: &workspace_route::WorkspaceRouteError,
+) -> Response<std::io::Cursor<Vec<u8>>> {
+    Response::from_string(error.to_string())
+        .with_status_code(error.status())
+        .with_header(content_type("text/plain; charset=utf-8"))
+}
+
+enum LocalActionBodyError {
+    TooLarge,
+    Unreadable,
+}
+
+impl LocalActionBodyError {
+    fn response(self) -> Response<std::io::Cursor<Vec<u8>>> {
+        let (status, message) = match self {
+            Self::TooLarge => (413, "request body is too large"),
+            Self::Unreadable => (400, "request body is invalid"),
+        };
+        Response::from_string(message)
+            .with_status_code(status)
+            .with_header(content_type("text/plain; charset=utf-8"))
     }
 }
 

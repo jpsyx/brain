@@ -10,11 +10,12 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use super::{codec, ControlRequest, ControlResponse, LeaseRegistration};
+use super::{ControlRequest, ControlResponse, LeaseRegistration, codec};
 use crate::server::lifecycle::{
-    connect_or_elect_until, pid_alive, LeaseId, ProcessRecord, ServerDecision, ServerGeneration,
-    ServerPaths,
+    IngressId, LeaseId, ProcessRecord, ServerDecision, ServerGeneration, ServerPaths,
+    connect_or_elect_until, pid_alive,
 };
+use crate::workspace::WorkspaceId;
 
 /// Maximum time one local request may spend reading or writing its frame.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
@@ -226,6 +227,37 @@ impl ServerClient {
         self.unregister_generation(generation, lease_id)
     }
 
+    /// Resolve the accepted ingress of one live workspace in the current generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the process changes, the workspace has no live
+    /// lease, or the control response is invalid.
+    pub fn workspace_ingress(&self, workspace_id: WorkspaceId) -> Result<IngressId> {
+        let record = self.connect_existing()?;
+        match self.request(&ControlRequest::WorkspaceIngress {
+            generation: record.generation,
+            workspace_id,
+        })? {
+            ControlResponse::WorkspaceIngress {
+                generation,
+                ingress_id: Some(ingress_id),
+            } if generation == record.generation => Ok(ingress_id),
+            ControlResponse::WorkspaceIngress {
+                generation,
+                ingress_id: None,
+            } if generation == record.generation => {
+                anyhow::bail!("workspace has no live TUI lease in the shared server")
+            }
+            ControlResponse::StaleGeneration => {
+                anyhow::bail!("shared brain server generation changed while resolving workspace")
+            }
+            response => {
+                anyhow::bail!("unexpected shared-server workspace ingress response: {response:?}")
+            }
+        }
+    }
+
     /// Exchange one bounded newline-delimited request and response.
     ///
     /// # Errors
@@ -346,5 +378,8 @@ fn response_decision(response: ControlResponse) -> Result<ServerDecision> {
             anyhow::bail!("shared brain server rejected request: {message}")
         }
         ControlResponse::Snapshot(_) => anyhow::bail!("unexpected shared-server snapshot response"),
+        ControlResponse::WorkspaceIngress { .. } => {
+            anyhow::bail!("unexpected shared-server workspace ingress response")
+        }
     }
 }

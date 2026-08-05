@@ -154,6 +154,8 @@ pub(crate) struct ReceiverSyncGate {
 
 pub(crate) struct App<'a> {
     command_context: crate::workspace::CommandContext,
+    /// Workspace ingress verified and accepted with this TUI's live lease.
+    server_ingress: crate::server::IngressId,
     tag_styles: crate::personalization::tags::TagStyles,
     today: NaiveDate,
     /// Runtime config, held so post-startup actions (the `r`-hotkey triage

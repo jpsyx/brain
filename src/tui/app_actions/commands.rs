@@ -101,17 +101,16 @@ impl App<'_> {
         self.flash = Some(
             match crate::server::lifecycle::ServerClient::default().connect_existing() {
                 Ok(record) => {
-                    match crate::server::workspace_ingress(&self.command_context.workspace) {
-                        Ok(ingress) => {
-                            let url = crate::server::habits_url(record.port, ingress);
-                            open_url(self.open_runner.as_ref(), &url)
-                        }
-                        Err(error) => FlashKind::Error(format!("⚠ habits failed: {error}")),
-                    }
+                    let url = self.habits_url_for_port(record.port);
+                    open_url(self.open_runner.as_ref(), &url)
                 }
                 Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
             },
         );
+    }
+
+    pub(crate) fn habits_url_for_port(&self, port: u16) -> String {
+        crate::server::habits_url(port, self.server_ingress)
     }
 
     /// Ctrl+O / "open link" entry point. Collects the selected entry's

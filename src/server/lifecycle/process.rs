@@ -5,8 +5,8 @@ use std::io::{Read as _, Write as _};
 use std::net::{Ipv4Addr, TcpListener};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -171,8 +171,10 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
     };
     let terminate = termination_flag()?;
     let control = ControlListener::bind(paths)?;
-    let server = Server::http(("127.0.0.1", port))
-        .map_err(|error| anyhow::anyhow!("binding 127.0.0.1:{port}: {error}"))?;
+    let server = Arc::new(
+        Server::http(("127.0.0.1", port))
+            .map_err(|error| anyhow::anyhow!("binding 127.0.0.1:{port}: {error}"))?,
+    );
     let actual_port = server
         .server_addr()
         .to_ip()
@@ -191,27 +193,32 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
         &format!("server generation {generation} started on port {actual_port}"),
     );
     let runtime_home = std::env::var_os("HOME").map_or_else(PathBuf::new, PathBuf::from);
-    let mut control_server = ControlServer::new(
+    let control_server = Arc::new(Mutex::new(ControlServer::new(
         generation,
         crate::workspace::RegistryStore::real(),
         runtime_home,
-    );
+    )));
+    let http_workers = crate::server::http_workers::HttpWorkers::start(&server, &control_server)?;
     let watchdog = Watchdog::new(Instant::now(), INITIAL_REGISTRATION_TIMEOUT);
 
     while !terminate.load(Ordering::Relaxed) {
-        if control.drain(&mut control_server)? == ServerDecision::ShutdownNow {
+        let decision = {
+            let mut control_server = control_server
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let control_decision = control.drain(&mut control_server)?;
+            if control_decision == ServerDecision::ShutdownNow {
+                control_decision
+            } else {
+                watchdog.tick(control_server.leases_mut(), Instant::now())?
+            }
+        };
+        if decision == ServerDecision::ShutdownNow {
             break;
         }
-        if watchdog.tick(control_server.leases_mut(), Instant::now())?
-            == ServerDecision::ShutdownNow
-        {
-            break;
-        }
-        if let Some(mut request) = server.recv_timeout(POLL_INTERVAL)? {
-            let response = super::super::respond(&mut request, &mut control_server, Instant::now());
-            let _ = request.respond(response);
-        }
+        std::thread::park_timeout(POLL_INTERVAL);
     }
+    http_workers.finish_process_exit();
     append_log(paths, &format!("server generation {generation} stopped"));
     Ok(())
 }

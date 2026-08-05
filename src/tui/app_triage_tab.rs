@@ -20,11 +20,7 @@ use crate::pty_pane::PtyPane;
 #[cfg(not(test))]
 fn triage_done_url(app: &App<'_>) -> anyhow::Result<String> {
     let record = crate::server::lifecycle::ServerClient::default().connect_existing()?;
-    let ingress = crate::server::workspace_ingress(&app.command_context.workspace)?;
-    Ok(crate::server::url(
-        record.port,
-        &crate::server::triage_done_path(ingress),
-    ))
+    Ok(app.triage_done_url_for_port(record.port))
 }
 
 #[cfg(test)]
@@ -33,11 +29,7 @@ fn triage_done_url(app: &mut App<'_>) -> anyhow::Result<String> {
         return Ok(url);
     }
     let record = crate::server::lifecycle::ServerClient::default().connect_existing()?;
-    let ingress = crate::server::workspace_ingress(&app.command_context.workspace)?;
-    Ok(crate::server::url(
-        record.port,
-        &crate::server::triage_done_path(ingress),
-    ))
+    Ok(app.triage_done_url_for_port(record.port))
 }
 
 #[cfg(not(test))]
@@ -54,6 +46,10 @@ fn triage_transport(app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> 
 }
 
 impl App<'_> {
+    pub(crate) fn triage_done_url_for_port(&self, port: u16) -> String {
+        crate::server::url(port, &crate::server::triage_done_path(self.server_ingress))
+    }
+
     /// Whether the brain panel is on screen with *either* the main or the
     /// triage session (the panel occupies its half whenever one is present).
     pub(crate) fn any_brain_panel_visible(&self) -> bool {

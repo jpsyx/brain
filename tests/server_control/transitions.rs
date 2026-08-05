@@ -1,6 +1,6 @@
-use super::support::{generation, lease_id, stale_generation, ControlFixture};
+use super::support::{ControlFixture, generation, lease_id, stale_generation};
 use brain::server::control::{
-    heartbeat_disposition, ControlRequest, ControlResponse, ControlServer, HeartbeatDisposition,
+    ControlRequest, ControlResponse, ControlServer, HeartbeatDisposition, heartbeat_disposition,
 };
 use std::time::{Duration, Instant};
 
@@ -137,4 +137,56 @@ fn registration_retry_is_idempotent_only_after_the_same_response_is_lost() {
         server.apply(ControlRequest::Register(conflicting_identity), now),
         ControlResponse::Rejected { .. }
     ));
+}
+
+#[test]
+fn live_workspace_ingress_lookup_is_generation_and_workspace_scoped() {
+    let fixture = ControlFixture::new();
+    let mut server = ControlServer::new(
+        generation(),
+        fixture.registry_store(),
+        fixture.temporary.path().to_path_buf(),
+    );
+    let now = Instant::now();
+    assert!(matches!(
+        server.apply(ControlRequest::Register(fixture.registration()), now),
+        ControlResponse::Accepted { .. }
+    ));
+
+    assert!(matches!(
+        server.apply(
+            ControlRequest::WorkspaceIngress {
+                generation: stale_generation(),
+                workspace_id: super::support::workspace_id(),
+            },
+            now,
+        ),
+        ControlResponse::StaleGeneration
+    ));
+    assert_eq!(
+        server.apply(
+            ControlRequest::WorkspaceIngress {
+                generation: generation(),
+                workspace_id: super::support::workspace_id(),
+            },
+            now,
+        ),
+        ControlResponse::WorkspaceIngress {
+            generation: generation(),
+            ingress_id: Some(fixture.ingress_id),
+        }
+    );
+    assert_eq!(
+        server.apply(
+            ControlRequest::WorkspaceIngress {
+                generation: generation(),
+                workspace_id: brain::workspace::WorkspaceId::new(),
+            },
+            now,
+        ),
+        ControlResponse::WorkspaceIngress {
+            generation: generation(),
+            ingress_id: None,
+        }
+    );
 }

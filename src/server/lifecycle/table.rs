@@ -236,6 +236,13 @@ impl LeaseTable {
         leases.into_iter().map(|lease| lease.workspace_id).collect()
     }
 
+    /// Return only the accepted ingress of an exact live workspace lease.
+    #[must_use]
+    pub fn live_ingress(&mut self, workspace_id: WorkspaceId, now: Instant) -> Option<IngressId> {
+        self.prune_expired(now);
+        self.live.get(&workspace_id).map(|lease| lease.ingress_id)
+    }
+
     /// Return routing availability without ever exposing an expired lease.
     #[must_use]
     pub fn availability(&mut self, ingress_id: IngressId, now: Instant) -> WorkspaceAvailability {

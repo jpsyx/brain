@@ -284,15 +284,22 @@ first move is a failing test that reproduces it, *then* the fix.
   proves each ingress renders and mutates only its own habits, triage completion
   lands only in the selected UUID cache, unknown routes never fall back or emit
   provider acknowledgements, and disabling or removing one live lease leaves
-  its peer routable. Server observation uses deadline-bounded polling; lifecycle
-  decisions use injected clocks rather than fixed timing sleeps.
+  its peer routable. Focused sibling modules cover route isolation, body
+  ordering, and CLI URL identity. Partial unknown and disabled POSTs prove the
+  server responds before body completion while the control socket stays
+  responsive; oversized accepted local actions prove the 16 KiB cap. A real
+  `brain habits -b` call and TUI URL helpers prove a later manifest mismatch
+  cannot replace the ingress accepted for the selected live registration.
+  Server observation uses deadline-bounded polling; lifecycle decisions use
+  injected clocks rather than fixed timing sleeps.
 - **Shared-server control protocol.** `tests/server_control.rs` is split into
   focused codec, registration, and transition suites. It covers bounded
   newline-delimited JSON round trips, malformed and oversized rejection,
   multiple-frame rejection through a real stream, half-close handling,
   authoritative root and manifest validation, cross-workspace and unbound
   job-socket rejection, heartbeat, receiver-enable update, unregister,
-  non-sensitive snapshot, and stale generation refusal. Deterministic real
+  non-sensitive snapshot, exact live-workspace ingress lookup, and stale
+  generation refusal. Deterministic real
   Unix-stream codec tests inject deadline observations between successful byte
   reads, successful byte writes, and flush, proving continuous progress cannot
   extend the total budget. A saturated real Unix listener proves the safe

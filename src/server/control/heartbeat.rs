@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use anyhow::{Context, Result};
 
 use super::{ControlRequest, ControlResponse, LeaseRegistration, ServerClient};
-use crate::server::lifecycle::{HEARTBEAT_INTERVAL, ServerGeneration};
+use crate::server::lifecycle::{HEARTBEAT_INTERVAL, IngressId, ServerGeneration};
 
 /// Injected heartbeat schedule and recovery boundary.
 ///
@@ -132,6 +132,12 @@ impl HeartbeatWorker {
     /// Drain worker status without blocking the TUI event loop.
     pub fn poll(&self) -> impl Iterator<Item = HeartbeatEvent> + '_ {
         self.events.try_iter()
+    }
+
+    /// Accepted ingress retained from the verified registration.
+    #[must_use]
+    pub const fn ingress_id(&self) -> IngressId {
+        self.registration.ingress_id
     }
 
     /// Stop heartbeats, then unregister before the caller removes its job socket.

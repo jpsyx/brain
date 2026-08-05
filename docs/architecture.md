@@ -962,6 +962,10 @@ receiver worker remains TUI-owned and cannot outlive the interactive shell.
 - `server/workspace_route.rs` — resolves the typed ingress through the live
   lease table first, then reloads and revalidates the matching registry record,
   root, and portable manifest before returning a `WorkspaceContext`.
+- `server/http_workers.rs` — a fixed four-worker, process-lifetime HTTP set.
+  Workers resolve ingress under the short-lived control-state mutex before
+  reading any local action body; the lifecycle/control loop never owns body IO.
+  Local habits and triage POST bodies are capped at 16 KiB.
 - `server/receiver.rs` + `server/receiver/` — the receiver facade and its
   single-responsibility modules: `http/` owns the bounded four-worker
   `tiny_http` listener and channel queue, `http/sms.rs` and `http/email.rs`
@@ -974,6 +978,8 @@ receiver worker remains TUI-owned and cannot outlive the interactive shell.
   only until that same deadline, without spawning an unjoinable connector.
   `client.rs` carries the deadline through connect, write, and read, and
   performs a bounded connect/elect/register handshake for startup and recovery.
+  Its generation-bound workspace-ingress lookup returns only the ingress from
+  that workspace's exact live accepted registration.
   `server.rs` reopens registry plus
   manifest identity, compares the TUI-resolved root without retaining it,
   derives the UUID-local job socket, and verifies the live singleton and

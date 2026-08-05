@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn local_workspace_urls_use_the_ingress_accepted_at_registration() {
+    let cli = Cli::parse_from(["tasks"]);
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let app = test_app(&temporary, &cli, AgentKind::Claude);
+
+    assert_eq!(
+        app.habits_url_for_port(4773),
+        format!("http://127.0.0.1:4773/w/{ACCEPTED_INGRESS}/habits")
+    );
+    assert_eq!(
+        app.triage_done_url_for_port(4773),
+        format!("http://127.0.0.1:4773/w/{ACCEPTED_INGRESS}/triage/done")
+    );
+}
+
+#[test]
 fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
     let cli = Cli::parse_from(["tasks"]);
 

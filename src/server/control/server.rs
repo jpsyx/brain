@@ -143,6 +143,10 @@ impl ControlServer {
                 shutdown: matches!(decision, ServerDecision::ShutdownNow),
             },
             Ok(ControlOutcome::Snapshot(snapshot)) => ControlResponse::Snapshot(snapshot),
+            Ok(ControlOutcome::WorkspaceIngress(ingress_id)) => ControlResponse::WorkspaceIngress {
+                generation: self.generation,
+                ingress_id,
+            },
             Err(error) => ControlResponse::Rejected {
                 message: error.to_string(),
             },
@@ -210,6 +214,9 @@ impl ControlServer {
                     .leases
                     .apply(LeaseAction::Unregister { lease_id, now })?;
                 ControlOutcome::Decision(decision)
+            }
+            ControlRequest::WorkspaceIngress { workspace_id, .. } => {
+                ControlOutcome::WorkspaceIngress(self.leases.live_ingress(workspace_id, now))
             }
             ControlRequest::Snapshot => {
                 let live_leases = self.leases.live_workspaces(now).len();
@@ -300,4 +307,5 @@ fn validate_live_tui(
 enum ControlOutcome {
     Decision(ServerDecision),
     Snapshot(ServerSnapshot),
+    WorkspaceIngress(Option<crate::server::IngressId>),
 }

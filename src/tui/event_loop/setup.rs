@@ -195,6 +195,7 @@ pub fn run_tui(
         search,
         panel_side,
         skip_daily_triage_check,
+        server_lease.ingress_id(),
     );
     crate::logging::log("workspace job socket and shared-server lease ready");
     app.receiver_control = Some(job_socket);

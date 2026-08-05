@@ -976,7 +976,11 @@ shared process's live lease table. Only then does the server reload schema v2,
 verify the exact registry workspace and root plus matching portable manifest,
 and read or write that workspace's habits CSV. Missing, malformed, unknown,
 receiver-disabled, no-live-TUI, unavailable, or mismatched routes never fall
-back to the machine default; the unavailable cases return 503.
+back to the machine default; the unavailable cases return 503. POST routing
+and live-lease checks happen before body IO, and local habits/triage action
+bodies larger than 16 KiB return 413. TUI links retain the ingress accepted at
+registration, while `brain habits -b <workspace>` asks the live shared process
+for the exact selected workspace's accepted ingress.
 
 The transitional receiver worker is owned by the running TUI and is opt-in. It
 exposes only authenticated `POST /w/<selected-ingress>/sms` and

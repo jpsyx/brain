@@ -1794,6 +1794,23 @@ another workspace's tasks, triage signal, credentials, users, prompts, logs,
 or job socket. Disabled and no-live-TUI routes return 503 before handler
 behavior; receiver dispatch never accepts unavailable work.
 
+Routing precedes body IO as well as workspace-specific state. Local action
+bodies are capped at 16 KiB. `tiny_http` synchronously drains an advertised
+request body after sending an early response and exposes no per-request socket
+shutdown or read-timeout control. The shared process therefore uses four fixed
+process-lifetime HTTP workers instead of handling requests on the
+lifecycle/control loop or creating one thread per request. A stalled client can
+occupy one bounded worker and eventually apply backpressure, but cannot occupy
+the lifecycle loop, grow an unbounded worker set, or make the control socket
+unresponsive. Final process exit ends that fixed worker set with the process.
+
+Local URL generation also treats the accepted lease as authoritative. The TUI
+retains its verified registration ingress, and short-lived commands use a
+generation-bound control lookup by exact workspace UUID. Reopening only the
+portable manifest could otherwise return a changed ingress, including one
+belonging to another concurrently live workspace, after registration had
+already accepted a different identity.
+
 ## Why the shared server is elected and generation-owned
 
 Several workspace TUIs can start concurrently, but one machine must expose only
