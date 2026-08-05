@@ -166,7 +166,9 @@ tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
 existing handlers. `command/server/` further separates receiver setup, HTTP
 server lifecycle, and habits dispatch. Receiver command ownership is reflected
 on disk: `receiver/mod.rs` owns dispatch, `receiver/setup/` owns selected-record
-provider planning plus portable-user mapping, and `receiver/hooks.rs` owns
+provider planning plus portable-user mapping. Its `setup/transaction.rs` owns
+bounded rollback across the selected machine record, portable users, and hook
+artifacts. `receiver/hooks.rs` owns
 workspace-sensitive Claude/Codex hook installation;
 its focused installer tests live in the owned `receiver/hooks/tests.rs`
 submodule.
@@ -185,7 +187,7 @@ alias. Bare `brain` remains equivalent to `brain tasks`.
 
 ### `logging.rs`
 Per-run logging. `logging::init` always creates a timestamped
-`/tmp/<rfc3339-nanos>.log` file, and `--verbose` mirrors log
+mode-`0600` `/tmp/<rfc3339-nanos>.log` file, and `--verbose` mirrors log
 lines to stdout for non-TUI commands, and prints the final log path at process
 exit. Before the persistent shell takes over `/dev/tty`, `main.rs` disables the
 stdout mirror; the TUI keeps the log path in `App` and offers receiver and brain
@@ -193,7 +195,9 @@ log actions in the command palette that switch the main panel to a log view.
 the tasks command palette. Command handlers and thin IO shells call
 `logging::log` at phase boundaries: dispatch, config/env/personalize actions,
 task CSV loads and writes, sync/rclone work, server lifecycle probes, doctor
-checks, and skill installation.
+checks, and skill installation. `main.rs` passes argv through the pure central
+redactor before either file logging or verbose mirroring, so receiver provider
+credentials and portable phone/email values never cross the log boundary.
 
 ### `paths.rs`
 Legacy single-root resolution only. `brain_root()` / `brain_root_path()` retain

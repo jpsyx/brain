@@ -14,7 +14,7 @@ const FAMILY_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
 
 pub(super) struct Fixture {
     pub(super) home: tempfile::TempDir,
-    config_home: tempfile::TempDir,
+    pub(super) config_home: tempfile::TempDir,
     pub(super) cache_home: tempfile::TempDir,
     pub(super) registry_path: PathBuf,
     pub(super) personal: WorkspaceContext,

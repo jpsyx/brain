@@ -2206,10 +2206,27 @@ rewrites it. Only new workspace initialization creates an ingress; attach,
 rename, alias, and default changes preserve it. This lets every provider URL
 remain stable while mutable machine selectors change.
 
-Provider values are validated and saved before one exact-workspace reload
-notification. The notification reuses the generation-bound enablement refresh,
+Guided and headless input converge on one validation boundary before any
+write. A public base is an HTTPS origin rather than an arbitrary concatenated
+string; selected-channel credentials cannot be blank, and sender phone/email
+values are normalized without appearing in an error. Because provider env,
+portable users, and frontend hook settings live in separate stores, setup
+cannot use one filesystem transaction. It instead snapshots those exact
+selected artifacts, performs ordered writes, and uses bounded rollback on any
+later failure. Selected env rollback mutates only the UUID-pinned record, so a
+peer workspace update is never replaced by a whole-registry snapshot. Rollback
+failures are aggregated rather than hiding the original error.
+
+Only a fully committed setup sends one exact-workspace reload notification.
+The notification reuses the generation-bound enablement refresh,
 which already reopens authoritative selected state and updates only that live
 lease. No setup path elects or restarts the shared process. Since request
 handlers load provider and user data only after ingress selection, this reload
 mechanism does not introduce cross-workspace cache ownership or weaken the
 routing-before-secrets boundary.
+
+Receiver setup places credentials and personal addresses on argv for complete
+headless parity, so raw argv is not safe observability data. The logging entry
+point centrally redacts those option values and `receiver set` assignments
+before both file persistence and verbose mirroring. Mode-`0600`, exclusive run
+log creation is an additional local defense, not a substitute for redaction.

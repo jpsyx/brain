@@ -119,6 +119,10 @@ pub(crate) fn set_many(command: &CommandContext, values: &[(&str, String)]) -> R
     save_map(command, &map)
 }
 
+pub(crate) fn replace_map(command: &CommandContext, map: &Map<String, Value>) -> Result<()> {
+    save_map(command, map)
+}
+
 /// Write a raw JSON value under `name`, bypassing the declared-variable check.
 ///
 /// For structured env data (the `sync` block) that `set`'s scalar coercion +

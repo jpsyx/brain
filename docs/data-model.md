@@ -248,7 +248,9 @@ artifacts, covering a starter TUI that disappears before registration.
 Its state database, TUI lock, live job socket, inbox, responses, reserved log
 path, and sync working data are all children of that base. `cache_dir()` borrows the stored
 base; each child accessor derives an owned path. Distinct IDs therefore cannot
-share runtime paths. Active run logs remain under `/tmp` through `logging.rs`.
+share runtime paths. Active run logs remain under `/tmp` through `logging.rs`,
+are created exclusively with mode `0600`, and receive only centrally redacted
+argv values.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
 current diagnostic-log destination.
 

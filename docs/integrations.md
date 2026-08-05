@@ -568,6 +568,11 @@ receiver derives that path before verification. Ordinary provider resolution
 uses only that selected record; Brain does not treat process-level `TWILIO_*`,
 `RESEND_*`, or `BRAIN_RECEIVER_PUBLIC_URL` values as runtime overrides. Secret
 values are redacted by `brain env list` and `brain env get`.
+The same pre-write validator serves guided and headless setup. It accepts only
+an HTTPS origin without a path, query, fragment, or embedded credentials,
+normalizes the Twilio sender to E.164 and the Resend sender as an email, and
+rejects blank selected-channel values with diagnostics that never include the
+submitted provider or address value.
 
 The guided setup maps each configured address to an existing portable person
 or creates a named person in the selected workspace's `.config/users.json`.
@@ -579,6 +584,20 @@ record. A successful setup or `receiver set` sends an existing-process-only
 reload notification for that workspace UUID. It neither elects nor restarts a
 shared process, and a failed notification leaves the saved configuration as
 the commit point with a warning.
+
+Before setup writes, it snapshots the selected env map, exact portable-user
+bytes, and every selected Claude/Codex hook artifact. Provider, user, and hook
+writes are then ordered under a bounded rollback boundary. A failure at any
+later write restores the exact prior artifacts and only the selected record's
+env map, preserving peer records; rollback errors are aggregated with the
+original setup error. Manifest identity and URL validation complete before the
+first write, and live reload happens only after the whole transaction succeeds.
+
+Run logging applies a central argv redactor before the timestamped file or
+`--verbose` mirror sees a line. Receiver provider fields and portable
+phone/email values are replaced for `--flag value`, `--flag=value`, and
+`receiver set name=value` forms. Each run log is created exclusively with mode
+`0600` as defense in depth.
 
 The receiver handoff endpoint is the selected workspace's mode-`0600`
 `<workspace-cache>/jobs.sock`. One bounded serialized `InboundJob` carries the

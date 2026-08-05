@@ -37,3 +37,23 @@ fn every_saved_configuration_notifies_only_the_selected_workspace() {
     assert_eq!(*calls.lock().unwrap(), [selected, selected]);
     assert!(!calls.lock().unwrap().contains(&peer));
 }
+
+#[test]
+fn failed_configuration_transaction_never_notifies_the_live_server() {
+    let selected =
+        crate::workspace::WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let refresher = RecordingRefresh(Arc::clone(&calls));
+
+    let error = run_configuration_command(selected, &refresher, || {
+        anyhow::bail!("injected setup transaction failure")
+    })
+    .unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("injected setup transaction failure")
+    );
+    assert!(calls.lock().unwrap().is_empty());
+}

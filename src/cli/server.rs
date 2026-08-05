@@ -16,7 +16,7 @@ pub struct ReceiverArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum ReceiverServerAction {
-    /// Interactively configure receiver addresses and allowlists.
+    /// Configure selected-workspace providers and portable user mappings.
     Setup(Box<ReceiverSetupArgs>),
     /// Set one receiver environment variable, or choose interactively.
     Set {

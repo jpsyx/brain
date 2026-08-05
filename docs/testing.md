@@ -265,7 +265,14 @@ first move is a failing test that reproduces it, *then* the fix.
   manifest. It also proves channel-specific address requirements and ingress
   stability across rename, alias, default, and a second-machine attach. The
   command-owner test records that setup and set both notify only the selected
-  UUID through the existing-process reload seam.
+  UUID through the existing-process reload seam. Security regressions spawn the
+  real binary with separate and assignment-style secret/address arguments,
+  then inspect both the mode-`0600` run log and `--verbose` output. Validation
+  cases cover supplied and existing selected-record values, malformed public
+  origins, both provider sender forms, guided clearing, conditional channels,
+  and redacted failures. Injected failures after the provider write, users
+  write, and every Claude/Codex hook write prove exact byte restoration, peer
+  preservation, rollback-error aggregation, and no live reload after failure.
 - **Shared-server lease state.** `server/lifecycle/table.rs` uses injected
   monotonic instants and timing values to prove that different workspace leases
   coexist, duplicate live workspace, ingress, or lease identities fail, an

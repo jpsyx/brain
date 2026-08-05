@@ -29,10 +29,8 @@ fn main() -> Result<()> {
     }
 
     let log_guard = brain::logging::init(cli.verbose, true)?;
-    brain::logging::log(format!(
-        "argv {:?}",
-        std::env::args().collect::<Vec<String>>()
-    ));
+    let argv = std::env::args().collect::<Vec<String>>();
+    brain::logging::log(format!("argv {:?}", brain::logging::redact_argv(&argv)));
 
     let bootstrap = match brain::workspace::bootstrap(&mut cli) {
         Ok(context) => context,

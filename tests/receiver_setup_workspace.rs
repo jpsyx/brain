@@ -107,7 +107,7 @@ fn noninteractive_setup_silos_provider_values_users_and_ingress_urls() {
     assert_eq!(personal_env["resend_api_key"], "re_personal_secret");
     assert_eq!(
         personal_env["brain_receiver_public_url"],
-        "https://personal.example.test/"
+        "https://personal.example.test"
     );
     assert!(personal_env.get("twilio_auth_token").is_none());
     assert_eq!(family_env["twilio_auth_token"], "123456");

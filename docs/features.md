@@ -1110,11 +1110,17 @@ one or create a new ID and display name. SMS requires a phone and email requires
 an email, each with an explicit inbound-allowed state. Complete noninteractive
 flags provide the same channel, provider, user, address, and allowed-state
 values. Secrets are hidden while typing and stored only in the selected
-machine-registry record. Blank keeps an existing provider value and `/clear`
-erases it. The setup output shows the exact
+machine-registry record. Blank keeps an existing provider value. `/clear` is
+accepted as input, but setup rejects the resulting blank when that provider
+value is required by a selected channel. Guided and headless setup share the
+same HTTPS-origin, channel-requirement, sender-normalization, and redacted-error
+validation before writing. The setup output shows the exact
 `/w/<selected-ingress>/sms` and/or `/w/<selected-ingress>/email` URL to enter in
 the provider portal. Setup and `receiver set` notify only the selected live
-lease to reload; they never start or restart a process. The
+lease to reload; they never start or restart a process. Provider,
+portable-user, and hook writes form a rollback-bounded setup transaction: any
+later failure restores the selected pre-state, leaves peer workspace state
+alone, and suppresses reload. The
 shared process prefers port `8787` and serves receiver routes only while at
 least one TUI lease keeps that process alive. A selected workspace accepts
 receiver work only while its own lease is live and enabled; another live

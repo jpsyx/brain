@@ -147,7 +147,23 @@ pub(super) fn install(root: &Path) -> Result<()> {
     install_for_home(root, &home)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum InstallStep {
+    SessionScript,
+    StopScript,
+    ClaudeSettings,
+    CodexSettings,
+}
+
 fn install_for_home(root: &Path, home: &Path) -> Result<()> {
+    install_for_home_with(root, home, |_| Ok(()))
+}
+
+pub(super) fn install_for_home_with(
+    root: &Path,
+    home: &Path,
+    mut after_write: impl FnMut(InstallStep) -> Result<()>,
+) -> Result<()> {
     let hook_dir = root.join(".claude").join("brain-hooks");
     std::fs::create_dir_all(&hook_dir)?;
     let session_path = hook_dir.join("claude_session_start_hook.py");
@@ -159,6 +175,7 @@ fn install_for_home(root: &Path, home: &Path) -> Result<()> {
             "/scripts/claude_session_start_hook.py"
         )),
     )?;
+    after_write(InstallStep::SessionScript)?;
     std::fs::write(
         &stop_path,
         include_str!(concat!(
@@ -166,6 +183,7 @@ fn install_for_home(root: &Path, home: &Path) -> Result<()> {
             "/scripts/claude_stop_hook.py"
         )),
     )?;
+    after_write(InstallStep::StopScript)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -184,6 +202,7 @@ fn install_for_home(root: &Path, home: &Path) -> Result<()> {
         );
         replace_entry(settings, "Stop", "claude_stop_hook.py", &stop);
     })?;
+    after_write(InstallStep::ClaudeSettings)?;
     let codex_dir = home.join(".codex");
     let codex_hooks_path = codex_dir.join("hooks.json");
     update_json_file(&codex_hooks_path, |codex_hooks| {
@@ -195,6 +214,7 @@ fn install_for_home(root: &Path, home: &Path) -> Result<()> {
         );
         replace_entry(codex_hooks, "Stop", "claude_stop_hook.py", &stop);
     })?;
+    after_write(InstallStep::CodexSettings)?;
     Ok(())
 }
 

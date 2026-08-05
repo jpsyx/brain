@@ -431,8 +431,13 @@ The setup prompt asks for one public base URL, such as
 portable manifest, and derives exact webhook endpoints
 `/w/<ingress>/sms` and `/w/<ingress>/email`. Provider values are saved as
 strings in one selected-record transaction, including values that look numeric.
-A missing channel credential, public URL, user address, or explicit allowed
-state fails before configuration is written. SMS sender matching is exact, so every configured phone number
+A shared validation step for guided and headless setup requires an HTTPS origin
+without a path, query, fragment, or credentials; normalizes the Twilio sender to
+E.164 and the Resend sender to lowercase email form; and rejects missing or
+blank selected-channel values without echoing them. A missing channel
+credential, public URL, user address, or explicit allowed state fails before
+configuration is written. Guided `/clear` therefore cannot erase a value that
+the selected channel requires. SMS sender matching is exact, so every configured phone number
 must use the same E.164 form Twilio sends. Brain preserves the leading `+` when
 writing and listing these values. Config files written by an older release
 that stored one phone number as a JSON number are read and displayed with the
@@ -443,6 +448,10 @@ Headless setup accepts `--channels`, provider flags, `--user-id`, optional
 `--email`/`--email-allowed`. A successful setup or `receiver set` asks only an
 already-running shared process to reload the selected workspace UUID. No
 receiver configuration command elects, restarts, or keeps a process alive.
+Setup snapshots the selected record, portable users, and hook artifacts before
+its first write. A later persistence or hook failure rolls those exact selected
+bytes back, preserves peer records, aggregates any rollback error with the
+original failure, and sends no live reload notification.
 
 ## The `brain config` command
 
