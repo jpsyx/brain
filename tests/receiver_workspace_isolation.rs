@@ -2,6 +2,8 @@ mod receiver_workspace_support;
 
 use std::io::Write as _;
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
 use brain::server::receiver::{
@@ -9,7 +11,8 @@ use brain::server::receiver::{
 };
 use brain::tui::singleton::JobSocket;
 use receiver_workspace_support::{
-    FAMILY_ID, PERSONAL_ID, RecordingPipeline, SharedReceiverFixture, job, poll_until, workspace,
+    DualWorkspaceReceiverFixture, FAMILY_ID, PERSONAL_ID, RecordingPipeline, RevocationPipeline,
+    SharedReceiverFixture, job, poll_until, workspace,
 };
 
 #[test]
@@ -27,9 +30,36 @@ fn pipeline_resolves_before_credentials_and_authenticates_before_actor() {
             "signature",
             "actor",
             "job",
+            "authority",
             "forward"
         ]
     );
+}
+
+#[test]
+fn revoked_authority_after_actor_resolution_never_reaches_handoff() {
+    let actor_resolved = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let authority_valid = Arc::new(AtomicBool::new(true));
+    let forwards = Arc::new(AtomicUsize::new(0));
+    let mut pipeline = RevocationPipeline {
+        actor_resolved: Arc::clone(&actor_resolved),
+        release: Arc::clone(&release),
+        authority_valid: Arc::clone(&authority_valid),
+        forwards: Arc::clone(&forwards),
+    };
+    let worker = std::thread::spawn(move || execute_pipeline(&mut pipeline));
+
+    actor_resolved.wait();
+    authority_valid.store(false, Ordering::Release);
+    release.wait();
+
+    let error = worker
+        .join()
+        .unwrap()
+        .expect_err("revoked authority must reject the job");
+    assert!(error.to_string().contains("revoked"), "{error:#}");
+    assert_eq!(forwards.load(Ordering::Acquire), 0);
 }
 
 #[test]
@@ -41,6 +71,42 @@ fn same_sender_resolves_independently_in_each_selected_workspace() {
     assert_eq!(personal, "personal-member");
     assert_eq!(family, "family-member");
     assert_ne!(personal, family);
+}
+
+#[test]
+fn one_shared_process_routes_the_same_sender_to_two_exact_workspace_sockets() {
+    let mut fixture = DualWorkspaceReceiverFixture::start();
+
+    let swapped = fixture.post_personal_signed_with_family_credentials();
+    assert!(swapped.starts_with("HTTP/1.1 403"), "{swapped}");
+    assert!(fixture.personal_jobs().is_empty());
+    assert!(fixture.family_jobs().is_empty());
+
+    let personal_response = fixture.post_personal_async("SM-personal", "personal prompt");
+    let family_response = fixture.post_family_async("SM-family", "family prompt");
+    let (personal_jobs, family_jobs) = fixture.poll_both_jobs();
+
+    assert!(
+        personal_response
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .starts_with("HTTP/1.1 200")
+    );
+    assert!(
+        family_response
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .starts_with("HTTP/1.1 200")
+    );
+    assert_eq!(personal_jobs.len(), 1);
+    assert_eq!(personal_jobs[0].workspace_id, fixture.personal.id());
+    assert_eq!(personal_jobs[0].actor.user_id().as_str(), "personal-member");
+    assert_eq!(personal_jobs[0].prompt, "personal prompt");
+    assert_eq!(family_jobs.len(), 1);
+    assert_eq!(family_jobs[0].workspace_id, fixture.family.id());
+    assert_eq!(family_jobs[0].actor.user_id().as_str(), "family-member");
+    assert_eq!(family_jobs[0].prompt, "family prompt");
+    fixture.shutdown();
 }
 
 #[test]
@@ -154,6 +220,19 @@ fn missing_email_target_returns_one_json_unavailable_and_enqueues_nothing() {
     assert!(response.starts_with("HTTP/1.1 503"), "{response}");
     assert_eq!(response.matches("Brain is unavailable").count(), 1);
     assert!(response.contains("Content-Type: application/json"));
+    assert!(queue.is_empty());
+    fixture.shutdown();
+}
+
+#[test]
+fn authenticated_non_received_email_event_returns_accepted_without_enqueue() {
+    let mut fixture = SharedReceiverFixture::start();
+
+    let response = fixture.post_ignored_email_event();
+    let mut queue = Vec::new();
+    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
+
+    assert!(response.starts_with("HTTP/1.1 202"), "{response}");
     assert!(queue.is_empty());
     fixture.shutdown();
 }

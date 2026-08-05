@@ -80,6 +80,31 @@ fn drip_fed_body_and_response_share_the_request_head_deadline() {
     assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
 }
 
+#[test]
+fn bounded_handler_phase_replaces_the_parse_deadline_and_reserves_handoff_response_time() {
+    let (mut client, server) = tcp_pair();
+    client
+        .write_all(b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\n")
+        .expect("write request head");
+    let clock = Arc::new(ManualClock::new());
+    let mut request = Request::read_with_clock(server, clock.clone(), Duration::from_secs(2))
+        .expect("parse request head");
+    clock.advance(Duration::from_secs(2));
+
+    request
+        .begin_handler_phase()
+        .expect("start bounded handler phase");
+    client
+        .write_all(b"ok")
+        .expect("write body in handler phase");
+    assert_eq!(request.read_body(16).unwrap(), b"ok");
+
+    clock.advance(Duration::from_secs(26));
+    request
+        .ensure_acceptance_budget()
+        .expect_err("enqueue must stop when handoff plus response no longer fit");
+}
+
 struct ManualClock {
     now: Mutex<Instant>,
     calls: AtomicUsize,

@@ -972,12 +972,15 @@ forwards receiver requests only to live workspace TUIs.
   unchanged.
 - `server/http/` — the shared process's bounded, connection-closing HTTP/1.x
   request parser and response writer. Request heads are capped at 16 KiB, IO
-  shares one absolute two-second monotonic deadline from the first head read
-  through body reads, response writes, and flush, and each accepted connection
-  carries one request. The parser rejects conflicting or repeated framing,
-  unsupported transfer codings, invalid field names, and malformed or
-  over-limit chunk/trailer grammar. Field values strip only HTTP `SP`/`HTAB`
-  optional whitespace; forbidden controls and Unicode whitespace are rejected.
+  starts with one absolute two-second monotonic parse deadline, and each
+  accepted connection carries one request. Local actions retain that deadline
+  through response flush. Receiver requests keep it through the bounded body
+  and local provider verification, then enter one fixed 30-second
+  provider/handoff/response phase. The parser rejects conflicting or repeated
+  framing, unsupported transfer codings, invalid field names, and malformed
+  or over-limit chunk/trailer grammar. Field values strip only HTTP
+  `SP`/`HTAB` optional whitespace; forbidden controls and Unicode whitespace
+  are rejected.
   Chunk extensions are outside the deliberately extension-free safe subset.
 - `server/http_workers.rs` — a fixed four-worker, process-lifetime HTTP set
   over a loopback `std::net::TcpListener`. A start gate prevents any worker
@@ -988,7 +991,9 @@ forwards receiver requests only to live workspace TUIs.
   during final-TUI shutdown.
 - `server/receiver/` owns the ordered inbound pipeline. `http/` loads only the
   selected workspace's provider configuration after ingress resolution;
-  `http/sms.rs` and `http/email.rs` verify and normalize provider input;
+  `http/sms.rs` and `http/email.rs` return typed provider outcomes while they
+  verify and normalize provider input; Resend retrieval is capped at 1 MiB per
+  response and ten seconds per request;
   `dispatch.rs` resolves the selected workspace's portable actor and performs
   transactional, workspace-scoped provider-ID deduplication; `job.rs` defines
   the immutable serialized `InboundJob`; `unavailable.rs` owns the one-response,
@@ -1046,6 +1051,10 @@ the append if the acknowledgment cannot be written. Failed, full, disabled,
 and missing targets receive one channel-specific unavailable response and are
 not retained or retried. Provider IDs are retained only after an enqueue ack;
 the accepted cache is bounded at 1024 keys scoped by workspace and channel.
+Immediately before socket handoff, dispatch requires at least five seconds of
+handler budget and revalidates the retained generation, authority revision,
+receiver enablement, and live lease under the control mutex. Provider,
+filesystem, and socket IO never run while that mutex is held.
 
 Queued inbound work is never allowed to interrupt an active agent turn.
 `tui/receiver_state.rs`

@@ -161,7 +161,7 @@ fn receiver_response(
             return unavailable_receiver_response(channel);
         }
     };
-    match receiver::dispatch::dispatch_http(route, request, channel) {
+    match receiver::dispatch::dispatch_http(route, request, control, channel) {
         Ok(job) => {
             crate::logging::log(format!(
                 "receiver job accepted workspace={} job={} channel={:?}",

@@ -199,11 +199,28 @@ impl ControlServer {
             ticket,
             now,
         )?;
-        Ok(crate::server::workspace_route::ResolvedWorkspaceRoute::new(
-            context,
-            ticket.lease().clone(),
-            self.registry_store.clone(),
-        ))
+        Ok(
+            crate::server::workspace_route::ResolvedWorkspaceRoute::with_authority(
+                context,
+                ticket.lease().clone(),
+                self.registry_store.clone(),
+                ticket.clone(),
+            ),
+        )
+    }
+
+    /// Revalidate one resolved route immediately before receiver handoff.
+    pub(crate) fn revalidate_workspace_route(
+        &mut self,
+        route: &crate::server::workspace_route::ResolvedWorkspaceRoute,
+        now: Instant,
+    ) -> Result<(), crate::server::workspace_route::WorkspaceRouteError> {
+        crate::server::workspace_route::WorkspaceRouteAuthority::finish(
+            &mut self.leases,
+            self.generation,
+            route.authority_ticket()?,
+            now,
+        )
     }
 
     fn apply_current(

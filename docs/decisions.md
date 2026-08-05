@@ -1812,10 +1812,13 @@ a task pool that may spawn when no task is waiting, and a request queue whose
 capacity constructor is only an allocation hint; its public listener API does
 not expose limits for those mechanisms. The shared process therefore uses a
 small connection-closing `std` HTTP transport with four fixed accept workers,
-no application request queue, a 16 KiB request-head limit, and two-second
-absolute connection deadlines. Every successful or blocking head/body read,
-response write, and flush consumes the one deadline established at connection
-parsing, so drip progress cannot retain a worker indefinitely. The parser
+no application request queue, a 16 KiB request-head limit, and a two-second
+absolute parse deadline. Local routes keep that deadline through response
+flush. Receiver bodies plus local signature/event parsing stay inside it, then
+successful local verification starts one fixed 30-second phase for bounded
+provider retrieval, job acknowledgment, and response. Before enqueue Brain
+requires five seconds to remain. Successful progress never renews either
+phase, so drip progress cannot retain a worker indefinitely. The parser
 accepts either one `Content-Length` or exactly one supported `chunked` transfer
 coding, rejects ambiguous framing and invalid field names, and bounds and
 validates chunks and trailers. Header values trim only HTTP optional whitespace
@@ -1948,6 +1951,21 @@ response email, and allowed authenticated-thread recipients. The TUI routes
 that same context through `AgentController` for Claude and Codex. Configuration
 changes during the turn cannot replace the initiating actor or broaden reply
 recipients.
+
+The route ticket remains attached to that accepted context. After provider
+work and actor/job construction, dispatch reacquires the control mutex only to
+revalidate the exact generation, authority revision, receiver enablement, and
+live lease. It releases the mutex before the UUID-local socket handoff. This
+second linearization point rejects revocation during provider IO without
+blocking heartbeats on filesystem, provider, or socket work.
+
+Resend's two possible Receiving API calls are bounded independently at ten
+seconds and 1 MiB, leaving the handler's five-second handoff/response reserve
+inside its 30-second total. One shared compile-time timing invariant prevents
+those bounds from drifting apart. The curl reader stops after one over-limit
+proof byte and reaps the child before returning a typed 502. Typed provider
+outcomes also preserve 202 for irrelevant signed webhook events instead of
+classifying errors by message text.
 
 Provider requests still use the system `curl` binary to avoid adding a second
 HTTP client stack, but the complete curl configuration is written through the

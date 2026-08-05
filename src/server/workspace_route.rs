@@ -18,6 +18,7 @@ pub struct ResolvedWorkspaceRoute {
     context: WorkspaceContext,
     lease: WorkspaceLease,
     registry_store: RegistryStore,
+    authority_ticket: Option<WorkspaceRouteTicket>,
 }
 
 impl ResolvedWorkspaceRoute {
@@ -30,6 +31,21 @@ impl ResolvedWorkspaceRoute {
             context,
             lease,
             registry_store,
+            authority_ticket: None,
+        }
+    }
+
+    pub(crate) const fn with_authority(
+        context: WorkspaceContext,
+        lease: WorkspaceLease,
+        registry_store: RegistryStore,
+        authority_ticket: WorkspaceRouteTicket,
+    ) -> Self {
+        Self {
+            context,
+            lease,
+            registry_store,
+            authority_ticket: Some(authority_ticket),
         }
     }
 
@@ -49,6 +65,12 @@ impl ResolvedWorkspaceRoute {
     #[must_use]
     pub const fn registry_store(&self) -> &RegistryStore {
         &self.registry_store
+    }
+
+    pub(crate) fn authority_ticket(&self) -> Result<&WorkspaceRouteTicket, WorkspaceRouteError> {
+        self.authority_ticket.as_ref().ok_or_else(|| {
+            WorkspaceRouteError::new(503, "workspace route has no shared-server authority")
+        })
     }
 }
 

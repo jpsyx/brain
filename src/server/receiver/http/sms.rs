@@ -1,43 +1,42 @@
 use std::collections::{BTreeSet, HashMap};
 
-use anyhow::Result;
-
-use super::{AuthenticatedInbound, ProviderConfig};
+use super::{AuthenticatedInbound, ProviderConfig, ProviderError};
 use crate::server::receiver::{AttachmentRef, Channel};
 
 pub(super) fn authenticate(
     request: &crate::server::http::Request,
     body: &[u8],
     config: &ProviderConfig,
-) -> Result<AuthenticatedInbound> {
-    anyhow::ensure!(
-        !config.twilio_auth_token.is_empty() && !config.public_base_url.is_empty(),
-        "Twilio security is not configured"
-    );
+) -> Result<AuthenticatedInbound, ProviderError> {
+    if config.twilio_auth_token.is_empty() || config.public_base_url.is_empty() {
+        return Err(ProviderError::NotConfigured(
+            "Twilio security is not configured",
+        ));
+    }
     let fields = parse_form(body)?;
     let sorted = fields
         .iter()
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     let signature = request.header("x-twilio-signature").unwrap_or_default();
-    anyhow::ensure!(
-        crate::server::security::verify_twilio(
-            &config.twilio_auth_token,
-            &twilio_signature_url(&config.public_base_url, config.ingress_id),
-            &sorted,
-            signature,
-        ),
-        "invalid Twilio signature"
-    );
+    if !crate::server::security::verify_twilio(
+        &config.twilio_auth_token,
+        &twilio_signature_url(&config.public_base_url, config.ingress_id),
+        &sorted,
+        signature,
+    ) {
+        return Err(ProviderError::InvalidSignature("invalid Twilio signature"));
+    }
     let prompt = fields.get("Body").cloned().unwrap_or_default();
     let sender = fields.get("From").cloned().unwrap_or_default();
     let sender = crate::users::normalize_phone(&sender)
-        .map_err(|_| anyhow::anyhow!("SMS sender is not allowed"))?;
+        .map_err(|_| ProviderError::SenderNotAllowed("SMS sender is not allowed"))?;
     let attachments = sms_attachments(&fields);
-    anyhow::ensure!(
-        !prompt.trim().is_empty() || !attachments.is_empty(),
-        "SMS body and media are both empty"
-    );
+    if prompt.trim().is_empty() && attachments.is_empty() {
+        return Err(ProviderError::InvalidRequest(
+            "SMS body and media are both empty",
+        ));
+    }
     Ok(AuthenticatedInbound {
         channel: Channel::Sms,
         sender: sender.clone(),
@@ -70,8 +69,9 @@ fn sms_attachments(fields: &HashMap<String, String>) -> Vec<AttachmentRef> {
         .collect()
 }
 
-fn parse_form(body: &[u8]) -> Result<HashMap<String, String>> {
-    let text = std::str::from_utf8(body).map_err(|_| anyhow::anyhow!("SMS body is not UTF-8"))?;
+fn parse_form(body: &[u8]) -> Result<HashMap<String, String>, ProviderError> {
+    let text = std::str::from_utf8(body)
+        .map_err(|_| ProviderError::InvalidRequest("SMS body is not UTF-8"))?;
     Ok(text
         .split('&')
         .filter(|part| !part.is_empty())

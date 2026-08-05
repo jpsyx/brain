@@ -70,12 +70,14 @@ impl Response {
 const fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        202 => "Accepted",
         400 => "Bad Request",
         404 => "Not Found",
         408 => "Request Timeout",
         409 => "Conflict",
         413 => "Payload Too Large",
         500 => "Internal Server Error",
+        502 => "Bad Gateway",
         503 => "Service Unavailable",
         _ => "Response",
     }

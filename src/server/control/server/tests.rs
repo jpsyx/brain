@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Barrier, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use super::*;
 use crate::server::lifecycle::{IngressId, LeaseAction, LeaseId, WorkspaceLease};
 use crate::server::workspace_route::{WorkspaceContextLoader, WorkspaceRouteError};
 use crate::workspace::{WorkspaceContext, WorkspaceId};
-
 #[test]
 fn blocked_context_load_does_not_block_control_and_stale_ticket_cannot_route() {
     let now = Instant::now();
@@ -168,6 +168,115 @@ fn heartbeat_renewal_preserves_a_captured_route_ticket() {
     server
         .finish_workspace_route(&ticket, workspace_context(), now + Duration::from_secs(1))
         .expect("ordinary heartbeat must preserve route authority");
+}
+
+#[test]
+fn disable_after_actor_resolution_rejects_before_socket_handoff() {
+    let now = Instant::now();
+    let route_lease = lease(now + Duration::from_secs(30));
+    let lease_id = route_lease.lease_id;
+    let generation = ServerGeneration::new();
+    let mut server = control_with_lease(generation, route_lease, now);
+    let (ticket, _) = server
+        .begin_workspace_route(ingress(), now)
+        .expect("capture accepting route");
+    let route = server
+        .finish_workspace_route(&ticket, workspace_context(), now)
+        .expect("resolve initial route");
+    let control = Arc::new(Mutex::new(server));
+    let actor_resolved = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let forwards = Arc::new(AtomicUsize::new(0));
+    let mut pipeline = AuthorityPipeline {
+        route: Some(route),
+        control: Arc::clone(&control),
+        actor_resolved: Arc::clone(&actor_resolved),
+        release: Arc::clone(&release),
+        forwards: Arc::clone(&forwards),
+        now,
+    };
+    let worker =
+        std::thread::spawn(move || crate::server::receiver::execute_pipeline(&mut pipeline));
+
+    actor_resolved.wait();
+    control
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .leases
+        .set_receiver_enabled(lease_id, false, now)
+        .expect("disable exact live lease");
+    release.wait();
+
+    worker
+        .join()
+        .expect("dispatch thread")
+        .expect_err("revoked route must reject before socket handoff");
+    assert_eq!(forwards.load(Ordering::Acquire), 0);
+}
+
+struct AuthorityPipeline {
+    route: Option<crate::server::workspace_route::ResolvedWorkspaceRoute>,
+    control: Arc<Mutex<ControlServer>>,
+    actor_resolved: Arc<Barrier>,
+    release: Arc<Barrier>,
+    forwards: Arc<AtomicUsize>,
+    now: Instant,
+}
+
+impl crate::server::receiver::DispatchPipeline for AuthorityPipeline {
+    type Workspace = crate::server::workspace_route::ResolvedWorkspaceRoute;
+    type ProviderConfig = ();
+    type Authenticated = ();
+    type Actor = ();
+    type Job = ();
+
+    fn resolve_workspace(&mut self) -> anyhow::Result<Self::Workspace> {
+        self.route.take().context("route was already consumed")
+    }
+
+    fn load_provider_config(&mut self, _workspace: &Self::Workspace) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn verify_signature(&mut self, _config: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn resolve_actor(
+        &mut self,
+        _workspace: &Self::Workspace,
+        _authenticated: &(),
+    ) -> anyhow::Result<()> {
+        self.actor_resolved.wait();
+        self.release.wait();
+        Ok(())
+    }
+
+    fn build_job(
+        &mut self,
+        _workspace: &Self::Workspace,
+        _actor: &(),
+        _authenticated: &(),
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn revalidate_authority(
+        &mut self,
+        workspace: &Self::Workspace,
+        _job: &(),
+    ) -> anyhow::Result<()> {
+        self.control
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .revalidate_workspace_route(workspace, self.now)
+            .map_err(Into::into)
+    }
+
+    fn forward(&mut self, _workspace: &Self::Workspace, _job: &()) -> anyhow::Result<()> {
+        self.forwards.fetch_add(1, Ordering::AcqRel);
+        Ok(())
+    }
 }
 
 struct BlockingLoader {

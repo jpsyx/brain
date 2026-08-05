@@ -52,6 +52,26 @@ impl DeadlineStream {
             })
     }
 
+    pub(super) fn restart_budget(&mut self, budget: Duration) -> std::io::Result<()> {
+        self.deadline = self
+            .clock
+            .now()
+            .checked_add(budget)
+            .ok_or_else(|| std::io::Error::other("HTTP handler deadline overflow"))?;
+        Ok(())
+    }
+
+    pub(super) fn ensure_remaining(&self, required: Duration) -> std::io::Result<()> {
+        let remaining = self.ensure_open()?;
+        if remaining < required {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "HTTP handler deadline cannot cover job handoff and response",
+            ));
+        }
+        Ok(())
+    }
+
     fn prepare_read(&self) -> std::io::Result<()> {
         self.stream.set_read_timeout(Some(self.ensure_open()?))
     }

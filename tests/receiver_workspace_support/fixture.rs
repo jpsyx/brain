@@ -7,9 +7,8 @@ use std::time::{Duration, Instant};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
-use hmac::{Hmac, Mac as _};
-use sha1::Sha1;
 
+use super::provider_request::{post, signed_email_event, signed_sms};
 use super::{FAMILY_ID, PERSONAL_ID, poll_until};
 
 pub struct SharedReceiverFixture {
@@ -76,6 +75,17 @@ impl SharedReceiverFixture {
                     (
                         "brain_receiver_public_url".to_owned(),
                         serde_json::json!("https://receiver.example.test"),
+                    ),
+                    (
+                        "resend_webhook_signing_secret".to_owned(),
+                        serde_json::json!(format!(
+                            "whsec_{}",
+                            STANDARD.encode(b"personal-resend-secret")
+                        )),
+                    ),
+                    (
+                        "resend_api_key".to_owned(),
+                        serde_json::json!("personal-resend-key"),
                     ),
                 ]),
             },
@@ -149,13 +159,23 @@ impl SharedReceiverFixture {
     }
 
     pub fn post_sms(&self, provider_id: &str, prompt: &str) -> String {
-        let (path, headers, body) = self.sms_request(provider_id, prompt, "+12125550100");
-        post(self.port, &path, &headers, &body)
+        post(
+            self.port,
+            &signed_sms(
+                self.ingress,
+                "personal-token",
+                provider_id,
+                prompt,
+                "+12125550100",
+            ),
+        )
     }
 
     pub fn post_sms_from(&self, provider_id: &str, prompt: &str, sender: &str) -> String {
-        let (path, headers, body) = self.sms_request(provider_id, prompt, sender);
-        post(self.port, &path, &headers, &body)
+        post(
+            self.port,
+            &signed_sms(self.ingress, "personal-token", provider_id, prompt, sender),
+        )
     }
 
     pub fn post_sms_async(
@@ -163,44 +183,36 @@ impl SharedReceiverFixture {
         provider_id: &str,
         prompt: &str,
     ) -> std::sync::mpsc::Receiver<String> {
-        let (path, headers, body) = self.sms_request(provider_id, prompt, "+12125550100");
+        let request = signed_sms(
+            self.ingress,
+            "personal-token",
+            provider_id,
+            prompt,
+            "+12125550100",
+        );
         let port = self.port;
         let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
         std::thread::spawn(move || {
-            response_tx
-                .send(post(port, &path, &headers, &body))
-                .unwrap();
+            response_tx.send(post(port, &request)).unwrap();
         });
         response_rx
     }
 
-    fn sms_request(
-        &self,
-        provider_id: &str,
-        prompt: &str,
-        sender: &str,
-    ) -> (String, String, String) {
-        let fields = BTreeMap::from([
-            ("Body".to_owned(), prompt.to_owned()),
-            ("From".to_owned(), sender.to_owned()),
-            ("MessageSid".to_owned(), provider_id.to_owned()),
-        ]);
-        let signature_url = format!("https://receiver.example.test/w/{}/sms", self.ingress);
-        let signature = twilio_signature("personal-token", &signature_url, &fields);
-        let body = format!(
-            "Body={}&From={}&MessageSid={provider_id}",
-            prompt.replace(' ', "+"),
-            sender.replace('+', "%2B")
-        );
-        (
-            format!("/w/{}/sms", self.ingress),
-            format!("X-Twilio-Signature: {signature}\r\n"),
-            body,
-        )
+    pub fn post_email_without_credentials(&self) -> String {
+        let request = signed_email_event(self.ingress, b"wrong-secret", "unsigned", "invalid");
+        post(self.port, &request)
     }
 
-    pub fn post_email_without_credentials(&self) -> String {
-        post(self.port, &format!("/w/{}/email", self.ingress), "", "{}")
+    pub fn post_ignored_email_event(&self) -> String {
+        post(
+            self.port,
+            &signed_email_event(
+                self.ingress,
+                b"personal-resend-secret",
+                "ignored-webhook",
+                "email.delivered",
+            ),
+        )
     }
 
     pub fn post_oversized_sms(&self) -> String {
@@ -342,18 +354,6 @@ fn register_workspace(
     lease_id
 }
 
-fn post(port: u16, path: &str, headers: &str, body: &str) -> String {
-    let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: localhost\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    stream.write_all(request.as_bytes()).unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    response
-}
-
 fn poll_value<T>(deadline: Instant, mut value: impl FnMut() -> Option<T>) -> T {
     loop {
         if let Some(value) = value() {
@@ -362,15 +362,4 @@ fn poll_value<T>(deadline: Instant, mut value: impl FnMut() -> Option<T>) -> T {
         assert!(Instant::now() < deadline, "value was not produced");
         std::thread::yield_now();
     }
-}
-
-fn twilio_signature(token: &str, url: &str, fields: &BTreeMap<String, String>) -> String {
-    let mut payload = url.to_owned();
-    for (key, value) in fields {
-        payload.push_str(key);
-        payload.push_str(value);
-    }
-    let mut mac = Hmac::<Sha1>::new_from_slice(token.as_bytes()).unwrap();
-    mac.update(payload.as_bytes());
-    STANDARD.encode(mac.finalize().into_bytes())
 }

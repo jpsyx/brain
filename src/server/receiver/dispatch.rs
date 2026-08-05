@@ -34,6 +34,7 @@ pub trait DispatchPipeline {
         actor: &Self::Actor,
         authenticated: &Self::Authenticated,
     ) -> Result<Self::Job>;
+    fn revalidate_authority(&mut self, workspace: &Self::Workspace, job: &Self::Job) -> Result<()>;
     fn forward(&mut self, workspace: &Self::Workspace, job: &Self::Job) -> Result<()>;
 }
 
@@ -49,6 +50,7 @@ pub fn execute_pipeline<P: DispatchPipeline>(pipeline: &mut P) -> Result<P::Job>
     let authenticated = pipeline.verify_signature(&config)?;
     let actor = pipeline.resolve_actor(&workspace, &authenticated)?;
     let job = pipeline.build_job(&workspace, &actor, &authenticated)?;
+    pipeline.revalidate_authority(&workspace, &job)?;
     pipeline.forward(&workspace, &job)?;
     Ok(job)
 }
@@ -82,11 +84,13 @@ impl std::error::Error for DispatchHttpError {}
 pub(in crate::server) fn dispatch_http(
     route: crate::server::workspace_route::ResolvedWorkspaceRoute,
     request: &mut crate::server::http::Request,
+    control: &std::sync::Mutex<crate::server::control::ControlServer>,
     channel: super::Channel,
 ) -> Result<InboundJob, DispatchHttpError> {
     let mut pipeline = SharedReceiverPipeline {
         route: Some(route),
         request,
+        control,
         channel,
     };
     execute_pipeline(&mut pipeline).map_err(|error| {
@@ -103,6 +107,7 @@ pub(in crate::server) fn dispatch_http(
 struct SharedReceiverPipeline<'a> {
     route: Option<crate::server::workspace_route::ResolvedWorkspaceRoute>,
     request: &'a mut crate::server::http::Request,
+    control: &'a std::sync::Mutex<crate::server::control::ControlServer>,
     channel: super::Channel,
 }
 
@@ -141,20 +146,10 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
 
     fn verify_signature(&mut self, config: &Self::ProviderConfig) -> Result<Self::Authenticated> {
         super::http::authenticate(self.request, config, self.channel).map_err(|error| {
-            let message = error.to_string();
-            let status = if message.contains("too large") {
-                413
-            } else if message.contains("signature") || message.contains("not allowed") {
-                403
-            } else if message.contains("not configured") || message.contains("fetching Resend") {
-                503
-            } else {
-                400
-            };
             DispatchHttpError {
-                status,
-                unavailable: status == 503,
-                message,
+                status: error.status(),
+                unavailable: error.unavailable(),
+                message: error.to_string(),
             }
             .into()
         })
@@ -258,6 +253,32 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
             }
             .into()
         })
+    }
+
+    fn revalidate_authority(
+        &mut self,
+        workspace: &Self::Workspace,
+        _job: &Self::Job,
+    ) -> Result<()> {
+        self.request.ensure_acceptance_budget().map_err(|error| {
+            anyhow::Error::new(DispatchHttpError {
+                status: 503,
+                unavailable: true,
+                message: format!("receiver deadline cannot cover enqueue and response: {error}"),
+            })
+        })?;
+        self.control
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .revalidate_workspace_route(workspace, std::time::Instant::now())
+            .map_err(|error| {
+                DispatchHttpError {
+                    status: 503,
+                    unavailable: true,
+                    message: error.to_string(),
+                }
+                .into()
+            })
     }
 }
 

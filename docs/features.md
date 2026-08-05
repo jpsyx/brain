@@ -992,6 +992,9 @@ the normalized sender through the selected workspace's enabled portable phone
 or email identities. Unknown and disabled senders are rejected. Resend
 timestamps must be within five minutes. Request bodies and serialized job
 frames are capped at 1 MiB, and the live TUI queue is bounded at 64 jobs.
+Each Resend received-email or attachment-metadata response is also capped at
+1 MiB and ten seconds. Signed events other than `email.received` return 202;
+Receiving API failures return 502.
 Accepted provider IDs are deduplicated in a bounded cache scoped by workspace
 and channel; failed handoffs retain no retry state. SMS numbers use exact E.164
 matching, including the leading `+` and country code. A malformed configured
@@ -1010,10 +1013,14 @@ queue, replay, or headless execution.
 
 The shared HTTP boundary admits exactly four active connections with a fixed
 worker set and no application request queue. It caps request heads and local
-action bodies at 16 KiB, bounds the whole connection to one absolute two-second
-deadline, and revalidates a captured live route ticket after workspace
-filesystem checks. Byte-by-byte progress and a slow response drain cannot
-renew that deadline. Conflicting `Content-Length`/`Transfer-Encoding`, repeated
+action bodies at 16 KiB, starts every connection with one absolute two-second
+parse deadline, and revalidates a captured live route ticket after workspace
+filesystem checks. Receiver body plus local provider verification remain in
+that phase; successful verification starts one bounded 30-second provider,
+handoff, and response phase. Brain requires five seconds to remain and
+revalidates the retained route ticket again immediately before enqueue.
+Byte-by-byte progress and a slow response drain cannot renew either deadline.
+Conflicting `Content-Length`/`Transfer-Encoding`, repeated
 or unsupported transfer codings, invalid field names, and malformed bounded
 chunk/trailer grammar are rejected. Framing values accept only `SP`/`HTAB` as
 optional whitespace; controls, Unicode whitespace, and chunk extensions are

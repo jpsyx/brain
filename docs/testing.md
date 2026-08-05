@@ -237,16 +237,25 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Receiver admission and workspace isolation.**
   `tests/receiver_workspace_isolation.rs` uses focused fixture and model
   support modules with deadline-bounded polling and no fixed sleeps. It drives
-  signed SMS through the real shared process and exact live TUI socket, rejects
-  an unknown sender and cross-workspace frames, verifies the 1 MiB body cap,
-  and proves disabled or missing targets return one channel-specific
-  unavailable response while another workspace keeps the process alive. It
-  also covers absent-process silence, failed sockets, a full 64-job queue,
+  signed SMS through the real shared process and exact live TUI socket. A
+  second real-process fixture registers two live workspaces with distinct
+  credentials and actors for the same normalized sender, rejects a deliberately
+  cross-signed ingress, then proves each request enters only its exact socket.
+  The suite also rejects an unknown sender and cross-workspace frames, verifies
+  the 1 MiB body cap, and proves disabled or missing targets return one
+  channel-specific unavailable response while another workspace keeps the
+  process alive. It also covers absent-process silence, failed sockets, a full
+  64-job queue,
   enqueue acknowledgment, and rollback when the acknowledgment write fails.
   Pure dispatch tests pin the credential/signature/actor order and transactional
   provider-ID state: failed handoffs retain no ID, in-flight duplicates are not
   acknowledged, successful duplicates are idempotent, and the 1024-entry cache
-  is scoped by workspace and channel.
+  is scoped by workspace and channel. Barrier-driven dispatch tests disable
+  exact live authority after actor resolution and prove revalidation prevents
+  any socket handoff. Typed provider tests preserve ignored-event 202 and
+  upstream 502 outcomes. Injected Resend fetch tests cap both provider
+  responses, and a counting reader proves only one proof byte beyond the limit
+  is consumed.
 - **Shared-server lease state.** `server/lifecycle/table.rs` uses injected
   monotonic instants and timing values to prove that different workspace leases
   coexist, duplicate live workspace, ingress, or lease identities fail, an
@@ -319,9 +328,11 @@ first move is a failing test that reproduces it, *then* the fix.
   request heads without increasing the server thread count. An injected
   second-worker spawn failure proves the start gate rolls back before any
   partially received body is consumed.
-  Injected-clock request tests advance the same absolute connection deadline
-  across successful head and body bytes and the later response, proving drip
-  progress cannot renew it without relying on sleeps. Parser tests reject
+  Injected-clock request tests advance the parse deadline across successful
+  head and body bytes and the later response, proving drip progress cannot
+  renew it without relying on sleeps. A separate injected-clock case starts
+  the bounded receiver handler phase and proves enqueue is refused once the
+  job-handoff plus response reserve no longer fits. Parser tests reject
   conflicting or repeated framing, unsupported transfer codings, invalid
   field names, malformed chunk sizes, forbidden framing trailers, and bounded
   chunk/trailer violations while accepting the exact supported chunked form.

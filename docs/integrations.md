@@ -364,10 +364,12 @@ never acknowledged as accepted work.
 
 The shared listener uses four fixed process-lifetime accept workers and no
 application request queue. Each connection carries one request, request heads
-and local action bodies are capped at 16 KiB, and reads and writes have a
-single absolute two-second monotonic deadline established before the request
-head. Successful bytes do not renew it; body reads, response writes, and flush
-all consume the same budget. HTTP framing accepts at most one
+and local action bodies are capped at 16 KiB, and parsing starts with a single
+absolute two-second monotonic deadline established before the request head.
+Successful bytes do not renew it. Local actions retain that deadline through
+their response. Receiver bodies and local signature/event parsing also stay
+inside it; only after they succeed does the request enter a separate fixed
+30-second provider/handoff/response phase. HTTP framing accepts at most one
 `Content-Length` or the one supported `chunked` transfer coding, never both,
 and rejects repeated or unsupported codings, invalid field-name syntax,
 malformed chunk sizes, forbidden framing trailers, and over-limit chunks or
@@ -552,7 +554,14 @@ blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.
 Only acknowledged jobs enter the cache. A failed or in-flight handoff returns
 unavailable and schedules no retry; a later provider retry may attempt a fresh
-handoff. Provider
+handoff. Dispatch retains the original route ticket, requires five seconds of
+remaining handler budget, then revalidates the exact generation, authority
+incarnation, enabled state, and live lease immediately before socket IO.
+Resend's received-email and attachment-metadata calls each have a ten-second
+maximum and a 1 MiB response cap; an oversized stream is stopped after one
+proof byte beyond the cap, before JSON parsing. Ignored webhook events return
+202, while receiving-API rejection or malformed provider JSON returns 502.
+Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through
 standard input rather than process arguments. Provider output is captured so it
 cannot corrupt the TUI. Outbound Twilio/Resend calls are serialized through a

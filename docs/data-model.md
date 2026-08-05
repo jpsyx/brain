@@ -197,8 +197,11 @@ even a later lease that reuses the same ID, workspace, ingress, TUI PID, and
 job socket cannot match a ticket from before revocation. An unregister,
 disable, replacement, or expiry makes the ticket stale. Unknown
 ingress maps to 404; a known ingress with receiver disabled or no live TUI maps
-to 503. The returned context and lease remain paired for later forwarding
-without reopening another selector. A registration replay or enablement update
+to 503. The returned context and lease remain paired with the original ticket
+for later forwarding without reopening another selector. Receiver dispatch
+revalidates that ticket after actor/job construction and immediately before
+the socket handoff, so a disable, unregister, expiry, or replacement during
+provider work cannot enqueue. A registration replay or enablement update
 computes its next revision before changing expiry, enablement, or registration
 state; revision overflow rejects the complete transition without extending or
 reviving authority.

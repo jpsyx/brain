@@ -120,6 +120,18 @@ impl Request {
     pub(in crate::server) fn write_response(&mut self, response: &Response) -> std::io::Result<()> {
         response.write_to(self.reader.get_mut())
     }
+
+    pub(in crate::server) fn begin_handler_phase(&mut self) -> std::io::Result<()> {
+        self.reader
+            .get_mut()
+            .restart_budget(crate::server::receiver::http::RECEIVER_HANDLER_TIMEOUT)
+    }
+
+    pub(in crate::server) fn ensure_acceptance_budget(&self) -> std::io::Result<()> {
+        self.reader
+            .get_ref()
+            .ensure_remaining(crate::server::receiver::http::RECEIVER_ACCEPTANCE_RESERVE)
+    }
 }
 
 #[derive(Debug)]

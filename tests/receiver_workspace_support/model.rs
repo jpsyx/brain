@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Barrier};
 use std::time::Instant;
 
 use brain::server::receiver::{AttachmentRef, Channel, DispatchPipeline, InboundJob};
@@ -140,6 +142,71 @@ impl DispatchPipeline for RecordingPipeline {
     fn forward(&mut self, workspace: &Self::Workspace, _job: &Self::Job) -> anyhow::Result<()> {
         assert_eq!(*workspace, self.workspace);
         self.events.push("forward");
+        Ok(())
+    }
+
+    fn revalidate_authority(
+        &mut self,
+        workspace: &Self::Workspace,
+        _job: &Self::Job,
+    ) -> anyhow::Result<()> {
+        assert_eq!(*workspace, self.workspace);
+        self.events.push("authority");
+        Ok(())
+    }
+}
+
+pub struct RevocationPipeline {
+    pub actor_resolved: Arc<Barrier>,
+    pub release: Arc<Barrier>,
+    pub authority_valid: Arc<AtomicBool>,
+    pub forwards: Arc<AtomicUsize>,
+}
+
+impl DispatchPipeline for RevocationPipeline {
+    type Workspace = ();
+    type ProviderConfig = ();
+    type Authenticated = ();
+    type Actor = ();
+    type Job = ();
+
+    fn resolve_workspace(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn load_provider_config(&mut self, _workspace: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn verify_signature(&mut self, _config: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn resolve_actor(&mut self, _workspace: &(), _authenticated: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn build_job(
+        &mut self,
+        _workspace: &(),
+        _actor: &(),
+        _authenticated: &(),
+    ) -> anyhow::Result<()> {
+        self.actor_resolved.wait();
+        self.release.wait();
+        Ok(())
+    }
+
+    fn revalidate_authority(&mut self, _workspace: &(), _job: &()) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.authority_valid.load(Ordering::Acquire),
+            "route authority was revoked"
+        );
+        Ok(())
+    }
+
+    fn forward(&mut self, _workspace: &(), _job: &()) -> anyhow::Result<()> {
+        self.forwards.fetch_add(1, Ordering::AcqRel);
         Ok(())
     }
 }
