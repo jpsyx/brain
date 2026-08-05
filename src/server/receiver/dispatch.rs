@@ -268,6 +268,13 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
                 message: format!("receiver deadline cannot cover enqueue and response: {error}"),
             })
         })?;
+        workspace.revalidate_receiver_intent().map_err(|error| {
+            anyhow::Error::new(DispatchHttpError {
+                status: 503,
+                unavailable: true,
+                message: error.to_string(),
+            })
+        })?;
         self.control
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

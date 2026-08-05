@@ -63,6 +63,13 @@ pub enum ControlRequest {
         /// Exact workspace whose accepted ingress is requested.
         workspace_id: WorkspaceId,
     },
+    /// Inspect receiver enablement on one exact live workspace lease.
+    WorkspaceStatus {
+        /// Target process generation.
+        generation: ServerGeneration,
+        /// Exact workspace whose live lease is requested.
+        workspace_id: WorkspaceId,
+    },
     /// Return non-sensitive process and lease status.
     Snapshot,
 }
@@ -74,7 +81,8 @@ impl ControlRequest {
             Self::Heartbeat { generation, .. }
             | Self::RefreshEnabled { generation, .. }
             | Self::Unregister { generation, .. }
-            | Self::WorkspaceIngress { generation, .. } => Some(*generation),
+            | Self::WorkspaceIngress { generation, .. }
+            | Self::WorkspaceStatus { generation, .. } => Some(*generation),
             Self::Snapshot => None,
         }
     }
@@ -109,6 +117,13 @@ pub enum ControlResponse {
         generation: ServerGeneration,
         /// `None` when that workspace has no live lease in this generation.
         ingress_id: Option<IngressId>,
+    },
+    /// Receiver enablement snapshot of an exact live workspace lease.
+    WorkspaceStatus {
+        /// Current process generation.
+        generation: ServerGeneration,
+        /// `None` when that workspace has no live lease in this generation.
+        receiver_enabled: Option<bool>,
     },
     /// The request targeted a previous process generation.
     StaleGeneration,

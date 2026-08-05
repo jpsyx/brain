@@ -1953,11 +1953,20 @@ changes during the turn cannot replace the initiating actor or broaden reply
 recipients.
 
 The route ticket remains attached to that accepted context. After provider
-work and actor/job construction, dispatch reacquires the control mutex only to
-revalidate the exact generation, authority revision, receiver enablement, and
-live lease. It releases the mutex before the UUID-local socket handoff. This
-second linearization point rejects revocation during provider IO without
-blocking heartbeats on filesystem, provider, or socket work.
+work and actor/job construction, dispatch reloads the exact canonical registry
+record and requires its immutable workspace UUID and persistent receiver intent
+to remain valid. It then reacquires the control mutex only to revalidate the
+exact generation, authority revision, receiver enablement, and live lease, and
+releases the mutex before the UUID-local socket handoff. This second
+linearization point rejects both notified and notification-lost revocation
+during provider IO without holding the mutex during provider or socket work.
+
+Persistent receiver intent is the mutation commit point. A generation-bound
+live refresh is a convergence notification, not a second transaction: failure
+to deliver it is surfaced as a warning while the committed setting remains in
+the CLI and palette state. Final admission's authoritative registry reload is
+the safety backstop that prevents such a failed notification from accepting
+new work.
 
 Resend's two possible Receiving API calls are bounded independently at ten
 seconds and 1 MiB inside the 30-second handler total. The parse phase must

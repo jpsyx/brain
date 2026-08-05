@@ -355,6 +355,7 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_control: Option<crate::tui::singleton::JobSocket>,
     /// Persistent receiver intent for this exact selected workspace.
     pub(crate) receiver_enabled: bool,
+    receiver_intent_refresher: Box<dyn crate::command::server::ReceiverIntentRefresher>,
     pub(crate) receiver_queue: Vec<crate::server::receiver::InboundJob>,
     pub(crate) requested_receiver_actor: Option<crate::actor::ActorContext>,
     pub(crate) receiver_lease: Option<receiver_state::Lease>,

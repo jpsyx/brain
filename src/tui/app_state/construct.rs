@@ -140,6 +140,7 @@ impl<'a> App<'a> {
             db,
             receiver_control: None,
             receiver_enabled,
+            receiver_intent_refresher: Box::new(crate::server::control::ServerClient::default()),
             receiver_queue: Vec::new(),
             requested_receiver_actor: None,
             receiver_lease: None,

@@ -1044,7 +1044,10 @@ forwards receiver requests only to live workspace TUIs.
   control refresh names only the workspace UUID; the shared process reloads
   the authoritative record and updates a matching live lease if present. This
   path never elects a process. The UUID-local job socket accepts only JSON
-  inbound jobs and has no text lifecycle control grammar.
+  inbound jobs and has no text lifecycle control grammar. Receiver command
+  dispatch and setup remain in `command/server/receiver/mod.rs`; the exact
+  mutation, refresh-warning, and status decisions live in its focused
+  `enablement.rs` child.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST handlers receive an already-resolved workspace context;
   the rendered page preserves only that context's opaque ingress in its POST
@@ -1067,10 +1070,13 @@ Immediately before socket handoff, dispatch reserves the final five seconds
 for the HTTP response and derives one handoff deadline capped at two seconds
 and at the start of that response reserve. It revalidates the retained
 generation, authority revision, receiver enablement, and live lease under the
-control mutex, then carries that exact handoff deadline through nonblocking
-connect, the complete frame write, and acknowledgment read. Successful byte
-progress cannot renew it. Provider, filesystem, and socket IO never run while
-that mutex is held.
+control mutex. The same final admission boundary first reloads the selected
+canonical registry record and requires the exact workspace UUID's persistent
+receiver intent to remain enabled, so a lost live-refresh notification cannot
+let a raced disable enqueue. It then carries that exact handoff deadline
+through nonblocking connect, the complete frame write, and acknowledgment
+read. Successful byte progress cannot renew it. Provider and socket IO never
+run while the control mutex is held.
 
 Queued inbound work is never allowed to interrupt an active agent turn.
 `tui/receiver_state.rs`

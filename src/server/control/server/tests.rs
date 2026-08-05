@@ -13,6 +13,8 @@ use crate::workspace::{
     MachineRegistry, REGISTRY_SCHEMA_VERSION, WorkspaceContext, WorkspaceId, WorkspaceRecord,
 };
 
+mod receiver_admission;
+
 #[test]
 fn refresh_enabled_reloads_persistent_intent_for_the_exact_live_workspace() {
     let fixture = tempfile::tempdir().expect("registry fixture");
@@ -46,6 +48,7 @@ fn refresh_enabled_reloads_persistent_intent_for_the_exact_live_workspace() {
         WorkspaceAvailability::Disabled
     );
 }
+
 #[test]
 fn blocked_context_load_does_not_block_control_and_stale_ticket_cannot_route() {
     let now = Instant::now();

@@ -1,5 +1,127 @@
 use super::*;
 
+#[derive(Clone)]
+struct RecordingReceiverRefresh {
+    calls: Arc<Mutex<Vec<WorkspaceId>>>,
+    fail: bool,
+}
+
+impl crate::command::server::ReceiverIntentRefresher for RecordingReceiverRefresh {
+    fn refresh_enabled(&self, workspace_id: WorkspaceId) -> anyhow::Result<()> {
+        self.calls.lock().unwrap().push(workspace_id);
+        if self.fail {
+            anyhow::bail!("control refresh failed")
+        }
+        Ok(())
+    }
+}
+
+fn seed_receiver_registry(app: &App<'_>) -> WorkspaceName {
+    let selected_name = app.command_context.workspace.name().clone();
+    let peer_name = WorkspaceName::parse("personal").unwrap();
+    let selected = crate::workspace::WorkspaceRecord {
+        workspace_id: app.command_context.workspace.id(),
+        root: app.command_context.workspace.root().to_path_buf(),
+        aliases: std::collections::BTreeSet::new(),
+        local_user_id: app.command_context.workspace.local_user_id().to_owned(),
+        receiver_enabled: false,
+        env: serde_json::Map::new(),
+    };
+    let peer = crate::workspace::WorkspaceRecord {
+        workspace_id: WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
+        root: app
+            .command_context
+            .workspace
+            .root()
+            .with_file_name("personal"),
+        aliases: std::collections::BTreeSet::new(),
+        local_user_id: "peer".to_owned(),
+        receiver_enabled: false,
+        env: serde_json::Map::new(),
+    };
+    app.command_context
+        .registry_store
+        .replace(&crate::workspace::MachineRegistry {
+            schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
+            default_workspace: selected_name.clone(),
+            workspaces: std::collections::BTreeMap::from([
+                (selected_name, selected),
+                (peer_name.clone(), peer),
+            ]),
+        })
+        .unwrap();
+    peer_name
+}
+
+fn plain_key(code: KeyCode) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+}
+
+#[test]
+fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let peer_name = seed_receiver_registry(&app);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    app.receiver_intent_refresher = Box::new(RecordingReceiverRefresh {
+        calls: Arc::clone(&calls),
+        fail: false,
+    });
+    app.palette = Some(crate::tui::PaletteState::new(
+        None,
+        false,
+        false,
+        false,
+        crate::tui::LinkKind::None,
+        false,
+        false,
+    ));
+    for character in "enable receiver".chars() {
+        crate::tui::handle_palette_key(&mut app, &plain_key(KeyCode::Char(character)), false);
+    }
+    crate::tui::handle_palette_key(&mut app, &plain_key(KeyCode::Enter), false);
+
+    assert!(app.receiver_enabled);
+    let saved = RegistryStore::load_from(app.command_context.registry_store.path()).unwrap();
+    assert!(saved.workspaces[app.command_context.workspace.name()].receiver_enabled);
+    assert!(!saved.workspaces[&peer_name].receiver_enabled);
+    assert_eq!(*calls.lock().unwrap(), [app.command_context.workspace.id()]);
+
+    app.receiver_intent_refresher = Box::new(RecordingReceiverRefresh {
+        calls: Arc::clone(&calls),
+        fail: true,
+    });
+    app.search
+        .open_palette(app.panel_side, false, app.receiver_enabled);
+    for character in "disable receiver".chars() {
+        crate::tui::handle_search_view_key(
+            &mut app,
+            &plain_key(KeyCode::Char(character)),
+            false,
+            false,
+        );
+    }
+    crate::tui::handle_search_view_key(&mut app, &plain_key(KeyCode::Enter), false, false);
+
+    assert!(!app.receiver_enabled);
+    assert!(matches!(
+        app.flash.as_ref(),
+        Some(crate::tui::FlashKind::Error(message))
+            if message.contains("receiver disabled; warning:")
+    ));
+    let saved = RegistryStore::load_from(app.command_context.registry_store.path()).unwrap();
+    assert!(!saved.workspaces[app.command_context.workspace.name()].receiver_enabled);
+    assert!(!saved.workspaces[&peer_name].receiver_enabled);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [
+            app.command_context.workspace.id(),
+            app.command_context.workspace.id(),
+        ]
+    );
+}
+
 #[test]
 fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
     let temporary = tempfile::tempdir().expect("temporary directory");

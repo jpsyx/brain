@@ -323,6 +323,14 @@ first move is a failing test that reproduces it, *then* the fix.
   transitions reject the pre-revocation ticket. Maximum-revision tests prove a
   failed enablement update or receiver-changing registration replay leaves the
   whole lease table unchanged and cannot revive or extend authority.
+  A synchronized provider boundary persists a disable after route context load
+  but before final handoff, deliberately omits the live refresh, and proves the
+  real job listener receives no connection. Exact status tests distinguish a
+  live disabled lease from an accepting lease. Actual parsed CLI start/stop and
+  startup `--with-receiver -b` paths, plus keyboard-driven tasks and search
+  palettes, prove both persistence directions and exact-workspace refresh
+  wiring. A failed injected refresh proves committed intent remains successful
+  and visible with a warning.
   Fixed-worker admission tests hold four partial bodies, prove a fifth
   connection waits while control remains responsive, and open 24 incomplete
   request heads without increasing the server thread count. An injected
@@ -352,7 +360,8 @@ first move is a failing test that reproduces it, *then* the fix.
   authoritative root and manifest validation, cross-workspace and unbound
   job-socket rejection, heartbeat, receiver-enable update, unregister,
   non-sensitive snapshot, exact live-workspace ingress lookup, and stale
-  generation refusal. Deterministic real
+  generation refusal. The exact workspace-status request reports live lease
+  receiver enablement without exposing peer workspace state. Deterministic real
   Unix-stream codec tests inject deadline observations between successful byte
   reads, successful byte writes, and flush, proving continuous progress cannot
   extend the total budget. A saturated real Unix listener proves the safe

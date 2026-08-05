@@ -279,6 +279,33 @@ impl ServerClient {
         }
     }
 
+    /// Read receiver enablement from an exact live workspace lease.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the process changes or the control response is
+    /// invalid. `Ok(None)` means that workspace has no live TUI lease.
+    pub fn workspace_receiver_enabled(&self, workspace_id: WorkspaceId) -> Result<Option<bool>> {
+        let record = self.connect_existing()?;
+        match self.request(&ControlRequest::WorkspaceStatus {
+            generation: record.generation,
+            workspace_id,
+        })? {
+            ControlResponse::WorkspaceStatus {
+                generation,
+                receiver_enabled,
+            } if generation == record.generation => Ok(receiver_enabled),
+            ControlResponse::StaleGeneration => {
+                anyhow::bail!(
+                    "shared brain server generation changed while reading workspace status"
+                )
+            }
+            response => {
+                anyhow::bail!("unexpected shared-server workspace status response: {response:?}")
+            }
+        }
+    }
+
     /// Exchange one bounded newline-delimited request and response.
     ///
     /// # Errors
@@ -401,6 +428,9 @@ fn response_decision(response: ControlResponse) -> Result<ServerDecision> {
         ControlResponse::Snapshot(_) => anyhow::bail!("unexpected shared-server snapshot response"),
         ControlResponse::WorkspaceIngress { .. } => {
             anyhow::bail!("unexpected shared-server workspace ingress response")
+        }
+        ControlResponse::WorkspaceStatus { .. } => {
+            anyhow::bail!("unexpected shared-server workspace status response")
         }
     }
 }

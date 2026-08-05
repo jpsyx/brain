@@ -199,9 +199,12 @@ disable, replacement, or expiry makes the ticket stale. Unknown
 ingress maps to 404; a known ingress with receiver disabled or no live TUI maps
 to 503. The returned context and lease remain paired with the original ticket
 for later forwarding without reopening another selector. Receiver dispatch
-revalidates that ticket after actor/job construction and immediately before
-the socket handoff, so a disable, unregister, expiry, or replacement during
-provider work cannot enqueue. It also derives one absolute handoff deadline,
+reloads the exact canonical registry record after actor/job construction,
+requires the same workspace UUID and persisted `receiver_enabled = true`, and
+then revalidates that ticket immediately before the socket handoff. A disable,
+unregister, expiry, or replacement during provider work therefore cannot
+enqueue, including when a persisted disable's live-refresh notification is
+lost. It also derives one absolute handoff deadline,
 capped at two seconds and before the separately reserved response window, and
 carries it through nonblocking connect, frame write, and acknowledgment read.
 A registration replay or enablement refresh

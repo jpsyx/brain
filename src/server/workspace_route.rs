@@ -72,6 +72,29 @@ impl ResolvedWorkspaceRoute {
             WorkspaceRouteError::new(503, "workspace route has no shared-server authority")
         })
     }
+
+    pub(crate) fn revalidate_receiver_intent(&self) -> Result<(), WorkspaceRouteError> {
+        let registry = RegistryStore::load_from(self.registry_store.path()).map_err(|error| {
+            WorkspaceRouteError::new(500, format!("workspace registry unavailable: {error}"))
+        })?;
+        let record = registry
+            .workspaces
+            .get(&self.lease.canonical_name)
+            .ok_or_else(|| WorkspaceRouteError::new(404, "workspace is no longer attached"))?;
+        if record.workspace_id != self.lease.workspace_id {
+            return Err(WorkspaceRouteError::new(
+                409,
+                "workspace registry identity does not match its live lease",
+            ));
+        }
+        if !record.receiver_enabled {
+            return Err(WorkspaceRouteError::new(
+                503,
+                "workspace receiver route is disabled",
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Exact live authority captured before workspace-specific state is loaded.

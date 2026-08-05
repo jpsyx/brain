@@ -126,10 +126,7 @@ pub fn run(
     }
 
     if cli.with_receiver && matches!(cli.command, None | Some(Cmd::Tasks(_))) {
-        super::server::apply_receiver_action(
-            context,
-            crate::workspace::ReceiverAction::WithReceiverFlag,
-        )?;
+        super::server::apply_startup_receiver_flag(cli.with_receiver, context)?;
     }
     crate::settings::ensure_markdown_to_pdf(context);
     match cli.command {

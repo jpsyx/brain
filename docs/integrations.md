@@ -354,6 +354,10 @@ changing live routing authority. Missing processes and missing live leases are
 valid: persistent intent governs the next registration, and the short-lived
 caller never elects or hosts ingress. Startup applies `--with-receiver` before
 the selected TUI binds its job socket and registers its lease.
+Persistence is the commit point for these mutations. If the optional live
+refresh cannot be delivered afterward, the CLI or palette reports a warning
+while retaining and displaying the committed intent instead of claiming that
+the mutation failed.
 The route loader also requires that already-selected exact registry record to
 remain enabled before credentials, users, prompts, or sockets are opened. This
 closes the persistence-to-control-refresh race without changing ingress-first
@@ -372,6 +376,12 @@ disable/re-enable or same-fields unregister/re-register ABA transition always
 invalidates the old ticket. The next revision is checked before expiry,
 enablement, registration, or revision state changes, so overflow cannot partly
 apply a transition.
+Immediately before the job-socket handoff, dispatch also reloads the exact
+canonical registry record, verifies the selected workspace UUID, and requires
+its persisted receiver intent to remain enabled before revalidating the live
+generation and authority revision. A persisted disable that races after route
+loading therefore cannot enqueue even when its best-effort refresh notification
+was lost.
 Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
 live TUI returns 503 before local route behavior or receiver dispatch; it is
 never acknowledged as accepted work.

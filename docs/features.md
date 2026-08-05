@@ -1068,6 +1068,11 @@ notified by workspace UUID after persistence and reloads the authoritative
 record; no process is elected for a short-lived mutation. `brain receiver
 status` reports Receiver, TUI, Server, and Accepting independently. An enabled
 workspace without a live TUI therefore reports `Accepting no`.
+Persistence is the successful mutation boundary. If the optional live refresh
+fails, Brain keeps the committed CLI or palette state and shows a warning.
+Status requires both persisted intent and an enabled exact live lease before it
+reports `Accepting yes`; a live but disabled lease reports `TUI live` and
+`Accepting no`.
 
 - `brain server status` reports process reachability and the live TUI lease
   count only, or says that no process is running. It neither elects a starter

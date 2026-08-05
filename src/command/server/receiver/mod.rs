@@ -1,8 +1,17 @@
 //! Receiver setup and lifecycle command dispatch.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
+mod enablement;
 mod hooks;
+
+pub(crate) use enablement::{
+    ReceiverIntentRefresher, apply_receiver_action_with, apply_startup_receiver_flag,
+    read_receiver_status, receiver_enabled,
+};
+#[cfg(test)]
+use enablement::{ReceiverStatus, apply_startup_receiver_flag_with, receiver_status};
+use enablement::{print_receiver_change, print_receiver_status};
 
 /// Refresh the bundled lifecycle hooks before an agent-capable TUI starts.
 pub(crate) fn refresh_agent_hooks(root: &std::path::Path) -> Result<()> {
@@ -13,91 +22,43 @@ pub fn run_receiver(
     args: &crate::cli::ReceiverArgs,
     context: &crate::workspace::CommandContext,
 ) -> Result<()> {
+    run_receiver_with_refresher(
+        args,
+        context,
+        &crate::server::control::ServerClient::default(),
+    )
+}
+
+pub(crate) fn run_receiver_with_refresher(
+    args: &crate::cli::ReceiverArgs,
+    context: &crate::workspace::CommandContext,
+    refresher: &dyn ReceiverIntentRefresher,
+) -> Result<()> {
     use crate::cli::ReceiverServerAction;
     match &args.action {
         ReceiverServerAction::Setup => receiver_setup(context),
         ReceiverServerAction::Set { assignment } => receiver_set(context, assignment.as_deref()),
         ReceiverServerAction::Start => {
-            let enabled = apply_receiver_action(context, crate::workspace::ReceiverAction::Start)?;
-            print_receiver_change(enabled);
+            let outcome = apply_receiver_action_with(
+                context,
+                crate::workspace::ReceiverAction::Start,
+                refresher,
+            )?;
+            print_receiver_change(&outcome);
             Ok(())
         }
         ReceiverServerAction::Stop => {
-            let enabled = apply_receiver_action(context, crate::workspace::ReceiverAction::Stop)?;
-            print_receiver_change(enabled);
+            let outcome = apply_receiver_action_with(
+                context,
+                crate::workspace::ReceiverAction::Stop,
+                refresher,
+            )?;
+            print_receiver_change(&outcome);
             Ok(())
         }
         ReceiverServerAction::Status => print_receiver_status(context),
         ReceiverServerAction::Logs => crate::server::lifecycle::logs(),
     }
-}
-
-/// Persist receiver intent for one immutable selected record, then refresh a
-/// matching live lease without electing a process.
-pub(crate) fn apply_receiver_action(
-    context: &crate::workspace::CommandContext,
-    action: crate::workspace::ReceiverAction,
-) -> Result<bool> {
-    let enabled = context
-        .registry_store
-        .transition_receiver(context.workspace.name(), context.workspace.id(), action)
-        .context("persisting receiver intent for the selected workspace")?;
-    let client = crate::server::lifecycle::ServerClient::default();
-    if let Ok(record) = client.connect_existing() {
-        client
-            .refresh_enabled_generation(record.generation, context.workspace.id())
-            .context("refreshing receiver intent in the live shared server")?;
-    }
-    Ok(enabled)
-}
-
-pub(crate) fn receiver_enabled(context: &crate::workspace::CommandContext) -> Result<bool> {
-    let registry = crate::workspace::RegistryStore::load_from(context.registry_store.path())?;
-    let selected = registry.select(Some(context.workspace.name().as_str()))?;
-    if selected.record().workspace_id != context.workspace.id() {
-        anyhow::bail!("selected workspace identity changed while reading receiver intent");
-    }
-    Ok(selected.record().receiver_enabled)
-}
-
-fn print_receiver_change(enabled: bool) {
-    let theme = crate::theme::Theme::active();
-    let state = if enabled { "enabled" } else { "disabled" };
-    println!("{}", theme.success(&format!("Receiver {state}")));
-}
-
-fn print_receiver_status(context: &crate::workspace::CommandContext) -> Result<()> {
-    let enabled = receiver_enabled(context)?;
-    let client = crate::server::lifecycle::ServerClient::default();
-    let server_running = client.connect_existing().is_ok();
-    let tui_live = server_running && client.workspace_ingress(context.workspace.id()).is_ok();
-    let accepting = enabled && tui_live;
-    let theme = crate::theme::Theme::active();
-    println!(
-        "{}  {}",
-        theme.muted("Receiver"),
-        theme.value(if enabled { "enabled" } else { "disabled" })
-    );
-    println!(
-        "{}       {}",
-        theme.muted("TUI"),
-        theme.value(if tui_live { "live" } else { "not live" })
-    );
-    println!(
-        "{}    {}",
-        theme.muted("Server"),
-        theme.value(if server_running {
-            "running"
-        } else {
-            "not running"
-        })
-    );
-    println!(
-        "{} {}",
-        theme.muted("Accepting"),
-        theme.value(if accepting { "yes" } else { "no" })
-    );
-    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -382,10 +343,186 @@ fn receiver_set(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
     use super::{
-        ReceiverSetupChannels, parse_receiver_channels, receiver_provider_fields,
-        receiver_webhook_url,
+        ReceiverIntentRefresher, ReceiverSetupChannels, ReceiverStatus, apply_receiver_action_with,
+        apply_startup_receiver_flag_with, parse_receiver_channels, receiver_provider_fields,
+        receiver_status, receiver_webhook_url, run_receiver_with_refresher,
     };
+    use crate::workspace::{
+        CommandContext, MachineRegistry, ReceiverAction, RegistryStore, WorkspaceContext,
+        WorkspaceId, WorkspaceName, WorkspaceRecord,
+    };
+
+    struct FailedRefresh;
+
+    impl ReceiverIntentRefresher for FailedRefresh {
+        fn refresh_enabled(&self, _workspace_id: WorkspaceId) -> anyhow::Result<()> {
+            anyhow::bail!("control socket disappeared")
+        }
+    }
+
+    #[derive(Clone)]
+    struct RecordingRefresh(Arc<std::sync::Mutex<Vec<WorkspaceId>>>);
+
+    impl ReceiverIntentRefresher for RecordingRefresh {
+        fn refresh_enabled(&self, workspace_id: WorkspaceId) -> anyhow::Result<()> {
+            self.0.lock().unwrap().push(workspace_id);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn status_requires_persistent_intent_and_an_enabled_exact_lease_to_accept() {
+        assert_eq!(
+            receiver_status(true, true, Some(false)),
+            ReceiverStatus {
+                enabled: true,
+                tui_live: true,
+                server_running: true,
+                accepting: false,
+            }
+        );
+        assert_eq!(
+            receiver_status(true, true, Some(true)),
+            ReceiverStatus {
+                enabled: true,
+                tui_live: true,
+                server_running: true,
+                accepting: true,
+            }
+        );
+        assert_eq!(
+            receiver_status(true, false, None),
+            ReceiverStatus {
+                enabled: true,
+                tui_live: false,
+                server_running: false,
+                accepting: false,
+            }
+        );
+    }
+
+    #[test]
+    fn cli_start_stop_and_startup_flag_drive_exact_persistence_and_refresh() {
+        let temporary = tempfile::tempdir().expect("receiver fixture");
+        let personal_name = WorkspaceName::parse("personal").unwrap();
+        let family_name = WorkspaceName::parse("family").unwrap();
+        let personal_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+        let family_id = WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap();
+        let family_root = temporary.path().join("family");
+        let store = RegistryStore::from_path(temporary.path().join("env.json"));
+        store
+            .replace(&MachineRegistry {
+                schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
+                default_workspace: personal_name.clone(),
+                workspaces: BTreeMap::from([
+                    (
+                        personal_name.clone(),
+                        WorkspaceRecord {
+                            workspace_id: personal_id,
+                            root: temporary.path().join("personal"),
+                            aliases: BTreeSet::new(),
+                            local_user_id: "personal-user".to_owned(),
+                            receiver_enabled: false,
+                            env: serde_json::Map::new(),
+                        },
+                    ),
+                    (
+                        family_name.clone(),
+                        WorkspaceRecord {
+                            workspace_id: family_id,
+                            root: family_root.clone(),
+                            aliases: BTreeSet::new(),
+                            local_user_id: "family-user".to_owned(),
+                            receiver_enabled: false,
+                            env: serde_json::Map::new(),
+                        },
+                    ),
+                ]),
+            })
+            .unwrap();
+        let workspace = WorkspaceContext::new(
+            temporary.path(),
+            family_id,
+            family_name.clone(),
+            &family_root,
+            "family-user",
+            temporary.path(),
+        )
+        .unwrap();
+        let context = CommandContext::for_test(Arc::new(workspace), store.clone(), "family-user");
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let refresher = RecordingRefresh(Arc::clone(&calls));
+
+        for (command, expected) in [("start", true), ("stop", false)] {
+            let cli = crate::cli::try_parse_from(["brain", "-b", "family", "receiver", command])
+                .expect("parse receiver command");
+            let Some(crate::cli::Cmd::Receiver(args)) = cli.command else {
+                panic!("receiver command");
+            };
+            run_receiver_with_refresher(&args, &context, &refresher).unwrap();
+            let saved = RegistryStore::load_from(store.path()).unwrap();
+            assert_eq!(saved.workspaces[&family_name].receiver_enabled, expected);
+            assert!(!saved.workspaces[&personal_name].receiver_enabled);
+        }
+
+        let cli = crate::cli::try_parse_from(["brain", "--with-receiver", "-b", "family"])
+            .expect("parse startup flag");
+        apply_startup_receiver_flag_with(cli.with_receiver, &context, &refresher).unwrap();
+        let saved = RegistryStore::load_from(store.path()).unwrap();
+        assert!(saved.workspaces[&family_name].receiver_enabled);
+        assert!(!saved.workspaces[&personal_name].receiver_enabled);
+        assert_eq!(*calls.lock().unwrap(), [family_id, family_id, family_id]);
+    }
+
+    #[test]
+    fn committed_intent_survives_a_failed_live_refresh() {
+        let temporary = tempfile::tempdir().expect("receiver fixture");
+        let name = WorkspaceName::parse("personal").expect("workspace name");
+        let workspace_id =
+            WorkspaceId::parse("2174fb9d-ae76-4bde-a526-38ac43ebdf8f").expect("workspace ID");
+        let root = temporary.path().join("personal");
+        let store = RegistryStore::from_path(temporary.path().join("env.json"));
+        store
+            .replace(&MachineRegistry {
+                schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
+                default_workspace: name.clone(),
+                workspaces: BTreeMap::from([(
+                    name.clone(),
+                    WorkspaceRecord {
+                        workspace_id,
+                        root: root.clone(),
+                        aliases: BTreeSet::new(),
+                        local_user_id: "tester".to_owned(),
+                        receiver_enabled: false,
+                        env: serde_json::Map::new(),
+                    },
+                )]),
+            })
+            .expect("seed registry");
+        let workspace = WorkspaceContext::new(
+            temporary.path(),
+            workspace_id,
+            name,
+            &root,
+            "tester",
+            &PathBuf::from("/"),
+        )
+        .expect("workspace context");
+        let context = CommandContext::for_test(Arc::new(workspace), store.clone(), "tester");
+
+        let outcome = apply_receiver_action_with(&context, ReceiverAction::Start, &FailedRefresh)
+            .expect("persistence success must remain success");
+
+        assert!(outcome.enabled());
+        assert!(outcome.refresh_warning().is_some());
+        let saved = RegistryStore::load_from(store.path()).expect("saved registry");
+        assert!(saved.workspaces[&WorkspaceName::parse("personal").unwrap()].receiver_enabled);
+    }
 
     #[test]
     fn channel_menu_selects_only_the_requested_configuration() {
