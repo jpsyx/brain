@@ -293,8 +293,13 @@ releases the mutex only through an explicit handoff that leaves its generation
 token for the child while retaining exact cleanup responsibility. A successful
 child adoption changes the token owner, making parent cleanup a no-op; child
 loss before adoption leaves the token unchanged, so the parent removes it when
-the bounded publication wait ends. Losing TUI contenders use bounded polling
-for the published winner.
+the bounded publication wait ends. If another startup contender briefly holds
+the advisory mutex at that boundary, explicit cleanup retries at a fixed
+interval for at most two seconds while the exact parent token remains instead
+of abandoning it. Adoption or replacement changes the record and ends the
+retry without touching the new owner; acquisition and timeout failures return
+to the caller. Losing TUI contenders use bounded polling for the published
+winner.
 
 The process is not an independently managed daemon. Public `brain server`
 actions are read-only `status` and `logs`; there is no start, kill, or restart

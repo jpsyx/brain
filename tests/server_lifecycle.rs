@@ -329,7 +329,7 @@ fn signal_after_publication_in_the_startup_window_cleans_all_artifacts() {
     let mut ready = [0; 5];
     gated.read_exact(&mut ready).expect("read startup ready");
     assert_eq!(&ready, b"ready");
-    drop(handoff);
+    handoff.cleanup().expect("finish election handoff");
     assert!(paths.process_record().exists());
     assert!(paths.control_socket().exists());
     assert!(paths.election_lock().exists());
@@ -378,7 +378,7 @@ fn bind_failure_before_publication_cleans_early_artifacts() {
     wait_for("failed server exit", || {
         child.try_wait().ok().flatten().is_some()
     });
-    drop(handoff);
+    handoff.cleanup().expect("finish election handoff");
 
     assert!(!paths.process_record().exists());
     assert!(!paths.control_socket().exists());
@@ -455,7 +455,7 @@ impl RunningServer {
         wait_for("shared server reachability", || {
             client.connect_existing().is_ok()
         });
-        drop(handoff);
+        handoff.cleanup().expect("finish election handoff");
         Self {
             child,
             _home: home,

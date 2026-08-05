@@ -963,7 +963,9 @@ and cannot outlive the interactive shell.
   machine-wide directory. `state.rs` owns the minimal generation-tagged record;
   `election.rs` owns the pure start decision, directory advisory mutex, exact
   owner checks, and parent-to-child token handoff with retained parent cleanup
-  until child publication;
+  until child publication. Its explicit, bounded completion retries transient
+  mutex contention only while the exact parent token remains and reports
+  cleanup failures to the caller;
   `process.rs` owns the non-electing client, detached elected spawn, hidden
   server loop, signal cleanup, and narrow registration seam; `watchdog.rs`
   applies clock-injected expiry plus the bounded initial-registration deadline;

@@ -255,10 +255,12 @@ first move is a failing test that reproduces it, *then* the fix.
   control socket. Barrier-driven unit races prove stale reaping and child
   adoption exclude contenders through exact identity transfer. A synchronized
   pre-adoption child-loss race proves the parent retains exact cleanup until
-  adoption, while the adoption race proves that cleanup cannot remove the
-  child's transferred token. An elected child that never receives its first
-  registration exits within its bounded bootstrap deadline. All process waits
-  use bounded condition polling.
+  adoption. A barrier-held advisory mutex proves that cleanup survives brief
+  contention after child loss through its explicit bounded operation, while
+  the adoption race proves that cleanup cannot remove the child's transferred
+  token. An elected child that never receives its first registration exits
+  within its bounded bootstrap deadline. All process waits use bounded
+  condition polling.
   `server/lifecycle/watchdog.rs` injects expiry and bootstrap instants directly,
   so crashed-final-lease and no-first-registration decisions have no timing
   sleep.

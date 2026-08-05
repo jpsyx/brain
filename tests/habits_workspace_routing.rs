@@ -90,7 +90,7 @@ impl ServerFixture {
             .expect("start brain server");
         let handoff = election.handoff();
         wait_for_server(port);
-        drop(handoff);
+        handoff.cleanup().expect("finish election handoff");
 
         Self {
             _home: home,

@@ -2,11 +2,15 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use super::{ProcessRecord, ServerGeneration, ServerPaths, pid_alive};
+
+const HANDOFF_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+const HANDOFF_CLEANUP_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// The next action for one shared-server startup contender.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,12 +110,13 @@ impl ElectionGuard {
     ///
     /// Returns an error unless the lock contains `generation`.
     pub(super) fn adopt(paths: &ServerPaths, generation: ServerGeneration) -> Result<Self> {
+        Self::adopt_for_pid(paths, generation, std::process::id())
+    }
+
+    fn adopt_for_pid(paths: &ServerPaths, generation: ServerGeneration, pid: u32) -> Result<Self> {
         let mutex = ElectionMutex::acquire(paths)?;
         let observed = election_record_for_generation(paths, generation)?;
-        let record = ElectionRecord {
-            pid: std::process::id(),
-            generation,
-        };
+        let record = ElectionRecord { pid, generation };
         if !transfer_lock_if_observed(paths, observed, record)? {
             anyhow::bail!("server election token changed before adoption");
         }
@@ -156,12 +161,35 @@ pub struct ElectionHandoff {
     record: ElectionRecord,
 }
 
-impl Drop for ElectionHandoff {
-    fn drop(&mut self) {
-        let Ok(Some(_mutex)) = ElectionMutex::try_acquire(&self.paths) else {
-            return;
-        };
-        let _ = remove_lock_if_observed(&self.paths, self.record);
+impl ElectionHandoff {
+    /// Finish the handoff by removing an unadopted parent token.
+    ///
+    /// Adoption or replacement makes cleanup a no-op. Transient mutex
+    /// contention is retried within a bounded cleanup window.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the mutex cannot be inspected or acquired within
+    /// the cleanup window, or when the exact parent token cannot be removed.
+    pub fn cleanup(self) -> Result<()> {
+        let deadline = Instant::now() + HANDOFF_CLEANUP_TIMEOUT;
+        loop {
+            if read_lock(&self.paths) != Some(self.record) {
+                return Ok(());
+            }
+            match ElectionMutex::try_acquire(&self.paths)? {
+                Some(_mutex) => {
+                    remove_lock_if_observed(&self.paths, self.record)?;
+                    return Ok(());
+                }
+                None if Instant::now() >= deadline => {
+                    anyhow::bail!(
+                        "server election handoff cleanup timed out after {HANDOFF_CLEANUP_TIMEOUT:?}"
+                    );
+                }
+                None => std::thread::sleep(HANDOFF_CLEANUP_POLL_INTERVAL),
+            }
+        }
     }
 }
 
@@ -264,7 +292,9 @@ fn transfer_lock_if_observed(
 
 #[cfg(test)]
 mod race_tests {
+    use std::sync::mpsc;
     use std::sync::{Arc, Barrier};
+    use std::time::Duration;
 
     use super::*;
 
@@ -348,13 +378,14 @@ mod race_tests {
         let thread_adopted = Arc::clone(&adoption_complete);
         let thread_release = Arc::clone(&release_child);
         let child = std::thread::spawn(move || {
-            let guard = ElectionGuard::adopt(&thread_paths, generation).expect("child adoption");
+            let guard = ElectionGuard::adopt_for_pid(&thread_paths, generation, 999_999)
+                .expect("child adoption");
             thread_adopted.wait();
             thread_release.wait();
             drop(guard);
         });
         adoption_complete.wait();
-        drop(handoff);
+        handoff.cleanup().expect("finish parent handoff");
         assert!(validate_election_token(&paths, generation).is_ok());
 
         assert!(
@@ -394,7 +425,55 @@ mod race_tests {
 
         lose_child.wait();
         child.join().expect("pre-adoption child");
-        drop(handoff);
+        handoff.cleanup().expect("clean parent handoff");
+
+        assert!(!paths.election_lock().exists());
+    }
+
+    #[test]
+    fn parent_handoff_cleanup_survives_mutex_contention_after_child_loss() {
+        let temporary = tempfile::tempdir().expect("temporary server directory");
+        let paths = ServerPaths::from_directory(temporary.path().join("server"));
+        let generation = ServerGeneration::parse("57b162df-983a-45c3-ac7e-bad94eb27a99")
+            .expect("valid generation");
+        let parent = ElectionGuard::try_acquire(&paths, generation)
+            .expect("parent election")
+            .expect("parent owns election");
+        let handoff = parent.handoff();
+        let mutex_held = Arc::new(Barrier::new(2));
+        let release_mutex = Arc::new(Barrier::new(2));
+        let holder_paths = paths.clone();
+        let holder_ready = Arc::clone(&mutex_held);
+        let holder_release = Arc::clone(&release_mutex);
+        let holder = std::thread::spawn(move || {
+            let _mutex = ElectionMutex::acquire(&holder_paths).expect("occupy election mutex");
+            holder_ready.wait();
+            holder_release.wait();
+        });
+        mutex_held.wait();
+        let cleanup_started = Arc::new(Barrier::new(2));
+        let cleanup_ready = Arc::clone(&cleanup_started);
+        let (cleanup_finished_tx, cleanup_finished_rx) = mpsc::channel();
+        let cleanup = std::thread::spawn(move || {
+            cleanup_ready.wait();
+            handoff.cleanup().expect("clean parent handoff");
+            cleanup_finished_tx
+                .send(())
+                .expect("report handoff cleanup completion");
+        });
+        cleanup_started.wait();
+
+        let finished_while_contended = cleanup_finished_rx
+            .recv_timeout(Duration::from_millis(250))
+            .is_ok();
+        release_mutex.wait();
+        holder.join().expect("mutex holder thread");
+        if !finished_while_contended {
+            cleanup_finished_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("handoff cleanup after contention");
+        }
+        cleanup.join().expect("handoff cleanup thread");
 
         assert!(!paths.election_lock().exists());
     }
