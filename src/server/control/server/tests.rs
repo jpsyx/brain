@@ -90,6 +90,86 @@ fn blocked_context_load_does_not_block_control_and_stale_ticket_cannot_route() {
     assert_eq!(error.status(), 503);
 }
 
+#[test]
+fn disable_then_enable_cannot_revive_a_captured_route_ticket() {
+    let now = Instant::now();
+    let route_lease = lease(now + Duration::from_secs(30));
+    let lease_id = route_lease.lease_id;
+    let generation = ServerGeneration::new();
+    let mut server = control_with_lease(generation, route_lease, now);
+    let (ticket, _) = server
+        .begin_workspace_route(ingress(), now)
+        .expect("capture accepting route");
+
+    server
+        .leases
+        .set_receiver_enabled(lease_id, false, now)
+        .expect("disable receiver");
+    server
+        .leases
+        .set_receiver_enabled(lease_id, true, now)
+        .expect("re-enable receiver");
+
+    let error = server
+        .finish_workspace_route(&ticket, workspace_context(), now)
+        .expect_err("revoked route incarnation must stay stale after re-enable");
+    assert_eq!(error.status(), 503);
+}
+
+#[test]
+fn same_id_reregistration_cannot_revive_a_captured_route_ticket() {
+    let now = Instant::now();
+    let route_lease = lease(now + Duration::from_secs(30));
+    let lease_id = route_lease.lease_id;
+    let generation = ServerGeneration::new();
+    let mut server = control_with_lease(generation, route_lease.clone(), now);
+    let (ticket, _) = server
+        .begin_workspace_route(ingress(), now)
+        .expect("capture accepting route");
+
+    assert_eq!(
+        server.leases.unregister(lease_id, now),
+        crate::server::lifecycle::ServerDecision::ShutdownNow
+    );
+    server
+        .leases
+        .register(route_lease, now)
+        .expect("re-register identical authority fields");
+
+    let error = server
+        .finish_workspace_route(&ticket, workspace_context(), now)
+        .expect_err("new registration incarnation must reject the old ticket");
+    assert_eq!(error.status(), 503);
+}
+
+#[test]
+fn heartbeat_renewal_preserves_a_captured_route_ticket() {
+    let now = Instant::now();
+    let route_lease = lease(now + Duration::from_secs(30));
+    let lease_id = route_lease.lease_id;
+    let generation = ServerGeneration::new();
+    let mut server = control_with_lease(generation, route_lease, now);
+    let (ticket, _) = server
+        .begin_workspace_route(ingress(), now)
+        .expect("capture accepting route");
+
+    server
+        .leases
+        .heartbeat(
+            lease_id,
+            now + Duration::from_secs(1),
+            crate::server::lifecycle::LeaseTiming::new(
+                Duration::from_secs(1),
+                Duration::from_secs(30),
+            ),
+        )
+        .expect("renew route lease");
+
+    server
+        .finish_workspace_route(&ticket, workspace_context(), now + Duration::from_secs(1))
+        .expect("ordinary heartbeat must preserve route authority");
+}
+
 struct BlockingLoader {
     load_started: mpsc::SyncSender<()>,
     release_load: mpsc::Receiver<()>,
@@ -117,6 +197,27 @@ fn lease(expires_at: Instant) -> WorkspaceLease {
         receiver_enabled: true,
         expires_at,
     }
+}
+
+fn ingress() -> IngressId {
+    IngressId::parse("a4f0ec11-d121-4f58-aa44-2448ba427b76").unwrap()
+}
+
+fn control_with_lease(
+    generation: ServerGeneration,
+    route_lease: WorkspaceLease,
+    now: Instant,
+) -> ControlServer {
+    let mut server = ControlServer::new(
+        generation,
+        RegistryStore::from_path(PathBuf::from("/unused/env.json")),
+        PathBuf::from("/tmp"),
+    );
+    server
+        .leases
+        .register(route_lease, now)
+        .expect("register route fixture");
+    server
 }
 
 fn workspace_id() -> WorkspaceId {

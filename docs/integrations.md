@@ -351,7 +351,12 @@ For every HTTP request, the pure router first parses an exact typed
 ticket for the exact accepting lease. Only that ticket permits registry, root,
 manifest, or workspace-runtime selection. Those filesystem checks occur
 without holding the control-state mutex, and the process revalidates the same
-live authority after loading before returning a context.
+live authority incarnation after loading before returning a context. Ordinary
+heartbeat renewal preserves the incarnation. Registration and receiver
+enablement changes advance it; removal or expiry leaves no accepting
+authority, and any later registration advances the remembered incarnation. A
+disable/re-enable or same-fields unregister/re-register ABA transition always
+invalidates the old ticket.
 Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
 live TUI returns 503 before local route behavior or receiver dispatch; it is
 never acknowledged as accepted work.
@@ -359,8 +364,14 @@ never acknowledged as accepted work.
 The shared listener uses four fixed process-lifetime accept workers and no
 application request queue. Each connection carries one request, request heads
 and local action bodies are capped at 16 KiB, and reads and writes have a
-two-second timeout. Workers cannot accept until all four spawns succeed, and a
-partial start is aborted before any body read. Each worker finishes routing and
+single absolute two-second monotonic deadline established before the request
+head. Successful bytes do not renew it; body reads, response writes, and flush
+all consume the same budget. HTTP framing accepts at most one
+`Content-Length` or the one supported `chunked` transfer coding, never both,
+and rejects repeated or unsupported codings, invalid field-name syntax,
+malformed chunk sizes, forbidden framing trailers, and over-limit chunks or
+trailers. Workers cannot accept until all four spawns succeed, and a partial
+start is aborted before any body read. Each worker finishes routing and
 post-load live-lease revalidation before reading a POST body. This keeps
 stalled or oversized body IO out of the lifecycle/control loop and keeps the
 thread set fixed under incomplete headers. Final process exit signals workers

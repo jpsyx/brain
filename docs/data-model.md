@@ -188,10 +188,14 @@ exact shape `/w/<ingress>/<endpoint>`. Shared-process routing first consults
 `LeaseTable::availability`. Only `Accepting` yields a live lease and a
 generation-bound `WorkspaceRouteTicket`. Registry, root, and manifest IO then
 occurs without the control-state mutex. The route revalidates that the same
-generation and exact lease authority are still accepting before constructing
-the immutable `WorkspaceContext`. Heartbeat expiry renewal may change, but
-lease identity, workspace, ingress, TUI PID, and job socket may not. An
-unregister, disable, replacement, or expiry makes the ticket stale. Unknown
+generation and exact authority revision are still accepting before
+constructing the immutable `WorkspaceContext`. A heartbeat renews expiry without changing
+the revision. Registration and receiver enablement changes advance the
+workspace's remembered revision. Removal or expiry leaves no accepting
+authority, and any later registration advances that remembered revision, so
+even a later lease that reuses the same ID, workspace, ingress, TUI PID, and
+job socket cannot match a ticket from before revocation. An unregister,
+disable, replacement, or expiry makes the ticket stale. Unknown
 ingress maps to 404; a known ingress with receiver disabled or no live TUI maps
 to 503. The returned context and lease remain paired for later forwarding
 without reopening another selector.

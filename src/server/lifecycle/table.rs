@@ -1,15 +1,18 @@
 //! Pure lease registration, expiry, and ingress-routing decisions.
 
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 use std::time::Instant;
 
 use crate::workspace::WorkspaceId;
 
+use super::decision::{AuthorityChange, AuthorityRevision, authority_revision_after};
 use super::{
     IngressId, LeaseId, LeaseTiming, ServerDecision, WorkspaceAvailability, WorkspaceLease,
 };
+
+#[path = "table/error.rs"]
+mod error;
+pub use error::LeaseError;
 
 /// A pure transition request for [`LeaseTable`].
 #[derive(Debug, Clone)]
@@ -40,6 +43,7 @@ pub struct LeaseTable {
     live: HashMap<WorkspaceId, WorkspaceLease>,
     known_ingresses: HashMap<IngressId, WorkspaceId>,
     known_workspace_ingresses: HashMap<WorkspaceId, IngressId>,
+    authority_revisions: HashMap<WorkspaceId, AuthorityRevision>,
     shutdown_pending: bool,
 }
 
@@ -102,6 +106,9 @@ impl LeaseTable {
         if let Some(existing) = self.live.get_mut(&lease.workspace_id) {
             if same_registration(existing, &lease) {
                 existing.expires_at = lease.expires_at;
+                if existing.receiver_enabled != lease.receiver_enabled {
+                    advance_authority(&mut self.authority_revisions, lease.workspace_id)?;
+                }
                 existing.receiver_enabled = lease.receiver_enabled;
                 self.shutdown_pending = false;
                 return Ok(());
@@ -151,6 +158,7 @@ impl LeaseTable {
             .insert(lease.ingress_id, lease.workspace_id);
         self.known_workspace_ingresses
             .insert(lease.workspace_id, lease.ingress_id);
+        advance_authority(&mut self.authority_revisions, lease.workspace_id)?;
         self.live.insert(lease.workspace_id, lease);
         self.shutdown_pending = false;
         Ok(())
@@ -178,7 +186,9 @@ impl LeaseTable {
             .values_mut()
             .find(|lease| lease.lease_id == lease_id)
             .ok_or(LeaseError::LeaseNotLive { lease_id })?;
+        let workspace_id = lease.workspace_id;
         lease.expires_at = expires_at;
+        preserve_authority(&mut self.authority_revisions, workspace_id);
         Ok(())
     }
 
@@ -200,7 +210,12 @@ impl LeaseTable {
             .values_mut()
             .find(|lease| lease.lease_id == lease_id)
             .ok_or(LeaseError::LeaseNotLive { lease_id })?;
+        if lease.receiver_enabled == receiver_enabled {
+            return Ok(());
+        }
+        let workspace_id = lease.workspace_id;
         lease.receiver_enabled = receiver_enabled;
+        advance_authority(&mut self.authority_revisions, workspace_id)?;
         Ok(())
     }
 
@@ -263,6 +278,15 @@ impl LeaseTable {
         }
     }
 
+    /// Exact authority incarnation for one current workspace lease.
+    #[must_use]
+    pub(crate) fn authority_revision(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Option<AuthorityRevision> {
+        self.authority_revisions.get(&workspace_id).copied()
+    }
+
     fn prune_expired(&mut self, now: Instant) -> bool {
         let expired = self
             .live
@@ -277,6 +301,29 @@ impl LeaseTable {
             self.shutdown_pending = true;
         }
         removed_any
+    }
+}
+
+fn advance_authority(
+    revisions: &mut HashMap<WorkspaceId, AuthorityRevision>,
+    workspace_id: WorkspaceId,
+) -> Result<(), LeaseError> {
+    let next = authority_revision_after(
+        revisions.get(&workspace_id).copied(),
+        AuthorityChange::Revoked,
+    )
+    .ok_or(LeaseError::AuthorityRevisionOverflow)?;
+    revisions.insert(workspace_id, next);
+    Ok(())
+}
+
+fn preserve_authority(
+    revisions: &mut HashMap<WorkspaceId, AuthorityRevision>,
+    workspace_id: WorkspaceId,
+) {
+    let revision = revisions.get(&workspace_id).copied();
+    if let Some(preserved) = authority_revision_after(revision, AuthorityChange::Heartbeat) {
+        revisions.insert(workspace_id, preserved);
     }
 }
 
@@ -296,70 +343,6 @@ fn shutdown_decision(removed_lease: bool, no_live_leases: bool) -> ServerDecisio
         ServerDecision::KeepRunning
     }
 }
-
-/// A rejected lease state transition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LeaseError {
-    /// A different live workspace already owns the lease ID.
-    LeaseAlreadyLeased { lease_id: LeaseId },
-    /// A different live lease already owns the workspace.
-    WorkspaceAlreadyLeased { workspace_id: WorkspaceId },
-    /// A different live lease already owns the ingress.
-    IngressAlreadyLeased { ingress_id: IngressId },
-    /// A previously known ingress belongs to another workspace.
-    IngressAlreadyKnown { ingress_id: IngressId },
-    /// A workspace attempted to change its stable ingress identity.
-    WorkspaceIngressMismatch { workspace_id: WorkspaceId },
-    /// Registration supplied a lease whose deadline is already elapsed.
-    LeaseExpired { lease_id: LeaseId },
-    /// A heartbeat or update named no live lease.
-    LeaseNotLive { lease_id: LeaseId },
-    /// Renewing a deadline exceeded the monotonic clock range.
-    ExpiryOverflow,
-}
-
-impl Display for LeaseError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::LeaseAlreadyLeased { lease_id } => {
-                write!(
-                    formatter,
-                    "lease {lease_id} already belongs to a live workspace"
-                )
-            }
-            Self::WorkspaceAlreadyLeased { workspace_id } => {
-                write!(
-                    formatter,
-                    "workspace {workspace_id} already has a live lease"
-                )
-            }
-            Self::IngressAlreadyLeased { ingress_id } => {
-                write!(formatter, "ingress {ingress_id} already has a live lease")
-            }
-            Self::IngressAlreadyKnown { ingress_id } => {
-                write!(
-                    formatter,
-                    "ingress {ingress_id} belongs to another workspace"
-                )
-            }
-            Self::WorkspaceIngressMismatch { workspace_id } => {
-                write!(
-                    formatter,
-                    "workspace {workspace_id} cannot change its ingress ID"
-                )
-            }
-            Self::LeaseExpired { lease_id } => {
-                write!(formatter, "lease {lease_id} is already expired")
-            }
-            Self::LeaseNotLive { lease_id } => write!(formatter, "lease {lease_id} is not live"),
-            Self::ExpiryOverflow => {
-                formatter.write_str("lease expiry exceeds the monotonic clock range")
-            }
-        }
-    }
-}
-
-impl Error for LeaseError {}
 
 #[cfg(test)]
 #[path = "table/tests.rs"]

@@ -11,6 +11,7 @@ mod table;
 mod watchdog;
 
 pub use crate::server::control::ServerClient;
+pub(crate) use decision::AuthorityRevision;
 pub use decision::ServerDecision;
 pub use election::{
     ElectionGuard, ElectionHandoff, StartDecision, decide_start, validate_election_token,

@@ -963,10 +963,18 @@ receiver worker remains TUI-owned and cannot outlive the interactive shell.
   lease table first. Shared-process routing captures a generation-bound lease
   ticket under the control-state mutex, reloads and verifies the registry,
   root, and portable manifest without that mutex, then revalidates the exact
-  live authority before returning a `WorkspaceContext`.
+  live authority revision before returning a `WorkspaceContext`. Heartbeats
+  preserve that revision; registration and enablement changes create a new
+  authority incarnation. Removal or expiry leaves no accepting authority, and
+  any later registration advances the remembered revision even when every
+  lease field is reused.
 - `server/http/` — the shared process's bounded, connection-closing HTTP/1.x
   request parser and response writer. Request heads are capped at 16 KiB, IO
-  has a two-second timeout, and each accepted connection carries one request.
+  shares one absolute two-second monotonic deadline from the first head read
+  through body reads, response writes, and flush, and each accepted connection
+  carries one request. The parser rejects conflicting or repeated framing,
+  unsupported transfer codings, invalid field names, and malformed or
+  over-limit chunk/trailer grammar.
 - `server/http_workers.rs` — a fixed four-worker, process-lifetime HTTP set
   over a loopback `std::net::TcpListener`. A start gate prevents any worker
   from accepting until all four spawns succeed; partial startup therefore

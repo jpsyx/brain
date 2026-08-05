@@ -1005,10 +1005,16 @@ authentication and in-memory job forwarding remain later work.
 
 The shared HTTP boundary admits exactly four active connections with a fixed
 worker set and no application request queue. It caps request heads and local
-action bodies at 16 KiB, bounds connection IO to two seconds, and revalidates a
-captured live route ticket after workspace filesystem checks. Slow or partial
-clients therefore cannot grow the thread set, block control requests, or make
-a stale lease authoritative.
+action bodies at 16 KiB, bounds the whole connection to one absolute two-second
+deadline, and revalidates a captured live route ticket after workspace
+filesystem checks. Byte-by-byte progress and a slow response drain cannot
+renew that deadline. Conflicting `Content-Length`/`Transfer-Encoding`, repeated
+or unsupported transfer codings, invalid field names, and malformed bounded
+chunk/trailer grammar are rejected. Route tickets also carry an authority
+incarnation: heartbeats preserve it, while disable/re-enable or identical
+unregister/re-register transitions cannot revive an earlier ticket. Slow or
+partial clients therefore cannot grow the thread set, block control requests,
+or make a stale lease authoritative.
 
 Inbound messages wait only for a submitted agent turn, not merely for the
 brain panel to exist. An idle startup panel is closed and replaced by the

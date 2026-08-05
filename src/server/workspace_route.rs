@@ -6,7 +6,8 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::server::lifecycle::{
-    IngressId, LeaseTable, ServerGeneration, WorkspaceAvailability, WorkspaceLease,
+    AuthorityRevision, IngressId, LeaseTable, ServerGeneration, WorkspaceAvailability,
+    WorkspaceLease,
 };
 use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceManifest};
 
@@ -40,6 +41,7 @@ impl ResolvedWorkspaceRoute {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorkspaceRouteTicket {
     generation: ServerGeneration,
+    authority_revision: AuthorityRevision,
     lease: WorkspaceLease,
 }
 
@@ -133,7 +135,14 @@ impl WorkspaceRouteAuthority {
         now: Instant,
     ) -> Result<WorkspaceRouteTicket, WorkspaceRouteError> {
         let lease = accepting_lease(leases, ingress, now)?;
-        Ok(WorkspaceRouteTicket { generation, lease })
+        let authority_revision = leases
+            .authority_revision(lease.workspace_id)
+            .ok_or_else(|| WorkspaceRouteError::new(503, "workspace route authority is stale"))?;
+        Ok(WorkspaceRouteTicket {
+            generation,
+            authority_revision,
+            lease,
+        })
     }
 
     /// Revalidate the same process generation and lease authority after IO.
@@ -150,7 +159,10 @@ impl WorkspaceRouteAuthority {
             ));
         }
         let current = accepting_lease(leases, ticket.lease.ingress_id, now)?;
-        if !same_authority(&current, &ticket.lease) {
+        let current_revision = leases.authority_revision(current.workspace_id);
+        if current_revision != Some(ticket.authority_revision)
+            || !same_authority(&current, &ticket.lease)
+        {
             return Err(WorkspaceRouteError::new(
                 503,
                 "workspace route authority changed while loading",

@@ -292,11 +292,20 @@ first move is a failing test that reproduces it, *then* the fix.
   cannot replace the ingress accepted for the selected live registration.
   A channel-blocked context loader proves registry and manifest IO never holds
   the control mutex: snapshot, heartbeat, and unregister remain responsive,
-  and the loaded ticket is rejected after unregister. Fixed-worker admission
+  and the loaded ticket is rejected after unregister. Pure revision and
+  blocked-route tests prove heartbeat renewal preserves a ticket, while
+  disable/re-enable and identical same-ID unregister/re-register ABA
+  transitions reject the pre-revocation ticket. Fixed-worker admission
   tests hold four partial bodies, prove a fifth connection waits while control
   remains responsive, and open 24 incomplete request heads without increasing
   the server thread count. An injected second-worker spawn failure proves the
   start gate rolls back before any partially received body is consumed.
+  Injected-clock request tests advance the same absolute connection deadline
+  across successful head and body bytes and the later response, proving drip
+  progress cannot renew it without relying on sleeps. Parser tests reject
+  conflicting or repeated framing, unsupported transfer codings, invalid
+  field names, malformed chunk sizes, forbidden framing trailers, and bounded
+  chunk/trailer violations while accepting the exact supported chunked form.
   Server observation uses deadline-bounded polling; lifecycle decisions use
   injected clocks rather than fixed timing sleeps.
 - **Shared-server control protocol.** `tests/server_control.rs` is split into

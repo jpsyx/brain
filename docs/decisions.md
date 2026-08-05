@@ -1790,7 +1790,13 @@ decision does it release the control mutex, reload the lease's canonical
 registry record, check the workspace UUID and root, reopen the portable
 manifest, and check both workspace and ingress UUIDs. It then reacquires the
 mutex and rejects the result unless the same lease authority is still
-accepting. Handlers receive the resulting `WorkspaceContext` explicitly. They
+accepting. The ticket includes a monotonic per-workspace authority revision:
+heartbeat renewal preserves it, while registration or an enablement change
+advances it. Removal or expiry leaves no accepting authority, and a later
+registration advances the remembered revision. Thus an identical
+disable/re-enable or unregister/re-register sequence cannot revive authority
+captured before revocation. Handlers receive the resulting `WorkspaceContext`
+explicitly. They
 never reopen a global root or choose a workspace independently. This ordering
 prevents slow filesystem IO from blocking heartbeat or shutdown and prevents
 one route from selecting another workspace's tasks, triage signal,
@@ -1805,10 +1811,17 @@ capacity constructor is only an allocation hint; its public listener API does
 not expose limits for those mechanisms. The shared process therefore uses a
 small connection-closing `std` HTTP transport with four fixed accept workers,
 no application request queue, a 16 KiB request-head limit, and two-second
-socket timeouts. A start gate lets workers accept only after all spawns
+absolute connection deadlines. Every successful or blocking head/body read,
+response write, and flush consumes the one deadline established at connection
+parsing, so drip progress cannot retain a worker indefinitely. The parser
+accepts either one `Content-Length` or exactly one supported `chunked` transfer
+coding, rejects ambiguous framing and invalid field names, and bounds and
+validates chunks and trailers. A start gate lets workers accept only after all
+spawns
 succeed, so partial startup rollback cannot consume a request body. A stalled
-client can occupy one bounded worker and apply backpressure, but cannot occupy
-the lifecycle loop, grow an unbounded thread set, or make the control socket
+client can occupy one bounded worker only until the absolute deadline and
+apply backpressure, but cannot occupy the lifecycle loop, grow an unbounded
+thread set, or make the control socket
 unresponsive. Final process exit signals the workers but never waits to join a
 worker held by a client, preserving immediate final-TUI shutdown.
 

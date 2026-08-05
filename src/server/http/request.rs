@@ -1,10 +1,12 @@
 //! Bounded request-head and request-body parsing.
 
-use std::io::{BufReader, Read as _, Write as _};
+use std::io::{BufReader, Write as _};
 use std::net::TcpStream;
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::Response;
+use super::deadline::{ConnectionClock, DeadlineStream, SystemClock};
 
 const HEAD_LIMIT_BYTES: usize = 16 * 1024;
 const CHUNK_LINE_LIMIT_BYTES: usize = 128;
@@ -16,14 +18,20 @@ pub(in crate::server) struct Request {
     headers: Vec<(String, String)>,
     body: BodyKind,
     expect_continue: bool,
-    reader: BufReader<TcpStream>,
+    reader: BufReader<DeadlineStream>,
 }
 
 impl Request {
     pub(in crate::server) fn read(stream: TcpStream) -> Result<Self, RequestError> {
-        stream.set_read_timeout(Some(IO_TIMEOUT))?;
-        stream.set_write_timeout(Some(IO_TIMEOUT))?;
-        let mut reader = BufReader::new(stream);
+        Self::read_with_clock(stream, Arc::new(SystemClock), IO_TIMEOUT)
+    }
+
+    fn read_with_clock(
+        stream: TcpStream,
+        clock: Arc<dyn ConnectionClock>,
+        budget: Duration,
+    ) -> Result<Self, RequestError> {
+        let mut reader = BufReader::new(DeadlineStream::new(stream, clock, budget)?);
         let mut total = 0;
         let request_line = read_head_line(&mut reader, &mut total)?;
         let mut parts = request_line.split_whitespace();
@@ -41,21 +49,18 @@ impl Request {
                 break;
             }
             let (name, value) = line.split_once(':').ok_or(RequestError::Malformed)?;
-            let name = name.trim();
-            if name.is_empty() {
+            if !valid_field_name(name) {
                 return Err(RequestError::Malformed);
             }
             headers.push((name.to_ascii_lowercase(), value.trim().to_owned()));
         }
 
         let content_length = unique_content_length(&headers)?;
-        let chunked = headers.iter().any(|(name, value)| {
-            name == "transfer-encoding"
-                && value
-                    .split(',')
-                    .any(|coding| coding.trim().eq_ignore_ascii_case("chunked"))
-        });
-        let body = if chunked {
+        let transfer_encoding = transfer_encoding(&headers)?;
+        if content_length.is_some() && transfer_encoding.is_some() {
+            return Err(RequestError::Malformed);
+        }
+        let body = if transfer_encoding.is_some() {
             BodyKind::Chunked
         } else if let Some(length) = content_length {
             BodyKind::Length(length)
@@ -65,6 +70,7 @@ impl Request {
         let expect_continue = headers
             .iter()
             .any(|(name, value)| name == "expect" && value.eq_ignore_ascii_case("100-continue"));
+        reader.get_ref().ensure_open()?;
 
         Ok(Self {
             method: method.to_owned(),
@@ -99,11 +105,13 @@ impl Request {
                 .write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
             self.reader.get_mut().flush()?;
         }
-        match self.body {
+        let body = match self.body {
             BodyKind::Empty => Ok(Vec::new()),
             BodyKind::Length(length) => read_exact_body(&mut self.reader, length, limit),
             BodyKind::Chunked => read_chunked_body(&mut self.reader, limit),
-        }
+        }?;
+        self.reader.get_ref().ensure_open()?;
+        Ok(body)
     }
 
     pub(in crate::server) fn write_response(&mut self, response: &Response) -> std::io::Result<()> {
@@ -145,7 +153,7 @@ enum BodyKind {
 }
 
 fn read_head_line(
-    reader: &mut BufReader<TcpStream>,
+    reader: &mut BufReader<DeadlineStream>,
     total: &mut usize,
 ) -> Result<String, RequestError> {
     let remaining = HEAD_LIMIT_BYTES
@@ -170,21 +178,59 @@ fn unique_content_length(headers: &[(String, String)]) -> Result<Option<usize>, 
         .filter(|(name, _)| name == "content-length")
         .map(|(_, value)| value)
     {
+        if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(RequestError::Malformed);
+        }
         let length = value
             .parse::<usize>()
             .map_err(|_| RequestError::Malformed)?;
-        if found
-            .replace(length)
-            .is_some_and(|previous| previous != length)
-        {
+        if found.replace(length).is_some() {
             return Err(RequestError::Malformed);
         }
     }
     Ok(found)
 }
 
+fn transfer_encoding(headers: &[(String, String)]) -> Result<Option<()>, RequestError> {
+    let mut values = headers
+        .iter()
+        .filter(|(name, _)| name == "transfer-encoding")
+        .map(|(_, value)| value.as_str());
+    let Some(value) = values.next() else {
+        return Ok(None);
+    };
+    if values.next().is_some() || !value.eq_ignore_ascii_case("chunked") {
+        return Err(RequestError::Malformed);
+    }
+    Ok(Some(()))
+}
+
+fn valid_field_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
+                )
+        })
+}
+
 fn read_exact_body(
-    reader: &mut BufReader<TcpStream>,
+    reader: &mut impl std::io::BufRead,
     length: usize,
     limit: usize,
 ) -> Result<Vec<u8>, BodyError> {
@@ -199,7 +245,7 @@ fn read_exact_body(
 }
 
 fn read_chunked_body(
-    reader: &mut BufReader<TcpStream>,
+    reader: &mut impl std::io::BufRead,
     limit: usize,
 ) -> Result<Vec<u8>, BodyError> {
     let mut body = Vec::new();
@@ -209,8 +255,8 @@ fn read_chunked_body(
         line.truncate(line.len() - 2);
         let size = std::str::from_utf8(&line)
             .ok()
-            .and_then(|line| line.split(';').next())
-            .and_then(|size| usize::from_str_radix(size.trim(), 16).ok())
+            .filter(|size| !size.is_empty() && size.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .and_then(|size| usize::from_str_radix(size, 16).ok())
             .ok_or(BodyError::Malformed)?;
         if size == 0 {
             consume_trailers(reader)?;
@@ -234,7 +280,7 @@ fn read_chunked_body(
     }
 }
 
-fn consume_trailers(reader: &mut BufReader<TcpStream>) -> Result<(), BodyError> {
+fn consume_trailers(reader: &mut impl std::io::BufRead) -> Result<(), BodyError> {
     let mut total = 0;
     loop {
         let remaining = HEAD_LIMIT_BYTES
@@ -244,6 +290,17 @@ fn consume_trailers(reader: &mut BufReader<TcpStream>) -> Result<(), BodyError> 
         total = total.checked_add(line.len()).ok_or(BodyError::TooLarge)?;
         if line == b"\r\n" {
             return Ok(());
+        }
+        let line =
+            std::str::from_utf8(&line[..line.len() - 2]).map_err(|_| BodyError::Malformed)?;
+        let (name, _) = line.split_once(':').ok_or(BodyError::Malformed)?;
+        if !valid_field_name(name)
+            || matches!(
+                name.to_ascii_lowercase().as_str(),
+                "content-length" | "transfer-encoding"
+            )
+        {
+            return Err(BodyError::Malformed);
         }
     }
 }
@@ -294,26 +351,5 @@ fn read_limited_line(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::{BufReader, Cursor, Read as _};
-
-    use super::{LimitedLineError, read_limited_line};
-
-    #[test]
-    fn oversized_line_consumes_only_one_proof_byte_beyond_the_limit() {
-        let mut source = vec![b'a'; 4096];
-        source.extend_from_slice(b"\r\n");
-        let mut reader = BufReader::with_capacity(source.len(), Cursor::new(source.clone()));
-
-        assert!(matches!(
-            read_limited_line(&mut reader, 128),
-            Err(LimitedLineError::TooLarge)
-        ));
-
-        let mut remaining = Vec::new();
-        reader
-            .read_to_end(&mut remaining)
-            .expect("read bytes beyond the bounded proof prefix");
-        assert_eq!(remaining.len(), source.len() - 129);
-    }
-}
+#[path = "request/tests/mod.rs"]
+mod tests;

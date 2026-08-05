@@ -1,8 +1,5 @@
 //! Fixed connection-closing HTTP responses.
 
-use std::io::Write as _;
-use std::net::TcpStream;
-
 pub(in crate::server) struct Response {
     status: u16,
     content_type: Option<&'static str>,
@@ -42,7 +39,10 @@ impl Response {
         }
     }
 
-    pub(in crate::server) fn write_to(&self, stream: &mut TcpStream) -> std::io::Result<()> {
+    pub(in crate::server) fn write_to(
+        &self,
+        stream: &mut impl std::io::Write,
+    ) -> std::io::Result<()> {
         write!(
             stream,
             "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n",
