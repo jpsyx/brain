@@ -1034,8 +1034,10 @@ brain-root lookup.
   Nonempty legacy input must contain and remains keyed by `task_id`, even when
   compatibility writers have added `task_uuid` and populated it for new rows;
   only matching active `tasks/SCHEMA.json` schema v2 metadata makes input name-aligned and
-  keyed by immutable `task_uuid`. The absent remote marker is legacy only;
-  malformed, incompatible, newer, and legacy/current mismatch states fail
+  keyed by immutable `task_uuid`. Only an absent remote marker is legacy.
+  Every present marker must parse as a complete supported protocol declaration
+  with an integer version and `task_uuid` merge key; malformed, incomplete,
+  wrong-typed, incompatible, newer, and legacy/current mismatch states fail
   before either remote CSV is read or any publication occurs. Current output
   orders all known fields canonically and declared forward-compatible fields
   lexically. The
@@ -1100,7 +1102,12 @@ brain-root lookup.
   `<workspace-cache>/migrations/multi-workspace-v1.json`; its original retained
   backup stays below `<workspace-cache>/migration-backups/`. When sync is
   configured, the first journaled step uses the existing legacy semantic sync
-  before task UUID identity becomes authoritative. The coordinator immediately
+  before task UUID identity becomes authoritative. When another machine has
+  already published schema v2, that step runs generic rclone without ordinary
+  task reconciliation, then `migration::legacy_join` fetches both remote CSVs
+  with `rclone copyto` and performs a local-only, `task_id`-keyed bridge. It
+  preserves remote UUIDs for matching rows and is safe to replay before local
+  activation. The coordinator immediately
   reloads portable config, users, and both assignment CSVs after that sync;
   newly pulled sender mappings and managed-triage policy are therefore
   preflighted before backup or mutation. The coordinator takes the UUID sync
@@ -1110,9 +1117,9 @@ brain-root lookup.
   `tasks/SCHEMA.json` last. Every step is atomically recorded, so rerun validates
   the workspace/plan and resumes the same backup. Ordinary sync and setup
   refuse while that journal remains active.
-  Failure reports the exact resume command. It offers shell-quoted local
-  restore commands only before remote schema activation; afterward recovery is
-  resume-only. Success removes the active journal but keeps
+  Failure reports the exact resume command and is resume-only at every
+  journaled step, including ambiguous remote publication before its journal
+  record. Success removes the active journal but keeps
   the backup.
   Shared-server control, TUI lease recovery, public opaque-ingress routing,
   authenticated actor resolution, exact TUI job forwarding, and response

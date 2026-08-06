@@ -373,6 +373,21 @@ that journaled sync and before backup or portable mutation. Freezing pre-sync
 objects would allow a newly pulled sender mapping to evade preflight or a stale
 triage flag to be applied during resume.
 
+A second configured legacy machine may begin migration after the first machine
+has already published task schema v2. Treating the present remote marker as
+legacy would publish incompatible rows, while ordinary schema matching would
+strand the second machine. The coordinator therefore owns a replayable join
+bridge before local activation: it runs generic rclone work, validates the
+present remote manifest and both current CSVs, merges by the still-shared
+`task_id`, preserves remote UUID authority for matching rows, and writes only
+the local legacy generation. The following journaled cutover assigns
+deterministic UUIDs only to local-only rows and retains schema-last publication.
+
+Only actual absence of the remote schema marker means legacy. Any present
+object is an authoritative protocol claim, so malformed JSON, missing or
+wrong-typed required fields, unsupported versions, and a non-UUID merge key
+must fail before task CSV reads or writes.
+
 Task-schema activation is a distributed publication boundary, not only a local
 file replacement. The rollout holds the UUID sync lock across local migration,
 remote task and habit CSV publication, and durable local baseline creation.
@@ -381,6 +396,12 @@ Only after those four artifacts are ready does it publish
 metadata, so no ordinary lane can reorder that transition. The rollout journal
 blocks ordinary sync and setup until an interrupted transition resumes; this
 closes the process-crash gap after the lock owner exits.
+
+Recovery instructions are resume-only for every active rollout journal. A
+remote copy can succeed before the matching journal record is durable, so even
+a nominally pre-transition journal cannot safely authorize restoring only the
+local machine. Retained backups support forensic inspection or a separately
+coordinated manual recovery.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 

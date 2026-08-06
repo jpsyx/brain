@@ -67,6 +67,18 @@ pub fn sync_once(
     dir: Direction,
     now: (&str, &str, &str),
 ) -> Result<Outcome> {
+    sync_once_with_task_state(paths, workspace_id, cfg, root, dir, now, true)
+}
+
+fn sync_once_with_task_state(
+    paths: &crate::workspace::WorkspacePaths,
+    workspace_id: crate::workspace::WorkspaceId,
+    cfg: &SyncConfig,
+    root: &Path,
+    dir: Direction,
+    now: (&str, &str, &str),
+    reconcile_task_state: bool,
+) -> Result<Outcome> {
     if !cfg.is_configured() {
         bail!("sync is not configured — run `brain sync setup`");
     }
@@ -183,6 +195,9 @@ pub fn sync_once(
     let csv_note = if matches!(outcome, Outcome::Aborted(_)) {
         crate::logging::log("sync csv merge skipped after abort");
         String::new()
+    } else if !reconcile_task_state {
+        crate::logging::log("sync csv merge deferred to migration join");
+        String::new()
     } else {
         crate::logging::log("sync csv merge start");
         reporter.line(&theme.info("Merging task and habit CSVs by row id…"));
@@ -248,23 +263,44 @@ pub fn run_legacy_migration_sync(
     context: &crate::workspace::CommandContext,
     config: &SyncConfig,
 ) -> Result<()> {
+    let remote = build_remote(config);
+    crate::sync::identity::require_remote_identity(
+        context.workspace.root(),
+        context.workspace.id(),
+        &remote,
+    )?;
+    let remote_task_state =
+        crate::sync::csv_sync::inspect_remote_task_state(context.workspace.paths(), &remote)?;
+    let remote_schema =
+        crate::sync::csv_merge::remote_schema_status(remote_task_state.schema.as_deref())?;
     let now = Utc::now();
     let started_at = now.to_rfc3339();
     let finished_at = Utc::now().to_rfc3339();
     let date = now.format("%Y-%m-%d").to_string();
-    match sync_once(
+    let reconcile_task_state = remote_schema == crate::sync::csv_merge::SchemaStatus::Legacy;
+    let outcome = sync_once_with_task_state(
         context.workspace.paths(),
         context.workspace.id(),
         config,
         context.workspace.root(),
         Direction::Both,
         (&started_at, &finished_at, &date),
-    )? {
-        Outcome::Clean => Ok(()),
+        reconcile_task_state,
+    )?;
+    match outcome {
+        Outcome::Clean => {}
         Outcome::NeedsAttention(message) | Outcome::Aborted(message) => {
             bail!("final legacy semantic sync was not clean: {message}")
         }
     }
+    if remote_schema == crate::sync::csv_merge::SchemaStatus::Current {
+        let schema = remote_task_state
+            .schema
+            .as_deref()
+            .expect("current remote schema must be present");
+        crate::migration::join_legacy_to_current(context, &remote, schema)?;
+    }
+    Ok(())
 }
 
 /// Summarize the CSV merge outcomes into a journal note segment, e.g.

@@ -362,8 +362,11 @@ delegated task values.
   `--brain <workspace>` selection plus
   `--acknowledge-all-machines-updated`; incomplete mapping prints exact
   `brain user ... -b <workspace>` remediation. A failed step reports the
-  retained backup, the exact resume command, and, after the backup step has
-  completed, shell-quoted restore commands for abandoning the rollout.
+  retained backup and the exact resume command. Every journaled failure is
+  resume-only, including a failure before the remote-publication step is
+  recorded, because a remote write may have succeeded before the local journal
+  update. The retained backup is for forensic or coordinated manual recovery,
+  never a one-machine restore while the rollout journal exists.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
   text under `NO_COLOR`. Valid portable modes include an honest three-line
   access/enforcement/sandbox status. It then appends the selected workspace's
@@ -916,7 +919,9 @@ tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
 `task_id`; schema-v2 tables are aligned by column name and keyed by immutable
 `task_uuid`. Before reading or merging either remote CSV, Brain fetches and
 validates the remote `tasks/SCHEMA.json`. A missing remote marker means legacy
-only; malformed, incompatible, or newer metadata, and a legacy/current mismatch,
+only. Every present remote marker must be valid JSON with a typed, supported
+schema version and the UUID merge key; malformed, incomplete, wrong-typed,
+incompatible, or newer metadata, and a legacy/current mismatch,
 refuse the whole lane before publication. A compatibility writer adding or populating that column does not
 activate UUID merge identity before `tasks/SCHEMA.json` does so. If distinct
 UUIDs claim the same `T###` or `H###`, the smaller
@@ -933,6 +938,15 @@ task/habit operation before any CSV, baseline, metadata, remote, or counter
 write. See [data-model.md](data-model.md)
 for the merge rules and
 [integrations.md](integrations.md) for the transport.
+
+When a configured legacy machine migrates after another machine has already
+published schema v2, the migration coordinator uses a dedicated pre-authority
+join. It runs the generic rclone lane without the ordinary task CSV lane, then
+reconciles the legacy baseline, local legacy rows, and current remote rows by
+`task_id` without publishing. Matching rows retain the remote `task_uuid`;
+local-only rows receive their deterministic migration UUID during the next
+journaled cutover step. Replay is byte-stable, and schema-last publication
+remains the only point that can expose the joined current generation remotely.
 
 The two id counters (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) that say
 which id to hand out next are also excluded from bisync and reconciled

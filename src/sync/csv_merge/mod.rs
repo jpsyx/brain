@@ -8,7 +8,8 @@ mod table;
 pub use merge::{Report, merge};
 pub use relationships::{project_task_lists, rewrite_project_metadata};
 pub use table::{
-    SchemaStatus, Table, TableParseError, parse, schema_status, serialize, validate_for_merge,
+    SchemaStatus, Table, TableParseError, parse, remote_schema_status, schema_status, serialize,
+    validate_for_merge,
 };
 
 #[cfg(test)]

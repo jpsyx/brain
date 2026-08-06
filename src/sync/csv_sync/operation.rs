@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::sync::args::Direction;
-use crate::sync::csv_merge::{Table, merge, parse, schema_status, serialize, validate_for_merge};
+use crate::sync::csv_merge::{
+    Table, merge, parse, remote_schema_status, schema_status, serialize, validate_for_merge,
+};
 
 use super::metadata::{MetadataPublishError, prepare_project_metadata, publish_project_metadata};
 use super::{CSVS, CsvMergeOutcome, CsvSyncError, CsvSyncResult, DisplayIdFloors, baseline_path};
@@ -61,7 +63,7 @@ pub fn sync_csvs_with_transport(
     let local_schema_status = schema_status(manifest.as_deref())
         .map_err(|error| CsvSyncError::Preflight(format!("{error:#}")))?;
     let remote_manifest = fetch("tasks/SCHEMA.json");
-    let remote_schema_status = schema_status(remote_manifest.as_deref())
+    let remote_schema_status = remote_schema_status(remote_manifest.as_deref())
         .map_err(|error| CsvSyncError::Preflight(format!("remote {error:#}")))?;
     if remote_schema_status != local_schema_status {
         return Err(CsvSyncError::Preflight(format!(

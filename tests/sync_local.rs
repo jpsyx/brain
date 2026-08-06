@@ -4,6 +4,9 @@
 
 #[path = "sync_local/conflicts.rs"]
 mod conflicts;
+#[cfg(unix)]
+#[path = "sync_local/coordinator_join.rs"]
+mod coordinator_join;
 #[path = "sync_local/csv_merge.rs"]
 mod csv_merge;
 #[path = "sync_local/multi_workspace.rs"]

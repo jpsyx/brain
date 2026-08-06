@@ -20,8 +20,7 @@ pub fn publish_task_schema_transition_with_transport(
     if !inspection.current {
         bail!("task schema transition requires current local CSV and schema state");
     }
-    crate::sync::csv_merge::schema_status(remote_schema)
-        .map_err(|error| anyhow::anyhow!("remote {error:#}"))?;
+    crate::sync::csv_merge::remote_schema_status(remote_schema)?;
     let tasks = read(root, TASKS)?;
     let habits = read(root, HABITS)?;
     let schema = read(root, SCHEMA)?;

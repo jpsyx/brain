@@ -49,6 +49,7 @@ fn backup_portable_data_with_hook(
     mut hook: impl FnMut(&Path, BackupWriteStep) -> std::io::Result<()>,
 ) -> Result<()> {
     validate_destination(root, backup_base, backup_dir)?;
+    validate_existing_inventory(backup_dir)?;
     ensure_directory(backup_base)?;
     ensure_directory(backup_dir)?;
     for (relative, required) in INVENTORY {
@@ -75,6 +76,69 @@ fn backup_portable_data_with_hook(
         })?;
     }
     Ok(())
+}
+
+fn validate_existing_inventory(backup_dir: &Path) -> Result<()> {
+    validate_existing_directory(backup_dir)?;
+    for (relative, _) in INVENTORY {
+        let destination = backup_dir.join(relative);
+        let parent = destination.parent().ok_or_else(|| {
+            anyhow!(
+                "migration backup destination has no parent: {}",
+                destination.display()
+            )
+        })?;
+        let relative_parent = parent.strip_prefix(backup_dir).with_context(|| {
+            format!(
+                "migration backup destination {} is outside {}",
+                destination.display(),
+                backup_dir.display()
+            )
+        })?;
+        let mut current = backup_dir.to_path_buf();
+        for component in relative_parent.components() {
+            current.push(component);
+            validate_existing_directory(&current)?;
+        }
+        match fs::symlink_metadata(&destination) {
+            Ok(metadata) if metadata.file_type().is_symlink() => bail!(
+                "migration backup destination must not be a symlink: {}",
+                destination.display()
+            ),
+            Ok(metadata) if !metadata.is_file() => bail!(
+                "migration backup destination must be a regular file: {}",
+                destination.display()
+            ),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "inspecting migration backup destination {}",
+                        destination.display()
+                    )
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_existing_directory(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => bail!(
+            "migration backup directory must not be a symlink: {}",
+            path.display()
+        ),
+        Ok(metadata) if !metadata.is_dir() => bail!(
+            "migration backup directory component is not a directory: {}",
+            path.display()
+        ),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error)
+            .with_context(|| format!("inspecting migration backup directory {}", path.display())),
+    }
 }
 
 fn validate_destination(root: &Path, backup_base: &Path, backup_dir: &Path) -> Result<()> {
@@ -265,6 +329,57 @@ mod tests {
 
         assert!(error.to_string().contains("disjoint"), "{error:#}");
         assert!(!root.join("20260806T120000Z-pre-multi-workspace").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preexisting_nested_backup_symlink_into_workspace_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("workspace");
+        let tasks = root.join("tasks");
+        let base = temporary.path().join("cache/migration-backups");
+        let backup = base.join("20260806T120000Z-pre-multi-workspace");
+        fs::create_dir_all(&tasks).unwrap();
+        fs::create_dir_all(&backup).unwrap();
+        for (name, bytes) in [
+            ("tasks.csv", b"task_id\nT1\n".as_slice()),
+            ("habits.csv", b"task_id\nH1\n".as_slice()),
+            ("SCHEMA.json", b"{}\n".as_slice()),
+        ] {
+            fs::write(tasks.join(name), bytes).unwrap();
+        }
+        symlink(&tasks, backup.join("tasks")).unwrap();
+
+        let error = backup_portable_data(&root, &base, &backup).unwrap_err();
+
+        assert!(error.to_string().contains("symlink"), "{error:#}");
+        assert_eq!(fs::read(tasks.join("tasks.csv")).unwrap(), b"task_id\nT1\n");
+    }
+
+    #[test]
+    fn preexisting_nested_backup_file_component_is_rejected() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("workspace");
+        let tasks = root.join("tasks");
+        let base = temporary.path().join("cache/migration-backups");
+        let backup = base.join("20260806T120000Z-pre-multi-workspace");
+        fs::create_dir_all(&tasks).unwrap();
+        fs::create_dir_all(&backup).unwrap();
+        for (name, bytes) in [
+            ("tasks.csv", b"task_id\nT1\n".as_slice()),
+            ("habits.csv", b"task_id\nH1\n".as_slice()),
+            ("SCHEMA.json", b"{}\n".as_slice()),
+        ] {
+            fs::write(tasks.join(name), bytes).unwrap();
+        }
+        fs::write(backup.join("tasks"), b"not a directory\n").unwrap();
+
+        let error = backup_portable_data(&root, &base, &backup).unwrap_err();
+
+        assert!(error.to_string().contains("not a directory"), "{error:#}");
+        assert_eq!(fs::read(tasks.join("tasks.csv")).unwrap(), b"task_id\nT1\n");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 PASS. All required durable docs and release surfaces describe the completed
 Phase 5 module tree and CLI. The final compatible version after review fixes is
-`0.35.2`. All release,
+`0.35.3`. All release,
 acceptance, privacy, read-only, lint, skill, help, and smoke gates passed. The
 branch remains local and the worktree is preserved.
 
@@ -199,3 +199,33 @@ the personal-data guard, 23 Python skill tests, every explicit acceptance and
 security suite, CLI help/conflict checks, the isolated two-workspace smoke,
 focused rustfmt, and patch-hygiene audits all passed. Exact counts and commands
 are recorded in the SDD progress ledger.
+
+## Final closure wave
+
+The last review wave closes four release blockers. A configured legacy machine
+can now join an already-current remote through a migration-owned, replayable,
+local-only task-id bridge that preserves remote UUID authority and never
+publishes a legacy generation. Present remote schema metadata is strict and
+complete; only true absence means legacy. Every active-journal failure reports
+resume-only recovery because remote publication can precede its durable step
+record. Backup inventory validation rejects pre-existing nested symlinks and
+non-directory components before copying.
+
+RED evidence was observed for the missing strict remote parser, restore-capable
+recovery, nested backup symlink acceptance, the real coordinator schema
+mismatch, the missing join seam, and incomplete current-manifest acceptance.
+Focused GREEN verification covers CSV sync 18/18, setup 15/15, migration 22/22,
+real-rclone sync 11/11, recovery 2/2, nested backup safety, strict remote
+schema refusal without publication, replay identity, and strict Clippy. The
+compatible patch version is `0.35.3`; full release gates are recorded in the
+SDD progress ledger.
+
+The only descriptor-relative post-validation insertion TOCTOU remains deferred
+Minor.
+
+Final release verification passed with 1,325 library tests plus every
+integration and doc test. Strict Clippy passed at 0.35.3; the real-rclone suite
+passed 11/11, migration passed 22/22, setup passed 15/15, stale-lock passed 6/6,
+and remote identity passed 9/9. The bundled-skill personal-data guard, all 23
+todo-skill Python tests, focused rustfmt, patch whitespace, exact version, and
+added-line rhetorical-em-dash audits also passed.

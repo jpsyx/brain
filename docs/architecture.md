@@ -855,7 +855,11 @@ lives under `<workspace-cache>/migration-backups/` and contains only the
 portable rollout inventory. The coordinator reuses existing sync, manifest,
 users, task-schema, triage, and reindex transactions. Its first journaled step
 is the final legacy semantic sync when sync is configured, so UUID task merge
-identity never becomes authoritative first. Task-schema migration and its
+identity never becomes authoritative first. If the remote is already current,
+`migration/legacy_join.rs` replaces the ordinary legacy CSV lane with a
+replayable, local-only `task_id` bridge. It validates both current remote CSVs,
+preserves remote UUIDs on matching display IDs, and leaves local-only UUIDs for
+the journaled local cutover. Task-schema migration and its
 remote transition share the UUID sync lock. The transition publishes both
 current CSVs, durably establishes both machine-local UUID baselines, and only
 then publishes `tasks/SCHEMA.json`; all three paths are excluded from the
@@ -866,7 +870,9 @@ sync and sync setup refuse at the lock boundary so an interrupted transition
 must resume through `brain workspace migrate`. Final verification
 checks registry and manifest identity, membership, task UUID and assignment
 invariants, triage state, derived indexes, and remote identity before removing
-the active journal. The backup remains machine-local and retained.
+the active journal. Every journaled failure is resume-only because remote
+publication can complete before its step record becomes durable. The backup
+remains machine-local and retained for forensic or coordinated recovery.
 
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`

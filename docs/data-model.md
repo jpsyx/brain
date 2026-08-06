@@ -633,7 +633,9 @@ counters, and `SCHEMA.json`, then writes task schema version 2 with
 `task_uuid` as immutable merge identity and `task_id` as mutable display
 identity. The caller supplies an existing durable backup base; a backup
 destination is accepted only when its canonicalized path is beneath that base
-and disjoint from the workspace tree. Each missing descendant is created
+and disjoint from the workspace tree. Before copying, every pre-existing
+inventory parent and destination is inspected without following symlinks;
+nested symlinks and non-directory components are rejected. Each missing descendant is created
 separately, and every actual parent is synced before continuing, including on
 retry through a partially created chain. Exact backup bytes are file-synced
 and their actual parent directory is synced before any portable replacement.
@@ -670,7 +672,12 @@ workspace UUID, remote identity when sync is configured, explicit all-machine
 acknowledgement for a synced headless rollout, and a disjoint machine-local
 backup destination. Unconfigured migration also finishes portable user and
 assignment mapping before journal creation. Configured migration first records
-the final legacy sync in the journal, then reloads config, portable users, and
+the final legacy sync in the journal. If the remote marker is absent, this is
+the ordinary legacy semantic merge. If a present remote marker strictly
+declares supported schema v2, a migration-owned join merges the legacy
+baseline/local generation with current remote rows by `task_id`, preserves the
+remote UUID for every matching row, and performs no remote task publication.
+The coordinator then reloads config, portable users, and
 both CSV assignment columns and reruns mapping preflight before backup or
 portable mutation. If both `assigned_to` and legacy `assignee` exist,
 `assigned_to` is canonical. The journal binds the migration ID, workspace UUID,
@@ -691,11 +698,15 @@ prepared/committed recovery boundary for multi-file replacement. An active
 rollout journal makes ordinary sync and sync setup refuse after taking the UUID
 lock, so crash recovery must resume the journaled transition. Success removes
 only the active rollout journal and retains the backup. An interrupted run
-prints the exact resume command. Before remote schema activation, a completed
-backup also permits shell-quoted local restore commands. After the remote
-transition is durably recorded, recovery is resume-only because restoring one
-local machine would diverge from the active remote schema. Rerunning a
+prints the exact resume command. Recovery is resume-only for every active
+journal state because remote task publication may have completed before its
+step record became durable. Restoring only one machine could therefore diverge
+from the authoritative remote generation. Rerunning a
 fully current workspace is byte-idempotent and creates no new backup.
+
+The backup hardening rejects all pre-existing nested symlink and non-directory
+components. The only descriptor-relative post-validation insertion TOCTOU
+remains deferred Minor.
 
 Managed triage identity lives in the optional `system_key` column. The reserved
 values `brain.triage.daily` and `brain.triage.weekly` identify Brain-owned

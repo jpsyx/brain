@@ -153,6 +153,48 @@ fn current_unconfigured_workspace_setup_transitions_an_empty_remote_for_a_second
     }
 }
 
+#[test]
+fn real_rclone_wrong_typed_remote_schema_refuses_legacy_sync_without_publication() {
+    if !rclone_available() {
+        eprintln!("skipping: rclone not on PATH");
+        return;
+    }
+    let temporary = tempfile::tempdir().unwrap();
+    let remote = temporary.path().join("remote");
+    let local = temporary.path().join("local");
+    std::fs::create_dir_all(&remote).unwrap();
+    std::fs::create_dir_all(&local).unwrap();
+    write_legacy_state(&local);
+    write_legacy_state(&remote);
+    let invalid = r#"{"task_schema_version":"3","merge_key":"task_uuid"}"#;
+    std::fs::write(remote.join("tasks/SCHEMA.json"), invalid).unwrap();
+    let remote_tasks_before = std::fs::read(remote.join("tasks/tasks.csv")).unwrap();
+    let paths = workspace_paths(temporary.path(), workspace_id());
+
+    let error = brain::sync::csv_sync::sync_csvs_with_transport(
+        &paths,
+        &local,
+        Direction::Both,
+        |relative| rclone_cat(&remote.join(relative)),
+        |relative, text| rclone_copy_text(text, &remote.join(relative)),
+    )
+    .unwrap_err();
+
+    assert!(
+        error.to_string().contains("remote task_schema_version"),
+        "{error:#}"
+    );
+    assert_eq!(
+        std::fs::read(remote.join("tasks/tasks.csv")).unwrap(),
+        remote_tasks_before
+    );
+    assert_eq!(
+        std::fs::read_to_string(remote.join("tasks/SCHEMA.json")).unwrap(),
+        invalid
+    );
+    assert!(!paths.sync_dir().exists());
+}
+
 fn write_legacy_state(root: &Path) {
     std::fs::create_dir_all(root.join("tasks")).unwrap();
     std::fs::write(

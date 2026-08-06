@@ -256,24 +256,20 @@ fn with_recovery(
 ) -> anyhow::Error {
     let instructions = recovery_instructions(
         context.workspace.name().as_str(),
-        context.workspace.root(),
         backup,
         sync_configured,
         backup_complete,
         remote_transition_complete,
-        Path::exists,
     );
     anyhow!("workspace migration failed: {error:#}\n\n{instructions}")
 }
 
 fn recovery_instructions(
     workspace: &str,
-    root: &Path,
     backup: &Path,
     sync_configured: bool,
     backup_complete: bool,
     remote_transition_complete: bool,
-    backup_exists: impl Fn(&Path) -> bool,
 ) -> String {
     let acknowledgement = if sync_configured {
         " --acknowledge-all-machines-updated"
@@ -281,37 +277,11 @@ fn recovery_instructions(
         ""
     };
     let recovery = if remote_transition_complete {
-        "The remote task schema transition completed. Do not restore only this machine from backup; resume the migration so local and remote state can be reconciled and verified.".to_owned()
+        "The remote task schema transition completed and is durably recorded. Keep the immutable backup for forensic or coordinated manual recovery; resume the migration so local and remote state can be reconciled and verified. Never restore only this machine while the rollout journal exists."
     } else if backup_complete {
-        let mut commands = vec![format!(
-            "cp -pR {}/. {}/",
-            crate::session::shell_quote(backup.to_string_lossy().as_ref()),
-            crate::session::shell_quote(root.to_string_lossy().as_ref())
-        )];
-        for relative in [
-            ".config/config.json",
-            ".config/users.json",
-            ".config/workspace.json",
-            "tasks/.tasks_next_id",
-            "tasks/.habits_next_id",
-        ] {
-            if !backup_exists(&backup.join(relative)) {
-                commands.push(format!(
-                    "rm -f {}",
-                    crate::session::shell_quote(root.join(relative).to_string_lossy().as_ref())
-                ));
-            }
-        }
-        commands.push(format!(
-            "brain reindex -b {}",
-            crate::session::shell_quote(workspace)
-        ));
-        format!(
-            "Restore only to abandon the migration:\n{}",
-            commands.join("\n")
-        )
+        "The immutable backup is retained for forensic or coordinated manual recovery. A remote publication may have completed before its journal record; resume the migration to reconcile the authoritative state. Never restore only this machine while the rollout journal exists."
     } else {
-        "The portable backup step did not complete, so no later rollout replacement ran. Fix the reported error and resume.".to_owned()
+        "The backup path may be incomplete and is retained for forensic inspection. Fix the reported error and resume the journaled migration; never restore only this machine while the rollout journal exists."
     };
     format!(
         "Backup path: {}\nResume: brain workspace migrate -b {}{acknowledgement}\n{recovery}",
@@ -325,43 +295,32 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn recovery_instructions_quote_paths_and_restore_the_original_optional_inventory() {
+    fn every_journaled_failure_is_resume_only_even_when_remote_publication_is_ambiguous() {
         let backup = Path::new("/tmp/family's brain/backups/20260806T120000Z");
-        let root = Path::new("/tmp/family's brain");
-
-        let instructions =
-            super::recovery_instructions("family space", root, backup, true, true, false, |_| {
-                false
-            });
-
-        assert!(instructions.contains(
-            "Resume: brain workspace migrate -b 'family space' --acknowledge-all-machines-updated"
-        ));
-        assert!(instructions.contains(
-            "cp -pR '/tmp/family'\\''s brain/backups/20260806T120000Z'/. '/tmp/family'\\''s brain'/"
-        ));
-        for relative in [
-            ".config/config.json",
-            ".config/users.json",
-            ".config/workspace.json",
-            "tasks/.tasks_next_id",
-            "tasks/.habits_next_id",
-        ] {
-            assert!(
-                instructions.contains(&format!("rm -f '/tmp/family'\\''s brain/{relative}'")),
-                "missing absence restoration for {relative}: {instructions}"
+        for (backup_complete, transition_recorded) in [(false, false), (true, false), (true, true)]
+        {
+            let instructions = super::recovery_instructions(
+                "family space",
+                backup,
+                true,
+                backup_complete,
+                transition_recorded,
             );
+
+            assert!(instructions.contains(
+                "Resume: brain workspace migrate -b 'family space' --acknowledge-all-machines-updated"
+            ));
+            assert!(instructions.contains("forensic"), "{instructions}");
+            assert!(!instructions.contains("cp -pR"), "{instructions}");
+            assert!(!instructions.contains("rm -f"), "{instructions}");
+            assert!(!instructions.contains("Restore only"), "{instructions}");
         }
-        assert!(instructions.contains("brain reindex -b 'family space'"));
     }
 
     #[test]
     fn post_transition_recovery_requires_resume_and_never_restores_only_local_files() {
         let backup = Path::new("/tmp/family-brain/backups/20260806T120000Z");
-        let root = Path::new("/tmp/family-brain");
-
-        let instructions =
-            super::recovery_instructions("family", root, backup, true, true, true, |_| false);
+        let instructions = super::recovery_instructions("family", backup, true, true, true);
 
         assert!(instructions.contains("remote task schema transition completed"));
         assert!(instructions.contains(

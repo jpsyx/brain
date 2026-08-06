@@ -266,8 +266,7 @@ pub fn prepare_current_schema_for_setup_with_transport(
     if !local.current {
         return Ok(false);
     }
-    let remote = crate::sync::csv_merge::schema_status(remote_schema)
-        .map_err(|error| anyhow::anyhow!("remote {error:#}"))?;
+    let remote = crate::sync::csv_merge::remote_schema_status(remote_schema)?;
     if remote == crate::sync::csv_merge::SchemaStatus::Current {
         return Ok(false);
     }
@@ -303,8 +302,7 @@ fn prepare_current_schema_for_setup(
         command.workspace.paths(),
         verified.remote(),
     )?;
-    let remote_status = crate::sync::csv_merge::schema_status(state.schema.as_deref())
-        .map_err(|error| anyhow::anyhow!("remote {error:#}"))?;
+    let remote_status = crate::sync::csv_merge::remote_schema_status(state.schema.as_deref())?;
     if remote_status == crate::sync::csv_merge::SchemaStatus::Current {
         return Ok(());
     }
