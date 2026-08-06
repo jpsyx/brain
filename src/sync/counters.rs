@@ -39,6 +39,16 @@ pub fn merge_counter(local: Option<u32>, remote: Option<u32>) -> Option<u32> {
     }
 }
 
+/// Reconcile local and remote counter values with a required next-ID floor.
+#[must_use]
+pub(crate) fn reconcile_counter_value(
+    local: Option<u32>,
+    remote: Option<u32>,
+    floor: u32,
+) -> Option<u32> {
+    merge_counter(merge_counter(local, remote), (floor > 0).then_some(floor))
+}
+
 /// Next counter value required by display IDs already emitted in either CSV.
 #[must_use]
 pub fn counter_floor_from_csvs(local: &str, remote: &str, prefix: char) -> Option<u32> {
@@ -113,12 +123,11 @@ fn sync_one_counter_with_mode(
         .ok()
         .and_then(|t| parse_counter(&t));
     let theirs = fetch().and_then(|t| parse_counter(&t));
-    let floor = (floor > 0).then_some(floor);
-    let merged = merge_counter(merge_counter(ours, theirs), floor);
+    let merged = reconcile_counter_value(ours, theirs, floor);
     let local_value = if download_remote {
         merged
     } else {
-        merge_counter(ours, floor)
+        reconcile_counter_value(ours, None, floor)
     };
     if let Some(value) = local_value {
         // Only write when the merged value differs from what each side already
@@ -236,6 +245,20 @@ mod tests {
         assert_eq!(parse_counter("  7 "), Some(7));
         assert_eq!(parse_counter(""), None);
         assert_eq!(parse_counter("H31"), None);
+    }
+
+    #[test]
+    fn bridge_value_max_merges_usable_counters_and_display_floor() {
+        let cases = [
+            (Some(2), Some(7), 5, Some(7)),
+            (None, None, 5, Some(5)),
+            (Some(9), None, 5, Some(9)),
+            (None, None, 0, None),
+        ];
+
+        for (local, remote, floor, expected) in cases {
+            assert_eq!(reconcile_counter_value(local, remote, floor), expected);
+        }
     }
 
     #[test]

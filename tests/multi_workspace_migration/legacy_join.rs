@@ -24,6 +24,8 @@ fn replayable_legacy_join_preserves_remote_uuids_and_never_publishes_legacy_shap
     )
     .unwrap();
     std::fs::write(tasks.join("SCHEMA.json"), "{}\n").unwrap();
+    std::fs::write(tasks.join(".tasks_next_id"), "2\n").unwrap();
+    std::fs::write(tasks.join(".habits_next_id"), "not-a-counter\n").unwrap();
     let paths = WorkspacePaths::new(temporary.path(), WorkspaceId::parse(WORKSPACE_ID).unwrap());
     std::fs::create_dir_all(paths.sync_csv_baselines()).unwrap();
     std::fs::write(
@@ -45,8 +47,10 @@ fn replayable_legacy_join_preserves_remote_uuids_and_never_publishes_legacy_shap
         (
             "tasks/habits.csv",
             "task_uuid,task_id,task_name,status,notes,assigned_to,system_key\n\
-             20000000-0000-4000-8000-000000000001,H1,Walk,not_started,,pablo,\n",
+             20000000-0000-4000-8000-000000000001,H1,Walk,not_started,,pablo,\n\
+             20000000-0000-4000-8000-000000000004,H4,Stretch,not_started,,pablo,\n",
         ),
+        ("tasks/.tasks_next_id", "7\n"),
     ]);
 
     for _ in 0..2 {
@@ -68,6 +72,14 @@ fn replayable_legacy_join_preserves_remote_uuids_and_never_publishes_legacy_shap
     assert_eq!(rows["T1"]["notes"], "remote note");
     assert_eq!(rows["T2"]["task_uuid"], "");
     assert_eq!(
+        std::fs::read_to_string(tasks.join(".tasks_next_id")).unwrap(),
+        "7\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(tasks.join(".habits_next_id")).unwrap(),
+        "5\n"
+    );
+    assert_eq!(
         std::fs::read_to_string(tasks.join("SCHEMA.json")).unwrap(),
         "{}\n"
     );
@@ -76,6 +88,8 @@ fn replayable_legacy_join_preserves_remote_uuids_and_never_publishes_legacy_shap
         "task_uuid,task_id,task_name,status,notes,assigned_to,system_key\n\
          10000000-0000-4000-8000-000000000001,T1,Shared,not_started,remote note,pablo,\n"
     );
+    assert_eq!(remote["tasks/.tasks_next_id"], "7\n");
+    assert!(!remote.contains_key("tasks/.habits_next_id"));
 }
 
 fn rows_by_task_id(path: &std::path::Path) -> BTreeMap<String, BTreeMap<String, String>> {

@@ -859,7 +859,10 @@ identity never becomes authoritative first. If the remote is already current,
 `migration/legacy_join.rs` replaces the ordinary legacy CSV lane with a
 replayable, local-only `task_id` bridge. It validates both current remote CSVs,
 preserves remote UUIDs on matching display IDs, and leaves local-only UUIDs for
-the journaled local cutover. Task-schema migration and its
+the journaled local cutover. Before the step can complete, it also max-merges
+both local counters with the fetched remote counters and floors them beyond the
+exact joined task and habit display IDs. The bridge never publishes CSVs or
+counters remotely. Task-schema migration and its
 remote transition share the UUID sync lock. The transition publishes both
 current CSVs, durably establishes both machine-local UUID baselines, and only
 then publishes `tasks/SCHEMA.json`; all three paths are excluded from the

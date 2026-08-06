@@ -677,6 +677,11 @@ the ordinary legacy semantic merge. If a present remote marker strictly
 declares supported schema v2, a migration-owned join merges the legacy
 baseline/local generation with current remote rows by `task_id`, preserves the
 remote UUID for every matching row, and performs no remote task publication.
+The same replayable bridge reconciles each local id counter to
+`max(local, remote, joined_max + 1)` before the journal can record the legacy
+semantic step complete. Missing or malformed counter text is absent input;
+joined rows still provide the safe floor. Neither CSV nor counter state is
+published by this bridge.
 The coordinator then reloads config, portable users, and
 both CSV assignment columns and reruns mapping preflight before backup or
 portable mutation. If both `assigned_to` and legacy `assignee` exist,

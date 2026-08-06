@@ -28,6 +28,10 @@ fn second_configured_legacy_machine_joins_current_remote_through_real_coordinato
     );
     fixture.write_a_change();
     Fixture::assert_success(&fixture.migrate_a(), "migrate first machine");
+    fixture.seed_a_high_counters();
+    Fixture::assert_success(&fixture.add_a_task(), "allocate first-machine high task");
+    Fixture::assert_success(&fixture.add_a_habit(), "allocate first-machine high habit");
+    fixture.repair_a_until_clean();
     let first_uuid = task_rows(&fixture.remote)["T1"]["task_uuid"].clone();
     let ordinary_repair = fixture.run_b(&["sync", "repair", "-b", "family"]);
     assert!(!ordinary_repair.status.success());
@@ -50,6 +54,32 @@ fn second_configured_legacy_machine_joins_current_remote_through_real_coordinato
         legacy_task_uuid(workspace_id(), CsvKind::Tasks, "T2").to_string()
     );
     assert_eq!(joined["T2"]["task_name"], "Second-machine only");
+    assert_eq!(
+        std::fs::read_to_string(fixture.root_b.join("tasks/.tasks_next_id")).unwrap(),
+        "8\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.root_b.join("tasks/.habits_next_id")).unwrap(),
+        "9\n"
+    );
+    Fixture::assert_success(
+        &fixture.add_b_task(),
+        "allocate second-machine task after join",
+    );
+    Fixture::assert_success(
+        &fixture.add_b_habit(),
+        "allocate second-machine habit after join",
+    );
+    let allocated_tasks = task_rows(&fixture.root_b);
+    assert_eq!(
+        allocated_tasks["T8"]["task_name"],
+        "Second-machine new task"
+    );
+    let allocated_habits = habit_rows(&fixture.root_b);
+    assert_eq!(
+        allocated_habits["H9"]["task_name"],
+        "Second-machine new habit"
+    );
     assert!(!fixture.migration_journal_b().exists());
 
     fixture.repair_a_until_clean();
@@ -216,6 +246,73 @@ impl Fixture {
         );
     }
 
+    fn seed_a_high_counters(&self) {
+        std::fs::write(self.root_a.join("tasks/.tasks_next_id"), "7\n").unwrap();
+        std::fs::write(self.root_a.join("tasks/.habits_next_id"), "8\n").unwrap();
+    }
+
+    fn add_a_task(&self) -> Output {
+        Self::run_add(
+            &self.root_a,
+            &self.home_a,
+            &["--name", "First-machine high task", "--type", "personal"],
+        )
+    }
+
+    fn add_a_habit(&self) -> Output {
+        Self::run_add(
+            &self.root_a,
+            &self.home_a,
+            &[
+                "--name",
+                "First-machine high habit",
+                "--habit",
+                "--interval",
+                "1",
+                "--unit",
+                "days",
+            ],
+        )
+    }
+
+    fn add_b_task(&self) -> Output {
+        Self::run_add(
+            &self.root_b,
+            &self.home_b,
+            &["--name", "Second-machine new task", "--type", "personal"],
+        )
+    }
+
+    fn add_b_habit(&self) -> Output {
+        Self::run_add(
+            &self.root_b,
+            &self.home_b,
+            &[
+                "--name",
+                "Second-machine new habit",
+                "--habit",
+                "--interval",
+                "1",
+                "--unit",
+                "days",
+            ],
+        )
+    }
+
+    fn run_add(root: &Path, home: &Path, args: &[&str]) -> Output {
+        Command::new("python3")
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/todo/scripts/add_task.py"))
+            .args(args)
+            .args(["--priority", "p2"])
+            .env("HOME", home)
+            .env("BRAIN_ROOT", root)
+            .env("BRAIN_ACTOR_ID", "pablo")
+            .env("BRAIN_WORKSPACE_ID", WORKSPACE_ID)
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .output()
+            .unwrap()
+    }
+
     fn write_b_changes(&self) {
         write_tasks(
             &self.root_b,
@@ -258,6 +355,8 @@ fn write_legacy_workspace(root: &Path) {
     )
     .unwrap();
     std::fs::write(root.join("tasks/SCHEMA.json"), b"{}\n").unwrap();
+    std::fs::write(root.join("tasks/.tasks_next_id"), b"2\n").unwrap();
+    std::fs::write(root.join("tasks/.habits_next_id"), b"2\n").unwrap();
     std::fs::write(
         root.join("RCLONE_TEST"),
         b"brain sync check-access marker\n",
@@ -370,7 +469,15 @@ fn workspace_id() -> WorkspaceId {
 }
 
 fn task_rows(root: &Path) -> BTreeMap<String, BTreeMap<String, String>> {
-    let mut reader = csv::Reader::from_path(root.join("tasks/tasks.csv")).unwrap();
+    rows(root, "tasks/tasks.csv")
+}
+
+fn habit_rows(root: &Path) -> BTreeMap<String, BTreeMap<String, String>> {
+    rows(root, "tasks/habits.csv")
+}
+
+fn rows(root: &Path, relative: &str) -> BTreeMap<String, BTreeMap<String, String>> {
+    let mut reader = csv::Reader::from_path(root.join(relative)).unwrap();
     let headers = reader.headers().unwrap().clone();
     reader
         .records()

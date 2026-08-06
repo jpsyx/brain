@@ -1834,6 +1834,16 @@ keeps the next ordinary writer from reissuing a label that reconciliation just
 created. A missing or garbage counter is treated as absent; absent counters
 still derive their first safe value from the CSV floor.
 
+The configured legacy-machine join is a special local-only use of the same
+rule. Its generic rclone pass cannot carry counters because they are excluded,
+and its ordinary task-state lane is intentionally deferred while the local and
+remote schemas differ. The migration bridge therefore computes floors from
+the exact joined tables, fetches any usable remote counters, and atomically
+writes `max(local, remote, joined_max + 1)` only to the local counter files
+before the journaled legacy semantic step can complete. It never pushes a
+legacy CSV or counter generation. A crash before both writes leaves the step
+unrecorded, and replay converges to the same values.
+
 ## Why the daily-triage nudge waits for the startup sync
 
 The triage nudge asks "today's triage isn't done — run it now?" based on whether

@@ -1106,8 +1106,12 @@ brain-root lookup.
   already published schema v2, that step runs generic rclone without ordinary
   task reconciliation, then `migration::legacy_join` fetches both remote CSVs
   with `rclone copyto` and performs a local-only, `task_id`-keyed bridge. It
-  preserves remote UUIDs for matching rows and is safe to replay before local
-  activation. The coordinator immediately
+  preserves remote UUIDs for matching rows, then fetches both remote counters
+  and atomically floors the local task and habit counters to
+  `max(local, remote, joined_max + 1)`. Missing or malformed counters are
+  absent inputs, so the joined tables still establish a safe floor. The bridge
+  is safe to replay before local activation and has no remote publication
+  path. The coordinator immediately
   reloads portable config, users, and both assignment CSVs after that sync;
   newly pulled sender mappings and managed-triage policy are therefore
   preflighted before backup or mutation. The coordinator takes the UUID sync

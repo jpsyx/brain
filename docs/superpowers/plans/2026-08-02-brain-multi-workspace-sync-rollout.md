@@ -244,8 +244,12 @@ Machine-local migration state lives under the selected workspace cache at `migra
   of the ordinary schema-matched CSV lane. Run generic rclone without task CSV
   reconciliation, strictly validate the present remote manifest and current
   CSVs, merge by legacy `task_id`, preserve remote UUIDs for matching rows, and
-  write only the local legacy generation. The later journaled cutover assigns
-  deterministic UUIDs to local-only rows and publishes schema last.
+  write only the local legacy generation. Before recording the step, fetch both
+  remote counters and floor each local counter to
+  `max(local, remote, joined_max + 1)`; missing or malformed counters are absent
+  inputs. The bridge never publishes CSVs or counters. The later journaled
+  cutover assigns deterministic UUIDs to local-only rows and publishes schema
+  last.
 
 - [ ] Each step writes new content to sibling temporary files, verifies it, atomically replaces targets, and records completion. Re-entry resumes after the last verified step. A failure leaves the exact resume-only recovery instruction and backup path; no active-journal state advertises a one-machine restore because remote publication may precede its durable step record.
 

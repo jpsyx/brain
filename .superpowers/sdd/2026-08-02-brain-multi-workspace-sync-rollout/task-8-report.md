@@ -229,3 +229,33 @@ passed 11/11, migration passed 22/22, setup passed 15/15, stale-lock passed 6/6,
 and remote identity passed 9/9. The bundled-skill personal-data guard, all 23
 todo-skill Python tests, focused rustfmt, patch whitespace, exact version, and
 added-line rhetorical-em-dash audits also passed.
+
+## Counter closure wave
+
+The remaining counter collision was reproduced at both the replayable bridge
+and real coordinator boundaries. Generic bisync excludes the task and habit
+counter files, the current-remote join path defers ordinary task-state
+reconciliation, and the bridge previously wrote only CSVs. After Machine A
+published real T7 and H8 allocations, Machine B completed the join with both
+counters still at 2; the next real task or habit allocator would therefore
+reissue an existing display ID. The exact RED commands and failures are
+recorded in the SDD progress ledger before production changes.
+
+The bridge now uses the existing counter parser and max semantics, adds the
+joined display floor through one pure helper, fetches both remote counters,
+and atomically replaces only local counter files before the journaled step can
+complete. Missing and malformed counter inputs fall back to joined rows. Two
+bridge replays are stable and have no remote publication path. The real
+coordinator regression then proves the next actual task and habit allocations
+are T8 and H9 rather than collisions. Focused migration, real-rclone,
+counter, mutator, formatting, and strict-Clippy verification is green at
+`0.35.4`; full release gates are recorded next in the SDD progress ledger.
+
+Final release verification passed with 1,326 library tests plus every
+integration and doc test. The explicit acceptance, migration, real-rclone,
+identity, setup, lock, watcher, read-only, receiver-security, OpenCode, and
+workspace-doc suites all passed at their recorded counts. The privacy guard,
+all 23 Python skill tests, every requested CLI help/conflict form, focused
+rustfmt, patch whitespace, intended-path, exact-version, unfinished-marker,
+and added-line rhetorical-em-dash audits also passed. The compatible patch
+version is `0.35.4`.

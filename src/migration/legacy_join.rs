@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 
+use crate::sync::counters::{COUNTERS, parse_counter, reconcile_counter_value};
 use crate::sync::csv_merge::{
     SchemaStatus, Table, merge, parse, remote_schema_status, schema_status, serialize,
     validate_for_merge,
@@ -80,8 +81,30 @@ pub fn join_legacy_to_current_with_transport(
         preserve_remote_uuids(&mut merged, &remote_current_tables[index])?;
         generations.push(Generation { path, merged });
     }
-    for generation in generations {
+    let floors = generations
+        .iter()
+        .zip(['T', 'H'])
+        .map(|(generation, prefix)| {
+            crate::sync::counters::counter_floor_from_csvs(
+                &serialize(&generation.merged),
+                "",
+                prefix,
+            )
+            .unwrap_or(0)
+        })
+        .collect::<Vec<_>>();
+    for generation in &generations {
         replace(&generation.path, serialize(&generation.merged).as_bytes())?;
+    }
+    for (relative, floor) in COUNTERS.into_iter().zip(floors) {
+        let local_path = root.join(relative);
+        let local = fs::read_to_string(&local_path)
+            .ok()
+            .and_then(|text| parse_counter(&text));
+        let remote = fetch(relative).and_then(|text| parse_counter(&text));
+        if let Some(value) = reconcile_counter_value(local, remote, floor) {
+            replace(&local_path, format!("{value}\n").as_bytes())?;
+        }
     }
     Ok(())
 }

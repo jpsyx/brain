@@ -945,8 +945,12 @@ join. It runs the generic rclone lane without the ordinary task CSV lane, then
 reconciles the legacy baseline, local legacy rows, and current remote rows by
 `task_id` without publishing. Matching rows retain the remote `task_uuid`;
 local-only rows receive their deterministic migration UUID during the next
-journaled cutover step. Replay is byte-stable, and schema-last publication
-remains the only point that can expose the joined current generation remotely.
+journaled cutover step. Before that join step completes, both local counters
+are max-merged with any usable remote counters and floored beyond the exact
+joined task and habit display IDs. Missing or malformed counters fall back to
+those floors. Replay is byte-stable, the bridge never publishes CSVs or
+counters, and schema-last publication remains the only point that can expose
+the joined current generation remotely.
 
 The two id counters (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) that say
 which id to hand out next are also excluded from bisync and reconciled
