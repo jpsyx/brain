@@ -35,7 +35,11 @@ fn replace_entry(
             !item
                 .get("command")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|candidate| candidate.ends_with(hook_basename))
+                .is_some_and(|candidate| {
+                    candidate
+                        .trim_end_matches(['"', '\''])
+                        .ends_with(hook_basename)
+                })
         });
         !items.is_empty()
     });
@@ -47,6 +51,14 @@ fn command(hook_path: &Path, root: &Path) -> String {
         |_| format!("python3 {}", hook_path.to_string_lossy()),
         |relative| format!("python3 {}", relative.to_string_lossy()),
     )
+}
+
+fn codex_command(hook_path: &Path) -> String {
+    let hook_name = hook_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("hook paths have UTF-8 file names");
+    format!(r#"python3 "${{BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/{hook_name}""#)
 }
 
 fn hook_lock_path(path: &Path) -> PathBuf {
@@ -192,6 +204,8 @@ pub(super) fn install_for_home_with(
     }
     let session = command(&session_path, root);
     let stop = command(&stop_path, root);
+    let codex_session = codex_command(&session_path);
+    let codex_stop = codex_command(&stop_path);
     let settings_path = root.join(".claude/settings.json");
     update_json_file(&settings_path, |settings| {
         replace_entry(
@@ -210,9 +224,9 @@ pub(super) fn install_for_home_with(
             codex_hooks,
             "SessionStart",
             "claude_session_start_hook.py",
-            &session,
+            &codex_session,
         );
-        replace_entry(codex_hooks, "Stop", "claude_stop_hook.py", &stop);
+        replace_entry(codex_hooks, "Stop", "claude_stop_hook.py", &codex_stop);
     })?;
     after_write(InstallStep::CodexSettings)?;
     Ok(())

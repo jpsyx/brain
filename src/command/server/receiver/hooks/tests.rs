@@ -5,7 +5,8 @@ use std::process::{Command, Stdio};
 use serde_json::json;
 
 use super::{
-    command, install_for_home, replace_entry, update_json_file, update_json_file_with_temporary,
+    codex_command, command, install_for_home, replace_entry, update_json_file,
+    update_json_file_with_temporary,
 };
 
 fn configured_command(path: &Path, event: &str) -> String {
@@ -74,6 +75,17 @@ fn project_relative_command_is_identical_across_workspace_roots() {
         Path::new("/Users/member-b/fam-brain"),
     );
     assert_eq!(mini, mbp);
+}
+
+#[test]
+fn codex_command_uses_portable_brain_root_and_is_cwd_independent() {
+    let command = codex_command(Path::new(
+        "/Users/pablo/family/.claude/brain-hooks/claude_stop_hook.py",
+    ));
+    assert_eq!(
+        command,
+        r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_stop_hook.py""#
+    );
 }
 
 #[test]
@@ -200,6 +212,14 @@ fn concurrent_workspace_installs_preserve_both_roots_and_shared_codex_json() {
     assert_eq!(codex["permissions"]["allow"][0], "Read");
     assert_eq!(codex["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
     assert_eq!(codex["hooks"]["Stop"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        codex["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+        r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_session_start_hook.py""#
+    );
+    assert_eq!(
+        codex["hooks"]["Stop"][0]["hooks"][0]["command"],
+        r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_stop_hook.py""#
+    );
 }
 
 #[test]
@@ -350,14 +370,14 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
         codex_schema["hooks"]["SessionStart"],
         json!([{"hooks": [{
             "type": "command",
-            "command": "python3 .claude/brain-hooks/claude_session_start_hook.py"
+            "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_session_start_hook.py\""
         }]}])
     );
     assert_eq!(
         codex_schema["hooks"]["Stop"],
         json!([{"hooks": [{
             "type": "command",
-            "command": "python3 .claude/brain-hooks/claude_stop_hook.py"
+            "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_stop_hook.py\""
         }]}])
     );
     let start = configured_command(&codex_hooks, "SessionStart");

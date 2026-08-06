@@ -621,6 +621,13 @@ from the selected workspace, so the command remains valid when a synced
 workspace lives at a different home path or uses a different root name. The
 Rust installer and `install_hook.sh` emit the same command.
 
+Claude and Codex use different command scopes. Claude runs project hooks from
+the selected workspace, so its project-relative command remains portable.
+Codex reads a global `~/.codex/hooks.json` and may execute it from any working
+directory, so Brain emits `python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/<script>.py"`
+for Codex. `BRAIN_ROOT` selects a workspace explicitly; `$HOME/brain` is the
+portable default. Brain does not depend on jpsyx-configs.
+
 `scripts/install_hook.sh` deploys + installs both the SessionStart and the brain
 `claude_stop_hook.py` Stop hook (stripping any stale entries — old absolute /
 wrong-home / legacy `rc/` paths — matched by script basename). Every TUI
