@@ -908,8 +908,17 @@ manifest is safe to initialize only when setup proves the remote has no files;
 setup publishes the exact existing local bytes and reads them back before
 persisting credentials or writing data. Existing local manifests are never
 rewritten, and ordinary transfer excludes the manifest so it cannot replace a
-remote owner's identity. A nonempty manifestless remote requires a future
-explicit adoption workflow because absence alone cannot prove ownership.
+remote owner's identity. A nonempty manifestless remote can be legacy data for
+the selected workspace, but absence alone cannot prove ownership. Setup
+therefore displays the local canonical name and UUID, configured target, and
+observed remote status before requiring a positive interactive confirmation.
+Automation must instead repeat the exact selected UUID through
+`--adopt-workspace-id`; a generic `--yes` is intentionally insufficient. This
+authority applies only to setup. Mismatched, untrusted, or present-but-unreadable
+manifests and every ordinary or internal sync path remain hard refusals.
+Authorized adoption still publishes and reads back the exact existing local
+manifest before credentials, markers, CSVs, counters, or bisync data can be
+written.
 
 **Why `--max-delete` shipped first, and why `--check-access` is now enabled.** rclone offers `--check-access`
 as a symmetry guard (both sides must show matching `RCLONE_TEST` marker files,

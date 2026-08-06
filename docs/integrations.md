@@ -928,13 +928,18 @@ brain-root lookup.
   cloud sync on this machine, then prompts on `/dev/tty`
   for the bucket + B2 key id + application key (pre-filled with any existing
   values), validates them, validates the local manifest, and probes the remote
-  identity before persistence. A matching identity proceeds. Setup publishes
-  and reads back the exact local manifest only when the reachable remote has no
-  files; a nonempty manifestless remote fails closed. It then writes the `sync`
-  block into brain env (`crate::env::set_raw`, **not** brain config, see
-  [config.md](config.md)) and runs one `Direction::Resync` sync to establish
-  the baseline. It never creates a bucket or treats an unreachable probe as a
-  new bucket. If the existing `sync`
+  identity before persistence. It prints the local canonical name and UUID,
+  configured target, observed status, and a compatible remote manifest's UUID.
+  A matching identity proceeds. Setup publishes and reads back the exact local
+  manifest when the reachable remote has no files. For a nonempty manifestless
+  target, setup requires either an explicit interactive confirmation or the
+  exact selected UUID through `--adopt-workspace-id`; a generic `--yes` is not
+  accepted. Mismatched, malformed, incompatible, or present-but-unreadable
+  manifests remain hard refusals. Manifest publication and read-back finish
+  before setup writes the `sync` block into brain env (`crate::env::set_raw`,
+  **not** brain config, see [config.md](config.md)) and runs one
+  `Direction::Resync` sync to establish the baseline. It never creates a bucket
+  or treats an unreachable probe as a new bucket. If the existing `sync`
   block contains crypt fields, setup preserves them when refreshing bucket
   credentials. `brain sync repair` reruns just that last step (check-access marker
   bootstrap + resync), so it is the recovery path for the empty-directory guard

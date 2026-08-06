@@ -121,8 +121,11 @@ without migration inventing a competing default.
 
 Each workspace root carries `<brain-root>/.config/workspace.json`. Schema `1`
 contains the workspace UUID, a stable receiver ingress UUID, and the minimum
-compatible Brain version. Parsing rejects unknown fields, unsupported schema
-versions, invalid UUIDs, and a minimum version newer than the running binary.
+compatible Brain version. Schema `1` is the only accepted manifest schema.
+Version comparison uses a numeric `major.minor.patch` core and rejects missing,
+extra, or nonnumeric components. Parsing also rejects unknown fields,
+unsupported schema versions, invalid UUIDs, and a minimum version newer than
+the running binary with exact update-required guidance.
 The manifest UUID must equal the selected machine-registry UUID.
 The manifest is create-only and strict: create publishes it only when the path
 is absent, attach reads it without editing, and unknown fields or identity
@@ -257,7 +260,8 @@ Mirrors `brain config` exactly, over the env store:
 `brain sync` reads and drives the `sync` block above; the block itself is
 written by **`brain sync setup`** (interactive: bucket + credentials,
 validate the selected local manifest, verify or initialize remote workspace
-identity, establish the baseline), not by hand-editing
+identity, explicitly adopt a nonempty manifestless target when requested,
+establish the baseline), not by hand-editing
 `env.json` or `brain env set`. See [features.md](features.md) for the full
 command surface (`brain sync [--push|--pull] {setup|repair|status|conflicts}`)
 and [integrations.md](integrations.md) for the rclone handoff.
@@ -265,8 +269,12 @@ and [integrations.md](integrations.md) for the rclone handoff.
 The bucket must already exist. Setup probes the selected record's configured
 bucket/path before persisting the candidate `sync` block. A matching strict
 remote manifest proceeds; a demonstrably empty remote receives the exact local
-manifest and is verified by read-back. Mismatch, malformed or incompatible
-manifests, nonempty manifestless remotes, and unreachable probes fail closed.
+manifest and is verified by read-back. A nonempty manifestless target first
+shows the selected name/UUID, configured target, and observed status, then
+requires a positive interactive confirmation or an exact matching
+`--adopt-workspace-id <UUID>` flag. `--yes` alone is insufficient. Mismatch,
+malformed, incompatible, or present-but-unreadable manifests, and unreachable
+probes fail closed.
 All later sync and check invocations load the same selected record's config and
 repeat this identity gate before remote data work.
 

@@ -33,9 +33,9 @@ pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandConte
     let root = command.workspace.root();
     let cfg = crate::sync::config::SyncConfig::load(command);
     match &args.action {
-        Some(SyncAction::Setup) => {
+        Some(SyncAction::Setup { adopt_workspace_id }) => {
             crate::logging::log("sync setup");
-            crate::sync::setup::run(command)
+            crate::sync::setup::run(command, adopt_workspace_id.as_deref())
         }
         Some(SyncAction::Repair) => {
             crate::logging::log("sync repair");

@@ -4,6 +4,7 @@
 //!
 //! Interactive on /dev/tty; only the input validation is pure and unit-tested.
 
+use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 
 use anyhow::{Result, bail};
@@ -11,6 +12,108 @@ use anyhow::{Result, bail};
 use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
 use crate::theme::Theme;
+use crate::workspace::{WorkspaceId, WorkspaceName};
+
+/// Whether setup has enough authority to adopt a nonempty manifestless target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdoptionAuthorization {
+    NeedsInteractiveConfirmation,
+    Authorized,
+}
+
+/// Validate the dedicated noninteractive adoption flag against the selected
+/// workspace identity. Absence deliberately requires a separate human prompt.
+pub fn adoption_authorization(
+    local_workspace_id: WorkspaceId,
+    provided_workspace_id: Option<&str>,
+) -> Result<AdoptionAuthorization> {
+    let Some(provided_workspace_id) = provided_workspace_id else {
+        return Ok(AdoptionAuthorization::NeedsInteractiveConfirmation);
+    };
+    let provided = WorkspaceId::parse(provided_workspace_id)
+        .map_err(|_| anyhow::anyhow!("--adopt-workspace-id must be a valid workspace UUID"))?;
+    if provided != local_workspace_id {
+        bail!(
+            "--adopt-workspace-id {provided} does not match selected workspace UUID {local_workspace_id}"
+        );
+    }
+    Ok(AdoptionAuthorization::Authorized)
+}
+
+/// Render the selected local identity and the configured target's observed
+/// ownership state before setup asks for any adoption confirmation.
+#[must_use]
+pub fn format_identity_summary(
+    local_name: &WorkspaceName,
+    local_workspace_id: WorkspaceId,
+    remote_target: &str,
+    observed: &crate::sync::identity::RemoteIdentityObservation,
+    theme: Theme,
+) -> String {
+    use crate::sync::identity::RemoteIdentityObservation;
+
+    let status = match observed {
+        RemoteIdentityObservation::Empty => theme.info("empty, no workspace manifest"),
+        RemoteIdentityObservation::ManifestlessNonempty => {
+            theme.warning("nonempty, no workspace manifest")
+        }
+        RemoteIdentityObservation::CompatibleManifest { .. } => {
+            theme.success("compatible workspace manifest")
+        }
+        RemoteIdentityObservation::InvalidManifest { error } => theme.error(&format!(
+            "invalid or incompatible workspace manifest ({error})"
+        )),
+        RemoteIdentityObservation::UnreadableManifest { message } => theme.error(&format!(
+            "workspace manifest is present but unreadable ({message})"
+        )),
+    };
+    let mut summary = format!(
+        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
+        theme.heading("Workspace identity"),
+        theme.muted("Local workspace:"),
+        theme.value(local_name.as_str()),
+        theme.muted("Local UUID:"),
+        theme.value(&local_workspace_id.to_string()),
+        theme.muted("Remote target:"),
+        theme.value(remote_target),
+        theme.muted("Remote status:"),
+        status,
+    );
+    if let RemoteIdentityObservation::CompatibleManifest { workspace_id } = observed {
+        write!(
+            &mut summary,
+            "\n  {} {}",
+            theme.muted("Remote UUID:"),
+            theme.value(&workspace_id.to_string())
+        )
+        .expect("writing to a String cannot fail");
+    }
+    summary
+}
+
+fn adoption_for_observation(
+    local_workspace_id: WorkspaceId,
+    authorization: AdoptionAuthorization,
+    observed: &crate::sync::identity::RemoteIdentityObservation,
+    confirm: impl FnOnce() -> Result<bool>,
+) -> Result<crate::sync::identity::ManifestlessRemoteAdoption> {
+    use crate::sync::identity::{ManifestlessRemoteAdoption, RemoteIdentityObservation};
+
+    if observed != &RemoteIdentityObservation::ManifestlessNonempty {
+        return Ok(ManifestlessRemoteAdoption::Refuse);
+    }
+    match authorization {
+        AdoptionAuthorization::Authorized => {
+            Ok(ManifestlessRemoteAdoption::Authorized(local_workspace_id))
+        }
+        AdoptionAuthorization::NeedsInteractiveConfirmation if confirm()? => {
+            Ok(ManifestlessRemoteAdoption::Authorized(local_workspace_id))
+        }
+        AdoptionAuthorization::NeedsInteractiveConfirmation => {
+            bail!("remote workspace adoption was not confirmed; no changes were made")
+        }
+    }
+}
 
 /// Parse a yes/no answer. Yes-ish (`y`/`yes`, case-insensitive) is `true`;
 /// anything else, including empty, is `false` — so the safe default is "no
@@ -63,7 +166,10 @@ pub fn validate(bucket: &str, key_id: &str, app_key: &str) -> Result<()> {
 
 /// Interactive setup. Verifies the remote workspace identity, writes the
 /// `sync` block into brain env, and runs the initial baseline sync.
-pub fn run(command: &crate::workspace::CommandContext) -> Result<()> {
+pub fn run(
+    command: &crate::workspace::CommandContext,
+    adopt_workspace_id: Option<&str>,
+) -> Result<()> {
     let theme = Theme::active();
     if !crate::sync::run::rclone_present() {
         eprintln!(
@@ -95,15 +201,34 @@ pub fn run(command: &crate::workspace::CommandContext) -> Result<()> {
     let candidate: SyncConfig = serde_json::from_value(block.clone())?;
     let remote = crate::sync::remote::build_remote(&candidate);
     let root = command.workspace.root();
+    let local_id = command.workspace.id();
+    let adoption = adoption_authorization(local_id, adopt_workspace_id)?;
     run_setup_stages(
         || {
             println!("{}", theme.info("Validating the local workspace manifest…"));
             println!("{}", theme.info("Probing the remote workspace identity…"));
-            crate::sync::identity::ensure_remote_identity_for_setup(
+            crate::sync::identity::ensure_remote_identity_for_setup_with_authorization(
                 root,
-                command.workspace.id(),
+                local_id,
                 &remote,
+                |observed| {
+                    println!();
+                    println!(
+                        "{}",
+                        format_identity_summary(
+                            command.workspace.name(),
+                            local_id,
+                            &remote.arg,
+                            observed,
+                            theme,
+                        )
+                    );
+                    adoption_for_observation(local_id, adoption, observed, || {
+                        confirm_manifestless_adoption(theme, command.workspace.name(), local_id)
+                    })
+                },
             )
+            .map(|_| ())
         },
         || crate::env::set_raw(command, "sync", block),
         || {
@@ -182,6 +307,18 @@ fn ask_has_bucket(theme: Theme) -> Result<bool> {
     Ok(parse_yes_no(&answer))
 }
 
+fn confirm_manifestless_adoption(
+    theme: Theme,
+    local_name: &WorkspaceName,
+    local_workspace_id: WorkspaceId,
+) -> Result<bool> {
+    let question = theme.prompt(&format!(
+        "Adopt this nonempty remote as workspace {local_name} ({local_workspace_id})? [y/N]"
+    ));
+    let answer = prompt(&question, "")?;
+    Ok(parse_yes_no(&answer))
+}
+
 #[must_use]
 pub fn setup_intro(theme: Theme) -> String {
     format!(
@@ -215,6 +352,13 @@ mod tests {
     use std::cell::RefCell;
 
     use super::*;
+
+    const LOCAL_WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
+    const OTHER_WORKSPACE_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
+
+    fn local_workspace_id() -> crate::workspace::WorkspaceId {
+        crate::workspace::WorkspaceId::parse(LOCAL_WORKSPACE_ID).expect("fixed workspace UUID")
+    }
 
     #[test]
     fn rejects_missing_fields() {
@@ -336,5 +480,124 @@ mod tests {
 
         assert!(error.to_string().contains("wrong workspace"));
         assert_eq!(*stages.borrow(), ["identity"]);
+    }
+
+    #[test]
+    fn adoption_authority_requires_the_exact_selected_workspace_uuid() {
+        assert_eq!(
+            adoption_authorization(local_workspace_id(), None).unwrap(),
+            AdoptionAuthorization::NeedsInteractiveConfirmation
+        );
+        assert_eq!(
+            adoption_authorization(local_workspace_id(), Some(LOCAL_WORKSPACE_ID)).unwrap(),
+            AdoptionAuthorization::Authorized
+        );
+
+        let mismatch =
+            adoption_authorization(local_workspace_id(), Some(OTHER_WORKSPACE_ID)).unwrap_err();
+        assert!(mismatch.to_string().contains(LOCAL_WORKSPACE_ID));
+        assert!(mismatch.to_string().contains(OTHER_WORKSPACE_ID));
+        let malformed = adoption_authorization(local_workspace_id(), Some("not-a-uuid"))
+            .expect_err("malformed authority must fail closed");
+        assert!(malformed.to_string().contains("valid workspace UUID"));
+    }
+
+    #[test]
+    fn identity_summary_names_the_local_workspace_target_and_observed_remote_state() {
+        let local_name = crate::workspace::WorkspaceName::parse("family").unwrap();
+        let target = "BRAIN:shared/brain";
+        let manifestless = format_identity_summary(
+            &local_name,
+            local_workspace_id(),
+            target,
+            &crate::sync::identity::RemoteIdentityObservation::ManifestlessNonempty,
+            Theme::dark(false),
+        );
+        let local_uuid = format!("Local UUID: {LOCAL_WORKSPACE_ID}");
+
+        for expected in [
+            "Workspace identity",
+            "Local workspace: family",
+            &local_uuid,
+            "Remote target: BRAIN:shared/brain",
+            "Remote status: nonempty, no workspace manifest",
+        ] {
+            assert!(manifestless.contains(expected), "{manifestless}");
+        }
+        assert!(!manifestless.contains("Remote UUID:"), "{manifestless}");
+
+        let matching = format_identity_summary(
+            &local_name,
+            local_workspace_id(),
+            target,
+            &crate::sync::identity::RemoteIdentityObservation::CompatibleManifest {
+                workspace_id: local_workspace_id(),
+            },
+            Theme::dark(false),
+        );
+        assert!(
+            matching.contains("Remote status: compatible workspace manifest"),
+            "{matching}"
+        );
+        assert!(
+            matching.contains(&format!("Remote UUID: {LOCAL_WORKSPACE_ID}")),
+            "{matching}"
+        );
+    }
+
+    #[test]
+    fn manifestless_adoption_prompts_only_when_exact_flag_authority_is_absent() {
+        use std::cell::Cell;
+
+        use crate::sync::identity::{ManifestlessRemoteAdoption, RemoteIdentityObservation};
+
+        let prompts = Cell::new(0);
+        let authorized = adoption_for_observation(
+            local_workspace_id(),
+            AdoptionAuthorization::Authorized,
+            &RemoteIdentityObservation::ManifestlessNonempty,
+            || -> Result<bool> { panic!("exact authority must not prompt") },
+        )
+        .unwrap();
+        assert_eq!(
+            authorized,
+            ManifestlessRemoteAdoption::Authorized(local_workspace_id())
+        );
+
+        let interactive = adoption_for_observation(
+            local_workspace_id(),
+            AdoptionAuthorization::NeedsInteractiveConfirmation,
+            &RemoteIdentityObservation::ManifestlessNonempty,
+            || {
+                prompts.set(prompts.get() + 1);
+                Ok(true)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            interactive,
+            ManifestlessRemoteAdoption::Authorized(local_workspace_id())
+        );
+        assert_eq!(prompts.get(), 1);
+
+        let refusal = adoption_for_observation(
+            local_workspace_id(),
+            AdoptionAuthorization::NeedsInteractiveConfirmation,
+            &RemoteIdentityObservation::ManifestlessNonempty,
+            || Ok(false),
+        )
+        .unwrap_err();
+        assert!(refusal.to_string().contains("not confirmed"));
+
+        let matching = adoption_for_observation(
+            local_workspace_id(),
+            AdoptionAuthorization::NeedsInteractiveConfirmation,
+            &RemoteIdentityObservation::CompatibleManifest {
+                workspace_id: local_workspace_id(),
+            },
+            || -> Result<bool> { panic!("matching identity must not prompt") },
+        )
+        .unwrap();
+        assert_eq!(matching, ManifestlessRemoteAdoption::Refuse);
     }
 }

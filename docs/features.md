@@ -236,7 +236,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env. Use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
 | `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present. |
 | `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair}` | Manage the schema-v2 machine registry and portable manifest. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. `repair --manifest --local-user-id <id>` supplies readiness explicitly. |
-| `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
+| `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
@@ -575,11 +575,18 @@ and prints two clearly labeled installation choices: the Homebrew command
   block into **brain env**, not brain config, see [config.md](config.md)). The
   bucket must already exist and be reachable. Setup validates the selected
   workspace's existing local manifest and probes remote
-  `.config/workspace.json`. A matching identity proceeds; an empty remote gets
-  the exact local manifest published and read back before credentials or other
-  data are written. A mismatched, malformed, incompatible, or nonempty
-  manifestless remote is refused. Setup then creates the `RCLONE_TEST`
-  check-access marker on both sides and establishes the initial bisync baseline.
+  `.config/workspace.json`. It displays the local canonical workspace name and
+  UUID, configured remote target, observed remote status, and remote UUID when
+  a compatible manifest supplied one. A matching identity proceeds; an empty
+  remote gets the exact local manifest published and read back. A nonempty
+  manifestless remote requires an explicit `y`/`yes` confirmation, or
+  `--adopt-workspace-id <UUID>` with the exact selected UUID for noninteractive
+  authorization. A generic `--yes` does not authorize adoption. Mismatched,
+  malformed, incompatible, and present-but-unreadable remote manifests remain
+  hard refusals. Every authorized initialization or adoption publishes and
+  verifies the manifest before credentials or any other remote data are written.
+  Setup then creates the `RCLONE_TEST` check-access marker on both sides and
+  establishes the initial bisync baseline.
 - `brain sync repair` — (re-)establish the bisync baseline for a machine that
   already has `sync` env configured. A normal sync automatically performs this
   narrow repair when rclone reports a missing check-access marker, announcing
@@ -741,7 +748,10 @@ per machine you want to join it.
    machine-local and never rides into the bucket itself), and establishes the
    bisync baseline. On a brand-new machine with an empty selected root, that
    initial baseline is effectively a full pull of everything already in the
-   bucket.
+   bucket. If the selected target already contains legacy data but no workspace
+   manifest, review the identity summary and confirm the adoption. Automation
+   must pass `--adopt-workspace-id <UUID>` with the exact local UUID; `--yes`
+   alone is insufficient.
 3. **Verify the triggers.** Run `brain sync status` and confirm it reports
    startup pull, change push, the two-hour receiver freshness policy, and the
    last run.

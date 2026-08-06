@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::sync::remote::Remote;
 use crate::workspace::{ManifestError, WorkspaceId, WorkspaceManifest};
@@ -26,6 +26,31 @@ pub enum RemoteIdentityDecision {
     RefuseMissingManifest,
     /// The target manifest cannot be trusted by this Brain version.
     RefuseInvalidManifest { error: ManifestError },
+    /// The target listing proves a manifest exists, but it could not be read.
+    RefuseUnreadableManifest { message: String },
+}
+
+/// What setup learned from the configured remote before making any write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteIdentityObservation {
+    /// The target listed successfully and contained no files.
+    Empty,
+    /// The target contains files but no portable ownership manifest.
+    ManifestlessNonempty,
+    /// The target carries a schema-compatible portable manifest.
+    CompatibleManifest { workspace_id: WorkspaceId },
+    /// The target manifest cannot be trusted by this Brain version.
+    InvalidManifest { error: ManifestError },
+    /// The target lists an ownership manifest that rclone could not read.
+    UnreadableManifest { message: String },
+}
+
+/// Explicit authority supplied only by `brain sync setup` after showing the
+/// observed manifestless nonempty target to the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManifestlessRemoteAdoption {
+    Refuse,
+    Authorized(WorkspaceId),
 }
 
 /// Compare one selected workspace ID with an optional remote owner.
@@ -49,16 +74,52 @@ pub fn check_remote_manifest_identity(
     remote_is_empty: bool,
     brain_version: &str,
 ) -> RemoteIdentityDecision {
+    let observed = observe_remote_manifest(remote_manifest, remote_is_empty, brain_version);
+    decision_from_observation(local, &observed)
+}
+
+fn observe_remote_manifest(
+    remote_manifest: Option<&[u8]>,
+    remote_is_empty: bool,
+    brain_version: &str,
+) -> RemoteIdentityObservation {
     let Some(bytes) = remote_manifest else {
         return if remote_is_empty {
-            RemoteIdentityDecision::Initialize
+            RemoteIdentityObservation::Empty
         } else {
-            RemoteIdentityDecision::RefuseMissingManifest
+            RemoteIdentityObservation::ManifestlessNonempty
         };
     };
     match WorkspaceManifest::parse(bytes, brain_version) {
-        Ok(manifest) => check_remote_identity(local, Some(manifest.workspace_id())),
-        Err(error) => RemoteIdentityDecision::RefuseInvalidManifest { error },
+        Ok(manifest) => RemoteIdentityObservation::CompatibleManifest {
+            workspace_id: manifest.workspace_id(),
+        },
+        Err(error) => RemoteIdentityObservation::InvalidManifest { error },
+    }
+}
+
+fn decision_from_observation(
+    local: WorkspaceId,
+    observed: &RemoteIdentityObservation,
+) -> RemoteIdentityDecision {
+    match observed {
+        RemoteIdentityObservation::Empty => RemoteIdentityDecision::Initialize,
+        RemoteIdentityObservation::ManifestlessNonempty => {
+            RemoteIdentityDecision::RefuseMissingManifest
+        }
+        RemoteIdentityObservation::CompatibleManifest { workspace_id } => {
+            check_remote_identity(local, Some(*workspace_id))
+        }
+        RemoteIdentityObservation::InvalidManifest { error } => {
+            RemoteIdentityDecision::RefuseInvalidManifest {
+                error: error.clone(),
+            }
+        }
+        RemoteIdentityObservation::UnreadableManifest { message } => {
+            RemoteIdentityDecision::RefuseUnreadableManifest {
+                message: message.clone(),
+            }
+        }
     }
 }
 
@@ -118,7 +179,8 @@ fn require_remote_identity_with<'remote>(
     mut run: impl FnMut(&[(String, String)], &[String]) -> RemoteCommandOutput,
 ) -> Result<VerifiedRemote<'remote>> {
     let manifest = validate_local_manifest(root, expected_id)?;
-    match probe_remote_identity_with(manifest.workspace_id(), remote, &mut run)? {
+    let observed = probe_remote_identity_with(remote, &mut run)?;
+    match decision_from_observation(manifest.workspace_id(), &observed) {
         RemoteIdentityDecision::Proceed => Ok(VerifiedRemote { remote }),
         RemoteIdentityDecision::Initialize => {
             bail!("remote workspace is not initialized; run `brain sync setup`")
@@ -133,24 +195,60 @@ pub(crate) const fn verified_remote_for_test(remote: &Remote) -> VerifiedRemote<
 }
 
 /// During setup, publish the existing local manifest only when the remote is empty.
-pub fn ensure_remote_identity_for_setup(
+pub fn ensure_remote_identity_for_setup<'remote>(
     root: &Path,
     expected_id: WorkspaceId,
-    remote: &Remote,
-) -> Result<()> {
-    ensure_remote_identity_for_setup_with(root, expected_id, remote, run_remote_command)
+    remote: &'remote Remote,
+) -> Result<VerifiedRemote<'remote>> {
+    ensure_remote_identity_for_setup_with(
+        root,
+        expected_id,
+        remote,
+        |_| Ok(ManifestlessRemoteAdoption::Refuse),
+        run_remote_command,
+    )
 }
 
-fn ensure_remote_identity_for_setup_with(
+/// Inspect setup's configured target before making any remote write.
+///
+/// The callback presents the exact observation and collects any manifestless
+/// adoption authority. Initialization then publishes and verifies the existing
+/// local manifest.
+pub fn ensure_remote_identity_for_setup_with_authorization<'remote>(
     root: &Path,
     expected_id: WorkspaceId,
-    remote: &Remote,
+    remote: &'remote Remote,
+    authorize: impl FnOnce(&RemoteIdentityObservation) -> Result<ManifestlessRemoteAdoption>,
+) -> Result<VerifiedRemote<'remote>> {
+    ensure_remote_identity_for_setup_with(root, expected_id, remote, authorize, run_remote_command)
+}
+
+fn ensure_remote_identity_for_setup_with<'remote>(
+    root: &Path,
+    expected_id: WorkspaceId,
+    remote: &'remote Remote,
+    authorize: impl FnOnce(&RemoteIdentityObservation) -> Result<ManifestlessRemoteAdoption>,
     mut run: impl FnMut(&[(String, String)], &[String]) -> RemoteCommandOutput,
-) -> Result<()> {
+) -> Result<VerifiedRemote<'remote>> {
     let manifest = validate_local_manifest(root, expected_id)?;
-    match probe_remote_identity_with(manifest.workspace_id(), remote, &mut run)? {
-        RemoteIdentityDecision::Proceed => return Ok(()),
+    let observed = probe_remote_identity_with(remote, &mut run)?;
+    let adoption = authorize(&observed)?;
+    match decision_from_observation(manifest.workspace_id(), &observed) {
+        RemoteIdentityDecision::Proceed => return Ok(VerifiedRemote { remote }),
         RemoteIdentityDecision::Initialize => {}
+        RemoteIdentityDecision::RefuseMissingManifest
+            if adoption == ManifestlessRemoteAdoption::Authorized(manifest.workspace_id()) => {}
+        RemoteIdentityDecision::RefuseMissingManifest
+            if matches!(adoption, ManifestlessRemoteAdoption::Authorized(_)) =>
+        {
+            let ManifestlessRemoteAdoption::Authorized(authorized) = adoption else {
+                unreachable!("guard requires authorized adoption")
+            };
+            bail!(
+                "remote adoption authority UUID {authorized} does not match selected workspace UUID {}",
+                manifest.workspace_id()
+            );
+        }
         refusal => return refuse(refusal),
     }
 
@@ -183,22 +281,20 @@ fn ensure_remote_identity_for_setup_with(
         false,
         env!("CARGO_PKG_VERSION"),
     ) {
-        RemoteIdentityDecision::Proceed => Ok(()),
+        RemoteIdentityDecision::Proceed => Ok(VerifiedRemote { remote }),
         decision => refuse_publication(decision),
     }
 }
 
 fn probe_remote_identity_with(
-    local_id: WorkspaceId,
     remote: &Remote,
     run: &mut impl FnMut(&[(String, String)], &[String]) -> RemoteCommandOutput,
-) -> Result<RemoteIdentityDecision> {
+) -> Result<RemoteIdentityObservation> {
     let manifest_path = remote_manifest_arg(&remote.arg);
     let cat_args = vec!["cat".to_owned(), manifest_path];
     let manifest = run(&remote.env, &cat_args);
     if manifest.success {
-        return Ok(check_remote_manifest_identity(
-            local_id,
+        return Ok(observe_remote_manifest(
             Some(&manifest.stdout),
             false,
             env!("CARGO_PKG_VERSION"),
@@ -218,12 +314,30 @@ fn probe_remote_identity_with(
             listing.stderr.trim()
         );
     }
-    Ok(check_remote_manifest_identity(
-        local_id,
+    if listing_contains_manifest(&listing.stdout) {
+        return Ok(RemoteIdentityObservation::UnreadableManifest {
+            message: manifest.stderr.trim().to_owned(),
+        });
+    }
+    Ok(observe_remote_manifest(
         None,
         listing.stdout.iter().all(u8::is_ascii_whitespace),
         env!("CARGO_PKG_VERSION"),
     ))
+}
+
+fn listing_contains_manifest(listing: &[u8]) -> bool {
+    listing.split(|byte| *byte == b'\n').any(|line| {
+        let start = line
+            .iter()
+            .position(|byte| !byte.is_ascii_whitespace())
+            .unwrap_or(line.len());
+        let end = line
+            .iter()
+            .rposition(|byte| !byte.is_ascii_whitespace())
+            .map_or(start, |index| index + 1);
+        &line[start..end] == REMOTE_MANIFEST.as_bytes()
+    })
 }
 
 fn refuse<T>(decision: RemoteIdentityDecision) -> Result<T> {
@@ -237,13 +351,16 @@ fn refuse<T>(decision: RemoteIdentityDecision) -> Result<T> {
         RemoteIdentityDecision::RefuseInvalidManifest { error } => {
             bail!("remote workspace manifest is invalid or incompatible: {error}")
         }
+        RemoteIdentityDecision::RefuseUnreadableManifest { message } => {
+            bail!("remote workspace manifest is present but unreadable: {message}")
+        }
         RemoteIdentityDecision::Initialize | RemoteIdentityDecision::Proceed => {
             bail!("remote identity decision was used in the wrong sync phase")
         }
     }
 }
 
-fn refuse_publication(decision: RemoteIdentityDecision) -> Result<()> {
+fn refuse_publication<T>(decision: RemoteIdentityDecision) -> Result<T> {
     refuse(decision).context("published remote workspace manifest failed read-back verification")
 }
 
@@ -327,6 +444,7 @@ mod tests {
             root.path(),
             workspace_id(PERSONAL_ID),
             &remote(),
+            |_| Ok(ManifestlessRemoteAdoption::Refuse),
             |_, args| {
                 calls.borrow_mut().push(args.to_vec());
                 let response = match step {
@@ -378,6 +496,7 @@ mod tests {
             root.path(),
             workspace_id(PERSONAL_ID),
             &remote(),
+            |_| Ok(ManifestlessRemoteAdoption::Refuse),
             |_, args| {
                 calls.borrow_mut().push(args.to_vec());
                 output(true, &remote_bytes, "")
@@ -405,6 +524,7 @@ mod tests {
             root.path(),
             workspace_id(PERSONAL_ID),
             &remote(),
+            |_| Ok(ManifestlessRemoteAdoption::Refuse),
             |_, args| {
                 calls.borrow_mut().push(args.to_vec());
                 let response = match step {
@@ -424,6 +544,97 @@ mod tests {
                 .contains("has data but no workspace manifest"),
             "{error:#}"
         );
+        assert_eq!(calls.into_inner().len(), 2);
+    }
+
+    #[test]
+    fn setup_adopts_a_nonempty_manifestless_remote_only_with_exact_authority() {
+        let root = tempfile::tempdir().unwrap();
+        let bytes = manifest_bytes(PERSONAL_ID);
+        write_manifest(root.path(), &bytes);
+        let calls = RefCell::new(Vec::<Vec<String>>::new());
+        let observations = RefCell::new(Vec::new());
+        let mut step = 0;
+        let remote = remote();
+
+        let verified = ensure_remote_identity_for_setup_with(
+            root.path(),
+            workspace_id(PERSONAL_ID),
+            &remote,
+            |observed| {
+                observations.borrow_mut().push(observed.clone());
+                Ok(ManifestlessRemoteAdoption::Authorized(workspace_id(
+                    PERSONAL_ID,
+                )))
+            },
+            |_, args| {
+                calls.borrow_mut().push(args.to_vec());
+                let response = match step {
+                    0 => output(false, b"", "object not found"),
+                    1 => output(true, b"notes.md\n", ""),
+                    2 => output(true, b"", ""),
+                    3 => output(true, &bytes, ""),
+                    _ => panic!("unexpected remote command"),
+                };
+                step += 1;
+                response
+            },
+        )
+        .expect("exact authority adopts the target");
+
+        assert_eq!(verified.remote(), &remote);
+        assert_eq!(
+            observations.into_inner(),
+            [RemoteIdentityObservation::ManifestlessNonempty]
+        );
+        let calls = calls.into_inner();
+        assert_eq!(calls[0][0], "cat");
+        assert_eq!(calls[1][0], "lsf");
+        assert_eq!(calls[2][0], "copyto");
+        assert_eq!(calls[3][0], "cat");
+    }
+
+    #[test]
+    fn setup_never_adopts_when_the_listing_contains_an_unreadable_manifest() {
+        let root = tempfile::tempdir().unwrap();
+        write_manifest(root.path(), &manifest_bytes(PERSONAL_ID));
+        let calls = RefCell::new(Vec::<Vec<String>>::new());
+        let observations = RefCell::new(Vec::new());
+        let mut step = 0;
+
+        let error = ensure_remote_identity_for_setup_with(
+            root.path(),
+            workspace_id(PERSONAL_ID),
+            &remote(),
+            |observed| {
+                observations.borrow_mut().push(observed.clone());
+                Ok(ManifestlessRemoteAdoption::Authorized(workspace_id(
+                    PERSONAL_ID,
+                )))
+            },
+            |_, args| {
+                calls.borrow_mut().push(args.to_vec());
+                let response = match step {
+                    0 => output(false, b"", "temporary read failure"),
+                    1 => output(true, b".config/workspace.json\nnotes.md\n", ""),
+                    _ => panic!("an unreadable manifest must stop before publication"),
+                };
+                step += 1;
+                response
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("manifest is present but unreadable")
+        );
+        assert!(error.to_string().contains("temporary read failure"));
+        assert!(matches!(
+            observations.into_inner().as_slice(),
+            [RemoteIdentityObservation::UnreadableManifest { .. }]
+        ));
         assert_eq!(calls.into_inner().len(), 2);
     }
 

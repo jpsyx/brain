@@ -427,9 +427,14 @@ non-default record only.
 }
 ```
 
-Unknown fields, unsupported schemas, malformed UUIDs, and incompatible minimum
-versions are errors. The manifest UUID must equal the selected registry record;
-the stable receiver ingress UUID remains portable across machines. Create
+Schema `1` is the only accepted portable-manifest schema; older and newer
+numeric schema values are both unsupported. Brain and minimum versions use a
+numeric `major.minor.patch` core. Missing, extra, or nonnumeric components are
+errors. A client older than the minimum fails with the exact update guidance
+`workspace requires Brain <minimum> or newer; this is Brain <current>`.
+Unknown fields and malformed UUIDs are also errors. The manifest UUID must
+equal the selected registry record; the stable receiver ingress UUID remains
+portable across machines. Create
 writes the manifest before registry persistence. Attach reads it without
 editing it. Legacy flat-env migration creates the root and first matching
 manifest before replacing the flat registry.
@@ -966,10 +971,12 @@ blocks startup.
 
 Every remote data path is owned by one portable workspace manifest at
 `.config/workspace.json`. The remote file uses the same strict schema and UUID
-as the selected root's local manifest. The pure identity decision has five
-outcomes: matching and compatible proceeds; absent on a demonstrably empty
-remote permits setup initialization; mismatched UUID, malformed JSON,
-incompatible schema, and absent on a nonempty remote refuse.
+as the selected root's local manifest. The pure observation distinguishes an
+empty target, a nonempty manifestless target, a compatible manifest with its
+UUID, an invalid or incompatible manifest, and a manifest that is listed but
+cannot be read. The identity decision then
+allows a match, permits setup initialization for an empty target, and refuses
+mismatched UUIDs or untrusted manifests.
 
 Ordinary sync, push, pull, repair, and `brain check` accept only the matching
 outcome. Setup may publish the selected root's exact existing manifest bytes to
@@ -977,9 +984,13 @@ an empty remote, then must read them back and revalidate before saving the
 candidate sync block or writing check markers, CSVs, counters, or bisync data.
 The local manifest is immutable validation input in this flow and is excluded
 from ordinary rclone transfer. A remote that already contains data but lacks a
-manifest is not adopted implicitly; adoption requires a separate explicit
-workflow. Registry records, machine-local env credentials, and UUID-derived
-runtime state remain outside the portable remote.
+manifest is never adopted implicitly. Setup displays the local canonical name
+and UUID, target, and observed remote status, then requires either an explicit
+interactive confirmation or `--adopt-workspace-id <UUID>` matching the exact
+selected UUID. No portable remote workspace name exists. Ordinary sync and
+internal server paths cannot supply adoption authority or prompt. Registry
+records, machine-local env credentials, and UUID-derived runtime state remain
+outside the portable remote.
 
 ## Sync journal (`src/sync/journal.rs`, `<workspace-cache>/sync/journal.db`)
 

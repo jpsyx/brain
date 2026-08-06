@@ -658,12 +658,17 @@ machine-local, never synced). `command::sync_once` is the thin orchestrator
 that runs this whole pipeline; `command::print_status`/`print_conflicts` back
 `brain sync status`/`brain sync conflicts`. `setup.rs` is `brain sync setup`'s
 interactive flow (collect bucket + credentials, validate the local manifest,
-probe the remote identity, publish and read back the exact existing local
-manifest only for an empty remote, write the `sync` block into brain env,
-bootstrap the check-access markers, then run one baseline
-`sync_once(Direction::Resync)`). A nonempty manifestless remote and every
-mismatched, malformed, or incompatible remote manifest fail closed before
-credentials are persisted or data is written. `brain sync repair` reruns just
+probe the remote identity, display the local canonical name/UUID plus configured
+target and observed remote status/UUID, and publish and read back the exact
+existing local manifest for an empty remote or an explicitly authorized
+nonempty manifestless remote). Interactive authorization is an explicit yes;
+noninteractive authorization is the exact selected UUID in
+`--adopt-workspace-id`. The verified manifest boundary completes before setup
+writes the `sync` block into brain env, bootstraps check-access markers, or runs
+the baseline `sync_once(Direction::Resync)`. Mismatched, malformed,
+incompatible, and present-but-unreadable remote manifests fail closed. Ordinary
+and internal identity gates have no adoption authority and remain nonprompting.
+`brain sync repair` reruns just
 that resync on an already configured machine, mainly as the recovery path for
 rclone's own "prior listings missing" guard. See
 [integrations.md](integrations.md) for the rclone handoff detail and
