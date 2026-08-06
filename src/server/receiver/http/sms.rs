@@ -1,87 +1,74 @@
 use std::collections::{BTreeSet, HashMap};
 
-use tiny_http::{Method, Request};
+use super::{AuthenticatedInbound, ProviderConfig, ProviderError};
+use crate::server::receiver::{AttachmentRef, Channel};
 
-use super::SecurityConfig;
-use crate::server::receiver::{Attachment, Channel, InboundMessage};
-
-pub(super) fn parse_sms(
-    request: &Request,
+pub(super) fn authenticate(
+    request: &crate::server::http::Request,
     body: &[u8],
-    security: &SecurityConfig,
-) -> Result<InboundMessage, (u16, String)> {
-    if request.method() != &Method::Post {
-        return Err((405, "method not allowed".to_owned()));
+    config: &ProviderConfig,
+) -> Result<AuthenticatedInbound, ProviderError> {
+    if !twilio_url_is_exact(request.url()) {
+        return Err(ProviderError::InvalidRequest(
+            "Twilio webhook URL must not contain a query string",
+        ));
+    }
+    if config.twilio_auth_token.is_empty() || config.public_base_url.is_empty() {
+        return Err(ProviderError::NotConfigured(
+            "Twilio security is not configured",
+        ));
     }
     let fields = parse_form(body)?;
-    if security.twilio_auth_token.is_empty() || security.public_base_url.is_empty() {
-        return Err((503, "Twilio security is not configured".to_owned()));
-    }
     let sorted = fields
         .iter()
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
-    let signature = request
-        .headers()
-        .iter()
-        .find(|header| {
-            header
-                .field
-                .to_string()
-                .eq_ignore_ascii_case("X-Twilio-Signature")
-        })
-        .map(|header| header.value.as_str())
-        .unwrap_or_default();
-    let authenticated = crate::server::security::verify_twilio(
-        &security.twilio_auth_token,
-        &format!("{}/sms", security.public_base_url.trim_end_matches('/')),
+    let signature = request.header("x-twilio-signature").unwrap_or_default();
+    if !crate::server::security::verify_twilio(
+        &config.twilio_auth_token,
+        &super::receiver_webhook_url(&config.public_base_url, config.ingress_id, Channel::Sms),
         &sorted,
         signature,
-    );
-    let text = fields.get("Body").cloned().unwrap_or_default();
-    let sender = fields.get("From").cloned().unwrap_or_default();
-    let actor = security
-        .resolve_actor(
-            authenticated,
-            crate::actor::RequestIdentity::Sms { from: &sender },
-        )
-        .map_err(|error| match error {
-            crate::server::security::AuthenticatedActorError::ProviderAuthenticationFailed => {
-                (403, "invalid Twilio signature".to_owned())
-            }
-            crate::server::security::AuthenticatedActorError::UnknownOrDisallowedSender => {
-                (403, "SMS sender is not allowed".to_owned())
-            }
-        })?;
-    let sender = crate::users::normalize_phone(&sender)
-        .map_err(|_| (403, "SMS sender is not allowed".to_owned()))?;
-    if text.trim().is_empty() && !fields.keys().any(|key| key.starts_with("MediaUrl")) {
-        return Err((400, "SMS body and media are both empty".to_owned()));
+    ) {
+        return Err(ProviderError::InvalidSignature("invalid Twilio signature"));
     }
-    Ok(InboundMessage {
-        workspace_id: security.workspace_id,
-        actor,
+    let prompt = fields.get("Body").cloned().unwrap_or_default();
+    let sender = fields.get("From").cloned().unwrap_or_default();
+    let sender = crate::users::normalize_phone(&sender)
+        .map_err(|_| ProviderError::SenderNotAllowed("SMS sender is not allowed"))?;
+    let attachments = sms_attachments(&fields);
+    if prompt.trim().is_empty() && attachments.is_empty() {
+        return Err(ProviderError::InvalidRequest(
+            "SMS body and media are both empty",
+        ));
+    }
+    Ok(AuthenticatedInbound {
         channel: Channel::Sms,
-        body: text,
         sender: sender.clone(),
+        prompt,
         participants: vec![sender],
+        attachments,
+        receiving_address: String::new(),
         provider_id: fields.get("MessageSid").cloned(),
-        attachments: sms_attachments(&fields),
+        email_reply: None,
     })
 }
 
-fn sms_attachments(fields: &HashMap<String, String>) -> Vec<Attachment> {
-    let indices = fields
+fn twilio_url_is_exact(url: &str) -> bool {
+    !url.contains('?')
+}
+
+fn sms_attachments(fields: &HashMap<String, String>) -> Vec<AttachmentRef> {
+    fields
         .keys()
         .filter_map(|key| key.strip_prefix("MediaUrl"))
         .filter_map(|index| index.parse::<usize>().ok())
-        .collect::<BTreeSet<_>>();
-    indices
+        .collect::<BTreeSet<_>>()
         .into_iter()
         .filter_map(|index| {
-            let url = fields.get(&format!("MediaUrl{index}"))?.clone();
-            Some(Attachment {
-                url,
+            Some(AttachmentRef {
+                url: fields.get(&format!("MediaUrl{index}"))?.clone(),
+                provider_id: None,
                 content_type: fields.get(&format!("MediaContentType{index}")).cloned(),
                 filename: None,
             })
@@ -89,33 +76,37 @@ fn sms_attachments(fields: &HashMap<String, String>) -> Vec<Attachment> {
         .collect()
 }
 
-fn parse_form(body: &[u8]) -> Result<HashMap<String, String>, (u16, String)> {
-    let text = std::str::from_utf8(body).map_err(|_| (400, "SMS body is not UTF-8".to_owned()))?;
+fn parse_form(body: &[u8]) -> Result<HashMap<String, String>, ProviderError> {
+    let text = std::str::from_utf8(body)
+        .map_err(|_| ProviderError::InvalidRequest("SMS body is not UTF-8"))?;
     Ok(text
         .split('&')
         .filter(|part| !part.is_empty())
-        .filter_map(|part| {
-            let (key, value) = part.split_once('=')?;
-            Some((decode_form(key), decode_form(value)))
-        })
+        .filter_map(|part| part.split_once('='))
+        .map(|(key, value)| (decode_form(key), decode_form(value)))
         .collect())
 }
 
 fn decode_form(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let (Some(high), Some(low)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2]))
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let (Some(high), Some(low)) =
+                (hex_digit(bytes[index + 1]), hex_digit(bytes[index + 2]))
         {
             out.push((high << 4) | low);
-            i += 3;
+            index += 3;
             continue;
         }
-        out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
-        i += 1;
+        out.push(if bytes[index] == b'+' {
+            b' '
+        } else {
+            bytes[index]
+        });
+        index += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
 }
@@ -131,13 +122,42 @@ const fn hex_digit(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_form, sms_attachments};
     use std::collections::HashMap;
 
+    use super::{decode_form, sms_attachments};
+
     #[test]
-    fn mms_media_keeps_twilio_index_order_and_content_types() {
+    fn twilio_query_strings_are_rejected_before_authentication() {
+        assert!(super::twilio_url_is_exact(
+            "/w/4ea7480a-bd86-47ec-9372-9f765ac2113a/sms"
+        ));
+        assert!(!super::twilio_url_is_exact(
+            "/w/4ea7480a-bd86-47ec-9372-9f765ac2113a/sms?unexpected=1"
+        ));
+    }
+
+    #[test]
+    fn signature_url_contains_the_selected_ingress() {
+        let ingress =
+            crate::server::IngressId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap();
+        assert_eq!(
+            super::super::receiver_webhook_url(
+                "https://receiver.example/",
+                ingress,
+                crate::server::receiver::Channel::Sms,
+            ),
+            format!("https://receiver.example/w/{ingress}/sms")
+        );
+    }
+
+    #[test]
+    fn malformed_percent_encoding_is_preserved_without_panicking() {
+        assert_eq!(decode_form("%aé"), "%aé");
+    }
+
+    #[test]
+    fn mms_media_keeps_provider_index_order_and_content_types() {
         let fields = HashMap::from([
-            ("NumMedia".to_owned(), "2".to_owned()),
             (
                 "MediaUrl1".to_owned(),
                 "https://api.twilio.test/media/second".to_owned(),
@@ -157,10 +177,5 @@ mod tests {
         assert_eq!(attachments[0].content_type.as_deref(), Some("image/jpeg"));
         assert!(attachments[1].url.ends_with("/second"));
         assert_eq!(attachments[1].content_type.as_deref(), Some("image/png"));
-    }
-
-    #[test]
-    fn malformed_percent_encoding_cannot_panic_the_receiver() {
-        assert_eq!(decode_form("%aé"), "%aé");
     }
 }

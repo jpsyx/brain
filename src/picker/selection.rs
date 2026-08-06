@@ -10,8 +10,14 @@ use crate::open_target;
 use super::App;
 
 impl App {
-    pub(crate) fn open_palette(&mut self, side: crate::state::PanelSide, include_msg: bool) {
+    pub(crate) fn open_palette(
+        &mut self,
+        side: crate::state::PanelSide,
+        include_msg: bool,
+        receiver_enabled: bool,
+    ) {
         let targets = menu::Targets {
+            receiver_enabled: Some(receiver_enabled),
             pdf: self.selected_markdown_filename(),
             open_file: self.selected_file_filename(),
             open_dir: self.selected_dir_reldisplay(),

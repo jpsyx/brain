@@ -277,6 +277,7 @@ fn registry_error_hint(error: &RegistryError) -> Option<&'static str> {
         RegistryError::UnsupportedSchemaVersion { .. }
         | RegistryError::LockTimeout { .. }
         | RegistryError::DuplicateWorkspaceId { .. }
+        | RegistryError::WorkspaceIdentityChanged { .. }
         | RegistryError::RelativeRoot { .. }
         | RegistryError::Json { .. }
         | RegistryError::Io { .. }

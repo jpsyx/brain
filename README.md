@@ -185,9 +185,43 @@ prompt-based guidance plus advisory capability enforcement.
 | Workspace runtime/cache | `~/.cache/brain/workspaces/<workspace-uuid>/` | `state.db`, `tui.lock`, `inbox/`, `responses/`, and `sync/` locks, journal, current state, workdir, and CSV baselines | No |
 | Shared infrastructure | Machine server PID/control files and the current shared triage signal | Narrow process coordination only; habits payloads are selected by request UUID | No |
 
-Active run logs remain under `/tmp` through `logging.rs`.
+Active run logs remain under `/tmp` through `logging.rs`. The literal read-only
+`brain server status` and `brain receiver status -b <workspace>` probes are the
+exception: they create no run log, skill render, render stamp, config repair,
+or server state. Receiver status obtains process and exact-workspace lease facts
+from one generation-bound control response. Both status requests use immutable
+lease projections and never prune or advance lifecycle state. Registration,
+heartbeat, enablement, unregister, ingress lookup, and routing availability
+opportunistically discard expired leases. The watchdog provides periodic
+expiry and guarantees final crashed-lease shutdown when no traffic arrives.
 `WorkspacePaths::logs_dir` is reserved and unused; it is not the destination
 for current diagnostic logs.
+
+### Shared server and receiver lifetime
+
+Brain runs at most one machine-wide HTTP process, and only while one or more
+workspace TUIs are live. A ready TUI binds its UUID-local job socket, wins or
+joins the shared-process election, registers its workspace lease, and renews
+that lease with heartbeats. An orderly final close unregisters and stops the
+process immediately. A crashed final TUI stops renewing, so the watchdog
+removes its lease and stops the process after the five-second TTL.
+
+Every public route begins with the portable opaque ingress in
+`/w/<ingress>/...`. Brain resolves that ingress to an enabled, live lease before
+it selects a root, provider credential, portable user, prompt, log scope, or job
+socket. An accepted message is acknowledged only after one in-memory enqueue
+in that exact TUI. There is no durable inbound queue, replay worker, detached
+agent, manual server start/kill/restart command, or always-on responder.
+
+Habits and triage completion are local-only actions, not public ingress
+surfaces. Their `/local/<exact-live-lease>/w/<ingress>/...` URLs carry the
+ephemeral lease capability accepted by that TUI, so a peer workspace lease
+cannot read or mutate the selected workspace.
+
+If every TUI is closed, no server exists and an inbound text receives no Brain
+response. If another workspace TUI keeps the shared process alive but the
+target workspace is disabled, closed, expired, full, or unreachable, the
+sender receives one unavailable response and the message is discarded.
 
 The portable manifest is
 `<workspace-root>/.config/workspace.json`. It contains the stable workspace UUID,
@@ -297,8 +331,9 @@ completion, transcript, terminal, and shutdown operations. Claude and Codex
 adapters translate those operations into their own commands, input sequences,
 resume rules, and hook behavior. OpenCode is represented only by a
 constructible fail-fast adapter; every operation returns unsupported before a
-PTY or child process is touched. Functional OpenCode sessions and the final
-shared receiver lease lifecycle remain later phases.
+PTY or child process is touched. Functional OpenCode sessions remain a later
+phase. The shared receiver lease, ingress, authentication, forwarding, and
+delivery lifecycle is active.
 
 The task-schema migrator also remains inactive. Phase 5 owns the final legacy
 sync, coordinated backup, activation, and real-workspace rollout. Phase 2

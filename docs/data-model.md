@@ -132,12 +132,146 @@ stay valid inputs. A relative root requires an absolute injected base;
 relative path. It intentionally carries no alias, default, or registry
 reference.
 
+### Shared-server lease routing (`server/lifecycle/`)
+
+The shared process receives only live TUI registrations. Its pure
+`LeaseTable` records each `WorkspaceLease` by stable `WorkspaceId` and keeps a
+separate catalog of previously seen opaque `IngressId` values. A lease contains
+its unique `LeaseId`, canonical workspace name, ingress ID, TUI PID,
+workspace-local job socket, receiver-enable snapshot, and monotonic expiry.
+It contains no root, registry environment, user identity, credential, prompt,
+log, or inbound message data.
+
+`IngressId` is a distinct UUID newtype even though the current portable
+manifest still serializes `receiver_ingress_id` through `WorkspaceId`. The two
+types preserve exactly the same UUID-string representation at that boundary;
+conversion is explicit so a public ingress can never be used accidentally as a
+workspace selector. A future manifest migration is therefore unnecessary for
+this type split.
+
+At every injected monotonic instant ordinary table operations filter expired
+leases without removing them. The shared control and watchdog transition owns
+revoke-aware removal. Registration rejects an incoming lease whose expiry is
+already elapsed and accepts one
+live lease per workspace, ingress, and lease ID. An exact replay of the current
+workspace's lease, canonical name, ingress, PID, and derived socket is an
+idempotent retry that refreshes expiry and authoritative enablement after a
+lost response. A different lease or changed identity still conflicts. It renews only the matching
+lease ID and keeps a known ingress after orderly removal or expiry. Routing is
+therefore one of `Accepting(live lease)`, `Disabled` (a live lease exists but
+the receiver is off), `NoLiveTui` (known but no live lease), or `Unknown`. Expired
+leases are never returned. Removing or expiring the final live lease yields
+`ShutdownNow`; otherwise the process receives `KeepRunning`. The production
+schedule uses a one-second heartbeat and five-second TTL, while tests inject
+their own `LeaseTiming` and never sleep. Once pruning removes the final lease,
+the table latches that shutdown decision until a successful replacement
+registration. A failed late heartbeat, receiver update, or rejected
+registration therefore cannot consume the final-expiry signal before the
+watchdog observes it.
+
+Watchdog expiry first removes exact lease authority under the control-state
+mutex, then revokes matching admissions outside it with one absolute deadline.
+Pending and authorized admissions become cancelled; work whose socket commit
+already linearized may finish. Orderly disable and unregister wait only to the
+request deadline, and a timeout leaves their lease mutation unapplied.
+Ordinary lease-table paths filter expired leases without removing them. Shared
+control and watchdog entry use the single revoke-aware removal transition.
+Final socket commit performs persisted-intent IO outside the control mutex,
+then samples exact TTL, revalidates the route and admission identity, and
+performs the admission CAS within one control-mutex operation.
+
+Every mutating control request is tagged with the process generation. A stale
+generation yields `StaleGeneration` without touching the table. Registration
+contains workspace, lease, and ingress UUIDs, canonical name, TUI PID, and the
+TUI-resolved root plus UUID-local job socket. The root is an ephemeral
+comparison value, never a lease field or state selector. The server reloads the
+registry and manifest to verify the identity tuple and normalized root, derives
+the authoritative socket path from machine state and workspace UUID, and
+requires both the singleton PID and job listener to be live. Only that derived
+socket enters the lease, and its liveness probe shares the control request's
+absolute deadline. Enablement comes from the authoritative registry. The
+read-only snapshot exposes only the generation and live-lease count. The
+generation-bound workspace-ingress query exposes only an optional ingress for
+the exact requested live workspace UUID. It prunes expiry first and never falls
+back to a known historical ingress or another workspace's lease.
+
+The public route identity is a typed portable `IngressId`, never a canonical
+name, root, default selection, or query parameter. Every accepted path has the
+provider shape `/w/<ingress>/{sms,email}` or local capability shape
+`/local/<lease>/w/<ingress>/{habits,habits/done,triage/done}`. Shared-process routing first consults
+`LeaseTable::availability`. Only `Accepting` yields a live lease and a
+generation-bound `WorkspaceRouteTicket`. Registry, root, and manifest IO then
+occurs without the control-state mutex. The route revalidates that the same
+generation and exact authority revision are still accepting before
+constructing the immutable `WorkspaceContext`. A heartbeat renews expiry without changing
+the revision. Registration and receiver enablement refreshes advance the
+workspace's remembered revision. Removal or expiry leaves no accepting
+authority, and any later registration advances that remembered revision, so
+even a later lease that reuses the same ID, workspace, ingress, TUI PID, and
+job socket cannot match a ticket from before revocation. An unregister,
+disable, replacement, or expiry makes the ticket stale. Unknown
+ingress maps to 404; a known ingress with receiver disabled or no live TUI maps
+to 503. The returned context and lease remain paired with the original ticket
+for later forwarding without reopening another selector. Receiver dispatch
+reloads the exact canonical registry record after actor/job construction,
+requires the same workspace UUID and persisted `receiver_enabled = true`, and
+then revalidates that ticket immediately before the socket handoff. A disable,
+unregister, expiry, or replacement during provider work therefore cannot
+enqueue, including when a persisted disable's live-refresh notification is
+lost. It also derives one absolute handoff deadline,
+capped at two seconds and before the separately reserved response window, and
+carries it through nonblocking connect, frame write, and acknowledgment read.
+A registration replay or enablement refresh
+computes its next revision before changing expiry, enablement, or registration
+state; revision overflow rejects the complete transition without extending or
+reviving authority.
+
+For Resend only, a known unavailable ingress can yield its remembered workspace
+UUID without yielding a live route ticket. That UUID selects exactly one
+registry record for signature verification and bounded in-memory provider-ID
+deduplication. It never constructs `WorkspaceContext`, loads portable users, or
+opens the job socket. A verified unavailable ID is a permanent discard in the
+same 1024-key workspace/channel cache, not a queued job or durable replay item.
+The accepted registration is also the source for local habits and triage URL
+generation, so a later portable-manifest change cannot redirect a live TUI or
+selected short-lived command through a peer workspace's ingress.
+
+The machine-wide lifecycle record is deliberately smaller than a lease. Brain
+publishes `~/.cache/brain/server/process.json` with only the process PID,
+loopback HTTP port, generation UUID, and RFC3339 start time. Sibling
+`control.sock`, `election.lock`, and `server.log` artifacts are infrastructure,
+not workspace state. The record never contains a workspace UUID or root,
+ingress ID, job socket, actor, sender, credential, prompt, log payload, or
+message body. A generation UUID guards cleanup so a stale owner cannot remove a
+new winner's record or socket. The elected process must receive its first
+registration within two seconds or it exits and removes its generation
+artifacts, covering a starter TUI that disappears before registration.
+
+There is intentionally no durable inbound-work model. `InboundJob` crosses one
+bounded Unix connection and exists afterward only in the exact target TUI's
+64-entry memory queue. A successful acknowledgment means that append occurred;
+an unavailable response means the message was discarded. No row, spool file,
+replay cursor, or headless-agent record exists. Consequently, zero live TUIs
+means zero server and no Brain response, while a live peer plus unavailable
+target means one unavailable response and no retained work.
+
+Status uses a separate `ReadOnlyWorkspace` bootstrap policy. It reads an
+already-valid schema-v2 selected record, manifest, portable users, persistent
+intent, and any existing generation snapshot without invoking recovery or
+write-capable stores. This preserves the four-field receiver projection
+(`Receiver`, `TUI`, `Server`, `Accepting`) without changing bytes or process
+state. One generation-bound control response carries the process lease count
+and exact-workspace lease state. The underlying lease-table view filters
+expired entries without removing them or changing revisions and shutdown
+state; watchdog expiry remains a separate mutation.
+
 `WorkspacePaths` derives its full base from the ID:
 
 ```text
 ~/.cache/brain/workspaces/<workspace-uuid>/
 ├── state.db
 ├── tui.lock
+├── jobs.sock              (live TUI only, mode 0600)
 ├── inbox/
 ├── responses/
 ├── logs/                  (reserved, currently unused)
@@ -150,10 +284,12 @@ reference.
     └── baselines/
 ```
 
-Its state database, TUI lock, inbox, responses, reserved log path, and sync
-working data are all children of that base. `cache_dir()` borrows the stored
+Its state database, TUI lock, live job socket, inbox, responses, reserved log
+path, and sync working data are all children of that base. `cache_dir()` borrows the stored
 base; each child accessor derives an owned path. Distinct IDs therefore cannot
-share runtime paths. Active run logs remain under `/tmp` through `logging.rs`.
+share runtime paths. Active run logs remain under `/tmp` through `logging.rs`,
+are created exclusively with mode `0600`, and receive only centrally redacted
+argv values.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
 current diagnostic-log destination.
 
@@ -193,6 +329,16 @@ fallible conversion that runs all whole-registry validation. Both public
 boundary. The store parses the raw DTO directly only to preserve the distinction
 between structural JSON errors (operation, path, and parser message) and typed
 domain validation errors.
+
+`receiver_enabled` is persistent intent, not evidence of a server or live TUI.
+All mutation surfaces use `ReceiverAction` plus the pure
+`receiver_transition(current, action)` decision. Persistence reloads under the
+registry transaction and requires both the selected canonical key and the UUID
+captured at bootstrap. A replaced record therefore fails without changing the
+new record or any peer. Runtime availability is the conjunction of persistent
+intent and an unexpired exact-workspace lease in the current shared-process
+generation. Authoritative route loading rechecks the exact record's persistent
+intent, so a disable takes effect even before the live lease refresh arrives.
 
 Every record is a silo. Canonical, alias, and omitted-selector/default lookup
 returns a borrowed `(canonical_name, record)` view of exactly one record; no
@@ -286,9 +432,18 @@ writes the manifest before registry persistence. Attach reads it without
 editing it. Legacy flat-env migration creates the root and first matching
 manifest before replacing the flat registry.
 
+The ingress UUID is generated only by `WorkspaceManifest::new` for a newly
+initialized workspace. Receiver setup loads and validates it without writing
+the manifest. Attach adopts it, while canonical rename, alias changes, and
+machine-default changes operate only on the machine registry and cannot rotate
+portable ingress identity.
+
 `workspace::bootstrap` maps every parsed route to `None`, `InternalNoPrompt`,
-`RegistryOnly`, or `ReadyWorkspace`. Only the last class selects and validates
-a record. Readiness is manifest validity/UUID agreement plus portable
+`RegistryOnly`, `ReadOnlyWorkspace`, or `ReadyWorkspace`. The last two classes
+select a record. `ReadOnlyWorkspace` requires already-valid registry,
+manifest, and user bytes and opens no recovery or write seam. `ReadyWorkspace`
+may run ordinary readiness and repair. Readiness is manifest validity/UUID
+agreement plus portable
 membership when `.config/users.json` exists. In that schema, the machine-local
 `local_user_id` must parse as a user ID and name one member. Missing values become a pure
 `ReadinessAction::Prompt(fields)` interactively or a typed error carrying exact
@@ -348,6 +503,12 @@ entry. An unmatched response address and every other allowlisted address stay
 in the unresolved proposal for explicit assignment. A response setting by
 itself does not configure an inbound email identity or trigger an email prompt.
 
+Receiver setup performs explicit assignment against this model. A selected
+phone or email is normalized, inserted or updated on one exact user, and
+carries its own `inbound_allowed` boolean. A new ID also requires a display
+name. Channel selection controls required fields: SMS has no email requirement,
+and email has no phone requirement.
+
 Removing a person can change `tasks.csv`, `habits.csv`, and `users.json` as one
 recoverable group. Same-directory staged files and backups preserve each live
 file's mode. The transient `.config/.brain-user-transaction.json` journal is
@@ -403,7 +564,15 @@ resolves `local_user_id`; authenticated
 SMS/email work resolves an enabled portable identity and takes precedence over
 that machine default. A queued receiver job contains the workspace UUID and
 the resolved actor, never an untrusted sender string as `BRAIN_ACTOR_ID`.
-Follow-ups retain the initiating actor. A ready legacy workspace whose portable
+`InboundJob` is a bounded JSON frame containing a fresh job UUID, workspace
+UUID, `ActorContext`, channel, normalized authenticated sender, prompt,
+attachment references, receipt time, provider delivery ID, authenticated
+thread participants, the actor's acceptance-time normalized response email,
+and the acceptance-time allowed response recipients. It exists only in the
+matching live TUI's in-memory queue. A socket acknowledgment means that append
+succeeded; failed acknowledgment writes roll it back. Follow-ups retain the
+initiating actor and channel even if machine registry or portable user data
+changes during the turn. A ready legacy workspace whose portable
 user store is absent uses its exact lower-case kebab local ID as an immutable
 compatibility actor and does not create `users.json`. Malformed nonblank legacy
 IDs are readiness errors with an explicit machine-local repair command. This
@@ -617,12 +786,13 @@ and shutdown behavior; only frontend adapters translate those operations.
 Whole-shell teardown explicitly shuts down both controllers before releasing
 the session-store lock.
 
-## Daily-triage completion signal (`triage_signal.rs`, `~/.cache/brain/triage-done.json`)
+## Daily-triage completion signal (`triage_signal.rs`, `<workspace-cache>/triage-done.json`)
 
 The cross-process signal that closes the daily-triage tab. When the `/triage`
 skill finishes a background pass it POSTs
 `{"token": "<one-time-token>", "require": ["<path>", …]}` to the brain server's
-`POST /triage/done`; the handler writes:
+`POST /local/<exact-live-lease>/w/<selected-ingress>/triage/done`; after live-lease and manifest
+resolution, the handler writes to only that workspace's UUID-scoped cache:
 
 ```json
 { "token": "<one-time-token>", "require": ["/abs/path/one", "/abs/path/two"], "at": 1730000000 }

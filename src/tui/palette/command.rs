@@ -41,16 +41,6 @@ fn if_triage_open(s: &PaletteState) -> bool {
     s.triage_open
 }
 
-/// Visible only while the receiver server is running.
-fn if_receiver_running(s: &PaletteState) -> bool {
-    s.receiver_server_running
-}
-
-/// Visible only while the receiver server is stopped.
-fn if_receiver_stopped(s: &PaletteState) -> bool {
-    !s.receiver_server_running
-}
-
 /// Visible only when the in-context entry has notes to expand/collapse.
 fn if_has_notes(s: &PaletteState) -> bool {
     s.context_has_notes
@@ -94,9 +84,7 @@ pub(crate) enum PaletteAction {
     /// Close the brain panel and end its agent session. Only offered while
     /// a panel is open.
     CloseBrain,
-    StartReceiverServer,
-    StopReceiverServer,
-    RestartReceiverServer,
+    ToggleReceiver,
     ShowReceiverServerStatus,
     ShowReceiverServerLogs,
     ShowBrainLogs,
@@ -128,7 +116,7 @@ pub(crate) enum PaletteAction {
     /// Open the native portable-member picker that filters the current view.
     ChooseAssigneeFilter,
     /// Open today's habits page in the browser, served by the bundled brain
-    /// server (started on demand via `server::lifecycle::ensure_running`).
+    /// server already attached to the live TUI.
     /// Global.
     OpenHabitsInBrowser,
     /// Kick a best-effort background `brain sync` now. Global; no shortcut.
@@ -185,9 +173,7 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         // switch (the direct `Alt+1` / `Alt+2` are terminal-unreliable).
         PaletteAction::ShowMainBrainSession
         | PaletteAction::ShowDailyTriageSession
-        | PaletteAction::StartReceiverServer
-        | PaletteAction::StopReceiverServer
-        | PaletteAction::RestartReceiverServer
+        | PaletteAction::ToggleReceiver
         | PaletteAction::ShowReceiverServerStatus
         | PaletteAction::ShowReceiverServerLogs
         | PaletteAction::ShowBrainLogs
@@ -268,25 +254,12 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         is_visible: if_triage_open,
     },
     PaletteCommand {
-        label: "Start receiver server",
-        action: PaletteAction::StartReceiverServer,
+        // Label is overridden at render time from persistent workspace intent.
+        label: "Enable receiver",
+        action: PaletteAction::ToggleReceiver,
         scope: PaletteScope::Global,
         works_on_habits: false,
-        is_visible: if_receiver_stopped,
-    },
-    PaletteCommand {
-        label: "Stop receiver server",
-        action: PaletteAction::StopReceiverServer,
-        scope: PaletteScope::Global,
-        works_on_habits: false,
-        is_visible: if_receiver_running,
-    },
-    PaletteCommand {
-        label: "Restart receiver server",
-        action: PaletteAction::RestartReceiverServer,
-        scope: PaletteScope::Global,
-        works_on_habits: false,
-        is_visible: if_receiver_running,
+        is_visible: always,
     },
     PaletteCommand {
         label: "Show receiver server status",
@@ -300,7 +273,7 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         action: PaletteAction::ShowReceiverServerLogs,
         scope: PaletteScope::Global,
         works_on_habits: false,
-        is_visible: if_receiver_running,
+        is_visible: always,
     },
     PaletteCommand {
         // Label is overridden at render time (Expand vs Collapse) by

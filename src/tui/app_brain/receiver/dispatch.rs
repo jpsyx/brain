@@ -1,56 +1,11 @@
-//! Receiver listener polling and queued-work dispatch.
+//! Live job-socket polling and queued-work dispatch.
 
 use crate::tui::*;
 
 impl App<'_> {
-    /// Start the receiver listener only when explicitly requested at TUI
-    /// startup. The listener is stored on `App`, so dropping the shell stops
-    /// it automatically.
-    pub(crate) fn start_receiver_server(&mut self) {
-        crate::logging::log("receiver server start requested");
-        if self.receiver_server_running() {
-            crate::logging::log("receiver server already running");
-            return;
-        }
-        self.receiver_server = None;
-        self.receiver_rx = None;
-        let (tx, rx) =
-            std::sync::mpsc::sync_channel(crate::server::receiver::INBOUND_QUEUE_CAPACITY);
-        match crate::server::receiver::ReceiverServer::start(
-            &self.command_context,
-            crate::server::receiver::DEFAULT_PORT,
-            &tx,
-        ) {
-            Ok(server) => {
-                crate::logging::log("receiver server started");
-                self.receiver_server = Some(server);
-                self.receiver_rx = Some(rx);
-                self.flash = Some(FlashKind::Info("receiver server is listening".to_owned()));
-            }
-            Err(error) => {
-                crate::logging::log(format!("receiver server start failed: {error}"));
-                self.flash = Some(FlashKind::Error(format!(
-                    "receiver server could not start: {error}"
-                )));
-            }
-        }
-    }
-
-    /// Drain messages received by the TUI-owned listener. Active agent work is
+    /// Drain jobs received on the UUID-local socket. Active agent work is
     /// never interrupted; the queue is consumed when the panel is available.
     pub(crate) fn tick_receiver(&mut self) {
-        if self
-            .receiver_server
-            .as_ref()
-            .is_some_and(|server| !server.is_running())
-        {
-            crate::logging::log("receiver server lost all workers");
-            self.receiver_server = None;
-            self.receiver_rx = None;
-            self.flash = Some(FlashKind::Error(
-                "receiver server stopped unexpectedly; restart it to receive messages".to_owned(),
-            ));
-        }
         self.poll_completed_remote_response();
         self.poll_completed_interactive_turn();
         self.maybe_send_processing_delay();
@@ -70,105 +25,11 @@ impl App<'_> {
             ));
             self.close_receiver_panel(true);
         }
-        let control_requests = self
-            .receiver_control
-            .as_ref()
-            .map(crate::server::receiver::ControlSocket::poll)
-            .unwrap_or_default();
-        for (mut stream, command) in control_requests {
-            let response = match command.as_str() {
-                "start" => {
-                    crate::logging::log("receiver control start");
-                    self.start_receiver_server();
-                    "receiver server started\n".to_owned()
-                }
-                "stop" => {
-                    crate::logging::log("receiver control stop");
-                    self.receiver_server = None;
-                    self.receiver_rx = None;
-                    "receiver server stopped\n".to_owned()
-                }
-                "restart" => {
-                    crate::logging::log("receiver control restart");
-                    self.receiver_server = None;
-                    self.receiver_rx = None;
-                    self.start_receiver_server();
-                    "receiver server restarted\n".to_owned()
-                }
-                "status" => {
-                    crate::logging::log("receiver control status");
-                    if self.receiver_server_running() {
-                        "receiver server is running\n".to_owned()
-                    } else {
-                        "receiver server is stopped\n".to_owned()
-                    }
-                }
-                "logs" => {
-                    crate::logging::log("receiver control logs");
-                    "receiver logs are in the current brain run log\n".to_owned()
-                }
-                _ => "unknown receiver command\n".to_owned(),
-            };
-            if let Err(error) = std::io::Write::write_all(&mut stream, response.as_bytes()) {
-                crate::logging::log(format!("receiver control response write failed: {error}"));
-            }
-        }
-        if let Some(rx) = &self.receiver_rx {
-            for message in rx.try_iter() {
-                if message.workspace_id != self.command_context.workspace.id() {
-                    crate::logging::log("receiver rejected queued job for another workspace");
-                    continue;
-                }
-                let must_wait = self.brain_turn_active
-                    || self.receiver_started.is_some()
-                    || !self.receiver_queue.is_empty();
-                let modal_open = self.palette.is_some()
-                    || self.brain_input.is_some()
-                    || self.confirm.is_some()
-                    || self.link_picker.is_some()
-                    || self.assignee_filter.is_some()
-                    || self.help.is_some();
-                crate::logging::log(format!(
-                    "receiver message queued channel={:?} waiting={} queue_depth={} panel_open={} turn_active={} remote_active={} modal_open={}",
-                    message.channel,
-                    must_wait,
-                    self.receiver_queue.len() + 1,
-                    self.brain_panel_open(),
-                    self.brain_turn_active,
-                    self.receiver_started.is_some(),
-                    modal_open
-                ));
-                if must_wait {
-                    match message.channel {
-                        crate::server::receiver::Channel::Sms => {
-                            let notice = crate::server::reply::processing_notice("sms");
-                            crate::server::delivery::send_sms_background(
-                                self.command_context.clone(),
-                                "queued SMS notice",
-                                message.sender.clone(),
-                                notice.text,
-                            );
-                        }
-                        crate::server::receiver::Channel::Email => {
-                            let recipients = self
-                                .receiver_email_recipients(&message.participants, &message.actor);
-                            if !recipients.is_empty() {
-                                let notice = crate::server::reply::processing_notice("email");
-                                let html = crate::server::reply::email_html(&notice.text);
-                                crate::server::delivery::send_email_background(
-                                    self.command_context.clone(),
-                                    "queued email notice",
-                                    recipients,
-                                    "Brain received your message".to_owned(),
-                                    notice.text,
-                                    html,
-                                );
-                            }
-                        }
-                    }
-                }
-                self.receiver_queue.push(message);
-            }
+        if let Some(socket) = self.receiver_control.as_ref() {
+            socket.poll_jobs(
+                self.command_context.workspace.id(),
+                &mut self.receiver_queue,
+            );
         }
         let now = std::time::Instant::now();
         if !crate::tui::receiver_state::retry_ready(self.receiver_retry_at, now) {
@@ -216,11 +77,10 @@ impl App<'_> {
             crate::server::receiver::Channel::Email => "email",
         };
         let _delivery_shape = match message.channel {
-            crate::server::receiver::Channel::Sms => crate::server::reply::sms(&message.body),
+            crate::server::receiver::Channel::Sms => crate::server::reply::sms(&message.prompt),
             crate::server::receiver::Channel::Email => {
-                let _ = crate::server::reply::email_html(&message.body);
-                let _ = self.receiver_email_recipients(&message.participants, &message.actor);
-                crate::server::reply::email(&message.body)
+                let _ = crate::server::reply::email_html(&message.prompt);
+                crate::server::reply::email(&message.prompt)
             }
         };
         let _ = crate::server::reply::processing_notice(label);
@@ -251,7 +111,7 @@ impl App<'_> {
             "This is an authenticated {label} message from {} (actor {}). Respond as the user's brain.\n\n{}",
             message.actor.display_name(),
             message.actor.user_id(),
-            message.body
+            message.prompt
         );
         let reusing_receiver_panel = self.receiver_session_id.is_some() && self.brain_panel_open();
         if reusing_receiver_panel {
@@ -271,8 +131,12 @@ impl App<'_> {
         let _ = crate::tui::receiver_state::commit_dispatch(&mut self.receiver_queue, launched);
         if launched {
             self.receiver_retry_at = None;
-            self.receiver_sender = Some(message.sender.clone());
-            self.receiver_recipients.clone_from(&message.participants);
+            self.receiver_sender = Some(message.authenticated_sender.clone());
+            self.receiver_recipients
+                .clone_from(&message.allowed_response_recipients);
+            self.receiver_response_email
+                .clone_from(&message.response_email);
+            self.receiver_email_reply.clone_from(&message.email_reply);
             self.receiver_generation = self.receiver_generation.saturating_add(1);
             self.receiver_started = Some(std::time::Instant::now());
             self.receiver_delay_sent = false;

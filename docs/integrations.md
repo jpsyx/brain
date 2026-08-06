@@ -60,18 +60,16 @@ helpers and shell-outs live in the tasks modules:
   `tasks::doctor::format_doctor_plan` before checking the state DB schema,
   SessionStart hook settings, `rclone version`, and sync env.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
-- **`brain habits` / palette "Open habits in browser"** — bring up the bundled
-  brain server (`server::lifecycle::ensure_running`) and open its `/habits`
-  page via the system `open`; the CLI path prints the server-state plan before
-  waiting on the daemon and then prints the URL it is opening. They no longer
-  shell out to a zsh function. This daemon, its state record, receiver control
-  socket, and triage completion bridge remain a transitional machine-shared
-  control plane. Full live-workspace membership and receiver routing remain
-  deferred to the approved shared-server phase. The process itself carries no
-  selected `--brain`; meanwhile each habits request carries a workspace UUID
-  and reloads the exact registry record plus matching portable manifest before
-  touching payload. Missing, malformed, unknown, unavailable, or
-  manifest-mismatched identities are rejected and never route to the default.
+- **`brain habits` / palette "Open habits in browser"**: connect to the
+  already-running shared brain process and open its
+  `/local/<exact-live-lease>/w/<selected-ingress>/habits` page via the system
+  `open`. These short-lived paths never participate in process election;
+  if no TUI owns a live process, they ask the user to open a brain TUI first.
+  The process itself carries no
+  selected `--brain`; each habits request instead carries an opaque ingress ID.
+  The process requires its live lease before reloading the exact registry record
+  and matching portable manifest. Missing, malformed, unknown, no-live-TUI,
+  unavailable, or identity-mismatched routes never fall back to the default.
 - **`brain habits revive|fix <name>`** — repair a lapsed recurring habit (all
   occurrences `done`, none pending) by fuzzy name, without touching the server.
   Dispatched after workspace bootstrap by `command/server/habits.rs`; the
@@ -95,15 +93,16 @@ helpers and shell-outs live in the tasks modules:
   button (`App::skip_triage`), so the button and the CLI share one Rust path. A
   no-op that mutates nothing when `enable_triage_habits` is off. The native
   equivalent of `apply_sync_rules.py --complete-managed-triage`.
-- **Receiver server** — the opt-in TUI-owned listener accepts only `POST /sms`
-  and `POST /email`. Twilio requests must pass the exact URL/form HMAC and SMS
-  sender allowlist. Resend requests must pass the official `v1,<signature>`
-  Svix verification, a five-minute timestamp window, and the email sender
-  allowlist. Successful Resend deliveries receive HTTP 200, and the Receiving
-  Email plus Receiving Attachments APIs supply the full body and signed
-  download URLs. The listener stops with the owning TUI, so a machine does not
-  receive remote messages unless the user explicitly starts it with
-  `brain --with-receiver` or the command palette.
+- **Receiver server** - the machine-wide TUI-lifetime process accepts
+  `POST /w/<selected-ingress>/sms` and
+  `POST /w/<selected-ingress>/email` only for an enabled workspace with a live
+  lease. Ingress resolution precedes all workspace provider and user reads.
+  Twilio requests must pass the exact URL/form HMAC and SMS sender allowlist.
+  Resend requests must pass the official `v1,<signature>` Svix verification, a
+  five-minute timestamp window, and the email sender allowlist. Successful
+  Resend deliveries receive HTTP 200, and the Receiving Email plus Receiving
+  Attachments APIs supply the full body and signed download URLs. The process
+  stops when its final live TUI lease is removed or expires.
 - **`<agent_cmd> …` with cwd set to `<root>`**: the brain panel's PTY,
   shared by both main views (see below).
 
@@ -270,13 +269,14 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
   `brain_sessions` and is never a resume candidate.
 - **Completion is signalled, not inferred.** A triage pass can involve
   back-and-forth with the user, so "the agent went idle" is not a reliable done
-  signal. brain first calls `server::lifecycle::ensure_running()` to bring up the
-  internal habits daemon and passes its `POST /triage/done` URL plus a one-time
+  signal. brain connects to the shared process already attached to the TUI and
+  passes its capability-protected local triage-completion URL plus a one-time
   token into the session. When the `/triage` skill finishes (the habit marked
   and every output the run declared it must produce on disk) it POSTs
-  `{"token": "<token>", "require": ["<path>", …]}` to that URL. The daemon and
+  `{"token": "<token>", "require": ["<path>", …]}` to that URL. The process and
   the TUI are separate processes, so the signal crosses on disk: the
-  `routes::triage` handler records it to `~/.cache/brain/triage-done.json` via
+  `routes::triage` handler records it to
+  `<workspace-cache>/triage-done.json` via
   `crate::triage_signal::record_done`, and the TUI's per-tick
   `App::tick_triage_done` reads it (`triage_signal::read_signal`) and auto-closes
   the tab only when the token matches the tab it opened **and** every path in
@@ -290,9 +290,184 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
   the generic core (and any fork) behaves exactly as before. If the triage child
   exits on its own, the same tick closes the tab regardless.
 
-`brain server`'s route table therefore gains `POST /triage/done` (see
-`server/router.rs` + `server/routes/triage/`), an unauthenticated
-localhost-only endpoint consistent with `/habits/done`.
+`brain server`'s route table therefore includes
+`POST /local/<lease>/w/<ingress>/triage/done` (see `server/router.rs` plus
+`server/routes/triage/`), an unauthenticated localhost-only endpoint consistent
+with the ingress-scoped habits completion route.
+
+## Shared-server process lifecycle
+
+One machine-wide process stores its infrastructure below
+`~/.cache/brain/server/`: `process.json`, `control.sock`, `election.lock`, and
+`server.log`. `process.json` is generation-tagged and contains only PID, port,
+generation UUID, and start time. It carries no selected workspace or portable
+payload. A starter must atomically own the election lock, and the hidden
+`brain server run --generation <uuid> --port <port>` loop validates that token
+before binding. An advisory lock on the shared server directory serializes
+exact observed-owner reaping and parent-to-child token adoption; the parent
+releases the mutex only through an explicit handoff that leaves its generation
+token for the child while retaining exact cleanup responsibility. A successful
+child adoption changes the token owner, making parent cleanup a no-op; child
+loss before adoption leaves the token unchanged, so the parent removes it when
+the bounded publication wait ends. During that wait the parent retains the
+elected `Child` and uses `try_wait`, rather than PID liveness, so a zombie is an
+observed failed starter and election retries within the original deadline.
+Immediately after publication, before the injected observation seam or any
+fallible parent handoff cleanup, a lifetime waiter owns and reaps that child so
+later SIGKILL cannot wedge heartbeat recovery behind a zombie token. Cleanup
+failures still propagate to the caller. If
+another startup contender briefly holds
+the advisory mutex at that boundary, explicit cleanup retries at a fixed
+interval for at most two seconds while the exact parent token remains instead
+of abandoning it. Adoption or replacement changes the record and ends the
+retry without touching the new owner; acquisition and timeout failures return
+to the caller. Both the initial token inspection and the exact recheck under
+the mutex distinguish a missing token from filesystem or malformed-JSON
+failures. Those failures propagate, and cleanup borrows its handoff capability
+so the same value can retry after repair. Losing TUI contenders use bounded
+polling for the published winner.
+
+The process is not an independently managed daemon. Public `brain server`
+actions are read-only `status` and `logs`; there is no start, kill, or restart
+surface. Only live TUI startup and heartbeat recovery may call the electing
+client. Habits and triage callers attach without electing. The final orderly
+lease removal returns `ShutdownNow` immediately; an injected-clock watchdog
+expires crashed leases, preserves final-expiry shutdown across rejected late
+control transitions, and stops an elected process that receives no first
+registration within two seconds. Drop and SIGINT/SIGTERM cleanup remove the
+process record and socket only when their generation still owns them. The
+cleanup owner and safe `signal-hook` flags are installed before state
+publication; the process loop observes flags outside the handler and performs
+ordinary Rust cleanup.
+
+The status probe is stricter than ordinary command bootstrap. `brain server
+status` and `brain receiver status -b <workspace>` skip run-log creation and
+all workspace mutation seams, including registry migration, access-mode or user
+repair, users transaction recovery, installed-skill rendering, and render-stamp
+writes. They inspect only existing process/control state and existing selected
+workspace bytes. They never acquire election ownership or notify a process.
+Receiver status reads the published process generation once and obtains live
+process plus exact-workspace facts from one generation-bound control request.
+A live-process transport, protocol, or replacement-generation failure is
+reported. Process and workspace status use immutable lease views; watchdog
+ticks provide periodic pruning and guarantee final crashed-lease shutdown when
+no traffic arrives. Ordinary registration, heartbeat, enablement, unregister,
+ingress lookup, routing, and availability transitions also opportunistically
+discard expired leases. Status probes never prune or advance lifecycle state.
+
+The externally observable lifetime is exact. Personal and family TUIs can hold
+two leases in the same generation and receive one message through their own
+job sockets. Closing family unregisters it; if personal remains, a family
+request receives one unavailable response and is discarded while personal
+stays routable. Closing personal then removes the final lease and the process
+exits immediately. If the final TUI crashes, its heartbeat expires at TTL and
+the watchdog makes the same shutdown decision. With no live TUI and no process,
+an inbound text receives no Brain response.
+
+The control socket exchanges one newline-delimited JSON request and response
+per connection, with a 16 KiB frame cap and one two-second absolute deadline
+covering connect, write, flush, and read. The codec checks that same deadline
+before every attempt, including attempts that keep making progress. Each reader
+consumes through EOF and rejects trailing frames, so a slow byte stream cannot
+extend the budget one syscall at a time. Connect uses a safe nonblocking Unix
+socket plus bounded readiness polling; it creates no connector worker that can
+outlive the caller's deadline.
+Register, heartbeat, receiver-enable refresh, and unregister requests carry the
+target process generation; stale generations are rejected before lease state
+can change. The read-only workspace-ingress lookup is also generation-bound and
+returns a value only for the exact requested live workspace lease. Snapshot is
+read-only and returns only generation plus live-lease count. Registration supplies the TUI-resolved root only for an ephemeral,
+normalized comparison. The process reloads the machine registry, requires the
+exact canonical name and workspace UUID, reopens that record's portable
+manifest, and verifies its workspace and ingress UUIDs. It derives the expected
+job socket from its own machine paths plus the validated UUID, then requires a
+matching live TUI singleton PID and probes the job listener within the same
+control-request deadline. Neither the root nor the client-supplied socket
+selects stored state. Receiver intent comes from the registry record rather
+than the TUI. If an accepted response is lost, retrying the exact same
+generation, lease, workspace identity, PID, and derived endpoint is accepted
+idempotently and renews the lease deadline. A competing lease or changed
+identity is still rejected.
+
+`brain receiver start`, `brain receiver stop`, `--with-receiver`, and the two
+TUI command palettes persist intent through the same pure transition. The
+transaction reloads the selected canonical record and verifies its immutable
+UUID before changing only `receiver_enabled`. A running shared process receives
+a generation-bound workspace UUID notification and reloads that record before
+changing live routing authority. Missing processes and missing live leases are
+valid: persistent intent governs the next registration, and the short-lived
+caller never elects or hosts ingress. Startup applies `--with-receiver` before
+the selected TUI binds its job socket and registers its lease.
+Persistence is the commit point for these mutations. If the optional live
+refresh cannot be delivered afterward, the CLI or palette reports a warning
+while retaining and displaying the committed intent instead of claiming that
+the mutation failed.
+The route loader also requires that already-selected exact registry record to
+remain enabled before credentials, users, prompts, or sockets are opened. This
+closes the persistence-to-control-refresh race without changing ingress-first
+routing.
+
+For every HTTP request, the pure router first parses an exact typed provider
+`/w/<ingress>/{sms,email}` route or local
+`/local/<lease>/w/<ingress>/...` capability route. The shared process then captures a generation-bound
+ticket for the exact accepting lease. Only that ticket permits registry, root,
+manifest, or workspace-runtime selection. Those filesystem checks occur
+without holding the control-state mutex, and the process revalidates the same
+live authority incarnation after loading before returning a context. Ordinary
+heartbeat renewal preserves the incarnation. Registration and receiver
+enablement changes advance it; removal or expiry leaves no accepting
+authority, and any later registration advances the remembered incarnation. A
+disable/re-enable or same-fields unregister/re-register ABA transition always
+invalidates the old ticket. The next revision is checked before expiry,
+enablement, registration, or revision state changes, so overflow cannot partly
+apply a transition.
+Immediately before the job-socket handoff, dispatch also reloads the exact
+canonical registry record, verifies the selected workspace UUID, and requires
+its persisted receiver intent to remain enabled before revalidating the live
+generation and authority revision. A persisted disable that races after route
+loading therefore cannot enqueue even when its best-effort refresh notification
+was lost. At admission commit, that filesystem reload remains outside the
+control mutex. One combined operation then acquires control, samples the
+monotonic instant inside the lock, revalidates exact route and admission
+identity, and performs the admission CAS before unlocking.
+Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
+live TUI returns 503 before local route behavior or receiver dispatch; it is
+never acknowledged as accepted work.
+
+The shared listener uses four fixed process-lifetime accept workers and no
+application request queue. Each connection carries one request, request heads
+and local action bodies are capped at 16 KiB, and parsing starts with a single
+absolute two-second monotonic deadline established before the request head.
+Successful bytes do not renew it. Local actions retain that deadline through
+their response. Receiver bodies and local signature/event parsing also stay
+inside it; only after they succeed does the request enter a separate fixed
+30-second provider/handoff/response phase. An expired parse phase cannot be
+revived at that transition. HTTP framing accepts at most one
+`Content-Length` or the one supported `chunked` transfer coding, never both,
+and rejects repeated or unsupported codings, invalid field-name syntax,
+malformed chunk sizes, forbidden framing trailers, and over-limit chunks or
+trailers. Field values remove only `SP` and `HTAB` optional whitespace and
+reject forbidden controls and Unicode whitespace before framing decisions.
+Chunk extensions are rejected by the intentional extension-free safe subset.
+Workers cannot accept until all four spawns succeed, and a partial
+start is aborted before any body read. Each worker finishes routing and
+post-load live-lease revalidation before reading a POST body. This keeps
+stalled or oversized body IO out of the lifecycle/control loop and keeps the
+thread set fixed under incomplete headers. Final process exit signals workers
+without joining a worker held in client IO. A TUI retains the ingress accepted
+with its registration for habits and triage URLs; a short-lived habits command
+asks the current generation for that selected workspace's live accepted
+ingress. Neither path reselects an ingress from a later manifest read.
+
+TUI startup orders ownership as workspace readiness, UUID singleton, UUID-local
+`jobs.sock`, bounded connect/elect/register handshake, heartbeat worker, then
+agent/event loop. If the selected generation exits between discovery and
+registration, the handshake re-enters election and registers with the winner;
+an authoritative workspace rejection returns immediately.
+The worker sends one heartbeat per second. Missing transport, a stale
+generation, or a lost lease triggers bounded election/reuse and re-registration;
+concurrent TUIs use the same election path so only one replacement wins.
+Orderly exit stops the worker and unregisters before removing `jobs.sock`.
 
 The nudge's **Skip** button takes a different route entirely. Skipping is
 deterministic — it only marks today's protected Morning Triage occurrence done
@@ -336,7 +511,12 @@ Which session to run is decided by the **lock + recency** model in
    the resolved `local_user_id`.
    Receiver work first authenticates the provider request, then resolves an
    enabled portable sender; the queued workspace UUID and actor override the
-   machine default for that complete request lineage.
+   machine default for that complete request lineage. The accepting pipeline
+   also captures the initiating user's normalized `response_email` and only
+   allowlisted participants from that authenticated thread. Claude and Codex
+   receive the same immutable actor/channel through `AgentController`, and
+   later registry or `users.json` changes cannot substitute another response
+   identity while the turn is running.
    Multiple machines may select the same portable person ID. That ID represents
    one person, not one device, owner, creator, or audit principal.
    Bundled task mutators resolve their selected root and actor only from this
@@ -441,18 +621,85 @@ TUI can deliver it over SMS or email without exposing the full thinking trace.
 Receiver setup stores provider credentials in the selected workspace's record
 in the machine-local brain env store. Enter the public base URL only, for
 example `https://brain.example.com`; the Twilio portal receives
-`https://brain.example.com/sms` and the Resend portal receives
-`https://brain.example.com/email`. Twilio signs the exact SMS URL, so the
+`https://brain.example.com/w/<selected-ingress>/sms` and the Resend portal
+receives `https://brain.example.com/w/<selected-ingress>/email`. Twilio signs the exact SMS URL, so the
 receiver derives that path before verification. Ordinary provider resolution
 uses only that selected record; Brain does not treat process-level `TWILIO_*`,
 `RESEND_*`, or `BRAIN_RECEIVER_PUBLIC_URL` values as runtime overrides. Secret
 values are redacted by `brain env list` and `brain env get`.
+The same pre-write validator serves guided and headless setup. It accepts only
+an HTTPS origin without a path, query, fragment, or embedded credentials,
+normalizes the Twilio sender to E.164 and the Resend sender as an email, and
+rejects blank selected-channel values with diagnostics that never include the
+submitted provider or address value.
 
-The receiver control socket is mode `0600`, refuses to replace a live TUI's
-socket, limits commands to 128 bytes, and applies read/write timeouts. The HTTP
-listener uses four blocking workers, a 1 MiB body limit, a 64-message handoff
-queue, constant-time HMAC verification, and an in-process recent-delivery cache
-to absorb normal Twilio/Resend retries without duplicating LLM work. Provider
+The guided setup maps each configured address to an existing portable person
+or creates a named person in the selected workspace's `.config/users.json`.
+SMS setup requires only a phone identity; email setup requires only an email
+identity. Complete headless flags carry the user ID, optional new-user display
+name, address, and explicit inbound-allowed state. Provider values and public
+base URL are committed to only the exact canonical-name plus workspace-UUID
+record. A successful setup or `receiver set` sends an existing-process-only
+reload notification for that workspace UUID. It neither elects nor restarts a
+shared process, and a failed notification leaves the saved configuration as
+the commit point with a warning.
+
+Before setup writes, it snapshots the selected provider values, exact
+portable-user bytes, and selected Claude/Codex hook artifacts, excluding their
+transaction lock pathnames. Provider, user, and hook writes are ordered under
+one persistent workspace-local advisory lock that remains held through
+rollback. Acquisition checks its fixed monotonic deadline before each lock
+attempt and after a successful attempt before ownership can escape, then
+reports the exact receiver setup lock that timed out. A failure conditionally restores only values and
+files still equal to this attempt's after-image, preserving concurrent success,
+peer records, and live lock inodes. Manifest identity and URL validation complete before the
+first write, and live reload happens only after the whole transaction succeeds.
+
+Run logging applies a central argv redactor before the timestamped file or
+`--verbose` mirror sees a line. Receiver provider fields and portable
+phone/email values are replaced for `--flag value`, `--flag=value`, and
+`receiver set name=value` forms. Env assignments use `env::is_sensitive`, so
+whole `agent_capabilities` documents and nested
+`agent_capabilities.mcps.*.credentials.*` values use the same authoritative
+policy after the same uppercase/dash canonicalization as `brain env set`. Each run log is created exclusively with mode
+`0600` as defense in depth.
+
+The receiver handoff endpoint is the selected workspace's mode-`0600`
+`<workspace-cache>/jobs.sock`. One bounded serialized `InboundJob` carries the
+workspace UUID, immutable actor and channel, normalized sender, prompt, stable
+provider email/attachment IDs, provider ID, and acceptance-time response
+metadata. The TUI stages the decoded job, returns `prepared`, and adds it to its
+64-entry memory queue only after the server's exact-revision admission commits.
+If the final `accepted` write fails, it removes that just-appended job before
+the event-loop poll releases its exclusive queue borrow.
+The shared HTTP listener uses four
+blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
+1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.
+Only acknowledged SMS jobs enter the cache. A failed or in-flight SMS handoff
+returns unavailable and schedules no retry; a later provider retry may attempt
+a fresh handoff. A signature-verified unavailable Resend ID is retained as a
+permanent discard in the same bounded cache. Known unavailable ingress is
+resolved before selecting that exact workspace's signing credential, and no
+root, user, prompt, or job socket is opened for this verification. A later live
+replay is rejected before Receiving API access. Persisted disable uses this
+same exact-workspace path even when live refresh is blocked or fails. Dispatch retains the original
+route ticket, reserves five seconds for
+the response, derives one handoff deadline capped at two seconds and at that
+response cutoff, then revalidates the exact generation, authority incarnation,
+enabled state, and live lease immediately before socket IO. The safe
+nonblocking connector, complete frame write, and acknowledgment read all use
+that same absolute handoff deadline; continuous progress cannot renew it.
+Resend's received-email and attachment-metadata calls each have a ten-second
+maximum and a 1 MiB response cap; an oversized stream is stopped after one
+proof byte beyond the cap, before JSON parsing. Verified unavailable, ignored,
+and permanent discarded Resend events return provider success and remain
+outside the queue; invalid signatures remain authentication failures, and
+internal 500/502 outcomes remain failures rather than provider success. Delayed email
+dispatch refreshes signed attachment access from stable provider IDs, and
+processing plus final replies preserve the original subject and message
+lineage without widening recipients. Receiving-API rejection or malformed
+provider JSON returns 502.
+Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through
 standard input rather than process arguments. Provider output is captured so it
 cannot corrupt the TUI. Outbound Twilio/Resend calls are serialized through a
@@ -776,11 +1023,12 @@ bookkeeping.
   Invalid metadata, malformed records, and duplicate active identities render a
   warning naming the generation and relative CSV; they never panic or emit a
   false clean result.
-- **Phase 2 does not activate migration or the final receiver architecture.**
+- **Phase 2 did not activate migration or shared HTTP receiver routing.**
   The task-schema migrator remains an inactive fixture-tested interface; Phase
   5 owns its last legacy sync, backups, activation, and real-workspace rollout.
-  The final shared-server lease and receiver-routing lifecycle remain Phase 4
-  work. Current actor propagation does not imply that later lifecycle is done.
+  Shared-server control, TUI lease recovery, public opaque-ingress routing,
+  authenticated actor resolution, exact TUI job forwarding, and response
+  delivery are now active.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.

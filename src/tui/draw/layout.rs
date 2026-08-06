@@ -128,19 +128,6 @@ pub(crate) fn flash_line(flash: &FlashKind) -> Line<'static> {
                     .add_modifier(Modifier::BOLD),
             ),
         ]),
-        FlashKind::ReceiverStatus { running } => Line::from(vec![
-            Span::raw(" receiver is "),
-            Span::styled(
-                if *running { "running" } else { "stopped" },
-                Style::default()
-                    .fg(if *running {
-                        Color::Rgb(158, 206, 106)
-                    } else {
-                        Color::Rgb(247, 118, 142)
-                    })
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]),
     }
 }
 
@@ -151,5 +138,10 @@ pub(crate) fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let h = height.min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
-    Rect { x, y, width: w, height: h }
+    Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    }
 }

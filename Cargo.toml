@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.27.0"
+version = "0.31.9"
 edition = "2024"
 rust-version = "1.85"
 description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
@@ -21,6 +21,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.28"
 csv = "1.3"
+# MSRV-compatible advisory file locking serializes exact shared-server election
+# owner replacement without unsafe platform calls.
+fs2 = "0.4"
 # The tasks view keeps its own fuzzy matcher (`fuzzy-matcher`) distinct from
 # the brain-search picker's `nucleo-matcher`; the two views were built against
 # different libraries and unifying them is a follow-up, not a merge blocker.
@@ -31,6 +34,10 @@ hmac = "0.12"
 # PollWatcher because FSEvents can silently omit valid changes. Debouncing stays
 # in our tested `watch::Debouncer` (no notify-debouncer-* dependency).
 notify = "8"
+# Safe nonblocking Unix-socket creation plus bounded poll lets the shared
+# control plane enforce one connect deadline without unsafe code or detached
+# connector threads. This crate was already present through portable-pty.
+nix = { version = "0.28", features = ["fs", "poll", "socket"] }
 nucleo-matcher = "0.3"
 regex = "1"
 # PTY-backed brain panel: portable-pty spawns the interactive `claude` child,
@@ -49,11 +56,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.10"
 sha2 = "0.10"
-# The habits daemon and TUI-owned receiver are small synchronous HTTP services
-# bound to loopback. The receiver uses a fixed worker pool behind the user's
-# reverse proxy; an async runtime would add substantial machinery for two
-# low-volume webhook routes.
-tiny_http = "0.12"
+# Safe SIGINT/SIGTERM flags let the shared process run generation-guarded
+# cleanup without introducing unsafe signal handlers.
+signal-hook = "0.3"
 tui-term = "0.2"
 # Per-shell/session/task ids plus deterministic legacy task migration ids.
 uuid = { version = "1", features = ["v4", "v5"] }

@@ -132,5 +132,6 @@ mod tests {
             .collect();
         assert!(flat.contains("Navigation"));
         assert!(flat.contains("^X"));
+        assert!(flat.contains("Disable receiver"));
     }
 }

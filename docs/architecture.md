@@ -43,7 +43,8 @@ user types `brain …`
        └─ exec target/release/brain "$@"   (forwards every argument)
 
 the binary:
-  ├─ every run → writes a timestamped `/tmp` log; `--verbose` mirrors logs to stdout
+  ├─ ordinary run → writes a timestamped `/tmp` log; `--verbose` mirrors logs to stdout
+  ├─ server/receiver status → literal read-only probe with no run log or repair
   ├─ help / version → print and exit without opening the TUI
   ├─ tasks complete / doctor / --no-tui → mutation, health check, or plain output
   ├─ tasks search → opens the persistent TUI with a custom task search
@@ -73,10 +74,13 @@ argv
  └─→ Cli::parse                          (cli/)
       ├─→ help / -v / --version / Cmd::Version
       │    └─→ print and exit before workspace bootstrap or command gates
-      ├─→ logging::init                  (timestamped `/tmp` log; stdout mirror with `--verbose`)
+      ├─→ status classifier              (server/receiver status skips write boundaries)
+      ├─→ logging::init                  (other commands: `/tmp` log; optional stdout mirror)
       ├─→ workspace::bootstrap            (explicit per-invocation policy)
       │    ├─ context-free/internal → no registry, root, or prompt
       │    ├─ create/attach/remove/repair → registry capability only
+      │    ├─ receiver status → read-only selected context, no migration,
+      │    │    readiness repair, users transaction recovery, or skills render
       │    └─ ordinary command → migrate only without a valid v2 registry,
       │         select once, validate readiness, repair interactively,
       │         return CommandContext
@@ -123,7 +127,7 @@ boundaries:
 | Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, `.config/users.json`, config, personalization, extensions, and plugins |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
 | Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, portable-user transaction lock, inbox, responses, capability artifacts, and sync lock/journal/current state/baselines |
-| Shared infrastructure | Machine server/control and transitional triage-signal paths only | Process coordination, never a default workspace payload path |
+| Shared infrastructure | `~/.cache/brain/server/` | Generation-tagged process coordination and an infrastructure-only log, never a default workspace payload path |
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
 Env, config, personalization, state, TUI, tasks, reindex, sync, and child
@@ -140,8 +144,11 @@ not use that UUID-scoped path.
 The frontend-neutral `agent` facade, concrete Claude/Codex adapters, PTY
 transport, main and triage controller ownership, receiver controller dispatch,
 advisory portable access modes, and a fail-fast OpenCode selection stub now
-exist. Functional OpenCode sessions, coordinated task-schema activation, and
-the final shared receiver lease lifecycle remain later phases.
+exist. Functional OpenCode sessions and coordinated task-schema activation
+remain later phases. The shared process control protocol, live TUI leases,
+heartbeats, crash recovery, final-TUI shutdown, opaque-ingress routing,
+authentication, actor resolution, exact TUI forwarding, and delivery are
+active.
 `workspace_only` is easy-to-bypass prompt guidance plus capability filtering,
 not a security or isolation boundary. It reduces accidents and naive leakage
 among trusted users; adversarial or sensitive workloads require an external
@@ -163,8 +170,13 @@ tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
 `command/{configuration,tasks,sync,server,workspace,users,reindex}` modules own the
 existing handlers. `command/server/` further separates receiver setup, HTTP
 server lifecycle, and habits dispatch. Receiver command ownership is reflected
-on disk: `receiver/mod.rs` owns dispatch and provider setup, while
-`receiver/hooks.rs` owns workspace-sensitive Claude/Codex hook installation;
+on disk: `receiver/mod.rs` owns dispatch, `receiver/setup/` owns selected-record
+provider planning plus portable-user mapping. Its `setup/transaction.rs` owns
+bounded rollback across the selected machine record, portable users, and hook
+artifacts. One workspace-local advisory lock spans snapshot, every write,
+commit, and rollback, so concurrent setup attempts cannot claim or restore one
+another's identical after-images. `receiver/hooks.rs` owns
+workspace-sensitive Claude/Codex hook installation;
 its focused installer tests live in the owned `receiver/hooks/tests.rs`
 submodule.
 
@@ -182,7 +194,7 @@ alias. Bare `brain` remains equivalent to `brain tasks`.
 
 ### `logging.rs`
 Per-run logging. `logging::init` always creates a timestamped
-`/tmp/<rfc3339-nanos>.log` file, and `--verbose` mirrors log
+mode-`0600` `/tmp/<rfc3339-nanos>.log` file, and `--verbose` mirrors log
 lines to stdout for non-TUI commands, and prints the final log path at process
 exit. Before the persistent shell takes over `/dev/tty`, `main.rs` disables the
 stdout mirror; the TUI keeps the log path in `App` and offers receiver and brain
@@ -190,7 +202,13 @@ log actions in the command palette that switch the main panel to a log view.
 the tasks command palette. Command handlers and thin IO shells call
 `logging::log` at phase boundaries: dispatch, config/env/personalize actions,
 task CSV loads and writes, sync/rclone work, server lifecycle probes, doctor
-checks, and skill installation.
+checks, and skill installation. `main.rs` passes argv through the pure central
+redactor before either file logging or verbose mirroring, so receiver provider
+credentials and portable phone/email values never cross the log boundary.
+Env assignment redaction delegates to the authoritative env sensitivity
+classifier, including whole `agent_capabilities` values and nested MCP
+credential fields, after the same case-and-dash canonicalization as the env
+command.
 
 ### `paths.rs`
 Legacy single-root resolution only. `brain_root()` / `brain_root_path()` retain
@@ -213,7 +231,9 @@ path, lock-owning transactions, and same-directory atomic replacement), `lock`
 (the bounded SQLite transaction lock on the stable adjacent database),
 and `migrate` (the one-time flat-env conversion and exact-byte backup).
 `bootstrap_policy` classifies every invocation before workspace IO, while
-`bootstrap` executes that policy. Context-free and hidden internal-server
+`bootstrap` executes that policy. `read_only` owns the selected-workspace
+status path and uses non-recovering readers so observation cannot create a
+lock, config value, state DB, or skill render. Context-free and hidden internal-server
 routes cannot prompt. Create, attach, remove, and repair first run the
 `command::preflight` prompt-and-validation stage; only a complete request may
 trigger legacy migration and receive a registry capability. Ordinary commands
@@ -835,7 +855,7 @@ The larger submodules are directories split by concern: `handlers/`
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
 `draw/mod.rs`), `palette/` (`command`/`state`), `app_state/`
 (`construct`/`nav`/`view`/`selection_query`), `app_actions/`
-(`commands`/`triage`), `app_brain/` (`launch`/`lifecycle` plus receiver
+(`commands`/`receiver`/`triage`), `app_brain/` (`launch`/`lifecycle` plus receiver
 `dispatch`/`completion`/`state` and focused tests), and `tests/` (split by
 area). `app_brain/` owns the main persistent controller, receiver dispatch,
 and completion delivery;
@@ -850,7 +870,12 @@ phone configuration and renders persistent warning content independently from
 the transient palette flash.
 
 ### Startup (`run_tui`)
-`run_tui()` opens the state DB, builds the brain-search picker
+`run_tui()` first acquires the workspace UUID singleton, refreshes hooks, binds
+the UUID-scoped `jobs.sock`, completes a bounded connect/elect/register
+handshake with the machine-wide server, and starts its heartbeat worker. The
+handshake retries only stale or missing generations, while authoritative
+workspace rejection ends startup. Only then does it open the state DB, build
+the brain-search picker
 (`build_search`), and constructs the `App` from the selected `CommandContext`.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
@@ -859,8 +884,10 @@ then launches the selected frontend through an `AgentController`
 returns focus to the tasks main view so `j`/`k` work at once. It then wires the auto-sync
 triggers (a mandatory detached pull-biased startup sync and, when
 `watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
-loop, explicitly shuts down the main and triage controllers, then drops the
-watcher and releases the session lock. No exit sync or
+loop. Shutdown stops heartbeats and attempts a bounded unregister before
+shutting down the main and triage controllers, dropping the watcher, releasing
+the session lock, or letting the app remove `jobs.sock`; the final accepted
+unregister stops the shared process. No exit sync or
 idle timer exists. The **daily-triage nudge**
 is coupled to that startup sync: when a configured startup sync is pending, `run_tui`
 does *not* run the check immediately. It captures the sync journal's latest
@@ -921,13 +948,13 @@ The on-disk bridge for the daily-triage tab's completion signal. Pure
 `parse_signal` + `ready_to_close` (the close gate: every path the run declared
 in `require` must exist; core declares none, so an empty list closes at once)
 plus a thin file shell (`record_done` / `read_signal` / `clear`,
-`~/.cache/brain/triage-done.json`): the brain server writes it from
-`POST /triage/done`, the TUI polls it each tick and holds a premature signal
+`<workspace-cache>/triage-done.json`): the brain server writes it from
+`POST /local/<lease>/w/<ingress>/triage/done`, the matching TUI polls it each tick and holds a premature signal
 until its required outputs land. Deliberately ignorant of *what* those outputs
 are — see the extension-agnostic rule in [AGENTS.md](../AGENTS.md). See
-[integrations.md](integrations.md). This file remains part of the transitional
-machine-shared server control plane; workspace membership/routing and its
-replacement belong to the approved shared-server phase.
+[integrations.md](integrations.md). The route resolves a live lease and verified
+workspace context before selecting the signal path, so one workspace cannot
+close another workspace's triage tab.
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
@@ -944,35 +971,187 @@ it's the persisted value. Mirrors `tasks/src/state`. See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
 ### `server/`
-Brain has two separate HTTP services. The habits server remains local-only and
-serves the habits frontend. The receiver server is a TUI-owned, opt-in
-listener on `/sms` and `/email`; it is never started by ordinary TUI startup
-and cannot outlive the interactive shell.
-- `server/router.rs` — pure route mapping for `/habits`, `/habits/done`,
-  `/triage/done`, `/sms`, and `/email`. The former `/webhooks/capture`
-  placeholder is removed.
-- `server/receiver.rs` + `server/receiver/` — the receiver facade and its
-  single-responsibility modules: `http/` owns the bounded four-worker
-  `tiny_http` listener and channel queue, `http/sms.rs` and `http/email.rs`
-  own provider parsing, `attachments.rs` stages media, and `control.rs` owns
-  the protected local command socket.
+Brain has one machine-wide, TUI-lifetime shared process. It serves the local
+habits and triage routes, owns the public route grammar, and authenticates and
+forwards receiver requests only to live workspace TUIs.
+
+The lifecycle is closed around those TUIs. Startup binds the workspace-local
+job socket before election and registration; heartbeats renew only the
+registered lease; recovery re-enters the election after a stale generation.
+The final orderly unregister stops the process immediately, while the watchdog
+stops it when the final crashed lease reaches TTL. With no TUI there is no
+process and therefore no inbound Brain response. If a peer TUI keeps the
+process alive but the selected target is unavailable, the handler sends one
+unavailable response and discards the message. No process component stores an
+offline queue or launches an agent.
+- `server/router.rs` — pure exact-component mapping for
+  provider `/w/<ingress>/{sms,email}` and capability-protected local
+  `/local/<lease>/w/<ingress>/{habits,habits/done,triage/done}` paths. Global,
+  malformed, missing, and extra-component routes are rejected.
+- `server/workspace_route.rs` — resolves the typed ingress through the live
+  lease table first. Shared-process routing captures a generation-bound lease
+  ticket under the control-state mutex, reloads and verifies the registry,
+  root, and portable manifest without that mutex, then revalidates the exact
+  live authority revision before returning a `WorkspaceContext`. Heartbeats
+  preserve that revision; registration and enablement changes create a new
+  authority incarnation. Removal or expiry leaves no accepting authority, and
+  any later registration advances the remembered revision even when every
+  lease field is reused. Revision advancement is checked before the lease
+  transition, so an unrepresentable next revision leaves all authority state
+  unchanged.
+- `server/http/` — the shared process's bounded, connection-closing HTTP/1.x
+  request parser and response writer. Request heads are capped at 16 KiB, IO
+  starts with one absolute two-second monotonic parse deadline, and each
+  accepted connection carries one request. Local actions retain that deadline
+  through response flush. Receiver requests keep it through the bounded body
+  and local provider verification, then enter one fixed 30-second
+  provider/handoff/response phase, but cannot enter it after the parse
+  deadline has elapsed. The parser rejects conflicting or repeated
+  framing, unsupported transfer codings, invalid field names, and malformed
+  or over-limit chunk/trailer grammar. Field values strip only HTTP
+  `SP`/`HTAB` optional whitespace; forbidden controls and Unicode whitespace
+  are rejected.
+  Chunk extensions are outside the deliberately extension-free safe subset.
+- `server/http_workers.rs` — a fixed four-worker, process-lifetime HTTP set
+  over a loopback `std::net::TcpListener`. A start gate prevents any worker
+  from accepting until all four spawns succeed; partial startup therefore
+  rolls back before a body can be consumed. Workers route before reading any
+  local action body, and local habits and triage bodies are capped at 16 KiB.
+  The lifecycle/control loop never owns body IO or waits to join a held worker
+  during final-TUI shutdown.
+- `server/receiver/` owns the ordered inbound pipeline. `http/` loads only the
+  selected workspace's provider configuration after ingress resolution;
+  `http/sms.rs` and `http/email.rs` return typed provider outcomes while they
+  verify and normalize provider input; Resend retrieval is capped at 1 MiB per
+  response and ten seconds per request;
+  `dispatch.rs` resolves the selected workspace's portable actor, while
+  `dispatch/deliveries.rs` owns transactional, workspace-scoped provider-ID
+  deduplication, `dispatch/final_authority.rs` owns the repeated persisted
+  intent and exact-TTL admission checks, and `dispatch/forward.rs` owns bounded
+  live-TUI socket delivery. Verified
+  unavailable Resend IDs enter the same bounded memory cache before discard,
+  so later availability cannot replay them into a TUI;
+  `admission.rs` linearizes cancellable exact-lease admission with revocation,
+  while `dispatch/tests/late_revocation.rs` exercises the production pipeline's
+  synchronized final admission boundary and `dispatch/tests/deliveries.rs`
+  covers provider-ID state; `transport.rs`
+  carries one short absolute deadline through nonblocking job-socket connect,
+  frame write, and acknowledgment read; `job.rs` defines
+  the immutable serialized `InboundJob`; `unavailable.rs` owns the one-response,
+  no-retry discard result; and `attachments.rs` stages media for the TUI.
+- `server/control/` owns the bounded newline-delimited JSON protocol. `codec.rs`
+  caps frames, requires one frame followed by EOF, and applies one absolute
+  deadline before every read, write, and flush attempt, including successful
+  progress. `connect.rs` creates a safe nonblocking Unix socket and polls it
+  only until that same deadline, without spawning an unjoinable connector.
+  `client.rs` carries the deadline through connect, write, and read, and
+  performs a bounded connect/elect/register handshake for startup and recovery.
+  `status.rs` owns non-electing process and exact-workspace inspection. Receiver
+  status reads the process record once, then obtains live lease count and exact
+  receiver state from one generation-bound response. Both status requests use
+  immutable lease projections, so they never prune TTLs or advance lifecycle
+  state. Ordinary register, heartbeat, enablement, unregister, ingress lookup,
+  and routing-availability transitions filter expiry without removing it. The
+  focused `server/` children keep the state machine separated by responsibility:
+  `listener.rs` owns socket IO, `registration.rs` owns live-TUI filesystem
+  validation, `shared_request.rs` owns two-phase deadline-bounded requests, and
+  `receiver_authority.rs` owns route/admission transitions plus the only
+  expiry-removal path and exact watchdog revocation. Ordinary table paths
+  filter expiry without consuming it. Their tests are split into request/deadline, route-authority,
+  receiver-admission, and shared-fixture modules. The watchdog supplies periodic pruning and guarantees final crashed-lease
+  shutdown without traffic. The generation-bound workspace-ingress lookup
+  returns only the ingress from that workspace's exact live accepted registration.
+  `server.rs` copies validation capabilities under the state mutex, reopens registry plus
+  manifest identity, compares the TUI-resolved root without retaining it,
+  derives the UUID-local job socket, and verifies the live singleton and
+  listener through the request's bounded connector without that mutex, then
+  rechecks generation and deadline before creating a lease. An
+  exact replay of an already-accepted registration is idempotent, while any
+  competing lease or changed identity remains rejected. `heartbeat.rs` renews or generation-safely
+  re-elects and re-registers after a crash through an injected scheduling seam.
 - `server/security.rs` owns pure Twilio HMAC, Resend/Svix HMAC, and the ordered
   authenticate-then-resolve decision for enabled portable identities.
-- `server/lifecycle.rs` — the legacy local habits-server lifecycle.
+- `server/lifecycle/` owns the shared-process boundary. `paths.rs` places
+  `process.json`, `control.sock`, `election.lock`, and `server.log` below one
+  machine-wide directory. `state.rs` owns the minimal generation-tagged record;
+  `election.rs` owns the pure start decision, directory advisory mutex, exact
+  owner checks, and parent-to-child token handoff with retained parent cleanup
+  until child publication. Its explicit, bounded completion retries transient
+  mutex contention only while the exact parent token remains. Fallible token
+  inspection reports filesystem and JSON failures without consuming the
+  cleanup capability, so callers may repair and retry;
+  `process.rs` owns detached election orchestration, retained elected-child
+  observation through `Child::try_wait`, immediate lifetime-waiter ownership
+  for each published elected child before parent handoff cleanup, the hidden
+  server loop, and signal
+  cleanup; `watchdog.rs`
+  applies clock-injected expiry plus the bounded initial-registration deadline;
+  `lease.rs`, `table.rs`, and `decision.rs` own typed leases and latched
+  final-shutdown decisions; `table/status.rs` owns immutable status
+  projections, while `table/transition.rs` owns pure revision/identity helpers
+  and table tests are split by registration versus expiry behavior. Signal
+  flags and cleanup ownership precede process
+  state publication. The table and process record never contain roots, users,
+  credentials, prompts, logs, or message bodies.
+  `lifecycle::pid_alive` remains the stable seam for sync callers.
+- Receiver intent mutations live at the registry boundary. One pure
+  `receiver_transition` decision feeds CLI start/stop, startup
+  `--with-receiver`, and palette toggles. `RegistryStore` reloads under its
+  interprocess transaction and verifies the selected canonical name still owns
+  the expected UUID before saving. After persistence, a generation-bound
+  control refresh names only the workspace UUID; the shared process reloads
+  the authoritative record and updates a matching live lease if present. This
+  path never elects a process. The UUID-local job socket accepts only JSON
+  inbound jobs and has no text lifecycle control grammar. Receiver command
+  dispatch and setup remain in `command/server/receiver/mod.rs`; the exact
+  mutation, refresh-warning, and status decisions live in its focused
+  `enablement.rs` child, with their tests under `enablement/tests.rs`.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
-  and completion POST requests carry `workspace_id`; the shared process
-  reloads the registry by exact UUID and verifies the root's portable manifest
-  before accessing that workspace's CSV. A missing, malformed, unknown,
-  unavailable, or manifest-mismatched identity is rejected; it never falls
-  back to the machine default.
-- `server/routes/triage/` — the `POST /triage/done` controller: the ephemeral
-  daily-triage session's completion signal (see `triage_signal.rs`).
+  and completion POST handlers receive an already-resolved workspace context;
+  the rendered page preserves that context's opaque ingress and exact live
+  lease capability in its POST URL. Unknown, no-live-TUI, unavailable-root, and identity-mismatched routes
+  are rejected and never fall back to the machine default.
+- `server/routes/triage/` - the capability-protected local triage completion controller: the
+  ephemeral daily-triage session's workspace-scoped completion signal (see
+  `triage_signal.rs`).
 
-`brain --with-receiver` starts the receiver listener after the TUI singleton is
-acquired. The global palette can start, stop, restart, and inspect it while
-the TUI is alive. Inbound work is queued as workspace UUID plus immutable
-actor context in a bounded in-memory channel and
-is never allowed to interrupt an active agent turn. `tui/receiver_state.rs`
+The shared HTTP process resolves receiver ingress availability before loading
+credentials, users, prompt data, or the workspace job socket. A request is
+accepted only after provider authentication, actor resolution, and an
+committed staged handoff to the exact live TUI's 64-entry in-memory queue. The
+mode-`0600` UUID-local socket bounds serialized frames at 1 MiB and holds the
+decoded job outside the queue until final authority commits. Failed, full, disabled,
+and missing targets receive one channel-specific unavailable response and are
+not retained or retried. Provider IDs are retained only after an enqueue ack;
+the accepted cache is bounded at 1024 keys scoped by workspace and channel.
+Immediately before socket handoff, dispatch reserves the final five seconds
+for the HTTP response and derives one handoff deadline capped at two seconds
+and at the start of that response reserve. It revalidates the retained
+generation, authority revision, receiver enablement, and live lease under the
+control mutex. The staged socket reloads persisted intent outside the mutex,
+then acquires control once, samples the monotonic clock, revalidates the exact
+route and admission identity, and atomically commits the cancellable admission
+before unlocking and enqueueing. Disable, unregister, and disable-enable
+ABA either cancel before commit or wait only until the control request's
+absolute deadline outside the mutex. A deadline rejection performs no later
+disable or unregister mutation. Watchdog expiry removes the exact lease and
+cancels every matching pre-commit admission before shutdown. Exact route and
+TTL authority are checked again immediately before admission commit, without
+waiting for the watchdog interval. The same final admission boundary first reloads the selected
+canonical registry record and requires the exact workspace UUID's persistent
+receiver intent to remain enabled, so a lost live-refresh notification cannot
+let a raced disable enqueue. Only after that filesystem IO does the combined
+commit operation acquire control, sample the monotonic clock inside the lock,
+revalidate exact live authority, and perform the admission CAS before unlock.
+It then carries that exact handoff deadline
+through nonblocking connect, the complete frame write, and acknowledgment
+read. The TUI removes the just-staged queue item if its final `accepted`
+acknowledgment cannot be written, so the server observes a failed handoff and
+dedup state remains correct. Successful byte progress cannot renew it. Provider and socket IO never
+run while the control mutex is held.
+
+Queued inbound work is never allowed to interrupt an active agent turn.
+`tui/receiver_state.rs`
 distinguishes a submitted turn from an idle open PTY, so an idle startup panel
 can switch to the receiver session even when a modal is on screen. It also
 distinguishes active receiver work from a three-minute warm channel lease:
@@ -982,10 +1161,10 @@ reuses the warm PTY, and another channel replaces it only after work finishes.
 more than two hours old and exposes current sync state to the footer and
 palette. Failed PTY launches retain the message for a backoff retry. Provider replies are handed
 to the bounded background worker in `server/delivery.rs`, keeping network
-latency off the TUI event loop. The listener rejects
-bodies over 1 MiB, uses a fixed worker pool so one slow provider call cannot
-block every route, treats idle time as normal, and uses
-`tiny_http::unblock()` only for graceful shutdown.
+latency off the TUI event loop. Receiver bodies are capped at 1 MiB by the
+shared parser, and the shared fixed worker set prevents one slow provider call
+from blocking every route. The final orderly lease stops the process
+immediately; final crashed-lease cleanup follows the lifecycle TTL.
 
 ### `lib.rs`
 Re-exports the modules so integration tests in `tests/` and the thin binary
@@ -1048,11 +1227,16 @@ sibling so the two projects share a stack:
 - `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
   them out. Multi-file skill assets rule out `include_str!`.
-- `tiny_http` — the two small synchronous HTTP services under `src/server/`:
-  the local habits daemon and the TUI-owned receiver. The receiver uses a
-  fixed four-worker pool, bounded request bodies, and a bounded handoff queue;
-  this preserves concurrency and backpressure without pulling a Tokio runtime
-  into an otherwise synchronous CLI.
+- `signal-hook`: installs safe SIGINT/SIGTERM flags for the shared process.
+  The accept loop observes the flag and lets its generation owner remove only
+  the matching process record and control socket, without unsafe signal code.
+- `fs2`: provides Rust-1.85-compatible advisory locking for the shared-server
+  election mutex, avoiding unsafe platform calls while serializing exact owner
+  reaping and parent-to-child adoption.
+- `nix` (`fs`, `poll`, `socket`): provides safe nonblocking Unix-socket setup,
+  readiness polling, and socket-error inspection for the shared control plane.
+  Stable `std` has no cancellable Unix-domain `connect`, so this small wrapper
+  enforces the total deadline without unsafe code or detached helper threads.
 - `notify` (8.x) — cross-platform filesystem observation for the **C4
   auto-sync watcher** (`src/sync/watch.rs`). Linux uses the recommended native
   backend. macOS uses notify's one-second `PollWatcher`, because FSEvents can

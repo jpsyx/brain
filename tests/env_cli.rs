@@ -93,3 +93,26 @@ fn env_list_get_and_set_support_recursive_dotted_paths() {
     assert_eq!(env["sync"]["remote"]["bucket"], "pablo-brain");
     assert_eq!(env["sync"]["remote"]["credentials"]["key_id"], "updated");
 }
+
+#[test]
+fn sensitive_env_assignment_never_echoes_the_raw_value() {
+    let home = tempfile::tempdir().expect("home tempdir");
+    let config_home = tempfile::tempdir().expect("config tempdir");
+    write_env(&config_home);
+    make_ready(&home, &config_home);
+    let secret = "whsec_assignment-must-stay-private";
+
+    let output = brain_command(&home, &config_home)
+        .args([
+            "env",
+            "set",
+            &format!("resend_webhook_signing_secret={secret}"),
+        ])
+        .output()
+        .expect("sensitive env set");
+
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(secret));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("saved"));
+}

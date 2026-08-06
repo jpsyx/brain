@@ -61,7 +61,7 @@ startup default.
 | `Ctrl+Backspace` | Remove the selected task (confirm modal) — tasks only. Bare Backspace is a no-op |
 | `Ctrl+O` | Open the selected entry's links (Linear issue + notes URLs) |
 | `Ctrl+Enter` | Open the task actions modal (mainly for search mode) |
-| `Ctrl+P` | Open the command palette (global + task commands) |
+| `Ctrl+P` | Open the command palette (global + task commands, including the dynamic **Enable receiver** / **Disable receiver** action) |
 | `Ctrl+Shift+M` | Brain-input modal seeded with the selected task as context |
 | `Ctrl+A` | Open today's agenda (offers to generate it when missing) |
 | `q` / `Esc` | Quit (Esc clears an active filter first). Also `Ctrl+C` |
@@ -101,7 +101,7 @@ query.
 | `Ctrl+G` | Create a PDF from the highlighted `.md` file (green confirm modal) |
 | `Ctrl+D` | Delete the highlighted entry (red confirm modal → Trash) |
 | `Ctrl+R` | Refresh the list (re-walk the current scope, keep the query) |
-| `Ctrl+P` | Open the brain-search command palette (rescope, layout, message brain, open tasks, PDF/delete/open) |
+| `Ctrl+P` | Open the brain-search command palette (rescope, layout, receiver enablement, message brain, open tasks, PDF/delete/open) |
 | `Esc` / `Ctrl+C` | Quit the shell |
 
 `Tab` / `Shift+Tab` do nothing here (no sub-views). The brain-search palette
@@ -116,7 +116,8 @@ Shared across the app; a captive modal consumes all input.
 - **Command palette** (`Ctrl+P`, tasks view) — filterable; numbered rows;
   `Enter` runs, `Esc` closes. In `--verbose` TUI runs it includes **Show
   logs**, which asks whether to reveal the timestamped `/tmp` log file. It
-  also includes **Sync brain now**, **Show sync status**, and a
+  also includes the selected workspace's dynamic **Enable receiver** or
+  **Disable receiver** action, **Sync brain now**, **Show sync status**, and a
   **Disable/Enable daily triage alert** toggle (the session-scoped counterpart
   to `--no-daily-triage-check`), all with no direct shortcut. In a shared
   workspace it also includes **Add task** and **Filter by assignee**; both are
@@ -126,6 +127,16 @@ Shared across the app; a captive modal consumes all input.
 - **Confirm** — Yes/No (the daily-triage nudge adds **Skip**, which marks today's
   Morning Triage habit done deterministically in-process — no agent). `y`/`n`/`s`/`Esc`,
   `←`/`→`/`Tab` move, `Enter` resolves.
+
+The receiver palette row has no direct key. Its dynamic label mutates the same
+persistent selected-workspace `receiver_enabled` value as `brain receiver
+start`, `brain receiver stop`, and startup `--with-receiver`. It never starts or
+stops the shared process; live TUI leases own that lifetime. The CLI-only
+receiver and server status probes are read-only and therefore have no palette
+mutation counterpart. Their control inspection is also immutable: status never
+expires a lease or advances shared-process state.
+
+- **Confirm** — Yes/No (triage adds Skip). `y`/`n`/`Esc`, `←`/`→`/`Tab` move, `Enter` resolves.
 - **Brain-input** (`Ctrl+Shift+M`) — compose a seeded message. `Alt+Enter` newline, `Enter` send.
 - **Link picker** (`Ctrl+O`, ≥ 2 links) — numbered; digit opens, `Enter` opens highlighted.
 - **Assignee filter** (shared-workspace palette row): numbered portable

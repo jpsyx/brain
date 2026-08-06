@@ -11,7 +11,7 @@ use crate::agent::{
 };
 use crate::config::Config;
 use crate::pty_pane::PtyPane;
-use crate::server::receiver::{Channel, InboundMessage};
+use crate::server::receiver::{Channel, InboundJob};
 use crate::session;
 use crate::session::AgentKind;
 use crate::state::{Db, SessionScope};

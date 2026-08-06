@@ -1,7 +1,7 @@
 //! Workspace-siloed machine-local provider configuration.
 
-use std::io::Write;
-use std::process::{Command, Output, Stdio};
+use std::io::{Read as _, Write};
+use std::process::{Command, ExitStatus, Output, Stdio};
 
 pub(super) fn get(command: &crate::workspace::CommandContext, stored_name: &str) -> Option<String> {
     crate::env::get(command, stored_name)
@@ -9,6 +9,11 @@ pub(super) fn get(command: &crate::workspace::CommandContext, stored_name: &str)
 
 pub(super) struct CurlRequest {
     config: String,
+}
+
+pub(super) struct LimitedOutput {
+    pub status: ExitStatus,
+    pub stdout: Vec<u8>,
 }
 
 impl CurlRequest {
@@ -68,10 +73,58 @@ impl CurlRequest {
         child.wait_with_output()
     }
 
+    pub(super) fn output_limited(self, limit: usize) -> std::io::Result<LimitedOutput> {
+        let mut command = Self::command();
+        command.stderr(Stdio::null());
+        let mut child = command.spawn()?;
+        let write_result = child
+            .stdin
+            .take()
+            .ok_or_else(|| std::io::Error::other("curl stdin was not piped"))
+            .and_then(|mut stdin| stdin.write_all(self.config.as_bytes()));
+        if let Err(error) = write_result {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+        let read_result = child
+            .stdout
+            .take()
+            .ok_or_else(|| std::io::Error::other("curl stdout was not piped"))
+            .and_then(|pipe| read_limited(pipe, limit));
+        let stdout = match read_result {
+            Ok(stdout) => stdout,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
+        let status = child.wait()?;
+        Ok(LimitedOutput { status, stdout })
+    }
+
     #[cfg(test)]
     fn config(&self) -> &str {
         &self.config
     }
+}
+
+fn read_limited(reader: impl std::io::Read, limit: usize) -> std::io::Result<Vec<u8>> {
+    let proof_limit = limit
+        .checked_add(1)
+        .ok_or_else(|| std::io::Error::other("curl response limit overflow"))?;
+    let mut output = Vec::with_capacity(limit.min(16 * 1024));
+    reader
+        .take(u64::try_from(proof_limit).unwrap_or(u64::MAX))
+        .read_to_end(&mut output)?;
+    if output.len() > limit {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "curl response exceeds configured limit",
+        ));
+    }
+    Ok(output)
 }
 
 #[cfg(test)]
@@ -81,7 +134,7 @@ mod tests {
 
     use serde_json::{Map, json};
 
-    use super::{CurlRequest, get};
+    use super::{CurlRequest, get, read_limited};
     use crate::workspace::{
         CommandContext, MachineRegistry, RegistryStore, WorkspaceContext, WorkspaceId,
         WorkspaceName, WorkspaceRecord,
@@ -216,5 +269,40 @@ mod tests {
                 .config()
                 .contains("data = \"line 1\\n\\\"line 2\\\"\\\\end\"")
         );
+    }
+
+    #[test]
+    fn limited_output_reads_only_one_proof_byte_past_the_cap() {
+        let payload = vec![b'x'; 64];
+        let mut reader = CountingReader::new(&payload);
+
+        let error = read_limited(&mut reader, 8).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(reader.consumed, 9);
+    }
+
+    struct CountingReader<'a> {
+        remaining: &'a [u8],
+        consumed: usize,
+    }
+
+    impl<'a> CountingReader<'a> {
+        const fn new(bytes: &'a [u8]) -> Self {
+            Self {
+                remaining: bytes,
+                consumed: 0,
+            }
+        }
+    }
+
+    impl std::io::Read for CountingReader<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let count = buffer.len().min(self.remaining.len());
+            buffer[..count].copy_from_slice(&self.remaining[..count]);
+            self.remaining = &self.remaining[count..];
+            self.consumed += count;
+            Ok(count)
+        }
     }
 }

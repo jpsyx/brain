@@ -50,7 +50,7 @@ impl App<'_> {
         &mut self,
         completion: crate::server::delivery::CompletionDelivery,
     ) {
-        let (snapshot, actor, channel) = completion.into_parts();
+        let (snapshot, _actor, channel) = completion.into_parts();
         let Some(sender) = self.receiver_sender.clone() else {
             return;
         };
@@ -65,7 +65,10 @@ impl App<'_> {
                 );
             }
             crate::server::receiver::Channel::Email => {
-                let recipients = self.receiver_email_recipients(&self.receiver_recipients, &actor);
+                let recipients = crate::server::delivery::trusted_response_recipients(
+                    self.receiver_response_email.as_deref(),
+                    &self.receiver_recipients,
+                );
                 if !recipients.is_empty() {
                     let reply = crate::server::reply::email(&snapshot);
                     let html = crate::server::reply::email_html(&reply.text);
@@ -73,9 +76,10 @@ impl App<'_> {
                         self.command_context.clone(),
                         "fallback final email response",
                         recipients,
-                        "Brain response".to_owned(),
+                        crate::server::delivery::reply_subject(self.receiver_email_reply.as_ref()),
                         reply.text,
                         html,
+                        self.receiver_email_reply.clone(),
                     );
                 }
             }

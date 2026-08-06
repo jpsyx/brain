@@ -51,7 +51,11 @@ pub(crate) const fn modal_input_target(m: ActiveModals) -> ModalInput {
 
 /// Route a keystroke to whichever modal overlay is active. Returns `true`
 /// when a modal consumed the key (the caller should skip panel handling).
-pub(crate) fn route_modal_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent, ctrl: bool) -> bool {
+pub(crate) fn route_modal_key(
+    app: &mut App<'_>,
+    k: &crossterm::event::KeyEvent,
+    ctrl: bool,
+) -> bool {
     let target = modal_input_target(ActiveModals {
         help: app.help.is_some(),
         palette: app.palette.is_some(),

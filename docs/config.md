@@ -76,6 +76,11 @@ only the machine record and never deletes the root.
 mutation through `RegistryStore`'s interprocess transaction and atomic-save
 boundaries. Startup migration and selected-record `brain env` writes use the
 same lock, so they cannot overwrite a workspace command.
+Receiver intent uses this same transaction boundary. `brain receiver start`,
+`brain receiver stop`, startup `--with-receiver`, and the command palettes
+mutate only the selected canonical record after rechecking its immutable UUID.
+The status command reads the persistent value independently from current TUI
+and shared-process availability.
 Its global `--brain/-b` selector resolves canonical names and aliases once at
 the bootstrap boundary. Ordinary commands receive a ready selected context;
 env writes verify both canonical name and immutable UUID, while config,
@@ -129,10 +134,11 @@ and email identities, inbound-enabled flags, and optional response emails.
 The file travels with the workspace; the selected person's `local_user_id`
 remains in the machine registry.
 
-First-person setup asks for an email identity only when the workspace email
-receiver allowlist is non-empty. A legacy `response_email` supplies the default
-and migrates only when its normalized value matches that allowlist. A response
-setting alone does not enable inbound email or create a portable identity.
+Receiver setup edits portable people directly. It asks for a phone identity
+only when SMS is selected and an email identity only when email is selected.
+The address is attached to an existing selected user or a newly named user,
+with a separate inbound-allowed value. Legacy allowlists remain compatibility
+inputs outside this setup path.
 
 Create and attach are registry-only setup commands, so they can establish an
 incomplete record. Before every ordinary command, Brain then requires manifest
@@ -187,10 +193,10 @@ Inbound request actor selection now reads `users.json`: provider signatures are
 verified first, then the normalized sender must match an enabled phone or email
 identity. Legacy receiver allowlists and response settings remain compatibility
 inputs while the coordinated portable schema migration stays deferred. Task
-`assigned_to` and managed triage-habit policy are active in this phase. The
-functional OpenCode sessions, the final shared receiver lifecycle, and
-task-schema migration activation remain later phases. The agent-controller
-facade and advisory access modes are active; OpenCode is a fail-fast stub.
+`assigned_to`, managed triage-habit policy, and the complete shared receiver
+lifecycle are active. Functional OpenCode sessions and task-schema migration
+activation remain later phases. The agent-controller facade and advisory
+access modes are active; OpenCode is a fail-fast stub.
 
 ### Selected workspace env
 
@@ -421,13 +427,46 @@ environment, so a workspace cannot inherit another workspace's shell values.
 `brain env list` and `brain env get` redact secret values.
 
 The setup prompt asks for one public base URL, such as
-`https://brain.example.com`, and derives the exact webhook endpoints
-`/sms` and `/email`. A missing credential, public URL, or sender allowlist
-fails closed. SMS sender matching is exact, so every configured phone number
+`https://brain.example.com`, loads the stable ingress from the selected
+portable manifest, and derives exact webhook endpoints
+`/w/<ingress>/sms` and `/w/<ingress>/email`. Provider values are saved as
+strings in one selected-record transaction, including values that look numeric.
+A shared validation step for guided and headless setup requires an HTTPS origin
+without a path, query, fragment, or credentials; normalizes the Twilio sender to
+E.164 and the Resend sender to lowercase email form; and rejects missing or
+blank selected-channel values without echoing them. A missing channel
+credential, public URL, user address, or explicit allowed state fails before
+configuration is written. Guided `/clear` therefore cannot erase a value that
+the selected channel requires. SMS sender matching is exact, so every configured phone number
 must use the same E.164 form Twilio sends. Brain preserves the leading `+` when
 writing and listing these values. Config files written by an older release
 that stored one phone number as a JSON number are read and displayed with the
 leading `+` restored.
+
+Headless setup accepts `--channels`, provider flags, `--user-id`, optional
+`--user-name` for creation, `--phone`/`--phone-allowed`, and
+`--email`/`--email-allowed`. A successful setup or `receiver set` asks only an
+already-running shared process to reload the selected workspace UUID. No
+receiver configuration command elects, restarts, or keeps a process alive.
+Setup snapshots the selected record, portable users, and hook artifacts before
+its first write. A later persistence or hook failure rolls back only values and
+files that still equal this setup attempt's writes. Concurrent changes survive,
+transaction-lock pathnames are never restored or unlinked, rollback errors are
+aggregated with the original failure, and no live reload notification is sent.
+Secret `brain env set` confirmations print only the variable name and `saved`,
+for both direct assignment and interactive entry.
+
+`receiver_enabled` is only persistent intent. Current acceptance is the
+conjunction of that selected-record value and an unexpired exact-workspace TUI
+lease. The four `brain receiver status -b <workspace>` rows keep those facts
+separate: `Receiver`, `TUI`, `Server`, and `Accepting`. Reading them uses
+literal read-only bootstrap. It never fills in a missing access mode, migrates
+or repairs registry/users state, renders skills, writes a render stamp or run
+log, or starts a process. A live process is inspected through one
+generation-bound control response; failures from that live process are
+reported, not converted to `TUI not live`. Inspection does not expire leases
+or otherwise mutate the server. Repair an incomplete workspace explicitly
+before asking for its receiver status.
 
 ## The `brain config` command
 

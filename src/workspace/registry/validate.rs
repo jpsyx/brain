@@ -83,6 +83,12 @@ pub enum RegistryError {
     UnknownSelector { selector: String },
     /// A canonical workspace does not exist.
     UnknownWorkspace { canonical_name: String },
+    /// A selected canonical name was replaced before mutation.
+    WorkspaceIdentityChanged {
+        canonical_name: WorkspaceName,
+        expected: WorkspaceId,
+        found: WorkspaceId,
+    },
     /// A canonical workspace already exists.
     WorkspaceAlreadyExists { canonical_name: WorkspaceName },
     /// The requested alias already belongs to the same canonical workspace.
@@ -168,6 +174,14 @@ impl Display for RegistryError {
             Self::UnknownWorkspace { canonical_name } => {
                 write!(formatter, "unknown canonical workspace {canonical_name}")
             }
+            Self::WorkspaceIdentityChanged {
+                canonical_name,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "workspace {canonical_name} identity changed from {expected} to {found}"
+            ),
             Self::WorkspaceAlreadyExists { canonical_name } => {
                 write!(formatter, "workspace {canonical_name} already exists")
             }

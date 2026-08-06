@@ -65,6 +65,32 @@ fn load_startup_config(workspace: &crate::workspace::WorkspaceContext) -> Result
     Config::try_load_for_startup(workspace)
 }
 
+fn register_server_lease(
+    command_context: &crate::workspace::CommandContext,
+) -> Result<crate::server::control::HeartbeatWorker> {
+    let client = crate::server::control::ServerClient::default();
+    let manifest = crate::workspace::WorkspaceManifest::load(
+        command_context.workspace.root(),
+        env!("CARGO_PKG_VERSION"),
+    )?;
+    let registration = crate::server::control::LeaseRegistration {
+        generation: crate::server::lifecycle::ServerGeneration::new(),
+        lease_id: crate::server::lifecycle::LeaseId::new(),
+        workspace_id: command_context.workspace.id(),
+        canonical_name: command_context.workspace.name().to_string(),
+        ingress_id: manifest.receiver_ingress_id().into(),
+        tui_pid: std::process::id(),
+        resolved_root: command_context.workspace.root().to_path_buf(),
+        job_socket: command_context.workspace.paths().job_socket(),
+    };
+    let mut registration = registration;
+    client.connect_and_register(&mut registration)?;
+    Ok(crate::server::control::HeartbeatWorker::start(
+        client,
+        registration,
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_tui(
     command_context: &crate::workspace::CommandContext,
@@ -77,13 +103,15 @@ pub fn run_tui(
     all_habits: Vec<Task>,
     active_view: Option<View>,
     initial_search: Option<String>,
-    with_receiver: bool,
+    _with_receiver: bool,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
     let _singleton = acquire_singleton_then_refresh(
         &command_context.workspace,
         crate::command::server::refresh_agent_hooks,
     )?;
+    let job_socket = crate::tui::singleton::JobSocket::bind(&command_context.workspace)?;
+    let mut server_lease = register_server_lease(command_context)?;
     // First-run onboarding: seed personalization with a short skippable prompt
     // on the normal terminal, *before* we take over the screen. No-op when
     // already personalized or when there is no tty. Never blocks startup.
@@ -167,22 +195,11 @@ pub fn run_tui(
         search,
         panel_side,
         skip_daily_triage_check,
+        server_lease.ingress_id(),
+        server_lease.lease_id(),
     );
-    match crate::server::receiver::ControlSocket::bind() {
-        Ok(control) => {
-            crate::logging::log("receiver control socket ready");
-            app.receiver_control = Some(control);
-        }
-        Err(error) => {
-            crate::logging::log(format!("receiver control socket unavailable: {error:#}"));
-            app.flash = Some(FlashKind::Error(format!(
-                "receiver commands unavailable: {error}"
-            )));
-        }
-    }
-    if with_receiver {
-        app.start_receiver_server();
-    }
+    crate::logging::log("workspace job socket and shared-server lease ready");
+    app.receiver_control = Some(job_socket);
     // The brain panel opens at startup (resuming the latest session), but focus
     // stays on the tasks main view so `j`/`k` work immediately. `open_or_focus_
     // brain` focuses the panel, so flip focus back to the main view afterward.
@@ -239,8 +256,11 @@ pub fn run_tui(
     } else {
         None
     };
-    let result = event_loop(&mut terminal, &mut app);
+    let result = event_loop(&mut terminal, &mut app, &server_lease);
 
+    if let Err(error) = server_lease.shutdown() {
+        crate::logging::log(format!("shared-server lease unregister failed: {error:#}"));
+    }
     app.shutdown_agent_controllers();
 
     // Local changes are already pushed by the watcher. Exit performs no pull

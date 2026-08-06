@@ -1,7 +1,9 @@
 use crate::users::UserId;
+use serde::{Deserialize, Serialize};
 
 /// The immutable effective person for one request lineage.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ActorContext {
     user_id: UserId,
     display_name: String,
@@ -9,7 +11,8 @@ pub struct ActorContext {
 }
 
 /// How the initiating request reached Brain.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Channel {
     Interactive,
     Sms,

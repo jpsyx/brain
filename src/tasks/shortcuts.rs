@@ -64,41 +64,215 @@ pub struct Shortcut {
 /// by [`Group::ORDER`]; the footer renders the `in_footer` subset.
 pub const ALL: &[Shortcut] = &[
     // --- Navigation ---
-    Shortcut { keys: "j / k", label: "task", desc: "Next / previous task (accepts a count prefix, e.g. 3j)", group: Group::Navigation, in_footer: true },
-    Shortcut { keys: "d / u", label: "½-page", desc: "Half-page down / up", group: Group::Navigation, in_footer: true },
-    Shortcut { keys: "PgDn / PgUp", label: "page", desc: "Full page down / up", group: Group::Navigation, in_footer: false },
-    Shortcut { keys: "g / G", label: "first/last", desc: "Jump to the first / last task", group: Group::Navigation, in_footer: true },
-    Shortcut { keys: "→ / ←", label: "notes", desc: "Expand / collapse the highlighted entry's notes", group: Group::Navigation, in_footer: false },
-    Shortcut { keys: "l", label: "notes", desc: "Toggle the selected entry's notes (preview ↔ full)", group: Group::Navigation, in_footer: false },
+    Shortcut {
+        keys: "j / k",
+        label: "task",
+        desc: "Next / previous task (accepts a count prefix, e.g. 3j)",
+        group: Group::Navigation,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "d / u",
+        label: "½-page",
+        desc: "Half-page down / up",
+        group: Group::Navigation,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "PgDn / PgUp",
+        label: "page",
+        desc: "Full page down / up",
+        group: Group::Navigation,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "g / G",
+        label: "first/last",
+        desc: "Jump to the first / last task",
+        group: Group::Navigation,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "→ / ←",
+        label: "notes",
+        desc: "Expand / collapse the highlighted entry's notes",
+        group: Group::Navigation,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "l",
+        label: "notes",
+        desc: "Toggle the selected entry's notes (preview ↔ full)",
+        group: Group::Navigation,
+        in_footer: false,
+    },
     // --- Views ---
-    Shortcut { keys: "Tab / ⇧Tab", label: "view", desc: "Cycle view forward / backward", group: Group::Views, in_footer: true },
-    Shortcut { keys: "t m p w h b a", label: "jump view", desc: "Jump to today / mit / past-due / week / habits / backlog / all", group: Group::Views, in_footer: false },
+    Shortcut {
+        keys: "Tab / ⇧Tab",
+        label: "view",
+        desc: "Cycle view forward / backward",
+        group: Group::Views,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "t m p w h b a",
+        label: "jump view",
+        desc: "Jump to today / mit / past-due / week / habits / backlog / all",
+        group: Group::Views,
+        in_footer: false,
+    },
     // --- Task actions ---
-    Shortcut { keys: "↵", label: "actions", desc: "Open the task actions modal for the selected entry", group: Group::TaskActions, in_footer: true },
-    Shortcut { keys: "^D", label: "done", desc: "Mark the selected task complete (confirm modal)", group: Group::TaskActions, in_footer: true },
-    Shortcut { keys: "^⌫", label: "remove", desc: "Remove the selected task (confirm modal) — tasks only", group: Group::TaskActions, in_footer: false },
-    Shortcut { keys: "^O", label: "links", desc: "Open the selected entry's links (Linear + notes URLs)", group: Group::TaskActions, in_footer: true },
-    Shortcut { keys: "r", label: "refresh", desc: "Reload tasks.csv + habits.csv from disk", group: Group::TaskActions, in_footer: false },
+    Shortcut {
+        keys: "↵",
+        label: "actions",
+        desc: "Open the task actions modal for the selected entry",
+        group: Group::TaskActions,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "^D",
+        label: "done",
+        desc: "Mark the selected task complete (confirm modal)",
+        group: Group::TaskActions,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "^⌫",
+        label: "remove",
+        desc: "Remove the selected task (confirm modal) — tasks only",
+        group: Group::TaskActions,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "^O",
+        label: "links",
+        desc: "Open the selected entry's links (Linear + notes URLs)",
+        group: Group::TaskActions,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "r",
+        label: "refresh",
+        desc: "Reload tasks.csv + habits.csv from disk",
+        group: Group::TaskActions,
+        in_footer: false,
+    },
     // --- Brain ---
-    Shortcut { keys: "^M", label: "brain", desc: "Open / focus the brain panel (resumes your latest session)", group: Group::Brain, in_footer: true },
-    Shortcut { keys: "^⇧M", label: "brain·task", desc: "Message brain about the selected task (hold Shift; needs kitty protocol)", group: Group::Brain, in_footer: false },
-    Shortcut { keys: "^X", label: "close brain", desc: "Close the brain panel and end its agent session (on the daily-triage tab, closes only that tab)", group: Group::Brain, in_footer: false },
-    Shortcut { keys: "^N", label: "new session", desc: "Start a new agent session in the brain panel (types /new and submits it)", group: Group::Brain, in_footer: false },
-    Shortcut { keys: "Alt+H / Alt+L", label: "switch", desc: "Focus the tasks / brain panel (Alt+H always returns to tasks)", group: Group::Brain, in_footer: false },
-    Shortcut { keys: "Alt+[ / Alt+]", label: "brain tab", desc: "Cycle the brain-panel tab (main session ↔ ephemeral daily-triage session), only while a triage pass is running. Reliable everywhere; the command palette also carries 'Show main brain session' / 'Show daily triage session'. Alt+1 / Alt+2 select a tab directly on terminals that support Alt+digit", group: Group::Brain, in_footer: false },
-    Shortcut { keys: "Alt+U / Alt+D", label: "scroll", desc: "Scroll the focused panel a half-page up / down (fires while typing or in the brain panel)", group: Group::Brain, in_footer: false },
-    Shortcut { keys: "^A", label: "agenda", desc: "Open today's agenda (offers to generate it when missing)", group: Group::Brain, in_footer: false },
+    Shortcut {
+        keys: "^M",
+        label: "brain",
+        desc: "Open / focus the brain panel (resumes your latest session)",
+        group: Group::Brain,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "^⇧M",
+        label: "brain·task",
+        desc: "Message brain about the selected task (hold Shift; needs kitty protocol)",
+        group: Group::Brain,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "^X",
+        label: "close brain",
+        desc: "Close the brain panel and end its agent session (on the daily-triage tab, closes only that tab)",
+        group: Group::Brain,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "^N",
+        label: "new session",
+        desc: "Start a new agent session in the brain panel (types /new and submits it)",
+        group: Group::Brain,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "Alt+H / Alt+L",
+        label: "switch",
+        desc: "Focus the tasks / brain panel (Alt+H always returns to tasks)",
+        group: Group::Brain,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "Alt+[ / Alt+]",
+        label: "brain tab",
+        desc: "Cycle the brain-panel tab (main session ↔ ephemeral daily-triage session), only while a triage pass is running. Reliable everywhere; the command palette also carries 'Show main brain session' / 'Show daily triage session'. Alt+1 / Alt+2 select a tab directly on terminals that support Alt+digit",
+        group: Group::Brain,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "Alt+U / Alt+D",
+        label: "scroll",
+        desc: "Scroll the focused panel a half-page up / down (fires while typing or in the brain panel)",
+        group: Group::Brain,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "^A",
+        label: "agenda",
+        desc: "Open today's agenda (offers to generate it when missing)",
+        group: Group::Brain,
+        in_footer: false,
+    },
     // (Open habits page moved to the command palette — "Open habits page".)
     // --- Search ---
-    Shortcut { keys: "/", label: "search", desc: "Enter search mode (live fuzzy filter)", group: Group::Search, in_footer: true },
-    Shortcut { keys: "Esc", label: "clear", desc: "Clear the active filter (quits when none is set)", group: Group::Search, in_footer: false },
+    Shortcut {
+        keys: "/",
+        label: "search",
+        desc: "Enter search mode (live fuzzy filter)",
+        group: Group::Search,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "Esc",
+        label: "clear",
+        desc: "Clear the active filter (quits when none is set)",
+        group: Group::Search,
+        in_footer: false,
+    },
     // --- Global ---
-    Shortcut { keys: "^L / ^H", label: "cycle view", desc: "Cycle the main view right / left (tasks ↔ brain directory). Distinct from Alt+H/L, which move panel focus", group: Group::Global, in_footer: false },
-    Shortcut { keys: "^T / ^B", label: "jump view", desc: "Jump to the tasks / brain-directory main view", group: Group::Global, in_footer: false },
-    Shortcut { keys: "^P", label: "palette", desc: "Open the global command palette", group: Group::Global, in_footer: true },
-    Shortcut { keys: "Alt+S", label: "help", desc: "Show all keyboard shortcuts", group: Group::Global, in_footer: false },
-    Shortcut { keys: "q", label: "quit", desc: "Quit the shell (also Ctrl+C) — tasks view normal mode only", group: Group::Global, in_footer: true },
-    Shortcut { keys: "^Q", label: "quit", desc: "Unconditional quit from either panel — works while the brain panel is focused or a modal is open", group: Group::Global, in_footer: false },
+    Shortcut {
+        keys: "^L / ^H",
+        label: "cycle view",
+        desc: "Cycle the main view right / left (tasks ↔ brain directory). Distinct from Alt+H/L, which move panel focus",
+        group: Group::Global,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "^T / ^B",
+        label: "jump view",
+        desc: "Jump to the tasks / brain-directory main view",
+        group: Group::Global,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "^P",
+        label: "palette",
+        desc: "Open the global command palette (including Enable / Disable receiver)",
+        group: Group::Global,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "Alt+S",
+        label: "help",
+        desc: "Show all keyboard shortcuts",
+        group: Group::Global,
+        in_footer: false,
+    },
+    Shortcut {
+        keys: "q",
+        label: "quit",
+        desc: "Quit the shell (also Ctrl+C) — tasks view normal mode only",
+        group: Group::Global,
+        in_footer: true,
+    },
+    Shortcut {
+        keys: "^Q",
+        label: "quit",
+        desc: "Unconditional quit from either panel — works while the brain panel is focused or a modal is open",
+        group: Group::Global,
+        in_footer: false,
+    },
 ];
 
 /// The curated subset rendered in the compact footer (those flagged
@@ -136,31 +310,59 @@ mod tests {
     #[test]
     fn help_lists_the_brain_close_shortcut() {
         let brain = in_group(Group::Brain);
-        assert!(brain.iter().any(|s| s.keys == "^X" && s.desc.contains("session")));
+        assert!(
+            brain
+                .iter()
+                .any(|s| s.keys == "^X" && s.desc.contains("session"))
+        );
     }
 
     #[test]
     fn help_lists_the_new_session_shortcut() {
         let brain = in_group(Group::Brain);
-        assert!(brain.iter().any(|s| s.keys == "^N" && s.desc.contains("/new")));
+        assert!(
+            brain
+                .iter()
+                .any(|s| s.keys == "^N" && s.desc.contains("/new"))
+        );
     }
 
     #[test]
     fn help_lists_the_brain_tab_switch_shortcut() {
         let brain = in_group(Group::Brain);
-        assert!(brain.iter().any(|s| s.keys == "Alt+[ / Alt+]" && s.desc.contains("triage")));
+        assert!(
+            brain
+                .iter()
+                .any(|s| s.keys == "Alt+[ / Alt+]" && s.desc.contains("triage"))
+        );
+    }
+
+    #[test]
+    fn help_routes_receiver_enablement_through_the_palette() {
+        assert!(ALL.iter().any(|shortcut| {
+            shortcut.keys == "^P" && shortcut.desc.contains("Disable receiver")
+        }));
     }
 
     #[test]
     fn help_is_advertised_as_alt_s_not_a_bare_key() {
-        assert!(ALL.iter().any(|s| s.keys == "Alt+S" && s.desc.contains("shortcuts")));
+        assert!(
+            ALL.iter()
+                .any(|s| s.keys == "Alt+S" && s.desc.contains("shortcuts"))
+        );
         assert!(!ALL.iter().any(|s| s.keys == "?" || s.keys == "Alt+?"));
     }
 
     #[test]
     fn help_lists_the_main_view_switch_shortcuts() {
-        assert!(ALL.iter().any(|s| s.keys == "^L / ^H" && s.desc.contains("main view")));
-        assert!(ALL.iter().any(|s| s.keys == "^T / ^B" && s.desc.contains("main view")));
+        assert!(
+            ALL.iter()
+                .any(|s| s.keys == "^L / ^H" && s.desc.contains("main view"))
+        );
+        assert!(
+            ALL.iter()
+                .any(|s| s.keys == "^T / ^B" && s.desc.contains("main view"))
+        );
     }
 
     #[test]

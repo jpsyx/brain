@@ -28,10 +28,11 @@ pub fn run_habits(
 
 fn open_habits(context: &crate::workspace::CommandContext) -> Result<()> {
     let theme = crate::theme::Theme::active();
-    eprintln!("{}", crate::server::lifecycle::format_ensure_plan(theme));
-    crate::logging::log("habits ensure server");
-    let port = crate::server::lifecycle::ensure_running()?;
-    let target = crate::server::habits_url(port, context.workspace.id());
+    crate::logging::log("habits connect to existing server");
+    let client = crate::server::lifecycle::ServerClient::default();
+    let port = client.connect_existing()?.port;
+    let (ingress, capability) = client.workspace_local_route(context.workspace.id())?;
+    let target = crate::server::habits_url(port, ingress, capability);
     crate::logging::log(format!("habits open {target}"));
     println!("{}", theme.info(&format!("Opening {target}")));
     crate::logging::log(format!("spawn open {target}"));

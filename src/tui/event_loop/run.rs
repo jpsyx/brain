@@ -14,7 +14,11 @@ use crate::tui::*;
 
 use super::modal_route::route_modal_key;
 
-pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'_>) -> Result<()> {
+pub(crate) fn event_loop<B: Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut App<'_>,
+    server_lease: &crate::server::control::HeartbeatWorker,
+) -> Result<()> {
     // Poll often enough that PTY output appears responsive without burning
     // CPU when idle. 50ms feels live to a typing user.
     let poll_interval = StdDuration::from_millis(50);
@@ -25,6 +29,21 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
         // the two presses that quit the agent now auto-close the panel.
         app.close_exited_brain_panel();
         app.tick_agent_controllers();
+        for event in server_lease.poll() {
+            match event {
+                crate::server::control::HeartbeatEvent::Recovered(generation) => {
+                    crate::logging::log(format!(
+                        "shared server recovered at generation {generation}"
+                    ));
+                }
+                crate::server::control::HeartbeatEvent::RecoveryFailed(error) => {
+                    crate::logging::log(format!("shared server recovery failed: {error}"));
+                    app.flash = Some(FlashKind::Error(
+                        "shared server unavailable; reconnecting".to_owned(),
+                    ));
+                }
+            }
+        }
 
         // Auto-close the ephemeral daily-triage tab when its session exits or
         // the `/triage` skill signals completion (matching one-time token).
@@ -210,8 +229,10 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
             && matches!(app.main_view, MainView::Tasks | MainView::Logs)
         {
             app.palette = if app.main_view == MainView::Logs {
-                Some(PaletteState::new_logs_view(app.receiver_server_running()))
+                app.refresh_receiver_enabled();
+                Some(PaletteState::new_logs_view(app.receiver_enabled))
             } else {
+                app.refresh_receiver_enabled();
                 let task_id = app.current_task_id();
                 let is_habit = app.current_is_habit();
                 let has_notes = app.current_has_notes();
@@ -230,11 +251,11 @@ pub(crate) fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App<'
                     .with_assignment_mode(app.assignment.mode()),
                 )
             };
-            let receiver_server_running = app.receiver_server_running();
+            let receiver_enabled = app.receiver_enabled;
             let daily_triage_alert_disabled = app.skip_daily_triage_check;
             let triage_open = app.triage_brain.is_some();
             if let Some(palette) = app.palette.as_mut() {
-                palette.receiver_server_running = receiver_server_running;
+                palette.receiver_enabled = receiver_enabled;
                 palette.daily_triage_alert_disabled = daily_triage_alert_disabled;
                 palette.triage_open = triage_open;
             }

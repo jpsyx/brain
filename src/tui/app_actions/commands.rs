@@ -94,17 +94,23 @@ impl App<'_> {
         }
     }
 
-    /// "Open habits page" palette entry. Brings up the bundled brain server
-    /// (starting it if needed), then opens its `/habits` page in the browser
+    /// "Open habits page" palette entry. Uses the already-attached shared
+    /// process, then opens this workspace's ingress-scoped habits page
     /// through the injected `open_runner`, flashing success / error.
     pub(crate) fn run_open_habits(&mut self) {
-        self.flash = Some(match crate::server::lifecycle::ensure_running() {
-            Ok(port) => {
-                let url = crate::server::habits_url(port, self.command_context.workspace.id());
-                open_url(self.open_runner.as_ref(), &url)
-            }
-            Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
-        });
+        self.flash = Some(
+            match crate::server::lifecycle::ServerClient::default().connect_existing() {
+                Ok(record) => {
+                    let url = self.habits_url_for_port(record.port);
+                    open_url(self.open_runner.as_ref(), &url)
+                }
+                Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
+            },
+        );
+    }
+
+    pub(crate) fn habits_url_for_port(&self, port: u16) -> String {
+        crate::server::habits_url(port, self.server_ingress, self.server_local_capability)
     }
 
     /// Ctrl+O / "open link" entry point. Collects the selected entry's
@@ -183,24 +189,8 @@ impl App<'_> {
             PaletteAction::CloseBrain => {
                 self.close_brain();
             }
-            PaletteAction::StartReceiverServer => self.start_receiver_server(),
-            PaletteAction::StopReceiverServer => {
-                self.receiver_server = None;
-                self.receiver_rx = None;
-                self.flash = Some(FlashKind::Info("receiver server stopped".to_owned()));
-            }
-            PaletteAction::RestartReceiverServer => {
-                crate::logging::log("palette request receiver server restart");
-                self.receiver_server = None;
-                self.receiver_rx = None;
-                self.start_receiver_server();
-            }
-            PaletteAction::ShowReceiverServerStatus => {
-                crate::logging::log("palette request receiver server status");
-                self.flash = Some(FlashKind::ReceiverStatus {
-                    running: self.receiver_server_running(),
-                });
-            }
+            PaletteAction::ToggleReceiver => self.toggle_receiver(),
+            PaletteAction::ShowReceiverServerStatus => self.show_receiver_status(),
             PaletteAction::ShowReceiverServerLogs => {
                 crate::logging::log("palette request receiver server logs");
                 self.show_logs_view(LogKind::Receiver);

@@ -46,16 +46,17 @@ pub(crate) struct PaletteState {
     /// Whether the brain panel is currently open. Gates the "Close brain"
     /// command — there's nothing to close when no panel is up.
     pub(super) brain_open: bool,
-    pub(super) receiver_server_running: bool,
+    /// Persistent receiver intent for the selected workspace.
+    pub(super) receiver_enabled: bool,
     /// Whether the ephemeral daily-triage tab is currently open. Gates the
     /// "Show main brain session" / "Show daily triage session" commands, which
     /// only make sense while there are two brain-panel tabs to switch between.
-    /// Seeded at open time like `receiver_server_running`.
+    /// Seeded at open time like `receiver_enabled`.
     pub(super) triage_open: bool,
     pub(super) logs_view: bool,
     /// Whether the daily-triage startup nudge is currently suppressed for this
     /// session (mirrors `App::skip_daily_triage_check`). Seeded at open time
-    /// like `receiver_server_running`; drives the toggle command's
+    /// like `receiver_enabled`; drives the toggle command's
     /// Disable/Enable label.
     pub(super) daily_triage_alert_disabled: bool,
     /// Per-surface assignment visibility for the selected workspace.
@@ -152,7 +153,6 @@ pub(crate) struct BrainInputState {
 pub(crate) enum FlashKind {
     Info(String),
     Error(String),
-    ReceiverStatus { running: bool },
 }
 
 /// State for the keyboard-shortcuts help modal (opened with `?`). Just a

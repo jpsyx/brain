@@ -7,9 +7,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{
-        Block, BorderType, Borders, Clear, Paragraph,
-    },
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
 
 pub(crate) fn draw_palette(f: &mut Frame, state: &PaletteState, area: Rect) {
@@ -70,10 +68,7 @@ pub(crate) fn draw_palette(f: &mut Frame, state: &PaletteState, area: Rect) {
         f.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::raw(" "),
-                Span::styled(
-                    label_text,
-                    Style::default().fg(Color::Rgb(122, 134, 173)),
-                ),
+                Span::styled(label_text, Style::default().fg(Color::Rgb(122, 134, 173))),
             ])),
             chunks[idx],
         );
@@ -84,7 +79,10 @@ pub(crate) fn draw_palette(f: &mut Frame, state: &PaletteState, area: Rect) {
     let filter_area = chunks[idx];
     idx += 1;
     let prompt = Line::from(vec![
-        Span::styled(" > ", Style::default().fg(accent).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " > ",
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(
             state.filter.clone(),
             Style::default().fg(Color::Rgb(192, 202, 245)),

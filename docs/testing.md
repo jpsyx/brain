@@ -50,8 +50,9 @@ first move is a failing test that reproduces it, *then* the fix.
   prove migration is never called after cancellation, and prove complete flag
   forms perform no terminal IO. The real `/dev/tty` opener stays thin.
 - **Workspace bootstrap and readiness.** An exhaustive pure invocation table
-  proves every route is context-free, internal-no-prompt, registry-only, or
-  ready-workspace. Manifest tests reject unknown fields, schema/version
+  proves every route is `None`, `InternalNoPrompt`, `RegistryOnly`,
+  `ReadOnlyWorkspace`, or `ReadyWorkspace`. Manifest tests reject unknown
+  fields and schema/version
   incompatibility, and UUID disagreement. Injected `BufRead`/`Write` tests
   prove interactive repair persists and continues the original command, while
   compiled headless tests prove the exact repair commands and that no terminal
@@ -230,7 +231,237 @@ first move is a failing test that reproduces it, *then* the fix.
   `sync/freshness.rs` tests the strict two-hour message threshold;
   `sync/journal.rs` proves push-only/aborted rows do not refresh it.
   `server/delivery.rs` verifies that provider delivery is dispatched off the
-  TUI thread.
+  TUI thread. The app receiver tests mutate `users.json` and the machine
+  registry after queue acceptance, then prove Claude and Codex both launch
+  through `AgentController` with the captured actor, channel, response email,
+  and allowed participant recipients.
+- **Receiver admission and workspace isolation.**
+  `tests/receiver_workspace_isolation.rs` uses focused fixture and model
+  support modules with deadline-bounded polling and no fixed sleeps. It drives
+  signed SMS through the real shared process and exact live TUI socket. A
+  second real-process fixture registers two live workspaces with distinct
+  credentials and actors for the same normalized sender, rejects a deliberately
+  cross-signed ingress, then proves each request enters only its exact socket.
+  The suite also rejects an unknown sender and cross-workspace frames, verifies
+  the 1 MiB body cap, and proves disabled or missing targets return one
+  channel-specific unavailable response while another workspace keeps the
+  process alive. It also covers absent-process silence, failed sockets, a full
+  64-job queue,
+  enqueue acknowledgment, and rollback when the acknowledgment write fails.
+  The rollback case performs the complete frame, `prepared`, `commit`, and
+  peer-close sequence, then polls the production socket and requires an empty
+  queue. A signed Resend event submitted while its exact TUI is unavailable is
+  replayed after re-registration; the replay must remain outside the queue and
+  must not reach the Receiving API.
+  Pure tests under `server/receiver/dispatch/tests/` pin the synchronized late
+  revocation boundary separately from transactional provider-ID state: failed
+  handoffs retain no ID, in-flight duplicates are not
+  acknowledged, successful duplicates are idempotent, and the 1024-entry cache
+  is scoped by workspace and channel. Barrier-driven dispatch tests disable
+  exact live authority after actor resolution and prove revalidation prevents
+  any socket handoff. Typed provider tests preserve ignored-event 202 and
+  upstream 502 outcomes. Injected Resend fetch tests cap both provider
+  responses, and a counting reader proves only one proof byte beyond the limit
+  is consumed.
+- **Workspace-specific receiver setup.**
+  `tests/receiver_setup_workspace.rs` runs provider-free, local CLI fixtures
+  against two selected workspaces. It proves distinct Twilio and Resend secrets
+  remain in their exact machine records, numeric-looking secrets remain strings,
+  output contains the stable `/w/<ingress>/<channel>` URLs without secret
+  values, and setup writes portable user mappings without rotating either
+  manifest. It also proves channel-specific address requirements and ingress
+  stability across rename, alias, default, and a second-machine attach. The
+  command-owner test records that setup and set both notify only the selected
+  UUID through the existing-process reload seam. Security regressions spawn the
+  real binary with separate and assignment-style secret/address arguments,
+  then inspect both the mode-`0600` run log and `--verbose` output. Validation
+  cases cover supplied and existing selected-record values, malformed public
+  origins, both provider sender forms, guided clearing, conditional channels,
+  and redacted failures. Injected failures after the provider write, users
+  write, and every Claude/Codex hook write prove exact byte restoration, peer
+  preservation, rollback-error aggregation, and no live reload after failure.
+- **Shared-server lease state.** `server/lifecycle/table.rs` uses injected
+  monotonic instants and timing values to prove that different workspace leases
+  coexist, duplicate live workspace, ingress, or lease identities fail, an
+  already-expired incoming lease is rejected, heartbeats renew only their
+  matching lease, expiry cannot expose stale routing data, and final orderly or
+  expired removal requests shutdown. Late heartbeat/update errors and a
+  rejected registration also preserve a latched final-expiry shutdown for the
+  next watchdog tick. It drives every `LeaseTable::apply` action branch
+  directly. The suite also proves
+  that a previously registered ingress stays distinguishable as `NoLiveTui`
+  after its lease is gone, rather than becoming `Unknown`. These tests have no
+  process, socket, filesystem, or sleep dependency.
+- **Shared-server process lifecycle.** `tests/server_lifecycle.rs` exercises
+  the compiled binary under a temporary home. Pure startup tests cover live
+  reuse, stale cleanup, one elected starter, and losing contenders. Process
+  tests prove the hidden loop rejects a missing generation token, two distinct
+  workspace leases coexist, the first orderly unregister leaves the process
+  reachable, the final unregister exits and removes generation artifacts, and
+  SIGTERM takes the same guarded cleanup path. A Unix-socket startup gate
+  synchronizes SIGTERM immediately after state publication, and an occupied
+  HTTP port proves the pre-publication cleanup owner removes an already-bound
+  control socket. Barrier-driven unit races prove stale reaping and child
+  adoption exclude contenders through exact identity transfer. A synchronized
+  pre-adoption child-loss race proves the parent retains exact cleanup until
+  adoption. A barrier-held advisory mutex proves that cleanup survives brief
+  contention after child loss through its explicit bounded operation, while
+  the adoption race proves that cleanup cannot remove the child's transferred
+  token. Controlled unreadable and malformed token artifacts prove that both
+  cleanup inspections propagate errors, preserve the artifact, and allow the
+  same handoff value to remove a restored exact parent token on retry. An
+  elected child that never receives its first registration exits within its
+  bounded bootstrap deadline. Two fake TUI clients also register distinct
+  workspaces, observe a deliberately killed generation, enter recovery together
+  through injected heartbeat clocks and an explicit barrier, converge on one
+  replacement generation, re-register, and drive final-unregister cleanup. A
+  second barrier-driven race removes the final old lease after discovery but
+  before startup registration and proves the bounded handshake elects and
+  registers with the replacement. All external process observation uses bounded
+  condition polling.
+  `server/lifecycle/watchdog.rs` injects expiry and bootstrap instants directly,
+  so a crashed final lease remains live immediately before TTL, requests
+  shutdown exactly at TTL, and leaves an empty table without a timing sleep.
+  The no-first-registration decision uses the same injected-clock boundary.
+- **Opaque-ingress workspace routing.** `server/router.rs` exhaustively proves
+  the exact method/component grammar for provider SMS/email and
+  lease-capability local habits/triage endpoints, including query stripping
+  and rejection of global, malformed, or
+  extra-component paths. `tests/server_workspace_routing.rs` injects lease
+  instants to prove only a live enabled lease resolves to its revalidated
+  workspace context, while disabled, unknown, and known-without-live-TUI routes
+  remain distinct. `tests/habits_workspace_routing.rs` drives the
+  compiled shared process with two fake live TUIs and distinct manifests. It
+  proves each ingress renders and mutates only its own habits, triage completion
+  lands only in the selected UUID cache, unknown routes never fall back or emit
+  provider acknowledgements, and disabling or removing one live lease leaves
+  its peer routable. Focused sibling modules cover route isolation, body
+  ordering, and CLI URL identity. Partial unknown and disabled POSTs prove the
+  server responds before body completion while the control socket stays
+  responsive; oversized accepted local actions prove the 16 KiB cap. A real
+  `brain habits -b` call and TUI URL helpers prove a later manifest mismatch
+  cannot replace the ingress accepted for the selected live registration.
+  A channel-blocked context loader proves registry and manifest IO never holds
+  the control mutex: snapshot, heartbeat, and unregister remain responsive,
+  and the loaded ticket is rejected after unregister. Pure revision and
+  blocked-route tests prove heartbeat renewal preserves a ticket, while
+  disable/re-enable and identical same-ID unregister/re-register ABA
+  transitions reject the pre-revocation ticket. Maximum-revision tests prove a
+  staged job-socket races cover disable, unregister, and disable-enable ABA
+  after final revalidation but before commit acknowledgment; every losing
+  admission returns unavailable and leaves the TUI queue empty. Failed
+  enablement update or receiver-changing registration replay leaves the
+  whole lease table unchanged and cannot revive or extend authority.
+  A synchronized test hook on the real `SharedReceiverPipeline` revokes
+  authority after production final revalidation and authorization but before
+  the staged socket commit. Disable, unregister, and disable-enable ABA each
+  cancel the admission and leave the live TUI queue empty. Mutation coverage
+  that removes authorized-state cancellation makes the real pipeline accept
+  and enqueue, so the regression cannot pass through a copied test decision
+  path.
+  The same synchronized production race expires the exact lease through the
+  watchdog/control seam after authorization and before commit. A committed
+  admission held past an injected short control deadline proves unregister
+  returns bounded rejection and cannot mutate authority later.
+  A route lookup at exact expiry cannot consume the lease ahead of watchdog
+  revocation, and an injected final-admission clock proves exact TTL rejects
+  commit before the next watchdog tick. A second real-pipeline gate pauses
+  after commit-side persisted-intent IO, advances the injected clock to exact
+  expiry, and proves the real job socket remains empty. A third real-pipeline
+  race holds the control mutex across that IO boundary, advances to exact
+  expiry while commit waits for control, and proves the clock is sampled only
+  after lock acquisition. Its commit probe requires both the COMMITTED state
+  and the still-held mutex, making pre-lock clock and post-unlock CAS mutations
+  fail.
+  Exact status tests distinguish a
+  live disabled lease from an accepting lease. Actual parsed CLI start/stop and
+  startup `--with-receiver -b` paths, plus keyboard-driven tasks and search
+  palettes, prove both persistence directions and exact-workspace refresh
+  wiring. A failed injected refresh proves committed intent remains successful
+  and visible with a warning.
+  Fixed-worker admission tests hold four partial bodies, prove a fifth
+  connection waits while control remains responsive, and open 24 incomplete
+  request heads without increasing the server thread count. An injected
+  second-worker spawn failure proves the start gate rolls back before any
+  partially received body is consumed.
+  Injected-clock request tests advance the parse deadline across successful
+  head and body bytes and the later response, proving drip progress cannot
+  renew it without relying on sleeps. Separate injected-clock cases prove an
+  expired parse phase cannot be revived, the two-second handoff cutoff leaves
+  the response reserve open, and synchronized expiry after provider work does
+  not enter the job socket. Real Unix-stream step-clock tests advance the same
+  handoff deadline between successful frame bytes and acknowledgment bytes,
+  proving continuous progress cannot renew it. Parser tests reject
+  conflicting or repeated framing, unsupported transfer codings, invalid
+  field names, malformed chunk sizes, forbidden framing trailers, and bounded
+  chunk/trailer violations while accepting the exact supported chunked form.
+  Framing-value cases reject vertical tab, form feed, and non-ASCII whitespace
+  on both `Content-Length` and `Transfer-Encoding`, while accepting `SP` and
+  `HTAB` optional whitespace. Extension-bearing chunks remain an explicit
+  unsupported safe-subset case.
+  Server observation uses deadline-bounded polling; lifecycle decisions use
+  injected clocks rather than fixed timing sleeps.
+  Receiver setup lock tests inject both clock and poll behavior: a held lock is
+  released only as the poll advances to the deadline, and a free lock starts
+  with an already elapsed deadline. Both must return timeout without snapshot
+  or mutation.
+  The complete real-process E2E launches personal and family fake TUIs into one
+  generation, accepts exactly one signed message into each exact queue,
+  orderly-closes family while retaining observable recording history, proves
+  one unavailable family request adds no family or cross-routed personal job,
+  accepts a fresh personal message in the same generation, then closes personal
+  and bounded-polls process exit plus generation-artifact removal. The test
+  injects an extra cross-routed job into a copy of the history and proves its
+  exact-route assertion rejects that mutation. It contains no fixed sleep.
+- **Literal read-only status.** `tests/status_read_only.rs` runs the compiled
+  `brain server status` and selected `brain receiver status` commands. It
+  snapshots every file type, Unix mode, regular-file byte sequence and SHA-256,
+  symlink target, and recursively traversed referent before and after. Referent
+  traversal records cycles rather than following them forever. The suite covers
+  absent and active servers, symlinked machine/workspace paths, eight concurrent
+  status commands, live control failure, and generation replacement. Socket and
+  other entries include Unix type, device, inode, ownership, size, link count,
+  and modification/change times, so same-mode replacement is visible. Before
+  spawning the eight active probes, the test snapshots every candidate run log;
+  it retains every child PID and proves that each exact matching log subset is
+  unchanged afterward, including pre-existing names from PID reuse. It also
+  compares the exact control-socket identity, checks that absent-server probes
+  create no server state, and pins all four receiver status rows. Mutation tests
+  replace a socket with a same-mode socket and rewrite a same-size reused-PID
+  log, proving both observers fail on the defects they guard. Exact lease-table
+  tests prove both process and workspace status leave expired leases, authority revisions,
+  and shutdown state untouched for the watchdog. This catches accidental
+  migration, config initialization, users transaction locks, skill rendering,
+  state-DB/render-stamp writes, election, control-error suppression, and status
+  pruning.
+- **Shared-server control protocol.** `tests/server_control.rs` is split into
+  focused codec, registration, and transition suites. It covers bounded
+  newline-delimited JSON round trips, malformed and oversized rejection,
+  multiple-frame rejection through a real stream, half-close handling,
+  authoritative root and manifest validation, cross-workspace and unbound
+  job-socket rejection, heartbeat, receiver-enable update, unregister,
+  non-sensitive snapshot, exact live-workspace ingress lookup, and stale
+  generation refusal. The exact workspace-status request reports live lease
+  receiver enablement without exposing peer workspace state. Deterministic real
+  Unix-stream codec tests inject deadline observations between successful byte
+  reads, successful byte writes, and flush, proving continuous progress cannot
+  extend the total budget. A saturated real Unix listener proves the safe
+  connector completes within a bound without a helper thread; an expired
+  request deadline proves server-side job-listener validation uses that same
+  connector. A simulated lost accepted response proves an exact registration
+  retry succeeds while competing lease IDs and changed identities remain
+  rejected. The pure heartbeat classifier proves both missing and stale
+  generations enter recovery.
+  Real elected-starter wrappers exit once before publication with the token
+  both retained and removed, then exec the real binary. Both cases prove
+  retained-`Child` observation re-enters election inside the original deadline,
+  without fixed sleeps or PID zombie assumptions.
+  Production election followed by SIGKILL retains no external child handle;
+  heartbeat recovery proves the published-child waiter reaps retained- and
+  removed-token cases before replacement election.
+  Injected parent handoff cleanup failure after publication proves waiter
+  ownership transfers first, the cleanup error remains visible, and later
+  retained- and removed-token SIGKILL recovery still replaces the generation.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable
@@ -312,8 +543,9 @@ No test reads or writes a real user workspace.
 | Re-enable starts fresh | `disabling_purges_every_managed_row_and_derived_reference_then_reenables_fresh` proves exactly two new open managed rows, new UUIDs, and no restored history. |
 
 The suite does not claim a filesystem sandbox, a general prompt-injection
-detector, coordinated task migration activation against a real workspace,
-functional OpenCode behavior, or the final shared-server lease lifecycle.
+detector, coordinated task migration activation against a real workspace, or
+functional OpenCode behavior. Shared HTTP receiver routing and exact TUI
+job-forwarding are covered by the active Phase 4 integration suites.
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to
@@ -350,6 +582,12 @@ cargo test --release picker::
 # one integration file
 cargo test --release --test entry_collect
 
+# persistent receiver intent, exact-record isolation, and shared transition
+cargo test --release --test receiver_enablement
+
+# selected-record provider setup, users, URLs, and ingress stability
+cargo test --release --test receiver_setup_workspace
+
 # workspace documentation contract
 cargo test --release --test workspace_docs
 
@@ -371,3 +609,10 @@ cargo test --release -- --nocapture
    `pub fn make_test_*` on a production module.
 5. If the behavior is user-visible (a new key, menu item, or config
    variable), update the relevant `docs/` file in the same change.
+
+Receiver enablement tests under `command/server/receiver/enablement/tests.rs`
+keep persistent intent separate from live process state. They cover the shared
+pure transition, exact selected-record mutation, stale identity rejection with
+byte preservation, authoritative control refresh, reduced clap grammar, and
+dynamic labels in both palette models. Lifecycle tests use injected instants or
+bounded polling; they never depend on fixed sleeps.

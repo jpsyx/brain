@@ -2,33 +2,20 @@
 
 use anyhow::Result;
 
-pub fn run_server(
-    args: &crate::cli::ServerArgs,
-    context: Option<&crate::workspace::CommandContext>,
-) -> Result<()> {
+pub fn run_server(args: &crate::cli::ServerArgs) -> Result<()> {
     use crate::cli::ServerAction;
     match &args.action {
-        ServerAction::Start => {
-            let _context =
-                context.ok_or_else(|| anyhow::anyhow!("server start needs a ready workspace"))?;
-            crate::logging::log("server start");
-            crate::server::lifecycle::start()
-        }
         ServerAction::Status => {
-            let _context =
-                context.ok_or_else(|| anyhow::anyhow!("server status needs a ready workspace"))?;
             crate::logging::log("server status");
             crate::server::lifecycle::status()
         }
-        ServerAction::Kill => {
-            let _context =
-                context.ok_or_else(|| anyhow::anyhow!("server kill needs a ready workspace"))?;
-            crate::logging::log("server kill");
-            crate::server::lifecycle::kill()
+        ServerAction::Logs => {
+            crate::logging::log("server logs");
+            crate::server::lifecycle::logs()
         }
-        ServerAction::Run { port } => {
-            crate::logging::log(format!("server run port={port}"));
-            crate::server::run(*port)
+        ServerAction::Run { generation, port } => {
+            crate::logging::log(format!("server run generation={generation} port={port}"));
+            crate::server::run(*generation, *port)
         }
     }
 }

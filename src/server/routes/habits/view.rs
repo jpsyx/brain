@@ -11,7 +11,7 @@ use std::fmt::Write as _;
 use chrono::{Datelike, NaiveDate};
 
 use super::model::{Habit, PRIORITY_ORDER, TimeBucket};
-use crate::workspace::WorkspaceId;
+use crate::server::IngressId;
 
 /// The page shell and its two inlined assets, embedded at compile time.
 const SHELL: &str = include_str!("../../../../web/habits/index.html");
@@ -165,7 +165,8 @@ pub fn render(
     pending: &[Habit],
     completed: &[Habit],
     today: NaiveDate,
-    workspace_id: WorkspaceId,
+    ingress: IngressId,
+    capability: crate::server::lifecycle::LeaseId,
 ) -> String {
     let body = if pending.is_empty() {
         r#"<div class="empty">All habits done for today. Nice work.</div>"#.to_owned()
@@ -200,7 +201,7 @@ pub fn render(
             "{{JS}}",
             &APP_JS.replace(
                 "{{HABITS_DONE_URL}}",
-                &crate::server::habits_done_path(workspace_id),
+                &crate::server::habits_done_path(ingress, capability),
             ),
         )
         .replace("{{TODAY_LABEL}}", &escape(&today_label))
@@ -279,7 +280,9 @@ mod tests {
             pending,
             completed,
             today,
-            WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
+            IngressId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
+            crate::server::lifecycle::LeaseId::parse("57b162df-983a-45c3-ac7e-bad94eb27a99")
+                .unwrap(),
         )
     }
 
@@ -300,7 +303,7 @@ mod tests {
         let html = render_page(&[habit("H1", "x")], &[], today);
         assert!(html.contains(".done-btn"), "CSS must be inlined");
         assert!(
-            html.contains("/habits/done?workspace_id=e806258e-491a-436d-9db4-a5ca9903e0d4"),
+            html.contains("/local/57b162df-983a-45c3-ac7e-bad94eb27a99/w/e806258e-491a-436d-9db4-a5ca9903e0d4/habits/done"),
             "JS must post to the brain-server endpoint"
         );
         assert!(!html.contains("{{CSS}}"), "no shell token may leak");

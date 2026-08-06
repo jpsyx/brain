@@ -188,7 +188,9 @@ a direct keystroke show it dimmed in `[…]`):
 5. **Search resources:** rescope search to the selected workspace's `resources/`.
 6. **Search archive:** rescope search to the selected workspace's `archive/` (retired material).
 7. **Global search** — search across projects, areas, resources, and archive.
-8. **Move brain panel to the left / right** — swap the layout (label names
+8. **Enable receiver / Disable receiver** toggles persistent intent for the
+   selected workspace without starting or stopping the shared process.
+9. **Move brain panel to the left / right**: swap the layout (label names
    the direction the panel would move).
 - **Delete '<file>'** `[^D]` — move the highlighted entry (file **or**
   directory) to the Trash. **Shown whenever something is highlighted**, and it
@@ -240,10 +242,10 @@ management and reporting commands stay outside the persistent shell.
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex enforcement level without printing connection material or credentials. |
-| `brain server {start\|status\|kill}` | Manage the background brain server, a local-only HTTP daemon shared across all `brain` invocations (see below). |
-| `brain --with-receiver` | Open the TUI and explicitly start its TUI-owned receiver server. |
+| `brain server {status\|logs}` | Inspect the TUI-lifetime shared process without starting, stopping, or repairing it (see below). |
+| `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
 | `brain --no-daily-triage-check` | Open the TUI without ever showing the daily-triage startup nudge. Process-scoped (this run only); not a persistent config change. Combines with any other flag/subcommand. |
-| `brain receiver {setup\|set\|start\|status\|stop\|restart\|logs}` | Configure, edit, or control the TUI-owned SMS/email listener. `receiver set` edits one receiver environment variable or opens a described selector. |
+| `brain receiver {setup\|set\|start\|stop\|status\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, or read shared-process logs. No receiver command starts or restarts a process. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
@@ -981,29 +983,74 @@ brain (synced, never committed to the repo):
 ### Habits and receiver servers
 
 The habits server remains one machine-shared, local-only service. The selected
-workspace is explicit in `GET /habits?workspace_id=<UUID>` and
-`POST /habits/done?workspace_id=<UUID>`. On every request the server reloads
-schema v2, resolves that exact UUID, verifies that its root is available, and
-checks that the portable manifest has the same identity before reading or
-writing the workspace's habits CSV. Missing, malformed, unknown, unavailable,
-or mismatched identities are rejected and never fall back to the machine
-default. This service is separate from external message intake.
+workspace is explicit in `GET /local/<lease>/w/<ingress>/habits` and
+`POST /local/<lease>/w/<ingress>/habits/done`. The exact live lease capability
+keeps local reads and mutations unavailable on provider-facing `/w/...` paths.
+The opaque ingress first resolves through the
+shared process's live lease table. Only then does the server reload schema v2,
+verify the exact registry workspace and root plus matching portable manifest,
+and read or write that workspace's habits CSV. Missing, malformed, unknown,
+receiver-disabled, no-live-TUI, unavailable, or mismatched routes never fall
+back to the machine default; the unavailable cases return 503. POST routing
+and live-lease checks happen before body IO, and local habits/triage action
+bodies larger than 16 KiB return 413. TUI links retain the ingress accepted at
+registration, while `brain habits -b <workspace>` asks the live shared process
+for the exact selected workspace's accepted ingress.
 
-The receiver server is owned by the running TUI and is opt-in. It exposes only
-authenticated `POST /sms` and `POST /email` routes. Brain verifies the Twilio
-or Resend/Svix signature before resolving the normalized sender through the
-selected workspace's enabled portable phone or email identities. Unknown and
-disabled senders are rejected. Resend timestamps must be within five minutes, recent provider delivery
-IDs are deduplicated for the life of the receiver, request bodies are capped at
-1 MiB, and a bounded queue returns `503` backpressure instead of growing
-without limit. SMS numbers use exact E.164 matching, including the leading `+`
-and country code. A malformed configured SMS number produces a persistent
-yellow warning in the TUI status line. The former generic
-`/webhooks/capture` route has been removed.
+The shared process exposes authenticated
+`POST /w/<selected-ingress>/sms` and
+`POST /w/<selected-ingress>/email` routes only while that exact workspace has
+receiver enablement and a live TUI lease. It resolves the opaque ingress before
+loading provider credentials, users, prompt content, or the UUID-local job
+socket. Brain then verifies the Twilio or Resend/Svix signature before resolving
+the normalized sender through the selected workspace's enabled portable phone
+or email identities. Unknown and disabled senders are rejected. Resend
+timestamps must be within five minutes. Request bodies and serialized job
+frames are capped at 1 MiB, and the live TUI queue is bounded at 64 jobs.
+Each Resend received-email or attachment-metadata response is also capped at
+1 MiB and ten seconds. Unavailable, ignored, and permanent discarded Resend
+events receive HTTP success; invalid signatures remain authentication errors.
+Receiving API failures return 502.
+Accepted provider IDs are deduplicated in a bounded cache scoped by workspace
+and channel; failed handoffs retain no retry state. SMS numbers use exact E.164
+matching, including the leading `+` and country code. A malformed configured
+SMS number produces a persistent yellow warning in the TUI status line. The
+former generic `/webhooks/capture` route has been removed.
 
-This is the existing per-TUI receiver behavior. The planned one-process,
-multi-workspace receiver with workspace leases and final-TUI shutdown has not
-shipped in the foundation release.
+Each ready
+TUI binds a UUID-scoped job socket, registers a validated live lease, heartbeats
+it, recovers the shared process after a crash, and unregisters before removing
+its socket. Every shared-process endpoint has an opaque ingress prefix and is
+resolved to a verified live workspace before route behavior. The job socket
+acknowledges only a successful in-memory enqueue and rolls that append back if
+the acknowledgment write fails. Disabled, missing, full, and failed-socket
+targets receive one channel-appropriate unavailable response, with no durable
+queue, replay, or headless execution.
+
+The shared HTTP boundary admits exactly four active connections with a fixed
+worker set and no application request queue. It caps request heads and local
+action bodies at 16 KiB, starts every connection with one absolute two-second
+parse deadline, and revalidates a captured live route ticket after workspace
+filesystem checks. Receiver body plus local provider verification remain in
+that phase; successful verification starts one bounded 30-second provider,
+handoff, and response phase only if the parse deadline is still open. Brain
+reserves the final five seconds for the response, caps the local handoff at two
+seconds, and revalidates the retained route ticket again immediately before
+enqueue. One absolute handoff deadline covers nonblocking connect, full frame
+write, and acknowledgment read. Byte-by-byte progress and a slow response
+drain cannot renew any deadline. Signed ignored email events are logged as
+accepted without enqueue, not as rejected requests.
+Conflicting `Content-Length`/`Transfer-Encoding`, repeated
+or unsupported transfer codings, invalid field names, and malformed bounded
+chunk/trailer grammar are rejected. Framing values accept only `SP`/`HTAB` as
+optional whitespace; controls, Unicode whitespace, and chunk extensions are
+outside the supported safe subset. Route tickets also carry an authority
+incarnation: heartbeats preserve it, while disable/re-enable or identical
+unregister/re-register transitions cannot revive an earlier ticket. A revision
+overflow rejects its whole enablement or replay transition without changing
+lease state. Slow or
+partial clients therefore cannot grow the thread set, block control requests,
+or make a stale lease authoritative.
 
 Inbound messages wait only for a submitted agent turn, not merely for the
 brain panel to exist. An idle startup panel is closed and replaced by the
@@ -1027,29 +1074,96 @@ freshness gate described above. The HTTP acknowledgement remains immediate,
 but stale local state is pulled before the queued message reaches Claude or
 Codex.
 
-- `brain server start` — start the daemon in the background if it isn't already
-  running (idempotent: an existing live server is reused and its URL reprinted).
-- `brain server status` — report whether it is running and on which port.
-- `brain server kill` — stop the background server and drop its record.
-- `brain server run --port <p>` — the internal blocking accept loop the spawned
-  daemon runs; hidden from `--help` (you never invoke it directly).
+Receiver enablement is persistent workspace intent, separate from process and
+lease availability. `brain receiver start`, `brain receiver stop`, startup
+`--with-receiver`, and both command palettes share one transition and an exact
+canonical-name plus UUID registry transaction. A live shared process is
+notified by workspace UUID after persistence and reloads the authoritative
+record; no process is elected for a short-lived mutation. `brain receiver
+status` reports Receiver, TUI, Server, and Accepting independently. An enabled
+workspace without a live TUI therefore reports `Accepting no`.
+Persistence is the successful mutation boundary. If the optional live refresh
+fails, Brain keeps the committed CLI or palette state and shows a warning.
+Status requires both persisted intent and an enabled exact live lease before it
+reports `Accepting yes`; a live but disabled lease reports `TUI live` and
+`Accepting no`.
+
+`brain server status` and `brain receiver status -b <workspace>` are literal
+read-only probes. They do not write a diagnostic run log, migrate or repair
+configuration, create a users transaction lock, refresh installed skills,
+write the skill render stamp, or elect/start/churn the shared process. Receiver
+status uses one generation-bound control response for both server and exact
+workspace facts. A live control failure is reported, and neither status request
+expires leases or changes server lifecycle state.
+
+If all TUIs are closed, the final unregister stops the server immediately, so
+an inbound text reaches no Brain process and receives no Brain response. If
+some other workspace TUI remains live but the target workspace is disabled,
+closed, expired, full, or unreachable, the sender receives one unavailable
+response and that message is discarded. A crashed final TUI leaves only its
+renewable lease; expiry after TTL stops the process. Nothing is retained for
+later replay.
+
+- `brain server status` reports process reachability and the live TUI lease
+  count only, or says that no process is running. It neither elects a starter
+  nor exposes workspace message data and needs no selected workspace.
+- `brain server logs` prints the machine-wide infrastructure log, or says that
+  no log exists. It is likewise read-only and workspace-independent.
+- `brain server run --generation <uuid> --port <p>` is the hidden blocking
+  loop used only by an elected starter. A matching token must already own
+`election.lock`; direct or tokenless startup is rejected.
+
+An elected child has a two-second bootstrap window to receive its first live
+TUI registration. If the electing TUI disappears before registering, the child
+exits and cleans its PID, control socket, and election token instead of becoming
+an unowned background daemon.
+
+There is no public server start or kill command. The lifecycle layer exposes
+`connect_or_elect` only for long-lived TUI startup and crash recovery. The TUI
+registers before launching its agent through one bounded handshake. If the
+selected generation exits before registration, the handshake re-enters election
+and registers against the winner; authoritative identity rejection is not
+retried. Registration compares the normalized TUI-resolved root to the reopened
+registry, derives the UUID-local job socket from machine paths, and verifies the
+live singleton plus a deadline-bounded listener probe before accepting the
+lease. A retry after an accepted response is lost succeeds only when generation,
+lease, workspace identity, PID, and derived endpoint are unchanged; competing
+registrations remain rejected. The TUI then heartbeats
+once per second, re-elects and re-registers after a missing or stale generation,
+and unregisters before its workspace job socket is removed. Two workspaces may
+hold leases concurrently; the last orderly exit shuts the shared process down.
 
 `brain receiver setup` walks through the selected channel's provider
-credentials, one public base URL, the response email, and sender allowlists.
-Secrets are hidden while typing and stored in machine-local brain env. Blank
-keeps an existing value and `/clear` erases it. The setup output shows the
-exact `/sms` and/or `/email` webhook URL to enter in the provider portal. The
-habits daemon prefers port `8787`. The receiver listener uses port `8788`
-and exists only while its owning TUI exists. Start it with `brain --with-receiver`
-or the global palette. `brain receiver status` works from another
-terminal through the TUI control socket; start/stop/restart also route through
-that owner-only socket and never create a second brain shell. Email body and
-attachment content is retrieved through Resend's Receiving APIs; HTML-only
-messages and attachment download URLs are preserved for the agent.
+credentials, one public base URL, and a portable-user address mapping. It lists
+existing people from the selected workspace's `users.json`; the user may choose
+one or create a new ID and display name. SMS requires a phone and email requires
+an email, each with an explicit inbound-allowed state. Complete noninteractive
+flags provide the same channel, provider, user, address, and allowed-state
+values. Secrets are hidden while typing and stored only in the selected
+machine-registry record. Blank keeps an existing provider value. `/clear` is
+accepted as input, but setup rejects the resulting blank when that provider
+value is required by a selected channel. Guided and headless setup share the
+same HTTPS-origin, channel-requirement, sender-normalization, and redacted-error
+validation before writing. The setup output shows the exact
+`/w/<selected-ingress>/sms` and/or `/w/<selected-ingress>/email` URL to enter in
+the provider portal. Setup and `receiver set` notify only the selected live
+lease to reload; they never start or restart a process. Provider,
+portable-user, and hook writes form a rollback-bounded setup transaction: any
+later failure restores the selected pre-state, leaves peer workspace state
+alone, and suppresses reload. The
+shared process prefers port `8787` and serves receiver routes only while at
+least one TUI lease keeps that process alive. A selected workspace accepts
+receiver work only while its own lease is live and enabled; another live
+workspace cannot make that route accept. Email body and attachment content is
+retrieved through Resend's Receiving APIs; HTML-only messages and attachment
+download URLs are preserved for the agent.
 
-`brain server start` and `brain habits` both print the server-state path and
-plan before checking or spawning the daemon. `brain habits` then prints the
-local `/habits` URL before handing it to the system browser.
+`brain habits` and the habits palette action connect only to the process
+already attached to a live TUI. They never elect or spawn one independently.
+Without that process, the command fails with an instruction to open a Brain
+TUI first; with one, it prints the local
+`/local/<exact-live-lease>/w/<selected-ingress>/habits` URL
+before handing it to the system browser.
 
 `brain habits revive <fuzzy name>` (alias `brain habits fix`) repairs a **lapsed
 habit** — a recurring habit whose every occurrence is `done` with none pending,

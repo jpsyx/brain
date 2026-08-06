@@ -93,7 +93,9 @@ pub(crate) fn handle_search_view_key(
         // Ctrl-P opens the brain-search command palette. "Message brain" is
         // offered only when the panel is closed.
         KeyCode::Char('p') if ctrl => {
-            app.search.open_palette(app.panel_side, app.brain.is_none());
+            app.refresh_receiver_enabled();
+            app.search
+                .open_palette(app.panel_side, app.brain.is_none(), app.receiver_enabled);
         }
         // Ctrl-G: "Create PDF" confirmation for a highlighted markdown file.
         KeyCode::Char('g') if ctrl => {
@@ -218,6 +220,7 @@ fn dispatch_choice(app: &mut App<'_>, choice: Choice) {
             let roots = all_bucket_roots(&app.brain_root);
             app.search_rescope(&roots);
         }
+        Choice::ToggleReceiver => app.toggle_receiver(),
     }
 }
 

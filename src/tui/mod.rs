@@ -93,7 +93,6 @@ pub(crate) use status_warning::*;
 use std::collections::HashSet;
 use std::ops::Range;
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 use chrono::NaiveDate;
@@ -154,6 +153,9 @@ pub(crate) struct ReceiverSyncGate {
 
 pub(crate) struct App<'a> {
     command_context: crate::workspace::CommandContext,
+    /// Workspace ingress verified and accepted with this TUI's live lease.
+    server_ingress: crate::server::IngressId,
+    server_local_capability: crate::server::lifecycle::LeaseId,
     tag_styles: crate::personalization::tags::TagStyles,
     today: NaiveDate,
     /// Runtime config, held so post-startup actions (the `r`-hotkey triage
@@ -349,18 +351,20 @@ pub(crate) struct App<'a> {
     /// lifetime of the tasks shell; tracks which brain session this shell is
     /// driving (lock + recency).
     pub(crate) db: Db,
-    /// The optional receiver listener is owned by this TUI and therefore
-    /// cannot outlive it. Inbound work waits here until the active agent turn
-    /// is safe to switch.
-    pub(crate) receiver_server: Option<crate::server::receiver::ReceiverServer>,
-    pub(crate) receiver_control: Option<crate::server::receiver::ControlSocket>,
-    pub(crate) receiver_rx: Option<Receiver<crate::server::receiver::InboundMessage>>,
-    pub(crate) receiver_queue: Vec<crate::server::receiver::InboundMessage>,
+    /// The UUID-local job socket is owned by this TUI. Accepted inbound work
+    /// waits only in the bounded in-memory queue below.
+    pub(crate) receiver_control: Option<crate::tui::singleton::JobSocket>,
+    /// Persistent receiver intent for this exact selected workspace.
+    pub(crate) receiver_enabled: bool,
+    receiver_intent_refresher: Box<dyn crate::command::server::ReceiverIntentRefresher>,
+    pub(crate) receiver_queue: Vec<crate::server::receiver::InboundJob>,
     pub(crate) requested_receiver_actor: Option<crate::actor::ActorContext>,
     pub(crate) receiver_lease: Option<receiver_state::Lease>,
     pub(crate) receiver_generation: u64,
     pub(crate) receiver_sender: Option<String>,
     pub(crate) receiver_recipients: Vec<String>,
+    pub(crate) receiver_response_email: Option<String>,
+    pub(crate) receiver_email_reply: Option<crate::server::receiver::EmailReplyContext>,
     pub(crate) receiver_session_id: Option<String>,
     pub(crate) interactive_session_id: Option<String>,
     pub(crate) receiver_resume_session: Option<String>,
