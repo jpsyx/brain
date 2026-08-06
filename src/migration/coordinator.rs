@@ -65,9 +65,6 @@ pub(crate) fn run(
         }
     }
 
-    let config = Config::try_load(&context.workspace)?;
-    let prepared_users = prepare_users(context, &config, terminal.as_mut())?;
-
     if sync_configured {
         let remote = crate::sync::remote::build_remote(&sync_config);
         crate::sync::identity::require_remote_identity(
@@ -77,6 +74,14 @@ pub(crate) fn run(
         )
         .context("migration remote identity preflight")?;
     }
+
+    let prepared = if sync_configured {
+        None
+    } else {
+        let config = Config::try_load(&context.workspace)?;
+        let users = prepare_users(context, &config, terminal.as_mut())?;
+        Some((config, users))
+    };
 
     let now = Utc::now();
     let timestamp = now.format("%Y%m%dT%H%M%SZ").to_string();
@@ -104,8 +109,8 @@ pub(crate) fn run(
     if let Err(error) = execute(
         context,
         &sync_config,
-        &config,
-        &prepared_users,
+        terminal.as_mut(),
+        prepared,
         &backup_base,
         &mut journal,
     ) {
@@ -131,20 +136,32 @@ pub(crate) fn run(
 fn execute(
     context: &CommandContext,
     sync_config: &crate::sync::config::SyncConfig,
-    config: &Config,
-    prepared_users: &PreparedUsers,
+    terminal: Option<&mut Terminal>,
+    prepared: Option<(Config, PreparedUsers)>,
     backup_base: &Path,
     journal: &mut MigrationJournal,
 ) -> Result<()> {
+    if journal.remaining_steps().first() == Some(&Step::LegacySemanticSync) {
+        let theme = crate::theme::Theme::active();
+        eprintln!("{}", theme.info(step_message(Step::LegacySemanticSync)));
+        crate::sync::command::run_legacy_migration_sync(context, sync_config)?;
+        journal.record_completed(Step::LegacySemanticSync)?;
+    }
+
+    let (config, prepared_users) = if let Some(prepared) = prepared {
+        prepared
+    } else {
+        let config = Config::try_load(&context.workspace)?;
+        let users = prepare_users(context, &config, terminal)?;
+        (config, users)
+    };
     let steps = journal.remaining_steps().to_vec();
+    let mut schema_sync_guard = None;
     for step in steps {
         let theme = crate::theme::Theme::active();
         eprintln!("{}", theme.info(step_message(step)));
         match step {
-            Step::LegacySemanticSync => {
-                crate::sync::command::run_legacy_migration_sync(context, sync_config)?;
-                journal.record_completed(step)?;
-            }
+            Step::LegacySemanticSync => unreachable!("legacy sync is handled before preflight"),
             Step::BackupPortableData => {
                 backup_portable_data(context.workspace.root(), backup_base, journal.backup_dir())?;
                 journal.record_completed(step)?;
@@ -158,6 +175,7 @@ fn execute(
                 journal.record_completed(step)?;
             }
             Step::MigrateTaskColumnsAndUuids => {
+                acquire_schema_sync_guard(context, sync_config, &mut schema_sync_guard)?;
                 migrate_inactive(TaskSchemaMigration {
                     workspace_id: context.workspace.id(),
                     workspace_root: context.workspace.root(),
@@ -170,6 +188,11 @@ fn execute(
                         LegacySemanticSync::NotConfigured
                     },
                 })?;
+                journal.record_completed(step)?;
+            }
+            Step::PublishTaskSchemaTransition => {
+                acquire_schema_sync_guard(context, sync_config, &mut schema_sync_guard)?;
+                super::schema_transition::publish_task_schema_transition(context, sync_config)?;
                 journal.record_completed(step)?;
             }
             Step::ReconcileManagedTriage => {
@@ -193,6 +216,21 @@ fn execute(
     Ok(())
 }
 
+fn acquire_schema_sync_guard(
+    context: &CommandContext,
+    sync_config: &crate::sync::config::SyncConfig,
+    guard: &mut Option<crate::sync::lock::Guard>,
+) -> Result<()> {
+    if sync_config.is_configured() && guard.is_none() {
+        *guard = Some(
+            crate::sync::lock::try_acquire(&context.workspace.paths().sync_lock()).ok_or_else(
+                || anyhow!("another sync owns this workspace; retry migration after it finishes"),
+            )?,
+        );
+    }
+    Ok(())
+}
+
 fn step_message(step: Step) -> &'static str {
     match step {
         Step::LegacySemanticSync => "Running the final legacy semantic sync...",
@@ -200,6 +238,9 @@ fn step_message(step: Step) -> &'static str {
         Step::EnsureWorkspaceManifest => "Verifying the portable workspace identity...",
         Step::EnsureUsersRegistry => "Writing the portable user registry...",
         Step::MigrateTaskColumnsAndUuids => "Migrating task columns and UUID identity...",
+        Step::PublishTaskSchemaTransition => {
+            "Publishing task CSVs, baselines, and schema metadata..."
+        }
         Step::ReconcileManagedTriage => "Reconciling managed triage habits...",
         Step::RebuildDerivedData => "Rebuilding derived indexes...",
         Step::Verify => "Verifying the completed workspace migration...",

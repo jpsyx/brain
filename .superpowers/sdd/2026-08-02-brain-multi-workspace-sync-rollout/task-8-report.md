@@ -3,14 +3,15 @@
 ## Status
 
 PASS. All required durable docs and release surfaces describe the completed
-Phase 5 module tree and CLI. The final additive version is `0.35.0`. All release,
+Phase 5 module tree and CLI. The final compatible version after review fixes is
+`0.35.1`. All release,
 acceptance, privacy, read-only, lint, skill, help, and smoke gates passed. The
 branch remains local and the worktree is preserved.
 
 ## Version and base
 
 - Starting version: `0.34.1`
-- Final version: `0.35.0`
+- Final version: `0.35.1`
 - Starting commit: `af1c502d72f3395c08fe18047aae64a4b5ac56d3`
 - Task commit: this local Task 8 commit
 
@@ -105,3 +106,75 @@ No production remote, real provider credential, live TUI, or real agent PTY was
 used. The local-rclone and composed acceptance suites use temporary data and
 fake only external provider/agent edges. No push, publication, merge, or
 worktree deletion occurred.
+
+## Final review correctness pass
+
+The final independent review found six correctness defects and one deferred
+Minor after the original Task 8 commit. This consolidated pass fixes all six
+actionable findings and bumps the compatible release to `0.35.1`.
+
+### RED evidence
+
+1. `migration::users::tests::mapping_preflight_prefers_canonical_assigned_to_over_legacy_assignee` failed with `legacy-person` selected instead of `canonical-person`.
+2. `sync_repair_and_check_refuse_mismatched_remote_before_any_data_command` failed because compiled sync created its UUID bisync workdir before remote identity refusal. `sync::args::tests::excludes_task_schema_metadata_for_schema_last_publication` failed because `tasks/SCHEMA.json` remained in rclone argv.
+3. `setup_holds_the_uuid_lock_against_manual_sync_through_the_baseline` initially could not express a shared setup lock boundary. `concurrent_empty_setup_elects_one_claim_without_overwriting_the_manifest` then observed two canonical manifest publications.
+4. `configured_legacy_plan_finishes_legacy_sync_before_uuid_cutover` lacked `PublishTaskSchemaTransition`; the schema-transition integration tests initially had no API to call.
+5. The two `reload_after_sync` compiled tests failed substantively: migration accepted a sender mapping pulled by final sync, and a pulled disabled-triage config still produced managed triage rows.
+6. The real-rclone `legacy_sync_migrates_then_syncs_and_a_second_legacy_machine_joins` test reached current-schema convergence but failed byte equality because independent migration placed `task_id` in different header positions.
+7. Crash-window follow-up tests proved ordinary sync reached rclone and setup reached identity while the migration journal remained active. A final argv test proved setup ownership claims were not excluded from generic transport.
+
+### Implemented boundaries
+
+- Canonical `assigned_to` wins over legacy `assignee` regardless of column order.
+- Remote identity succeeds before bisync workdir creation or stale-lock reaping.
+- Setup holds one UUID sync lock across remote ownership, credential persistence,
+  marker bootstrap, and initial baseline. Concurrent empty setup uses append-only
+  exact-manifest claims, strict read-back/list validation, deterministic UUID
+  election, canonical re-probe, and immutable-copy defense. Claims remain remote
+  setup metadata and are excluded from ordinary transfer.
+- The migration journal includes a remote schema-transition step. Local CSV
+  migration and remote transition share the UUID lock; current task and habit
+  CSVs publish first, both exact machine-local baselines are made durable next,
+  and `tasks/SCHEMA.json` publishes last. Generic rclone excludes all three.
+- Ordinary sync and setup refuse while an active rollout journal exists, so a
+  process crash cannot reopen the legacy/current boundary before resume.
+- Config, users, and both assignment CSVs are reloaded and preflighted
+  immediately after the final legacy sync and before backup or portable
+  mutation.
+- Migrated CSV headers always begin `task_uuid,task_id`, giving independent
+  machines a common byte representation.
+
+### Focused verification
+
+- `cargo test --release --test multi_workspace_migration -- --nocapture`: PASS, 20 tests.
+- `cargo test --release --test sync_local -- --nocapture`: PASS, 8 tests with real local rclone.
+- `cargo test --release --test sync_workspace_identity -- --nocapture`: PASS, 9 tests.
+- `cargo test --release --test task_schema_migration -- --nocapture`: PASS, 10 tests.
+- `cargo test --release --lib sync::setup::tests -- --nocapture`: PASS, 12 tests.
+
+### Final verification
+
+- `cargo test --release`: PASS, 1,306 library tests plus every integration and
+  doc test.
+- `cargo clippy --release --all-targets -- -D warnings`: PASS. The first strict
+  run exposed only mechanical warnings in new test code; after correction, the
+  affected tests and the final strict run remained green.
+- `cargo test --release bundled_skills_carry_no_personal_data`: PASS.
+- `python3 -m unittest discover -s skills/todo/scripts/tests`: PASS, 23 tests.
+- Explicit acceptance, migration, local-rclone, watcher, literal read-only,
+  receiver-security, OpenCode, and workspace-doc integration suites: PASS.
+- Root/workspace/migrate/sync-setup/receiver/server help and both long and short
+  conflicting-frontend audits: PASS.
+- Isolated two-workspace CLI smoke: PASS. Its temporary tree was moved to Trash.
+- Focused rustfmt over every touched Rust file, `git diff --check`, and
+  added-line security/path/unfinished-marker/em-dash audits: PASS.
+- No production remote, real provider credential, live TUI, or real agent PTY
+  was used.
+
+### Deferred Minor
+
+Existing backup-path validation resolves canonical and lexical symlink aliases,
+but a symlink inserted into a previously missing descendant after validation
+can still race component creation. Descriptor-relative path walking is a
+separate hardening design and is deferred; this pass does not expand the backup
+transaction beyond the six actionable review findings.

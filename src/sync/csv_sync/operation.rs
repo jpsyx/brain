@@ -50,7 +50,7 @@ fn write_checked(path: &Path, text: &str) -> Result<(), CsvSyncError> {
         .map_err(|error| CsvSyncError::LocalWrite(format!("writing {}: {error}", path.display())))
 }
 
-pub(super) fn sync_csvs_with_transport(
+pub fn sync_csvs_with_transport(
     paths: &crate::workspace::WorkspacePaths,
     root: &Path,
     direction: Direction,

@@ -352,9 +352,13 @@ delegated task values.
 - `workspace migrate` explicitly runs or resumes the legacy-to-multi-workspace
   rollout. It creates a UUID-scoped machine-local journal and retained portable
   backup, runs a final legacy semantic sync when configured, maps every
-  unresolved sender and assignment before mutation, activates task UUID merge
-  identity, rebuilds derived data, and verifies every identity boundary before
-  removing the journal. Synced headless use requires explicit
+  unresolved sender and canonical `assigned_to` value before mutation, and
+  activates task UUID merge identity. After the final sync it reloads config,
+  portable users, and assignments before that mapping gate, so newly pulled
+  senders or triage policy apply to this run. The schema transition publishes
+  current task and habit CSVs, durably establishes their UUID baselines, and
+  publishes `tasks/SCHEMA.json` last. It then rebuilds derived data and verifies
+  every identity boundary before removing the journal. Synced headless use requires explicit
   `--brain <workspace>` selection plus
   `--acknowledge-all-machines-updated`; incomplete mapping prints exact
   `brain user ... -b <workspace>` remediation. A failed step reports the
@@ -502,7 +506,10 @@ conversion for legacy rows is activated only by explicit workspace migration.
 It requires the rollout-owned last-legacy-sync state, an existing durable
 machine-local backup base, and an explicit destination beneath that base.
 Existing legacy CSV sync remains keyed by `task_id` until coordinated
-migration. The helper rejects backup/workspace path overlap, creates a deep backup
+migration. The coordinator holds the UUID sync lock from local CSV migration
+through remote CSV and baseline publication, with schema metadata last. An
+active rollout journal blocks ordinary sync and setup until migration resumes.
+The helper rejects backup/workspace path overlap, creates a deep backup
 path one component at a time while syncing every actual parent, durably syncs
 every exact backup, and journals the three-file replacement so a retry
 recovers from failure or interruption at any replacement boundary. Journal
@@ -571,6 +578,8 @@ comparison and selected direction, rclone's live file progress, task/habit CSV
 merge, and journal write. If `rclone` is missing, it stops before remote work
 and prints two clearly labeled installation choices: the Homebrew command
 (`brew install rclone`) or the official installer command.
+If a rollout journal is active, ordinary sync refuses immediately after taking
+the UUID lock and directs the user to resume `brain workspace migrate`.
 
 - `brain sync` (bare) — bidirectional sync; a same-file conflict is resolved
   by newest edit.
@@ -591,15 +600,20 @@ and prints two clearly labeled installation choices: the Homebrew command
   `.config/workspace.json`. It displays the local canonical workspace name and
   UUID, configured remote target, observed remote status, and remote UUID when
   a compatible manifest supplied one. A matching identity proceeds; an empty
-  remote gets the exact local manifest published and read back. A nonempty
+  remote first receives an append-only exact-manifest claim under the selected
+  UUID. Concurrent initializers enumerate and validate claims, deterministically
+  elect one UUID, and only the winner may publish and read back the canonical
+  manifest. A nonempty
   manifestless remote requires an explicit `y`/`yes` confirmation, or
   `--adopt-workspace-id <UUID>` with the exact selected UUID for noninteractive
   authorization. A generic `--yes` does not authorize adoption. Mismatched,
   malformed, incompatible, and present-but-unreadable remote manifests remain
   hard refusals. Every authorized initialization or adoption publishes and
   verifies the manifest before credentials or any other remote data are written.
-  Setup then creates the `RCLONE_TEST` check-access marker on both sides and
-  establishes the initial bisync baseline.
+  Setup holds the workspace UUID sync lock across that identity protocol,
+  credential persistence, creation of the `RCLONE_TEST` check-access marker on
+  both sides, and the initial bisync baseline. If a workspace migration journal
+  is active, setup refuses before remote identity work.
 - `brain sync repair` — (re-)establish the bisync baseline for a machine that
   already has `sync` env configured. A normal sync automatically performs this
   narrow repair when rclone reports a missing check-access marker, announcing
@@ -878,8 +892,10 @@ resolve-conflicts` skill reads that JSON, merges each group into its
 canonical file, then clears the copies with `brain sync resolve <original>`.
 
 **Task CSVs merge by their active schema identity, with no conflict copies.** `tasks/tasks.csv` and
-`tasks/habits.csv` don't go through the keep-both path above at all: brain
-excludes them from the bisync file lane and reconciles them itself with a
+`tasks/habits.csv` don't go through the keep-both path above at all. Brain
+also excludes `tasks/SCHEMA.json`, so the generic file lane cannot advertise a
+new merge identity ahead of its CSVs and baselines. Brain reconciles the CSVs
+itself with a
 three-way merge (a cached local baseline + your local copy + the remote
 copy), writing the merged result back to both sides. Two machines that each
 add, complete, delete, or edit different fields on the same task converge

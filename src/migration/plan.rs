@@ -29,6 +29,7 @@ pub enum Step {
     EnsureWorkspaceManifest,
     EnsureUsersRegistry,
     MigrateTaskColumnsAndUuids,
+    PublishTaskSchemaTransition,
     ReconcileManagedTriage,
     RebuildDerivedData,
     Verify,
@@ -83,6 +84,11 @@ pub fn migration_plan(input: PlanInput) -> Result<Vec<Step>> {
         Step::EnsureWorkspaceManifest,
         Step::EnsureUsersRegistry,
         Step::MigrateTaskColumnsAndUuids,
+    ]);
+    if input.sync_configured {
+        steps.push(Step::PublishTaskSchemaTransition);
+    }
+    steps.extend([
         Step::ReconcileManagedTriage,
         Step::RebuildDerivedData,
         Step::Verify,

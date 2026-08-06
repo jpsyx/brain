@@ -326,9 +326,11 @@ fn sync_repair_and_check_refuse_mismatched_remote_before_any_data_command() {
     std::fs::set_permissions(&rclone, std::fs::Permissions::from_mode(0o700)).unwrap();
     let data_log = fixture.home.path().join("rclone-data.log");
     let remote_manifest = String::from_utf8(manifest_bytes(FAMILY_ID, "0.1.0")).unwrap();
+    let bisync_workdir = brain::sync::run::bisync_workdir(fixture.personal.workspace.paths());
 
     for args in [vec!["sync"], vec!["sync", "repair"], vec!["check"]] {
         let _ = std::fs::remove_file(&data_log);
+        let _ = std::fs::remove_dir_all(&bisync_workdir);
         let output = Command::new(env!("CARGO_BIN_EXE_brain"))
             .args(&args)
             .env("HOME", fixture.home.path())
@@ -352,5 +354,57 @@ fn sync_repair_and_check_refuse_mismatched_remote_before_any_data_command() {
             "brain {args:?} reached a data command: {}",
             std::fs::read_to_string(&data_log).unwrap_or_default()
         );
+        if args.first() == Some(&"sync") {
+            assert!(
+                !bisync_workdir.exists(),
+                "brain {args:?} created UUID runtime workdir before remote identity"
+            );
+        }
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn ordinary_sync_refuses_an_incomplete_schema_migration_before_rclone() {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::process::Command;
+
+    let fixture = Fixture::new();
+    let journal = fixture.personal.workspace.paths().migration_journal();
+    std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
+    std::fs::write(&journal, b"active migration\n").unwrap();
+    let bin_dir = fixture.home.path().join("bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    let rclone = bin_dir.join("rclone");
+    std::fs::write(
+        &rclone,
+        b"#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$RCLONE_LOG\"\nexit 97\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&rclone, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let log = fixture.home.path().join("rclone.log");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .arg("sync")
+        .env("HOME", fixture.home.path())
+        .env("XDG_CONFIG_HOME", fixture.home.path().join("config"))
+        .env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display()))
+        .env("RCLONE_LOG", &log)
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "sync unexpectedly crossed migration"
+    );
+    assert!(
+        stderr.contains("workspace migration is incomplete"),
+        "{stderr}"
+    );
+    assert!(
+        !log.exists(),
+        "sync invoked rclone before migration resumed"
+    );
 }

@@ -8,6 +8,8 @@ mod conflicts;
 mod csv_merge;
 #[path = "sync_local/multi_workspace.rs"]
 mod multi_workspace;
+#[path = "sync_local/schema_transition.rs"]
+mod schema_transition;
 #[path = "sync_local/transport.rs"]
 mod transport;
 

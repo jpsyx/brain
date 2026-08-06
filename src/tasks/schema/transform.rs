@@ -134,10 +134,10 @@ fn reject_duplicate_columns(header: &[String], kind: CsvKind) -> Result<()> {
 
 fn migrated_header(source: &[String]) -> Vec<String> {
     let has_assigned_to = source.iter().any(|column| column == "assigned_to");
-    let mut header = vec!["task_uuid".to_owned()];
+    let mut header = vec!["task_uuid".to_owned(), "task_id".to_owned()];
     for column in source {
         match column.as_str() {
-            "task_uuid" => {}
+            "task_uuid" | "task_id" => {}
             "assignee" if has_assigned_to => {}
             "assignee" => header.push("assigned_to".to_owned()),
             _ => header.push(column.clone()),

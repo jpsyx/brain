@@ -333,7 +333,9 @@ changes presentation, not semantics: one-person workspaces hide redundant
 assignment controls but still persist the ID; shared workspaces reveal detail,
 creation/reassignment controls, and filtering. Compatibility is intentionally
 asymmetric: readers accept the legacy `assignee` heading, while any writer
-normalizes to `assigned_to`.
+normalizes to `assigned_to`. When both columns are present, `assigned_to` is
+the canonical mapping input; falling back to whichever header appears first
+would let stale legacy values override current portable assignment.
 
 ## Why task UUID migration runs only through the coordinated rollout
 
@@ -364,6 +366,21 @@ complete new generation after commit, so a mixed schema is never accepted as a
 new migration input. The coordinated rollout owns the final legacy sync,
 all-machines and remote identity gates, sender mapping, backup activation,
 rollout journal, derived rebuild, and final cross-store verification.
+
+The final legacy sync can pull config, portable users, and assignments that did
+not exist at command start. Brain therefore reloads all three immediately after
+that journaled sync and before backup or portable mutation. Freezing pre-sync
+objects would allow a newly pulled sender mapping to evade preflight or a stale
+triage flag to be applied during resume.
+
+Task-schema activation is a distributed publication boundary, not only a local
+file replacement. The rollout holds the UUID sync lock across local migration,
+remote task and habit CSV publication, and durable local baseline creation.
+Only after those four artifacts are ready does it publish
+`tasks/SCHEMA.json`. Generic rclone sync excludes the two CSVs and schema
+metadata, so no ordinary lane can reorder that transition. The rollout journal
+blocks ordinary sync and setup until an interrupted transition resumes; this
+closes the process-crash gap after the lock owner exits.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
@@ -924,8 +941,15 @@ mutation, brain therefore compares the selected UUID with the strict remote
 `.config/workspace.json` and exposes the remote to mutation code only through a
 verified capability. Mismatch and invalid manifests fail closed. A missing
 manifest is safe to initialize only when setup proves the remote has no files;
-setup publishes the exact existing local bytes and reads them back before
-persisting credentials or writing data. Existing local manifests are never
+setup first publishes exact manifest bytes under an append-only UUID-named
+claim, reads the claim back, enumerates and validates all claimants, and elects
+the lowest UUID. Only the winner may publish the canonical manifest, and it
+re-probes that path immediately before using immutable-copy defense. This claim
+protocol is necessary because the rclone/B2 surface does not expose a portable
+compare-and-swap for `.config/workspace.json`; distinct claim names avoid the
+original shared last-writer-wins object race. Claims are excluded from ordinary
+transfer and remain available for safe setup retry. The canonical bytes are
+read back before persisting credentials or writing data. Existing local manifests are never
 rewritten, and ordinary transfer excludes the manifest so it cannot replace a
 remote owner's identity. A nonempty manifestless remote can be legacy data for
 the selected workspace, but absence alone cannot prove ownership. Setup
@@ -1224,7 +1248,8 @@ extra mechanism needed to avoid the SIGKILL + PID-recycle wedge: a real long
 sync keeps refreshing the lockfile mtime, but a stale lock left behind by a dead
 process stops refreshing and becomes reapable even if the old PID number later
 belongs to an unrelated live process. Crucially the lock wraps **all** sync entry
-points, including the manual command path in `src/command/sync.rs`, which closes a latent
+points, including the manual command path in `src/command/sync.rs`, setup's
+identity/credential/baseline stages, and the migration schema transition. This closes a latent
 C2/C3 race that existed before C4: two concurrent manual `brain sync`
 invocations could previously collide, and now the second cleanly skips. Manual
 sync deliberately skips-with-a-message rather than blocking; a short
@@ -1682,7 +1707,9 @@ directory and the log file with the system `open`.
 
 `brain sync setup` is the only command that enables cloud sync on a machine: it
 collects Backblaze credentials, writes the machine-local `sync` block, creates
-the `RCLONE_TEST` guard marker, and establishes the first baseline.
+the `RCLONE_TEST` guard marker, and establishes the first baseline. One UUID
+sync-lock guard spans remote ownership election through that baseline, so a
+manual sync cannot observe persisted credentials before setup state is ready.
 `brain sync repair` deliberately does less: it repairs/re-establishes an existing setup by
 recreating the marker and running a resync. Keeping the commands separate avoids
 silently enabling cloud sync from a recovery command. The UX rule is that any

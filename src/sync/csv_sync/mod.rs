@@ -15,7 +15,7 @@ use std::{error::Error, fmt};
 use crate::sync::args::Direction;
 use crate::sync::csv_merge::{merge, parse, schema_status, serialize, validate_for_merge};
 use crate::sync::run::run_rclone_capture;
-use operation::sync_csvs_with_transport;
+pub use operation::sync_csvs_with_transport;
 
 #[cfg(test)]
 use metadata::reconcile_project_metadata;

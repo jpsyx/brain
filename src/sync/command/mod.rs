@@ -73,14 +73,6 @@ pub fn sync_once(
     let (started_at, finished_at, date) = now;
     let remote = build_remote(cfg);
     let local = root.to_string_lossy().into_owned();
-    let workdir = crate::sync::run::bisync_workdir(paths);
-    let _ = std::fs::create_dir_all(&workdir);
-    let workdir_arg = workdir.to_string_lossy().into_owned();
-    let argv = if dir == Direction::Push {
-        args::push_args(cfg, &local, &remote.arg)
-    } else {
-        args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, dir)
-    };
     let theme = Theme::active();
     // The single output sink for this run: everything below is mirrored to
     // `current.log` (so a following `brain sync` and `brain sync status` can
@@ -112,6 +104,14 @@ pub fn sync_once(
     reporter.line(&theme.info("Probing the remote workspace identity…"));
     let verified = crate::sync::identity::require_remote_identity(root, workspace_id, &remote)?;
     let remote = verified.remote();
+    let workdir = crate::sync::run::bisync_workdir(paths);
+    let _ = std::fs::create_dir_all(&workdir);
+    let workdir_arg = workdir.to_string_lossy().into_owned();
+    let argv = if dir == Direction::Push {
+        args::push_args(cfg, &local, &remote.arg)
+    } else {
+        args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, dir)
+    };
 
     if should_bootstrap_check_access(dir) {
         crate::logging::log("sync check-access markers");

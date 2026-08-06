@@ -178,7 +178,8 @@ fn read_assignments(root: &Path) -> Result<Vec<String>> {
         let headers = reader.headers()?.clone();
         let index = headers
             .iter()
-            .position(|header| matches!(header, "assigned_to" | "assignee"));
+            .position(|header| header == "assigned_to")
+            .or_else(|| headers.iter().position(|header| header == "assignee"));
         if let Some(index) = index {
             for row in reader.records() {
                 let row = row?;
@@ -190,4 +191,31 @@ fn read_assignments(root: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(assignments)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_assignments;
+
+    #[test]
+    fn mapping_preflight_prefers_canonical_assigned_to_over_legacy_assignee() {
+        let temporary = tempfile::tempdir().unwrap();
+        let tasks = temporary.path().join("tasks");
+        std::fs::create_dir(&tasks).unwrap();
+        std::fs::write(
+            tasks.join("tasks.csv"),
+            "task_id,assignee,assigned_to\nT1,legacy-person,canonical-person\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tasks.join("habits.csv"),
+            "task_id,assigned_to,assignee\nH1,canonical-habit,legacy-habit\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            read_assignments(temporary.path()).unwrap(),
+            ["canonical-person", "canonical-habit"]
+        );
+    }
 }

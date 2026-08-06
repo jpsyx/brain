@@ -641,18 +641,26 @@ in the separate `env.json`) are ignored here.
 private Backblaze B2 bucket via `rclone bisync`, dispatched in
 `src/command/sync.rs`
 **before** the `markdown-to-pdf` prerequisite gate (like `config`/`env`/
-`personalize`/`skills`). The data flow per run is **build → prove remote
-identity → run → post-pass → verify → journal**: `config` (`SyncConfig`, parsed from the brain-env `sync`
+`personalize`/`skills`). The data flow per run is **lock → refuse an active
+rollout → build → prove remote identity → materialize runtime state → run →
+post-pass → verify → journal**: `config` (`SyncConfig`, parsed from the brain-env `sync`
 block) feeds `remote::build_remote` (the B2 remote as `RCLONE_CONFIG_*` env
 vars, never on argv) and `args::bisync_args` (the full `rclone bisync` argv:
 conflict resolution bias for the direction, keep-both flags, `--max-delete`,
 default excludes, `--check-access --check-filename RCLONE_TEST`, plus
 `--stats 10s --stats-one-line` for live progress and `--resilient --recover`
 for resumability). Before any remote or portable mutation,
-`identity.rs` validates the selected root's existing portable manifest, probes
+`identity/` validates the selected root's existing portable manifest, probes
 the remote `.config/workspace.json` through rclone, and returns a private
 `VerifiedRemote` capability only when its UUID and schema match. The
-check-access, bisync, CSV, and counter lanes require that capability;
+check-access, bisync, CSV, and counter lanes require that capability. The
+UUID-scoped rclone workdir is not created and stale rclone locks are not reaped
+until this identity proof succeeds. `identity/claim.rs` owns setup's
+append-only `.config/workspace-claims/<uuid>.json` protocol. Concurrent setup
+processes publish exact manifest claims under distinct names, enumerate and
+validate them, elect the lowest UUID deterministically, re-probe the canonical
+manifest, and publish it with immutable-copy defense. A losing claimant
+refuses without replacing `.config/workspace.json`;
 `check_access.rs` creates/repairs the root-level marker on
 local + remote before resync runs; `run::run_rclone` checks for the external
 `rclone` executable before spawning it, then streams its stderr live to the terminal while
@@ -678,9 +686,11 @@ target and observed remote status/UUID, and publish and read back the exact
 existing local manifest for an empty remote or an explicitly authorized
 nonempty manifestless remote). Interactive authorization is an explicit yes;
 noninteractive authorization is the exact selected UUID in
-`--adopt-workspace-id`. The verified manifest boundary completes before setup
-writes the `sync` block into brain env, bootstraps check-access markers, or runs
-the baseline `sync_once(Direction::Resync)`. Mismatched, malformed,
+`--adopt-workspace-id`. Setup holds the selected workspace's UUID-scoped sync
+lock across identity election, `sync`-block persistence, check-access marker
+bootstrap, and the baseline `sync_once(Direction::Resync)`. The verified
+manifest boundary completes before setup writes credentials or baseline data.
+Mismatched, malformed,
 incompatible, and present-but-unreadable remote manifests fail closed. Ordinary
 and internal identity gates have no adoption authority and remain nonprompting.
 `brain sync repair` reruns just
@@ -831,16 +841,25 @@ copies via `resolve`, then runs one ordinary `brain sync`. See
 The explicit `brain workspace migrate` coordinator separates pure planning,
 privacy-limited backup, durable journal, portable-user mapping, focused step
 adapters, and final verification. Legacy, Prepared, Current, and
-unsupported-newer states are explicit. User/all-machines/remote gates finish
-before journal creation. The journal lives at
+unsupported-newer states are explicit. Selection, acknowledgement, and the
+initial remote identity gate finish before journal creation. For a configured
+workspace, the journaled final legacy sync runs first; the coordinator then
+reloads portable config, users, and both assignment CSVs and reruns mapping
+preflight before backup or portable mutation. The journal lives at
 `<workspace-cache>/migrations/multi-workspace-v1.json`; the retained backup
 lives under `<workspace-cache>/migration-backups/` and contains only the
 portable rollout inventory. The coordinator reuses existing sync, manifest,
 users, task-schema, triage, and reindex transactions. Its first journaled step
 is the final legacy semantic sync when sync is configured, so UUID task merge
-identity never becomes authoritative first. Every completed step is persisted
-atomically; rerun validates the exact workspace UUID/root/plan and resumes the
-original backup instead of starting another generation. Final verification
+identity never becomes authoritative first. Task-schema migration and its
+remote transition share the UUID sync lock. The transition publishes both
+current CSVs, durably establishes both machine-local UUID baselines, and only
+then publishes `tasks/SCHEMA.json`; all three paths are excluded from the
+generic rclone lane. Every completed step is persisted atomically; rerun
+validates the exact workspace UUID/root/plan and resumes the original backup
+instead of starting another generation. While the journal exists, ordinary
+sync and sync setup refuse at the lock boundary so an interrupted transition
+must resume through `brain workspace migrate`. Final verification
 checks registry and manifest identity, membership, task UUID and assignment
 invariants, triage state, derived indexes, and remote identity before removing
 the active journal. The backup remains machine-local and retained.

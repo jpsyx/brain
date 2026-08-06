@@ -847,7 +847,8 @@ brain-root lookup.
   interrupted run can resume on the next invocation without forcing a full
   `--resync`), `--check-access --check-filename RCLONE_TEST`, and default
   excludes (`.git/**`, `.DS_Store`, `.cache/**`, the remote identity manifest
-  `.config/workspace.json`, friendly conflict copies `*(conflict *)*`, and raw
+  `.config/workspace.json`, setup claims `.config/workspace-claims/**`, task
+  schema metadata `tasks/SCHEMA.json`, friendly conflict copies `*(conflict *)*`, and raw
   markers `*.__brainconflict__*`) plus any
   user-configured `sync.exclude` patterns and an optional `sync.max_size` cap
   (`--max-size`, omitted when unset).
@@ -855,19 +856,24 @@ brain-root lookup.
   env-var remote, and parses its captured stderr into transferred / deleted /
   error counts plus an abort reason.
 - **Remote ownership is proved before remote data work.**
-  `src/sync/identity.rs` strictly loads the selected root's existing
+  `src/sync/identity/mod.rs` strictly loads the selected root's existing
   `.config/workspace.json`, requires its UUID to equal the selected
   `WorkspaceId`, and probes the same path under the `build_remote` target with
   `rclone cat`. Matching compatible bytes produce a private `VerifiedRemote`
   capability required by the check-access, bisync, semantic CSV, and counter
   lanes. Mismatch, malformed JSON, incompatible schema, and a missing manifest
   on a nonempty remote all refuse before those lanes can mutate anything.
-  Setup alone may initialize a demonstrably empty remote: it uses `rclone lsf
-  --recursive --files-only`, publishes the exact existing local bytes with
-  `copyto`, and reads them back with `cat` before saving credentials or
-  establishing a baseline. An unreachable probe never guesses that the remote
-  is empty. Existing local manifest bytes are validation input, never rewritten
-  by setup or transfer, and cross-workspace adoption is not implicit.
+  Setup alone may initialize a demonstrably empty remote. Before canonical
+  publication, `src/sync/identity/claim.rs` writes the exact manifest as an
+  append-only `.config/workspace-claims/<uuid>.json` object with immutable-copy
+  defense, verifies it by `cat`, strictly enumerates and validates the claims,
+  and elects the lowest UUID. Setup then re-probes `.config/workspace.json`;
+  only the elected claimant may publish and read back the canonical bytes.
+  Claims are excluded from ordinary transfer, and claim-only targets remain
+  retryable. An unreachable probe never guesses that the remote is empty.
+  Existing local manifest bytes are validation input, never rewritten by setup
+  or transfer, and cross-workspace adoption is not implicit. Bisync workdir
+  creation and stale-lock reaping happen only after this identity gate.
 - **Progress streams live instead of blocking silently.** `run_rclone`
   inherits its own stdout for the child (`Stdio::inherit()`) and pipes only
   stderr (`Stdio::piped()`) — rclone writes its logs/stats to stderr. That
@@ -945,10 +951,13 @@ brain-root lookup.
   target, setup requires either an explicit interactive confirmation or the
   exact selected UUID through `--adopt-workspace-id`; a generic `--yes` is not
   accepted. Mismatched, malformed, incompatible, or present-but-unreadable
-  manifests remain hard refusals. Manifest publication and read-back finish
+  manifests remain hard refusals. The UUID-scoped sync lock covers remote claim
+  election, manifest publication/read-back, credential persistence, marker
+  bootstrap, and the complete initial baseline. Manifest publication and read-back finish
   before setup writes the `sync` block into brain env (`crate::env::set_raw`,
   **not** brain config, see [config.md](config.md)) and runs one
-  `Direction::Resync` sync to establish the baseline. It never creates a bucket
+  `Direction::Resync` sync to establish the baseline. An active workspace
+  migration journal refuses setup before remote identity work. It never creates a bucket
   or treats an unreachable probe as a new bucket. If the existing `sync`
   block contains crypt fields, setup preserves them when refreshing bucket
   credentials. `brain sync repair` reruns just that last step (check-access marker
@@ -1002,9 +1011,10 @@ brain-root lookup.
   first. `resolve` never invokes `rclone` or the journal; it's a pure local
   filesystem delete, so the skill runs one ordinary `brain sync` afterward to
   push the resolution out.
-- **The two task CSVs skip bisync entirely; they're merged out-of-band.**
+- **The two task CSVs and their schema marker skip bisync entirely.**
   `tasks/tasks.csv` and `tasks/habits.csv` are added to `args::bisync_args`'s
-  default excludes (`src/sync/args.rs`), so Lane-A bisync never touches them —
+  default excludes alongside `tasks/SCHEMA.json` (`src/sync/args.rs`), so the
+  generic lane cannot publish merge semantics ahead of data and baselines. Lane-A bisync never touches the CSVs;
   line-based bisync would happily let one machine's edit clobber another's on
   structured, id-keyed data. Instead `command::sync_once` runs a dedicated
   step (`crate::sync::csv_sync::sync_csvs`) once bisync itself hasn't aborted.
@@ -1083,8 +1093,15 @@ brain-root lookup.
   `<workspace-cache>/migrations/multi-workspace-v1.json`; its original retained
   backup stays below `<workspace-cache>/migration-backups/`. When sync is
   configured, the first journaled step uses the existing legacy semantic sync
-  before task UUID identity becomes authoritative. Every step is atomically
-  recorded, so rerun validates the workspace/plan and resumes the same backup.
+  before task UUID identity becomes authoritative. The coordinator immediately
+  reloads portable config, users, and both assignment CSVs after that sync;
+  newly pulled sender mappings and managed-triage policy are therefore
+  preflighted before backup or mutation. Local schema migration and remote
+  transition remain under one UUID sync lock. The transition publishes both
+  current CSVs, durably writes the exact local baselines, then publishes
+  `tasks/SCHEMA.json` last. Every step is atomically recorded, so rerun validates
+  the workspace/plan and resumes the same backup. Ordinary sync and setup
+  refuse while that journal remains active.
   Failure reports the exact resume command and, after backup completion,
   shell-quoted restore commands. Success removes the active journal but keeps
   the backup.

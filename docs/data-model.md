@@ -645,7 +645,9 @@ key, mutable display identity, canonical assignment, `system_key`, and UUIDs,
 not the schema version alone. It is called only by explicit
 `brain workspace migrate`. The rollout coordinator owns the last legacy
 semantic sync, acknowledgement and identity gates, portable backup, step
-journal, activation, and final verification. Existing legacy files retain
+journal, activation, schema-last remote publication, and final verification.
+The local migrated header begins with `task_uuid,task_id` on every machine, so
+independently migrated legacy copies converge byte-for-byte. Existing legacy files retain
 `task_id` as their merge key until migration. Schema-v2 files merge by
 `task_uuid` and reconcile mutable display IDs without activating that
 migration.
@@ -660,21 +662,31 @@ come only from `WorkspacePaths`, so two workspaces can migrate independently
 without sharing recovery state. Neither path is portable or synced.
 
 Before creating a journal, the coordinator verifies the selected manifest and
-workspace UUID, compatible local/remote schemas, portable user and assignment
-mappings, remote identity when sync is configured, explicit all-machine
+workspace UUID, remote identity when sync is configured, explicit all-machine
 acknowledgement for a synced headless rollout, and a disjoint machine-local
-backup destination. The journal binds the migration ID, workspace UUID,
+backup destination. Unconfigured migration also finishes portable user and
+assignment mapping before journal creation. Configured migration first records
+the final legacy sync in the journal, then reloads config, portable users, and
+both CSV assignment columns and reruns mapping preflight before backup or
+portable mutation. If both `assigned_to` and legacy `assignee` exist,
+`assigned_to` is canonical. The journal binds the migration ID, workspace UUID,
 canonical root, original plan, original timestamp, retained backup, and
 completed steps. Reentry must match that identity exactly and resumes the same
 generation; a mismatch fails closed.
 
 The ordered steps are final legacy semantic sync, portable backup, user
-migration, task-schema migration, managed-triage reconciliation, reindex, and
-final verification. The final legacy sync completes before UUID task identity
-can become authoritative. Each completed step is atomically journaled, and the
-task-schema subtransaction has its own prepared/committed recovery boundary for
-multi-file replacement. Success removes only the active rollout journal and
-retains the backup. An interrupted run prints the exact resume command; after
+migration, local task-schema migration, remote task-schema transition,
+managed-triage reconciliation, reindex, and final verification. The final
+legacy sync completes before UUID task identity can become authoritative. The
+local migration and remote transition share the UUID sync lock. The transition
+publishes current `tasks.csv` and `habits.csv`, durably writes both exact
+machine-local baselines, and publishes `tasks/SCHEMA.json` last. Those three
+paths are excluded from ordinary rclone transfer. Each completed step is
+atomically journaled, and the task-schema subtransaction has its own
+prepared/committed recovery boundary for multi-file replacement. An active
+rollout journal makes ordinary sync and sync setup refuse after taking the UUID
+lock, so crash recovery must resume the journaled transition. Success removes
+only the active rollout journal and retains the backup. An interrupted run prints the exact resume command; after
 backup completion it also prints shell-quoted restore commands. Rerunning a
 fully current workspace is byte-idempotent and creates no new backup.
 
@@ -1034,7 +1046,7 @@ record and deserializes it, falling back to `SyncConfig::default()`
 on a missing key or a parse failure — a broken or absent `sync` block never
 blocks startup.
 
-## Remote workspace identity (`sync/identity.rs`)
+## Remote workspace identity (`sync/identity/`)
 
 Every remote data path is owned by one portable workspace manifest at
 `.config/workspace.json`. The remote file uses the same strict schema and UUID
@@ -1043,18 +1055,26 @@ empty target, a nonempty manifestless target, a compatible manifest with its
 UUID, an invalid or incompatible manifest, and a manifest that is listed but
 cannot be read. The identity decision then
 allows a match, permits setup initialization for an empty target, and refuses
-mismatched UUIDs or untrusted manifests.
+mismatched UUIDs or untrusted manifests. Ownership claims used during empty
+initialization live at `.config/workspace-claims/<workspace-uuid>.json`. They
+contain the claimant's exact manifest bytes and are append-only setup metadata;
+claim paths alone do not make the target nonempty for setup retry.
 
 Ordinary sync, push, pull, repair, and `brain check` accept only the matching
-outcome. Setup may publish the selected root's exact existing manifest bytes to
-an empty remote, then must read them back and revalidate before saving the
+outcome. Setup first publishes and reads back its UUID-named claim, strictly
+enumerates and validates all claim names and the elected claim contents, and
+elects the lexically lowest UUID. It then re-probes the canonical manifest;
+only the winner may publish the selected root's exact existing manifest bytes
+to an empty remote, using immutable-copy defense, and must read them back and
+revalidate before saving the
 candidate sync block or writing check markers, CSVs, counters, or bisync data.
 The local manifest is immutable validation input in this flow and is excluded
 from ordinary rclone transfer. A remote that already contains data but lacks a
 manifest is never adopted implicitly. Setup displays the local canonical name
 and UUID, target, and observed remote status, then requires either an explicit
 interactive confirmation or `--adopt-workspace-id <UUID>` matching the exact
-selected UUID. No portable remote workspace name exists. Ordinary sync and
+selected UUID. The setup stages hold the UUID-scoped sync lock from identity
+through credential persistence and initial baseline. No portable remote workspace name exists. Ordinary sync and
 internal server paths cannot supply adoption authority or prompt. Registry
 records, machine-local env credentials, and UUID-derived runtime state remain
 outside the portable remote.

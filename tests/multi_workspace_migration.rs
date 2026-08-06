@@ -4,3 +4,7 @@ mod backup_state;
 mod mapping_cli;
 #[path = "multi_workspace_migration/plan_journal.rs"]
 mod plan_journal;
+#[path = "multi_workspace_migration/reload_after_sync.rs"]
+mod reload_after_sync;
+#[path = "multi_workspace_migration/schema_transition.rs"]
+mod schema_transition;

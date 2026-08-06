@@ -223,7 +223,10 @@ verified first, then the normalized sender must match an enabled phone or email
 identity. Legacy receiver allowlists and response settings remain compatibility
 inputs until explicit `brain workspace migrate` maps them to portable people.
 That command also owns the final legacy semantic sync, durable backup, task
-schema activation, derived rebuild, verification, and resumable journal;
+schema activation, schema-last remote publication, derived rebuild,
+verification, and resumable journal. After its final legacy sync it reloads
+portable config, users, and CSV assignments before preflight. While that
+journal exists, ordinary sync and sync setup require migration to resume;
 ordinary startup and sync paths never activate migration. Task `assigned_to`,
 managed triage-habit policy, and the complete shared receiver lifecycle are
 active. The agent-controller facade and advisory access modes are active;
@@ -289,7 +292,7 @@ Mirrors `brain config` exactly, over the env store:
 written by **`brain sync setup`** (interactive: bucket + credentials,
 validate the selected local manifest, verify or initialize remote workspace
 identity, explicitly adopt a nonempty manifestless target when requested,
-establish the baseline), not by hand-editing
+establish the baseline under the UUID sync lock), not by hand-editing
 `env.json` or `brain env set`. See [features.md](features.md) for the full
 command surface (`brain sync [--push|--pull] {setup|repair|status|conflicts}`)
 and [integrations.md](integrations.md) for the rclone handoff.
@@ -297,12 +300,18 @@ and [integrations.md](integrations.md) for the rclone handoff.
 The bucket must already exist. Setup probes the selected record's configured
 bucket/path before persisting the candidate `sync` block. A matching strict
 remote manifest proceeds; a demonstrably empty remote receives the exact local
-manifest and is verified by read-back. A nonempty manifestless target first
+manifest only after setup publishes an append-only UUID-named ownership claim,
+enumerates and validates every claim, and wins deterministic UUID election.
+The canonical manifest is then verified by read-back. A nonempty manifestless target first
 shows the selected name/UUID, configured target, and observed status, then
 requires a positive interactive confirmation or an exact matching
 `--adopt-workspace-id <UUID>` flag. `--yes` alone is insufficient. Mismatch,
 malformed, incompatible, or present-but-unreadable manifests, and unreachable
-probes fail closed.
+probes fail closed. Concurrent setup processes cannot share the selected
+workspace lock, and different workspace UUIDs targeting the same empty remote
+compete through remote claims; only the elected claimant may publish the
+canonical manifest. Setup keeps its local UUID lock through credential
+persistence and the complete initial baseline.
 All later sync and check invocations load the same selected record's config and
 repeat this identity gate before remote data work.
 

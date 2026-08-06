@@ -204,6 +204,7 @@ pub fn run(
     let local_id = command.workspace.id();
     let adoption = adoption_authorization(local_id, adopt_workspace_id)?;
     run_setup_stages(
+        command.workspace.paths(),
         || {
             println!("{}", theme.info("Validating the local workspace manifest…"));
             println!("{}", theme.info("Probing the remote workspace identity…"));
@@ -255,10 +256,15 @@ pub fn run(
 }
 
 fn run_setup_stages(
+    paths: &crate::workspace::WorkspacePaths,
     identity: impl FnOnce() -> Result<()>,
     persist_credentials: impl FnOnce() -> Result<()>,
     baseline: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
+    let _guard = crate::sync::lock::try_acquire(&paths.sync_lock()).ok_or_else(|| {
+        anyhow::anyhow!("another sync owns this workspace; retry setup after it finishes")
+    })?;
+    crate::migration::require_no_active_rollout(paths)?;
     identity()?;
     persist_credentials()?;
     baseline()
@@ -438,8 +444,11 @@ mod tests {
     #[test]
     fn setup_stages_verify_remote_identity_before_persisting_credentials_or_syncing_data() {
         let stages = RefCell::new(Vec::new());
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
 
         run_setup_stages(
+            &paths,
             || {
                 stages.borrow_mut().push("identity");
                 Ok(())
@@ -459,10 +468,80 @@ mod tests {
     }
 
     #[test]
-    fn identity_refusal_preserves_credentials_and_skips_the_baseline() {
-        let stages = RefCell::new(Vec::new());
+    fn setup_holds_the_uuid_lock_against_manual_sync_through_the_baseline() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+
+        std::thread::scope(|scope| {
+            let setup_paths = &paths;
+            let setup = scope.spawn(move || {
+                run_setup_stages(
+                    setup_paths,
+                    || {
+                        entered_tx.send(()).unwrap();
+                        release_rx.recv().unwrap();
+                        Ok(())
+                    },
+                    || Ok(()),
+                    || Ok(()),
+                )
+            });
+            entered_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("setup reached identity while holding its lock");
+
+            assert_eq!(
+                crate::command::sync::run_with_workspace_lock(
+                    &paths,
+                    true,
+                    || panic!("manual sync entered while setup owned the workspace"),
+                    || panic!("if-idle sync must coalesce instead of follow"),
+                ),
+                crate::command::sync::WorkspaceLockOutcome::Coalesced,
+            );
+            release_tx.send(()).unwrap();
+            setup.join().unwrap().unwrap();
+        });
+    }
+
+    #[test]
+    fn setup_refuses_an_incomplete_migration_before_remote_identity() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+        let journal = paths.migration_journal();
+        std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
+        std::fs::write(journal, b"active migration\n").unwrap();
+        let identity_entered = std::cell::Cell::new(false);
 
         let error = run_setup_stages(
+            &paths,
+            || {
+                identity_entered.set(true);
+                Ok(())
+            },
+            || Ok(()),
+            || Ok(()),
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("workspace migration is incomplete")
+        );
+        assert!(!identity_entered.get());
+    }
+
+    #[test]
+    fn identity_refusal_preserves_credentials_and_skips_the_baseline() {
+        let stages = RefCell::new(Vec::new());
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+
+        let error = run_setup_stages(
+            &paths,
             || {
                 stages.borrow_mut().push("identity");
                 anyhow::bail!("wrong workspace")

@@ -23,6 +23,7 @@ fn configured_legacy_plan_finishes_legacy_sync_before_uuid_cutover() {
             Step::EnsureWorkspaceManifest,
             Step::EnsureUsersRegistry,
             Step::MigrateTaskColumnsAndUuids,
+            Step::PublishTaskSchemaTransition,
             Step::ReconcileManagedTriage,
             Step::RebuildDerivedData,
             Step::Verify,
