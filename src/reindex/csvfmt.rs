@@ -10,7 +10,8 @@ use csv::WriterBuilder;
 #[must_use]
 pub fn render_csv(header: &[&str], rows: &[Vec<String>]) -> String {
     let mut wtr = WriterBuilder::new().from_writer(Vec::new());
-    wtr.write_record(header).expect("writing to a Vec never fails");
+    wtr.write_record(header)
+        .expect("writing to a Vec never fails");
     for row in rows {
         wtr.write_record(row).expect("writing to a Vec never fails");
     }

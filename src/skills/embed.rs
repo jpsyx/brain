@@ -14,10 +14,16 @@ static SKILLS: Dir = include_dir!("$CARGO_MANIFEST_DIR/skills");
 /// dangerous case: a `.pyc` records the absolute source path it was compiled
 /// from, leaking the builder's filesystem layout into a public artifact.
 fn is_build_artifact(rel: &std::path::Path) -> bool {
-    if rel.components().any(|c| c.as_os_str() == "__pycache__" || c.as_os_str() == ".DS_Store") {
+    if rel
+        .components()
+        .any(|c| c.as_os_str() == "__pycache__" || c.as_os_str() == ".DS_Store")
+    {
         return true;
     }
-    matches!(rel.extension().and_then(|e| e.to_str()), Some("pyc" | "pyo"))
+    matches!(
+        rel.extension().and_then(|e| e.to_str()),
+        Some("pyc" | "pyo")
+    )
 }
 
 /// Every bundled skill (each top-level dir under `skills/`).
@@ -113,7 +119,11 @@ mod tests {
         // the final agenda PDF is gated on all of them finishing + merging.
         // Collapse whitespace so line-wrapping/bold in the prose can't break the
         // sentinel match.
-        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+        let flat = text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
         assert!(
             flat.contains("in parallel with the rest of daily triage"),
             "documents launching sub-agents in parallel"
@@ -140,7 +150,10 @@ mod tests {
             .find(|s| s.name == "brain-knowledge-capture")
             .expect("brain-knowledge-capture should be embedded");
         let text = skill_md_text(capture);
-        assert!(text.contains("# brain-knowledge-capture"), "has the heading");
+        assert!(
+            text.contains("# brain-knowledge-capture"),
+            "has the heading"
+        );
         // It delegates placement to second-brain rather than re-deriving PARA.
         assert!(text.contains("second-brain"), "delegates to /second-brain");
     }
@@ -155,7 +168,10 @@ mod tests {
         let text = skill_md_text(sb);
         assert!(text.contains("# second-brain"), "has the heading");
         // The summary method is delegated, not re-derived.
-        assert!(text.contains("article-summarizer"), "references article-summarizer");
+        assert!(
+            text.contains("article-summarizer"),
+            "references article-summarizer"
+        );
         // The contacts book is its own sibling skill now.
         assert!(text.contains("/contacts"), "points at the /contacts skill");
         // Namespaces are runtime config (onboarding checklist), not hardcoded.
@@ -163,7 +179,10 @@ mod tests {
             text.contains("brain personalize show"),
             "reads namespaces/identity at runtime"
         );
-        for hook in ["second-brain:company-context", "second-brain:reference-manager"] {
+        for hook in [
+            "second-brain:company-context",
+            "second-brain:reference-manager",
+        ] {
             assert!(
                 text.contains(&format!("brain:ext {hook}")),
                 "declares the `{hook}` extension hook"
@@ -172,7 +191,10 @@ mod tests {
         // Cloud-sync (brain sync) commands, distinct from the lookup-CSV
         // `/second-brain reindex` above. (The docs/ writeup for the broader
         // cloud-sync feature lands in a separate docs task.)
-        assert!(text.contains("/second-brain cloud-sync"), "documents /second-brain cloud-sync");
+        assert!(
+            text.contains("/second-brain cloud-sync"),
+            "documents /second-brain cloud-sync"
+        );
         assert!(
             text.contains("/second-brain resolve-conflicts"),
             "documents /second-brain resolve-conflicts"
@@ -181,7 +203,10 @@ mod tests {
             text.contains("brain sync conflicts --json"),
             "documents the conflicts --json invocation"
         );
-        assert!(text.contains("brain sync resolve"), "documents brain sync resolve");
+        assert!(
+            text.contains("brain sync resolve"),
+            "documents brain sync resolve"
+        );
         assert!(
             text.contains("different operation from"),
             "documents the cloud-sync vs lookup-sync distinction"
@@ -206,8 +231,14 @@ mod tests {
             text.contains("brain reindex"),
             "invokes the native brain reindex command"
         );
-        assert!(!text.contains("reindex.py"), "no stale reindex.py script references");
-        assert!(!text.contains("sync.py"), "no stale sync.py references remain");
+        assert!(
+            !text.contains("reindex.py"),
+            "no stale reindex.py script references"
+        );
+        assert!(
+            !text.contains("sync.py"),
+            "no stale sync.py references remain"
+        );
         assert!(
             !text.contains("/second-brain sync"),
             "the old /second-brain sync (lookup-rebuild) name is gone"
@@ -255,7 +286,10 @@ mod tests {
             assert!(is_build_artifact(Path::new(p)), "{p} is build litter");
         }
         for p in ["SKILL.md", "scripts/add_task.py", "references/schema.md"] {
-            assert!(!is_build_artifact(Path::new(p)), "{p} is real skill content");
+            assert!(
+                !is_build_artifact(Path::new(p)),
+                "{p} is real skill content"
+            );
         }
     }
 
@@ -297,7 +331,9 @@ mod tests {
             "scripts/add_task.py",
         ] {
             assert!(
-                todo.files.iter().any(|f| f.rel_path.as_path() == Path::new(r)),
+                todo.files
+                    .iter()
+                    .any(|f| f.rel_path.as_path() == Path::new(r)),
                 "bundles {r}"
             );
         }

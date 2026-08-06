@@ -93,8 +93,10 @@ mod tests {
 
     #[test]
     fn missing_due_becomes_none() {
-        let meta = parse_project_meta(r#"{"name":"x","namespace":"n","title":"t","status":"in-progress","priority":"p2"}"#)
-            .expect("valid json");
+        let meta = parse_project_meta(
+            r#"{"name":"x","namespace":"n","title":"t","status":"in-progress","priority":"p2"}"#,
+        )
+        .expect("valid json");
         let row = project_row(&meta, "projects/x");
         assert_eq!(row[5], "none");
     }
