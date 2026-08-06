@@ -1974,7 +1974,8 @@ the control request and applies no later lease mutation. Watchdog expiry removes
 the exact lease first, preventing new admissions, then cancels every matching
 pre-commit admission. Ordinary lease operations filter expiry but never remove
 it; shared control and watchdog entry use that single revoke-aware removal.
-Final admission revalidates exact TTL immediately before commit. Disabled, missing,
+Final admission samples exact TTL after persisted-intent filesystem IO and
+again immediately at commit linearization. Disabled, missing,
 full, and failed endpoints receive one
 channel-specific unavailable response and the request is discarded.
 
@@ -2279,8 +2280,10 @@ portable users, and frontend hook settings live in separate stores, setup
 cannot use one filesystem transaction. It instead snapshots those exact
 selected artifacts, holds one persistent workspace-local advisory lock across
 snapshot, ordered writes, commit, and bounded rollback, and then releases it.
-Acquisition uses bounded monotonic polling and returns an actionable typed
-timeout before snapshot or mutation.
+Acquisition checks its monotonic deadline before every lock attempt and again
+before returning ownership. It returns an actionable typed timeout before
+snapshot or mutation, including when a free lock is observed at an already
+elapsed deadline.
 This transaction-wide ownership prevents an identical concurrent after-image
 from being mistaken for the failed attempt's bytes. Selected env rollback mutates only the UUID-pinned record, so a
 peer workspace update is never replaced by a whole-registry snapshot. Rollback

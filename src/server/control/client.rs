@@ -12,7 +12,8 @@ use anyhow::{Context, Result};
 
 use super::{ControlRequest, ControlResponse, LeaseRegistration, codec};
 use crate::server::lifecycle::{
-    LeaseId, ProcessRecord, ServerDecision, ServerGeneration, ServerPaths, connect_or_elect_until,
+    LeaseId, ProcessRecord, ServerDecision, ServerGeneration, ServerPaths,
+    connect_or_elect_until_with_publication_hook,
 };
 use crate::workspace::WorkspaceId;
 
@@ -22,6 +23,9 @@ const REGISTRATION_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Injected synchronization point after process discovery and before register.
 pub trait RegistrationGate: Send + 'static {
+    /// Observe a newly published elected generation before parent handoff cleanup.
+    fn after_publication_before_cleanup(&mut self, _record: &ProcessRecord) {}
+
     /// Observe a selected generation before its registration request is sent.
     fn after_connect(&mut self, record: &ProcessRecord);
 }
@@ -114,7 +118,10 @@ impl ServerClient {
             .checked_add(REGISTRATION_TIMEOUT)
             .context("server registration timeout exceeds the monotonic clock range")?;
         loop {
-            let record = connect_or_elect_until(self, deadline)?;
+            let record =
+                connect_or_elect_until_with_publication_hook(self, deadline, &mut |record| {
+                    gate.after_publication_before_cleanup(record);
+                })?;
             registration.generation = record.generation;
             gate.after_connect(&record);
             match self.request_until(&ControlRequest::Register(registration.clone()), deadline) {

@@ -1,6 +1,6 @@
 use brain::server::control::{HeartbeatClock, HeartbeatEvent, HeartbeatWorker, RegistrationGate};
 use brain::server::lifecycle::{ProcessRecord, ServerDecision};
-use std::sync::{Arc, Barrier, mpsc::Receiver};
+use std::sync::{Arc, Barrier, Mutex, mpsc::Receiver};
 
 use super::support::{LiveTui, RunningServer, prepare_workspace_registry, wait_for};
 
@@ -12,6 +12,83 @@ fn published_elected_child_is_reaped_for_heartbeat_recovery_with_token_retained(
 #[test]
 fn published_elected_child_is_reaped_for_heartbeat_recovery_with_token_removed() {
     published_elected_child_is_reaped_for_heartbeat_recovery(true);
+}
+
+#[test]
+fn cleanup_failure_after_publication_keeps_waiter_for_retained_token_recovery() {
+    cleanup_failure_after_publication_keeps_waiter_for_recovery(false);
+}
+
+#[test]
+fn cleanup_failure_after_publication_keeps_waiter_for_removed_token_recovery() {
+    cleanup_failure_after_publication_keeps_waiter_for_recovery(true);
+}
+
+fn cleanup_failure_after_publication_keeps_waiter_for_recovery(remove_token: bool) {
+    let home = tempfile::tempdir().expect("temporary server home");
+    prepare_workspace_registry(home.path());
+    let paths = brain::server::lifecycle::ServerPaths::from_home(home.path());
+    let client = brain::server::control::ServerClient::with_launch_context(
+        paths.clone(),
+        std::path::PathBuf::from(env!("CARGO_BIN_EXE_brain")),
+        home.path().to_path_buf(),
+    );
+    let tui = LiveTui::new(
+        home.path(),
+        "personal",
+        "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+        "91a0cfc2-7427-49d5-a2f1-258f985cd7e5",
+        "00000000-0000-0000-0000-000000000032",
+    );
+    let mut registration = tui.registration(brain::server::lifecycle::ServerGeneration::new());
+    let published = Arc::new(Mutex::new(None));
+    let error = client
+        .connect_and_register_with_gate(
+            &mut registration,
+            CleanupFailureGate {
+                paths: paths.clone(),
+                published: Arc::clone(&published),
+            },
+        )
+        .expect_err("injected post-publication cleanup failure must be reported");
+    assert!(error.to_string().contains("election"), "{error:#}");
+    let (record, token) = published
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+        .expect("publication hook captured the elected generation");
+    std::fs::remove_dir(paths.election_lock()).expect("remove injected token directory");
+    if !remove_token {
+        std::fs::write(paths.election_lock(), token).expect("restore adopted election token");
+    }
+    registration.generation = record.generation;
+    client
+        .register_generation(&registration)
+        .expect("register live TUI after reported cleanup failure");
+
+    let status = std::process::Command::new("kill")
+        .args(["-KILL", &record.pid.to_string()])
+        .status()
+        .expect("send SIGKILL");
+    assert!(status.success());
+    let recovery_boundary = Arc::new(Barrier::new(2));
+    let mut worker = HeartbeatWorker::start_with_clock(
+        client,
+        registration,
+        BarrierClock::new(Arc::clone(&recovery_boundary)),
+    );
+    recovery_boundary.wait();
+    let mut recovered = None;
+    wait_for("cleanup-failure heartbeat recovery after SIGKILL", || {
+        for event in worker.poll() {
+            if let HeartbeatEvent::Recovered(generation) = event {
+                recovered = Some(generation);
+            }
+        }
+        recovered.is_some()
+    });
+    assert_ne!(recovered, Some(record.generation));
+    worker.shutdown().expect("unregister replacement");
 }
 
 fn published_elected_child_is_reaped_for_heartbeat_recovery(remove_token: bool) {
@@ -243,4 +320,25 @@ impl RegistrationGate for FirstConnectGate {
         self.reached.wait();
         self.release.wait();
     }
+}
+
+struct CleanupFailureGate {
+    paths: brain::server::lifecycle::ServerPaths,
+    published: PublishedCleanupState,
+}
+
+type PublishedCleanupState = Arc<Mutex<Option<(ProcessRecord, Vec<u8>)>>>;
+
+impl RegistrationGate for CleanupFailureGate {
+    fn after_publication_before_cleanup(&mut self, record: &ProcessRecord) {
+        let token = std::fs::read(self.paths.election_lock()).expect("read adopted election token");
+        std::fs::remove_file(self.paths.election_lock()).expect("remove adopted election token");
+        std::fs::create_dir(self.paths.election_lock()).expect("inject cleanup read failure");
+        *self
+            .published
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((record.clone(), token));
+    }
+
+    fn after_connect(&mut self, _record: &ProcessRecord) {}
 }

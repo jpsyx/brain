@@ -80,6 +80,14 @@ pub(crate) fn connect_or_elect_until(
     client: &ServerClient,
     deadline: Instant,
 ) -> Result<ProcessRecord> {
+    connect_or_elect_until_with_publication_hook(client, deadline, &mut |_| {})
+}
+
+pub(crate) fn connect_or_elect_until_with_publication_hook(
+    client: &ServerClient,
+    deadline: Instant,
+    after_publication: &mut impl FnMut(&ProcessRecord),
+) -> Result<ProcessRecord> {
     loop {
         let record = super::state::read_record(client.paths());
         let process_live = record.as_ref().is_some_and(|state| pid_alive(state.pid));
@@ -114,10 +122,18 @@ pub(crate) fn connect_or_elect_until(
                 let mut starter = client.spawn(guard.generation(), port)?;
                 let handoff = guard.handoff();
                 let connection = wait_for_started_connection(client, deadline, &mut starter);
-                handoff.cleanup()?;
-                if let Some(found) = connection? {
-                    reap_published_child(starter);
-                    return Ok(found);
+                match connection {
+                    Ok(Some(found)) => {
+                        reap_published_child(starter);
+                        after_publication(&found);
+                        handoff.cleanup()?;
+                        return Ok(found);
+                    }
+                    Ok(None) => handoff.cleanup()?,
+                    Err(error) => {
+                        handoff.cleanup()?;
+                        return Err(error);
+                    }
                 }
             }
             StartDecision::WaitForWinner => {

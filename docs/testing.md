@@ -365,7 +365,9 @@ first move is a failing test that reproduces it, *then* the fix.
   returns bounded rejection and cannot mutate authority later.
   A route lookup at exact expiry cannot consume the lease ahead of watchdog
   revocation, and an injected final-admission clock proves exact TTL rejects
-  commit before the next watchdog tick.
+  commit before the next watchdog tick. A second real-pipeline gate pauses
+  after commit-side persisted-intent IO, advances the injected clock to exact
+  expiry, and proves the real job socket remains empty.
   Exact status tests distinguish a
   live disabled lease from an accepting lease. Actual parsed CLI start/stop and
   startup `--with-receiver -b` paths, plus keyboard-driven tasks and search
@@ -394,6 +396,10 @@ first move is a failing test that reproduces it, *then* the fix.
   unsupported safe-subset case.
   Server observation uses deadline-bounded polling; lifecycle decisions use
   injected clocks rather than fixed timing sleeps.
+  Receiver setup lock tests inject both clock and poll behavior: a held lock is
+  released only as the poll advances to the deadline, and a free lock starts
+  with an already elapsed deadline. Both must return timeout without snapshot
+  or mutation.
   The complete real-process E2E launches personal and family fake TUIs into one
   generation, accepts exactly one signed message into each exact queue,
   orderly-closes family while retaining observable recording history, proves
@@ -448,6 +454,9 @@ first move is a failing test that reproduces it, *then* the fix.
   Production election followed by SIGKILL retains no external child handle;
   heartbeat recovery proves the published-child waiter reaps retained- and
   removed-token cases before replacement election.
+  Injected parent handoff cleanup failure after publication proves waiter
+  ownership transfers first, the cleanup error remains visible, and later
+  retained- and removed-token SIGKILL recovery still replaces the generation.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable

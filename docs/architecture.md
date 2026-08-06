@@ -1051,7 +1051,7 @@ offline queue or launches an agent.
   receiver state from one generation-bound response. Both status requests use
   immutable lease projections, so they never prune TTLs or advance lifecycle
   state. Ordinary register, heartbeat, enablement, unregister, ingress lookup,
-  and routing-availability transitions opportunistically prune expiry. The
+  and routing-availability transitions filter expiry without removing it. The
   focused `server/` children keep the state machine separated by responsibility:
   `listener.rs` owns socket IO, `registration.rs` owns live-TUI filesystem
   validation, `shared_request.rs` owns two-phase deadline-bounded requests, and
@@ -1081,8 +1081,9 @@ offline queue or launches an agent.
   inspection reports filesystem and JSON failures without consuming the
   cleanup capability, so callers may repair and retry;
   `process.rs` owns detached election orchestration, retained elected-child
-  observation through `Child::try_wait`, a lifetime waiter for each published
-  elected child, the hidden server loop, and signal
+  observation through `Child::try_wait`, immediate lifetime-waiter ownership
+  for each published elected child before parent handoff cleanup, the hidden
+  server loop, and signal
   cleanup; `watchdog.rs`
   applies clock-injected expiry plus the bounded initial-registration deadline;
   `lease.rs`, `table.rs`, and `decision.rs` own typed leases and latched
@@ -1134,11 +1135,12 @@ absolute deadline outside the mutex. A deadline rejection performs no later
 disable or unregister mutation. Watchdog expiry removes the exact lease and
 cancels every matching pre-commit admission before shutdown. Exact route and
 TTL authority are checked again immediately before admission commit, without
-waiting for the watchdog interval. The same final
-admission boundary first reloads the selected
+waiting for the watchdog interval. The same final admission boundary first reloads the selected
 canonical registry record and requires the exact workspace UUID's persistent
 receiver intent to remain enabled, so a lost live-refresh notification cannot
-let a raced disable enqueue. It then carries that exact handoff deadline
+let a raced disable enqueue. Only after that filesystem IO does it sample the
+monotonic clock for live-lease validation, then samples again at commit
+linearization. It then carries that exact handoff deadline
 through nonblocking connect, the complete frame write, and acknowledgment
 read. The TUI removes the just-staged queue item if its final `accepted`
 acknowledgment cannot be written, so the server observes a failed handoff and

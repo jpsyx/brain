@@ -14,7 +14,7 @@ use deliveries::{ProviderDeliveries, ProviderKey};
 pub(in crate::server) use deliveries::{
     provider_delivery_completed, remember_verified_unavailable_email,
 };
-use final_authority::final_admission;
+use final_authority::{final_admission, revalidate_live_authority};
 pub use forward::forward_job;
 use forward::forward_job_until_with_admission;
 
@@ -106,6 +106,8 @@ pub(in crate::server) fn dispatch_http(
         #[cfg(test)]
         admission_clock: None,
         #[cfg(test)]
+        after_final_intent_reload: None,
+        #[cfg(test)]
         before_final_admission: None,
     };
     execute_pipeline(&mut pipeline).map_err(|error| {
@@ -128,6 +130,8 @@ struct SharedReceiverPipeline<'a> {
     admission: Option<std::sync::Arc<super::admission::ReceiverAdmission>>,
     #[cfg(test)]
     admission_clock: Option<std::sync::Arc<dyn Fn() -> std::time::Instant + Send + Sync>>,
+    #[cfg(test)]
+    after_final_intent_reload: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     #[cfg(test)]
     before_final_admission: Option<Box<dyn Fn() + Send + Sync>>,
 }
@@ -270,14 +274,26 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
         let authorize_clock = self.admission_clock.clone();
         #[cfg(test)]
         let commit_clock = self.admission_clock.clone();
+        #[cfg(test)]
+        let authorize_intent_hook = self.after_final_intent_reload.clone();
+        #[cfg(test)]
+        let commit_intent_hook = self.after_final_intent_reload.clone();
         let authorize = || {
             #[cfg(test)]
-            let now = authorize_clock
-                .as_ref()
-                .map_or_else(std::time::Instant::now, |clock| clock());
+            let clock = || {
+                authorize_clock
+                    .as_ref()
+                    .map_or_else(std::time::Instant::now, |clock| clock())
+            };
             #[cfg(not(test))]
-            let now = std::time::Instant::now();
-            final_admission(control, workspace, now)?;
+            let clock = std::time::Instant::now;
+            final_admission(
+                control,
+                workspace,
+                &clock,
+                #[cfg(test)]
+                authorize_intent_hook.as_deref(),
+            )?;
             admission.authorize()?;
             #[cfg(test)]
             if let Some(hook) = &self.before_final_admission {
@@ -287,12 +303,21 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
         };
         let commit = || {
             #[cfg(test)]
-            let now = commit_clock
-                .as_ref()
-                .map_or_else(std::time::Instant::now, |clock| clock());
+            let clock = || {
+                commit_clock
+                    .as_ref()
+                    .map_or_else(std::time::Instant::now, |clock| clock())
+            };
             #[cfg(not(test))]
-            let now = std::time::Instant::now();
-            final_admission(control, workspace, now)?;
+            let clock = std::time::Instant::now;
+            final_admission(
+                control,
+                workspace,
+                &clock,
+                #[cfg(test)]
+                commit_intent_hook.as_deref(),
+            )?;
+            revalidate_live_authority(control, workspace, clock())?;
             admission.commit()
         };
         let result = job.provider_id.as_ref().map_or_else(

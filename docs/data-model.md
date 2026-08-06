@@ -149,8 +149,10 @@ conversion is explicit so a public ingress can never be used accidentally as a
 workspace selector. A future manifest migration is therefore unnecessary for
 this type split.
 
-At every injected monotonic instant the table first removes expired leases.
-It rejects an incoming lease whose expiry is already elapsed and accepts one
+At every injected monotonic instant ordinary table operations filter expired
+leases without removing them. The shared control and watchdog transition owns
+revoke-aware removal. Registration rejects an incoming lease whose expiry is
+already elapsed and accepts one
 live lease per workspace, ingress, and lease ID. An exact replay of the current
 workspace's lease, canonical name, ingress, PID, and derived socket is an
 idempotent retry that refreshes expiry and authoritative enablement after a
@@ -173,8 +175,9 @@ Pending and authorized admissions become cancelled; work whose socket commit
 already linearized may finish. Orderly disable and unregister wait only to the
 request deadline, and a timeout leaves their lease mutation unapplied.
 Ordinary lease-table paths filter expired leases without removing them. Shared
-control and watchdog entry use the single revoke-aware removal transition, and
-final socket commit revalidates exact TTL.
+control and watchdog entry use the single revoke-aware removal transition.
+Final socket commit samples exact TTL only after persisted-intent IO and again
+at commit linearization.
 
 Every mutating control request is tagged with the process generation. A stale
 generation yields `StaleGeneration` without touching the table. Registration

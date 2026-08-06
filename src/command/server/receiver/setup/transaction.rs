@@ -118,8 +118,16 @@ impl SetupTransactionLock {
             source,
         })?;
         loop {
+            if clock() >= deadline {
+                return Err(SetupLockError::Timeout { path });
+            }
             match file.try_lock_exclusive() {
-                Ok(()) => return Ok(Self { _file: file }),
+                Ok(()) => {
+                    if clock() >= deadline {
+                        return Err(SetupLockError::Timeout { path });
+                    }
+                    return Ok(Self { _file: file });
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     let now = clock();
                     if now >= deadline {

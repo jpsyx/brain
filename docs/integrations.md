@@ -300,8 +300,10 @@ loss before adoption leaves the token unchanged, so the parent removes it when
 the bounded publication wait ends. During that wait the parent retains the
 elected `Child` and uses `try_wait`, rather than PID liveness, so a zombie is an
 observed failed starter and election retries within the original deadline.
-After publication, a lifetime waiter owns and reaps that child so later
-SIGKILL cannot wedge heartbeat recovery behind a zombie token. If
+Immediately after publication, before the injected observation seam or any
+fallible parent handoff cleanup, a lifetime waiter owns and reaps that child so
+later SIGKILL cannot wedge heartbeat recovery behind a zombie token. Cleanup
+failures still propagate to the caller. If
 another startup contender briefly holds
 the advisory mutex at that boundary, explicit cleanup retries at a fixed
 interval for at most two seconds while the exact parent token remains instead
@@ -412,7 +414,8 @@ canonical registry record, verifies the selected workspace UUID, and requires
 its persisted receiver intent to remain enabled before revalidating the live
 generation and authority revision. A persisted disable that races after route
 loading therefore cannot enqueue even when its best-effort refresh notification
-was lost.
+was lost. The monotonic instant used for live authority is sampled after that
+filesystem reload, never before it, and sampled again at admission commit.
 Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
 live TUI returns 503 before local route behavior or receiver dispatch; it is
 never acknowledged as accepted work.
@@ -620,8 +623,9 @@ Before setup writes, it snapshots the selected provider values, exact
 portable-user bytes, and selected Claude/Codex hook artifacts, excluding their
 transaction lock pathnames. Provider, user, and hook writes are ordered under
 one persistent workspace-local advisory lock that remains held through
-rollback. Acquisition polls only to a fixed monotonic deadline and reports the
-exact receiver setup lock that timed out. A failure conditionally restores only values and
+rollback. Acquisition checks its fixed monotonic deadline before each lock
+attempt and after a successful attempt before ownership can escape, then
+reports the exact receiver setup lock that timed out. A failure conditionally restores only values and
 files still equal to this attempt's after-image, preserving concurrent success,
 peer records, and live lock inodes. Manifest identity and URL validation complete before the
 first write, and live reload happens only after the whole transaction succeeds.

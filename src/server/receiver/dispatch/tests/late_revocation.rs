@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
@@ -23,6 +23,7 @@ enum LateRevocation {
     Expire,
     RouteLookupThenExpire,
     ExpireBeforeCommitWithoutWatchdog,
+    ExpireDuringCommitIntentReload,
 }
 
 #[test]
@@ -55,6 +56,11 @@ fn exact_lease_expiry_rejects_commit_without_waiting_for_watchdog_tick() {
     run_late_revocation(LateRevocation::ExpireBeforeCommitWithoutWatchdog);
 }
 
+#[test]
+fn commit_intent_reload_crossing_exact_expiry_rejects_before_socket_commit() {
+    run_late_revocation(LateRevocation::ExpireDuringCommitIntentReload);
+}
+
 fn run_late_revocation(revocation: LateRevocation) {
     let provider_id = match revocation {
         LateRevocation::Disable => "SM-late-disable",
@@ -63,6 +69,7 @@ fn run_late_revocation(revocation: LateRevocation) {
         LateRevocation::Expire => "SM-late-expire",
         LateRevocation::RouteLookupThenExpire => "SM-route-prune-expire",
         LateRevocation::ExpireBeforeCommitWithoutWatchdog => "SM-expire-before-commit",
+        LateRevocation::ExpireDuringCommitIntentReload => "SM-expire-during-intent-reload",
     };
     let fixture = tempfile::tempdir().expect("receiver fixture");
     let workspace_id = WorkspaceId::parse(PERSONAL_ID).expect("workspace ID");
@@ -181,28 +188,55 @@ fn run_late_revocation(revocation: LateRevocation) {
     let request = crate::server::http::Request::read(request_server).expect("parse request");
     let (provider_finished_tx, provider_finished_rx) = mpsc::sync_channel(1);
     let (release_admission_tx, release_admission_rx) = mpsc::sync_channel(1);
+    let (commit_intent_reloaded_tx, commit_intent_reloaded_rx) = mpsc::sync_channel(1);
+    let (release_commit_intent_tx, release_commit_intent_rx) = mpsc::sync_channel(1);
     let worker_release_admission = Arc::new(Mutex::new(release_admission_rx));
+    let worker_release_commit_intent = Arc::new(Mutex::new(release_commit_intent_rx));
     let worker_control = Arc::clone(&control);
+    let injected_now = Arc::new(Mutex::new(now));
+    let worker_now = Arc::clone(&injected_now);
+    let intent_reload_count = Arc::new(AtomicUsize::new(0));
+    let worker_intent_reload_count = Arc::clone(&intent_reload_count);
     let (result_tx, result_rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let mut request = request;
-        let admission_clock = matches!(
-            revocation,
-            LateRevocation::ExpireBeforeCommitWithoutWatchdog
-        )
-        .then(|| {
-            let instants = Arc::new(Mutex::new(std::collections::VecDeque::from([
-                now,
-                now + crate::server::lifecycle::LEASE_TTL,
-            ])));
-            Arc::new(move || {
-                instants
+        let admission_clock = match revocation {
+            LateRevocation::ExpireBeforeCommitWithoutWatchdog => Some({
+                let instants = Arc::new(Mutex::new(std::collections::VecDeque::from([
+                    now,
+                    now + crate::server::lifecycle::LEASE_TTL,
+                ])));
+                Arc::new(move || {
+                    instants
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .pop_front()
+                        .unwrap_or(now + crate::server::lifecycle::LEASE_TTL)
+                }) as Arc<dyn Fn() -> Instant + Send + Sync>
+            }),
+            LateRevocation::ExpireDuringCommitIntentReload => Some(Arc::new(move || {
+                *worker_now
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .pop_front()
-                    .unwrap_or(now + crate::server::lifecycle::LEASE_TTL)
-            }) as Arc<dyn Fn() -> Instant + Send + Sync>
-        });
+            })
+                as Arc<dyn Fn() -> Instant + Send + Sync>),
+            _ => None,
+        };
+        let after_final_intent_reload =
+            matches!(revocation, LateRevocation::ExpireDuringCommitIntentReload).then(|| {
+                Arc::new(move || {
+                    if worker_intent_reload_count.fetch_add(1, Ordering::AcqRel) == 1 {
+                        commit_intent_reloaded_tx
+                            .send(())
+                            .expect("signal commit-side intent reload");
+                        worker_release_commit_intent
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .recv_timeout(Duration::from_secs(1))
+                            .expect("release commit-side intent reload");
+                    }
+                }) as Arc<dyn Fn() + Send + Sync>
+            });
         let mut pipeline = SharedReceiverPipeline {
             route: Some(route),
             request: &mut request,
@@ -211,6 +245,7 @@ fn run_late_revocation(revocation: LateRevocation) {
             handoff_deadline: None,
             admission: None,
             admission_clock,
+            after_final_intent_reload,
             before_final_admission: Some(Box::new(move || {
                 provider_finished_tx
                     .send(())
@@ -340,10 +375,27 @@ fn run_late_revocation(revocation: LateRevocation) {
             );
         }
         LateRevocation::ExpireBeforeCommitWithoutWatchdog => {}
+        LateRevocation::ExpireDuringCommitIntentReload => {
+            release_admission_tx
+                .send(())
+                .expect("release authorize-side socket admission");
+            commit_intent_reloaded_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("pipeline reached commit-side intent boundary");
+            *injected_now
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                now + crate::server::lifecycle::LEASE_TTL;
+            release_commit_intent_tx
+                .send(())
+                .expect("release expired commit-side intent boundary");
+        }
     }
-    release_admission_tx
-        .send(())
-        .expect("release final socket admission");
+    if !matches!(revocation, LateRevocation::ExpireDuringCommitIntentReload) {
+        release_admission_tx
+            .send(())
+            .expect("release final socket admission");
+    }
 
     let deadline = Instant::now() + Duration::from_secs(1);
     let result = loop {
