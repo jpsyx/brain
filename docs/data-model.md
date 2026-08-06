@@ -176,8 +176,9 @@ already linearized may finish. Orderly disable and unregister wait only to the
 request deadline, and a timeout leaves their lease mutation unapplied.
 Ordinary lease-table paths filter expired leases without removing them. Shared
 control and watchdog entry use the single revoke-aware removal transition.
-Final socket commit samples exact TTL only after persisted-intent IO and again
-at commit linearization.
+Final socket commit performs persisted-intent IO outside the control mutex,
+then samples exact TTL, revalidates the route and admission identity, and
+performs the admission CAS within one control-mutex operation.
 
 Every mutating control request is tagged with the process generation. A stale
 generation yields `StaleGeneration` without touching the table. Registration

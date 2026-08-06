@@ -53,6 +53,11 @@ impl ReceiverAdmission {
             .map_err(|_| std::io::Error::other("receiver admission was revoked"))
     }
 
+    #[cfg(test)]
+    pub(crate) fn is_committed(&self) -> bool {
+        self.state.load(Ordering::Acquire) == COMMITTED
+    }
+
     pub(crate) fn complete(&self) {
         self.state.store(COMPLETED, Ordering::Release);
         let (lock, ready) = &self.completion;

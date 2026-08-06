@@ -14,11 +14,15 @@ use deliveries::{ProviderDeliveries, ProviderKey};
 pub(in crate::server) use deliveries::{
     provider_delivery_completed, remember_verified_unavailable_email,
 };
-use final_authority::{final_admission, revalidate_live_authority};
+use final_authority::{commit_admission, final_admission};
 pub use forward::forward_job;
 use forward::forward_job_until_with_admission;
 
 pub(crate) const JOB_FRAME_LIMIT: usize = 1024 * 1024;
+
+#[cfg(test)]
+type CombinedCommitProbe =
+    std::sync::Arc<dyn Fn(&super::admission::ReceiverAdmission) + Send + Sync>;
 
 /// Ordered decision boundary for one inbound receiver request.
 pub trait DispatchPipeline {
@@ -108,6 +112,8 @@ pub(in crate::server) fn dispatch_http(
         #[cfg(test)]
         after_final_intent_reload: None,
         #[cfg(test)]
+        after_combined_commit: None,
+        #[cfg(test)]
         before_final_admission: None,
     };
     execute_pipeline(&mut pipeline).map_err(|error| {
@@ -132,6 +138,8 @@ struct SharedReceiverPipeline<'a> {
     admission_clock: Option<std::sync::Arc<dyn Fn() -> std::time::Instant + Send + Sync>>,
     #[cfg(test)]
     after_final_intent_reload: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    #[cfg(test)]
+    after_combined_commit: Option<CombinedCommitProbe>,
     #[cfg(test)]
     before_final_admission: Option<Box<dyn Fn() + Send + Sync>>,
 }
@@ -278,6 +286,8 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
         let authorize_intent_hook = self.after_final_intent_reload.clone();
         #[cfg(test)]
         let commit_intent_hook = self.after_final_intent_reload.clone();
+        #[cfg(test)]
+        let commit_probe = self.after_combined_commit.clone();
         let authorize = || {
             #[cfg(test)]
             let clock = || {
@@ -310,15 +320,16 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
             };
             #[cfg(not(test))]
             let clock = std::time::Instant::now;
-            final_admission(
+            commit_admission(
                 control,
                 workspace,
+                &admission,
                 &clock,
                 #[cfg(test)]
                 commit_intent_hook.as_deref(),
-            )?;
-            revalidate_live_authority(control, workspace, clock())?;
-            admission.commit()
+                #[cfg(test)]
+                commit_probe.as_deref(),
+            )
         };
         let result = job.provider_id.as_ref().map_or_else(
             || {

@@ -1128,8 +1128,10 @@ Immediately before socket handoff, dispatch reserves the final five seconds
 for the HTTP response and derives one handoff deadline capped at two seconds
 and at the start of that response reserve. It revalidates the retained
 generation, authority revision, receiver enablement, and live lease under the
-control mutex. The staged socket repeats the check and atomically commits a
-cancellable admission before enqueue. Disable, unregister, and disable-enable
+control mutex. The staged socket reloads persisted intent outside the mutex,
+then acquires control once, samples the monotonic clock, revalidates the exact
+route and admission identity, and atomically commits the cancellable admission
+before unlocking and enqueueing. Disable, unregister, and disable-enable
 ABA either cancel before commit or wait only until the control request's
 absolute deadline outside the mutex. A deadline rejection performs no later
 disable or unregister mutation. Watchdog expiry removes the exact lease and
@@ -1138,9 +1140,10 @@ TTL authority are checked again immediately before admission commit, without
 waiting for the watchdog interval. The same final admission boundary first reloads the selected
 canonical registry record and requires the exact workspace UUID's persistent
 receiver intent to remain enabled, so a lost live-refresh notification cannot
-let a raced disable enqueue. Only after that filesystem IO does it sample the
-monotonic clock for live-lease validation, then samples again at commit
-linearization. It then carries that exact handoff deadline
+let a raced disable enqueue. Only after that filesystem IO does the combined
+commit operation acquire control, sample the monotonic clock inside the lock,
+revalidate exact live authority, and perform the admission CAS before unlock.
+It then carries that exact handoff deadline
 through nonblocking connect, the complete frame write, and acknowledgment
 read. The TUI removes the just-staged queue item if its final `accepted`
 acknowledgment cannot be written, so the server observes a failed handoff and

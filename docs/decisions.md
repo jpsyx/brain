@@ -1974,8 +1974,10 @@ the control request and applies no later lease mutation. Watchdog expiry removes
 the exact lease first, preventing new admissions, then cancels every matching
 pre-commit admission. Ordinary lease operations filter expiry but never remove
 it; shared control and watchdog entry use that single revoke-aware removal.
-Final admission samples exact TTL after persisted-intent filesystem IO and
-again immediately at commit linearization. Disabled, missing,
+Final admission performs persisted-intent filesystem IO outside the control
+mutex. One combined commit operation then acquires control, samples exact TTL,
+revalidates the route and admission identity, and performs the admission CAS
+before unlocking. Disabled, missing,
 full, and failed endpoints receive one
 channel-specific unavailable response and the request is discarded.
 
@@ -2015,8 +2017,11 @@ work and actor/job construction, dispatch reloads the exact canonical registry
 record and requires its immutable workspace UUID and persistent receiver intent
 to remain valid. It then reacquires the control mutex only to revalidate the
 exact generation, authority revision, receiver enablement, and live lease, and
-releases the mutex before the UUID-local socket handoff. The staged socket
-repeats this check immediately before atomic admission commit. The attached
+releases the mutex before the UUID-local socket handoff. At staged-socket
+commit, persisted intent is reloaded outside the mutex; one combined operation
+then locks control, samples exact TTL, revalidates that same authority and the
+admission's workspace/lease identity, and performs the admission CAS before
+unlock. The attached
 authority revision and cancellable admission reject notified,
 notification-lost, unregister, and disable-enable ABA revocation without
 holding the mutex during provider or socket work.

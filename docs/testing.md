@@ -367,7 +367,12 @@ first move is a failing test that reproduces it, *then* the fix.
   revocation, and an injected final-admission clock proves exact TTL rejects
   commit before the next watchdog tick. A second real-pipeline gate pauses
   after commit-side persisted-intent IO, advances the injected clock to exact
-  expiry, and proves the real job socket remains empty.
+  expiry, and proves the real job socket remains empty. A third real-pipeline
+  race holds the control mutex across that IO boundary, advances to exact
+  expiry while commit waits for control, and proves the clock is sampled only
+  after lock acquisition. Its commit probe requires both the COMMITTED state
+  and the still-held mutex, making pre-lock clock and post-unlock CAS mutations
+  fail.
   Exact status tests distinguish a
   live disabled lease from an accepting lease. Actual parsed CLI start/stop and
   startup `--with-receiver -b` paths, plus keyboard-driven tasks and search

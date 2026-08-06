@@ -9,6 +9,7 @@ use super::super::{SharedReceiverPipeline, execute_pipeline};
 use crate::server::control::{ControlRequest, ControlResponse, ControlServer, LeaseRegistration};
 use crate::server::lifecycle::{IngressId, LeaseId, ServerGeneration};
 use crate::server::receiver::Channel;
+use crate::server::receiver::admission::ReceiverAdmission;
 use crate::workspace::{
     MachineRegistry, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName, WorkspaceRecord,
 };
@@ -24,6 +25,8 @@ enum LateRevocation {
     RouteLookupThenExpire,
     ExpireBeforeCommitWithoutWatchdog,
     ExpireDuringCommitIntentReload,
+    ExpireWhileCommitWaitsForControl,
+    CommitLinearizesUnderControl,
 }
 
 #[test]
@@ -61,6 +64,16 @@ fn commit_intent_reload_crossing_exact_expiry_rejects_before_socket_commit() {
     run_late_revocation(LateRevocation::ExpireDuringCommitIntentReload);
 }
 
+#[test]
+fn commit_waiting_for_control_samples_exact_expiry_inside_the_lock() {
+    run_late_revocation(LateRevocation::ExpireWhileCommitWaitsForControl);
+}
+
+#[test]
+fn commit_cas_linearizes_while_control_mutex_is_held() {
+    run_late_revocation(LateRevocation::CommitLinearizesUnderControl);
+}
+
 fn run_late_revocation(revocation: LateRevocation) {
     let provider_id = match revocation {
         LateRevocation::Disable => "SM-late-disable",
@@ -70,6 +83,8 @@ fn run_late_revocation(revocation: LateRevocation) {
         LateRevocation::RouteLookupThenExpire => "SM-route-prune-expire",
         LateRevocation::ExpireBeforeCommitWithoutWatchdog => "SM-expire-before-commit",
         LateRevocation::ExpireDuringCommitIntentReload => "SM-expire-during-intent-reload",
+        LateRevocation::ExpireWhileCommitWaitsForControl => "SM-expire-waiting-for-control",
+        LateRevocation::CommitLinearizesUnderControl => "SM-commit-under-control",
     };
     let fixture = tempfile::tempdir().expect("receiver fixture");
     let workspace_id = WorkspaceId::parse(PERSONAL_ID).expect("workspace ID");
@@ -193,8 +208,14 @@ fn run_late_revocation(revocation: LateRevocation) {
     let worker_release_admission = Arc::new(Mutex::new(release_admission_rx));
     let worker_release_commit_intent = Arc::new(Mutex::new(release_commit_intent_rx));
     let worker_control = Arc::clone(&control);
+    let clock_control = Arc::clone(&control);
+    let commit_probe_control = Arc::clone(&control);
     let injected_now = Arc::new(Mutex::new(now));
     let worker_now = Arc::clone(&injected_now);
+    let main_holds_control = Arc::new(AtomicBool::new(false));
+    let worker_main_holds_control = Arc::clone(&main_holds_control);
+    let clock_sample_count = Arc::new(AtomicUsize::new(0));
+    let worker_clock_sample_count = Arc::clone(&clock_sample_count);
     let intent_reload_count = Arc::new(AtomicUsize::new(0));
     let worker_intent_reload_count = Arc::clone(&intent_reload_count);
     let (result_tx, result_rx) = mpsc::sync_channel(1);
@@ -220,23 +241,41 @@ fn run_late_revocation(revocation: LateRevocation) {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
             })
                 as Arc<dyn Fn() -> Instant + Send + Sync>),
+            LateRevocation::ExpireWhileCommitWaitsForControl => Some(Arc::new(move || {
+                let sample = worker_clock_sample_count.fetch_add(1, Ordering::AcqRel);
+                if sample == 0
+                    || worker_main_holds_control.load(Ordering::Acquire)
+                    || clock_control.try_lock().is_ok()
+                {
+                    now
+                } else {
+                    *worker_now
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                }
+            })
+                as Arc<dyn Fn() -> Instant + Send + Sync>),
             _ => None,
         };
-        let after_final_intent_reload =
-            matches!(revocation, LateRevocation::ExpireDuringCommitIntentReload).then(|| {
-                Arc::new(move || {
-                    if worker_intent_reload_count.fetch_add(1, Ordering::AcqRel) == 1 {
-                        commit_intent_reloaded_tx
-                            .send(())
-                            .expect("signal commit-side intent reload");
-                        worker_release_commit_intent
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .recv_timeout(Duration::from_secs(1))
-                            .expect("release commit-side intent reload");
-                    }
-                }) as Arc<dyn Fn() + Send + Sync>
-            });
+        let after_final_intent_reload = matches!(
+            revocation,
+            LateRevocation::ExpireDuringCommitIntentReload
+                | LateRevocation::ExpireWhileCommitWaitsForControl
+        )
+        .then(|| {
+            Arc::new(move || {
+                if worker_intent_reload_count.fetch_add(1, Ordering::AcqRel) == 1 {
+                    commit_intent_reloaded_tx
+                        .send(())
+                        .expect("signal commit-side intent reload");
+                    worker_release_commit_intent
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .recv_timeout(Duration::from_secs(1))
+                        .expect("release commit-side intent reload");
+                }
+            }) as Arc<dyn Fn() + Send + Sync>
+        });
         let mut pipeline = SharedReceiverPipeline {
             route: Some(route),
             request: &mut request,
@@ -246,6 +285,22 @@ fn run_late_revocation(revocation: LateRevocation) {
             admission: None,
             admission_clock,
             after_final_intent_reload,
+            after_combined_commit: matches!(
+                revocation,
+                LateRevocation::CommitLinearizesUnderControl
+            )
+            .then(|| {
+                Arc::new(move |admission: &ReceiverAdmission| {
+                    assert!(
+                        commit_probe_control.try_lock().is_err(),
+                        "control mutex was released before admission commit linearized"
+                    );
+                    assert!(
+                        admission.is_committed(),
+                        "admission CAS had not committed inside the control mutex"
+                    );
+                }) as Arc<dyn Fn(&ReceiverAdmission) + Send + Sync>
+            }),
             before_final_admission: Some(Box::new(move || {
                 provider_finished_tx
                     .send(())
@@ -374,7 +429,8 @@ fn run_late_revocation(revocation: LateRevocation) {
                 crate::server::lifecycle::ServerDecision::ShutdownNow
             );
         }
-        LateRevocation::ExpireBeforeCommitWithoutWatchdog => {}
+        LateRevocation::ExpireBeforeCommitWithoutWatchdog
+        | LateRevocation::CommitLinearizesUnderControl => {}
         LateRevocation::ExpireDuringCommitIntentReload => {
             release_admission_tx
                 .send(())
@@ -390,8 +446,33 @@ fn run_late_revocation(revocation: LateRevocation) {
                 .send(())
                 .expect("release expired commit-side intent boundary");
         }
+        LateRevocation::ExpireWhileCommitWaitsForControl => {
+            main_holds_control.store(true, Ordering::Release);
+            let control_guard = control
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            release_admission_tx
+                .send(())
+                .expect("release authorize-side socket admission");
+            commit_intent_reloaded_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("pipeline completed commit-side persisted-intent IO");
+            release_commit_intent_tx
+                .send(())
+                .expect("release commit worker toward the held control mutex");
+            *injected_now
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                now + crate::server::lifecycle::LEASE_TTL;
+            main_holds_control.store(false, Ordering::Release);
+            drop(control_guard);
+        }
     }
-    if !matches!(revocation, LateRevocation::ExpireDuringCommitIntentReload) {
+    if !matches!(
+        revocation,
+        LateRevocation::ExpireDuringCommitIntentReload
+            | LateRevocation::ExpireWhileCommitWaitsForControl
+    ) {
         release_admission_tx
             .send(())
             .expect("release final socket admission");
@@ -407,14 +488,26 @@ fn run_late_revocation(revocation: LateRevocation) {
     };
     stop_polling.store(true, Ordering::Release);
     poller.join().expect("job socket poller");
-    result.expect_err("persisted disable must reject before the real job-socket handoff");
-    assert!(
-        queue
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_empty(),
-        "disabled work reached the live TUI queue"
-    );
+    if matches!(revocation, LateRevocation::CommitLinearizesUnderControl) {
+        result.expect("live authority should commit under the control mutex");
+        assert_eq!(
+            queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            1,
+            "committed work did not reach the real live-TUI queue"
+        );
+    } else {
+        result.expect_err("revoked authority must reject before the real job-socket handoff");
+        assert!(
+            queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty(),
+            "revoked work reached the live TUI queue"
+        );
+    }
 }
 
 fn tcp_pair() -> (TcpStream, TcpStream) {

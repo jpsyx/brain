@@ -414,8 +414,10 @@ canonical registry record, verifies the selected workspace UUID, and requires
 its persisted receiver intent to remain enabled before revalidating the live
 generation and authority revision. A persisted disable that races after route
 loading therefore cannot enqueue even when its best-effort refresh notification
-was lost. The monotonic instant used for live authority is sampled after that
-filesystem reload, never before it, and sampled again at admission commit.
+was lost. At admission commit, that filesystem reload remains outside the
+control mutex. One combined operation then acquires control, samples the
+monotonic instant inside the lock, revalidates exact route and admission
+identity, and performs the admission CAS before unlocking.
 Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
 live TUI returns 503 before local route behavior or receiver dispatch; it is
 never acknowledged as accepted work.
