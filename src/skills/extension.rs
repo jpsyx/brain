@@ -33,10 +33,7 @@ pub fn parse(text: &str) -> Extension {
     let mut current: Option<String> = None;
     let mut buf = String::new();
 
-    let flush = |current: &Option<String>,
-                 buf: &str,
-                 hooks: &mut BTreeMap<String, String>,
-                 catch: &mut String| {
+    let flush = |current: &Option<String>, buf: &str, hooks: &mut BTreeMap<String, String>, catch: &mut String| {
         let trimmed = buf.trim();
         match current {
             Some(name) => {
@@ -75,9 +72,7 @@ fn section_header(line: &str) -> Option<&str> {
 /// The hook name in a `<!-- brain:ext NAME -->` marker line, else `None`.
 fn marker_hook(line: &str) -> Option<&str> {
     let t = line.trim();
-    t.strip_prefix(MARKER_PREFIX)?
-        .strip_suffix(MARKER_SUFFIX)
-        .map(str::trim)
+    t.strip_prefix(MARKER_PREFIX)?.strip_suffix(MARKER_SUFFIX).map(str::trim)
 }
 
 /// Inject `ext` into a base SKILL.md body.
@@ -144,9 +139,7 @@ mod tests {
 
     #[test]
     fn parse_splits_hooks_and_catch_all() {
-        let ext = parse(
-            "intro line\n[triage:start]\nrun email-triage\n[triage:pdf]\nwrite to ~/Downloads\n",
-        );
+        let ext = parse("intro line\n[triage:start]\nrun email-triage\n[triage:pdf]\nwrite to ~/Downloads\n");
         assert_eq!(ext.catch_all, "intro line");
         assert_eq!(ext.hooks.get("triage:start").unwrap(), "run email-triage");
         assert_eq!(ext.hooks.get("triage:pdf").unwrap(), "write to ~/Downloads");
@@ -156,10 +149,7 @@ mod tests {
     fn apply_substitutes_marker_with_hook_content() {
         let base = "# Triage\n<!-- brain:ext triage:start -->\n## Steps\ndo the thing\n";
         let mut ext = Extension::default();
-        ext.hooks.insert(
-            "triage:start".to_owned(),
-            "First, run email-triage.".to_owned(),
-        );
+        ext.hooks.insert("triage:start".to_owned(), "First, run email-triage.".to_owned());
         let out = apply(base, &ext);
         // Injected content replaces the marker, before the Steps section.
         let start = out.find("First, run email-triage.").unwrap();
@@ -192,8 +182,7 @@ mod tests {
     fn apply_appends_unmatched_hooks_so_nothing_is_lost() {
         let base = "# X\nbody\n"; // no markers at all
         let mut ext = Extension::default();
-        ext.hooks
-            .insert("x:nowhere".to_owned(), "orphan content".to_owned());
+        ext.hooks.insert("x:nowhere".to_owned(), "orphan content".to_owned());
         let out = apply(base, &ext);
         assert!(out.contains("## Personal extensions"));
         assert!(out.contains("orphan content"));

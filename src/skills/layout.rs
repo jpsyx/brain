@@ -1,8 +1,9 @@
 //! Skill install destinations and the link targets between them.
 //!
-//! Mirrors the jpsyx link structure so brain-owned skills coexist with it: a
-//! built canonical dir, the shared `~/.agents/skills` registry linking to it,
-//! and each frontend's skills dir linking to the registry.
+//! Mirrors the link structure a symlink-based dotfiles manager uses, so
+//! brain-owned skills coexist with one: a built canonical dir, the shared
+//! `~/.agents/skills` registry linking to it, and each frontend's skills dir
+//! linking to the registry.
 //!
 //! `link_ops` (the target computation) is pure and unit-tested; `real` /
 //! `under_root` are the IO-flavored constructors.

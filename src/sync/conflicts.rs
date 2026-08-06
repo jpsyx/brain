@@ -27,13 +27,8 @@ fn join_dir(dir: Option<&Path>, name: &str) -> PathBuf {
 #[must_use]
 pub fn conflict_name(original: &Path, host: &str, date: &str) -> PathBuf {
     let dir = original.parent();
-    let stem = original
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let ext = original
-        .extension()
-        .map(|e| e.to_string_lossy().into_owned());
+    let stem = original.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = original.extension().map(|e| e.to_string_lossy().into_owned());
     let tag = format!("{stem} (conflict {host} {date})");
     let name = match ext {
         Some(e) => format!("{tag}.{e}"),
@@ -93,11 +88,7 @@ pub fn parse_conflict_name(path: &Path) -> Option<ParsedConflict> {
     let name = format!("{stem}{ext}");
     let original = join_dir(path.parent(), &name);
 
-    Some(ParsedConflict {
-        original,
-        host: host.to_string(),
-        date: date.to_string(),
-    })
+    Some(ParsedConflict { original, host: host.to_string(), date: date.to_string() })
 }
 
 /// Strip rclone's marker segment `.<MARKER><digits>` off a file name, returning
@@ -110,17 +101,14 @@ fn strip_marker(name: &str) -> Option<String> {
     if without_digits.len() == name.len() {
         return None; // no trailing integer → not a marker
     }
-    without_digits
-        .strip_suffix(&format!(".{CONFLICT_MARKER}"))
-        .map(ToOwned::to_owned)
+    without_digits.strip_suffix(&format!(".{CONFLICT_MARKER}")).map(ToOwned::to_owned)
 }
 
 /// Whether `path`'s file name is a real rclone conflict marker
 /// (`<original>.<MARKER><digits>`).
 #[must_use]
 pub fn is_marker(path: &Path) -> bool {
-    path.file_name()
-        .is_some_and(|n| strip_marker(&n.to_string_lossy()).is_some())
+    path.file_name().is_some_and(|n| strip_marker(&n.to_string_lossy()).is_some())
 }
 
 /// Given a marker file rclone produced (`<original>.<MARKER><N>`), compute the
@@ -137,9 +125,7 @@ pub fn friendly_from_marker(marker_path: &Path, host: &str, date: &str) -> Optio
 /// name. Returns the count renamed. Best-effort: a failed rename is skipped.
 pub fn rename_markers(root: &Path, host: &str, date: &str) -> usize {
     let mut n = 0;
-    let walker = walkdir::WalkDir::new(root)
-        .into_iter()
-        .filter_map(Result::ok);
+    let walker = walkdir::WalkDir::new(root).into_iter().filter_map(Result::ok);
     for entry in walker {
         let p = entry.path();
         if is_marker(p) {
@@ -180,13 +166,7 @@ pub fn list_conflicts(root: &Path) -> Vec<ConflictFile> {
             let n = e.file_name().to_string_lossy();
             n.contains("(conflict ") && n.contains(')')
         })
-        .map(|e| ConflictFile {
-            path: e
-                .path()
-                .strip_prefix(root)
-                .unwrap_or_else(|_| e.path())
-                .to_path_buf(),
-        })
+        .map(|e| ConflictFile { path: e.path().strip_prefix(root).unwrap_or_else(|_| e.path()).to_path_buf() })
         .collect()
 }
 
@@ -219,20 +199,11 @@ pub struct ParsedCopy {
 pub fn group_conflicts(files: &[ConflictFile]) -> Vec<ConflictGroup> {
     let mut groups: Vec<ConflictGroup> = Vec::new();
     for file in files {
-        let Some(parsed) = parse_conflict_name(&file.path) else {
-            continue;
-        };
-        let copy = ParsedCopy {
-            path: file.path.clone(),
-            host: parsed.host,
-            date: parsed.date,
-        };
+        let Some(parsed) = parse_conflict_name(&file.path) else { continue };
+        let copy = ParsedCopy { path: file.path.clone(), host: parsed.host, date: parsed.date };
         match groups.iter_mut().find(|g| g.original == parsed.original) {
             Some(group) => group.copies.push(copy),
-            None => groups.push(ConflictGroup {
-                original: parsed.original,
-                copies: vec![copy],
-            }),
+            None => groups.push(ConflictGroup { original: parsed.original, copies: vec![copy] }),
         }
     }
     groups.sort_by(|a, b| a.original.cmp(&b.original));
@@ -319,10 +290,7 @@ mod tests {
 
         let found = list_conflicts(&tmp);
         assert_eq!(found.len(), 1);
-        assert_eq!(
-            found[0].path,
-            std::path::PathBuf::from("notes/idea (conflict mac 2026-07-25).md")
-        );
+        assert_eq!(found[0].path, std::path::PathBuf::from("notes/idea (conflict mac 2026-07-25).md"));
 
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -374,17 +342,10 @@ mod tests {
 
     #[test]
     fn non_marker_path_yields_none() {
-        assert_eq!(
-            friendly_from_marker(Path::new("notes/idea.md"), "mac", "2026-07-25"),
-            None
-        );
+        assert_eq!(friendly_from_marker(Path::new("notes/idea.md"), "mac", "2026-07-25"), None);
         // marker text without a trailing digit is not a real rclone marker.
         assert_eq!(
-            friendly_from_marker(
-                Path::new(&format!("notes/idea.md.{CONFLICT_MARKER}")),
-                "mac",
-                "2026-07-25"
-            ),
+            friendly_from_marker(Path::new(&format!("notes/idea.md.{CONFLICT_MARKER}")), "mac", "2026-07-25"),
             None
         );
     }
@@ -401,52 +362,32 @@ mod tests {
     #[test]
     fn groups_multiple_copies_of_one_original() {
         let files = vec![
-            ConflictFile {
-                path: "idea (conflict mac 2026-07-25).md".into(),
-            },
-            ConflictFile {
-                path: "idea (conflict server 2026-07-24).md".into(),
-            },
-            ConflictFile {
-                path: "other (conflict mac 2026-07-25).md".into(),
-            },
+            ConflictFile { path: "idea (conflict mac 2026-07-25).md".into() },
+            ConflictFile { path: "idea (conflict server 2026-07-24).md".into() },
+            ConflictFile { path: "other (conflict mac 2026-07-25).md".into() },
         ];
         let groups = group_conflicts(&files);
         assert_eq!(groups.len(), 2);
-        let idea = groups
-            .iter()
-            .find(|g| g.original == Path::new("idea.md"))
-            .unwrap();
+        let idea = groups.iter().find(|g| g.original == Path::new("idea.md")).unwrap();
         assert_eq!(idea.copies.len(), 2);
     }
 
     #[test]
     fn copies_for_original_returns_only_that_originals_copies() {
         let files = vec![
-            ConflictFile {
-                path: "idea (conflict mac 2026-07-25).md".into(),
-            },
-            ConflictFile {
-                path: "other (conflict mac 2026-07-25).md".into(),
-            },
+            ConflictFile { path: "idea (conflict mac 2026-07-25).md".into() },
+            ConflictFile { path: "other (conflict mac 2026-07-25).md".into() },
         ];
         let got = copies_for_original(Path::new("idea.md"), &files);
-        assert_eq!(
-            got,
-            vec![PathBuf::from("idea (conflict mac 2026-07-25).md")]
-        );
+        assert_eq!(got, vec![PathBuf::from("idea (conflict mac 2026-07-25).md")]);
         assert!(copies_for_original(Path::new("missing.md"), &files).is_empty());
     }
 
     #[test]
     fn group_conflicts_drops_names_that_dont_parse() {
         let files = vec![
-            ConflictFile {
-                path: "idea (conflict mac 2026-07-25).md".into(),
-            },
-            ConflictFile {
-                path: "notes.md".into(),
-            },
+            ConflictFile { path: "idea (conflict mac 2026-07-25).md".into() },
+            ConflictFile { path: "notes.md".into() },
         ];
         let groups = group_conflicts(&files);
         assert_eq!(groups.len(), 1);
@@ -456,22 +397,13 @@ mod tests {
     #[test]
     fn group_conflicts_is_deterministic_regardless_of_input_order() {
         let files = vec![
-            ConflictFile {
-                path: "zeta (conflict mac 2026-07-25).md".into(),
-            },
-            ConflictFile {
-                path: "alpha (conflict server 2026-07-24).md".into(),
-            },
-            ConflictFile {
-                path: "alpha (conflict mac 2026-07-25).md".into(),
-            },
+            ConflictFile { path: "zeta (conflict mac 2026-07-25).md".into() },
+            ConflictFile { path: "alpha (conflict server 2026-07-24).md".into() },
+            ConflictFile { path: "alpha (conflict mac 2026-07-25).md".into() },
         ];
         let groups = group_conflicts(&files);
         let originals: Vec<_> = groups.iter().map(|g| g.original.clone()).collect();
-        assert_eq!(
-            originals,
-            vec![PathBuf::from("alpha.md"), PathBuf::from("zeta.md")]
-        );
+        assert_eq!(originals, vec![PathBuf::from("alpha.md"), PathBuf::from("zeta.md")]);
         let alpha_copies: Vec<_> = groups[0].copies.iter().map(|c| c.path.clone()).collect();
         assert_eq!(
             alpha_copies,

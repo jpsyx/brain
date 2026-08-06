@@ -55,20 +55,10 @@ pub fn render_list(rows: &[Resolved], theme: Theme) -> String {
     let mut iter = cells.iter();
     let mut lines: Vec<String> = Vec::with_capacity(cells.len());
     if let Some([n, v, d]) = iter.next() {
-        lines.push(format!(
-            "{}  {}  {}",
-            theme.heading(n),
-            theme.heading(v),
-            theme.heading(d)
-        ));
+        lines.push(format!("{}  {}  {}", theme.heading(n), theme.heading(v), theme.heading(d)));
     }
     for [n, v, d] in iter {
-        lines.push(format!(
-            "{}  {}  {}",
-            theme.accent(n),
-            theme.value(v),
-            theme.muted(d)
-        ));
+        lines.push(format!("{}  {}  {}", theme.accent(n), theme.value(v), theme.muted(d)));
     }
     let mut out = lines.join("\n");
     out.push('\n');
@@ -122,9 +112,6 @@ mod tests {
     #[test]
     fn set_confirmation_greens_the_verb() {
         assert!(set_confirmation("root", "~/b", Theme::dark(true)).contains("\x1b[92m"));
-        assert_eq!(
-            set_confirmation("root", "~/b", Theme::dark(false)),
-            "set root = ~/b"
-        );
+        assert_eq!(set_confirmation("root", "~/b", Theme::dark(false)), "set root = ~/b");
     }
 }

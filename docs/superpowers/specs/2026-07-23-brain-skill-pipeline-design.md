@@ -6,7 +6,8 @@
 - **Depends on:** Sub-project A (personalization store, `resync_skills()` seam).
 - **Program context:** see `2026-07-23-brain-generic-foundation-design.md` for the
   A/B/C decomposition and the cross-cutting invariants (public repo; no-regression
-  migration; brain never writes jpsyx-configs; two-store seam; mutations re-render).
+  migration; brain never writes the user's private dotfiles repo; two-store seam;
+  mutations re-render).
 
 ## B.1 Goal
 
@@ -20,8 +21,8 @@ into his own extensions/plugins).
 ## B.2 Install model (decided)
 
 `brain skills sync` renders the bundled skills (+ the user's extensions/plugins)
-and installs them into the **same shared agent registry jpsyx already fans out
-from**:
+and installs them into the **same shared agent registry a symlink-based dotfiles
+manager already fans out from**:
 
 ```
 brain skills sync
@@ -31,13 +32,13 @@ brain skills sync
 ```
 
 - **Public cloner:** `brain skills sync` (auto-run by `resync_skills()` and on
-  first run) does everything; no jpsyx required.
-- **Pablo:** jpsyx stops *owning* the brain skills. `jpsyx update`/`jpsyx sync`
-  also invoke `brain skills sync`; jpsyx's prune step is fixed so it never
-  deletes brain-owned skills (ownership boundary in B4). brain never writes
-  jpsyx-configs.
+  first run) does everything; no dotfiles manager required.
+- **Existing dotfiles-manager user:** the manager stops *owning* the brain
+  skills. Its update/sync also invokes `brain skills sync`; its prune step is
+  fixed so it never deletes brain-owned skills (ownership boundary in B4). brain
+  never writes the private dotfiles repo.
 - **Fan-out target set** is configurable (which frontends), defaulting to the
-  installed ones, mirroring jpsyx's behavior. **Codex is a required target**
+  installed ones, mirroring a dotfiles manager's behavior. **Codex is a required target**
   alongside Claude: even though the brain CLI only drives Claude, a user may open
   Codex separately and call a brain skill, so `brain skills sync` must install
   into Codex's skills location too (symlink, or whatever config Codex requires to
@@ -143,9 +144,10 @@ behavior happen together (no window where he loses functionality).
   the same phase — move each removed personal bit into Pablo's extension/plugin
   files, so nothing regresses. Split second-brain (summarize→article-summarizer,
   zotero→zotero-sync plugin) and triage (email-triage/custom-PDF→triage extension).
-- **B4 — jpsyx bridge + cutover.** jpsyx delegates to `brain skills sync`; fix
-  jpsyx's prune to spare brain-owned skills; flip Pablo's live registry over from
-  jpsyx-owned to brain-owned; final no-regression verification.
+- **B4 — dotfiles-manager bridge + cutover.** The dotfiles manager delegates to
+  `brain skills sync`; fix its prune to spare brain-owned skills; flip the live
+  registry over from dotfiles-manager-owned to brain-owned; final no-regression
+  verification.
 
 Each phase: its own spec → plan → RED/GREEN build → docs, and ships green.
 
@@ -162,13 +164,13 @@ Each phase: its own spec → plan → RED/GREEN build → docs, and ships green.
 ## B.8 Safety (live-environment)
 
 Installing/symlinking into `~/.agents/skills` and the frontend dirs mutates
-Pablo's **live** working setup and can collide with jpsyx (which currently owns
-these skills). Therefore:
+Pablo's **live** working setup and can collide with the dotfiles manager (which
+currently owns these skills). Therefore:
 
 - The install root/target set is a parameter; **all dev and tests run against a
   temp sandbox**, never the real registry.
-- **No cutover of Pablo's live registry happens before B4**, when the jpsyx
-  ownership boundary + prune fix are in place. Until then brain's pipeline is
+- **No cutover of Pablo's live registry happens before B4**, when the
+  dotfiles-manager ownership boundary + prune fix are in place. Until then brain's pipeline is
   proven in the sandbox only.
 - Pure logic (render, link-plan computation, prune-safety classification) is
   unit-tested per the house pure/impure rule; the symlink/FS shell stays thin.
@@ -177,5 +179,5 @@ these skills). Therefore:
 
 - Exact extension-point syntax + renderer (B2).
 - Plugin manifest/format and how scripts are installed/pathed (B2/B3).
-- jpsyx prune ownership marker (a manifest of brain-owned names? a marker file?)
-  (B4).
+- Dotfiles-manager prune ownership marker (a manifest of brain-owned names? a
+  marker file?) (B4).

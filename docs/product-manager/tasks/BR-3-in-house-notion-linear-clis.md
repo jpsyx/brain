@@ -67,7 +67,7 @@ service isn't set up on this machine.
 Open design questions to resolve during planning (do not pre-decide here):
 
 - **Where do the CLIs live?** As new brain subcommands (`brain notion …`,
-  `brain linear …`), separate bundled binaries, or standalone jpsyx modules
+  `brain linear …`), separate bundled binaries, or standalone external tools
   brain shells out to. Bundling as brain subcommands keeps one config surface
   and one install, but weigh binary size / dependency growth (the dep set is
   small on purpose).

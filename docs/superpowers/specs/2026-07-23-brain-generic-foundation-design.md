@@ -12,8 +12,8 @@
 
 `brain` today is simultaneously (a) a public-intent Rust CLI + PARA/task
 management system and (b) Pablo's personal setup, with personal data baked into
-the binary and with the brain-related skills living in the private
-`jpsyx-configs` repo. The goal is to make the **repo 100% public and generic**
+the binary and with the brain-related skills living in a private dotfiles repo.
+The goal is to make the **repo 100% public and generic**
 — anyone can clone `brain`, get the brain-related skills automatically, and
 customize/extend without forking — while Pablo, as the primary user, **loses no
 functionality or personalization** on his own machines.
@@ -62,10 +62,10 @@ These are laws for the whole program, not just A.
    today. By the end of the program: public repo **and** zero personal loss.
    Every sub-project's plan includes a "migration" step that populates Pablo's
    local values for whatever it extracted.
-3. **brain never writes `jpsyx-configs`.** jpsyx (private) stops *owning* the
-   brain skills but still *syncs* them: `jpsyx update` / `jpsyx sync` also invoke
-   brain's skill install/sync (detail lands in B). jpsyx-configs remains free to
-   adapt around brain.
+3. **brain never writes the user's private dotfiles repo.** The dotfiles manager
+   stops *owning* the brain skills but still *syncs* them: its update/sync also
+   invokes brain's skill install/sync (detail lands in B). The private dotfiles
+   repo remains free to adapt around brain.
 4. **Two-store lifecycle seam.** Machine-local settings never sync; portable
    content-about-you does. (Concretized in A, §A.2.)
 5. **Any config/personalize mutation re-renders skills.** Every `brain
@@ -257,6 +257,6 @@ confirm no visual change.
 - **B:** move skills into the repo; depersonalize skill text; the render/install
   pipeline (`resync_skills()` real body); plugins/extensions; per-skill config
   (e.g. email-triage per-sender rules, the stocks-assistant hook, zotero); the
-  `mark_done.py` coupling fix; the `jpsyx sync → brain skill sync` bridge.
+  `mark_done.py` coupling fix; the `<dotfiles> sync → brain skill sync` bridge.
 - **C:** the change ledger, watcher, Backblaze backend, `brain sync`, and
   multi-machine reconciliation (sharing `~/brain/.config/`).

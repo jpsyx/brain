@@ -8,10 +8,7 @@
 /// The generic default namespaces shown pre-checked in onboarding.
 #[must_use]
 pub fn default_namespaces() -> Vec<String> {
-    ["work", "personal"]
-        .iter()
-        .map(|s| (*s).to_owned())
-        .collect()
+    ["work", "personal"].iter().map(|s| (*s).to_owned()).collect()
 }
 
 /// Normalize a raw namespace token to a valid slug, or `None` if nothing usable

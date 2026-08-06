@@ -1027,7 +1027,7 @@ Add the two-store schema and the `sync` block (fields, defaults, `is_configured`
 
 - [ ] **Step 4: `docs/decisions.md`**
 
-Add a decision entry: brain env / brain config split; the "wrong-if-synced ⇒ env" rule of thumb; the partial reversal of "config in the brain root" and why (C makes leaking machine-level secrets/paths the dominant risk); the residual jpsyx mirror-write footgun for `env.json` (jpsyx-side seed/copy, not symlink), per spec §12.
+Add a decision entry: brain env / brain config split; the "wrong-if-synced ⇒ env" rule of thumb; the partial reversal of "config in the brain root" and why (C makes leaking machine-level secrets/paths the dominant risk); the residual dotfiles-mirror write footgun for `env.json` (dotfiles-manager-side seed/copy, not symlink), per spec §12.
 
 - [ ] **Step 5: `docs/features.md` + `README.md`**
 

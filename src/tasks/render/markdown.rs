@@ -156,7 +156,9 @@ pub(super) fn notes_lines(task: &Task, expanded: bool) -> Vec<Line<'static>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bullet_body, heading_body, inline_spans, markdown_note_lines, notes_lines};
+    use super::{
+        bullet_body, heading_body, inline_spans, markdown_note_lines, notes_lines,
+    };
     use crate::tasks::task::test_task;
     use ratatui::style::{Modifier, Style};
 
@@ -200,11 +202,7 @@ mod tests {
     fn inline_unclosed_marker_is_literal() {
         let spans = inline_spans("a * b", Style::new());
         assert_eq!(flat(&spans), "a * b");
-        assert!(
-            spans
-                .iter()
-                .all(|s| !s.style.add_modifier.contains(Modifier::ITALIC))
-        );
+        assert!(spans.iter().all(|s| !s.style.add_modifier.contains(Modifier::ITALIC)));
     }
 
     // --- block markdown ---
@@ -238,6 +236,7 @@ mod tests {
         let lines = markdown_note_lines("a\n\nb", "p2");
         assert_eq!(lines.len(), 3);
     }
+
 
     // --- notes_lines ---
 

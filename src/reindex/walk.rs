@@ -145,16 +145,10 @@ mod tests {
         assert_eq!(report.rows, 2);
         let csv = fs::read_to_string(&report.path).expect("read csv");
         let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(
-            lines[0],
-            "name,namespace,title,status,priority,due,directory"
-        );
+        assert_eq!(lines[0], "name,namespace,title,status,priority,due,directory");
         // sorted by name: alpha before zeta; missing due -> none
         assert_eq!(lines[1], "alpha,n,Alpha,blocked,p1,none,projects/alpha");
-        assert_eq!(
-            lines[2],
-            "zeta,n,Zeta,in-progress,p2,2026-01-01,projects/zeta"
-        );
+        assert_eq!(lines[2], "zeta,n,Zeta,in-progress,p2,2026-01-01,projects/zeta");
     }
 
     #[test]

@@ -178,7 +178,10 @@ fn opencode_controller_is_constructible_but_every_lifecycle_and_input_fails_with
 
 fn assert_unsupported<T>(result: Result<T, AgentError>) {
     match result {
-        Err(error) => assert_eq!(error, AgentError::UnsupportedFrontend(AgentKind::OpenCode)),
+        Err(error) => assert_eq!(
+            error,
+            AgentError::UnsupportedFrontend(AgentKind::OpenCode)
+        ),
         Ok(_) => panic!("OpenCode operation must fail"),
     }
 }

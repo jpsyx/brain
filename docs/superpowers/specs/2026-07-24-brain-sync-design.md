@@ -50,7 +50,7 @@ two clearly-named stores by **lifecycle**, each with its own CLI:
 
 | Store | What it is | Path | CLI | Holds | Synced how |
 |---|---|---|---|---|---|
-| **brain env** | machine environment | `~/.config/brain/env.json` (fixed XDG path, **outside** the brain root) | `brain env {list\|get\|set}` | `root`, `markdown_to_pdf_path`, the `sync` block (B2 creds, bucket, trigger flags) | **Not by C.** The user may privately track it in the private `jpsyx-configs` repo at `home/.config/brain/env.json`. brain never knows about jpsyx-configs. |
+| **brain env** | machine environment | `~/.config/brain/env.json` (fixed XDG path, **outside** the brain root) | `brain env {list\|get\|set}` | `root`, `markdown_to_pdf_path`, the `sync` block (B2 creds, bucket, trigger flags) | **Not by C.** The user may privately track it in their own private dotfiles repo. brain never knows about any such repo. |
 | **brain config** | portable preferences | `<brain-root>/.config/config.json` | `brain config {list\|get\|set}` | `linear_workspace`, `daily_triage_name_pattern`, `day_rollover_hour`, `agenda_dir`, `calendar_id`, `claude_cmd`, `skills_auto_sync` | **By C**, riding the brain-dir sync. |
 | **personalization** | content about you | `<brain-root>/.config/` (`personalization.json`, `extensions/`, `plugins/`) | `brain personalize` | identity, tag styles, skill extensions/plugins | **By C**, riding the brain-dir sync. |
 
@@ -72,7 +72,7 @@ keeps managing everything it manages today, and `config.json` **stays** in
   env is its correct home, and moving it removes the self-heal hack for a value
   that was needlessly riding the sync.
 - **This partially reverses the A-era decision** (decisions.md: "unify everything
-  inside the brain root") that dodged the jpsyx mirror-write footgun. The reversal
+  inside the brain root") that dodged the dotfiles-mirror write footgun. The reversal
   is correct because C makes the *opposite* problem dominant: machine-level
   secrets/paths cannot be allowed to sync via the brain dir. See §12 for the
   footgun's residual handling.
@@ -258,7 +258,7 @@ skill text.
   layer `rclone crypt` later without changing `brain sync`.
 - **Secrets are machine-local.** B2 keys live only in brain env
   (`~/.config/brain/env.json`, outside the synced brain dir), so they never land
-  in the B2 bucket. If the user tracks that file in the **private** `jpsyx-configs`
+  in the B2 bucket. If the user tracks that file in their **private** dotfiles
   repo, the secret sits in a private repo by their explicit choice; brain itself
   is agnostic.
 - **`--max-delete` guard** prevents a corrupted/empty local state from mass-
@@ -270,21 +270,23 @@ skill text.
 - **Repo stays 100% public and generic.** No bucket names, hosts, keys, or
   personal paths committed. Personal sync setup lives only in the user's
   machine-local config (§14).
-- **brain never writes or knows `jpsyx-configs`.** It reads/writes a standard XDG
-  file; whether the user syncs that file privately is outside brain's concern.
+- **brain never writes or knows any private dotfiles repo.** It reads/writes a
+  standard XDG file; whether the user syncs that file privately is outside brain's
+  concern.
 - **Decision — rclone over a hand-rolled engine.** Bidirectional deletes +
   conflict handling are the hard, dangerous core of sync; rclone bisync is mature
   and correct there. brain keeps only the semantic pieces (CSV merge, conflict
   UX, journal/verify). Recorded in `docs/decisions.md`.
-- **Decision — the residual jpsyx mirror-write footgun.** Brain env
+- **Decision — the residual dotfiles-mirror write footgun.** Brain env
   (`~/.config/brain/env.json`) is runtime-mutable (`brain env set`,
-  `markdown_to_pdf_path` self-heal). If the user mirror-symlinks it via jpsyx
-  (writes land in the wiped `home-dist/` mirror and are lost), the fix is a
-  **jpsyx-side** concern: seed/copy the file rather than symlink it, or re-commit
-  after changes. brain stays generic and does nothing special. Flagged here so the
-  user handles it in their jpsyx setup; it does not change brain's design.
-  (Brain config, `<brain-root>/.config/config.json`, is not affected — it rides
-  the Backblaze sync, not jpsyx.)
+  `markdown_to_pdf_path` self-heal). If the user mirror-symlinks it via a dotfiles
+  manager that regenerates its mirror (writes land in the wiped mirror and are
+  lost), the fix is a **dotfiles-manager-side** concern: seed/copy the file rather
+  than symlink it, or re-commit after changes. brain stays generic and does nothing
+  special. Flagged here so the user handles it in their own dotfiles setup; it does
+  not change brain's design. (Brain config,
+  `<brain-root>/.config/config.json`, is not affected — it rides the Backblaze
+  sync, not the dotfiles manager.)
 
 ## 13. Phase decomposition (each its own spec → plan → RED/GREEN build → docs)
 
@@ -321,8 +323,8 @@ No cut: the watcher (C4) ships as a first-class trigger, not deferred.
   `<brain-root>/.config/` as brain config.
 - Create the B2 bucket; run `brain sync setup` on each machine to capture that
   machine's B2 key + bucket; enable sync.
-- Track `~/.config/brain/env.json` privately in `jpsyx-configs` at
-  `home/.config/brain/env.json` (handling the §12 footgun on the jpsyx side).
+- Track `~/.config/brain/env.json` privately in the user's own dotfiles repo
+  (handling the §12 footgun on the dotfiles-manager side).
 - Verify: an edit/add/delete on machine A appears on machine B after a sync;
   tasks/habits merge with no conflict copy; a concurrent prose edit yields exactly
   one conflict copy and resolves via `/second-brain resolve-conflicts`.

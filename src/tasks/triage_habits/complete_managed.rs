@@ -73,11 +73,11 @@ pub fn complete_managed_triage(
 }
 
 /// CLI runner for `brain habits complete-managed-triage <daily|weekly>`.
-pub fn run(workspace: &crate::workspace::WorkspaceContext, kind: ManagedTriageKind) -> Result<()> {
-    crate::logging::log(format!(
-        "habits complete-managed-triage kind={}",
-        kind.label()
-    ));
+pub fn run(
+    workspace: &crate::workspace::WorkspaceContext,
+    kind: ManagedTriageKind,
+) -> Result<()> {
+    crate::logging::log(format!("habits complete-managed-triage kind={}", kind.label()));
     let enabled = crate::config::Config::load(workspace).enable_triage_habits;
     let today = Local::now().date_naive();
     let outcome = complete_managed_triage(workspace, kind, enabled, today)?;
@@ -278,8 +278,7 @@ mod tests {
         let dir = fixture(
             "u1,H35,Morning Triage,done,2026-08-04,1,days,09:00,2026-08-04,2026-08-04,2026-08-04,pablo,brain.triage.daily\n",
         );
-        let err =
-            complete_in_root(dir.path(), ManagedTriageKind::Daily, true, today()).unwrap_err();
+        let err = complete_in_root(dir.path(), ManagedTriageKind::Daily, true, today()).unwrap_err();
         assert!(err.to_string().contains("no pending"), "got: {err}");
     }
 
@@ -289,8 +288,7 @@ mod tests {
             "u1,H35,Morning Triage,not_started,2026-08-04,1,days,09:00,2026-08-04,,,pablo,brain.triage.daily\n\
              u2,H40,Morning Triage,not_started,2026-08-05,1,days,09:00,2026-08-04,,,pablo,brain.triage.daily\n",
         );
-        let err =
-            complete_in_root(dir.path(), ManagedTriageKind::Daily, true, today()).unwrap_err();
+        let err = complete_in_root(dir.path(), ManagedTriageKind::Daily, true, today()).unwrap_err();
         assert!(err.to_string().contains("exactly one"), "got: {err}");
     }
 }

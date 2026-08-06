@@ -12,9 +12,9 @@ use serde_json::{Map, Value};
 /// This is the home for everything brain persists — the JSON config store,
 /// `personalization.json`, and the skill `extensions/` and `plugins/` sources.
 /// It lives **inside the brain root**, so it travels with the brain (whatever
-/// syncs the brain dir syncs the config too) and jpsyx has nothing to do with
-/// it. The one exception is the brain-root pointer itself, which can't live
-/// inside the root (see [`crate::paths`]).
+/// syncs the brain dir syncs the config too) and no external dotfiles manager
+/// has to be involved. The one exception is the brain-root pointer itself,
+/// which can't live inside the root (see [`crate::paths`]).
 #[must_use]
 pub fn config_dir(workspace: &crate::workspace::WorkspaceContext) -> PathBuf {
     workspace.root().join(".config")

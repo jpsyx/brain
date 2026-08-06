@@ -484,9 +484,10 @@ directory; the source directory, `SKILL.md`, and every descendant must be real
 files or directories rather than symlinks. `resync_skills()` (the A seam) runs the pipeline, gated by
 `skills_auto_sync` (**default `true`** since the B4 cutover) so a mutation
 re-renders the live registry; set the flag `false` to manage skills only via
-explicit `brain skills sync`. jpsyx delegates to `brain skills sync` and never
-prunes brain-owned links (they resolve into brain's built dir, outside jpsyx's
-sources). See the B spec under `docs/superpowers/specs/`.
+explicit `brain skills sync`. A symlink-based dotfiles manager can coexist with
+this by delegating to `brain skills sync` and never pruning brain-owned links
+(they resolve into brain's built dir, outside the manager's own sources). See
+the B spec under `docs/superpowers/specs/`.
 
 **Version-stamped auto-resync.** So a version bump ships its *skill* changes the
 way it ships *code* changes (immediately, no manual step), `bootstrap` calls

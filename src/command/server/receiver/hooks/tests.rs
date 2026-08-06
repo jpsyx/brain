@@ -263,10 +263,7 @@ fn stop_hook_recovers_final_message_from_transcript_when_field_absent() {
         ("BRAIN_PID", std::ffi::OsStr::new("4242")),
         ("BRAIN_STATE_DB", db_path.as_os_str()),
         ("BRAIN_RESPONSE_DIR", response_dir.as_os_str()),
-        (
-            "BRAIN_RESPONSE_ID",
-            std::ffi::OsStr::new("response-claude-1"),
-        ),
+        ("BRAIN_RESPONSE_ID", std::ffi::OsStr::new("response-claude-1")),
     ];
 
     let started = run_configured(

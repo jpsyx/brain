@@ -186,8 +186,8 @@ mod tests {
             ("daily", ManagedTriageKindArg::Daily),
             ("weekly", ManagedTriageKindArg::Weekly),
         ] {
-            let cli = Cli::try_parse_from(["brain", "habits", "complete-managed-triage", word])
-                .expect("parse");
+            let cli =
+                Cli::try_parse_from(["brain", "habits", "complete-managed-triage", word]).expect("parse");
             let Some(Cmd::Habits(args)) = cli.command else {
                 panic!("expected habits");
             };

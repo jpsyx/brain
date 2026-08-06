@@ -53,11 +53,7 @@ impl Confirm {
     /// already requested via `Ctrl-G`, so Yes is the expected answer).
     #[must_use]
     pub const fn pdf(path: PathBuf) -> Self {
-        Self {
-            path,
-            kind: ConfirmKind::Pdf,
-            yes: true,
-        }
+        Self { path, kind: ConfirmKind::Pdf, yes: true }
     }
 
     /// Open a "Delete" confirmation, defaulting to **No**: deleting is
@@ -65,11 +61,7 @@ impl Confirm {
     /// cancels rather than deletes.
     #[must_use]
     pub const fn delete(path: PathBuf) -> Self {
-        Self {
-            path,
-            kind: ConfirmKind::Delete,
-            yes: false,
-        }
+        Self { path, kind: ConfirmKind::Delete, yes: false }
     }
 
     const fn toggle(&mut self) {
@@ -140,10 +132,8 @@ fn question(kind: ConfirmKind, filename: &str) -> String {
 /// The filename shown in the modal question (just the file's name, not the
 /// full path). Falls back to the path's display if it has no file name.
 fn modal_filename(path: &Path) -> String {
-    path.file_name().map_or_else(
-        || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    )
+    path.file_name()
+        .map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned())
 }
 
 /// Render the confirmation modal as a centered overlay, chromed by kind

@@ -753,24 +753,25 @@ through three positions and this is the resting one:
 1. **A/original:** machine-local `config.json` at `~/.config/brain`, but
    personalization *inside* the brain root so it synced with the brain.
 2. **Mid-project:** unify *everything* under `~/.config/brain` and sync that dir
-   externally (via jpsyx-configs `home/`).
+   externally (via a dotfiles manager's tracked `home/` tree).
 3. **Final (here):** unify everything *inside the brain root*.
 
-Position 2 died on a concrete footgun. jpsyx syncs `$HOME` paths by symlinking
-them at a **regenerated mirror** (`home-dist/`, wiped and rebuilt every sync). A
-tool that *writes its config at runtime* (brain does: `config set`, `personalize
-set`, onboarding, `resync_skills`) writing through such a symlink lands its bytes
-in the gitignored mirror, which is then wiped on the next build — the write is
-lost and never committed. brain can't dodge it the way the jpsyx-native
-`email-triage` skill does (writing the repo *source* directly), because brain
-must stay generic and **never know about jpsyx-configs**.
+Position 2 died on a concrete footgun. A common dotfiles-manager design syncs
+`$HOME` paths by symlinking them at a **regenerated mirror** (a build directory
+wiped and rebuilt on every sync). A tool that *writes its config at runtime*
+(brain does: `config set`, `personalize set`, onboarding, `resync_skills`)
+writing through such a symlink lands its bytes in the gitignored mirror, which
+is then wiped on the next build — the write is lost and never committed. A
+dotfiles-manager-native tool can dodge this by writing the repo *source*
+directly, but brain can't: it must stay generic and **never know about any
+particular dotfiles repo**.
 
 So instead of routing brain's runtime writes through any dotfiles mirror, we put
 its config *inside the brain*. The brain root is already the user's synced,
 portable content; brain's own state rides along with it for free (whatever syncs
-the brain — sub-project C, Backblaze, etc. — syncs the config), and **jpsyx has
-nothing to do with brain config at all**. The repo stays generic (no tracked
-`config.json`), and brain still writes only under `$HOME`.
+the brain — sub-project C, Backblaze, etc. — syncs the config), and **the
+dotfiles manager has nothing to do with brain config at all**. The repo stays
+generic (no tracked `config.json`), and brain still writes only under `$HOME`.
 
 ### Historical exception: the legacy root pointer (superseded)
 
@@ -829,10 +830,10 @@ stays a third store inside the brain root alongside `config.json`.
 This is a **partial reversal** of "Why config lives inside the brain root"
 (above), which deliberately unified *everything* — including the
 then-machine-specific `markdown_to_pdf_path` — inside the brain root to dodge
-the jpsyx mirror-write footgun. That reversal is now correct because C makes
+the dotfiles-mirror write footgun. That reversal is now correct because C makes
 the *opposite* failure mode dominant: a synced brain dir means anything
 machine-local placed inside it leaks across every machine on the next sync,
-whereas the jpsyx mirror-write footgun the original decision was avoiding is
+whereas the dotfiles-mirror write footgun the original decision was avoiding is
 merely inconvenient (a lost local edit) rather than a wrong path or a leaked
 secret landing somewhere it shouldn't.
 
@@ -841,19 +842,19 @@ workspace roots. In schema v2, `root` is structural `WorkspaceRecord` data,
 not writable free-form env. The legacy `~/.config/brain-root` pointer remains
 a back-compat read and is folded into the first record during migration.
 
-**The residual jpsyx mirror-write footgun, now on `env.json`.** `env.json` is
+**The residual dotfiles-mirror write footgun, now on `env.json`.** `env.json` is
 runtime-mutable (`brain env set`, and the `markdown_to_pdf_path` self-heal), so
 the same footgun the original decision dodged for `config.json` now applies to
-it: if a dotfiles tool (e.g. jpsyx) mirror-*symlinks* `env.json` at a
-regenerated mirror, a runtime write lands in the mirror and is lost on the next
-rebuild. Brain does not solve this — it stays generic and has no jpsyx
-awareness by design. The fix, if a user wants `env.json` to persist across
-machines via a private dotfiles repo, is **jpsyx-side**: seed/copy the file
-into place rather than symlinking it (or re-commit after changes), the same way
-jpsyx already special-cases the read-only `~/.config/brain-root` pointer (safe
-to symlink because brain only ever reads it — `env.json` is not read-only, so
-the same trick doesn't apply). See the brain-sync design spec §12 for the full
-record.
+it: if a dotfiles manager mirror-*symlinks* `env.json` at a regenerated mirror,
+a runtime write lands in the mirror and is lost on the next rebuild. Brain does
+not solve this — it stays generic and has no dotfiles-manager awareness by
+design. The fix, if a user wants `env.json` to persist across machines via a
+private dotfiles repo, is **dotfiles-manager-side**: seed/copy the file into
+place rather than symlinking it (or re-commit after changes), the way a
+dotfiles manager can safely symlink the read-only `~/.config/brain-root`
+pointer (safe because brain only ever reads it — `env.json` is not read-only,
+so the same trick doesn't apply). See the brain-sync design spec §12 for the
+full record.
 
 ## C2/§19 — `brain sync`'s rclone transport: env-var creds, `--max-delete` + `--check-access`, bisync over a custom merge
 
@@ -1317,30 +1318,31 @@ skills out wherever they're needed, so a user who `cargo install`s brain (or
 moves the binary) still gets them. `include_str!` can't carry a skill's multiple
 files (SKILL.md + scripts), which is why the one dependency is justified.
 
-## Why the skill install is a two-hop link (registry → built), matching jpsyx
+## Why the skill install is a two-hop link (registry → built)
 
 `brain skills sync` writes a built copy, links `~/.agents/skills/<name>` at it,
 then links each frontend's skills dir at that registry entry. This mirrors the
-existing jpsyx fan-out exactly, so brain-owned skills sit in the same shared
-registry every frontend already reads — and so brain and jpsyx can coexist on
-Pablo's machines once the B4 bridge stops jpsyx from pruning brain-owned entries.
-The link *targets* are a pure function (`layout::link_ops`), unit-tested; the FS
-shell (`install`) stays thin.
+fan-out shape a dotfiles manager already uses for its own skills, so brain-owned
+skills sit in the same shared registry every frontend reads — and so brain and a
+dotfiles manager can coexist on one machine once the dotfiles manager stops
+pruning brain-owned entries (the B4 bridge). The link *targets* are a pure
+function (`layout::link_ops`), unit-tested; the FS shell (`install`) stays thin.
 
 ## Why the skill sync is gated off (`skills_auto_sync`) during rollout
 
 `resync_skills()` is wired into every config/personalize mutation, but a mutation
 must not silently rewrite the user's live agent registry while the pipeline is
-still being built (sub-projects B1–B3) — on Pablo's machine that registry is
-still jpsyx-owned, and dual management would collide. So the auto-sync is gated
-behind a config flag defaulting to `false`; the pipeline is exercised only via
-`brain skills sync --root <sandbox>` until the B4 cutover flips the flag and
-fixes jpsyx's prune. Safety-first: the default can't disturb a live setup.
+still being built (sub-projects B1–B3) — on a machine where a dotfiles manager
+already owns that registry, dual management would collide. So the auto-sync is
+gated behind a config flag defaulting to `false`; the pipeline is exercised only
+via `brain skills sync --root <sandbox>` until the B4 cutover flips the flag and
+fixes the dotfiles manager's prune. Safety-first: the default can't disturb a
+live setup.
 
 **Post-B4:** the flag now defaults to `true` — the rollout is over, the registry
-is brain-owned, and jpsyx no longer fights brain for it, so a mutation *should*
-re-render the live registry (program invariant #5). Setting it `false` reverts to
-sync-only-on-demand via explicit `brain skills sync`.
+is brain-owned, and no dotfiles manager fights brain for it, so a mutation
+*should* re-render the live registry (program invariant #5). Setting it `false`
+reverts to sync-only-on-demand via explicit `brain skills sync`.
 
 ## Why a version-stamped auto-resync (a brain update must ship skill changes)
 
@@ -1450,8 +1452,8 @@ bundled skill grows a personal token, so this line can't silently erode.
 
 Cross-skill script calls (todo's `find_chronic_ignored.py`, …)
 standardized on the install-registry path `~/.agents/skills/todo/scripts/<name>.py`
-rather than the old `~/global-skills/...` (jpsyx) or `~/.claude/skills/...`
-(one-frontend) forms: that path is frontend-agnostic and is exactly where
+rather than the old `~/global-skills/...` (dotfiles-manager-owned) or
+`~/.claude/skills/...` (one-frontend) forms: that path is frontend-agnostic and is exactly where
 `brain skills sync` installs the `todo` skill, so it resolves for any cloner.
 
 ## Why second-brain split into a lean core + a `/contacts` skill + a `zotero-sync` plugin
@@ -1507,12 +1509,13 @@ deeply-woven personal subsystems on top of the generic task core. The split:
 - Two config vars back this: `agenda_dir` (default `~/Downloads`, so the PDF
   destination isn't hardcoded) and `calendar_id` (empty = no calendar
   integration). Scripts read `BRAIN_AGENDA_DIR`/`MARKDOWN_TO_PDF` from the env
-  with sane fallbacks instead of a hardcoded jpsyx module path.
+  with sane fallbacks instead of a hardcoded path into a personal tool install.
 
-The guard test gained `jpsyx` as a forbidden token so the private dotfiles-repo
-path can never re-enter a bundled skill. Note the guard catches identity/paths,
-not every personal detail (it wouldn't flag "Walk Luna"); depersonalizing a
-skill still needs human judgment for personal-but-not-identifying content.
+The guard test's forbidden-token list covers the maintainer's private
+dotfiles-repo name too, so that path can never re-enter a bundled skill. Note
+the guard catches identity/paths, not every personal detail (it wouldn't flag
+"Walk Luna"); depersonalizing a skill still needs human judgment for
+personal-but-not-identifying content.
 
 ## Why no comments-by-default and no decision log in code
 
@@ -1521,66 +1524,73 @@ non-obvious; the function name + these docs carry the *what*. This repo is
 not under git, so there's no PR review, no `.difit/` log, and no changelog
 file — `docs/` is the durable record.
 
-## B4 — the jpsyx bridge + live cutover (ownership boundary, prune-safety, rollback)
+## B4 — the dotfiles-manager bridge + live cutover (ownership boundary, prune-safety, rollback)
 
 The B1–B3 pipeline was proven only in a sandbox; B4 is the one phase allowed to
-touch the live agent registry. The cutover flips Pablo's six migrated skills
+touch the live agent registry. The cutover flips the six migrated skills
 (`article-summarizer`, `brain-knowledge-capture`, `contacts`, `second-brain`,
-`todo`, `triage`) plus his two plugins (`zotero-sync`, `linear-sync`) from
-jpsyx-owned to brain-owned, and makes jpsyx delegate to `brain skills sync`
-without ever pruning what brain owns.
+`todo`, `triage`) plus two plugins (`zotero-sync`, `linear-sync`) from
+dotfiles-manager-owned to brain-owned, and makes the dotfiles manager delegate to
+`brain skills sync` without ever pruning what brain owns.
+
+This section describes the general shape of the cutover for anyone whose skills
+are currently owned by a symlink-based dotfiles manager. Brain itself knows
+nothing about any such tool; all the coordination is on the dotfiles-manager
+side.
 
 **The ownership boundary is the link target, not a manifest file.** A registry
 or frontend skill link is *brain-owned* iff it (transitively) resolves under
 brain's built dir (`$XDG_DATA_HOME/brain/skills` or `~/.local/share/brain/skills`).
-jpsyx-owned links resolve into `~/global-skills` or `~/.agents/skills`. This
-falls out of the two systems' existing designs and needs no new file:
+Dotfiles-manager-owned links resolve into its own sources (typically a
+`~/global-skills`-style dir or `~/.agents/skills`). This falls out of the two
+systems' existing designs and needs no new file:
 
-- jpsyx's fan-out only ever creates/repoints/prunes links whose target
-  `points_into` its own sources (`~/.agents/skills`, `~/global-skills`). A
-  brain-owned registry entry (`~/.agents/skills/todo → ~/.local/share/brain/…`)
-  points into *neither*, so jpsyx's `prune_into_sources` leaves it alone and its
-  aggregation records it as a harmless "conflict" (foreign symlink) rather than
-  clobbering it. jpsyx's `sync::prune`/`sweep` only touch dangling links into the
-  *mirror* (`home-dist/`), which brain links never are. So every existing jpsyx
-  prune path already spares brain-owned links *by construction*.
-- brain's `install::sync` `remove_existing` cleanly replaces the old jpsyx-owned
-  symlink at each name, so the cutover is a plain re-link, not a conflict.
+- A well-behaved dotfiles-manager fan-out only ever creates/repoints/prunes links
+  whose target points into its *own* sources. A brain-owned registry entry
+  (`~/.agents/skills/todo → ~/.local/share/brain/…`) points into neither, so a
+  prune-into-own-sources step leaves it alone and aggregation records it as a
+  harmless "conflict" (foreign symlink) rather than clobbering it. A prune/sweep
+  of dangling links into the manager's regenerated *mirror* never matches a brain
+  link either. So such a prune path already spares brain-owned links *by
+  construction*.
+- brain's `install::sync` `remove_existing` cleanly replaces the old
+  dotfiles-manager-owned symlink at each name, so the cutover is a plain re-link,
+  not a conflict.
 
-B4 makes this boundary **explicit and defended** rather than merely emergent:
-jpsyx gains a `brain` step that (1) invokes `brain skills sync` before the
-fan-out so the registry is brain-populated first, and (2) teaches the fan-out to
-recognize brain's built dir as a protected foreign source (a brain-owned name is
-never aggregated-over or pruned), backed by a regression test that runs a full
-jpsyx sync and asserts brain-owned links survive.
+B4 makes this boundary **explicit and defended** rather than merely emergent: the
+dotfiles manager gains a `brain` step that (1) invokes `brain skills sync` before
+its fan-out so the registry is brain-populated first, and (2) teaches the fan-out
+to recognize brain's built dir as a protected foreign source (a brain-owned name
+is never aggregated-over or pruned), backed by a regression test that runs a full
+dotfiles sync and asserts brain-owned links survive.
 
-**Cutover steps (executed on Pablo's machine, this phase):**
+**Cutover steps:**
 1. Flip `skills_auto_sync`'s default to `true` (rollout is over; mutations should
    re-render live, per program invariant #5).
 2. Snapshot the live `~/.agents/skills` + every frontend skills dir to the
    scratchpad; write a deterministic rollback script *before* mutating anything.
 3. Run `brain skills sync` for real: installs the 6 skills + 2 plugins into the
-   registry (replacing the jpsyx-owned links) and fans them out to the frontends.
-4. In jpsyx: add the `brain skills sync` delegation + brain-ownership prune
-   guard; remove the 4 migrated skills (`todo`, `second-brain`, `triage`,
-   `brain-knowledge-capture`) from `home/global-skills/` so jpsyx stops owning
-   them. (`article-summarizer`/`contacts` were never in jpsyx; `email-triage`,
-   `habits`, and `zotero-article-summary` stay jpsyx-owned — the first two were
-   never migrated, and `zotero-article-summary` is left in place as a no-regression
-   default until Pablo confirms the `zotero-sync` plugin fully supersedes it.)
-5. Persist brain's config across machines. **Resolved not by jpsyx but by moving
-   the config into the brain root** (`<brain-root>/.config/`), so it syncs with
-   the brain and jpsyx never touches it — see "Why config lives inside the brain
-   root" above. This sidesteps the mirror-clobber footgun entirely (jpsyx would
-   have symlinked `~/.config/brain` at the regenerated `home-dist/` mirror and
-   lost brain's runtime writes on the next sync). The one machine-local remnant,
-   the `root` pointer (`~/.config/brain-root`), *is* jpsyx-tracked — safely,
-   because brain only reads it.
+   registry (replacing the dotfiles-manager-owned links) and fans them out to the
+   frontends.
+4. In the dotfiles manager: add the `brain skills sync` delegation +
+   brain-ownership prune guard; remove the migrated skills (`todo`,
+   `second-brain`, `triage`, `brain-knowledge-capture`) from its own skills source
+   so it stops owning them. Skills that were never migrated stay
+   dotfiles-manager-owned; leave any skill a brain plugin is meant to supersede in
+   place until the plugin is confirmed to fully replace it.
+5. Persist brain's config across machines. **Resolved not by the dotfiles manager
+   but by moving the config into the brain root** (`<brain-root>/.config/`), so it
+   syncs with the brain and the dotfiles manager never touches it — see "Why
+   config lives inside the brain root" above. This sidesteps the mirror-clobber
+   footgun entirely (the manager would otherwise have symlinked `~/.config/brain`
+   at its regenerated mirror and lost brain's runtime writes on the next sync).
+   The one machine-local remnant, the `root` pointer (`~/.config/brain-root`), is
+   safe to track in a dotfiles repo, because brain only reads it.
 
 **Rollback:** `scratchpad/b4-snapshot/ROLLBACK.sh` removes brain's built dir and
-brain-owned links, then re-runs `jpsyx sync` to restore the jpsyx-owned registry
-(the migrated skills must still exist under `home/global-skills` in the jpsyx
-checkout, or be restored with `git checkout -- home/global-skills` first).
+brain-owned links, then re-runs the dotfiles manager's sync to restore its own
+registry (the migrated skills must still exist in that repo's skills source, or be
+restored from git first).
 
 ## Why the `/habits` route inlines its assets and reuses native completion
 

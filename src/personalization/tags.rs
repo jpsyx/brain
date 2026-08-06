@@ -151,15 +151,9 @@ mod tests {
 
     #[test]
     fn normalize_tag_lowercases_and_snake_cases_allowing_underscores() {
-        assert_eq!(
-            normalize_tag("Needs Attention").as_deref(),
-            Some("needs_attention")
-        );
+        assert_eq!(normalize_tag("Needs Attention").as_deref(), Some("needs_attention"));
         assert_eq!(normalize_tag("  CEO  ").as_deref(), Some("ceo"));
-        assert_eq!(
-            normalize_tag("data-integration").as_deref(),
-            Some("data_integration")
-        );
+        assert_eq!(normalize_tag("data-integration").as_deref(), Some("data_integration"));
         assert_eq!(normalize_tag("__weird__").as_deref(), Some("weird"));
         assert_eq!(normalize_tag("  "), None);
         assert_eq!(normalize_tag("!!!"), None);
