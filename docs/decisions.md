@@ -346,6 +346,16 @@ a deterministic UUIDv5 input scoped by workspace, CSV kind, and legacy display
 ID. Completion and ordinary edits preserve the UUID; habit recurrence creates
 a new UUID while retaining assignment and `system_key`.
 
+Older task writers can leave one UUID on multiple existing rows. The rollout
+repairs this before current-schema publication instead of failing a recoverable
+migration. The first row in deterministic tasks-then-habits order retains the
+existing UUID; each later duplicate gets a UUIDv5 derived from workspace, CSV
+kind, original UUID, display ID, and row position. The repair is deterministic
+and idempotent. If a journal resumes after remote schema publication,
+verification repeats the repair locally and republishes current CSVs and
+baselines under the migration lock before final verification, allowing the
+remote copy to converge too.
+
 Activation is deliberately separate. The schema helper requires an explicit
 last-legacy-sync state, an existing durable machine-local backup base, and a
 destination beneath that base; only `brain workspace migrate` calls it. Existing

@@ -657,6 +657,13 @@ newer fields. Existing legacy files retain
 `task_uuid` and reconcile mutable display IDs without activating that
 migration.
 
+Pre-existing duplicate UUIDs are normalized before current publication: the
+first row in deterministic tasks-then-habits order keeps its UUID, while later
+duplicates receive deterministic replacements derived from workspace, CSV kind,
+original UUID, display ID, and row position. Resumed verification repeats this
+idempotent repair and republishes current CSVs and baselines before checking the
+remote copy.
+
 ### Coordinated rollout journal and retained backup
 
 Explicit `brain workspace migrate` owns one machine-local rollout generation

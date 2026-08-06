@@ -24,7 +24,9 @@ use path::validate_backup_destination;
 #[cfg(test)]
 use transaction::journal_path as transaction_journal_path;
 use transaction::{FileChange, MigrationStep, recover_pending, replace_group};
-use transform::{is_current, migrate_csv, migrate_schema_metadata, schema_version};
+use transform::{
+    is_current, migrate_csv, migrate_schema_metadata, repair_duplicate_uuids, schema_version,
+};
 
 pub const TASK_SCHEMA_VERSION: u64 = 2;
 
@@ -139,6 +141,8 @@ fn migrate_inactive_with_hook(
     back_up_portable_files(&tasks_dir, &backup_base, &backup_dir, &mut hook)?;
     let migrated_tasks = migrate_csv(&tasks_bytes, request.workspace_id, CsvKind::Tasks)?;
     let migrated_habits = migrate_csv(&habits_bytes, request.workspace_id, CsvKind::Habits)?;
+    let (migrated_tasks, migrated_habits) =
+        repair_duplicate_uuids(&migrated_tasks, &migrated_habits, request.workspace_id)?;
     let migrated_schema = migrate_schema_metadata(&schema_bytes)?;
     replace_group(
         &workspace_root,
@@ -164,6 +168,40 @@ fn migrate_inactive_with_hook(
         &mut hook,
     )?;
     Ok(MigrationOutcome::Migrated)
+}
+
+/// Repair duplicate UUIDs in a current workspace left by older writers.
+pub(crate) fn repair_current_duplicate_uuids(
+    workspace_root: &Path,
+    workspace_id: WorkspaceId,
+) -> Result<bool> {
+    let tasks_path = workspace_root.join("tasks/tasks.csv");
+    let habits_path = workspace_root.join("tasks/habits.csv");
+    let tasks = read_required(&tasks_path)?;
+    let habits = read_required(&habits_path)?;
+    let (repaired_tasks, repaired_habits) = repair_duplicate_uuids(&tasks, &habits, workspace_id)?;
+    if repaired_tasks == tasks && repaired_habits == habits {
+        return Ok(false);
+    }
+    let tasks_temporary =
+        tasks_path.with_file_name(format!(".tasks.csv.repair-{}.tmp", WorkspaceId::new()));
+    let habits_temporary =
+        habits_path.with_file_name(format!(".habits.csv.repair-{}.tmp", WorkspaceId::new()));
+    let result = (|| {
+        write_new(&tasks_temporary, &repaired_tasks)?;
+        write_new(&habits_temporary, &repaired_habits)?;
+        fs::rename(&tasks_temporary, &tasks_path)
+            .with_context(|| format!("publishing repaired {}", tasks_path.display()))?;
+        sync_parent(&tasks_path)?;
+        fs::rename(&habits_temporary, &habits_path)
+            .with_context(|| format!("publishing repaired {}", habits_path.display()))?;
+        sync_parent(&habits_path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tasks_temporary);
+        let _ = fs::remove_file(&habits_temporary);
+    }
+    result.map(|()| true)
 }
 
 fn read_required(path: &Path) -> Result<Vec<u8>> {

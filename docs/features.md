@@ -367,6 +367,12 @@ delegated task values.
   recorded, because a remote write may have succeeded before the local journal
   update. The retained backup is for forensic or coordinated manual recovery,
   never a one-machine restore while the rollout journal exists.
+  Before current-schema publication, migration repairs duplicate `task_uuid`
+  values left by older writers. The first row in deterministic tasks-then-
+  habits order keeps its UUID; later rows receive workspace-scoped
+  deterministic replacements. Resumed verification republishes repaired
+  current CSVs and baselines while the migration lock is held, allowing the
+  remote copy to converge without manual file edits.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
   text under `NO_COLOR`. Valid portable modes include an honest three-line
   access/enforcement/sandbox status. It then appends the selected workspace's

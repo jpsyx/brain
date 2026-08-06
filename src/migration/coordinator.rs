@@ -220,6 +220,21 @@ fn execute(
                 journal.record_completed(step)?;
             }
             Step::Verify => {
+                let repaired = crate::tasks::schema::repair_current_duplicate_uuids(
+                    context.workspace.root(),
+                    context.workspace.id(),
+                )?;
+                if repaired {
+                    eprintln!(
+                        "{}",
+                        crate::theme::Theme::active()
+                            .info("Repairing duplicate task UUIDs from an earlier writer...")
+                    );
+                    crate::reindex::run(&context.workspace, &context.actor, true, true, true)?;
+                }
+                if sync_config.is_configured() {
+                    super::schema_transition::publish_task_schema_transition(context, sync_config)?;
+                }
                 verify::completed(context, sync_config)?;
                 journal.record_completed(step)?;
             }
