@@ -24,6 +24,14 @@ fn cfg() -> SyncConfig {
         .unwrap()
 }
 
+fn workspace_paths(base: &Path) -> brain::workspace::WorkspacePaths {
+    brain::workspace::WorkspacePaths::new(
+        base,
+        brain::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b")
+            .expect("valid workspace id"),
+    )
+}
+
 fn run(a: &Path, b: &Path, dir: Direction) -> brain::sync::run::RunOutcome {
     if dir == Direction::Resync {
         let remote = Remote {
@@ -32,9 +40,9 @@ fn run(a: &Path, b: &Path, dir: Direction) -> brain::sync::run::RunOutcome {
         };
         brain::sync::check_access::ensure_markers(a, &remote).unwrap();
     }
-    // Give each pair its own brain-owned bisync workdir beside the test dirs.
     let parent = a.parent().unwrap();
-    let workdir = parent.join("bisync-wd");
+    let paths = workspace_paths(parent);
+    let workdir = brain::sync::run::bisync_workdir(&paths);
     std::fs::create_dir_all(&workdir).ok();
     let args = bisync_args(
         &cfg(),
@@ -43,8 +51,35 @@ fn run(a: &Path, b: &Path, dir: Direction) -> brain::sync::run::RunOutcome {
         &workdir.to_string_lossy(),
         dir,
     );
-    let reporter = Reporter::begin_in(&parent.join("reporter"), "both", "t", std::process::id());
+    let reporter = Reporter::begin(&paths, "both", "t", std::process::id());
     run_rclone(&reporter, &[], &args)
+}
+
+#[test]
+fn local_rclone_populates_the_uuid_scoped_production_workdir() {
+    if !rclone_available() {
+        eprintln!("skipping: rclone not on PATH");
+        return;
+    }
+    let base = std::env::temp_dir().join(format!(
+        "brain-sync-workspace-path-it-{}",
+        std::process::id()
+    ));
+    let a = base.join("a");
+    let b = base.join("b");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    std::fs::write(a.join("note.md"), b"hello").unwrap();
+    let paths = workspace_paths(&base);
+
+    let outcome = run(&a, &b, Direction::Resync);
+
+    assert!(outcome.exit_ok, "resync failed: {outcome:?}");
+    assert!(
+        brain::sync::run::bisync_workdir(&paths).exists(),
+        "the local-rclone path must populate the selected workspace's production workdir"
+    );
+    std::fs::remove_dir_all(&base).ok();
 }
 
 #[test]
@@ -144,11 +179,8 @@ fn csv_sync_one_converges_local_and_remote_and_is_idempotent() {
     let remote = base.join("remote.csv");
     let paths = brain::workspace::WorkspacePaths::new(&base, brain::workspace::WorkspaceId::new());
 
-    // A unique CSV name so the machine-local baseline path never collides with a
-    // real one; deleted at the end. (HOME can't be redirected here: env::set_var
-    // is unsafe in edition 2024 and this crate forbids unsafe.)
-    let rel = format!("tasks/brain-it-{}.csv", std::process::id());
-    let name = Path::new(&rel)
+    let rel = "tasks/tasks.csv";
+    let name = Path::new(rel)
         .file_name()
         .unwrap()
         .to_str()
@@ -165,7 +197,7 @@ fn csv_sync_one_converges_local_and_remote_and_is_idempotent() {
     let out = sync_one(
         &paths,
         &local,
-        &rel,
+        rel,
         || std::fs::read_to_string(&remote).ok(),
         |txt| {
             pushes.set(pushes.get() + 1);
@@ -191,7 +223,7 @@ fn csv_sync_one_converges_local_and_remote_and_is_idempotent() {
     let out2 = sync_one(
         &paths,
         &local,
-        &rel,
+        rel,
         || std::fs::read_to_string(&remote).ok(),
         |txt| {
             pushes.set(pushes.get() + 1);

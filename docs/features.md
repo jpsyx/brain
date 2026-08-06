@@ -625,6 +625,10 @@ stays observable without ever printing to a terminal: `brain sync status` reads
 the marker, and a `brain sync` run started while another sync is already going
 **attaches and follows** that live log to completion instead of starting a
 second sync or erroring (Ctrl-C stops watching; the sync keeps running).
+The marker, log, journal, lock, rclone workdir, and task/habit baselines all
+belong to the selected workspace UUID. A status or follower invocation cannot
+read another workspace's current run or history, and two different workspaces
+may hold their sync locks concurrently.
 
 **Never renders into the TUI.** Automatic syncs run in a **separate detached
 process**, never on a thread inside the persistent shell, so their output can

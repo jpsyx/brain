@@ -1188,6 +1188,12 @@ invocations could previously collide, and now the second cleanly skips. Manual
 sync deliberately skips-with-a-message rather than blocking; a short
 blocking-wait for the human path is a noted possible refinement, not shipped.
 
+The UUID boundary applies to the complete sync runtime, not only the advisory
+lock. Journal and current-state reads, the follower log, rclone's workdir, and
+semantic CSV baselines all derive from the same selected `WorkspacePaths`.
+Keeping one path authority prevents a default-workspace change or convenience
+HOME lookup from redirecting observation or transport state across workspaces.
+
 ## C5 — structured conflict list + brain-side deleter for agent-driven resolution
 
 C4 made syncing itself automatic; C5 closes the remaining manual step —

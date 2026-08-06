@@ -780,6 +780,12 @@ bucket by shelling out to `rclone bisync`. It's a handoff like
 it drives an existing tool and manages the surrounding safety and
 bookkeeping.
 
+The selected `WorkspacePaths` value is the only source for machine-local sync
+locations. Production lock, journal, current-state, follow, rclone-workdir,
+temporary-file, and CSV-baseline paths are either taken from it directly or
+passed as an explicit derivation. No sync handoff consults HOME or a global
+brain-root lookup.
+
 - **Credentials never touch argv or rclone config.** `src/sync/remote.rs`
   (`build_remote`) turns the brain-env `sync` block (`b2_bucket`, `b2_path`,
   `b2_key_id`, `b2_app_key`) into `RCLONE_CONFIG_BRAIN_*` environment

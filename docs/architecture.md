@@ -661,6 +661,12 @@ schema. `rclone` is an external dependency (not a Cargo crate): a soft
 prerequisite, checked only when `brain sync` actually runs, never a startup
 gate (`brain tasks doctor` reports its presence/version informationally).
 
+`WorkspacePaths` is the sole UUID-derived path authority for this pipeline.
+Lock, journal, current state/log, rclone workdir, temporary transport files, and
+CSV baseline callers receive the selected workspace's paths or an explicit
+path derived from them. Sync runtime code never reopens the workspace registry,
+resolves a global brain root, or consults HOME for a convenience path.
+
 `check.rs` backs `brain check`, a **read-only** sibling of `sync_once`: it
 builds the same `Direction::Both` argv via `args::bisync_args` but appends
 `--dry-run`, runs it through `run::run_rclone_capture` (a quiet, non-streaming

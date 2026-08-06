@@ -287,7 +287,9 @@ state; watchdog expiry remains a separate mutation.
 Its state database, TUI lock, live job socket, inbox, responses, reserved log
 path, and sync working data are all children of that base. `cache_dir()` borrows the stored
 base; each child accessor derives an owned path. Distinct IDs therefore cannot
-share runtime paths. Active run logs remain under `/tmp` through `logging.rs`,
+share runtime paths. `WorkspacePaths` remains the sole UUID-derived authority;
+sync's focused workdir and CSV-baseline helpers only append below its `sync/`
+children. Active run logs remain under `/tmp` through `logging.rs`,
 are created exclusively with mode `0600`, and receive only centrally redacted
 argv values.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
@@ -918,6 +920,9 @@ does nothing, with no watcher thread or startup sync).
 - `bisync/` — the brain-owned rclone bisync workdir (`--workdir`): its `.lst`
   baseline listings, and any `.lck` lock file (reaped before each run while
   brain holds its own sync lock, since it can only be from a dead run).
+- `baselines/` — the selected workspace's semantic task and habit CSV
+  snapshots. They never overlap another UUID's baselines and never enter the
+  portable workspace.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
