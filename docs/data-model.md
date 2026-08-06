@@ -672,8 +672,9 @@ workspace UUID, remote identity when sync is configured, explicit all-machine
 acknowledgement for a synced headless rollout, and a disjoint machine-local
 backup destination. Unconfigured migration also finishes portable user and
 assignment mapping before journal creation. Configured migration first records
-the final legacy sync in the journal. If the remote marker is absent, this is
-the ordinary legacy semantic merge. If a present remote marker strictly
+the final legacy sync in the journal. If the remote marker is absent or is the
+recognized pre-v2 task schema, this is the ordinary legacy semantic merge. If
+a present remote marker strictly
 declares supported schema v2, a migration-owned join merges the legacy
 baseline/local generation with current remote rows by `task_id`, preserves the
 remote UUID for every matching row, and performs no remote task publication.
