@@ -92,15 +92,18 @@ mod tests {
     #[test]
     fn creds_go_in_env_never_in_the_arg() {
         let r = build_remote(&cfg());
-        assert!(r
-            .env
-            .contains(&("RCLONE_CONFIG_BRAIN_TYPE".to_owned(), "b2".to_owned())));
-        assert!(r
-            .env
-            .contains(&("RCLONE_CONFIG_BRAIN_ACCOUNT".to_owned(), "KID".to_owned())));
-        assert!(r
-            .env
-            .contains(&("RCLONE_CONFIG_BRAIN_KEY".to_owned(), "AKEY".to_owned())));
+        assert!(
+            r.env
+                .contains(&("RCLONE_CONFIG_BRAIN_TYPE".to_owned(), "b2".to_owned()))
+        );
+        assert!(
+            r.env
+                .contains(&("RCLONE_CONFIG_BRAIN_ACCOUNT".to_owned(), "KID".to_owned()))
+        );
+        assert!(
+            r.env
+                .contains(&("RCLONE_CONFIG_BRAIN_KEY".to_owned(), "AKEY".to_owned()))
+        );
         assert!(!r.arg.contains("KID") && !r.arg.contains("AKEY"));
     }
 
@@ -127,9 +130,10 @@ mod tests {
         let r = build_remote(&c);
 
         assert_eq!(r.arg, "BRAINCRYPT:");
-        assert!(r
-            .env
-            .contains(&("RCLONE_CONFIG_BRAIN_TYPE".to_owned(), "b2".to_owned())));
+        assert!(
+            r.env
+                .contains(&("RCLONE_CONFIG_BRAIN_TYPE".to_owned(), "b2".to_owned()))
+        );
         assert!(r.env.contains(&(
             "RCLONE_CONFIG_BRAINCRYPT_TYPE".to_owned(),
             "crypt".to_owned()

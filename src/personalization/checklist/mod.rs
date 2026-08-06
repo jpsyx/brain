@@ -68,7 +68,11 @@ impl Checklist {
     /// Build a checklist whose rows are `initial` (order preserved), all
     /// checked. `normalize` canonicalizes tokens typed via *create new*.
     #[must_use]
-    pub fn new(title: impl Into<String>, initial: &[String], normalize: fn(&str) -> Option<String>) -> Self {
+    pub fn new(
+        title: impl Into<String>,
+        initial: &[String],
+        normalize: fn(&str) -> Option<String>,
+    ) -> Self {
         let items = initial
             .iter()
             .map(|l| Item {

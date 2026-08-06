@@ -710,8 +710,10 @@ from the authoritative remote generation. Rerunning a
 fully current workspace is byte-idempotent and creates no new backup.
 
 The backup hardening rejects all pre-existing nested symlink and non-directory
-components. The only descriptor-relative post-validation insertion TOCTOU
-remains deferred Minor.
+components. Publication writes through a verified temporary file outside the
+backup tree, opens the destination parent with no-follow directory flags, and
+renames through that descriptor. A parent replacement after validation cannot
+redirect either the temporary write or the final publish.
 
 Managed triage identity lives in the optional `system_key` column. The reserved
 values `brain.triage.daily` and `brain.triage.weekly` identify Brain-owned

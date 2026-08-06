@@ -78,7 +78,10 @@ pub enum Applied {
 /// Classify one already-stripped apply-phase line. Returns `None` for noise.
 #[must_use]
 pub fn classify_applied(clean: &str) -> Option<Applied> {
-    if let Some(path) = clean.strip_suffix("Deleted").and_then(|s| s.strip_suffix(": ")) {
+    if let Some(path) = clean
+        .strip_suffix("Deleted")
+        .and_then(|s| s.strip_suffix(": "))
+    {
         return Some(Applied::Deleted(path.to_string()));
     }
     if let Some((path, rest)) = clean.split_once(": Copied") {
@@ -107,9 +110,12 @@ pub fn classify_applied(clean: &str) -> Option<Applied> {
 pub fn render_applied(event: &Applied, theme: crate::theme::Theme) -> Option<String> {
     match event {
         Applied::Copied(path) => Some(format!("  {} {}", theme.success("✓"), theme.value(path))),
-        Applied::Deleted(path) => {
-            Some(format!("  {} {} {}", theme.error("✗"), theme.muted(path), theme.muted("(deleted)")))
-        }
+        Applied::Deleted(path) => Some(format!(
+            "  {} {} {}",
+            theme.error("✗"),
+            theme.muted(path),
+            theme.muted("(deleted)")
+        )),
         Applied::Progress(s) => Some(format!("  {}", theme.muted(s))),
         Applied::Done | Applied::AbortMaxDelete | Applied::AbortPriorListing => None,
     }
@@ -170,7 +176,11 @@ pub fn classify_change(clean: &str) -> Option<Change> {
     if path.is_empty() {
         return None;
     }
-    Some(Change { side, kind, path: path.to_string() })
+    Some(Change {
+        side,
+        kind,
+        path: path.to_string(),
+    })
 }
 
 /// Group changed paths into short human sentences by top-level segment, most
@@ -188,12 +198,17 @@ pub fn summarize(paths: &[String]) -> Vec<String> {
     // name ("top.md"); value: (count, is_dir).
     let mut groups: BTreeMap<String, (usize, bool)> = BTreeMap::new();
     for path in paths {
-        let (key, is_dir) = path.split_once('/').map_or_else(|| (path.clone(), false), |(dir, _)| (dir.to_string(), true));
+        let (key, is_dir) = path
+            .split_once('/')
+            .map_or_else(|| (path.clone(), false), |(dir, _)| (dir.to_string(), true));
         let entry = groups.entry(key).or_insert((0, is_dir));
         entry.0 += 1;
     }
 
-    let mut rows: Vec<(String, usize, bool)> = groups.into_iter().map(|(name, (count, is_dir))| (name, count, is_dir)).collect();
+    let mut rows: Vec<(String, usize, bool)> = groups
+        .into_iter()
+        .map(|(name, (count, is_dir))| (name, count, is_dir))
+        .collect();
     rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
     rows.into_iter()
@@ -248,13 +263,19 @@ mod tests {
 
     #[test]
     fn classify_applied_deleted() {
-        assert_eq!(classify_applied("deleteme.md: Deleted"), Some(Applied::Deleted("deleteme.md".to_string())));
+        assert_eq!(
+            classify_applied("deleteme.md: Deleted"),
+            Some(Applied::Deleted("deleteme.md".to_string()))
+        );
     }
 
     #[test]
     fn classify_applied_progress_stats_line() {
         let line = "32 B / 32 B, 100%, 0 B/s, ETA -";
-        assert_eq!(classify_applied(line), Some(Applied::Progress(line.to_string())));
+        assert_eq!(
+            classify_applied(line),
+            Some(Applied::Progress(line.to_string()))
+        );
     }
 
     #[test]
@@ -290,7 +311,10 @@ mod tests {
     #[test]
     fn render_applied_copied_plain() {
         let t = crate::theme::Theme::dark(false);
-        assert_eq!(render_applied(&Applied::Copied("notes/x.md".to_string()), t), Some("  ✓ notes/x.md".to_string()));
+        assert_eq!(
+            render_applied(&Applied::Copied("notes/x.md".to_string()), t),
+            Some("  ✓ notes/x.md".to_string())
+        );
     }
 
     #[test]
@@ -306,7 +330,10 @@ mod tests {
     fn render_applied_progress_plain() {
         let t = crate::theme::Theme::dark(false);
         let line = "32 B / 32 B, 100%, 0 B/s, ETA -";
-        assert_eq!(render_applied(&Applied::Progress(line.to_string()), t), Some(format!("  {line}")));
+        assert_eq!(
+            render_applied(&Applied::Progress(line.to_string()), t),
+            Some(format!("  {line}"))
+        );
     }
 
     #[test]
@@ -321,14 +348,23 @@ mod tests {
     fn render_applied_copied_colored_contains_success_ansi() {
         let t = crate::theme::Theme::dark(true);
         let rendered = render_applied(&Applied::Copied("notes/x.md".to_string()), t).unwrap();
-        assert!(rendered.contains("\x1b[92m"), "expected green success ANSI in {rendered:?}");
+        assert!(
+            rendered.contains("\x1b[92m"),
+            "expected green success ANSI in {rendered:?}"
+        );
     }
 
     #[test]
     fn classify_change_path1_file_changed() {
         assert_eq!(
-            classify_change("- Path1    File changed: size (larger), time (newer) - resources/r1.md"),
-            Some(Change { side: Side::Push, kind: ChangeKind::Changed, path: "resources/r1.md".to_string() })
+            classify_change(
+                "- Path1    File changed: size (larger), time (newer) - resources/r1.md"
+            ),
+            Some(Change {
+                side: Side::Push,
+                kind: ChangeKind::Changed,
+                path: "resources/r1.md".to_string()
+            })
         );
     }
 
@@ -336,7 +372,11 @@ mod tests {
     fn classify_change_path1_file_is_new() {
         assert_eq!(
             classify_change("- Path1    File is new               - notes/n3.md"),
-            Some(Change { side: Side::Push, kind: ChangeKind::New, path: "notes/n3.md".to_string() })
+            Some(Change {
+                side: Side::Push,
+                kind: ChangeKind::New,
+                path: "notes/n3.md".to_string()
+            })
         );
     }
 
@@ -344,7 +384,11 @@ mod tests {
     fn classify_change_path1_file_was_deleted() {
         assert_eq!(
             classify_change("- Path1    File was deleted          - deleteme.md"),
-            Some(Change { side: Side::Push, kind: ChangeKind::Deleted, path: "deleteme.md".to_string() })
+            Some(Change {
+                side: Side::Push,
+                kind: ChangeKind::Deleted,
+                path: "deleteme.md".to_string()
+            })
         );
     }
 
@@ -352,7 +396,11 @@ mod tests {
     fn classify_change_path2_file_is_new() {
         assert_eq!(
             classify_change("- Path2    File is new               - remote-added.md"),
-            Some(Change { side: Side::Pull, kind: ChangeKind::New, path: "remote-added.md".to_string() })
+            Some(Change {
+                side: Side::Pull,
+                kind: ChangeKind::New,
+                path: "remote-added.md".to_string()
+            })
         );
     }
 
@@ -360,25 +408,45 @@ mod tests {
     fn classify_change_path2_file_was_deleted() {
         assert_eq!(
             classify_change("- Path2    File was deleted          - top.md"),
-            Some(Change { side: Side::Pull, kind: ChangeKind::Deleted, path: "top.md".to_string() })
+            Some(Change {
+                side: Side::Pull,
+                kind: ChangeKind::Deleted,
+                path: "top.md".to_string()
+            })
         );
     }
 
     #[test]
     fn classify_change_queue_line_is_none() {
         assert_eq!(classify_change("Queue copy to Path2: notes/n3.md"), None);
-        assert_eq!(classify_change("- Path1    Queue copy to Path2                - notes/n3.md"), None);
+        assert_eq!(
+            classify_change("- Path1    Queue copy to Path2                - notes/n3.md"),
+            None
+        );
     }
 
     #[test]
     fn summarize_groups_by_top_level_dir_count_desc() {
-        let paths = vec!["notes/n3.md".to_string(), "notes/n4.md".to_string(), "resources/r1.md".to_string()];
-        assert_eq!(summarize(&paths), vec!["2 changes in notes/".to_string(), "1 change in resources/".to_string()]);
+        let paths = vec![
+            "notes/n3.md".to_string(),
+            "notes/n4.md".to_string(),
+            "resources/r1.md".to_string(),
+        ];
+        assert_eq!(
+            summarize(&paths),
+            vec![
+                "2 changes in notes/".to_string(),
+                "1 change in resources/".to_string()
+            ]
+        );
     }
 
     #[test]
     fn summarize_top_level_file_named_directly() {
-        assert_eq!(summarize(&["top.md".to_string()]), vec!["1 change to top.md".to_string()]);
+        assert_eq!(
+            summarize(&["top.md".to_string()]),
+            vec!["1 change to top.md".to_string()]
+        );
     }
 
     #[test]
@@ -392,7 +460,11 @@ mod tests {
         ];
         assert_eq!(
             summarize(&paths),
-            vec!["3 changes in a/".to_string(), "1 change in b/".to_string(), "1 change to solo.md".to_string()]
+            vec![
+                "3 changes in a/".to_string(),
+                "1 change in b/".to_string(),
+                "1 change to solo.md".to_string()
+            ]
         );
     }
 }

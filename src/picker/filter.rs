@@ -40,7 +40,10 @@ impl App {
     /// clean slate. Used by the persistent TUI's palette to rescope the
     /// search to a single bucket (or back to global) without quitting.
     pub(crate) fn set_entries(&mut self, entries: &[Entry]) {
-        self.haystacks = entries.iter().map(|e| HaystackBuf::new(&e.display)).collect();
+        self.haystacks = entries
+            .iter()
+            .map(|e| HaystackBuf::new(&e.display))
+            .collect();
         self.entries = entries.to_vec();
         self.query.clear();
         self.refilter();
@@ -50,7 +53,10 @@ impl App {
     /// in place (`Ctrl-R`, or after a PDF/delete changes the tree), as opposed
     /// to `set_entries` which clears the query for a scope switch.
     pub(crate) fn reload_entries(&mut self, entries: &[Entry]) {
-        self.haystacks = entries.iter().map(|e| HaystackBuf::new(&e.display)).collect();
+        self.haystacks = entries
+            .iter()
+            .map(|e| HaystackBuf::new(&e.display))
+            .collect();
         self.entries = entries.to_vec();
         self.refilter();
     }

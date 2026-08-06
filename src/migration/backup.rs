@@ -22,6 +22,7 @@ const INVENTORY: [(&str, bool); 9] = [
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BackupWriteStep {
+    AfterValidation,
     BeforePublish,
 }
 
@@ -50,6 +51,11 @@ fn backup_portable_data_with_hook(
 ) -> Result<()> {
     validate_destination(root, backup_base, backup_dir)?;
     validate_existing_inventory(backup_dir)?;
+    hook(
+        Path::new(".config/config.json"),
+        BackupWriteStep::AfterValidation,
+    )
+    .context("preparing migration backup destination")?;
     ensure_directory(backup_base)?;
     ensure_directory(backup_dir)?;
     for (relative, required) in INVENTORY {
@@ -217,6 +223,7 @@ fn normalize_absolute(path: &Path) -> Result<PathBuf> {
 fn ensure_directory(path: &Path) -> Result<()> {
     fs::create_dir_all(path)
         .with_context(|| format!("creating migration backup directory {}", path.display()))?;
+    validate_existing_directory(path)?;
     let parent = path.parent().ok_or_else(|| {
         anyhow!(
             "migration backup directory has no parent: {}",
@@ -259,14 +266,7 @@ fn write_verified_with_hook(
             destination.display()
         )
     })?;
-    let temporary = destination.with_file_name(format!(
-        ".{}.{}.tmp",
-        destination
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("backup"),
-        WorkspaceId::new()
-    ));
+    let temporary = std::env::temp_dir().join(format!(".brain-backup-{}.tmp", WorkspaceId::new()));
     let result = (|| {
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
@@ -296,12 +296,46 @@ fn write_verified_with_hook(
         {
             bail!("migration backup temporary verification failed");
         }
-        hook().context("publishing verified migration backup")?;
-        fs::rename(&temporary, destination)
-            .with_context(|| format!("publishing migration backup {}", destination.display()))?;
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .with_context(|| format!("syncing migration backup parent {}", parent.display()))
+        #[cfg(unix)]
+        {
+            use nix::fcntl::{OFlag, openat, renameat};
+            use nix::sys::stat::Mode;
+            use nix::unistd::{close, fsync};
+
+            let directory = openat(
+                None,
+                parent,
+                OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW,
+                Mode::empty(),
+            )
+            .with_context(|| format!("opening migration backup parent {}", parent.display()))?;
+            let publish = (|| {
+                hook().context("publishing verified migration backup")?;
+                let name = destination.file_name().ok_or_else(|| {
+                    anyhow!(
+                        "migration backup destination has no file name: {}",
+                        destination.display()
+                    )
+                })?;
+                renameat(None, &temporary, Some(directory), name).with_context(|| {
+                    format!("publishing migration backup {}", destination.display())
+                })?;
+                fsync(directory).context("syncing migration backup parent")
+            })();
+            let close_result = close(directory);
+            publish?;
+            close_result.context("closing migration backup parent")
+        }
+        #[cfg(not(unix))]
+        {
+            hook().context("publishing verified migration backup")?;
+            fs::rename(&temporary, destination).with_context(|| {
+                format!("publishing migration backup {}", destination.display())
+            })?;
+            fs::File::open(parent)
+                .and_then(|directory| directory.sync_all())
+                .with_context(|| format!("syncing migration backup parent {}", parent.display()))
+        }
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -380,6 +414,49 @@ mod tests {
 
         assert!(error.to_string().contains("not a directory"), "{error:#}");
         assert_eq!(fs::read(tasks.join("tasks.csv")).unwrap(), b"task_id\nT1\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backup_publish_rejects_parent_replacement_after_validation() {
+        use std::cell::Cell;
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("workspace");
+        let root_config = root.join(".config");
+        let root_tasks = root.join("tasks");
+        let base = temporary.path().join("cache/migration-backups");
+        let backup = base.join("20260806T120000Z-pre-multi-workspace");
+        fs::create_dir_all(&root_config).unwrap();
+        fs::create_dir_all(&root_tasks).unwrap();
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(root_config.join("config.json"), b"portable-config\n").unwrap();
+        let escaped_temp = Cell::new(false);
+
+        let error = backup_portable_data_with_hook(&root, &base, &backup, |relative, step| {
+            if relative == Path::new(".config/config.json")
+                && step == BackupWriteStep::BeforePublish
+            {
+                fs::remove_dir_all(backup.join(".config"))?;
+                symlink(&root_tasks, backup.join(".config"))?;
+                escaped_temp.set(fs::read_dir(&root_tasks)?.flatten().any(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".config.json.")
+                }));
+                return Err(std::io::Error::other("stop after destination observation"));
+            }
+            Ok(())
+        })
+        .unwrap_err();
+
+        assert!(
+            format!("{error:#}").contains("stop after destination observation"),
+            "{error:#}"
+        );
+        assert!(!escaped_temp.get());
     }
 
     #[test]
