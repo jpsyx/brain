@@ -542,12 +542,17 @@ Which session to run is decided by the **lock + recency** model in
    before authorization; rejected or failed attempts roll back without
    changing either lineage, and SQLite's busy timeout lets a contender retry
    the decision after the current writer commits.
-4. A **Stop hook** (`scripts/claude_stop_hook.py`) records
-   `last_assistant_message` under
+4. A **Stop hook** (`scripts/claude_stop_hook.py`) records the turn's final
+   assistant message under
    `<workspace-cache>/responses/<response-id>.json` only while the exact
    frontend/workspace/session/actor/channel/instance tuple is still locked in
    the session store; an unregistered, released, or rotated completion is
-   ignored. The hook stages a unique, synced file, starts `BEGIN IMMEDIATE`,
+   ignored. It resolves that message defensively: it prefers the payload's
+   `last_assistant_message` convenience field and, when a Claude Code build
+   omits it, falls back to parsing the last assistant text message out of the
+   Stop payload's `transcript_path` JSONL. Delivery therefore never hinges on a
+   single optional field — a turn with no recoverable final text is the only
+   no-op. The hook stages a unique, synced file, starts `BEGIN IMMEDIATE`,
    rechecks that locked tuple, and updates the same predicate only when exactly
    one row matches. It publishes and syncs the artifact before committing the
    `completed` state. A publication or commit failure rolls back the database

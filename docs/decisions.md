@@ -464,6 +464,28 @@ the transaction boundary, then re-read current ownership; authorization
 no-ops and exceptions explicitly roll back, while the target upsert and prior
 session release commit together.
 
+## Why the Stop hook reads the transcript, not just `last_assistant_message`
+
+The final response the user receives over SMS/email exists only if the Stop
+hook writes the response artifact, and there is no hook-independent backstop
+for a still-alive panel: `App::close_brain`'s PTY-scrape fallback runs only
+after the agent process exits, which never happens for brain's persistent
+Claude session. So the hook is the single trigger, and it must not depend on a
+single optional field. `last_assistant_message` is a Claude Code convenience
+field: whenever a frontend build, mode, or turn shape omits it (a turn that
+ends on a tool call with no trailing text, a schema change, an older/other
+build), keying on it alone makes the hook a silent no-op and the user gets only
+the two-minute "still processing" notice with no final answer. The hook
+therefore resolves the final message defensively — prefer
+`last_assistant_message` when present and non-empty, else parse the last
+assistant text message from the Stop payload's `transcript_path` JSONL
+(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text",…}]}}`),
+joining that message's text blocks. This is forward- and backward-compatible
+across Claude Code versions, keeps the Rust consumer unchanged (it still reads
+`{session_id, message, …}`), and leaves a genuinely empty turn as the only
+no-op. A regression test exercises a realistic Stop payload with no
+`last_assistant_message` but a transcript present.
+
 ## Why we verify a transcript exists before resuming a session
 
 `claude --resume <id>` only works if a transcript `<id>.jsonl` exists in the

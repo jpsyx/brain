@@ -94,7 +94,11 @@ first move is a failing test that reproduces it, *then* the fix.
   unit tests live in `src/command/server/receiver/hooks/tests.rs`; they pin the
   exact installed Codex JSON command schema, execute the
   actual configured start and stop commands as one attributed lifecycle, and
-  proves stale deployed scripts are refreshed. Further unit tests prove locked
+  proves stale deployed scripts are refreshed. A regression test runs the real
+  Claude Stop hook on a payload with **no** `last_assistant_message` but a
+  `transcript_path` present and proves it still publishes the response artifact
+  by recovering the final assistant text from the transcript — delivery must
+  not hinge on that one optional field. Further unit tests prove locked
   concurrent JSON mutations retain both workspace registrations and unrelated
   settings, always leave parseable JSON, and preserve original bytes when an
   atomic replacement fails. TUI setup tests prove a held workspace singleton
