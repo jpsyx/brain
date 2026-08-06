@@ -403,6 +403,13 @@ a nominally pre-transition journal cannot safely authorize restoring only the
 local machine. Retained backups support forensic inspection or a separately
 coordinated manual recovery.
 
+Backup publication treats the destination path as hostile after initial
+validation. The verified temporary is created in the machine temporary
+directory, then the destination parent is opened with `O_NOFOLLOW` and the
+rename is performed relative to that open descriptor. This closes the
+post-validation parent-replacement race without following a newly inserted
+symlink, while preserving atomic publication and parent-directory syncing.
+
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
 Task management is a big domain with its own CSVs, recurrence rules, and TUI.
