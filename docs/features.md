@@ -658,8 +658,10 @@ idle sync loop and no exit sync.
 
 Every trigger below spawns a **detached background `brain sync` process** (with
 the canonical `--brain <workspace>` plus `--if-idle`, so changing the machine
-default cannot redirect it and an alias is never propagated); none runs a sync
-on a thread inside the shell. The shell never waits on, and can never be
+default cannot redirect it and an alias is never propagated). The child also
+carries the selected UUID in `BRAIN_WORKSPACE_ID`; bootstrap refuses to run if
+that expected UUID disagrees with the selected registry record. None runs a
+sync on a thread inside the shell. The shell never waits on, and can never be
 interrupted by, the network.
 
 - **On start.** Opening any sync-configured shell always kicks a pull-biased
@@ -670,13 +672,19 @@ interrupted by, the network.
   root settle (`debounce_ms`, default 3000ms). A burst coalesces into one push.
   It does not download remote files, write task CSV merges back locally, or
   advance the downstream freshness timestamp, so it cannot create a
-  self-triggering sync loop.
+  self-triggering sync loop. Each live TUI owns one watcher for its immutable
+  workspace context. Closing it stops only that watcher, without affecting a
+  peer workspace's watcher.
 - **Before receiver work.** Before an inbound SMS/email starts LLM work, brain
   checks the latest successful downstream journal row. If it is more than two
   hours old (or missing), brain queues the message, starts a pull, shows
   `syncing brain before receiver message` in the footer, and dispatches only
-  after that sync completes. This is a threshold check at message time, not a
-  two-hour timer.
+  after that sync completes. This gate lives at the exact live TUI job-consumption
+  boundary, so it delays only that workspace's queued job; the shared server
+  does not own it. This is a threshold check at message time, not a two-hour
+  timer. Launch detection and retries are finite: brain polls at 250ms, allows
+  five seconds for a pull to appear, and tries at most three launches before
+  continuing with local state and a visible warning.
 
 All three are journalled like manual syncs and **coalesce** through a
 workspace-UUID lock: concurrent triggers (startup + watcher + receiver gate + a second shell + a

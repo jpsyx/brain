@@ -133,7 +133,9 @@ One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
 Env, config, personalization, state, TUI, tasks, reindex, sync, and child
 integrations consume that selection or a path derived from it. Ordinary
 runtime code does not reopen the registry or resolve a global root. Detached
-Brain children carry `--brain <canonical-name>`; integrations receive
+workspace-owned children carry `--brain <canonical-name>` plus the selected
+UUID in `BRAIN_WORKSPACE_ID`; bootstrap refuses the child if that expected UUID
+does not match the selected registry record. Integrations receive
 `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, and
 `BRAIN_CHANNEL`, with agent-session values added separately.
 
@@ -250,7 +252,8 @@ take its exact `RegistryStore`, and the TUI retains the same `Arc` for watcher,
 receiver, session, rendering, state, response, and sync paths. Brain-owned
 children receive the typed workspace/actor integration environment.
 Detached workspace-owned sync children additionally carry
-`--brain <canonical-name>`. The detached shared-server child is the deliberate
+`--brain <canonical-name>` and an expected `BRAIN_WORKSPACE_ID` that bootstrap
+checks against the selected registry UUID. The detached shared-server child is the deliberate
 exception: it owns only machine-shared lifecycle/control state and resolves
 request payloads by workspace UUID, so it has no selected `--brain` argument.
 
@@ -713,17 +716,22 @@ the IO/threads/`Command`:
   `on_event`/`time_until_fire`/`poll`) and the pure `is_watch_relevant(path)`
   exclude predicate, plus the thin `notify` shell `spawn_watcher_with` (owns the
   platform watcher, the mpsc event channel, and the debounce loop) and
-  `spawn_watcher` (the real auto-sync watcher). `WatcherHandle` stops the thread
-  on drop (drop the `Watcher` → the channel disconnects → the loop exits; no
-  join, so teardown never blocks). On fire it spawns a detached
+  `spawn_watcher` (the real auto-sync watcher). `WatcherHandle` owns an explicit
+  stop sender and worker join handle. Dropping one TUI's handle stops and joins
+  only that workspace's watcher; a peer workspace's watcher keeps running. On
+  fire it spawns a detached
   `Direction::Push` run. That direction uses a one-way, non-deleting rclone
   copy; its CSV/counter pass reads remote state only to build a safe upload and
   never writes local state, so the push cannot re-arm its own watcher.
-- `trigger.rs` — the single shell-facing entry point:
+- `trigger.rs` — the single shell-facing entry point. The pure request builder
+  pins the canonical selector and expected UUID; the injected
+  `DetachedSyncRunner` boundary makes child launch observable in tests.
   `spawn_detached_sync(workspace, dir)` spawns the current exe as
   `brain --brain <canonical-name> sync [--pull|--push] --if-idle`, fully
-  detached (`process_group(0)` + null stdio). Automatic startup, watcher, and
-  receiver-freshness triggers go through it, for two reasons: a sync in a
+  detached (`process_group(0)` + null stdio), with `BRAIN_WORKSPACE_ID` set to
+  the selected UUID. Bootstrap compares that expected UUID with the record
+  selected by `--brain` and refuses a mismatch. Automatic startup, watcher,
+  and receiver-freshness triggers go through it, for two reasons: a sync in a
   separate process can never write over the TUI, and a detached child in its own
   process group outlives the shell / terminal close. `--if-idle` makes a
   redundant trigger coalesce (exit silently) rather than follow. There is no
@@ -744,8 +752,12 @@ the IO/threads/`Command`:
   log) to the terminal until `is_running()` goes false, then prints the final
   journal outcome. Ctrl-C stops only the follower.
 - `freshness.rs` — the pure two-hour threshold for deciding whether a receiver
-  message needs a downstream pull. `journal::latest_downstream_completion`
-  deliberately ignores push-only and aborted rows.
+  message needs a downstream pull, plus the shared 250ms status-poll, five-second
+  launch-grace, and three-attempt bounds. `journal::latest_downstream_completion`
+  deliberately ignores push-only and aborted rows. `tui/app_sync.rs` consumes
+  an injected runtime for monotonic/UTC clocks, journal/current-state reads, and
+  detached launches, so the finite retry and completion decisions are tested
+  without wall-clock sleeps.
 - `config.rs` carries `debounce_ms` (default 3000) and
   `debounce() -> Duration`; `command::format_triggers` renders the startup,
   change-push, and message-pull policies in `brain sync status`.
@@ -753,11 +765,13 @@ the IO/threads/`Command`:
 **The `run_tui` lifecycle seam** (`src/tui/event_loop/setup.rs`) is the one wire
 point: after the startup work and before the event loop it calls
 `trigger::spawn_detached_sync(Pull)` whenever sync is configured and holds a
-`watch::spawn_watcher` handle (when `watch_effective()`). It drops the watcher
-after the event loop and performs no exit sync. `tui/app_sync.rs` owns the
-receiver freshness gate and the 250ms TUI status poll. It queues stale inbound
-work behind a pull and reloads tasks before dispatch. All paths are gated and
-best-effort; an unconfigured brain gets no watcher or automatic sync.
+`watch::spawn_watcher` handle (when `watch_effective()`). It drops that TUI's
+watcher after the event loop, which explicitly stops and joins only its worker,
+and performs no exit sync. `tui/app_sync.rs` owns the receiver freshness gate
+and the 250ms TUI status poll at the exact queued-job consumption boundary. It
+queues stale inbound work behind a pull and reloads tasks before dispatch. The
+shared server does not own this gate. All paths are gated and best-effort; an
+unconfigured brain gets no watcher or automatic sync.
 
 **The C5 conflict enumerator + resolver** builds on `conflicts.rs` to give
 agents (not just humans) a way to close out a keep-both conflict. Still pure

@@ -6,9 +6,8 @@
 //! macOS runs this through Brain's deterministic polling fallback; other
 //! platforms exercise notify's recommended native backend.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use brain::sync::watch::spawn_watcher_with;
 
@@ -20,28 +19,21 @@ fn watcher_fires_after_a_file_changes() {
         .join(format!("brain-watch-test-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
 
-    let fires = Arc::new(AtomicUsize::new(0));
-    let f = fires.clone();
+    let (fired_tx, fired_rx) = mpsc::channel();
     let handle = spawn_watcher_with(&root, Duration::from_millis(200), move || {
-        f.fetch_add(1, Ordering::SeqCst);
+        let _ = fired_tx.send(());
     })
     .expect("watcher starts");
-
-    // Give the watcher a moment to register the recursive watch.
-    std::thread::sleep(Duration::from_millis(400));
 
     // Emit a short burst, then become completely quiet so the debounce window
     // can expire.
     for n in 1..=3 {
         std::fs::write(root.join(format!("note{n}.md")), b"hello").unwrap();
-        std::thread::sleep(Duration::from_millis(50));
     }
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while fires.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    assert!(fires.load(Ordering::SeqCst) >= 1, "watcher should fire after a change");
+    fired_rx
+        .recv_timeout(Duration::from_secs(15))
+        .expect("watcher should fire after a change");
 
-    drop(handle); // stops the watcher thread without blocking teardown
+    drop(handle); // explicitly stops and joins this watcher worker
     std::fs::remove_dir_all(&root).ok();
 }

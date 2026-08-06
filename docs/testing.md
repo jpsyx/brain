@@ -71,6 +71,7 @@ first move is a failing test that reproduces it, *then* the fix.
   runtime file trees byte-for-byte, repeats selected writes after changing the
   default, and tests same-name/different-UUID rejection. Focused tests also pin
   alias-to-canonical detached sync arguments after alias removal/default change,
+  detached expected-UUID propagation and bootstrap mismatch refusal,
   the typed actor integration env, selected reindex `BRAIN_ROOT`, and
   request-UUID habits GET/POST isolation.
 - **Sync runtime path contract.** `tests/sync_workspace_paths.rs` directly
@@ -489,8 +490,17 @@ first move is a failing test that reproduces it, *then* the fix.
   deleted-reference fallback, project reverse-link
   regeneration, whole-operation schema refusal, retryable metadata
   publication, and task/habit counter floors through the real allocator. The
-  CSV integration regression verifies an unchanged second pass performs no remote write, and
-  `sync/trigger.rs` verifies completed detached children are reaped.
+  CSV integration regression verifies an unchanged second pass performs no remote write.
+  `tests/sync_trigger_workspace.rs` drives the injected detached-child and
+  production lock boundaries: exact canonical argv/UUID environment,
+  fail-closed compiled-binary bootstrap, concurrent different-workspace entry,
+  and same-workspace coalescing/following use bounded channels without fixed
+  sleeps. `sync/trigger.rs` verifies completed detached children are reaped.
+  Injected receiver clocks/readers/runners deterministically prove the 250ms
+  status poll, journal-advance gate, five-second retry grace, and three-attempt
+  fallback. The clock-driven watcher-loop test proves stopping one workspace's
+  watcher leaves its peer live; `tests/watch_local.rs` waits on callback
+  channels rather than fixed sleeps.
   `sync/check.rs` separately proves schema-aware read-only identity, hybrid
   legacy compatibility, labeled baseline/local/remote parse refusal, themed
   warning output, and byte-stable refusal across every task-related store.
@@ -539,6 +549,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
 | `tests/sync_workspace_paths.rs` | Direct UUID separation for sync paths, concurrent cross-workspace locks, same-workspace serialization, journal reads, and current-state reads. |
 | `tests/sync_workspace_identity.rs` | Pure and compiled-binary remote manifest identity decisions, fail-closed mutation ordering across sync/repair/check, two-record cross-adoption refusal, and gated real-rclone setup publication/read-back. |
+| `tests/sync_trigger_workspace.rs` | Exact detached canonical argv plus expected workspace UUID, compiled bootstrap mismatch refusal, injected child launch, concurrent cross-workspace lock entry, and same-workspace coalescing/following with bounded channels. |
 | `tests/sync_local.rs` | Gated real-rclone transport plus local CSV merge coverage; the transport invokes rclone with the production UUID-derived bisync workdir and reporter paths. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |

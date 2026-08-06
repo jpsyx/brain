@@ -3,6 +3,9 @@
 use chrono::{DateTime, TimeDelta, Utc};
 
 pub const MESSAGE_PULL_MAX_AGE: TimeDelta = TimeDelta::hours(2);
+pub const STATUS_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+pub const SYNC_START_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+pub const MAX_PULL_LAUNCH_ATTEMPTS: u8 = 3;
 
 #[must_use]
 pub fn message_pull_due(last_pull_finished_at: Option<&str>, now: DateTime<Utc>) -> bool {

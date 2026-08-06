@@ -2,6 +2,32 @@
 
 use anyhow::Result;
 
+/// Result of crossing one workspace's sync-lock command boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceLockOutcome<T> {
+    Ran(T),
+    Coalesced,
+    Followed,
+}
+
+/// Run under one UUID-scoped sync lock or apply the existing busy policy.
+#[must_use]
+pub fn run_with_workspace_lock<T>(
+    paths: &crate::workspace::WorkspacePaths,
+    if_idle: bool,
+    run: impl FnOnce() -> T,
+    follow: impl FnOnce(),
+) -> WorkspaceLockOutcome<T> {
+    let Some(_guard) = crate::sync::lock::try_acquire(&paths.sync_lock()) else {
+        if if_idle {
+            return WorkspaceLockOutcome::Coalesced;
+        }
+        follow();
+        return WorkspaceLockOutcome::Followed;
+    };
+    WorkspaceLockOutcome::Ran(run())
+}
+
 pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandContext) -> Result<()> {
     use crate::cli::SyncAction;
     let root = command.workspace.root();
@@ -81,7 +107,6 @@ fn run_once(
     direction: crate::sync::args::Direction,
     if_idle: bool,
 ) -> Result<bool> {
-    let root = command.workspace.root();
     if !config.is_configured() {
         crate::logging::log("sync not configured");
         println!(
@@ -99,16 +124,32 @@ fn run_once(
         "sync acquire lock {}",
         command.workspace.paths().sync_lock().display()
     ));
-    let Some(_guard) = crate::sync::lock::try_acquire(&command.workspace.paths().sync_lock())
-    else {
-        if if_idle {
+    let paths = command.workspace.paths();
+    let lock_outcome = run_with_workspace_lock(
+        paths,
+        if_idle,
+        || run_acquired(command, config, direction),
+        || {
+            crate::logging::log("sync lock busy; following in-flight sync");
+            crate::sync::follow::follow_until_done(paths);
+        },
+    );
+    match lock_outcome {
+        WorkspaceLockOutcome::Ran(result) => result,
+        WorkspaceLockOutcome::Coalesced => {
             crate::logging::log("sync lock busy; if-idle coalesce");
-            return Ok(false);
+            Ok(false)
         }
-        crate::logging::log("sync lock busy; following in-flight sync");
-        crate::sync::follow::follow_until_done(command.workspace.paths());
-        return Ok(false);
-    };
+        WorkspaceLockOutcome::Followed => Ok(false),
+    }
+}
+
+fn run_acquired(
+    command: &crate::workspace::CommandContext,
+    config: &crate::sync::config::SyncConfig,
+    direction: crate::sync::args::Direction,
+) -> Result<bool> {
+    let root = command.workspace.root();
     let now = chrono::Utc::now();
     let timestamp = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let date = now.format("%Y-%m-%d").to_string();

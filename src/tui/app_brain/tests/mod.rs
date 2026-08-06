@@ -30,6 +30,7 @@ mod fixtures;
 mod launch;
 mod lifecycle;
 mod receiver;
+mod receiver_sync;
 mod triage;
 
 use fixtures::*;

@@ -70,6 +70,9 @@ impl<'a> App<'a> {
         let in_search = !query.is_empty();
         let twilio_from = crate::env::get(&command_context, "twilio_from_number");
         let persistent_warning = receiver_phone_warning(&config, twilio_from.as_deref());
+        let receiver_sync_runtime: Box<dyn ReceiverSyncRuntime> =
+            Box::new(SystemReceiverSyncRuntime);
+        let sync_status_next_poll = receiver_sync_runtime.monotonic_now();
         let mut app = Self {
             tag_styles: crate::personalization::load_tag_styles(&command_context.workspace),
             command_context,
@@ -157,9 +160,10 @@ impl<'a> App<'a> {
             receiver_started: None,
             receiver_delay_sent: false,
             receiver_retry_at: None,
+            receiver_sync_runtime,
             receiver_sync_gate: None,
             sync_status: None,
-            sync_status_next_poll: Instant::now(),
+            sync_status_next_poll,
             main_view: MainView::Tasks,
             logs_view: None,
             search,

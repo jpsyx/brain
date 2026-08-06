@@ -165,9 +165,33 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
     // ready path reaches here, so `--help`/`--version`, the internal
     // hook/server, and registry-only maintenance never trigger it.
     if let BootstrapContext::Ready(command_context) = &context {
+        validate_expected_workspace_id(
+            std::env::var_os("BRAIN_WORKSPACE_ID").as_deref(),
+            command_context.workspace.id(),
+        )?;
         crate::skills::resync_on_version_change(&command_context.workspace);
     }
     Ok(context)
+}
+
+fn validate_expected_workspace_id(
+    raw_expected: Option<&std::ffi::OsStr>,
+    selected: super::WorkspaceId,
+) -> Result<()> {
+    let Some(raw_expected) = raw_expected else {
+        return Ok(());
+    };
+    let expected = raw_expected
+        .to_str()
+        .ok_or_else(|| anyhow!("BRAIN_WORKSPACE_ID is not valid UTF-8"))?;
+    let expected = super::WorkspaceId::parse(expected)
+        .map_err(|error| anyhow!("BRAIN_WORKSPACE_ID is invalid: {error}"))?;
+    if expected != selected {
+        anyhow::bail!(
+            "BRAIN_WORKSPACE_ID {expected} does not match selected workspace UUID {selected}"
+        );
+    }
+    Ok(())
 }
 
 /// Bootstrap against injected paths and terminal IO.

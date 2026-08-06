@@ -1687,7 +1687,10 @@ field:
 The fix makes execution independent of the shell: every automatic trigger
 (startup, watcher, receiver freshness) spawns a detached
 `brain --brain <canonical-name> sync --if-idle` child (`process_group(0)` +
-null stdio). A separate process can't touch the
+null stdio) with the selected UUID in `BRAIN_WORKSPACE_ID`. The canonical name
+keeps the selector stable across alias/default changes, while bootstrap's UUID
+comparison fails closed if that name is ever rebound to a different registry
+record before the child starts. A separate process can't touch the
 TUI, and a child in its own process group outlives the shell and a terminal
 close. There is no in-process sync path anymore. While the TUI remains alive,
 it keeps each child handle in a waiter thread and calls `wait()` so completed
@@ -1702,6 +1705,15 @@ runs. `brain sync status` surfaces `syncing now …` from that marker; a user-ru
 completion (`follow.rs`) instead of the old "another sync is already running;
 try again" error. Background triggers pass `--if-idle` so a redundant one
 coalesces (exits silently) rather than following.
+
+The remaining lifecycle decisions stay workspace-local. Each TUI owns an
+immutable workspace context and exactly its own watcher handle; dropping that
+handle sends an explicit stop and joins only its worker. Receiver freshness
+remains at the live TUI's queued-job consumption boundary, where it can delay
+only that workspace's message. The shared server therefore never becomes a
+sync owner. Its status and retry decisions use an injected runtime in tests,
+with production bounds of a 250ms poll, five-second launch grace, and three
+launch attempts.
 
 ## Why brain owns the rclone bisync workdir, and reaps its lock
 

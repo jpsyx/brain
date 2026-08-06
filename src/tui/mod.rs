@@ -73,6 +73,7 @@ pub use event_loop::run_tui;
 // The modal-routing types are referenced within `event_loop` directly; the
 // only out-of-module consumer is the unit-test module, so the re-export is
 // test-only.
+pub(crate) use app_sync::*;
 pub(crate) use draw::*;
 pub(crate) use draw_assignee::*;
 pub(crate) use draw_help::*;
@@ -371,6 +372,7 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_started: Option<std::time::Instant>,
     pub(crate) receiver_delay_sent: bool,
     pub(crate) receiver_retry_at: Option<std::time::Instant>,
+    pub(crate) receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
     pub(crate) receiver_sync_gate: Option<ReceiverSyncGate>,
     pub(crate) sync_status: Option<String>,
     pub(crate) sync_status_next_poll: Instant,

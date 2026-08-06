@@ -1094,9 +1094,14 @@ outside-world touchpoints:
   entry point the startup, watcher, and receiver-freshness triggers use. It
   spawns the current exe as
   `brain --brain <canonical-name> sync [--pull|--push] --if-idle` fully
-  detached — `process_group(0)` (its own process group, so it outlives the
+  detached, with `BRAIN_WORKSPACE_ID=<selected UUID>` as a defense-in-depth
+  expectation. Bootstrap compares that environment value to the registry UUID
+  selected by `--brain` and refuses the command on malformed or mismatched
+  input. `detached_sync_request` is the pure argv/environment builder and
+  `DetachedSyncRunner` is the injected launch boundary used by concurrency
+  tests. The real runner uses `process_group(0)` (its own process group, so it outlives the
   parent and survives terminal close) plus stdin/stdout/stderr all set to
-  `Stdio::null()` — mirroring how `src/server/lifecycle.rs` spawns the server
+  `Stdio::null()`, mirroring how `src/server/lifecycle.rs` spawns the server
   daemon, and needing no `unsafe`. Each child acquires the sync lock itself;
   `--if-idle` makes it exit silently when a sync is already running (coalesce),
   as opposed to a user-run `brain sync`, which *follows* the in-flight one.
@@ -1132,13 +1137,21 @@ outside-world touchpoints:
   spawns a detached `brain sync --push`. Push uses `rclone copy --update`, so
   it cannot download files or delete remote-only paths. Task CSV and counter
   merges preserve remote rows/maximum values in the upload without writing
-  those values locally. This removes the prior sync-write feedback loop.
+  those values locally. This removes the prior sync-write feedback loop. The
+  debounce loop accepts an injected clock in tests. Its handle owns an explicit
+  stop signal and worker join, so dropping one TUI stops only that workspace's
+  watcher while peer workspace watchers remain live.
 - **The receiver freshness gate** (`sync/freshness.rs` +
-  `tui/app_sync.rs`) reads the newest successful downstream journal row.
+  `tui/app_sync.rs`) reads the newest successful downstream journal row at the
+  live TUI's queued-job consumption boundary, not in shared-server dispatch.
   Before SMS/email dispatch, a missing row or age over two hours starts
   `brain sync --pull` and holds the message queue until a newer journal row
   appears. The footer polls `current.json` every 250ms and displays the active
-  direction. There is no periodic pull timer and no exit sync.
+  direction. An injected receiver runtime supplies monotonic and UTC clocks,
+  current/journal reads, and child launch. The production policy gives a
+  launched pull five seconds to appear and permits at most three attempts; if
+  none starts, the TUI warns and processes the job with local state. There is
+  no periodic pull timer and no exit sync.
 
 ## The auto-rebuild
 
