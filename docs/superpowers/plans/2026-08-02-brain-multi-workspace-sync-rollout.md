@@ -357,7 +357,6 @@ The test must prove:
 ```sh
 cargo test --release
 cargo clippy --release --all-targets
-cargo test --release bundled_skills_carry_no_personal_data
 python3 -m unittest discover -s skills/todo/scripts/tests
 ```
 

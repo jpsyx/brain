@@ -509,6 +509,13 @@ first move is a failing test that reproduces it, *then* the fix.
   `"Projects"` — we keep one stability check, not a battery of getter
   tests.
 - **"Does it compile" smoke tests.** `cargo build` covers that.
+- **Personal data in bundled skills.** Keeping identity, private paths, and
+  private URLs out of `skills/` is a **review obligation**, not a test. A
+  substring-matching guard would have to commit the very personal data it
+  protects into this public repo — see "Why there is no automated personal-data
+  guard test" in [decisions.md](decisions.md). Read the diff instead; if you
+  want automation, keep it outside the repo (a local pre-commit hook or a
+  private CI list).
 
 ## Test layout
 

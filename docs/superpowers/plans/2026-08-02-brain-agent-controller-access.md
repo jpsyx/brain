@@ -372,7 +372,6 @@ Normalize `-oc` the same way `-cx` is normalized. `Cli::selected_agent()` return
 ```sh
 cargo test --release
 cargo clippy --release --all-targets
-cargo test --release bundled_skills_carry_no_personal_data
 ./target/release/brain --open-code
 ./target/release/brain --codex --open-code
 ```

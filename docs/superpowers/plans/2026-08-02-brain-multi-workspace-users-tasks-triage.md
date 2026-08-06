@@ -409,7 +409,8 @@ Prove re-enabling creates fresh UUIDs and no history.
 
 - [ ] Ensure manual `/triage` instructions do not require managed habits. When the feature is off, completion steps skip habit mutation and still perform cleanup work.
 
-- [ ] Run full Rust/Python tests and `bundled_skills_carry_no_personal_data`.
+- [ ] Run the full Rust/Python tests, and review the diff by hand for personal
+      data in any bundled skill (there is no automated guard).
 
 - [ ] Commit only if authorized; include the required version bump.
 
@@ -438,7 +439,6 @@ Prove re-enabling creates fresh UUIDs and no history.
 cargo test --release
 cargo clippy --release --all-targets
 python3 -m unittest discover -s skills/todo/scripts/tests
-cargo test --release bundled_skills_carry_no_personal_data
 ```
 
 Expected: all checks pass; no bundled task script contains a hard-coded `~/brain`; the family fixture assigns an inbound wife's task to her portable user ID.

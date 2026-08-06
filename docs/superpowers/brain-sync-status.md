@@ -163,8 +163,9 @@ Read `AGENTS.md` (== `CLAUDE.md`) in full first. The non-negotiables:
   harnesses, and fixtures follow the same modularity standard. Preserve public
   paths when splitting (re-export from `mod.rs`).
 - **The repo is 100% public + generic.** No bucket names, hosts, emails, org
-  names, or private paths anywhere. `bundled_skills_carry_no_personal_data`
-  guards bundled skills; docs/tests are unguarded — keep them generic by hand.
+  names, or private paths anywhere. Nothing automated enforces this — bundled
+  skills, docs, and tests are all kept generic by review (see "Why there is no
+  automated personal-data guard test" in `docs/decisions.md`).
 - **No `.difit/` files** — this repo keeps none; rationale goes in
   `docs/decisions.md`.
 - **All CLI color via `src/theme.rs` `Theme` tokens**; every action has a flag

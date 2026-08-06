@@ -86,39 +86,6 @@ mod tests {
         String::from_utf8_lossy(&f.contents).into_owned()
     }
 
-    /// The repo is public: no bundled skill may carry personal identity, private
-    /// tool paths, or private URLs. Personal behavior lives in the user's
-    /// extensions/plugins (`<brain>/.config/...`), never in the bundle.
-    #[test]
-    fn bundled_skills_carry_no_personal_data() {
-        // Case-insensitive substrings that must never appear in a bundled skill.
-        const FORBIDDEN: &[&str] = &[
-            "pablo@avandarlabs.com",
-            "pablowritescode@gmail.com",
-            "avandar",
-            "busy ceo",
-            "notion.so/pablosarmiento",
-            "25a190d5dfe8809291afdd1acec62450", // Pablo's Notion In-Basket block id
-            "~/global-skills/",
-            "~/scripts/",
-            "~/downloads",
-            "jpsyx", // the maintainer's personal handle/namespace; never in a bundled skill
-        ];
-        for skill in bundled_skills() {
-            for f in &skill.files {
-                let text = String::from_utf8_lossy(&f.contents).to_lowercase();
-                for needle in FORBIDDEN {
-                    assert!(
-                        !text.contains(needle),
-                        "bundled skill `{}` file `{}` contains personal token `{needle}`",
-                        skill.name,
-                        f.rel_path.display()
-                    );
-                }
-            }
-        }
-    }
-
     #[test]
     fn bundles_the_generic_triage_skill() {
         let skills = bundled_skills();

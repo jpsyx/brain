@@ -753,7 +753,7 @@ through three positions and this is the resting one:
 1. **A/original:** machine-local `config.json` at `~/.config/brain`, but
    personalization *inside* the brain root so it synced with the brain.
 2. **Mid-project:** unify *everything* under `~/.config/brain` and sync that dir
-   externally (via a dotfiles manager's tracked `home/` tree).
+   externally (via a dotfiles manager's tracked home tree).
 3. **Final (here):** unify everything *inside the brain root*.
 
 Position 2 died on a concrete footgun. A common dotfiles-manager design syncs
@@ -1447,8 +1447,9 @@ behavior. This is the reference case for the extension-agnostic rule now written
 into [AGENTS.md](../AGENTS.md): skill-related code and core skill text may assume
 a hook *might* carry extension content, never what it contains, and every
 generic mechanism must no-op when no extension contributes.
-A guard test (`bundled_skills_carry_no_personal_data`) fails the build if any
-bundled skill grows a personal token, so this line can't silently erode.
+Keeping personal tokens out of a bundled skill is a **review step, not an
+automated test** — see "Why there is no automated personal-data guard test"
+below.
 
 Cross-skill script calls (todo's `find_chronic_ignored.py`, …)
 standardized on the install-registry path `~/.agents/skills/todo/scripts/<name>.py`
@@ -1511,11 +1512,28 @@ deeply-woven personal subsystems on top of the generic task core. The split:
   integration). Scripts read `BRAIN_AGENDA_DIR`/`MARKDOWN_TO_PDF` from the env
   with sane fallbacks instead of a hardcoded path into a personal tool install.
 
-The guard test's forbidden-token list covers the maintainer's private
-dotfiles-repo name too, so that path can never re-enter a bundled skill. Note
-the guard catches identity/paths, not every personal detail (it wouldn't flag
-"Walk Luna"); depersonalizing a skill still needs human judgment for
-personal-but-not-identifying content.
+## Why there is no automated personal-data guard test
+
+An earlier `bundled_skills_carry_no_personal_data` unit test asserted that no
+bundled skill contained any of a hardcoded list of personal tokens — the
+maintainer's email addresses, employer name, a private Notion block id, personal
+handles, home-dir paths. It was **deleted**, because the test defeated its own
+purpose: to check that personal data never lands in this public repo, it
+committed that exact personal data into this public repo, in a file every
+cloner reads. A grep for the very strings it was protecting would have found
+them in the guard itself.
+
+It was also structurally weak. A fixed substring list only ever catches the
+tokens someone already thought to add, and it can't catch personal-but-not-
+identifying content at all (it would never have flagged "Walk Luna"), so it
+bought a false sense of coverage on top of the leak.
+
+**The rule stands; only the enforcement moved.** Keeping personal identity,
+private paths, and private URLs out of `skills/` is a review obligation on
+whoever (human or agent) touches a bundled skill — read the diff and check it,
+the way you check anything else that can't be mechanically verified. If we ever
+want automation here, it must live outside the repo (a local pre-commit hook or
+a private CI secret list), never as committed test data.
 
 ## Why no comments-by-default and no decision log in code
 

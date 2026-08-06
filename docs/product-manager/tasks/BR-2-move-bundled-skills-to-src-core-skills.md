@@ -40,8 +40,7 @@ invoke. "core" also distinguishes them from user-owned extensions/plugins
 
 This is a pure move + reference-update refactor. No skill *content* changes,
 no behavior changes: the same six skills must still embed, render, install,
-and fan out exactly as before, and `bundled_skills_carry_no_personal_data`
-must still pass.
+and fan out exactly as before.
 
 ## Acceptance criteria
 
@@ -52,8 +51,8 @@ must still pass.
       points at the new `$CARGO_MANIFEST_DIR/src/core-skills` path; the module
       doc comment is updated to name the new location.
 - [ ] Existing embed/bundle tests still pass unchanged in intent (the six
-      skills embed, `bundled_skills_carry_no_personal_data` stays green). Add a
-      RED-first assertion pinning the new source path if one is feasible.
+      skills embed). Add a RED-first assertion pinning the new source path if
+      one is feasible.
 - [ ] All prose references to the bundled-skills path are updated: `CLAUDE.md`
       (`AGENTS.md`) — the `docs/` contract rows and the "product skills … in
       `skills/`" note; `docs/architecture.md` (the `skills/` heading + the

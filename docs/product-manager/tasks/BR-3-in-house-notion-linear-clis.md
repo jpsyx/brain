@@ -72,8 +72,8 @@ Open design questions to resolve during planning (do not pre-decide here):
   and one install, but weigh binary size / dependency growth (the dep set is
   small on purpose).
 - **Bundled-vs-personal boundary.** The bundled `triage` / `second-brain`
-  skills must stay generic and carry no personal data (guard test
-  `bundled_skills_carry_no_personal_data`). Notion/Linear *destinations* are
+  skills must stay generic and carry no personal data (a review obligation, not
+  an automated test — see `docs/decisions.md`). Notion/Linear *destinations* are
   personal; today they live in the user's brain **extensions**
   (`triage:daily-linear`, `triage:weekly-linear`, and second-brain routing),
   not in core. The capability-gating mechanism can live in core (generic:
