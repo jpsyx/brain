@@ -80,14 +80,66 @@ pub fn is_watch_relevant(path: &Path) -> bool {
     true
 }
 
-/// Stops the watcher thread when dropped.
-///
-/// Dropping the inner `Watcher` closes the event channel, so the loop observes
-/// `Disconnected` and exits. We do **not** join the thread: shell teardown must
-/// never block on an in-flight sync (spec §10); a detached final pass is harmless
-/// (the lock coalesces it).
+enum WatchInput {
+    Paths(Vec<std::path::PathBuf>),
+    Stop,
+    #[cfg(test)]
+    Poll,
+    #[cfg(test)]
+    Observed(mpsc::Sender<()>),
+}
+
+/// Stops this watcher thread, and no peer workspace's watcher, when dropped.
 pub struct WatcherHandle {
     _watcher: BrainWatcher,
+    stop: mpsc::Sender<WatchInput>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for WatcherHandle {
+    fn drop(&mut self) {
+        let _ = self.stop.send(WatchInput::Stop);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn run_watcher_loop<F, N>(rx: &mpsc::Receiver<WatchInput>, window: Duration, on_fire: F, now: N)
+where
+    F: Fn() + Send + 'static,
+    N: Fn() -> Instant + Send + 'static,
+{
+    let mut debouncer = Debouncer::new(window);
+    loop {
+        let received = debouncer.time_until_fire(now()).map_or_else(
+            || rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+            |wait| rx.recv_timeout(wait),
+        );
+        match received {
+            Ok(WatchInput::Paths(paths)) => {
+                if paths.iter().any(|path| is_watch_relevant(path)) {
+                    debouncer.on_event(now());
+                }
+            }
+            Ok(WatchInput::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if debouncer.poll(now()) {
+                    on_fire();
+                }
+            }
+            #[cfg(test)]
+            Ok(WatchInput::Poll) => {
+                if debouncer.poll(now()) {
+                    on_fire();
+                }
+            }
+            #[cfg(test)]
+            Ok(WatchInput::Observed(acknowledge)) => {
+                let _ = acknowledge.send(());
+            }
+        }
+    }
 }
 
 /// Start watching `root` recursively; call `on_fire` once each time changes
@@ -104,9 +156,12 @@ pub fn spawn_watcher_with<F>(
 where
     F: Fn() + Send + 'static,
 {
-    let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
-    let handler = move |res| {
-        let _ = tx.send(res);
+    let (tx, rx) = mpsc::channel::<WatchInput>();
+    let event_tx = tx.clone();
+    let handler = move |res: notify::Result<notify::Event>| {
+        if let Ok(event) = res {
+            let _ = event_tx.send(WatchInput::Paths(event.paths));
+        }
     };
     // FSEvents can silently omit changes in otherwise valid user-owned trees
     // on some macOS versions. PollWatcher gives the receiver machine a
@@ -120,40 +175,13 @@ where
     let mut watcher = notify::RecommendedWatcher::new(handler, notify::Config::default())?;
     watcher.watch(root, RecursiveMode::Recursive)?;
 
-    std::thread::spawn(move || {
-        let mut deb = Debouncer::new(window);
-        loop {
-            let now = Instant::now();
-            // Block indefinitely when disarmed; else only until the fire is due.
-            let recv = match deb.time_until_fire(now) {
-                None => rx.recv().map_err(|_| ()),
-                Some(d) => match rx.recv_timeout(d) {
-                    Ok(ev) => Ok(ev),
-                    Err(mpsc::RecvTimeoutError::Timeout) => Err(()), // maybe fire
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break, // handle dropped
-                },
-            };
-            match recv {
-                Ok(Ok(event)) => {
-                    if event.paths.iter().any(|p| is_watch_relevant(p)) {
-                        deb.on_event(Instant::now());
-                    }
-                }
-                Ok(Err(_)) => {} // a notify error event; ignore
-                Err(()) => {
-                    // Either the channel closed (recv error) or a timeout elapsed.
-                    if deb.poll(Instant::now()) {
-                        on_fire();
-                    } else {
-                        // recv() returned Disconnected (handle dropped) → stop.
-                        break;
-                    }
-                }
-            }
-        }
-    });
+    let worker = std::thread::spawn(move || run_watcher_loop(&rx, window, on_fire, Instant::now));
 
-    Ok(WatcherHandle { _watcher: watcher })
+    Ok(WatcherHandle {
+        _watcher: watcher,
+        stop: tx,
+        worker: Some(worker),
+    })
 }
 
 /// Start the real auto-sync watcher: fires a one-way push when changes under
@@ -175,6 +203,7 @@ pub fn spawn_watcher(
 mod tests {
     use super::*;
     use std::path::Path;
+    use std::sync::{Arc, Mutex, mpsc};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -250,5 +279,74 @@ mod tests {
     fn ordinary_notes_and_csvs_are_relevant() {
         assert!(is_watch_relevant(Path::new("projects/x/note.md")));
         assert!(is_watch_relevant(Path::new("tasks/tasks.csv")));
+    }
+
+    #[test]
+    fn stopping_one_clock_driven_watcher_loop_does_not_stop_its_peer() {
+        let now = Arc::new(Mutex::new(Instant::now()));
+        let (personal_tx, personal_rx) = mpsc::channel();
+        let (family_tx, family_rx) = mpsc::channel();
+        let (fired_tx, fired_rx) = mpsc::channel();
+        let personal_clock = Arc::clone(&now);
+        let personal_fired = fired_tx.clone();
+        let personal = std::thread::spawn(move || {
+            run_watcher_loop(
+                &personal_rx,
+                Duration::from_secs(3),
+                move || personal_fired.send("personal").unwrap(),
+                move || *personal_clock.lock().unwrap(),
+            );
+        });
+        let family_clock = Arc::clone(&now);
+        let family = std::thread::spawn(move || {
+            run_watcher_loop(
+                &family_rx,
+                Duration::from_secs(3),
+                move || fired_tx.send("family").unwrap(),
+                move || *family_clock.lock().unwrap(),
+            );
+        });
+
+        personal_tx
+            .send(WatchInput::Paths(vec![
+                Path::new("personal/note.md").to_path_buf(),
+            ]))
+            .unwrap();
+        family_tx
+            .send(WatchInput::Paths(vec![
+                Path::new("family/note.md").to_path_buf(),
+            ]))
+            .unwrap();
+        for sender in [&personal_tx, &family_tx] {
+            let (observed_tx, observed_rx) = mpsc::channel();
+            sender.send(WatchInput::Observed(observed_tx)).unwrap();
+            observed_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        }
+        *now.lock().unwrap() += Duration::from_secs(3);
+        personal_tx.send(WatchInput::Poll).unwrap();
+        family_tx.send(WatchInput::Poll).unwrap();
+        let first = fired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let second = fired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_ne!(first, second);
+
+        personal_tx.send(WatchInput::Stop).unwrap();
+        personal.join().unwrap();
+        family_tx
+            .send(WatchInput::Paths(vec![
+                Path::new("family/second.md").to_path_buf(),
+            ]))
+            .unwrap();
+        let (observed_tx, observed_rx) = mpsc::channel();
+        family_tx.send(WatchInput::Observed(observed_tx)).unwrap();
+        observed_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        *now.lock().unwrap() += Duration::from_secs(3);
+        family_tx.send(WatchInput::Poll).unwrap();
+
+        assert_eq!(
+            fired_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            "family"
+        );
+        family_tx.send(WatchInput::Stop).unwrap();
+        family.join().unwrap();
     }
 }

@@ -41,13 +41,11 @@ pub fn readiness_action(
 ) -> Result<ReadinessAction, ReadinessError> {
     let manifest = validated_manifest(record, manifest)?;
 
-    let mut missing = Vec::new();
-    if manifest.is_none() {
-        missing.push(ReadinessField::Manifest);
-    }
-    if record.local_user_id.trim().is_empty() {
-        missing.push(ReadinessField::LocalUserId);
-    }
+    let missing = super::requirements::required_fields(
+        manifest.is_some(),
+        true,
+        !record.local_user_id.trim().is_empty(),
+    );
     if missing.is_empty() {
         return Ok(ReadinessAction::Ready(
             manifest.expect("manifest exists when no readiness field is missing"),
@@ -90,14 +88,9 @@ pub fn readiness_action_with_users(
         }
         Err(error) => return Err(ReadinessError::Users(error)),
     };
-    let mut missing = Vec::new();
-    if manifest.is_none() {
-        missing.push(ReadinessField::Manifest);
-    }
     let local_user = UserId::parse(&record.local_user_id).ok();
-    match users.as_ref() {
-        None if !legacy_compatible => missing.push(ReadinessField::PortableUsers),
-        None => {}
+    let local_user_ready = match users.as_ref() {
+        None => true,
         Some(users) => {
             let valid_local = local_user
                 .as_ref()
@@ -120,10 +113,15 @@ pub fn readiness_action_with_users(
                 {
                     return Ok(ReadinessAction::AdoptLocalUser(sole.id.clone()));
                 }
-                missing.push(ReadinessField::LocalUserId);
             }
+            valid_local
         }
-    }
+    };
+    let missing = super::requirements::required_fields(
+        manifest.is_some(),
+        users.is_some() || legacy_compatible,
+        local_user_ready,
+    );
     if missing.is_empty() {
         return Ok(ReadinessAction::Ready(
             manifest.expect("manifest exists when no readiness field is missing"),

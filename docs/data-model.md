@@ -272,9 +272,15 @@ state; watchdog expiry remains a separate mutation.
 ├── state.db
 ├── tui.lock
 ├── jobs.sock              (live TUI only, mode 0600)
+├── users.transaction.lock
+├── tasks.transaction.lock
 ├── inbox/
 ├── responses/
 ├── logs/                  (reserved, currently unused)
+├── capabilities/
+├── migrations/
+│   └── multi-workspace-v1.json
+├── migration-backups/
 └── sync/
     ├── sync.lock
     ├── journal.db
@@ -284,10 +290,13 @@ state; watchdog expiry remains a separate mutation.
     └── baselines/
 ```
 
-Its state database, TUI lock, live job socket, inbox, responses, reserved log
-path, and sync working data are all children of that base. `cache_dir()` borrows the stored
+Its state database, transaction/TUI locks, live job socket, inbox, responses,
+capability material, migration journal/backups, reserved log path, and sync
+working data are all children of that base. `cache_dir()` borrows the stored
 base; each child accessor derives an owned path. Distinct IDs therefore cannot
-share runtime paths. Active run logs remain under `/tmp` through `logging.rs`,
+share runtime paths. `WorkspacePaths` remains the sole UUID-derived authority;
+sync's focused workdir and CSV-baseline helpers only append below its `sync/`
+children. Active run logs remain under `/tmp` through `logging.rs`,
 are created exclusively with mode `0600`, and receive only centrally redacted
 argv values.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
@@ -425,9 +434,14 @@ non-default record only.
 }
 ```
 
-Unknown fields, unsupported schemas, malformed UUIDs, and incompatible minimum
-versions are errors. The manifest UUID must equal the selected registry record;
-the stable receiver ingress UUID remains portable across machines. Create
+Schema `1` is the only accepted portable-manifest schema; older and newer
+numeric schema values are both unsupported. Brain and minimum versions use a
+numeric `major.minor.patch` core. Missing, extra, or nonnumeric components are
+errors. A client older than the minimum fails with the exact update guidance
+`workspace requires Brain <minimum> or newer; this is Brain <current>`.
+Unknown fields and malformed UUIDs are also errors. The manifest UUID must
+equal the selected registry record; the stable receiver ingress UUID remains
+portable across machines. Create
 writes the manifest before registry persistence. Attach reads it without
 editing it. Legacy flat-env migration creates the root and first matching
 manifest before replacing the flat registry.
@@ -469,7 +483,35 @@ interactive command creates the first portable person, selects it locally, and
 continues the requested command. Headless setup uses `brain user add` followed
 by `brain user local` (or, once one person exists, the sole-user adoption above).
 An existing workspace with no `users.json` and a non-empty legacy local ID
-remains ready so this release does not activate an unreviewed migration.
+remains ready because ordinary startup never activates migration. The explicit
+workspace migration command performs the reviewed conversion.
+
+### Requirement health is not readiness
+
+`workspace::Requirement` is a read-only projection over one pinned
+`CommandContext`:
+
+| Field | Meaning |
+| --- | --- |
+| `scope` | One required component or optional feature, including dynamic MCP and skill names. |
+| `status` | `Required(Ready|Unavailable)` or `Feature(Off|Ready|Incomplete)`; required and optional states cannot be confused. |
+| `prompts` | Labels plus a secret/non-secret bit for an interactive setup surface; no stored value is retained. |
+| `remediation` | Exact noninteractive CLI syntax for an unavailable or incomplete row. |
+
+Required rows cover the selected root, compatible matching manifest, nonempty
+schema-1 portable user registry, and a local user ID that names a portable
+person. Optional rows cover sync/watcher, receiver/SMS/email,
+access/MCPs/skills, triage habits/modal, PDF, Linear, personalization, and
+browser/web views. A disabled feature has no setup error. A present malformed
+sync block or provider field fails closed as incomplete. Receiver channel
+activation comes from receiver intent plus current provider-field presence or
+portable inbound mappings, not a second channel toggle.
+
+The inspector reloads the exact canonical record and rechecks its UUID against
+the pinned context. It never falls back to another record. Sync requirement
+health describes complete local configuration; every actual setup, sync,
+repair, or check still probes the remote portable manifest and refuses a UUID
+mismatch before data movement.
 
 ### Portable people (`.config/users.json`)
 
@@ -584,14 +626,16 @@ unrelated edits preserve it, and explicit changes validate membership. Readers
 accept legacy `assignee`, prefer `assigned_to` when both exist, and writers
 migrate to `assigned_to` by column name. Task rows accept an optional
 `task_uuid` during the compatibility window; all new rows receive UUIDv4, and
-mutations preserve any existing UUID. The inactive schema helper derives
+mutations preserve any existing UUID. The coordinator-only schema helper derives
 legacy UUIDv5 values from
 `<workspace-uuid>:<csv-kind>:<legacy-task-id>`, backs up both CSVs, both
 counters, and `SCHEMA.json`, then writes task schema version 2 with
 `task_uuid` as immutable merge identity and `task_id` as mutable display
 identity. The caller supplies an existing durable backup base; a backup
 destination is accepted only when its canonicalized path is beneath that base
-and disjoint from the workspace tree. Each missing descendant is created
+and disjoint from the workspace tree. Before copying, every pre-existing
+inventory parent and destination is inspected without following symlinks;
+nested symlinks and non-directory components are rejected. Each missing descendant is created
 separately, and every actual parent is synced before continuing, including on
 retry through a partially created chain. Exact backup bytes are file-synced
 and their actual parent directory is synced before any portable replacement.
@@ -600,11 +644,75 @@ sequential atomic replacements, so retry can roll back an interrupted prepared
 generation or finish cleanup for a committed one; failed journal publication
 removes its temporary file immediately. Current detection validates the merge
 key, mutable display identity, canonical assignment, `system_key`, and UUIDs,
-not the schema version alone. It is not called by startup, readiness, sync, or
-commands. The rollout coordinator still owns the last legacy semantic sync,
-activation, and backup location. Existing legacy files retain `task_id` as
-their merge key until migration. Schema-v2 files merge by `task_uuid` and
-reconcile mutable display IDs without activating that migration.
+not the schema version alone. It is called only by explicit
+`brain workspace migrate`. The rollout coordinator owns the last legacy
+semantic sync, acknowledgement and identity gates, portable backup, step
+journal, activation, schema-last remote publication, and final verification.
+The local migrated header uses a complete canonical order for every known task
+column, then appends forward-compatible columns in lexical order. Migration
+sets `forward_compatible_columns: true`, so independently migrated legacy
+copies and later semantic merges converge byte-for-byte without discarding
+newer fields. Existing legacy files retain
+`task_id` as their merge key until migration. Schema-v2 files merge by
+`task_uuid` and reconcile mutable display IDs without activating that
+migration.
+
+### Coordinated rollout journal and retained backup
+
+Explicit `brain workspace migrate` owns one machine-local rollout generation
+per workspace UUID. Its active journal is
+`<workspace-cache>/migrations/multi-workspace-v1.json`; its retained backup is
+`<workspace-cache>/migration-backups/<UTC>-pre-multi-workspace/`. Both paths
+come only from `WorkspacePaths`, so two workspaces can migrate independently
+without sharing recovery state. Neither path is portable or synced.
+
+Before discovery, planning, or journal creation, the coordinator acquires the
+workspace UUID sync lock and retains it through the complete rollout. It then verifies the selected manifest and
+workspace UUID, remote identity when sync is configured, explicit all-machine
+acknowledgement for a synced headless rollout, and a disjoint machine-local
+backup destination. Unconfigured migration also finishes portable user and
+assignment mapping before journal creation. Configured migration first records
+the final legacy sync in the journal. If the remote marker is absent, this is
+the ordinary legacy semantic merge. If a present remote marker strictly
+declares supported schema v2, a migration-owned join merges the legacy
+baseline/local generation with current remote rows by `task_id`, preserves the
+remote UUID for every matching row, and performs no remote task publication.
+The same replayable bridge reconciles each local id counter to
+`max(local, remote, joined_max + 1)` before the journal can record the legacy
+semantic step complete. Missing or malformed counter text is absent input;
+joined rows still provide the safe floor. Neither CSV nor counter state is
+published by this bridge.
+The coordinator then reloads config, portable users, and
+both CSV assignment columns and reruns mapping preflight before backup or
+portable mutation. If both `assigned_to` and legacy `assignee` exist,
+`assigned_to` is canonical. The journal binds the migration ID, workspace UUID,
+canonical root, original plan, original timestamp, retained backup, and
+completed steps. Reentry must match that identity exactly and resumes the same
+generation; a mismatch fails closed.
+
+The ordered steps are final legacy semantic sync, portable backup, user
+migration, local task-schema migration, remote task-schema transition,
+managed-triage reconciliation, reindex, and final verification. The final
+legacy sync completes before UUID task identity can become authoritative. The
+local migration and remote transition share the UUID sync lock. The transition
+publishes current `tasks.csv` and `habits.csv`, durably writes both exact
+machine-local baselines, and publishes `tasks/SCHEMA.json` last. Those three
+paths are excluded from ordinary rclone transfer. Each completed step is
+atomically journaled, and the task-schema subtransaction has its own
+prepared/committed recovery boundary for multi-file replacement. An active
+rollout journal makes ordinary sync and sync setup refuse after taking the UUID
+lock, so crash recovery must resume the journaled transition. Success removes
+only the active rollout journal and retains the backup. An interrupted run
+prints the exact resume command. Recovery is resume-only for every active
+journal state because remote task publication may have completed before its
+step record became durable. Restoring only one machine could therefore diverge
+from the authoritative remote generation. Rerunning a
+fully current workspace is byte-idempotent and creates no new backup.
+
+The backup hardening rejects all pre-existing nested symlink and non-directory
+components. The only descriptor-relative post-validation insertion TOCTOU
+remains deferred Minor.
+
 Managed triage identity lives in the optional `system_key` column. The reserved
 values `brain.triage.daily` and `brain.triage.weekly` identify Brain-owned
 chains even if their display names change. When enabled, reconciliation keeps
@@ -645,10 +753,11 @@ snapshot. Unrestricted mode has no boundary prompt. Workspace-only mode builds
 one advisory prompt naming the selected root and actor, then every interactive,
 SMS, email, fresh, resumed, and triage request carries it to the selected
 frontend. Initial prompt text follows the frontend's option terminator, so a
-leading `-` remains prompt data. The policy is easy-to-bypass prompt guidance
-plus capability filtering. It reduces accidents and naive leakage among
-trusted users, but it is not suitable for adversarial or sensitive isolation;
-that requires an external OS, VM, machine, or container boundary.
+leading `-` remains prompt data. `workspace_only` is advisory prompt
+enforcement plus best-effort capability filtering, easy to bypass, and not
+tenant isolation. It reduces accidents and naive leakage among trusted users;
+adversarial or sensitive isolation requires an external OS, VM, machine, or
+container boundary.
 
 `CapabilityPlan` is a separate immutable launch snapshot. Portable config owns
 only ordered logical `allowed_mcps` and `allowed_skills` names. Resolution reads
@@ -915,9 +1024,12 @@ does nothing, with no watcher thread or startup sync).
 - `current.log` — the in-progress run's progress lines, appended live so a
   following `brain sync` can tail them and `brain sync status` stays honest.
   Truncated at the start of each run.
-- `bisync/` — the brain-owned rclone bisync workdir (`--workdir`): its `.lst`
+- `bisync/`: the brain-owned rclone bisync workdir (`--workdir`), with `.lst`
   baseline listings, and any `.lck` lock file (reaped before each run while
   brain holds its own sync lock, since it can only be from a dead run).
+- `baselines/`: the selected workspace's semantic task and habit CSV
+  snapshots. They never overlap another UUID's baselines and never enter the
+  portable workspace.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -956,6 +1068,41 @@ checks for external `rclone` before invoking the configured remote.
 record and deserializes it, falling back to `SyncConfig::default()`
 on a missing key or a parse failure — a broken or absent `sync` block never
 blocks startup.
+
+## Remote workspace identity (`sync/identity/`)
+
+Every remote data path is owned by one portable workspace manifest at
+`.config/workspace.json`. The remote file uses the same strict schema and UUID
+as the selected root's local manifest. The pure observation distinguishes an
+empty target, a nonempty manifestless target, a compatible manifest with its
+UUID, an invalid or incompatible manifest, and a manifest that is listed but
+cannot be read. The identity decision then
+allows a match, permits setup initialization for an empty target, and refuses
+mismatched UUIDs or untrusted manifests. Ownership claims used during empty
+initialization live at `.config/workspace-claims/<workspace-uuid>.json`. They
+contain the claimant's exact manifest bytes and are append-only setup metadata;
+claim paths alone do not make the target nonempty for setup retry.
+
+Ordinary sync, push, pull, repair, and `brain check` accept only the matching
+outcome. Setup first publishes and reads back its UUID-named claim. A newly
+published claim ends that attempt without canonical publication. A retry
+strictly enumerates and validates all claim names and the elected claim
+contents, and elects the lexically lowest UUID. It then re-probes the canonical manifest;
+only the winner may publish the selected root's exact existing manifest bytes
+to an empty remote, using immutable-copy defense, and must read them back and
+revalidate before saving the
+candidate sync block or writing check markers, CSVs, counters, or bisync data.
+The local manifest is immutable validation input in this flow and is excluded
+from ordinary rclone transfer. A remote that already contains data but lacks a
+manifest is never adopted implicitly. Setup displays the local canonical name
+and UUID, target, and observed remote status, then requires either an explicit
+interactive confirmation or `--adopt-workspace-id <UUID>` matching the exact
+selected UUID. The setup stages hold the UUID-scoped sync lock from identity
+through task-schema preparation and initial baseline, then persist credentials
+only for a clean outcome. No portable remote workspace name exists. Ordinary sync and
+internal server paths cannot supply adoption authority or prompt. Registry
+records, machine-local env credentials, and UUID-derived runtime state remain
+outside the portable remote.
 
 ## Sync journal (`src/sync/journal.rs`, `<workspace-cache>/sync/journal.db`)
 
@@ -1182,12 +1329,16 @@ falls back to a deterministic lexicographic tiebreak (the greater cell value
 wins), noted as a soft conflict in the `Report`.
 
 The output header is the deterministic union of names from local, remote, and
-base. Schema version 2 requires `task_uuid`, `task_id`, `assigned_to`, and
+base. Under schema version 2, every known task field uses one canonical order
+and forward-compatible fields follow in lexical order. Schema version 2 requires `task_uuid`, `task_id`, `assigned_to`, and
 `system_key`; `last_touched` remains the preferred conflict timestamp but is
 not an identity requirement. A nonempty legacy table must contain `task_id`.
 Unknown columns survive only when `SCHEMA.json` declares
 `forward_compatible_columns: true`. The manifest and all six base/local/remote
-task and habit tables are preflighted together, so any rejection occurs before
+task and habit tables are preflighted together. The remote schema marker is
+fetched and parsed before either remote CSV; absence is exactly legacy, while
+malformed, incompatible, newer, or local/remote status mismatch is a refusal.
+Any rejection occurs before
 either CSV, baseline, metadata file, remote object, or counter changes.
 
 After row merge, `reconcile.rs` groups equal display IDs. The
@@ -1226,6 +1377,10 @@ reflects exactly what was agreed this round. The whole-operation result also
 carries task and habit display-ID floors directly from those reconciled tables;
 counter reconciliation does not fetch either remote CSV again. Push-only sync
 still advances the local counters to those floors before the next allocation.
+The gated two-workspace local transport test runs baseline publication for two
+UUIDs concurrently and asserts both path and byte ownership remain separate.
+Its mismatch case leaves the selected workspace's workdir absent, which pins
+the remote-manifest gate ahead of both bisync state and portable mutation.
 
 **Journal note.** `command::format_csv_note` folds the `Report` from both
 CSVs into one segment appended to the sync journal's `note` column (see

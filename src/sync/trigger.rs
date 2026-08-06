@@ -21,6 +21,37 @@ use std::process::{Command, Stdio};
 
 use crate::sync::args::Direction;
 
+/// Complete workspace-sensitive input for one detached sync child.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetachedSyncRequest {
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+/// Process-launch boundary for detached sync children.
+pub trait DetachedSyncRunner: Send + Sync {
+    /// Launch one fully specified child and return its process ID.
+    fn spawn(&self, request: DetachedSyncRequest) -> std::io::Result<u32>;
+}
+
+struct ProcessDetachedSyncRunner;
+
+impl DetachedSyncRunner for ProcessDetachedSyncRunner {
+    fn spawn(&self, request: DetachedSyncRequest) -> std::io::Result<u32> {
+        use std::os::unix::process::CommandExt as _;
+        let exe = std::env::current_exe()?;
+        let mut command = Command::new(exe);
+        command
+            .args(request.args)
+            .envs(request.env)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        spawn_reaped_command(command)
+    }
+}
+
 #[must_use]
 fn detached_sync_args(
     workspace: &crate::workspace::WorkspaceContext,
@@ -38,6 +69,18 @@ fn detached_sync_args(
     }
     args.push("--if-idle".to_owned());
     args
+}
+
+/// Build one detached child's canonical selector, sync arguments, and expected UUID.
+#[must_use]
+pub fn detached_sync_request(
+    workspace: &crate::workspace::WorkspaceContext,
+    dir: Direction,
+) -> DetachedSyncRequest {
+    DetachedSyncRequest {
+        args: detached_sync_args(workspace, dir),
+        env: vec![("BRAIN_WORKSPACE_ID".to_owned(), workspace.id().to_string())],
+    }
 }
 
 fn spawn_reaped_command(mut command: Command) -> std::io::Result<u32> {
@@ -66,18 +109,18 @@ pub fn spawn_detached_sync(
     workspace: &crate::workspace::WorkspaceContext,
     dir: Direction,
 ) -> Option<u32> {
-    use std::os::unix::process::CommandExt as _;
-    let Ok(exe) = std::env::current_exe() else {
-        return None;
-    };
-    let mut cmd = Command::new(exe);
-    cmd.args(detached_sync_args(workspace, dir))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .process_group(0);
+    spawn_detached_sync_with(workspace, dir, &ProcessDetachedSyncRunner)
+}
+
+/// Spawn through an injected runner while preserving the production request.
+#[must_use]
+pub fn spawn_detached_sync_with(
+    workspace: &crate::workspace::WorkspaceContext,
+    dir: Direction,
+    runner: &dyn DetachedSyncRunner,
+) -> Option<u32> {
     crate::logging::log(format!("spawn detached sync dir={dir:?}"));
-    match spawn_reaped_command(cmd) {
+    match runner.spawn(detached_sync_request(workspace, dir)) {
         Ok(pid) => Some(pid),
         Err(error) => {
             crate::logging::log(format!("spawn detached sync failed dir={dir:?}: {error}"));

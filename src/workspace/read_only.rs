@@ -18,6 +18,10 @@ pub(super) fn bootstrap(
 ) -> Result<BootstrapContext> {
     let registry = RegistryStore::load_from(store.path())?;
     let selected = registry.select(cli.brain.as_deref())?;
+    super::bootstrap::validate_expected_workspace_id(
+        std::env::var_os("BRAIN_WORKSPACE_ID").as_deref(),
+        selected.record().workspace_id,
+    )?;
     if !selected.record().root.is_dir() {
         anyhow::bail!(
             "workspace root {} is unavailable",

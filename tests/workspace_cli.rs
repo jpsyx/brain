@@ -718,13 +718,17 @@ fn workspace_list_is_sorted_complete_plain_and_accepts_a_global_alias_selector()
     assert_success(&output);
     let stdout = String::from_utf8(output.stdout).expect("UTF-8 list output");
     assert!(!stdout.contains('\x1b'));
-    assert_eq!(
-        stdout,
-        format!(
-            "Workspaces\n\n  alpha\n    root: {}\n    aliases: a, shared\n    local user: test-user\n    receiver: disabled\n    Access mode  workspace-only\n    Enforcement  advisory prompts and capability filtering\n    Sandbox      none\n* zeta (default)\n    root: {}\n    aliases: none\n    local user: user-z\n    receiver: enabled\n    Access mode  unrestricted\n    Enforcement  frontend defaults\n    Sandbox      none\n",
-            alpha.display(),
-            zeta.display()
-        )
+    let workspace_rows = format!(
+        "Workspaces\n\n  alpha\n    root: {}\n    aliases: a, shared\n    local user: test-user\n    receiver: disabled\n    Access mode  workspace-only\n    Enforcement  advisory prompts and capability filtering\n    Sandbox      none\n* zeta (default)\n    root: {}\n    aliases: none\n    local user: user-z\n    receiver: enabled\n    Access mode  unrestricted\n    Enforcement  frontend defaults\n    Sandbox      none\n",
+        alpha.display(),
+        zeta.display()
+    );
+    assert!(stdout.starts_with(&workspace_rows), "{stdout}");
+    assert!(stdout.contains("Workspace alpha"), "{stdout}");
+    assert!(stdout.contains("portable users: unavailable"), "{stdout}");
+    assert!(
+        stdout.contains("access policy (advisory; no isolation): ready"),
+        "{stdout}"
     );
 }
 

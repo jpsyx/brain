@@ -64,13 +64,11 @@ fn doctor_reports_hook_installed_when_session_start_entry_references_script() {
     make_db(&db_path);
     let settings_dir = tmp.path().join("brain").join(".claude");
     std::fs::create_dir_all(&settings_dir).unwrap();
-    // The doctor checks for a SessionStart hook whose command ends in
-    // brain/scripts/claude_session_start_hook.py. The absolute prefix need not
-    // match — the user may have installed from a different working directory.
+    // Both frontends use the project-relative script installed by Brain.
     let json = r#"{
       "hooks": {
         "SessionStart": [{
-          "hooks": [{"type": "command", "command": "/home/me/scripts/rc/brain/scripts/claude_session_start_hook.py"}]
+          "hooks": [{"type": "command", "command": "python3 .claude/brain-hooks/claude_session_start_hook.py"}]
         }]
       }
     }"#;
@@ -105,11 +103,55 @@ fn diagnosis_is_ok_when_all_checks_pass() {
     let settings_dir = tmp.path().join("brain").join(".claude");
     std::fs::create_dir_all(&settings_dir).unwrap();
     let json = r#"{"hooks":{"SessionStart":[{"hooks":[
-      {"type":"command","command":"/x/rc/brain/scripts/claude_session_start_hook.py"}
+      {"type":"command","command":"python3 .claude/brain-hooks/claude_session_start_hook.py"}
     ]}]}}"#;
     std::fs::write(settings_dir.join("settings.json"), json).unwrap();
-    let diag = run_doctor(&db_path, &settings_dir, false);
+    let codex_hooks = tmp.path().join(".codex/hooks.json");
+    std::fs::create_dir_all(codex_hooks.parent().unwrap()).unwrap();
+    std::fs::write(
+        &codex_hooks,
+        r#"{"hooks":{"SessionStart":[{"hooks":[
+          {"type":"command","command":"python3 .claude/brain-hooks/claude_session_start_hook.py"}
+        ]}]}}"#,
+    )
+    .unwrap();
+    let diag = brain::tasks::doctor::run_doctor_with_frontends(
+        &db_path,
+        &settings_dir,
+        &codex_hooks,
+        false,
+    );
+    assert!(diag.claude_hook_installed);
+    assert!(diag.codex_hook_installed);
     assert!(diag.is_ok());
+}
+
+#[test]
+fn doctor_requires_claude_and_codex_hooks_but_has_no_opencode_check() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let db_path = tmp.path().join("state.db");
+    make_db(&db_path);
+    let settings_dir = tmp.path().join("brain/.claude");
+    std::fs::create_dir_all(&settings_dir).unwrap();
+    std::fs::write(
+        settings_dir.join("settings.json"),
+        r#"{"hooks":{"SessionStart":[{"hooks":[
+          {"type":"command","command":"python3 .claude/brain-hooks/claude_session_start_hook.py"}
+        ]}]}}"#,
+    )
+    .unwrap();
+    let codex_hooks = tmp.path().join(".codex/hooks.json");
+
+    let diag = brain::tasks::doctor::run_doctor_with_frontends(
+        &db_path,
+        &settings_dir,
+        &codex_hooks,
+        false,
+    );
+
+    assert!(diag.claude_hook_installed);
+    assert!(!diag.codex_hook_installed);
+    assert!(!diag.is_ok());
 }
 
 #[test]

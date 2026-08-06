@@ -27,12 +27,20 @@ pub enum ResolveDecision {
 /// missing canonical always refuses, even when there are no copies either —
 /// a bogus/mistyped original shouldn't silently no-op.
 #[must_use]
-pub fn resolve_decision(original: &Path, canonical_exists: bool, files: &[ConflictFile]) -> ResolveDecision {
+pub fn resolve_decision(
+    original: &Path,
+    canonical_exists: bool,
+    files: &[ConflictFile],
+) -> ResolveDecision {
     if !canonical_exists {
         return ResolveDecision::CanonicalMissing;
     }
     let copies = conflicts::copies_for_original(original, files);
-    if copies.is_empty() { ResolveDecision::NoCopies } else { ResolveDecision::Delete(copies) }
+    if copies.is_empty() {
+        ResolveDecision::NoCopies
+    } else {
+        ResolveDecision::Delete(copies)
+    }
 }
 
 /// `brain sync resolve <original> [...]`: delete the resolved conflict copies
@@ -95,7 +103,10 @@ fn resolve_one(root: &Path, original: &str, files: &[ConflictFile], theme: Theme
             );
         }
         ResolveDecision::NoCopies => {
-            println!("{}", theme.muted(&format!("no conflict copies for {original}")));
+            println!(
+                "{}",
+                theme.muted(&format!("no conflict copies for {original}"))
+            );
         }
     }
 }
@@ -113,7 +124,11 @@ fn resolve_interactive(root: &Path) -> Result<()> {
 
     println!("{}", theme.heading("Open conflicts"));
     for (i, g) in groups.iter().enumerate() {
-        let word = if g.copies.len() == 1 { "copy" } else { "copies" };
+        let word = if g.copies.len() == 1 {
+            "copy"
+        } else {
+            "copies"
+        };
         println!(
             "  {} {} {}",
             theme.accent(&format!("{}.", i + 1)),
@@ -122,8 +137,10 @@ fn resolve_interactive(root: &Path) -> Result<()> {
         );
     }
 
-    let answer =
-        crate::sync::setup::prompt(&theme.prompt("Pick a number to resolve (or \"all\", empty to cancel)"), "")?;
+    let answer = crate::sync::setup::prompt(
+        &theme.prompt("Pick a number to resolve (or \"all\", empty to cancel)"),
+        "",
+    )?;
     let answer = answer.trim();
     if answer.is_empty() {
         println!("{}", theme.muted("cancelled."));
@@ -131,10 +148,15 @@ fn resolve_interactive(root: &Path) -> Result<()> {
     }
 
     let chosen: Vec<String> = if answer.eq_ignore_ascii_case("all") {
-        groups.iter().map(|g| g.original.display().to_string()).collect()
+        groups
+            .iter()
+            .map(|g| g.original.display().to_string())
+            .collect()
     } else {
         match answer.parse::<usize>() {
-            Ok(n) if n >= 1 && n <= groups.len() => vec![groups[n - 1].original.display().to_string()],
+            Ok(n) if n >= 1 && n <= groups.len() => {
+                vec![groups[n - 1].original.display().to_string()]
+            }
             _ => {
                 println!("{}", theme.warning("not a valid choice."));
                 return Ok(());
@@ -152,9 +174,15 @@ mod tests {
 
     fn idea_conflict_files() -> Vec<ConflictFile> {
         vec![
-            ConflictFile { path: PathBuf::from("idea (conflict mac 2026-07-25).md") },
-            ConflictFile { path: PathBuf::from("idea (conflict server 2026-07-24).md") },
-            ConflictFile { path: PathBuf::from("other (conflict mac 2026-07-25).md") },
+            ConflictFile {
+                path: PathBuf::from("idea (conflict mac 2026-07-25).md"),
+            },
+            ConflictFile {
+                path: PathBuf::from("idea (conflict server 2026-07-24).md"),
+            },
+            ConflictFile {
+                path: PathBuf::from("other (conflict mac 2026-07-25).md"),
+            },
         ]
     }
 
@@ -182,7 +210,10 @@ mod tests {
     #[test]
     fn resolve_decision_reports_no_copies_when_canonical_present_but_unmatched() {
         let files = idea_conflict_files();
-        assert_eq!(resolve_decision(Path::new("nope.md"), true, &files), ResolveDecision::NoCopies);
+        assert_eq!(
+            resolve_decision(Path::new("nope.md"), true, &files),
+            ResolveDecision::NoCopies
+        );
     }
 
     #[test]
@@ -207,7 +238,10 @@ mod tests {
 
         resolve(&tmp, &["idea.md".to_owned()]).unwrap();
 
-        assert!(tmp.join("idea.md").exists(), "canonical must survive resolve");
+        assert!(
+            tmp.join("idea.md").exists(),
+            "canonical must survive resolve"
+        );
         assert!(
             !tmp.join("idea (conflict mac 2026-07-25).md").exists(),
             "the conflict copy must be deleted"
@@ -223,12 +257,22 @@ mod tests {
         fs::write(tmp.join("idea.md"), b"merged idea").unwrap();
         fs::write(tmp.join("other.md"), b"merged other").unwrap();
         fs::write(tmp.join("idea (conflict mac 2026-07-25).md"), b"idea loser").unwrap();
-        fs::write(tmp.join("other (conflict mac 2026-07-25).md"), b"other loser").unwrap();
+        fs::write(
+            tmp.join("other (conflict mac 2026-07-25).md"),
+            b"other loser",
+        )
+        .unwrap();
 
         resolve(&tmp, &["idea.md".to_owned(), "other.md".to_owned()]).unwrap();
 
-        assert!(tmp.join("idea.md").exists(), "first canonical must survive resolve");
-        assert!(tmp.join("other.md").exists(), "second canonical must survive resolve");
+        assert!(
+            tmp.join("idea.md").exists(),
+            "first canonical must survive resolve"
+        );
+        assert!(
+            tmp.join("other.md").exists(),
+            "second canonical must survive resolve"
+        );
         assert!(
             !tmp.join("idea (conflict mac 2026-07-25).md").exists(),
             "first conflict copy must be deleted"
@@ -251,7 +295,10 @@ mod tests {
 
         resolve(&tmp, &["projects/idea.md".to_owned()]).unwrap();
 
-        assert!(dir.join("idea.md").exists(), "nested canonical must survive resolve");
+        assert!(
+            dir.join("idea.md").exists(),
+            "nested canonical must survive resolve"
+        );
         assert!(
             !dir.join("idea (conflict mac 2026-07-25).md").exists(),
             "nested conflict copy must be deleted"
@@ -262,7 +309,8 @@ mod tests {
 
     #[test]
     fn resolve_leaves_everything_when_canonical_is_missing() {
-        let tmp = std::env::temp_dir().join(format!("brain-resolve-missing-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("brain-resolve-missing-{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         fs::write(tmp.join("idea (conflict mac 2026-07-25).md"), b"loser").unwrap();
 

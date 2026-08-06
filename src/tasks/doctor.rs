@@ -1,21 +1,18 @@
-//! `tasks doctor` — validate that the brain panel's session tracking is
+//! `tasks doctor`: validate selected-workspace feature and agent health.
 //! wired up.
 //!
-//! Reports on:
-//! - State DB file presence + a smoke schema query.
-//! - `<selected-root>/.claude/settings.json` has a SessionStart-hook entry pointing
-//!   at our `claude_session_start_hook.py`.
+//! Reports on the selected workspace's state DB, Claude and Codex
+//! SessionStart hooks, rclone, sync state, and centralized feature requirements.
 //!
-//! Failure here means the SessionStart hook never records the brain panel's
-//! sessions, so the panel can't resume them — every open starts a fresh chat.
+//! A missing frontend hook means that frontend cannot record the brain panel's
+//! sessions for resume.
 //!
-//! Also reports rclone/sync health: whether `rclone` is on `PATH` and
-//! whether `brain sync` is configured (`sync::config::SyncConfig`). This
-//! line is informational only — an unconfigured sync is a normal, healthy
-//! state, so it never affects `Diagnosis::is_ok`.
+//! Rclone/sync is informational when sync is off; it does not affect
+//! `Diagnosis::is_ok`.
 //!
 //! Output is structured (one line per check) so it scans at a glance.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -27,6 +24,9 @@ pub struct Diagnosis {
     pub settings_path: PathBuf,
     pub hook_installed: bool,
     pub hook_command: Option<String>,
+    pub codex_hooks_path: PathBuf,
+    pub claude_hook_installed: bool,
+    pub codex_hook_installed: bool,
     pub rclone_version: Option<String>,
     pub sync_configured: bool,
 }
@@ -34,7 +34,10 @@ pub struct Diagnosis {
 impl Diagnosis {
     #[must_use]
     pub const fn is_ok(&self) -> bool {
-        self.db_present && self.db_schema_ok && self.hook_installed
+        self.db_present
+            && self.db_schema_ok
+            && self.claude_hook_installed
+            && self.codex_hook_installed
     }
 }
 
@@ -43,6 +46,22 @@ impl Diagnosis {
 /// UUID-scoped state DB and `.claude` directory.
 #[must_use]
 pub fn run_doctor(db_path: &Path, settings_dir: &Path, sync_configured: bool) -> Diagnosis {
+    run_doctor_with_frontends(
+        db_path,
+        settings_dir,
+        Path::new(".codex/hooks.json"),
+        sync_configured,
+    )
+}
+
+/// Run the Claude/Codex-parity checks against explicit read-only paths.
+#[must_use]
+pub fn run_doctor_with_frontends(
+    db_path: &Path,
+    settings_dir: &Path,
+    codex_hooks_path: &Path,
+    sync_configured: bool,
+) -> Diagnosis {
     crate::logging::log(format!(
         "doctor start db={} settings_dir={}",
         db_path.display(),
@@ -52,6 +71,7 @@ pub fn run_doctor(db_path: &Path, settings_dir: &Path, sync_configured: bool) ->
         db_path: db_path.to_path_buf(),
         db_schema_ok: true, // vacuous when DB is missing
         settings_path: settings_dir.join("settings.json"),
+        codex_hooks_path: codex_hooks_path.to_path_buf(),
         ..Default::default()
     };
     crate::logging::log("doctor check state db");
@@ -69,9 +89,14 @@ pub fn run_doctor(db_path: &Path, settings_dir: &Path, sync_configured: bool) ->
     ));
     if let Some(cmd) = find_session_start_hook(&diag.settings_path) {
         diag.hook_installed = true;
+        diag.claude_hook_installed = true;
         diag.hook_command = Some(cmd);
     }
-    crate::logging::log(format!("doctor hook installed={}", diag.hook_installed));
+    diag.codex_hook_installed = find_session_start_hook(&diag.codex_hooks_path).is_some();
+    crate::logging::log(format!(
+        "doctor hooks claude={} codex={}",
+        diag.claude_hook_installed, diag.codex_hook_installed
+    ));
     crate::logging::log("doctor probe rclone");
     diag.rclone_version = detect_rclone_version();
     crate::logging::log(format!("doctor rclone version={:?}", diag.rclone_version));
@@ -105,7 +130,10 @@ pub fn format_doctor_plan(
 /// first line's version token (`rclone v1.74.2` -> `1.74.2`). `None` when
 /// the binary is missing or its output doesn't match the expected shape.
 fn detect_rclone_version() -> Option<String> {
-    let out = Command::new("rclone").arg("version").output().ok()?;
+    let out = Command::new("rclone")
+        .args(["--config", "/dev/null", "version"])
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -118,7 +146,12 @@ fn detect_rclone_version() -> Option<String> {
 fn check_db_schema(path: &Path) -> anyhow::Result<()> {
     // Smoke query: the migration we shipped creates this table. If it's
     // absent the DB is stale or corrupted.
-    let conn = rusqlite::Connection::open(path)?;
+    let conn = rusqlite::Connection::open_with_flags(
+        immutable_sqlite_uri(path),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    )?;
     conn.query_row(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='brain_sessions'",
         [],
@@ -127,10 +160,22 @@ fn check_db_schema(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Walk `settings.json` looking for the merged shell's SessionStart-hook
-/// entry. We match `brain/scripts/claude_session_start_hook.py` (the path is
-/// under `~/scripts/rc/brain`) on the full command string. Returns the command
-/// on hit. Lenient on JSON shape: any unexpected structure → None.
+fn immutable_sqlite_uri(path: &Path) -> String {
+    let mut uri = String::from("file:");
+    for byte in path.as_os_str().as_encoded_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_' | b'.' | b'~') {
+            uri.push(char::from(*byte));
+        } else {
+            write!(uri, "%{byte:02X}").expect("writing to a String cannot fail");
+        }
+    }
+    uri.push_str("?immutable=1");
+    uri
+}
+
+/// Walk one frontend settings file for Brain's deployed SessionStart hook.
+/// Returns the command on hit. Lenient on JSON shape: any unexpected structure
+/// returns `None`.
 fn find_session_start_hook(settings_path: &Path) -> Option<String> {
     let raw = std::fs::read_to_string(settings_path).ok()?;
     let val: serde_json::Value = serde_json::from_str(&raw).ok()?;
@@ -141,7 +186,7 @@ fn find_session_start_hook(settings_path: &Path) -> Option<String> {
         for hook in hooks {
             let cmd = hook.get("command").and_then(|c| c.as_str());
             if let Some(cmd) = cmd {
-                if cmd.ends_with("brain/scripts/claude_session_start_hook.py") {
+                if cmd.ends_with(".claude/brain-hooks/claude_session_start_hook.py") {
                     return Some(cmd.to_owned());
                 }
             }
@@ -209,6 +254,106 @@ pub fn print_report(diag: &Diagnosis) -> i32 {
     i32::from(!diag.is_ok())
 }
 
+/// Render the themed doctor report and centralized feature matrix.
+#[must_use]
+pub fn format_workspace_report(
+    diag: &Diagnosis,
+    workspace: &crate::workspace::WorkspaceName,
+    workspace_root: &Path,
+    requirements: &[crate::workspace::Requirement],
+    theme: crate::theme::Theme,
+) -> String {
+    let mut output = String::new();
+    let _ = writeln!(
+        output,
+        "{} {}",
+        theme.heading("Workspace"),
+        theme.accent(workspace.as_str())
+    );
+    let _ = writeln!(output, "  {}", theme.heading("Agent sessions"));
+    let _ = writeln!(
+        output,
+        "    {} state database: {}",
+        mark(diag.db_present && diag.db_schema_ok),
+        health(diag.db_present && diag.db_schema_ok, theme)
+    );
+    let _ = writeln!(
+        output,
+        "    {} Claude SessionStart: {}",
+        mark(diag.claude_hook_installed),
+        health(diag.claude_hook_installed, theme)
+    );
+    let _ = writeln!(
+        output,
+        "    {} Codex SessionStart: {}",
+        mark(diag.codex_hook_installed),
+        health(diag.codex_hook_installed, theme)
+    );
+    if !diag.claude_hook_installed || !diag.codex_hook_installed {
+        let installer = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/install_hook.sh");
+        let _ = writeln!(
+            output,
+            "      {} {}",
+            theme.muted("fix:"),
+            theme.accent(&format!(
+                "{} {}",
+                shell_quote(&installer),
+                shell_quote(workspace_root)
+            ))
+        );
+    }
+    let _ = writeln!(output, "  {}", theme.heading("Tools"));
+    let _ = writeln!(
+        output,
+        "    {}",
+        sync_line(diag.rclone_version.as_deref(), diag.sync_configured, theme)
+    );
+    output.push('\n');
+    output.push_str(&crate::workspace::format_requirements(
+        workspace,
+        requirements,
+        theme,
+    ));
+    output
+}
+
+/// Print the complete selected-workspace doctor report.
+#[must_use]
+pub fn print_workspace_report(
+    diag: &Diagnosis,
+    workspace: &crate::workspace::WorkspaceName,
+    workspace_root: &Path,
+    requirements: &[crate::workspace::Requirement],
+) -> i32 {
+    print!(
+        "{}",
+        format_workspace_report(
+            diag,
+            workspace,
+            workspace_root,
+            requirements,
+            crate::theme::Theme::active(),
+        )
+    );
+    i32::from(!diag.is_ok())
+}
+
+const fn mark(ok: bool) -> &'static str {
+    if ok { "✓" } else { "✗" }
+}
+
+fn health(ok: bool, theme: crate::theme::Theme) -> String {
+    if ok {
+        theme.success("ready")
+    } else {
+        theme.error("needs repair")
+    }
+}
+
+fn shell_quote(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,5 +403,23 @@ mod tests {
         );
         assert!(plan.contains("rclone: probing PATH"), "{plan}");
         assert!(plan.contains("sync config: reading brain env"), "{plan}");
+    }
+
+    #[test]
+    fn doctor_remediation_uses_exact_noninteractive_paths() {
+        let workspace = crate::workspace::WorkspaceName::parse("work").unwrap();
+        let output = format_workspace_report(
+            &Diagnosis::default(),
+            &workspace,
+            Path::new("/tmp/brain root"),
+            &[],
+            crate::theme::Theme::dark(false),
+        );
+
+        assert!(
+            output.contains("scripts/install_hook.sh' '/tmp/brain root'"),
+            "{output}"
+        );
+        assert!(!output.contains("<WORKSPACE_ROOT>"), "{output}");
     }
 }

@@ -1,9 +1,10 @@
 //! `brain sync setup`: check rclone, collect the B2 bucket + credentials into
-//! the brain-env `sync` block, verify/create the bucket, and establish the
-//! baseline.
+//! the brain-env `sync` block, verify the remote workspace identity, and
+//! establish the baseline.
 //!
 //! Interactive on /dev/tty; only the input validation is pure and unit-tested.
 
+use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 
 use anyhow::{Result, bail};
@@ -11,6 +12,108 @@ use anyhow::{Result, bail};
 use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
 use crate::theme::Theme;
+use crate::workspace::{WorkspaceId, WorkspaceName};
+
+/// Whether setup has enough authority to adopt a nonempty manifestless target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdoptionAuthorization {
+    NeedsInteractiveConfirmation,
+    Authorized,
+}
+
+/// Validate the dedicated noninteractive adoption flag against the selected
+/// workspace identity. Absence deliberately requires a separate human prompt.
+pub fn adoption_authorization(
+    local_workspace_id: WorkspaceId,
+    provided_workspace_id: Option<&str>,
+) -> Result<AdoptionAuthorization> {
+    let Some(provided_workspace_id) = provided_workspace_id else {
+        return Ok(AdoptionAuthorization::NeedsInteractiveConfirmation);
+    };
+    let provided = WorkspaceId::parse(provided_workspace_id)
+        .map_err(|_| anyhow::anyhow!("--adopt-workspace-id must be a valid workspace UUID"))?;
+    if provided != local_workspace_id {
+        bail!(
+            "--adopt-workspace-id {provided} does not match selected workspace UUID {local_workspace_id}"
+        );
+    }
+    Ok(AdoptionAuthorization::Authorized)
+}
+
+/// Render the selected local identity and the configured target's observed
+/// ownership state before setup asks for any adoption confirmation.
+#[must_use]
+pub fn format_identity_summary(
+    local_name: &WorkspaceName,
+    local_workspace_id: WorkspaceId,
+    remote_target: &str,
+    observed: &crate::sync::identity::RemoteIdentityObservation,
+    theme: Theme,
+) -> String {
+    use crate::sync::identity::RemoteIdentityObservation;
+
+    let status = match observed {
+        RemoteIdentityObservation::Empty => theme.info("empty, no workspace manifest"),
+        RemoteIdentityObservation::ManifestlessNonempty => {
+            theme.warning("nonempty, no workspace manifest")
+        }
+        RemoteIdentityObservation::CompatibleManifest { .. } => {
+            theme.success("compatible workspace manifest")
+        }
+        RemoteIdentityObservation::InvalidManifest { error } => theme.error(&format!(
+            "invalid or incompatible workspace manifest ({error})"
+        )),
+        RemoteIdentityObservation::UnreadableManifest { message } => theme.error(&format!(
+            "workspace manifest is present but unreadable ({message})"
+        )),
+    };
+    let mut summary = format!(
+        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
+        theme.heading("Workspace identity"),
+        theme.muted("Local workspace:"),
+        theme.value(local_name.as_str()),
+        theme.muted("Local UUID:"),
+        theme.value(&local_workspace_id.to_string()),
+        theme.muted("Remote target:"),
+        theme.value(remote_target),
+        theme.muted("Remote status:"),
+        status,
+    );
+    if let RemoteIdentityObservation::CompatibleManifest { workspace_id } = observed {
+        write!(
+            &mut summary,
+            "\n  {} {}",
+            theme.muted("Remote UUID:"),
+            theme.value(&workspace_id.to_string())
+        )
+        .expect("writing to a String cannot fail");
+    }
+    summary
+}
+
+fn adoption_for_observation(
+    local_workspace_id: WorkspaceId,
+    authorization: AdoptionAuthorization,
+    observed: &crate::sync::identity::RemoteIdentityObservation,
+    confirm: impl FnOnce() -> Result<bool>,
+) -> Result<crate::sync::identity::ManifestlessRemoteAdoption> {
+    use crate::sync::identity::{ManifestlessRemoteAdoption, RemoteIdentityObservation};
+
+    if observed != &RemoteIdentityObservation::ManifestlessNonempty {
+        return Ok(ManifestlessRemoteAdoption::Refuse);
+    }
+    match authorization {
+        AdoptionAuthorization::Authorized => {
+            Ok(ManifestlessRemoteAdoption::Authorized(local_workspace_id))
+        }
+        AdoptionAuthorization::NeedsInteractiveConfirmation if confirm()? => {
+            Ok(ManifestlessRemoteAdoption::Authorized(local_workspace_id))
+        }
+        AdoptionAuthorization::NeedsInteractiveConfirmation => {
+            bail!("remote workspace adoption was not confirmed; no changes were made")
+        }
+    }
+}
 
 /// Parse a yes/no answer. Yes-ish (`y`/`yes`, case-insensitive) is `true`;
 /// anything else, including empty, is `false` — so the safe default is "no
@@ -61,9 +164,12 @@ pub fn validate(bucket: &str, key_id: &str, app_key: &str) -> Result<()> {
     Ok(())
 }
 
-/// Interactive setup. Writes the `sync` block into brain env, verifies/creates
-/// the bucket, and runs the initial baseline sync. Never unit-tested (I/O + net).
-pub fn run(command: &crate::workspace::CommandContext) -> Result<()> {
+/// Interactive setup. Verifies the remote workspace identity, writes the
+/// `sync` block into brain env, and runs the initial baseline sync.
+pub fn run(
+    command: &crate::workspace::CommandContext,
+    adopt_workspace_id: Option<&str>,
+) -> Result<()> {
     let theme = Theme::active();
     if !crate::sync::run::rclone_present() {
         eprintln!(
@@ -92,28 +198,140 @@ pub fn run(command: &crate::workspace::CommandContext) -> Result<()> {
     validate(&bucket, &key_id, &app_key)?;
 
     let block = sync_block(&bucket, &key_id, &app_key, &existing);
-    crate::env::set_raw(command, "sync", block)?;
-
-    verify_or_create_bucket(command, theme)?;
-
-    println!(
-        "{}",
-        theme.info("Establishing the baseline (this may take a while)…")
-    );
-    let cfg = SyncConfig::load(command);
+    let candidate: SyncConfig = serde_json::from_value(block.clone())?;
+    let remote = crate::sync::remote::build_remote(&candidate);
     let root = command.workspace.root();
-    let now = chrono::Utc::now();
-    let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let date = now.format("%Y-%m-%d").to_string();
-    crate::sync::command::sync_once(
+    let local_id = command.workspace.id();
+    let adoption = adoption_authorization(local_id, adopt_workspace_id)?;
+    run_setup_stages(
         command.workspace.paths(),
-        &cfg,
-        root,
-        Direction::Resync,
-        (&ts, &ts, &date),
+        || {
+            println!("{}", theme.info("Validating the local workspace manifest…"));
+            println!("{}", theme.info("Probing the remote workspace identity…"));
+            crate::sync::identity::ensure_remote_identity_for_setup_with_authorization(
+                root,
+                local_id,
+                &remote,
+                |observed| {
+                    println!();
+                    println!(
+                        "{}",
+                        format_identity_summary(
+                            command.workspace.name(),
+                            local_id,
+                            &remote.arg,
+                            observed,
+                            theme,
+                        )
+                    );
+                    adoption_for_observation(local_id, adoption, observed, || {
+                        confirm_manifestless_adoption(theme, command.workspace.name(), local_id)
+                    })
+                },
+            )
+            .map(|_| ())
+        },
+        || crate::env::set_raw(command, "sync", block),
+        || {
+            println!(
+                "{}",
+                theme.info("Establishing the baseline (this may take a while)…")
+            );
+            prepare_current_schema_for_setup(command, &candidate)?;
+            let now = chrono::Utc::now();
+            let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+            let date = now.format("%Y-%m-%d").to_string();
+            crate::sync::command::sync_once(
+                command.workspace.paths(),
+                command.workspace.id(),
+                &candidate,
+                root,
+                Direction::Resync,
+                (&ts, &ts, &date),
+            )
+        },
     )?;
     println!("{}", theme.success("✓ sync configured."));
     Ok(())
+}
+
+pub fn prepare_current_schema_for_setup_with_transport(
+    paths: &crate::workspace::WorkspacePaths,
+    root: &std::path::Path,
+    remote_schema: Option<&str>,
+    remote_has_csvs: bool,
+    publish: impl FnMut(&str, &[u8]) -> bool,
+) -> Result<bool> {
+    let local = crate::tasks::schema::inspect_inactive(root)?;
+    if !local.current {
+        return Ok(false);
+    }
+    let remote = crate::sync::csv_merge::remote_schema_status(remote_schema)?;
+    if remote == crate::sync::csv_merge::SchemaStatus::Current {
+        return Ok(false);
+    }
+    if remote_has_csvs {
+        bail!(
+            "current local task schema cannot overwrite legacy remote task CSVs; migrate and reconcile the remote workspace first"
+        );
+    }
+    crate::migration::publish_task_schema_transition_with_transport(
+        paths,
+        root,
+        remote_schema,
+        publish,
+    )?;
+    Ok(true)
+}
+
+fn prepare_current_schema_for_setup(
+    command: &crate::workspace::CommandContext,
+    config: &SyncConfig,
+) -> Result<()> {
+    let local = crate::tasks::schema::inspect_inactive(command.workspace.root())?;
+    if !local.current {
+        return Ok(());
+    }
+    let remote = crate::sync::remote::build_remote(config);
+    let verified = crate::sync::identity::require_remote_identity(
+        command.workspace.root(),
+        command.workspace.id(),
+        &remote,
+    )?;
+    let state = crate::sync::csv_sync::inspect_remote_task_state(
+        command.workspace.paths(),
+        verified.remote(),
+    )?;
+    let remote_status = crate::sync::csv_merge::remote_schema_status(state.schema.as_deref())?;
+    if remote_status == crate::sync::csv_merge::SchemaStatus::Current {
+        return Ok(());
+    }
+    if state.has_csvs {
+        bail!(
+            "current local task schema cannot overwrite legacy remote task CSVs; migrate and reconcile the remote workspace first"
+        );
+    }
+    crate::migration::publish_task_schema_transition(command, config)
+}
+
+fn run_setup_stages(
+    paths: &crate::workspace::WorkspacePaths,
+    identity: impl FnOnce() -> Result<()>,
+    persist_credentials: impl FnOnce() -> Result<()>,
+    baseline: impl FnOnce() -> Result<crate::sync::verify::Outcome>,
+) -> Result<()> {
+    let _guard = crate::sync::lock::try_acquire(&paths.sync_lock()).ok_or_else(|| {
+        anyhow::anyhow!("another sync owns this workspace; retry setup after it finishes")
+    })?;
+    crate::migration::require_no_active_rollout(paths)?;
+    identity()?;
+    match baseline()? {
+        crate::sync::verify::Outcome::Clean => persist_credentials(),
+        crate::sync::verify::Outcome::NeedsAttention(message)
+        | crate::sync::verify::Outcome::Aborted(message) => {
+            bail!("initial sync baseline was not clean: {message}")
+        }
+    }
 }
 
 /// Read one line from `/dev/tty`, prompting with `label` (showing `current` as
@@ -159,10 +377,22 @@ fn ask_has_bucket(theme: Theme) -> Result<bool> {
     Ok(parse_yes_no(&answer))
 }
 
+fn confirm_manifestless_adoption(
+    theme: Theme,
+    local_name: &WorkspaceName,
+    local_workspace_id: WorkspaceId,
+) -> Result<bool> {
+    let question = theme.prompt(&format!(
+        "Adopt this nonempty remote as workspace {local_name} ({local_workspace_id})? [y/N]"
+    ));
+    let answer = prompt(&question, "")?;
+    Ok(parse_yes_no(&answer))
+}
+
 #[must_use]
 pub fn setup_intro(theme: Theme) -> String {
     format!(
-        "{}\n\nThis will enable cloud sync on this machine: brain will connect to a private Backblaze B2 bucket, save the sync credentials in machine-local brain env, create the RCLONE_TEST safety marker, and establish the first baseline.\n",
+        "{}\n\nThis will enable cloud sync on this machine: brain will connect to an existing private Backblaze B2 bucket, verify the remote workspace identity, save the sync credentials in machine-local brain env, create the RCLONE_TEST safety marker, and establish the first baseline.\n",
         theme.accent("brain sync setup")
     )
 }
@@ -187,39 +417,18 @@ fn sync_block(
     })
 }
 
-/// Probe the configured bucket with rclone; offer to create it if missing.
-fn verify_or_create_bucket(command: &crate::workspace::CommandContext, theme: Theme) -> Result<()> {
-    let cfg = SyncConfig::load(command);
-    let remote = crate::sync::remote::build_remote(&cfg);
-    // `rclone lsd <remote>` lists dirs; success means the bucket is reachable.
-    let mut probe = std::process::Command::new("rclone");
-    probe.arg("lsd").arg(&remote.arg);
-    for (k, v) in &remote.env {
-        probe.env(k, v);
-    }
-    let ok = probe.output().is_ok_and(|o| o.status.success());
-    if ok {
-        return Ok(());
-    }
-    println!(
-        "{}",
-        theme.warning("Bucket not reachable; attempting to create it…")
-    );
-    let mut mk = std::process::Command::new("rclone");
-    mk.arg("mkdir").arg(&remote.arg);
-    for (k, v) in &remote.env {
-        mk.env(k, v);
-    }
-    let created = mk.output().is_ok_and(|o| o.status.success());
-    if !created {
-        bail!("could not reach or create the B2 bucket — check the bucket name and credentials");
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
     use super::*;
+
+    const LOCAL_WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
+    const OTHER_WORKSPACE_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
+
+    fn local_workspace_id() -> crate::workspace::WorkspaceId {
+        crate::workspace::WorkspaceId::parse(LOCAL_WORKSPACE_ID).expect("fixed workspace UUID")
+    }
 
     #[test]
     fn rejects_missing_fields() {
@@ -267,6 +476,10 @@ mod tests {
         let intro = setup_intro(Theme::dark(false));
         assert!(intro.contains("This will enable cloud sync"), "{intro}");
         assert!(intro.contains("brain sync setup"), "{intro}");
+        assert!(
+            intro.contains("verify the remote workspace identity"),
+            "{intro}"
+        );
     }
 
     #[test]
@@ -290,5 +503,344 @@ mod tests {
         assert_eq!(block["crypt_password2"], "obscured-salt");
         assert_eq!(block["crypt_filename_encryption"], "obfuscate");
         assert_eq!(block["crypt_directory_name_encryption"], false);
+    }
+
+    #[test]
+    fn setup_stages_verify_remote_identity_before_persisting_credentials_or_syncing_data() {
+        let stages = RefCell::new(Vec::new());
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+
+        run_setup_stages(
+            &paths,
+            || {
+                stages.borrow_mut().push("identity");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("credentials");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("baseline");
+                Ok(crate::sync::verify::Outcome::Clean)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(*stages.borrow(), ["identity", "baseline", "credentials"]);
+    }
+
+    #[test]
+    fn setup_holds_the_uuid_lock_against_manual_sync_through_the_baseline() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+
+        std::thread::scope(|scope| {
+            let setup_paths = &paths;
+            let setup = scope.spawn(move || {
+                run_setup_stages(
+                    setup_paths,
+                    || {
+                        entered_tx.send(()).unwrap();
+                        release_rx.recv().unwrap();
+                        Ok(())
+                    },
+                    || Ok(()),
+                    || Ok(crate::sync::verify::Outcome::Clean),
+                )
+            });
+            entered_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("setup reached identity while holding its lock");
+
+            assert_eq!(
+                crate::command::sync::run_with_workspace_lock(
+                    &paths,
+                    true,
+                    || panic!("manual sync entered while setup owned the workspace"),
+                    || panic!("if-idle sync must coalesce instead of follow"),
+                ),
+                crate::command::sync::WorkspaceLockOutcome::Coalesced,
+            );
+            release_tx.send(()).unwrap();
+            setup.join().unwrap().unwrap();
+        });
+    }
+
+    #[test]
+    fn migration_activation_blocks_setup_before_either_can_change_remote_state() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+
+        std::thread::scope(|scope| {
+            let migration_paths = &paths;
+            let migration = scope.spawn(move || {
+                crate::migration::with_activation_lock(migration_paths, || {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    Ok(())
+                })
+            });
+            entered_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("migration reached discovery while holding its activation lock");
+            let identity_entered = std::cell::Cell::new(false);
+
+            let error = run_setup_stages(
+                &paths,
+                || {
+                    identity_entered.set(true);
+                    Ok(())
+                },
+                || Ok(()),
+                || Ok(crate::sync::verify::Outcome::Clean),
+            )
+            .unwrap_err();
+
+            assert!(error.to_string().contains("another sync owns"), "{error:#}");
+            assert!(!identity_entered.get());
+            release_tx.send(()).unwrap();
+            migration.join().unwrap().unwrap();
+        });
+    }
+
+    #[test]
+    fn setup_refuses_an_incomplete_migration_before_remote_identity() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+        let journal = paths.migration_journal();
+        std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
+        std::fs::write(journal, b"active migration\n").unwrap();
+        let identity_entered = std::cell::Cell::new(false);
+
+        let error = run_setup_stages(
+            &paths,
+            || {
+                identity_entered.set(true);
+                Ok(())
+            },
+            || Ok(()),
+            || Ok(crate::sync::verify::Outcome::Clean),
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("workspace migration is incomplete")
+        );
+        assert!(!identity_entered.get());
+    }
+
+    #[test]
+    fn identity_refusal_preserves_credentials_and_skips_the_baseline() {
+        let stages = RefCell::new(Vec::new());
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+
+        let error = run_setup_stages(
+            &paths,
+            || {
+                stages.borrow_mut().push("identity");
+                anyhow::bail!("wrong workspace")
+            },
+            || {
+                stages.borrow_mut().push("credentials");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("baseline");
+                Ok(crate::sync::verify::Outcome::Clean)
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("wrong workspace"));
+        assert_eq!(*stages.borrow(), ["identity"]);
+    }
+
+    #[test]
+    fn setup_persists_credentials_only_after_a_clean_baseline() {
+        let stages = RefCell::new(Vec::new());
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+
+        let error = run_setup_stages(
+            &paths,
+            || {
+                stages.borrow_mut().push("identity");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("credentials");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("baseline");
+                Ok(crate::sync::verify::Outcome::Aborted(
+                    "max-delete guard".to_owned(),
+                ))
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("baseline was not clean"),
+            "{error:#}"
+        );
+        assert_eq!(*stages.borrow(), ["identity", "baseline"]);
+    }
+
+    #[test]
+    fn setup_preserves_unsaved_credentials_on_attention_or_baseline_error() {
+        let cases = [
+            Ok(crate::sync::verify::Outcome::NeedsAttention(
+                "conflict copies".to_owned(),
+            )),
+            Err(anyhow::anyhow!("transport failed")),
+        ];
+        for baseline_result in cases {
+            let temporary = tempfile::tempdir().unwrap();
+            let paths =
+                crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+            let credentials_persisted = std::cell::Cell::new(false);
+
+            let error = run_setup_stages(
+                &paths,
+                || Ok(()),
+                || {
+                    credentials_persisted.set(true);
+                    Ok(())
+                },
+                || baseline_result,
+            )
+            .unwrap_err();
+
+            assert!(!credentials_persisted.get(), "{error:#}");
+        }
+    }
+
+    #[test]
+    fn adoption_authority_requires_the_exact_selected_workspace_uuid() {
+        assert_eq!(
+            adoption_authorization(local_workspace_id(), None).unwrap(),
+            AdoptionAuthorization::NeedsInteractiveConfirmation
+        );
+        assert_eq!(
+            adoption_authorization(local_workspace_id(), Some(LOCAL_WORKSPACE_ID)).unwrap(),
+            AdoptionAuthorization::Authorized
+        );
+
+        let mismatch =
+            adoption_authorization(local_workspace_id(), Some(OTHER_WORKSPACE_ID)).unwrap_err();
+        assert!(mismatch.to_string().contains(LOCAL_WORKSPACE_ID));
+        assert!(mismatch.to_string().contains(OTHER_WORKSPACE_ID));
+        let malformed = adoption_authorization(local_workspace_id(), Some("not-a-uuid"))
+            .expect_err("malformed authority must fail closed");
+        assert!(malformed.to_string().contains("valid workspace UUID"));
+    }
+
+    #[test]
+    fn identity_summary_names_the_local_workspace_target_and_observed_remote_state() {
+        let local_name = crate::workspace::WorkspaceName::parse("family").unwrap();
+        let target = "BRAIN:shared/brain";
+        let manifestless = format_identity_summary(
+            &local_name,
+            local_workspace_id(),
+            target,
+            &crate::sync::identity::RemoteIdentityObservation::ManifestlessNonempty,
+            Theme::dark(false),
+        );
+        let local_uuid = format!("Local UUID: {LOCAL_WORKSPACE_ID}");
+
+        for expected in [
+            "Workspace identity",
+            "Local workspace: family",
+            &local_uuid,
+            "Remote target: BRAIN:shared/brain",
+            "Remote status: nonempty, no workspace manifest",
+        ] {
+            assert!(manifestless.contains(expected), "{manifestless}");
+        }
+        assert!(!manifestless.contains("Remote UUID:"), "{manifestless}");
+
+        let matching = format_identity_summary(
+            &local_name,
+            local_workspace_id(),
+            target,
+            &crate::sync::identity::RemoteIdentityObservation::CompatibleManifest {
+                workspace_id: local_workspace_id(),
+            },
+            Theme::dark(false),
+        );
+        assert!(
+            matching.contains("Remote status: compatible workspace manifest"),
+            "{matching}"
+        );
+        assert!(
+            matching.contains(&format!("Remote UUID: {LOCAL_WORKSPACE_ID}")),
+            "{matching}"
+        );
+    }
+
+    #[test]
+    fn manifestless_adoption_prompts_only_when_exact_flag_authority_is_absent() {
+        use std::cell::Cell;
+
+        use crate::sync::identity::{ManifestlessRemoteAdoption, RemoteIdentityObservation};
+
+        let prompts = Cell::new(0);
+        let authorized = adoption_for_observation(
+            local_workspace_id(),
+            AdoptionAuthorization::Authorized,
+            &RemoteIdentityObservation::ManifestlessNonempty,
+            || -> Result<bool> { panic!("exact authority must not prompt") },
+        )
+        .unwrap();
+        assert_eq!(
+            authorized,
+            ManifestlessRemoteAdoption::Authorized(local_workspace_id())
+        );
+
+        let interactive = adoption_for_observation(
+            local_workspace_id(),
+            AdoptionAuthorization::NeedsInteractiveConfirmation,
+            &RemoteIdentityObservation::ManifestlessNonempty,
+            || {
+                prompts.set(prompts.get() + 1);
+                Ok(true)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            interactive,
+            ManifestlessRemoteAdoption::Authorized(local_workspace_id())
+        );
+        assert_eq!(prompts.get(), 1);
+
+        let refusal = adoption_for_observation(
+            local_workspace_id(),
+            AdoptionAuthorization::NeedsInteractiveConfirmation,
+            &RemoteIdentityObservation::ManifestlessNonempty,
+            || Ok(false),
+        )
+        .unwrap_err();
+        assert!(refusal.to_string().contains("not confirmed"));
+
+        let matching = adoption_for_observation(
+            local_workspace_id(),
+            AdoptionAuthorization::NeedsInteractiveConfirmation,
+            &RemoteIdentityObservation::CompatibleManifest {
+                workspace_id: local_workspace_id(),
+            },
+            || -> Result<bool> { panic!("matching identity must not prompt") },
+        )
+        .unwrap();
+        assert_eq!(matching, ManifestlessRemoteAdoption::Refuse);
     }
 }

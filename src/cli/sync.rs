@@ -23,7 +23,12 @@ pub struct SyncArgs {
 #[derive(Subcommand, Debug)]
 pub enum SyncAction {
     /// Configure the B2 bucket credentials and establish the baseline.
-    Setup,
+    Setup {
+        /// Adopt a nonempty manifestless remote only when this exactly matches
+        /// the selected workspace UUID.
+        #[arg(long, value_name = "WORKSPACE_UUID")]
+        adopt_workspace_id: Option<String>,
+    },
     /// Repair sync metadata by recreating the marker and baseline.
     Repair,
     /// Deprecated alias for `repair`; kept hidden for old docs/scripts.
@@ -51,6 +56,7 @@ pub enum SyncAction {
 mod tests {
     use clap::Parser as _;
 
+    use super::{SyncAction, SyncArgs};
     use crate::cli::Cli;
 
     #[test]
@@ -63,5 +69,39 @@ mod tests {
         assert!(help.contains("recreating the marker and baseline"));
         assert!(help.contains("With no argument, pick interactively"));
         assert!(help.contains("one object per original"));
+    }
+
+    #[test]
+    fn setup_accepts_only_an_exact_workspace_uuid_as_noninteractive_adoption_authority() {
+        let cli = Cli::try_parse_from([
+            "brain",
+            "sync",
+            "setup",
+            "--adopt-workspace-id",
+            "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+        ])
+        .expect("dedicated adoption authority flag");
+
+        let Some(crate::cli::Cmd::Sync(SyncArgs {
+            action: Some(SyncAction::Setup { adopt_workspace_id }),
+            ..
+        })) = cli.command
+        else {
+            panic!("expected sync setup arguments");
+        };
+        assert_eq!(
+            adopt_workspace_id.as_deref(),
+            Some("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b")
+        );
+        assert!(
+            Cli::try_parse_from(["brain", "sync", "setup", "--yes"]).is_err(),
+            "a generic confirmation flag must not authorize adoption"
+        );
+
+        let help = Cli::try_parse_from(["brain", "sync", "setup", "--help"])
+            .unwrap_err()
+            .to_string();
+        assert!(help.contains("--adopt-workspace-id <WORKSPACE_UUID>"));
+        assert!(help.contains("nonempty manifestless remote"));
     }
 }

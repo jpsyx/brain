@@ -20,6 +20,7 @@ pub mod env;
 pub mod logging;
 pub mod main_view;
 pub mod menu;
+pub mod migration;
 pub mod open_target;
 pub mod paths;
 pub mod personalization;

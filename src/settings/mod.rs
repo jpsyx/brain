@@ -28,6 +28,7 @@ mod schema;
 mod store;
 mod vars;
 
+pub(crate) use markdown_pdf::configured_markdown_to_pdf_ready;
 pub use markdown_pdf::{ensure_markdown_to_pdf, markdown_to_pdf_command};
 pub use render::{render_list, set_confirmation};
 pub use schema::Resolved;

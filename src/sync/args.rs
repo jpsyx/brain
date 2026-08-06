@@ -28,15 +28,19 @@ pub enum Direction {
 /// rewrites it to the friendly `name (conflict host date).ext`.
 pub const CONFLICT_MARKER: &str = "__brainconflict__";
 
-/// Default excludes: VCS/OS cruft, the machine-local cache, friendly conflict
-/// copies, raw rclone conflict markers (so neither fans out on later syncs; the
-/// marker exclude does not stop rclone from creating the initial copy), the two
-/// task CSVs (`tasks/tasks.csv`, `tasks/habits.csv`) reconciled out-of-band via
+/// Default excludes: the separately identity-gated portable workspace manifest
+/// and setup ownership claims, VCS/OS cruft, the machine-local cache, friendly
+/// conflict copies, raw rclone conflict markers (so neither fans out on later
+/// syncs; the marker exclude does not stop rclone from creating the initial
+/// copy), the two task CSVs
+/// (`tasks/tasks.csv`, `tasks/habits.csv`) reconciled out-of-band via
 /// the id-keyed 3-way merge in `csv_sync`, and the two id counters
 /// (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) reconciled out-of-band via
 /// the max-merge in `counters` (bisync's newer-wins would regress a counter and
 /// cause id collisions), not by bisync.
-const EXCLUDES: [&str; 9] = [
+const EXCLUDES: [&str; 12] = [
+    ".config/workspace.json",
+    ".config/workspace-claims/**",
     ".git/**",
     ".DS_Store",
     ".cache/**",
@@ -44,6 +48,7 @@ const EXCLUDES: [&str; 9] = [
     "*.__brainconflict__*",
     "tasks/tasks.csv",
     "tasks/habits.csv",
+    "tasks/SCHEMA.json",
     "tasks/.tasks_next_id",
     "tasks/.habits_next_id",
 ];
@@ -135,7 +140,10 @@ mod tests {
         // brain owns rclone's bisync state dir: its location is fixed (not
         // rclone's HOME-dependent default) and its lock files are reapable.
         assert_eq!(pair_after(&args(Direction::Both), "--workdir"), Some("/wd"));
-        assert_eq!(pair_after(&args(Direction::Resync), "--workdir"), Some("/wd"));
+        assert_eq!(
+            pair_after(&args(Direction::Resync), "--workdir"),
+            Some("/wd")
+        );
     }
 
     fn pair_after<'a>(v: &'a [String], flag: &str) -> Option<&'a str> {
@@ -216,6 +224,43 @@ mod tests {
                 .any(|w| w[0] == "--exclude" && w[1] == "tasks/habits.csv"),
             "{a:?}"
         );
+    }
+
+    #[test]
+    fn excludes_task_schema_metadata_for_schema_last_publication() {
+        for argv in [args(Direction::Both), push_args(&cfg(), "/root", "BRAIN:b")] {
+            assert!(
+                argv.windows(2)
+                    .any(|pair| pair[0] == "--exclude" && pair[1] == "tasks/SCHEMA.json"),
+                "{argv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn excludes_the_workspace_manifest_after_identity_verification() {
+        let bisync = args(Direction::Both);
+        let push = push_args(&cfg(), "/root", "BRAIN:b");
+
+        for argv in [&bisync, &push] {
+            assert!(
+                argv.windows(2)
+                    .any(|pair| { pair[0] == "--exclude" && pair[1] == ".config/workspace.json" }),
+                "{argv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn excludes_setup_ownership_claims_from_portable_sync() {
+        for argv in [args(Direction::Both), push_args(&cfg(), "/root", "BRAIN:b")] {
+            assert!(
+                argv.windows(2).any(|pair| {
+                    pair[0] == "--exclude" && pair[1] == ".config/workspace-claims/**"
+                }),
+                "{argv:?}"
+            );
+        }
     }
 
     #[test]

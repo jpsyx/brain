@@ -218,9 +218,10 @@ Support the crate's numeric `major.minor.patch` format without adding a dependen
 assert_eq!(migration_plan(&legacy_fixture()), [
     Step::LegacySemanticSync,
     Step::BackupPortableData,
-    Step::CreateWorkspaceManifest,
-    Step::CreateUsersRegistry,
+    Step::EnsureWorkspaceManifest,
+    Step::EnsureUsersRegistry,
     Step::MigrateTaskColumnsAndUuids,
+    Step::PublishTaskSchemaTransition,
     Step::ReconcileManagedTriage,
     Step::RebuildDerivedData,
     Step::Verify,
@@ -238,7 +239,19 @@ Machine-local migration state lives under the selected workspace cache at `migra
 
 - [ ] If sync is configured, run and journal one legacy semantic sync before adding UUID merge identity. Explain that every computer syncing this workspace must update Brain before continuing. Interactive mode requires confirmation; non-interactive mode requires `brain workspace migrate --brain <name> --acknowledge-all-machines-updated`.
 
-- [ ] Each step writes new content to sibling temporary files, verifies it, atomically replaces targets, and records completion. Re-entry resumes after the last verified step. A failure leaves exact recovery instructions and the backup path.
+  If the remote is already schema v2 because another configured machine
+  migrated first, this step uses a migration-owned, replayable bridge instead
+  of the ordinary schema-matched CSV lane. Run generic rclone without task CSV
+  reconciliation, strictly validate the present remote manifest and current
+  CSVs, merge by legacy `task_id`, preserve remote UUIDs for matching rows, and
+  write only the local legacy generation. Before recording the step, fetch both
+  remote counters and floor each local counter to
+  `max(local, remote, joined_max + 1)`; missing or malformed counters are absent
+  inputs. The bridge never publishes CSVs or counters. The later journaled
+  cutover assigns deterministic UUIDs to local-only rows and publishes schema
+  last.
+
+- [ ] Each step writes new content to sibling temporary files, verifies it, atomically replaces targets, and records completion. Re-entry resumes after the last verified step. A failure leaves the exact resume-only recovery instruction and backup path; no active-journal state advertises a one-machine restore because remote publication may precede its durable step record.
 
 - [ ] Ambiguous legacy sender mappings pause before portable mutation. Interactive setup maps each sender to an existing/new user; non-interactive migration lists exact `brain workspace user ...` commands and exits unchanged.
 

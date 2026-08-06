@@ -61,10 +61,23 @@ pub fn hostname() -> String {
 /// verified outcome.
 pub fn sync_once(
     paths: &crate::workspace::WorkspacePaths,
+    workspace_id: crate::workspace::WorkspaceId,
     cfg: &SyncConfig,
     root: &Path,
     dir: Direction,
     now: (&str, &str, &str),
+) -> Result<Outcome> {
+    sync_once_with_task_state(paths, workspace_id, cfg, root, dir, now, true)
+}
+
+fn sync_once_with_task_state(
+    paths: &crate::workspace::WorkspacePaths,
+    workspace_id: crate::workspace::WorkspaceId,
+    cfg: &SyncConfig,
+    root: &Path,
+    dir: Direction,
+    now: (&str, &str, &str),
+    reconcile_task_state: bool,
 ) -> Result<Outcome> {
     if !cfg.is_configured() {
         bail!("sync is not configured — run `brain sync setup`");
@@ -72,14 +85,6 @@ pub fn sync_once(
     let (started_at, finished_at, date) = now;
     let remote = build_remote(cfg);
     let local = root.to_string_lossy().into_owned();
-    let workdir = crate::sync::run::bisync_workdir(paths);
-    let _ = std::fs::create_dir_all(&workdir);
-    let workdir_arg = workdir.to_string_lossy().into_owned();
-    let argv = if dir == Direction::Push {
-        args::push_args(cfg, &local, &remote.arg)
-    } else {
-        args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, dir)
-    };
     let theme = Theme::active();
     // The single output sink for this run: everything below is mirrored to
     // `current.log` (so a following `brain sync` and `brain sync status` can
@@ -107,10 +112,23 @@ pub fn sync_once(
 
     reporter.line(&theme.info(sync_progress(dir)));
 
+    reporter.line(&theme.info("Validating the local workspace manifest…"));
+    reporter.line(&theme.info("Probing the remote workspace identity…"));
+    let verified = crate::sync::identity::require_remote_identity(root, workspace_id, &remote)?;
+    let remote = verified.remote();
+    let workdir = crate::sync::run::bisync_workdir(paths);
+    let _ = std::fs::create_dir_all(&workdir);
+    let workdir_arg = workdir.to_string_lossy().into_owned();
+    let argv = if dir == Direction::Push {
+        args::push_args(cfg, &local, &remote.arg)
+    } else {
+        args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, dir)
+    };
+
     if should_bootstrap_check_access(dir) {
         crate::logging::log("sync check-access markers");
         reporter.line(&theme.info("Checking the sync safety marker…"));
-        crate::sync::check_access::ensure_markers(root, &remote)?;
+        crate::sync::check_access::ensure_markers(root, &verified)?;
     }
 
     // We hold this workspace UUID's sync lock here, so any rclone bisync lock
@@ -146,7 +164,7 @@ pub fn sync_once(
             "The check-access marker is missing; running `brain sync repair` automatically to recreate it and re-establish the baseline…",
         ));
         reporter.line(&theme.info("Recreating the local and remote RCLONE_TEST markers…"));
-        crate::sync::check_access::ensure_markers(root, &remote)?;
+        crate::sync::check_access::ensure_markers(root, &verified)?;
         reporter.line(&theme.info("Rebuilding the rclone baseline; live file progress follows…"));
         let repair_argv =
             args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, Direction::Resync);
@@ -177,16 +195,19 @@ pub fn sync_once(
     let csv_note = if matches!(outcome, Outcome::Aborted(_)) {
         crate::logging::log("sync csv merge skipped after abort");
         String::new()
+    } else if !reconcile_task_state {
+        crate::logging::log("sync csv merge deferred to migration join");
+        String::new()
     } else {
         crate::logging::log("sync csv merge start");
         reporter.line(&theme.info("Merging task and habit CSVs by row id…"));
         let _task_owner =
             crate::tasks::store_lock::TaskStoreOwner::acquire_path(&paths.task_store_lock())?;
         let csv = sync_task_state(
-            || crate::sync::csv_sync::sync_csvs(paths, cfg, root, dir),
+            || crate::sync::csv_sync::sync_csvs(paths, verified, root, dir),
             |floors| {
                 reporter.line(&theme.info("Reconciling task and habit id counters…"));
-                let counters = crate::sync::counters::sync_counters(cfg, root, dir, floors);
+                let counters = crate::sync::counters::sync_counters(verified, root, dir, floors);
                 crate::logging::log(format!("sync id counters {counters:?}"));
             },
         )?;
@@ -195,6 +216,7 @@ pub fn sync_once(
         note
     };
 
+    reporter.line(&journal_progress(theme));
     let journal = Journal::open(&paths.sync_journal())?;
     crate::logging::log(format!("sync journal {}", paths.sync_journal().display()));
     journal.record(&SyncRun {
@@ -234,6 +256,51 @@ pub fn sync_once(
     })?;
     crate::logging::log("sync journal recorded");
     Ok(outcome)
+}
+
+/// Run the rollout's final legacy semantic sync under the workspace sync lock.
+pub fn run_legacy_migration_sync(
+    context: &crate::workspace::CommandContext,
+    config: &SyncConfig,
+) -> Result<()> {
+    let remote = build_remote(config);
+    crate::sync::identity::require_remote_identity(
+        context.workspace.root(),
+        context.workspace.id(),
+        &remote,
+    )?;
+    let remote_task_state =
+        crate::sync::csv_sync::inspect_remote_task_state(context.workspace.paths(), &remote)?;
+    let remote_schema =
+        crate::sync::csv_merge::remote_schema_status(remote_task_state.schema.as_deref())?;
+    let now = Utc::now();
+    let started_at = now.to_rfc3339();
+    let finished_at = Utc::now().to_rfc3339();
+    let date = now.format("%Y-%m-%d").to_string();
+    let reconcile_task_state = remote_schema == crate::sync::csv_merge::SchemaStatus::Legacy;
+    let outcome = sync_once_with_task_state(
+        context.workspace.paths(),
+        context.workspace.id(),
+        config,
+        context.workspace.root(),
+        Direction::Both,
+        (&started_at, &finished_at, &date),
+        reconcile_task_state,
+    )?;
+    match outcome {
+        Outcome::Clean => {}
+        Outcome::NeedsAttention(message) | Outcome::Aborted(message) => {
+            bail!("final legacy semantic sync was not clean: {message}")
+        }
+    }
+    if remote_schema == crate::sync::csv_merge::SchemaStatus::Current {
+        let schema = remote_task_state
+            .schema
+            .as_deref()
+            .expect("current remote schema must be present");
+        crate::migration::join_legacy_to_current(context, &remote, schema)?;
+    }
+    Ok(())
 }
 
 /// Summarize the CSV merge outcomes into a journal note segment, e.g.
@@ -338,6 +405,11 @@ pub fn sync_progress(dir: Direction) -> &'static str {
         Direction::Pull => "Comparing local and remote changes, then pulling remote changes…",
         Direction::Resync => "Checking the sync marker and rebuilding the rclone baseline…",
     }
+}
+
+#[must_use]
+pub fn journal_progress(theme: Theme) -> String {
+    theme.info("Recording this run in the workspace sync journal…")
 }
 
 #[must_use]
@@ -478,8 +550,7 @@ pub fn print_status(
             println!("{}", format_in_progress(&state, theme));
         }
     }
-    let journal = Journal::open(&paths.sync_journal())?;
-    let recent = journal.recent(1)?;
+    let recent = Journal::recent_read_only(&paths.sync_journal(), 1)?;
     println!("{}", format_last_run(recent.first(), theme));
     println!("{}", format_triggers(cfg, theme));
     let conflicts = conflicts::list_conflicts(root);
@@ -729,6 +800,13 @@ mod tests {
     fn direction_labels_are_stable() {
         assert_eq!(direction_label(Direction::Both), "both");
         assert_eq!(direction_label(Direction::Resync), "resync");
+    }
+
+    #[test]
+    fn journal_progress_names_the_local_run_record() {
+        let line = journal_progress(Theme::dark(false));
+
+        assert!(line.contains("sync journal"), "{line}");
     }
 
     #[test]
@@ -1037,6 +1115,7 @@ mod tests {
         );
         let err = sync_once(
             &paths,
+            crate::workspace::WorkspaceId::new(),
             &cfg,
             Path::new("/tmp"),
             Direction::Both,

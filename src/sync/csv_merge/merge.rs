@@ -2,9 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::Table;
 use super::reconcile::{maximum_display_number, reconcile};
 use super::relationships::{emit_final_references, resolve_side_references};
+use super::{SchemaStatus, Table};
 
 /// Soft merge outcomes worth surfacing in the sync journal.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -50,6 +50,11 @@ fn choose_header(base: &Table, ours: &Table, theirs: &Table) -> Vec<String> {
         .chain(base.header.iter())
     {
         names.insert(column.clone());
+    }
+    if ours.schema_status == SchemaStatus::Current {
+        return crate::tasks::schema::canonical_current_header(
+            &names.into_iter().collect::<Vec<_>>(),
+        );
     }
     let mut header = primary
         .into_iter()

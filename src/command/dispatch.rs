@@ -57,7 +57,9 @@ pub fn run(
             DispatchCapability::Registry(store) => {
                 super::workspace::run_registry_only(args, cli.brain.as_deref(), store)
             }
-            DispatchCapability::Ready(context) => super::workspace::run_ready(args, context),
+            DispatchCapability::Ready(context) => {
+                super::workspace::run_ready(args, context, cli.brain.is_some())
+            }
             DispatchCapability::None => {
                 anyhow::bail!("internal workspace command dispatch expected a workspace capability")
             }
@@ -121,8 +123,12 @@ pub fn run(
     if matches!(&cli.command, Some(Cmd::Check)) {
         crate::logging::log("dispatch check");
         let config = crate::sync::config::SyncConfig::load(context);
-        crate::sync::check::run(context.workspace.paths(), &config, context.workspace.root());
-        return Ok(());
+        return crate::sync::check::run(
+            context.workspace.paths(),
+            context.workspace.id(),
+            &config,
+            context.workspace.root(),
+        );
     }
     if let Some(Cmd::Reindex(args)) = &cli.command {
         crate::logging::log("dispatch reindex");
@@ -132,7 +138,9 @@ pub fn run(
     if cli.with_receiver && matches!(cli.command, None | Some(Cmd::Tasks(_))) {
         super::server::apply_startup_receiver_flag(cli.with_receiver, context)?;
     }
-    crate::settings::ensure_markdown_to_pdf(context);
+    if invocation_for(&cli) != Invocation::TasksDoctor {
+        crate::settings::ensure_markdown_to_pdf(context);
+    }
     match cli.command {
         None => super::tasks::launch(
             TasksCli::parse_from(["brain"]),

@@ -71,8 +71,34 @@ first move is a failing test that reproduces it, *then* the fix.
   runtime file trees byte-for-byte, repeats selected writes after changing the
   default, and tests same-name/different-UUID rejection. Focused tests also pin
   alias-to-canonical detached sync arguments after alias removal/default change,
+  detached expected-UUID propagation and bootstrap mismatch refusal,
   the typed actor integration env, selected reindex `BRAIN_ROOT`, and
   request-UUID habits GET/POST isolation.
+- **Sync runtime path contract.** `tests/sync_workspace_paths.rs` directly
+  separates every sync artifact for two fixed UUIDs, holds both workspace locks
+  concurrently while rejecting a second same-UUID acquire, and proves journal
+  rows and current state are invisible through the peer workspace's paths.
+  The gated real-rclone helper in `tests/sync_local.rs` uses the production
+  UUID-derived workdir and reporter paths, so transport coverage cannot drift
+  back to an adjacent test-only cache.
+- **Remote sync identity contract.** `sync::identity` unit tests exhaust the
+  pure absent, matching, mismatched, malformed, and incompatible decisions and
+  an injected rclone boundary pins probe/publication/read-back ordering.
+  `tests/sync_workspace_identity.rs` composes two selected records, proves
+  cross-workspace refusal before every data command for sync, repair, and
+  check, and uses a gated local-rclone remote to verify exact setup publication
+  and read-back. `tests/sync_local.rs` starts from matching manifests so the
+  transport suite exercises the production gate.
+- **Composed multi-workspace acceptance.**
+  `tests/multi_workspace_acceptance.rs` is one orchestration-focused scenario
+  over two temporary workspaces. It reuses the real schema-v2 registry,
+  portable users, UUID caches, TUI and sync locks, shared-server leases,
+  authenticated SMS routing, task script, UUID CSV merge, triage flag, access
+  policy, capability resolution, and `AgentController` launch boundary. The
+  only doubles are the provider request and agent transport at external
+  process edges. Claude and Codex both produce selected-root launch specs;
+  ratatui, PTYs, and live agent providers never start. Lifecycle waits use
+  bounded polling or channels, not fixed sleeps.
 - **Workspace documentation contract.** `tests/workspace_docs.rs` runs the
   compiled binary's root, workspace, and nested alias help, then checks only
   stable command names and selector spellings against the current README/docs.
@@ -418,7 +444,8 @@ first move is a failing test that reproduces it, *then* the fix.
   injects an extra cross-routed job into a copy of the history and proves its
   exact-route assertion rejects that mutation. It contains no fixed sleep.
 - **Literal read-only status.** `tests/status_read_only.rs` runs the compiled
-  `brain server status` and selected `brain receiver status` commands. It
+  `brain server status`, selected `brain receiver status`, `brain sync status`,
+  `brain workspace list`, and `brain tasks doctor` commands. It
   snapshots every file type, Unix mode, regular-file byte sequence and SHA-256,
   symlink target, and recursively traversed referent before and after. Referent
   traversal records cycles rather than following them forever. The suite covers
@@ -437,7 +464,8 @@ first move is a failing test that reproduces it, *then* the fix.
   and shutdown state untouched for the watchdog. This catches accidental
   migration, config initialization, users transaction locks, skill rendering,
   state-DB/render-stamp writes, election, control-error suppression, and status
-  pruning.
+  pruning. Dedicated WAL fixtures also prove that sync status and tasks doctor
+  do not checkpoint or otherwise mutate an existing SQLite database.
 - **Shared-server control protocol.** `tests/server_control.rs` is split into
   focused codec, registration, and transition suites. It covers bounded
   newline-delimited JSON round trips, malformed and oversized rejection,
@@ -474,8 +502,17 @@ first move is a failing test that reproduces it, *then* the fix.
   deleted-reference fallback, project reverse-link
   regeneration, whole-operation schema refusal, retryable metadata
   publication, and task/habit counter floors through the real allocator. The
-  CSV integration regression verifies an unchanged second pass performs no remote write, and
-  `sync/trigger.rs` verifies completed detached children are reaped.
+  CSV integration regression verifies an unchanged second pass performs no remote write.
+  `tests/sync_trigger_workspace.rs` drives the injected detached-child and
+  production lock boundaries: exact canonical argv/UUID environment,
+  fail-closed compiled-binary bootstrap, concurrent different-workspace entry,
+  and same-workspace coalescing/following use bounded channels without fixed
+  sleeps. `sync/trigger.rs` verifies completed detached children are reaped.
+  Injected receiver clocks/readers/runners deterministically prove the 250ms
+  status poll, journal-advance gate, five-second retry grace, and three-attempt
+  fallback. The clock-driven watcher-loop test proves stopping one workspace's
+  watcher leaves its peer live; `tests/watch_local.rs` waits on callback
+  channels rather than fixed sleeps.
   `sync/check.rs` separately proves schema-aware read-only identity, hybrid
   legacy compatibility, labeled baseline/local/remote parse refusal, themed
   warning output, and byte-stable refusal across every task-related store.
@@ -526,14 +563,23 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: manifest-aware create/attach, persistence failures, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. |
 | `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
+| `tests/workspace_requirements.rs` + `tests/workspace_requirements/` | Central required/optional matrix, fail-closed malformed sync/receiver fields, portable receiver mappings, advisory capability health, redaction, exact selected-record isolation, and focused shared fixtures. |
+| `tests/status_read_only.rs` | Filesystem snapshots proving workspace list, sync status, receiver status, tasks doctor, and server status do not create or mutate machine/workspace state, including symlink and live-process cases. |
 | `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, valid-v2 portable-policy upgrade, and persistence-failure preservation. |
 | `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` + `tui::app_brain::tests` | Portable mode ownership/defaults, strict and atomic persistence, exact advisory contract, real App launch-context parity, adapter mechanisms, option-terminated prompt argv, selected cwd, honest typed status, naive warning limits, and minimal environment. |
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
+| `tests/sync_workspace_paths.rs` | Direct UUID separation for sync paths, concurrent cross-workspace locks, same-workspace serialization, journal reads, and current-state reads. |
+| `tests/sync_workspace_identity.rs` | Pure and compiled-binary remote manifest identity decisions, fail-closed mutation ordering across sync/repair/check, two-record cross-adoption refusal, absence of UUID workdir creation before identity, active-migration refusal before rclone, and gated real-rclone setup claim/publication/read-back. Unit barriers additionally prove two-phase late-claim election remains safe with a non-atomic canonical-copy fake. |
+| `tests/sync_trigger_workspace.rs` | Exact detached canonical argv plus expected workspace UUID, compiled bootstrap mismatch refusal, injected child launch, concurrent cross-workspace lock entry, and same-workspace coalescing/following with bounded channels. |
+| `tests/sync_local.rs` + `tests/sync_local/` | Gated real-rclone harness with focused transport, CSV merge, conflict, schema-transition, and multi-workspace modules; two concurrent local remotes use distinct production UUID-derived workdirs and CSV baselines, a mismatched remote manifest refuses before bisync, a wrong-typed present task schema refuses without publication, and a configured second legacy machine joins an already-current remote through the real coordinator, floors stale task/habit counters, allocates non-colliding IDs through the real mutators, then converges both machines and remote byte-for-byte. |
+| `tests/watch_local.rs` | Real watcher callbacks over temporary personal and family roots; dropping one joined worker leaves the peer live, with channel deadlines instead of sleeps. |
+| `tests/multi_workspace_acceptance.rs` + `tests/multi_workspace_acceptance/` | One hermetic personal-plus-family scenario covering selector/default policy, UUID caches and locks, one shared server, authenticated wife assignment through the real task script, deterministic display-ID reconciliation, disabled family triage, Claude/Codex advisory capability parity, family unavailability, personal continuity, and final server shutdown. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |
 | `tests/todo_script_mutators.rs` | Brain-owned task scripts, including selected-root `BRAIN_ROOT` propagation and isolated actor/workspace environment for every subprocess. |
-| `tests/task_schema_migration.rs` + `tasks::schema::transaction_tests` | Temp-only inactive migration fixtures: workspace/kind-scoped deterministic UUIDv5, explicit last-legacy-sync and pre-existing durable-backup-base preconditions, exact durable portable backups, canonical/lexical backup-path separation, strict current-schema detection, row/display-ID preservation, byte-idempotent reruns, injected deep-directory and backup-file parent open/sync failures, immediate journal-temporary cleanup, and crash/failure recovery before and throughout replacement. |
-| `tests/task_id_collision_merge.rs` + `sync::csv_merge`/`csv_sync`/`counters` tests | Temp-only and pure fixtures for UUID merge identity, name-aligned headers, deterministic display-ID collision winners/allocation, mirror-order and repeat convergence, pipe/comma `blocked_by`, production-format free-text `see_also` rewrites with URL and substring preservation, deleted-target fallback without marker leaks, project metadata reverse links, retry and local/remote error classification, strict/forward-compatible whole-operation schema policy, no-write refusal, and task/habit next-counter floors. |
+| `tests/task_schema_migration.rs` + `tasks::schema::transaction_tests` | Temp-only coordinator-owned migration primitives: workspace/kind-scoped deterministic UUIDv5, explicit last-legacy-sync and pre-existing durable-backup-base preconditions, exact durable portable backups, canonical/lexical backup-path separation, strict current-schema detection, row/display-ID preservation, byte-idempotent reruns, injected deep-directory and backup-file parent open/sync failures, immediate journal-temporary cleanup, and crash/failure recovery before and throughout replacement. Ordinary startup and sync never call this activation path. |
+| `tests/multi_workspace_migration.rs` + `tests/multi_workspace_migration/` | Exact rollout ordering and state classification, activation locking before discovery and journal creation, UUID-scoped journal resumption, replayable local-only legacy-to-current joining with task/habit counter max/floors under stale, malformed, and missing inputs, schema-last CSV/baseline/metadata publication with injected transport failure, resume-only recovery across ambiguous publication, post-final-sync config/user/assignment reload, injected atomic journal/backup failures, privacy-limited backup inventory with nested-symlink refusal, canonical `assigned_to` sender/assignment gates with shipped headless remediation, and a compiled-binary local rollout proving preflight no-write refusal, complete cutover, retained backup, and byte-idempotent rerun. |
+| `tests/task_id_collision_merge.rs` + `sync::csv_merge`/`csv_sync`/`counters` tests | Temp-only and pure fixtures for UUID merge identity, full canonical known-field headers, deterministic forward-compatible fields, remote schema absence/newer/malformed/mismatch refusal, deterministic display-ID collision winners/allocation, mirror-order and repeat convergence, pipe/comma `blocked_by`, production-format free-text `see_also` rewrites with URL and substring preservation, deleted-target fallback without marker leaks, project metadata reverse links, retry and local/remote error classification, strict/forward-compatible whole-operation schema policy, no-write refusal, and task/habit next-counter floors. |
 | `tests/triage_habits_config.rs` + `tasks::triage_habits` tests | Temp-only managed-definition reconciliation, rename-stable marker identity, CLI/TUI/web mutation guards, strict malformed-config refusal, managed-only and unmanaged-carrier display-reference purge, authenticated workspace-bound journal recovery, interprocess ownership, transaction module-size guards, live-file continuity, fresh re-enable, startup/reindex/repair restoration, suppressed-alert post-sync refresh, palette-enable/startup-refresh interleaving, and injected crashes at internal publication and cleanup boundaries. |
 | `skills/todo/scripts/tests/test_workspace_context.py` | Standalone Python subprocess coverage for selected-root-only writes, effective-actor assignment, explicit portable-membership validation, legacy and absent assignment-header migration, empty-CSV schema initialization, missing-context failure, UUIDv4 creation, UUID-preserving edits, fresh habit-occurrence identity with assignment/system-key retention, feature-gated managed triage completion, stale-snapshot refusal for CSV and project metadata, shared-owner serialization, protected removal, concurrent counter allocation, and managed-history garbage collection. |
 | `tests/verbose_cli.rs` | End-to-end `--verbose` contract for the compiled binary: stdout mirroring, `/tmp` log-file creation, command/action breadcrumbs, and task CSV load/write logging. |
@@ -549,14 +595,34 @@ No test reads or writes a real user workspace.
 | Authenticated inbound identity drives default assignment | `authenticated_inbound_actor_drives_default_task_assignment` maps generic email and phone senders to a second workspace member, proves that identity overrides the local user, exports the immutable actor context, and creates real task rows assigned to the inbound actor. |
 | Two machines independently create the same display ID | `tests/task_id_collision_merge.rs` gives distinct UUID rows the same display ID, swaps local/remote order, and repeats the merge to prove deterministic convergence. |
 | Relationships survive display-ID reconciliation | `tests/task_id_collision_merge.rs` covers composite `blocked_by`, bounded free-text `see_also`, deleted-target fallback, and project metadata reverse links. |
-| Legacy rows receive stable migration identity | `tests/task_schema_migration.rs` derives UUIDv5 from workspace UUID, CSV kind, and legacy display ID, then proves byte-idempotent fixture migration with exact backups. The migration interface remains inactive. |
+| Legacy rows receive stable migration identity | `tests/task_schema_migration.rs` derives UUIDv5 from workspace UUID, CSV kind, and legacy display ID. `tests/multi_workspace_migration/` then drives the compiled explicit command through a complete local cutover and byte-idempotent rerun with one retained backup. |
+| Concurrent empty-remote setup elects one owner | `sync::identity::tests::late_competing_claims_stage_then_only_one_retry_publishes_with_non_atomic_copy` uses barriers and a deliberately non-atomic canonical-copy fake, with no sleep, to prove that newly staged claims never publish and only the durable lowest UUID wins on retry. |
+| Schema transition survives the legacy/current boundary | `tests/multi_workspace_migration/schema_transition.rs` proves remote compatibility preflight, CSVs, durable baselines, then schema ordering and retryable failure. `tests/sync_local/schema_transition.rs` uses real rclone for final legacy sync, migration, immediate current sync, a second legacy-machine join, and an independently current unconfigured machine establishing an empty remote before a second current machine converges. |
 | Disable purges managed history without false-positive loss | `tests/triage_habits_config.rs` removes managed definitions, open rows, completed history, and derived references while preserving same-named unmarked rows and unrelated transcripts. `tasks::triage_habits::purge` limits JSON edits to top-level `tasks[]`, preserves unrelated JSON/text bytes and ambiguous display references, and aborts on malformed JSON, invalid UTF-8, or traversal failures. |
 | Re-enable starts fresh | `disabling_purges_every_managed_row_and_derived_reference_then_reenables_fresh` proves exactly two new open managed rows, new UUIDs, and no restored history. |
 
 The suite does not claim a filesystem sandbox, a general prompt-injection
-detector, coordinated task migration activation against a real workspace, or
-functional OpenCode behavior. Shared HTTP receiver routing and exact TUI
+detector, live cloud migration against a production remote, or functional
+OpenCode behavior. Shared HTTP receiver routing and exact TUI
 job-forwarding are covered by the active Phase 4 integration suites.
+
+### Phase 5 composed acceptance matrix
+
+The Phase 5 scenario uses one temporary machine registry and two roots. The
+omitted selector resolves personal while `-b fam` resolves family; the roots
+have different UUID caches, TUI locks, sync locks, and live leases in one
+shared process. A signed family SMS resolves the portable wife identity and a
+fake agent transport invokes the real Brain-owned task script with that actor,
+producing a wife-assigned row. The same run proves deterministic display-ID
+collision repair, no managed triage state when family triage is disabled,
+equivalent Claude/Codex advisory launches without personal capability
+material, family unavailability after its fake TUI closes, personal receiver
+continuity, and shared-process exit after the final close.
+
+`tests/sync_local.rs` supplies the gated transport complement when `rclone` is
+installed: both workspaces resync concurrently through their production
+`WorkspacePaths`, maintain separate workdirs and CSV baselines, and reject a
+remote UUID mismatch before any bisync workdir or remote content mutation.
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to
@@ -602,8 +668,22 @@ cargo test --release --test receiver_setup_workspace
 # workspace documentation contract
 cargo test --release --test workspace_docs
 
-# lint clean (pedantic + nursery are on)
-cargo clippy --release --all-targets
+# strict lint (pedantic + nursery are on)
+cargo clippy --release --all-targets -- -D warnings
+
+# release/privacy/skill gates
+cargo test --release bundled_skills_carry_no_personal_data
+python3 -m unittest discover -s skills/todo/scripts/tests
+
+# Phase 5 composed and gated transport/lifecycle coverage
+cargo test --release --test multi_workspace_acceptance -- --nocapture
+cargo test --release --test multi_workspace_migration -- --nocapture
+cargo test --release --test sync_local -- --nocapture
+cargo test --release --test watch_local -- --nocapture
+
+# source-format and patch hygiene
+cargo fmt --check
+git diff --check
 
 # verbose
 cargo test --release -- --nocapture

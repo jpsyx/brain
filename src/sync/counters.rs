@@ -17,8 +17,6 @@
 use std::path::{Path, PathBuf};
 
 use crate::sync::args::Direction;
-use crate::sync::config::SyncConfig;
-use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone_capture;
 
 /// The two id-counter files reconciled out-of-band, as repo-relative paths.
@@ -39,6 +37,16 @@ pub fn merge_counter(local: Option<u32>, remote: Option<u32>) -> Option<u32> {
         (Some(a), Some(b)) => Some(a.max(b)),
         (a, b) => a.or(b),
     }
+}
+
+/// Reconcile local and remote counter values with a required next-ID floor.
+#[must_use]
+pub(crate) fn reconcile_counter_value(
+    local: Option<u32>,
+    remote: Option<u32>,
+    floor: u32,
+) -> Option<u32> {
+    merge_counter(merge_counter(local, remote), (floor > 0).then_some(floor))
 }
 
 /// Next counter value required by display IDs already emitted in either CSV.
@@ -115,12 +123,11 @@ fn sync_one_counter_with_mode(
         .ok()
         .and_then(|t| parse_counter(&t));
     let theirs = fetch().and_then(|t| parse_counter(&t));
-    let floor = (floor > 0).then_some(floor);
-    let merged = merge_counter(merge_counter(ours, theirs), floor);
+    let merged = reconcile_counter_value(ours, theirs, floor);
     let local_value = if download_remote {
         merged
     } else {
-        merge_counter(ours, floor)
+        reconcile_counter_value(ours, None, floor)
     };
     if let Some(value) = local_value {
         // Only write when the merged value differs from what each side already
@@ -175,12 +182,12 @@ pub(crate) fn sync_counters_with_transport(
 /// tables published in the same sync operation.
 #[must_use]
 pub(crate) fn sync_counters(
-    cfg: &SyncConfig,
+    verified: crate::sync::identity::VerifiedRemote<'_>,
     root: &Path,
     direction: Direction,
     floors: crate::sync::csv_sync::DisplayIdFloors,
 ) -> Vec<(String, Option<u32>)> {
-    let remote = build_remote(cfg);
+    let remote = verified.remote();
     let fetch = |relative: &str| {
         let tag = relative.replace('/', "_");
         let tmp =
@@ -238,6 +245,20 @@ mod tests {
         assert_eq!(parse_counter("  7 "), Some(7));
         assert_eq!(parse_counter(""), None);
         assert_eq!(parse_counter("H31"), None);
+    }
+
+    #[test]
+    fn bridge_value_max_merges_usable_counters_and_display_floor() {
+        let cases = [
+            (Some(2), Some(7), 5, Some(7)),
+            (None, None, 5, Some(5)),
+            (Some(9), None, 5, Some(9)),
+            (None, None, 0, None),
+        ];
+
+        for (local, remote, floor, expected) in cases {
+            assert_eq!(reconcile_counter_value(local, remote, floor), expected);
+        }
     }
 
     #[test]

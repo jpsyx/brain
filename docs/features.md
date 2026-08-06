@@ -235,8 +235,8 @@ management and reporting commands stay outside the persistent shell.
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env. Use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
 | `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present. |
-| `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair}` | Manage the schema-v2 machine registry and portable manifest. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. `repair --manifest --local-user-id <id>` supplies readiness explicitly. |
-| `brain sync [--push\|--pull] {setup\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
+| `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair\|migrate}` | Manage the schema-v2 registry, portable manifest, and coordinated legacy rollout. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. |
+| `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
@@ -349,11 +349,32 @@ delegated task values.
 - `workspace repair [--manifest] [--local-user-id <id>]` retains the legacy
   manifest and local-ID repair surface. New portable workspaces select an
   existing person with `brain user local <id>`.
+- `workspace migrate` explicitly runs or resumes the legacy-to-multi-workspace
+  rollout. It creates a UUID-scoped machine-local journal and retained portable
+  backup, runs a final legacy semantic sync when configured, maps every
+  unresolved sender and canonical `assigned_to` value before mutation, and
+  activates task UUID merge identity. After the final sync it reloads config,
+  portable users, and assignments before that mapping gate, so newly pulled
+  senders or triage policy apply to this run. The schema transition publishes
+  current task and habit CSVs, durably establishes their UUID baselines, and
+  publishes `tasks/SCHEMA.json` last. It then rebuilds derived data and verifies
+  every identity boundary before removing the journal. Synced headless use requires explicit
+  `--brain <workspace>` selection plus
+  `--acknowledge-all-machines-updated`; incomplete mapping prints exact
+  `brain user ... -b <workspace>` remediation. A failed step reports the
+  retained backup and the exact resume command. Every journaled failure is
+  resume-only, including a failure before the remote-publication step is
+  recorded, because a remote write may have succeeded before the local journal
+  update. The retained backup is for forensic or coordinated manual recovery,
+  never a one-machine restore while the rollout journal exists.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
   text under `NO_COLOR`. Valid portable modes include an honest three-line
-  access/enforcement/sandbox status. Missing modes are seeded before listing;
-  malformed config or an invalid mode stops with an error instead of being
-  displayed as pending or guessed as unrestricted.
+  access/enforcement/sandbox status. It then appends the selected workspace's
+  redacted requirements matrix. Required availability is distinct from
+  optional `off`, `ready`, and `incomplete` feature state. The list path does
+  not seed missing modes, repair setup, render skills, create locks, or inspect
+  a peer workspace as a fallback. Malformed selected config is reported as
+  incomplete rather than guessed as unrestricted.
 
 For create, attach, remove, and repair, brain collects and validates all missing
 values from `/dev/tty` before legacy classification, migration, or mutation.
@@ -411,10 +432,11 @@ selected-root cwd, and a filtered child environment. The PTY evaluates the
 configured frontend command without loading login or interactive shell
 profiles, so those profiles cannot restore filtered variables. An initial
 prompt follows an explicit frontend option terminator, so option-looking user
-or inbound text stays prompt data. Workspace-only mode is easy to bypass. It
-reduces accidents and naive leakage among trusted users, but is unsuitable for
-adversarial users or sensitive isolation. Real isolation requires an external
-OS, VM, machine, or container boundary. Claude and Codex continue to use the
+or inbound text stays prompt data. `workspace_only` is advisory prompt
+enforcement plus best-effort capability filtering, easy to bypass, and not
+tenant isolation. It reduces accidents and naive leakage among trusted users.
+Real adversarial or sensitive isolation requires an external OS, VM, machine,
+or container boundary. Claude and Codex continue to use the
 user's shared frontend login; selecting a workspace does not create another
 identity.
 A pure literal-path check can warn about obvious absolute or `~/` paths outside
@@ -483,19 +505,20 @@ New task and habit rows also receive immutable UUIDv4 `task_uuid` values.
 Commands still locate rows by mutable display `task_id`, then preserve the
 matched UUID during completion and edits. A spawned habit occurrence receives
 a new UUID while retaining assignment and `system_key`. Deterministic UUIDv5
-conversion for legacy rows exists only behind an inactive helper: it requires
-the rollout-owned last-legacy-sync state, an existing durable machine-local
-backup base, and an explicit destination beneath that base. No startup,
-readiness, sync, or command path invokes it. Existing
-legacy CSV sync remains keyed by `task_id` until coordinated migration. The
-inactive helper rejects backup/workspace path overlap, creates a deep backup
+conversion for legacy rows is activated only by explicit workspace migration.
+It requires the rollout-owned last-legacy-sync state, an existing durable
+machine-local backup base, and an explicit destination beneath that base.
+Existing legacy CSV sync remains keyed by `task_id` until coordinated
+migration. The coordinator holds the UUID sync lock from local CSV migration
+through remote CSV and baseline publication, with schema metadata last. An
+active rollout journal blocks ordinary sync and setup until migration resumes.
+The helper rejects backup/workspace path overlap, creates a deep backup
 path one component at a time while syncing every actual parent, durably syncs
 every exact backup, and journals the three-file replacement so a retry
 recovers from failure or interruption at any replacement boundary. Journal
 publication errors also remove their temporary file before returning. Once a
 coordinator activates schema version 2, sync switches to immutable
-`task_uuid` identity while `task_id` remains a mutable display label; this
-release still does not activate the migration itself.
+`task_uuid` identity while `task_id` remains a mutable display label.
 
 Managed triage habits are a portable per-workspace feature, enabled by
 default. Brain identifies its daily and weekly chains with
@@ -553,10 +576,13 @@ demand if it does not exist yet; `brain env` does not create it because env
 configuration lives outside the brain root.
 
 During a configured run, sync prints the current phase as it proceeds: the
-comparison and selected direction, rclone's live file progress, and the task /
-habit CSV merge. If `rclone` is missing, it stops before remote work and prints
-two clearly labeled installation choices: the Homebrew command
+workspace-scoped lock, local manifest validation, remote identity probe,
+comparison and selected direction, rclone's live file progress, task/habit CSV
+merge, and journal write. If `rclone` is missing, it stops before remote work
+and prints two clearly labeled installation choices: the Homebrew command
 (`brew install rclone`) or the official installer command.
+If a rollout journal is active, ordinary sync refuses immediately after taking
+the UUID lock and directs the user to resume `brain workspace migrate`.
 
 - `brain sync` (bare) — bidirectional sync; a same-file conflict is resolved
   by newest edit.
@@ -571,9 +597,34 @@ two clearly labeled installation choices: the Homebrew command
   guide to creating one (private bucket, Default Encryption **enabled**, Object
   Lock **disabled**, and a bucket-scoped application key) and waits for you before
   continuing. Then it collects the B2 bucket + credentials (writes the `sync`
-  block into **brain env**, not brain config — see [config.md](config.md)),
-  verifies or creates the bucket, creates the `RCLONE_TEST` check-access marker
-  on both sides, and establishes the initial bisync baseline.
+  block into **brain env**, not brain config, see [config.md](config.md)). The
+  bucket must already exist and be reachable. Setup validates the selected
+  workspace's existing local manifest and probes remote
+  `.config/workspace.json`. It displays the local canonical workspace name and
+  UUID, configured remote target, observed remote status, and remote UUID when
+  a compatible manifest supplied one. A matching identity proceeds; an empty
+  remote first receives an append-only exact-manifest claim under the selected
+  UUID. Publishing a new claim is a staging attempt only: setup stops before
+  canonical publication or credential persistence and asks the user to retry.
+  A retry enumerates and validates the durable claim set, deterministically
+  elects one UUID, and only the winner may publish and read back the canonical
+  manifest. This two-phase rule remains safe when object copy is not atomic and
+  a lower competing UUID arrives after another claim. A nonempty
+  manifestless remote requires an explicit `y`/`yes` confirmation, or
+  `--adopt-workspace-id <UUID>` with the exact selected UUID for noninteractive
+  authorization. A generic `--yes` does not authorize adoption. Mismatched,
+  malformed, incompatible, and present-but-unreadable remote manifests remain
+  hard refusals. Every authorized initialization or adoption publishes and
+  verifies the manifest before credentials or any other remote data are written.
+  Setup holds the workspace UUID sync lock across that identity protocol,
+  any safe empty-remote task-schema transition, creation of the `RCLONE_TEST`
+  check-access marker on both sides, and the initial bisync baseline. It saves
+  the candidate credentials only after that baseline returns `Clean`;
+  `NeedsAttention`, `Aborted`, or transport failure leaves them unsaved. A
+  current but unconfigured local workspace may publish its current task CSVs,
+  baselines, and schema marker to an empty compatible remote before the first
+  baseline. It refuses to overwrite legacy remote CSVs. If a workspace
+  migration journal is active, setup refuses before remote identity work.
 - `brain sync repair` — (re-)establish the bisync baseline for a machine that
   already has `sync` env configured. A normal sync automatically performs this
   narrow repair when rclone reports a missing check-access marker, announcing
@@ -612,11 +663,13 @@ tool is missing.
 
 **Live progress.** A running sync is no longer a silent block. Before any slow
 work begins, brain prints the sync mode, local root, remote target, and the
-plain-English plan. It then announces the safety-marker check, rclone handoff,
-and task/habit CSV merge before each phase starts. During the rclone phase,
-file progress streams to the terminal live, with a one-line update roughly
-every 10 seconds (files/bytes transferred, percent complete, transfer rate,
-ETA) — useful on the first sync of a large brain, which can take a while.
+plain-English plan. It then announces lock coordination, local manifest
+validation, the remote identity probe, safety-marker check, rclone handoff,
+task/habit CSV merge, and journal write before each phase starts. During the
+rclone phase, file progress streams to the terminal live, with a one-line
+update roughly every 10 seconds (files/bytes transferred, percent complete,
+transfer rate and ETA). This is useful on the first sync of a large brain,
+which can take a while.
 
 Every sync (foreground or background) mirrors that same progress to a machine-
 local log (`<workspace-cache>/sync/current.log`) and records a small `current.json`
@@ -625,6 +678,10 @@ stays observable without ever printing to a terminal: `brain sync status` reads
 the marker, and a `brain sync` run started while another sync is already going
 **attaches and follows** that live log to completion instead of starting a
 second sync or erroring (Ctrl-C stops watching; the sync keeps running).
+The marker, log, journal, lock, rclone workdir, and task/habit baselines all
+belong to the selected workspace UUID. A status or follower invocation cannot
+read another workspace's current run or history, and two different workspaces
+may hold their sync locks concurrently.
 
 **Never renders into the TUI.** Automatic syncs run in a **separate detached
 process**, never on a thread inside the persistent shell, so their output can
@@ -646,8 +703,10 @@ idle sync loop and no exit sync.
 
 Every trigger below spawns a **detached background `brain sync` process** (with
 the canonical `--brain <workspace>` plus `--if-idle`, so changing the machine
-default cannot redirect it and an alias is never propagated); none runs a sync
-on a thread inside the shell. The shell never waits on, and can never be
+default cannot redirect it and an alias is never propagated). The child also
+carries the selected UUID in `BRAIN_WORKSPACE_ID`; bootstrap refuses to run if
+that expected UUID disagrees with the selected registry record. None runs a
+sync on a thread inside the shell. The shell never waits on, and can never be
 interrupted by, the network.
 
 - **On start.** Opening any sync-configured shell always kicks a pull-biased
@@ -658,13 +717,19 @@ interrupted by, the network.
   root settle (`debounce_ms`, default 3000ms). A burst coalesces into one push.
   It does not download remote files, write task CSV merges back locally, or
   advance the downstream freshness timestamp, so it cannot create a
-  self-triggering sync loop.
+  self-triggering sync loop. Each live TUI owns one watcher for its immutable
+  workspace context. Closing it stops only that watcher, without affecting a
+  peer workspace's watcher.
 - **Before receiver work.** Before an inbound SMS/email starts LLM work, brain
   checks the latest successful downstream journal row. If it is more than two
   hours old (or missing), brain queues the message, starts a pull, shows
   `syncing brain before receiver message` in the footer, and dispatches only
-  after that sync completes. This is a threshold check at message time, not a
-  two-hour timer.
+  after that sync completes. This gate lives at the exact live TUI job-consumption
+  boundary, so it delays only that workspace's queued job; the shared server
+  does not own it. This is a threshold check at message time, not a two-hour
+  timer. Launch detection and retries are finite: brain polls at 250ms, allows
+  five seconds for a pull to appear, and tries at most three launches before
+  continuing with local state and a visible warning.
 
 All three are journalled like manual syncs and **coalesce** through a
 workspace-UUID lock: concurrent triggers (startup + watcher + receiver gate + a second shell + a
@@ -721,7 +786,10 @@ per machine you want to join it.
    machine-local and never rides into the bucket itself), and establishes the
    bisync baseline. On a brand-new machine with an empty selected root, that
    initial baseline is effectively a full pull of everything already in the
-   bucket.
+   bucket. If the selected target already contains legacy data but no workspace
+   manifest, review the identity summary and confirm the adoption. Automation
+   must pass `--adopt-workspace-id <UUID>` with the exact local UUID; `--yes`
+   alone is insufficient.
 3. **Verify the triggers.** Run `brain sync status` and confirm it reports
    startup pull, change push, the two-hour receiver freshness policy, and the
    last run.
@@ -835,8 +903,10 @@ resolve-conflicts` skill reads that JSON, merges each group into its
 canonical file, then clears the copies with `brain sync resolve <original>`.
 
 **Task CSVs merge by their active schema identity, with no conflict copies.** `tasks/tasks.csv` and
-`tasks/habits.csv` don't go through the keep-both path above at all: brain
-excludes them from the bisync file lane and reconciles them itself with a
+`tasks/habits.csv` don't go through the keep-both path above at all. Brain
+also excludes `tasks/SCHEMA.json`, so the generic file lane cannot advertise a
+new merge identity ahead of its CSVs and baselines. Brain reconciles the CSVs
+itself with a
 three-way merge (a cached local baseline + your local copy + the remote
 copy), writing the merged result back to both sides. Two machines that each
 add, complete, delete, or edit different fields on the same task converge
@@ -847,19 +917,40 @@ a same-field disagreement otherwise resolves by whichever side's
 column; legacy rows without a parseable timestamp fall back to a deterministic
 tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
 `task_id`; schema-v2 tables are aligned by column name and keyed by immutable
-`task_uuid`. A compatibility writer adding or populating that column does not
+`task_uuid`. Before reading or merging either remote CSV, Brain fetches and
+validates the remote `tasks/SCHEMA.json`. A missing remote marker means legacy
+only. Every present remote marker must be valid JSON with a typed, supported
+schema version and the UUID merge key; malformed, incomplete, wrong-typed,
+incompatible, or newer metadata, and a legacy/current mismatch,
+refuse the whole lane before publication. A compatibility writer adding or populating that column does not
 activate UUID merge identity before `tasks/SCHEMA.json` does so. If distinct
 UUIDs claim the same `T###` or `H###`, the smaller
 UUID keeps it and the other rows receive deterministic IDs above the greatest
 number visible on either side. `blocked_by` chains and project metadata task
 lists are rewritten to the final labels; composite `see_also` values are too,
 including space-separated and punctuation-wrapped task IDs, without changing
-URLs or longer identifiers that merely contain the same characters. Unsupported schema versions, missing identity columns,
+URLs or longer identifiers that merely contain the same characters.
+Current-schema output uses one full canonical order for known task columns and
+sorts declared forward-compatible columns lexically, so independently migrated
+or merged machines serialize byte-stably. Unsupported schema versions, missing identity columns,
 legacy rows without `task_id`, or undeclared unknown columns refuse the whole
 task/habit operation before any CSV, baseline, metadata, remote, or counter
 write. See [data-model.md](data-model.md)
 for the merge rules and
 [integrations.md](integrations.md) for the transport.
+
+When a configured legacy machine migrates after another machine has already
+published schema v2, the migration coordinator uses a dedicated pre-authority
+join. It runs the generic rclone lane without the ordinary task CSV lane, then
+reconciles the legacy baseline, local legacy rows, and current remote rows by
+`task_id` without publishing. Matching rows retain the remote `task_uuid`;
+local-only rows receive their deterministic migration UUID during the next
+journaled cutover step. Before that join step completes, both local counters
+are max-merged with any usable remote counters and floored beyond the exact
+joined task and habit display IDs. Missing or malformed counters fall back to
+those floors. Replay is byte-stable, the bridge never publishes CSVs or
+counters, and schema-last publication remains the only point that can expose
+the joined current generation remotely.
 
 The two id counters (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) that say
 which id to hand out next are also excluded from bisync and reconciled
@@ -869,12 +960,14 @@ floor locally before another task or habit can be allocated. Neither machine
 ever re-hands-out an id the other already used, so there are no id collisions
 regardless of which machine synced last.
 
-**Doctor.** `brain tasks doctor` reports rclone/sync health as one
-informational line: `rclone ✓ <version> · sync configured` or
-`rclone ✗ not installed · sync off`. An unconfigured (or rclone-less) sync is
-a normal, healthy state — it never fails the doctor check. Before probing, the
-doctor prints the state DB path, the SessionStart hook settings file, and the
-external/env checks it is about to run.
+**Doctor.** `brain tasks doctor` prints one themed report for the selected
+workspace. It validates the UUID-scoped session DB plus both Claude and Codex
+SessionStart hook registrations (OpenCode remains inert), reports the rclone
+probe, and appends the same redacted requirements matrix used by other status
+surfaces. Missing rclone with sync off is informational and does not fail
+doctor. Doctor opens an existing SQLite database read-only, probes rclone with
+an explicit no-config path, and never creates config, cache, lock, journal, or
+skill-render state. Hook repair names the exact installer and selected root.
 
 ### `brain personalize`
 
@@ -903,9 +996,8 @@ any other tag renders as its raw name until you add a style under `tag_styles`
 in the personalization JSON. So the public binary carries no personal taxonomy.
 
 **Every mutation re-renders skills.** `personalize set`/`edit`, first-run
-onboarding, and `config set` all trigger a skill re-render so the installed
-skills never drift from your values. (The render pipeline itself lands in a
-later sub-project; the trigger is wired now.)
+onboarding, and `config set` all run the active deterministic render/install
+pipeline so the installed skills stay aligned with the selected workspace.
 
 Like `config`, `personalize` runs before the `markdown-to-pdf` prerequisite
 gate, so it always works. See [config.md](config.md) and
@@ -1095,6 +1187,15 @@ write the skill render stamp, or elect/start/churn the shared process. Receiver
 status uses one generation-bound control response for both server and exact
 workspace facts. A live control failure is reported, and neither status request
 expires leases or changes server lifecycle state.
+
+Receiver status preserves its four lifecycle rows, then adds receiver, SMS,
+and email health for the selected workspace. Persisted receiver intent is the
+feature switch. When it is off, both channels are off even if stale provider
+fields remain. When intent is on, a channel becomes active from any provider
+field or an inbound-enabled portable `users.json` mapping; a malformed or
+partial active channel is incomplete. A ready channel requires its complete
+machine-local provider fields, public URL, and at least one matching portable
+inbound mapping. Status never prints provider secrets or sender addresses.
 
 If all TUIs are closed, the final unregister stops the server immediately, so
 an inbound text reaches no Brain process and receives no Brain response. If

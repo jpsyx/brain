@@ -11,6 +11,7 @@ pub fn run_registry_only(
 pub fn run_ready(
     args: &crate::cli::WorkspaceArgs,
     context: &crate::workspace::CommandContext,
+    explicit_workspace: bool,
 ) -> anyhow::Result<()> {
-    crate::workspace::command::run_ready(args, context)
+    crate::workspace::command::run_ready(args, context, explicit_workspace)
 }

@@ -100,6 +100,216 @@ fn unsupported_current_schema_refuses_all_csv_writes() {
 }
 
 #[test]
+fn newer_remote_task_schema_refuses_merge_before_any_csv_publication() {
+    use std::cell::Cell;
+    use std::collections::BTreeMap;
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("workspace");
+    let tasks = root.join("tasks");
+    std::fs::create_dir_all(&tasks).unwrap();
+    let task_text = "task_uuid,task_id,assigned_to,system_key\n\
+                     10000000-0000-4000-8000-000000000010,T10,member-a,\n";
+    let habit_text = "task_uuid,task_id,assigned_to,system_key\n\
+                      20000000-0000-4000-8000-000000000010,H10,member-a,\n";
+    std::fs::write(tasks.join("tasks.csv"), task_text).unwrap();
+    std::fs::write(tasks.join("habits.csv"), habit_text).unwrap();
+    std::fs::write(
+        tasks.join("SCHEMA.json"),
+        r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#,
+    )
+    .unwrap();
+    let remote = BTreeMap::from([
+        ("tasks/tasks.csv", task_text),
+        ("tasks/habits.csv", habit_text),
+        (
+            "tasks/SCHEMA.json",
+            r#"{"task_schema_version":3,"merge_key":"task_uuid"}"#,
+        ),
+    ]);
+    let pushes = Cell::new(0);
+
+    let result = sync_csvs_with_transport(
+        &paths(directory.path()),
+        &root,
+        Direction::Both,
+        |relative| remote.get(relative).map(ToString::to_string),
+        |_, _| {
+            pushes.set(pushes.get() + 1);
+            true
+        },
+    );
+
+    let error = result.unwrap_err();
+    assert!(
+        error.to_string().contains("remote task schema version 3"),
+        "{error:#}"
+    );
+    assert_eq!(pushes.get(), 0);
+}
+
+#[test]
+fn malformed_or_incompatible_remote_task_schema_refuses_all_publication() {
+    use std::cell::Cell;
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("workspace");
+    let tasks = root.join("tasks");
+    std::fs::create_dir_all(&tasks).unwrap();
+    let task_text = "task_uuid,task_id,assigned_to,system_key\n\
+                     10000000-0000-4000-8000-000000000010,T10,member-a,\n";
+    let habit_text = "task_uuid,task_id,assigned_to,system_key\n\
+                      20000000-0000-4000-8000-000000000010,H10,member-a,\n";
+    let local_schema = r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#;
+    std::fs::write(tasks.join("tasks.csv"), task_text).unwrap();
+    std::fs::write(tasks.join("habits.csv"), habit_text).unwrap();
+    std::fs::write(tasks.join("SCHEMA.json"), local_schema).unwrap();
+
+    for remote_schema in [
+        "not-json",
+        r#"{"task_schema_version":2,"merge_key":"task_id"}"#,
+    ] {
+        let pushes = Cell::new(0);
+        let result = sync_csvs_with_transport(
+            &paths(directory.path()),
+            &root,
+            Direction::Both,
+            |relative| match relative {
+                "tasks/tasks.csv" => Some(task_text.to_owned()),
+                "tasks/habits.csv" => Some(habit_text.to_owned()),
+                "tasks/SCHEMA.json" => Some(remote_schema.to_owned()),
+                _ => None,
+            },
+            |_, _| {
+                pushes.set(pushes.get() + 1);
+                true
+            },
+        );
+
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("remote"), "{error:#}");
+        assert_eq!(pushes.get(), 0);
+    }
+}
+
+#[test]
+fn present_wrong_typed_remote_schema_is_not_legacy_and_cannot_publish() {
+    use std::cell::Cell;
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("workspace");
+    let tasks = root.join("tasks");
+    std::fs::create_dir_all(&tasks).unwrap();
+    let task_text = "task_id,status\nT1,open\n";
+    let habit_text = "task_id,status\nH1,open\n";
+    std::fs::write(tasks.join("tasks.csv"), task_text).unwrap();
+    std::fs::write(tasks.join("habits.csv"), habit_text).unwrap();
+    std::fs::write(tasks.join("SCHEMA.json"), "{}\n").unwrap();
+    let pushes = Cell::new(0);
+
+    let error = sync_csvs_with_transport(
+        &paths(directory.path()),
+        &root,
+        Direction::Both,
+        |relative| match relative {
+            "tasks/tasks.csv" => Some(task_text.to_owned()),
+            "tasks/habits.csv" => Some(habit_text.to_owned()),
+            "tasks/SCHEMA.json" => {
+                Some(r#"{"task_schema_version":"3","merge_key":"task_uuid"}"#.to_owned())
+            }
+            _ => None,
+        },
+        |_, _| {
+            pushes.set(pushes.get() + 1);
+            true
+        },
+    )
+    .unwrap_err();
+
+    assert!(
+        error.to_string().contains("remote task_schema_version"),
+        "{error:#}"
+    );
+    assert_eq!(pushes.get(), 0);
+    assert!(!baseline_path(&paths(directory.path()), "tasks.csv").exists());
+}
+
+#[test]
+fn absent_remote_schema_is_legacy_only_and_never_implicitly_current() {
+    use std::cell::Cell;
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("workspace");
+    let tasks = root.join("tasks");
+    std::fs::create_dir_all(&tasks).unwrap();
+    let task_text = "task_id,status\nT1,open\n";
+    let habit_text = "task_id,status\nH1,open\n";
+    std::fs::write(tasks.join("tasks.csv"), task_text).unwrap();
+    std::fs::write(tasks.join("habits.csv"), habit_text).unwrap();
+    std::fs::write(tasks.join("SCHEMA.json"), "{}\n").unwrap();
+    let fetch = |relative: &str| match relative {
+        "tasks/tasks.csv" => Some(task_text.to_owned()),
+        "tasks/habits.csv" => Some(habit_text.to_owned()),
+        _ => None,
+    };
+
+    sync_csvs_with_transport(
+        &paths(directory.path()),
+        &root,
+        Direction::Both,
+        fetch,
+        |_, _| true,
+    )
+    .unwrap();
+
+    std::fs::write(
+        tasks.join("SCHEMA.json"),
+        r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#,
+    )
+    .unwrap();
+    let pushes = Cell::new(0);
+    let error = sync_csvs_with_transport(
+        &paths(directory.path()),
+        &root,
+        Direction::Both,
+        fetch,
+        |_, _| {
+            pushes.set(pushes.get() + 1);
+            true
+        },
+    )
+    .unwrap_err();
+
+    assert!(
+        error.to_string().contains("remote task schema is Legacy"),
+        "{error:#}"
+    );
+    assert_eq!(pushes.get(), 0);
+}
+
+#[test]
+fn listed_remote_schema_read_failure_is_not_treated_as_legacy_absence() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut step = 0;
+
+    let error = fetch_remote_task_schema_with("BRAIN:shared/brain", directory.path(), |args| {
+        let response = match step {
+            0 => (true, "tasks/SCHEMA.json\n".to_owned()),
+            1 => (false, "remote read failed".to_owned()),
+            _ => panic!("unexpected remote schema command: {args:?}"),
+        };
+        step += 1;
+        response
+    })
+    .unwrap_err();
+
+    assert!(
+        error.to_string().contains("remote read failed"),
+        "{error:#}"
+    );
+}
+
+#[test]
 fn reconciled_project_metadata_is_written_and_pushed_with_final_ids() {
     use std::cell::RefCell;
 
@@ -271,7 +481,7 @@ fn one_invalid_csv_preflight_blocks_both_csvs_baselines_and_metadata() {
     std::fs::write(tasks_dir.join("habits.csv"), invalid_habits).unwrap();
     std::fs::write(
         tasks_dir.join("SCHEMA.json"),
-        r#"{"task_schema_version":2,"merge_key":"task_uuid"}"#,
+        r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#,
     )
     .unwrap();
     let metadata = root.join("projects/alpha/.METADATA.json");
@@ -478,7 +688,9 @@ fn malformed_or_duplicate_generation_refuses_the_whole_operation() {
     let cases = [
         Case {
             name: "duplicate local current UUID",
-            manifest: Some(r#"{"task_schema_version":2,"merge_key":"task_uuid"}"#),
+            manifest: Some(
+                r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#,
+            ),
             local_tasks: "task_uuid,task_id,assigned_to,system_key\n\
                           10000000-0000-4000-8000-000000000001,T1,member-a,\n\
                           10000000-0000-4000-8000-000000000001,T2,member-a,\n",
@@ -536,6 +748,11 @@ fn malformed_or_duplicate_generation_refuses_the_whole_operation() {
             ("tasks/.tasks_next_id".to_owned(), "12\n".to_owned()),
             ("tasks/.habits_next_id".to_owned(), "7\n".to_owned()),
         ]));
+        if let Some(manifest) = case.manifest {
+            remote
+                .borrow_mut()
+                .insert("tasks/SCHEMA.json".to_owned(), manifest.to_owned());
+        }
         let before_remote = remote.borrow().clone();
         let before_local_tasks = std::fs::read(tasks_dir.join("tasks.csv")).unwrap();
         let before_local_habits = std::fs::read(tasks_dir.join("habits.csv")).unwrap();
@@ -603,7 +820,7 @@ fn push_only_collision_floors_task_and_habit_counters_before_allocation() {
     let root = directory.path().join("workspace");
     let tasks_dir = root.join("tasks");
     std::fs::create_dir_all(&tasks_dir).unwrap();
-    let manifest = r#"{"task_schema_version":2,"merge_key":"task_uuid"}"#;
+    let manifest = r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#;
     std::fs::write(tasks_dir.join("SCHEMA.json"), manifest).unwrap();
     let task_header = "task_uuid,task_id,assigned_to,system_key\n";
     let habit_header = "task_uuid,task_id,assigned_to,system_key\n";
@@ -628,6 +845,7 @@ fn push_only_collision_floors_task_and_habit_counters_before_allocation() {
             "tasks/habits.csv".to_owned(),
             format!("{habit_header}40000000-0000-4000-8000-000000000005,H5,member-a,\n"),
         ),
+        ("tasks/SCHEMA.json".to_owned(), manifest.to_owned()),
         ("tasks/.tasks_next_id".to_owned(), "11\n".to_owned()),
         ("tasks/.habits_next_id".to_owned(), "6\n".to_owned()),
     ]));

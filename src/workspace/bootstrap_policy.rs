@@ -11,6 +11,7 @@ pub enum Invocation {
     WorkspaceAttach,
     WorkspaceRemove,
     WorkspaceRepair,
+    WorkspaceMigrate,
     WorkspaceList,
     WorkspaceRename,
     WorkspaceAlias,
@@ -19,6 +20,7 @@ pub enum Invocation {
     Config,
     Env,
     Sync,
+    SyncStatus,
     Check,
     Personalize,
     Skills,
@@ -29,6 +31,7 @@ pub enum Invocation {
     Habits,
     Reindex,
     Tasks,
+    TasksDoctor,
     Tui,
 }
 
@@ -64,9 +67,11 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::WorkspaceRename
         | Invocation::WorkspaceAlias
         | Invocation::WorkspaceDefault
+        | Invocation::WorkspaceMigrate
         | Invocation::Config
         | Invocation::Env
         | Invocation::Sync
+        | Invocation::SyncStatus
         | Invocation::Check
         | Invocation::Personalize
         | Invocation::Skills
@@ -77,6 +82,7 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::Habits
         | Invocation::Reindex
         | Invocation::Tasks
+        | Invocation::TasksDoctor
         | Invocation::Tui => None,
     }
 }
@@ -94,11 +100,14 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         | Invocation::WorkspaceRemove
         | Invocation::WorkspaceRepair
         | Invocation::User => BootstrapPolicy::RegistryOnly,
-        Invocation::ReceiverStatus => BootstrapPolicy::ReadOnlyWorkspace,
         Invocation::WorkspaceList
-        | Invocation::WorkspaceRename
+        | Invocation::ReceiverStatus
+        | Invocation::SyncStatus
+        | Invocation::TasksDoctor => BootstrapPolicy::ReadOnlyWorkspace,
+        Invocation::WorkspaceRename
         | Invocation::WorkspaceAlias
         | Invocation::WorkspaceDefault
+        | Invocation::WorkspaceMigrate
         | Invocation::Config
         | Invocation::Env
         | Invocation::Sync
@@ -130,11 +139,18 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
             WorkspaceAction::Default { .. } => Invocation::WorkspaceDefault,
             WorkspaceAction::Remove { .. } => Invocation::WorkspaceRemove,
             WorkspaceAction::Repair { .. } => Invocation::WorkspaceRepair,
+            WorkspaceAction::Migrate { .. } => Invocation::WorkspaceMigrate,
         },
         Some(Cmd::User(_)) => Invocation::User,
         Some(Cmd::Config(_)) => Invocation::Config,
         Some(Cmd::Env(_)) => Invocation::Env,
-        Some(Cmd::Sync(_)) => Invocation::Sync,
+        Some(Cmd::Sync(args)) => {
+            if matches!(args.action, Some(crate::cli::SyncAction::Status)) {
+                Invocation::SyncStatus
+            } else {
+                Invocation::Sync
+            }
+        }
         Some(Cmd::Check) => Invocation::Check,
         Some(Cmd::Personalize(_)) => Invocation::Personalize,
         Some(Cmd::Skills(_)) => Invocation::Skills,
@@ -149,7 +165,13 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
         },
         Some(Cmd::Habits(_)) => Invocation::Habits,
         Some(Cmd::Reindex(_)) => Invocation::Reindex,
-        Some(Cmd::Tasks(_)) => Invocation::Tasks,
+        Some(Cmd::Tasks(args)) => {
+            if tasks_doctor(&args.rest) {
+                Invocation::TasksDoctor
+            } else {
+                Invocation::Tasks
+            }
+        }
     }
 }
 
@@ -158,6 +180,17 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
 pub fn is_read_only_status(cli: &crate::cli::Cli) -> bool {
     matches!(
         invocation_for(cli),
-        Invocation::ServerStatus | Invocation::ReceiverStatus
+        Invocation::ServerStatus
+            | Invocation::ReceiverStatus
+            | Invocation::SyncStatus
+            | Invocation::WorkspaceList
+            | Invocation::TasksDoctor
     )
+}
+
+fn tasks_doctor(arguments: &[String]) -> bool {
+    arguments
+        .iter()
+        .find(|argument| !matches!(argument.as_str(), "--codex" | "-cx"))
+        .is_some_and(|argument| argument == "doctor")
 }

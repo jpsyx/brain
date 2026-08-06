@@ -29,7 +29,7 @@ impl Answers {
 
 pub(super) fn missing_fields(action: &WorkspaceAction) -> Vec<PromptField> {
     match action {
-        WorkspaceAction::List => Vec::new(),
+        WorkspaceAction::List | WorkspaceAction::Migrate { .. } => Vec::new(),
         WorkspaceAction::Repair {
             manifest,
             local_user_id,

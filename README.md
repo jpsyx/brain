@@ -68,7 +68,7 @@ installing the bundled skills. Then read the [User manual](#user-manual) below.
 
 The user lives in the terminal and would rather type one command than
 remember a dozen. So `brain` is the front door: a persistent shell with three
-main views (tasks, brain-directory search, and logs) and an always-on agent
+main views (tasks, brain-directory search, and logs) and a live agent
 brain panel, plus Finder / `$EDITOR` handoffs for files. Adding a capability
 means adding a palette row or a keybinding, not another command to memorize.
 
@@ -166,6 +166,7 @@ brain workspace alias remove household fam
 brain workspace default household
 brain workspace remove household
 brain workspace repair -b brain --manifest --local-user-id primary-user
+brain workspace migrate -b brain --acknowledge-all-machines-updated
 brain sync -b fam                  # aliases work for ordinary commands
 ```
 
@@ -186,9 +187,12 @@ skippable. Brain then installs the bundled skills.
 Brain silos each workspace's persisted state, configuration, and runtime
 artifacts. One machine registry says which workspaces this binary can select;
 portable files stay inside their root, and runtime files use the stable
-workspace UUID rather than a name or default. This persisted-artifact boundary
-is not a filesystem sandbox or isolation boundary; `workspace_only` remains
-prompt-based guidance plus advisory capability enforcement.
+workspace UUID rather than a name or default.
+
+> **Security boundary:** `workspace_only` is advisory prompt enforcement plus
+> best-effort capability filtering, easy to bypass, and not tenant isolation.
+> Use separate operating-system accounts, machines, VMs, or containers for real
+> isolation.
 
 | Boundary | Location | What belongs there | Portable? |
 | --- | --- | --- | --- |
@@ -321,10 +325,11 @@ code does not reopen the registry or consult a global root. Detached Brain
 children carry the canonical `--brain` name, and child integrations receive
 `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and `BRAIN_ACTOR_ID`.
 
-`workspace_only` mode is easy to bypass. It is intended only to reduce
-accidents and naive cross-workspace leakage among trusted users. It is
-unsuitable for adversarial users or sensitive isolation. Real isolation
-requires an external OS, VM, machine, or container boundary.
+`workspace_only` is advisory prompt enforcement plus best-effort capability
+filtering, easy to bypass, and not tenant isolation. It is intended only to
+reduce accidents and naive cross-workspace leakage among trusted users. Real
+adversarial or sensitive isolation requires an external OS, VM, machine, or
+container boundary.
 
 Brain implements this advisory mode with trusted frontend instructions,
 selected-workspace capability filtering, a minimal child environment, and the
@@ -347,9 +352,27 @@ PTY or child process is touched. Functional OpenCode sessions remain a later
 phase. The shared receiver lease, ingress, authentication, forwarding, and
 delivery lifecycle is active.
 
-The task-schema migrator also remains inactive. Phase 5 owns the final legacy
-sync, coordinated backup, activation, and real-workspace rollout. Phase 2
-proves the new readers, writers, merge behavior, and migration fixtures only.
+Task-schema activation is available only through the explicit, selected
+`brain workspace migrate` command. It checks compatibility, portable-user
+mappings, remote identity, and the all-machines acknowledgement before it
+creates a UUID-scoped journal or mutates portable data. When sync is configured,
+the final legacy semantic sync completes first. Brain then keeps an exact
+machine-local backup, resumes after the last verified step on retry, migrates
+task identity, reconciles triage, rebuilds derived data, and verifies the whole
+workspace before removing the active journal. The retained backup and recovery
+commands are reported on failure. Ordinary startup, readiness, and sync never
+activate this migration.
+
+Cloud sync is optional per workspace and reads only that workspace's machine
+record. Every remote-writing path first validates the remote portable manifest
+against the selected UUID. A mismatch, malformed manifest, incompatible schema,
+or unreadable manifest fails closed. Setup can initialize an empty remote. A
+nonempty manifestless remote requires explicit interactive confirmation or
+`--adopt-workspace-id <exact-selected-uuid>`; `--yes` alone is never ownership
+authority. Locks, journals, current state, rclone workdirs, semantic CSV
+baselines, freshness, and watcher state are all derived from the workspace UUID,
+so different workspaces may sync concurrently while one workspace stays
+serialized.
 
 ## 3. Configuration
 

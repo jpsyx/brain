@@ -13,17 +13,22 @@ use std::path::{Path, PathBuf};
 use std::{error::Error, fmt};
 
 use crate::sync::args::Direction;
-use crate::sync::config::SyncConfig;
 use crate::sync::csv_merge::{merge, parse, schema_status, serialize, validate_for_merge};
-use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone_capture;
-use operation::sync_csvs_with_transport;
+pub use operation::sync_csvs_with_transport;
 
 #[cfg(test)]
 use metadata::reconcile_project_metadata;
 
 /// The two CSVs reconciled out-of-band, as repo-relative paths.
 pub const CSVS: [&str; 2] = ["tasks/tasks.csv", "tasks/habits.csv"];
+pub(crate) const TASK_SCHEMA: &str = "tasks/SCHEMA.json";
+
+#[derive(Debug)]
+pub(crate) struct RemoteTaskState {
+    pub(crate) schema: Option<String>,
+    pub(crate) has_csvs: bool,
+}
 
 /// Counts folded into the sync journal for one merged CSV.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -100,6 +105,86 @@ pub fn baseline_path(paths: &crate::workspace::WorkspacePaths, name: &str) -> Pa
 #[must_use]
 pub fn remote_csv_arg(remote_arg: &str, rel: &str) -> String {
     format!("{}/{rel}", remote_arg.trim_end_matches('/'))
+}
+
+fn fetch_remote_task_schema_with(
+    remote_arg: &str,
+    temporary_dir: &Path,
+    mut run: impl FnMut(&[String]) -> (bool, String),
+) -> Result<RemoteTaskState, CsvSyncError> {
+    let listing_args = [
+        "lsf".to_owned(),
+        remote_arg.to_owned(),
+        "--recursive".to_owned(),
+        "--files-only".to_owned(),
+    ];
+    let (listed, listing) = run(&listing_args);
+    if !listed {
+        return Err(CsvSyncError::Preflight(format!(
+            "could not inspect remote task schema: {}",
+            listing.trim()
+        )));
+    }
+    let has_csvs = listing
+        .lines()
+        .any(|line| matches!(line.trim(), "tasks/tasks.csv" | "tasks/habits.csv"));
+    if !listing.lines().any(|line| line.trim() == TASK_SCHEMA) {
+        return Ok(RemoteTaskState {
+            schema: None,
+            has_csvs,
+        });
+    }
+
+    let temporary = temporary_dir.join(format!(
+        "task-schema-fetch-{}",
+        crate::workspace::WorkspaceId::new()
+    ));
+    let fetch_args = [
+        "copyto".to_owned(),
+        remote_csv_arg(remote_arg, TASK_SCHEMA),
+        temporary.to_string_lossy().into_owned(),
+    ];
+    let (fetched, output) = run(&fetch_args);
+    if !fetched {
+        return Err(CsvSyncError::Preflight(format!(
+            "could not read listed remote task schema: {}",
+            output.trim()
+        )));
+    }
+    let result = std::fs::read_to_string(&temporary).map_err(|error| {
+        CsvSyncError::Preflight(format!(
+            "could not read fetched remote task schema {}: {error}",
+            temporary.display()
+        ))
+    });
+    let _ = std::fs::remove_file(temporary);
+    result.map(|schema| RemoteTaskState {
+        schema: Some(schema),
+        has_csvs,
+    })
+}
+
+pub(crate) fn inspect_remote_task_state(
+    paths: &crate::workspace::WorkspacePaths,
+    remote: &crate::sync::remote::Remote,
+) -> Result<RemoteTaskState, CsvSyncError> {
+    let temporary_dir = paths.sync_dir().join("tmp");
+    std::fs::create_dir_all(&temporary_dir).map_err(|error| {
+        CsvSyncError::LocalWrite(format!(
+            "creating remote task schema staging directory {}: {error}",
+            temporary_dir.display()
+        ))
+    })?;
+    fetch_remote_task_schema_with(&remote.arg, &temporary_dir, |args| {
+        run_rclone_capture(&remote.env, args)
+    })
+}
+
+pub(crate) fn fetch_remote_task_schema(
+    paths: &crate::workspace::WorkspacePaths,
+    remote: &crate::sync::remote::Remote,
+) -> Result<Option<String>, CsvSyncError> {
+    inspect_remote_task_state(paths, remote).map(|state| state.schema)
 }
 
 /// Sync one CSV via the 3-way merge. This single-file helper remains for local
@@ -215,14 +300,18 @@ fn write_all(path: &Path, text: &str) {
 /// metadata through the same typed result boundary.
 pub(crate) fn sync_csvs(
     paths: &crate::workspace::WorkspacePaths,
-    cfg: &SyncConfig,
+    verified: crate::sync::identity::VerifiedRemote<'_>,
     root: &Path,
     direction: Direction,
 ) -> Result<CsvSyncResult, CsvSyncError> {
-    let remote = build_remote(cfg);
+    let remote = verified.remote();
     let temporary_dir = paths.sync_dir().join("tmp");
     let _ = std::fs::create_dir_all(&temporary_dir);
+    let remote_schema = fetch_remote_task_schema(paths, remote)?;
     let fetch = |relative: &str| {
+        if relative == TASK_SCHEMA {
+            return remote_schema.clone();
+        }
         let tag = relative.replace('/', "_");
         let tmp = temporary_dir.join(format!("csv-fetch-{}-{tag}", std::process::id()));
         let args = [

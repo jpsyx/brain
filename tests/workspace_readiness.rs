@@ -242,7 +242,10 @@ fn every_invocation_has_an_explicit_bootstrap_policy() {
         (Invocation::WorkspaceRemove, BootstrapPolicy::RegistryOnly),
         (Invocation::WorkspaceRepair, BootstrapPolicy::RegistryOnly),
         (Invocation::User, BootstrapPolicy::RegistryOnly),
-        (Invocation::WorkspaceList, BootstrapPolicy::ReadyWorkspace),
+        (
+            Invocation::WorkspaceList,
+            BootstrapPolicy::ReadOnlyWorkspace,
+        ),
         (Invocation::WorkspaceRename, BootstrapPolicy::ReadyWorkspace),
         (Invocation::WorkspaceAlias, BootstrapPolicy::ReadyWorkspace),
         (
@@ -252,6 +255,7 @@ fn every_invocation_has_an_explicit_bootstrap_policy() {
         (Invocation::Config, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Env, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Sync, BootstrapPolicy::ReadyWorkspace),
+        (Invocation::SyncStatus, BootstrapPolicy::ReadOnlyWorkspace),
         (Invocation::Check, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Personalize, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Skills, BootstrapPolicy::ReadyWorkspace),
@@ -265,6 +269,7 @@ fn every_invocation_has_an_explicit_bootstrap_policy() {
         (Invocation::Habits, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Reindex, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Tasks, BootstrapPolicy::ReadyWorkspace),
+        (Invocation::TasksDoctor, BootstrapPolicy::ReadOnlyWorkspace),
         (Invocation::Tui, BootstrapPolicy::ReadyWorkspace),
     ];
 
@@ -842,6 +847,7 @@ fn parsed_routes_map_to_their_explicit_invocations() {
         (vec!["brain", "config"], Invocation::Config),
         (vec!["brain", "env"], Invocation::Env),
         (vec!["brain", "sync"], Invocation::Sync),
+        (vec!["brain", "sync", "status"], Invocation::SyncStatus),
         (vec!["brain", "check"], Invocation::Check),
         (vec!["brain", "personalize"], Invocation::Personalize),
         (vec!["brain", "skills"], Invocation::Skills),
@@ -870,6 +876,7 @@ fn parsed_routes_map_to_their_explicit_invocations() {
             vec!["brain", "tasks", "today", "--no-tui"],
             Invocation::Tasks,
         ),
+        (vec!["brain", "tasks", "doctor"], Invocation::TasksDoctor),
         (vec!["brain", "version"], Invocation::Version),
     ];
 

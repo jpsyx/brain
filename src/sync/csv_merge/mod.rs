@@ -8,7 +8,8 @@ mod table;
 pub use merge::{Report, merge};
 pub use relationships::{project_task_lists, rewrite_project_metadata};
 pub use table::{
-    SchemaStatus, Table, TableParseError, parse, schema_status, serialize, validate_for_merge,
+    SchemaStatus, Table, TableParseError, parse, remote_schema_status, schema_status, serialize,
+    validate_for_merge,
 };
 
 #[cfg(test)]
@@ -205,6 +206,44 @@ mod tests {
         assert_eq!(cell(&merged, "1", "status"), "done");
         assert_eq!(cell(&merged, "1", "notes"), "local note");
         assert_eq!(cell(&merged, "1", "last_touched"), "2026-03-01");
+    }
+
+    #[test]
+    fn current_schema_merge_uses_the_full_canonical_header_order() {
+        let base = parse(
+            "notes,task_uuid,task_id,assigned_to,system_key,status,z_extension\n\
+             base,10000000-0000-4000-8000-000000000001,T1,pablo,,open,z\n",
+            SchemaStatus::Current,
+        )
+        .unwrap();
+        let ours = parse(
+            "a_extension,status,system_key,assigned_to,task_id,task_uuid,notes\n\
+             a,open,,pablo,T1,10000000-0000-4000-8000-000000000001,local\n",
+            SchemaStatus::Current,
+        )
+        .unwrap();
+        let theirs = parse(
+            "task_id,z_extension,notes,task_uuid,status,assigned_to,system_key\n\
+             T1,z,remote,10000000-0000-4000-8000-000000000001,done,pablo,\n",
+            SchemaStatus::Current,
+        )
+        .unwrap();
+
+        let (merged, _) = merge(&base, &ours, &theirs);
+
+        assert_eq!(
+            merged.header,
+            [
+                "task_uuid",
+                "task_id",
+                "status",
+                "assigned_to",
+                "notes",
+                "system_key",
+                "a_extension",
+                "z_extension",
+            ]
+        );
     }
 
     #[test]

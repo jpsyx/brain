@@ -86,7 +86,8 @@ fn apply_answers(action: &mut WorkspaceAction, answers: &prompt::Answers) -> Res
         WorkspaceAction::List
         | WorkspaceAction::Rename { .. }
         | WorkspaceAction::Alias(_)
-        | WorkspaceAction::Default { .. } => {
+        | WorkspaceAction::Default { .. }
+        | WorkspaceAction::Migrate { .. } => {
             anyhow::bail!("internal workspace preflight received a ready-workspace action")
         }
     }
@@ -144,7 +145,8 @@ fn validate_action(action: &WorkspaceAction) -> Result<()> {
         WorkspaceAction::List
         | WorkspaceAction::Rename { .. }
         | WorkspaceAction::Alias(_)
-        | WorkspaceAction::Default { .. } => {
+        | WorkspaceAction::Default { .. }
+        | WorkspaceAction::Migrate { .. } => {
             anyhow::bail!("internal workspace preflight received a ready-workspace action")
         }
     }

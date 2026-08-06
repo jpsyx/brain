@@ -26,12 +26,12 @@ pub struct Config {
     pub allowed_skills: Vec<String>,
     /// Whether Brain maintains its daily and weekly triage habit chains.
     pub enable_triage_habits: bool,
-    /// Email address used for long-form responses requested over SMS.
+    /// Legacy migration input for a portable user's response address.
     pub response_email: String,
-    /// Comma-separated phone numbers allowed to issue SMS brain messages.
+    /// Legacy migration input for portable inbound phone mappings.
     #[serde(deserialize_with = "deserialize_sms_allowlist")]
     pub allowed_sms_senders: String,
-    /// Comma-separated email addresses allowed to issue email brain messages.
+    /// Legacy migration input for portable inbound email mappings.
     pub allowed_email_senders: String,
     /// Case-insensitive regex matched against habit *names* to find the
     /// daily-triage habit that gates the startup triage modal. Matching by
@@ -160,11 +160,30 @@ impl Config {
     #[must_use]
     pub fn linear_base_url(&self) -> String {
         let ws = self.linear_workspace.trim();
-        if ws.is_empty() {
+        if ws.is_empty() || !self.linear_workspace_is_valid() {
             String::new()
         } else {
             format!("https://linear.app/{ws}/issue/")
         }
+    }
+
+    /// Whether the optional Linear slug is empty or safe to interpolate.
+    #[must_use]
+    pub(crate) fn linear_workspace_is_valid(&self) -> bool {
+        let value = self.linear_workspace.trim();
+        value.is_empty()
+            || value.len() <= 128
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                && value
+                    .bytes()
+                    .next()
+                    .is_some_and(|byte| byte.is_ascii_alphanumeric())
+                && value
+                    .bytes()
+                    .last()
+                    .is_some_and(|byte| byte.is_ascii_alphanumeric())
     }
 
     #[must_use]
@@ -221,6 +240,14 @@ mod tests {
     fn workspace_is_trimmed_before_interpolation() {
         let cfg: Config = serde_json::from_str(r#"{"linear_workspace": "  acme  "}"#).unwrap();
         assert_eq!(cfg.linear_base_url(), "https://linear.app/acme/issue/");
+    }
+
+    #[test]
+    fn malformed_linear_workspace_never_becomes_a_link() {
+        let cfg: Config = serde_json::from_str(r#"{"linear_workspace":"../outside"}"#).unwrap();
+
+        assert!(!cfg.linear_workspace_is_valid());
+        assert_eq!(cfg.linear_base_url(), "");
     }
 
     #[test]

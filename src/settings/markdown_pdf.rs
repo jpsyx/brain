@@ -18,6 +18,14 @@ fn is_executable_file(p: &Path) -> bool {
     std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
+/// Whether the selected workspace's configured PDF command is currently usable.
+#[must_use]
+pub(crate) fn configured_markdown_to_pdf_ready(command: &crate::workspace::CommandContext) -> bool {
+    crate::env::get(command, "markdown_to_pdf_path")
+        .as_deref()
+        .is_some_and(|path| is_executable_file(Path::new(path)))
+}
+
 /// Conventional install dirs to probe for a `markdown-to-pdf` executable,
 /// in order. Pure so the search order is a checked contract.
 #[must_use]

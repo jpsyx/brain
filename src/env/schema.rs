@@ -55,13 +55,13 @@ pub(super) const VARS: [VarSpec; 13] = [
     },
     VarSpec {
         name: "brain_receiver_public_url",
-        description: "Selected workspace's public receiver base URL; /w/<ingress>/sms and /w/<ingress>/email paths are derived from it.",
+        description: "Selected workspace's machine-local public receiver base URL. Requirement status reports only whether it is present and never prints it.",
         default: None,
         legacy_config_fallback: false,
     },
     VarSpec {
         name: "twilio_account_sid",
-        description: "Machine-local Twilio Account SID used for SMS delivery and attachments.",
+        description: "Machine-local Twilio Account SID used for SMS delivery and attachments; status output redacts its value.",
         default: None,
         legacy_config_fallback: false,
     },
@@ -73,7 +73,7 @@ pub(super) const VARS: [VarSpec; 13] = [
     },
     VarSpec {
         name: "twilio_from_number",
-        description: "Machine-local Twilio number used as the sender for outbound SMS.",
+        description: "Machine-local Twilio number used as the sender for outbound SMS; status output never prints the address.",
         default: None,
         legacy_config_fallback: false,
     },
@@ -85,7 +85,7 @@ pub(super) const VARS: [VarSpec; 13] = [
     },
     VarSpec {
         name: "resend_from_email",
-        description: "Machine-local verified Resend sender address.",
+        description: "Machine-local verified Resend sender address; status output never prints the address.",
         default: None,
         legacy_config_fallback: false,
     },

@@ -228,39 +228,50 @@ pub fn schema_status(manifest: Option<&str>) -> Result<SchemaStatus> {
     Ok(SchemaStatus::Current)
 }
 
+/// Parse remote schema metadata, where only an absent object is legacy.
+pub fn remote_schema_status(manifest: Option<&str>) -> Result<SchemaStatus> {
+    let Some(manifest) = manifest else {
+        return Ok(SchemaStatus::Legacy);
+    };
+    let metadata: serde_json::Value =
+        serde_json::from_str(manifest).context("parsing remote tasks/SCHEMA.json")?;
+    let version = metadata
+        .get("task_schema_version")
+        .ok_or_else(|| anyhow::anyhow!("remote task_schema_version is missing"))?
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("remote task_schema_version must be an unsigned integer"))?;
+    if version != crate::tasks::schema::TASK_SCHEMA_VERSION {
+        bail!(
+            "remote task schema version {version} is unsupported; this Brain supports {}",
+            crate::tasks::schema::TASK_SCHEMA_VERSION
+        );
+    }
+    if metadata
+        .get("merge_key")
+        .and_then(serde_json::Value::as_str)
+        != Some("task_uuid")
+    {
+        bail!("remote task schema version 2 must declare task_uuid as its merge key");
+    }
+    if metadata
+        .pointer("/display_identity/field")
+        .and_then(serde_json::Value::as_str)
+        != Some("task_id")
+    {
+        bail!("remote task schema version 2 must declare task_id as its display identity");
+    }
+    if metadata
+        .pointer("/display_identity/mutable")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        bail!("remote task schema version 2 must declare its display identity mutable");
+    }
+    Ok(SchemaStatus::Current)
+}
+
 fn validate_current_table(table: &Table, preserve_unknown: bool) -> Result<()> {
     const REQUIRED: [&str; 4] = ["task_uuid", "task_id", "assigned_to", "system_key"];
-    const KNOWN: [&str; 29] = [
-        "task_uuid",
-        "task_id",
-        "task_name",
-        "task_type",
-        "status",
-        "waiting_since",
-        "priority",
-        "due_date",
-        "hard_deadline",
-        "start_date",
-        "assigned_to",
-        "see_also",
-        "notes",
-        "project",
-        "energy_level",
-        "context",
-        "estimated_duration",
-        "blocked_by",
-        "defer_count",
-        "recur_interval",
-        "recur_unit",
-        "ideal_time",
-        "created_date",
-        "completed_date",
-        "last_touched",
-        "linear_issue",
-        "system_key",
-        "calendar_id",
-        "waiting_for",
-    ];
     for column in REQUIRED {
         if table.column(column).is_none() {
             bail!("task schema version 2 CSV is missing required column {column}");
@@ -271,7 +282,7 @@ fn validate_current_table(table: &Table, preserve_unknown: bool) -> Result<()> {
         if !seen.insert(column) {
             bail!("task schema version 2 CSV has duplicate column {column}");
         }
-        if !preserve_unknown && !KNOWN.contains(&column.as_str()) {
+        if !preserve_unknown && !crate::tasks::schema::is_known_current_column(column) {
             bail!(
                 "task schema version 2 CSV has unknown column {column}; SCHEMA.json must declare forward_compatible_columns=true to preserve it"
             );
@@ -290,7 +301,37 @@ fn validate_current_table(table: &Table, preserve_unknown: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SchemaStatus, parse};
+    use super::{SchemaStatus, parse, remote_schema_status};
+
+    #[test]
+    fn present_remote_schema_requires_a_typed_complete_supported_manifest() {
+        let invalid = [
+            "{}",
+            r#"{"merge_key":"task_uuid"}"#,
+            r#"{"task_schema_version":"3","merge_key":"task_uuid"}"#,
+            r#"{"task_schema_version":2}"#,
+            r#"{"task_schema_version":2,"merge_key":3}"#,
+            r#"{"task_schema_version":3,"merge_key":"task_uuid"}"#,
+            r#"{"task_schema_version":2,"merge_key":"task_uuid"}"#,
+            r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id"}}"#,
+            r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":"true"}}"#,
+        ];
+
+        assert_eq!(remote_schema_status(None).unwrap(), SchemaStatus::Legacy);
+        for manifest in invalid {
+            assert!(
+                remote_schema_status(Some(manifest)).is_err(),
+                "present remote schema was accepted: {manifest}"
+            );
+        }
+        assert_eq!(
+            remote_schema_status(Some(
+                r#"{"task_schema_version":2,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#
+            ))
+            .unwrap(),
+            SchemaStatus::Current
+        );
+    }
 
     #[test]
     fn hybrid_legacy_rows_remain_keyed_by_task_id() {

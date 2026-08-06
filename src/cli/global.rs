@@ -94,7 +94,7 @@ fn extract_workspace_selectors(args: Vec<String>) -> Vec<String> {
                   \n\
                   Inside the shell: Ctrl-L/Ctrl-H cycle views, Ctrl-T/Ctrl-B\n\
                   jump to the tasks / brain-search view, Ctrl-P opens the\n\
-                  command palette, and Alt-? shows help."
+                  command palette, and Alt-S shows help."
 )]
 pub struct Cli {
     /// Print the brain version.

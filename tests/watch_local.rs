@@ -1,47 +1,72 @@
 //! Integration: the `notify` watcher fires (calls its on-fire callback) shortly
 //! after a file under the watched root changes. Uses a tiny debounce window and
-//! a test callback — never touches rclone, the lock, or B2. Robust to FS-event
+//! a test callback; it never touches rclone, the lock, or B2. Robust to FS-event
 //! latency via a bounded poll.
 //!
 //! macOS runs this through Brain's deterministic polling fallback; other
 //! platforms exercise notify's recommended native backend.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use brain::sync::watch::spawn_watcher_with;
 
 #[test]
 fn watcher_fires_after_a_file_changes() {
-    // Use a user-owned tree, matching production's `~/brain` ownership model.
-    let root = std::env::var_os("HOME")
-        .map_or_else(std::env::temp_dir, std::path::PathBuf::from)
-        .join(format!("brain-watch-test-{}", std::process::id()));
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path().join("personal");
     std::fs::create_dir_all(&root).unwrap();
 
-    let fires = Arc::new(AtomicUsize::new(0));
-    let f = fires.clone();
+    let (fired_tx, fired_rx) = mpsc::channel();
     let handle = spawn_watcher_with(&root, Duration::from_millis(200), move || {
-        f.fetch_add(1, Ordering::SeqCst);
+        let _ = fired_tx.send(());
     })
     .expect("watcher starts");
-
-    // Give the watcher a moment to register the recursive watch.
-    std::thread::sleep(Duration::from_millis(400));
 
     // Emit a short burst, then become completely quiet so the debounce window
     // can expire.
     for n in 1..=3 {
         std::fs::write(root.join(format!("note{n}.md")), b"hello").unwrap();
-        std::thread::sleep(Duration::from_millis(50));
     }
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while fires.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    assert!(fires.load(Ordering::SeqCst) >= 1, "watcher should fire after a change");
+    fired_rx
+        .recv_timeout(Duration::from_secs(15))
+        .expect("watcher should fire after a change");
 
-    drop(handle); // stops the watcher thread without blocking teardown
-    std::fs::remove_dir_all(&root).ok();
+    drop(handle); // explicitly stops and joins this watcher worker
+}
+
+#[test]
+fn stopping_one_workspace_watcher_leaves_the_peer_running() {
+    let temporary = tempfile::tempdir().unwrap();
+    let personal = temporary.path().join("personal");
+    let family = temporary.path().join("family");
+    std::fs::create_dir_all(&personal).unwrap();
+    std::fs::create_dir_all(&family).unwrap();
+    let (personal_tx, personal_rx) = mpsc::channel();
+    let (family_tx, family_rx) = mpsc::channel();
+    let personal_handle = spawn_watcher_with(&personal, Duration::from_millis(20), move || {
+        let _ = personal_tx.send(());
+    })
+    .expect("personal watcher starts");
+    let family_handle = spawn_watcher_with(&family, Duration::from_millis(20), move || {
+        let _ = family_tx.send(());
+    })
+    .expect("family watcher starts");
+
+    std::fs::write(personal.join("first.md"), b"personal").unwrap();
+    std::fs::write(family.join("first.md"), b"family").unwrap();
+    personal_rx
+        .recv_timeout(Duration::from_secs(15))
+        .expect("personal watcher fires");
+    family_rx
+        .recv_timeout(Duration::from_secs(15))
+        .expect("family watcher fires");
+
+    drop(personal_handle);
+    std::fs::write(family.join("second.md"), b"family remains live").unwrap();
+    family_rx
+        .recv_timeout(Duration::from_secs(15))
+        .expect("family watcher survives personal shutdown");
+    assert!(personal_rx.recv_timeout(Duration::from_millis(20)).is_err());
+    drop(family_handle);
 }

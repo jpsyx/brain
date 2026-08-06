@@ -43,12 +43,12 @@ Decisions taken during the merge (see the conversation that produced it):
 
 ## Why `brain` is a "central dispatch", not a single-purpose tool
 
-The user lives in the terminal and wants **one command** to reach
-everything around `~/brain`: manage tasks, jump to a note, search across PARA
-buckets, or think with an agent session rooted in the brain. Rather than
+The user lives in the terminal and wants **one command** to reach everything
+inside the selected workspace: manage tasks, jump to a note, search across PARA
+buckets, or think with an agent session rooted there. Rather than
 memorize several separate entry points, `brain` is the front door: a single
 persistent shell with three main views (tasks, brain-directory search, and logs)
-and an always-on brain panel. New top-level capabilities should be added as a
+and a live brain panel. New top-level capabilities should be added as a
 main view, a palette row, or a keybinding inside that shell, not as a separate
 command (or a shell-mutating one-shot subcommand) the user has to discover.
 
@@ -232,6 +232,25 @@ children repeat the canonical `--brain` selector, and Brain-owned integrations
 receive exactly workspace ID, canonical name, root, and actor ID. Therefore a
 later default change cannot redirect an already-started operation.
 
+## Why feature requirements do not replace workspace readiness
+
+Readiness answers one blocking question: can this invocation safely bind a
+root, portable identity, and local actor to the selected workspace? Optional
+feature health answers a different operational question: is a deliberately
+enabled integration usable? Folding both into one state machine would either
+block unrelated commands on optional integrations or let malformed enabled
+features masquerade as disabled.
+
+Brain therefore keeps required availability distinct from optional `off`,
+`ready`, and `incomplete` state. Startup reuses only the centralized required
+field decision and preserves its existing repair behavior. Read-only status
+surfaces inspect the already-pinned selected record and render redacted health;
+they do not initialize defaults, recover transactions, create SQLite files,
+render skills, or borrow setup from another workspace. Machine-local secrets
+and sender addresses influence presence checks but never enter the requirement
+model or formatter. The PDF row is informational here, while the existing TUI
+startup PDF prerequisite remains a separate hard gate.
+
 ## Why changing the default never changes workspace policy
 
 The machine default is routing metadata, not workspace data. It names the
@@ -314,9 +333,11 @@ changes presentation, not semantics: one-person workspaces hide redundant
 assignment controls but still persist the ID; shared workspaces reveal detail,
 creation/reassignment controls, and filtering. Compatibility is intentionally
 asymmetric: readers accept the legacy `assignee` heading, while any writer
-normalizes to `assigned_to`.
+normalizes to `assigned_to`. When both columns are present, `assigned_to` is
+the canonical mapping input; falling back to whichever header appears first
+would let stale legacy values override current portable assignment.
 
-## Why task UUID migration is inactive until coordinated rollout
+## Why task UUID migration runs only through the coordinated rollout
 
 Human-facing `T###` and `H###` values are useful locators but cannot safely be
 the permanent merge identity once two machines can allocate the same display
@@ -325,12 +346,13 @@ a deterministic UUIDv5 input scoped by workspace, CSV kind, and legacy display
 ID. Completion and ordinary edits preserve the UUID; habit recurrence creates
 a new UUID while retaining assignment and `system_key`.
 
-Activation is deliberately separate. The fixture-tested schema helper requires
-an explicit last-legacy-sync state, an existing durable machine-local backup
-base, and a destination beneath that base; no runtime path calls it. Existing
+Activation is deliberately separate. The schema helper requires an explicit
+last-legacy-sync state, an existing durable machine-local backup base, and a
+destination beneath that base; only `brain workspace migrate` calls it. Existing
 legacy CSVs keep `task_id` identity so their semantic merge remains compatible;
-schema-v2 CSVs merge by UUID, but the helper remains inactive. The UUID column
-alone is not activation: compatibility writers may add `task_uuid` for
+schema-v2 CSVs merge by UUID, but only the explicit rollout coordinator may
+invoke the activation helper. The UUID column alone is not activation:
+compatibility writers may add `task_uuid` for
 new rows while legacy rows remain blank, and sync continues to use `task_id`
 until `tasks/SCHEMA.json` declares the coordinated current schema. The helper
 rejects canonical or lexical path overlap with the workspace, creates each
@@ -341,8 +363,45 @@ recovery journal. A publication error removes the journal temporary before
 returning. A retry restores
 the complete legacy generation after a prepared interruption or retains the
 complete new generation after commit, so a mixed schema is never accepted as a
-new migration input. The coordinated rollout still owns the final legacy sync,
-backup activation, and rollout journal.
+new migration input. The coordinated rollout owns the final legacy sync,
+all-machines and remote identity gates, sender mapping, backup activation,
+rollout journal, derived rebuild, and final cross-store verification.
+
+The final legacy sync can pull config, portable users, and assignments that did
+not exist at command start. Brain therefore reloads all three immediately after
+that journaled sync and before backup or portable mutation. Freezing pre-sync
+objects would allow a newly pulled sender mapping to evade preflight or a stale
+triage flag to be applied during resume.
+
+A second configured legacy machine may begin migration after the first machine
+has already published task schema v2. Treating the present remote marker as
+legacy would publish incompatible rows, while ordinary schema matching would
+strand the second machine. The coordinator therefore owns a replayable join
+bridge before local activation: it runs generic rclone work, validates the
+present remote manifest and both current CSVs, merges by the still-shared
+`task_id`, preserves remote UUID authority for matching rows, and writes only
+the local legacy generation. The following journaled cutover assigns
+deterministic UUIDs only to local-only rows and retains schema-last publication.
+
+Only actual absence of the remote schema marker means legacy. Any present
+object is an authoritative protocol claim, so malformed JSON, missing or
+wrong-typed required fields, unsupported versions, and a non-UUID merge key
+must fail before task CSV reads or writes.
+
+Task-schema activation is a distributed publication boundary, not only a local
+file replacement. The rollout holds the UUID sync lock across local migration,
+remote task and habit CSV publication, and durable local baseline creation.
+Only after those four artifacts are ready does it publish
+`tasks/SCHEMA.json`. Generic rclone sync excludes the two CSVs and schema
+metadata, so no ordinary lane can reorder that transition. The rollout journal
+blocks ordinary sync and setup until an interrupted transition resumes; this
+closes the process-crash gap after the lock owner exits.
+
+Recovery instructions are resume-only for every active rollout journal. A
+remote copy can succeed before the matching journal record is durable, so even
+a nominally pre-transition journal cannot safely authorize restoring only the
+local machine. Retained backups support forensic inspection or a separately
+coordinated manual recovery.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 
@@ -366,16 +425,14 @@ thin binary entry point share one module graph. This avoids compiling a second
 private copy of every module and keeps `main.rs` limited to bootstrap and
 dispatch.
 
-## Why bare `brain` is a persistent two-panel shell with an always-on claude
+## Why bare `brain` is a persistent shell with a live agent panel
 
-The user wanted `claude` rooted in `~/brain` to be *always present and
-continuous* — not launched per question and torn down. So bare `brain` is no
-longer a fire-once picker; it's a persistent shell with fuzzy search on one
-side and a live `claude` PTY (the "brain panel") on the other, mirroring the
-`tasks` TUI's embedded brain pane. The two coexist because finding a note and
-thinking with claude are complementary, not modal. We start focused on the
-brain panel so the resumed conversation is immediately typable; `Alt+H` /
-`Alt+L` switch panels (spatial, so they follow a layout swap).
+The agent session should stay available while the user works, not launch per
+question and disappear. Bare `brain` is therefore a persistent shell with
+three main views beside a live frontend-neutral PTY (the "brain panel"), rooted
+in the selected workspace. Finding a note and thinking with an agent are
+complementary, not modal. Startup focuses the tasks view while leaving the
+panel open; `Alt+H` / `Alt+L` switch focus spatially and follow a layout swap.
 
 ## Why claude exiting closes the panel instead of quitting the shell
 
@@ -898,6 +955,37 @@ explicitly on the user: brain can store rclone-obscured values in machine-local
 env, but it cannot recover encrypted remote data after the original passphrases
 are lost.
 
+**Why the portable manifest is a mandatory remote ownership gate.** A bucket
+and path are location, not identity. Two selected workspace records can be
+misconfigured to point at the same location, and the `RCLONE_TEST` marker only
+proves path symmetry. Before any check-marker, bisync, CSV, counter, or portable
+mutation, brain therefore compares the selected UUID with the strict remote
+`.config/workspace.json` and exposes the remote to mutation code only through a
+verified capability. Mismatch and invalid manifests fail closed. A missing
+manifest is safe to initialize only when setup proves the remote has no files;
+setup first publishes exact manifest bytes under an append-only UUID-named
+claim and reads the claim back. A newly staged claim ends that attempt without
+touching the canonical path. On retry, setup enumerates and validates all
+durable claimants and elects the lowest UUID. Only the winner may publish the canonical manifest, and it
+re-probes that path immediately before using immutable-copy defense. This claim
+protocol is necessary because the rclone/B2 surface does not expose a portable
+compare-and-swap for `.config/workspace.json`; distinct claim names avoid the
+original shared last-writer-wins object race. Claims are excluded from ordinary
+transfer and remain available for safe setup retry. The canonical bytes are
+read back before persisting credentials or writing data. Existing local manifests are never
+rewritten, and ordinary transfer excludes the manifest so it cannot replace a
+remote owner's identity. A nonempty manifestless remote can be legacy data for
+the selected workspace, but absence alone cannot prove ownership. Setup
+therefore displays the local canonical name and UUID, configured target, and
+observed remote status before requiring a positive interactive confirmation.
+Automation must instead repeat the exact selected UUID through
+`--adopt-workspace-id`; a generic `--yes` is intentionally insufficient. This
+authority applies only to setup. Mismatched, untrusted, or present-but-unreadable
+manifests and every ordinary or internal sync path remain hard refusals.
+Authorized adoption still publishes and reads back the exact existing local
+manifest before credentials, markers, CSVs, counters, or bisync data can be
+written.
+
 **Why `--max-delete` shipped first, and why `--check-access` is now enabled.** rclone offers `--check-access`
 as a symmetry guard (both sides must show matching `RCLONE_TEST` marker files,
 or the run aborts) and `--max-delete` as a blast-radius guard (abort if a run
@@ -1174,20 +1262,30 @@ cannot create a feedback loop.
 **Why the advisory sync lock is keyed by workspace UUID.** Concurrent triggers
 are the norm: shell start + the watcher + a second shell + a manual sync can all
 target the same workspace, and two `rclone bisync` runs for that workspace must
-not overlap. A PID-file lock at `<workspace-cache>/sync/sync.lock`, taken
-atomically (`create_new`/O_EXCL) and reaped when stale (owner PID no longer alive
+not overlap. A generation-tagged owner file at
+`<workspace-cache>/sync/sync.lock` is prepared and synced before an atomic
+same-directory hard-link publishes it, then reaped when stale (owner PID no longer alive
 via `kill -0` or heartbeat mtime older than the stale cap), gives "one sync at a
 time per workspace" cheaply, while allowing two different workspace UUIDs to
 sync concurrently. The heartbeat is the minimal
 extra mechanism needed to avoid the SIGKILL + PID-recycle wedge: a real long
 sync keeps refreshing the lockfile mtime, but a stale lock left behind by a dead
 process stops refreshing and becomes reapable even if the old PID number later
-belongs to an unrelated live process. Crucially the lock wraps **all** sync entry
-points, including the manual command path in `src/command/sync.rs`, which closes a latent
+belongs to an unrelated live process. Stale takeover first advisory-locks the
+observed inode and rechecks its generation, so competing reapers cannot unlink
+a successor. Crucially the lock wraps **all** sync entry
+points, including the manual command path in `src/command/sync.rs`, setup's
+identity/credential/baseline stages, and the migration schema transition. This closes a latent
 C2/C3 race that existed before C4: two concurrent manual `brain sync`
 invocations could previously collide, and now the second cleanly skips. Manual
 sync deliberately skips-with-a-message rather than blocking; a short
 blocking-wait for the human path is a noted possible refinement, not shipped.
+
+The UUID boundary applies to the complete sync runtime, not only the advisory
+lock. Journal and current-state reads, the follower log, rclone's workdir, and
+semantic CSV baselines all derive from the same selected `WorkspacePaths`.
+Keeping one path authority prevents a default-workspace change or convenience
+HOME lookup from redirecting observation or transport state across workspaces.
 
 ## C5 — structured conflict list + brain-side deleter for agent-driven resolution
 
@@ -1289,14 +1387,14 @@ hybrid model — identity is a runtime lookup (`brain personalize show`), so it
 changes instantly without a rebuild, while structural per-user variation is left
 to the skill render pipeline.
 
-## Why mutations call a `resync_skills()` seam (currently a no-op)
+## Why mutations call `resync_skills()` (historical seam, now active)
 
 Any `config set` / `personalize set` / onboarding change should keep the
-installed skills consistent with the user's values, so every mutation path calls
-a single `skills::resync_skills()` hook. The real render/install pipeline is a
-later sub-project; wiring the seam now (as a no-op) means that sub-project only
-fills in the body, without hunting down every mutation. It must never fail a
-mutation — a `config set` succeeds even if a future render step errors.
+installed skills consistent with the user's values, so every mutation path
+calls one `skills::resync_skills()` hook. That hook began as the rollout seam;
+it now runs the deterministic render/install pipeline. It remains best effort:
+a `config set` succeeds even if rendering fails, while the unchanged version
+stamp lets a later invocation retry.
 
 ## Why the renderer resolves tags via a process cache, not threaded state
 
@@ -1328,21 +1426,16 @@ dotfiles manager can coexist on one machine once the dotfiles manager stops
 pruning brain-owned entries (the B4 bridge). The link *targets* are a pure
 function (`layout::link_ops`), unit-tested; the FS shell (`install`) stays thin.
 
-## Why the skill sync is gated off (`skills_auto_sync`) during rollout
+## Why skill auto-sync had a rollout gate (historical; default now on)
 
-`resync_skills()` is wired into every config/personalize mutation, but a mutation
-must not silently rewrite the user's live agent registry while the pipeline is
-still being built (sub-projects B1–B3) — on a machine where a dotfiles manager
-already owns that registry, dual management would collide. So the auto-sync is
-gated behind a config flag defaulting to `false`; the pipeline is exercised only
-via `brain skills sync --root <sandbox>` until the B4 cutover flips the flag and
-fixes the dotfiles manager's prune. Safety-first: the default can't disturb a
-live setup.
+During sub-projects B1 through B3, `resync_skills()` was gated off because the
+live registry still had another owner and the render/install pipeline was not
+ready. The B4 cutover completed that ownership transition and activated the
+same seam.
 
-**Post-B4:** the flag now defaults to `true` — the rollout is over, the registry
-is brain-owned, and no dotfiles manager fights brain for it, so a mutation
-*should* re-render the live registry (program invariant #5). Setting it `false`
-reverts to sync-only-on-demand via explicit `brain skills sync`.
+`skills_auto_sync` now defaults to `true`: config/personalize mutations and the
+first ready-workspace invocation after a version change render the live
+registry. Setting it `false` leaves only explicit `brain skills sync`.
 
 ## Why a version-stamped auto-resync (a brain update must ship skill changes)
 
@@ -1665,8 +1758,11 @@ directory and the log file with the system `open`.
 ## Why sync setup/repair are explicit separate states
 
 `brain sync setup` is the only command that enables cloud sync on a machine: it
-collects Backblaze credentials, writes the machine-local `sync` block, creates
-the `RCLONE_TEST` guard marker, and establishes the first baseline.
+collects Backblaze credentials, creates the `RCLONE_TEST` guard marker, and
+establishes the first baseline. One UUID sync-lock guard spans remote ownership
+election through that baseline. The candidate machine-local `sync` block is
+written only after the baseline returns `Clean`; attention, abort, and transport
+errors leave credentials unsaved, so a manual sync cannot observe partial setup state.
 `brain sync repair` deliberately does less: it repairs/re-establishes an existing setup by
 recreating the marker and running a resync. Keeping the commands separate avoids
 silently enabling cloud sync from a recovery command. The UX rule is that any
@@ -1695,7 +1791,10 @@ field:
 The fix makes execution independent of the shell: every automatic trigger
 (startup, watcher, receiver freshness) spawns a detached
 `brain --brain <canonical-name> sync --if-idle` child (`process_group(0)` +
-null stdio). A separate process can't touch the
+null stdio) with the selected UUID in `BRAIN_WORKSPACE_ID`. The canonical name
+keeps the selector stable across alias/default changes, while bootstrap's UUID
+comparison fails closed if that name is ever rebound to a different registry
+record before the child starts. A separate process can't touch the
 TUI, and a child in its own process group outlives the shell and a terminal
 close. There is no in-process sync path anymore. While the TUI remains alive,
 it keeps each child handle in a waiter thread and calls `wait()` so completed
@@ -1710,6 +1809,15 @@ runs. `brain sync status` surfaces `syncing now …` from that marker; a user-ru
 completion (`follow.rs`) instead of the old "another sync is already running;
 try again" error. Background triggers pass `--if-idle` so a redundant one
 coalesces (exits silently) rather than following.
+
+The remaining lifecycle decisions stay workspace-local. Each TUI owns an
+immutable workspace context and exactly its own watcher handle; dropping that
+handle sends an explicit stop and joins only its worker. Receiver freshness
+remains at the live TUI's queued-job consumption boundary, where it can delay
+only that workspace's message. The shared server therefore never becomes a
+sync owner. Its status and retry decisions use an injected runtime in tests,
+with production bounds of a 250ms poll, five-second launch grace, and three
+launch attempts.
 
 ## Why brain owns the rclone bisync workdir, and reaps its lock
 
@@ -1752,6 +1860,16 @@ also writes the floor locally before the next allocation. This
 keeps the next ordinary writer from reissuing a label that reconciliation just
 created. A missing or garbage counter is treated as absent; absent counters
 still derive their first safe value from the CSV floor.
+
+The configured legacy-machine join is a special local-only use of the same
+rule. Its generic rclone pass cannot carry counters because they are excluded,
+and its ordinary task-state lane is intentionally deferred while the local and
+remote schemas differ. The migration bridge therefore computes floors from
+the exact joined tables, fetches any usable remote counters, and atomically
+writes `max(local, remote, joined_max + 1)` only to the local counter files
+before the journaled legacy semantic step can complete. It never pushes a
+legacy CSV or counter generation. A crash before both writes leaves the step
+unrecorded, and replay converges to the same values.
 
 ## Why the daily-triage nudge waits for the startup sync
 
@@ -2388,3 +2506,21 @@ same `env::is_sensitive` classifier used by config display, including the whole
 `agent_capabilities` document and nested MCP credential fields. Names are first
 canonicalized exactly as the env command canonicalizes them. Mode-`0600`, exclusive run
 log creation is an additional local defense, not a substitute for redaction.
+
+## Why rollout acceptance composes production seams behind fake external edges
+
+A real TUI, PTY, cloud provider, and agent provider would make the rollout
+scenario slow, credential-dependent, and timing-sensitive without proving
+Brain's own decisions more directly. The Phase 5 acceptance harness therefore
+uses real temporary registries, manifests, users, caches, locks, shared-server
+control and HTTP routing, task script mutation, CSV reconciliation, triage
+configuration, capability planning, and `AgentController`. Only the signed
+provider request and agent transport are doubles at boundaries Brain does not
+own.
+
+This composition keeps one scenario responsible for the personal-plus-family
+lifecycle while focused suites retain exhaustive branch coverage. It also
+prevents test convenience from becoming a production acceptance flag or a
+second workspace lookup path. Shared-process and watcher transitions wait on
+observable conditions with bounded deadlines; they never use fixed sleeps.
+The real-rclone complement remains prerequisite-gated and local-only.

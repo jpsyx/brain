@@ -18,9 +18,10 @@ Bare `brain` (and `brain tasks …`) opens a **persistent shell** (`tui/`) with
 **three main views**: the **tasks view** (task management, agenda, triage; the
 startup default) and the **brain-directory search view** (fuzzy-pick over the
 selected root), plus the **logs view**, and one app-level **brain panel** (an
-interactive agent session
-in a PTY, Claude by default or Codex with `--codex` / `-cx`, open at startup and
-shared by all views). Switch views with `Ctrl+L`/`Ctrl+H` (cycle) or
+interactive agent session in a PTY, Claude by default or Codex with `--codex` /
+`-cx`, open at startup and shared by all views). `--open-code` / `-oc` is a
+reserved fail-fast stub until OpenCode is functional. Switch views with
+`Ctrl+L`/`Ctrl+H` (cycle) or
 `Ctrl+T`/`Ctrl+B` (jump). Read [docs/glossary.md](docs/glossary.md) first for
 the main-view / sub-view / brain-panel vocabulary.
 
@@ -35,12 +36,15 @@ needs no wrapper: `run.sh` builds the binary when the sources change and
 `--verbose` mirrors logs to stdout for non-TUI commands. Clap errors and
 diagnostics go to stderr. The TUI renders to `/dev/tty` and performs its own
 file-open, Finder-reveal, and agent-launch actions by spawning processes. The
-persistent shell keeps UUID-scoped state
+Ordinary commands resolve one immutable `WorkspaceContext` and `ActorContext`;
+agent work flows through `AgentController`. The persistent shell keeps
+UUID-scoped state
 (`~/.cache/brain/workspaces/<workspace-uuid>/state.db`, table
-`brain_sessions`) to resume the right Claude session (lock + recency) and
-remember the panel layout. Claude sessions are fed by a single Claude
-`SessionStart` hook (`scripts/claude_session_start_hook.py`, keyed on
-`BRAIN_*`); Codex panels launch fresh until brain has a Codex session hook.
+`brain_sessions`) for frontend session locks, completion delivery, and panel
+layout. Claude can resume an eligible transcript; Codex starts fresh while
+using equivalent installed SessionStart/Stop hooks and the same state schema.
+One machine-wide shared HTTP process exists only for the lifetime of live TUI
+leases and stops after the final orderly close or expired crashed lease.
 
 For a deeper map, see [docs/architecture.md](docs/architecture.md).
 
@@ -60,15 +64,18 @@ is the source-of-truth for *how*. They must agree on *what*.
 | User-visible behavior (main views, menu items, subcommands, picker/tasks behavior) | `docs/features.md` |
 | `Bucket` / `Entry`, the picker match model, the `Task`/sub-view model | `docs/data-model.md` |
 | A **tasks-view** keybinding | `docs/keybindings.md`, the `src/tasks/shortcuts.rs` table (footer + help modal), `compact_footer_line` in `src/tasks/render/chrome.rs`, **and** (if it's also a palette / task-action row) `shortcut_for` in `src/tui/palette/command.rs` |
-| A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+?`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
+| A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+S`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
 | A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu/model.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
-| How the brain panel launches Claude or Codex (`claude_cmd`, `codex_cmd`, `--codex` / `-cx`), or the file-open / Finder path | `docs/integrations.md` (launch builder in `src/session.rs`, agent launch commands in `src/env/`, openers in `src/open_target.rs`) |
-| The SessionStart hook, state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/claude_session_start_hook.py`, `scripts/install_hook.sh`, `src/state.rs` |
+| How the brain panel launches Claude, Codex, or the OpenCode stub (`claude_cmd`, `codex_cmd`, `open_code_cmd`, frontend selectors), or the file-open / Finder path | `docs/integrations.md` (controller/adapters in `src/agent/`; compatibility builders in `src/session.rs`; agent commands in `src/env/`; openers in `src/open_target.rs`) |
+| The SessionStart/Stop hooks, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{claude_session_start_hook,claude_stop_hook}.py`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
 | Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, the `sync` block's fields, or **root resolution** (`root` is structural workspace-registry data in `~/.config/brain/env.json`, never writable free-form env; the legacy `~/.config/brain-root` pointer is read-only migration input) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; legacy compatibility in `src/paths.rs`; selected roots in `src/workspace/`; the `sync` block schema in `src/sync/config.rs`) |
 | `brain sync` itself (the `sync`/`--push`/`--pull`/`setup`/`repair`/`status`/`conflicts` surface), the rclone bisync transport, keep-both conflict naming, the `--max-delete` guard, or the sync journal | `docs/features.md` + `docs/integrations.md` + `docs/architecture.md` + `docs/data-model.md` (pipeline in `src/sync/`: `config`, `remote`, `args`, `run`, `conflicts`, `verify`, `journal`, `setup`, `command`; dispatched before the gate in `src/main.rs`) |
-| The `tasks.csv`/`habits.csv` id-keyed semantic merge (excluding them from bisync, the baseline cache, the merge rules, or the journal's `csv:` note) | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (pure merge in `src/sync/csv_merge.rs`; baseline + rclone `copyto` transport + orchestration in `src/sync/csv_sync.rs`; wired into `src/sync/command.rs::sync_once`; excludes in `src/sync/args.rs`) |
+| The `tasks.csv`/`habits.csv` schema-aware semantic merge (excluding them from bisync, the baseline cache, merge/reconciliation rules, or the journal's `csv:` note) | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (pure merge in `src/sync/csv_merge/`; baseline + rclone `copyto` transport + orchestration in `src/sync/csv_sync/`; wired into `src/sync/command/mod.rs::sync_once`; excludes in `src/sync/args.rs`) |
 | The auto-sync triggers (startup pull, change-triggered push, receiver freshness pull, the `notify` watcher + debounce, the sync lock) | `docs/features.md` + `docs/architecture.md` + `docs/integrations.md` + `docs/decisions.md` (modules `src/sync/{freshness,lock,trigger,watch}.rs`; `debounce_ms` in `src/sync/config.rs`; `format_triggers` in `src/sync/command/mod.rs`; seams in `src/tui/{app_sync,event_loop/setup}.rs`) |
+| Remote sync identity, empty-remote initialization, or explicit legacy-remote UUID adoption | `docs/config.md` + `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (`src/sync/{identity,setup,remote}.rs`; all data lanes consume `VerifiedRemote`) |
+| `brain workspace migrate`, its compatibility/readiness gates, journal, retained backup, task-schema activation, or recovery behavior | `docs/config.md` + `docs/features.md` + `docs/architecture.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (`src/migration/`; coordinator-owned task activation in `src/tasks/schema/`) |
+| Required workspace availability or optional per-workspace feature health (`off`/`ready`/`incomplete`) | `docs/config.md` + `docs/features.md` + `docs/data-model.md` + `docs/testing.md` (`src/workspace/requirements/`; selected inspectors reload only their UUID-pinned record) |
 | The second-brain sync skill rows (`cloud-sync`, `resolve-conflicts`), `brain sync conflicts --json`, and `brain sync resolve` | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/architecture.md` + `docs/decisions.md` (`parse_conflict_name`/`group_conflicts`/`copies_for_original` in `src/sync/conflicts.rs`; `conflicts_json` in `src/sync/command/mod.rs`; `resolve` in `src/sync/command/resolve.rs`; the bundled rows in `skills/second-brain/SKILL.md`) |
 | The personalization schema (identity, `namespaces`, tag styles), the `brain personalize` command, first-run onboarding, the namespace/tag checklist, tag-style defaults, or the brain config dir (`<brain-root>/.config/`) | `docs/config.md` + `docs/data-model.md` (schema/store in `src/personalization/`; namespaces in `src/personalization/namespaces.rs`; tag defaults in `src/personalization/tags.rs`; checklist in `src/personalization/checklist/`) |
 | The interactive `brain config set <var>` mode (checklist for `namespaces`/`tags`, value prompt for scalars) | `docs/config.md` (dispatch in `src/main.rs` `config_set_interactive`; personalization editors in `src/personalization/command.rs`) |
@@ -107,8 +114,12 @@ brain
 ( cd path/to/brain && cargo build --release )
 
 # headless smoke test (no TUI on these paths)
-./target/release/brain config list        # → the config table
-./target/release/brain tasks today --no-tui  # → today's tasks, plain text
+./target/release/brain workspace list
+./target/release/brain config list -b brain
+./target/release/brain sync status -b family
+./target/release/brain receiver status -b family
+./target/release/brain server status
+./target/release/brain tasks today --no-tui -b brain
 
 # the full test suite — runs in well under a second
 ( cd path/to/brain && cargo test --release )
@@ -118,7 +129,7 @@ cargo test --release picker::
 cargo test --release --test entry_collect
 
 # lint clean (pedantic + nursery are on)
-cargo clippy --release --all-targets
+cargo clippy --release --all-targets -- -D warnings
 ```
 
 The `brain` command runs `run.sh`, which builds the binary when the sources
@@ -279,12 +290,14 @@ users in `skills/`.)
   The **one exception** is a project-management-log-only commit (see the next
   rule): it touches no source, triggers no release, and must **not** bump the
   version.
-- **Every LLM capability must work with both Claude and Codex.** When adding
-  or changing brain-panel behavior, implement and test equivalent lifecycle,
-  prompt, completion, and delivery behavior for both frontends. If one agent
-  exposes a different integration surface (for example, Claude settings versus
-  Codex `~/.codex/hooks.json`), bridge the difference inside brain rather than
-  silently leaving one frontend unsupported.
+- **Every LLM capability must flow through `AgentController` and work with both
+  Claude and Codex.** When adding or changing brain-panel behavior, implement
+  and test equivalent lifecycle, prompt, completion, and delivery behavior for
+  both functional frontends. If one exposes a different integration surface
+  (for example, Claude settings versus Codex `~/.codex/hooks.json`), bridge the
+  difference inside Brain. Keep OpenCode's adapter intentionally inert and
+  fail-fast until that frontend is implemented; never route around the
+  controller to make one call site appear supported.
 - **Auto-commit project-management-log-only changes straight to `main`.** When
   a change is **exclusively** an update to the project-management log under
   `docs/product-manager/` made through the `/repo-product-manager` skill (a new

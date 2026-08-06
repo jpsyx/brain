@@ -61,7 +61,22 @@ impl<'a> CommandSelection<'a> {
 }
 
 /// Run an ordinary workspace command against bootstrap's pinned identity.
-pub(crate) fn run_ready(args: &WorkspaceArgs, context: &CommandContext) -> Result<()> {
+pub(crate) fn run_ready(
+    args: &WorkspaceArgs,
+    context: &CommandContext,
+    explicit_workspace: bool,
+) -> Result<()> {
+    if let WorkspaceAction::Migrate {
+        acknowledge_all_machines_updated,
+    } = &args.action
+    {
+        return crate::migration::run(
+            context,
+            explicit_workspace,
+            *acknowledge_all_machines_updated,
+        )
+        .map_err(mutate::render_command_error);
+    }
     run_inner(
         args,
         CommandSelection::Pinned {
@@ -69,6 +84,7 @@ pub(crate) fn run_ready(args: &WorkspaceArgs, context: &CommandContext) -> Resul
             workspace_id: context.workspace.id(),
         },
         &context.registry_store,
+        Some(context),
     )
     .map_err(mutate::render_command_error)
 }
@@ -80,7 +96,8 @@ pub(crate) fn run_registry_only(
     selector: Option<&str>,
     store: &RegistryStore,
 ) -> Result<()> {
-    run_inner(args, CommandSelection::Raw(selector), store).map_err(mutate::render_command_error)
+    run_inner(args, CommandSelection::Raw(selector), store, None)
+        .map_err(mutate::render_command_error)
 }
 
 #[must_use]
@@ -92,14 +109,14 @@ fn run_inner(
     args: &WorkspaceArgs,
     selection: CommandSelection<'_>,
     store: &RegistryStore,
+    context: Option<&CommandContext>,
 ) -> Result<()> {
     let answers = prompt::collect(&args.action)?;
     match &args.action {
         WorkspaceAction::List => {
             let registry = mutate::load_registry(store)?;
             selection.validate(&registry)?;
-            crate::access::ensure_registry_access_modes(&registry)?;
-            list::print(&registry, Theme::active())
+            list::print(&registry, context, Theme::active())
         }
         WorkspaceAction::Create { name, root } => {
             let prompted_root = answers.value(prompt::PromptField::Root).map(PathBuf::from);
@@ -250,6 +267,9 @@ fn run_inner(
                     .as_deref()
                     .or_else(|| answers.value(prompt::PromptField::LocalUserId)),
             )
+        }
+        WorkspaceAction::Migrate { .. } => {
+            anyhow::bail!("internal workspace migration expected a ready command context")
         }
     }
 }

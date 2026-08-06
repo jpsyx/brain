@@ -97,7 +97,7 @@ does not create `users.json` as part of that repair path.
 
 | Command | Effect |
 | --- | --- |
-| `brain workspace list` | Deterministically list canonical records with the default marker, root, aliases, local user, receiver state, and the root's portable `access_mode` when available. Empty/unavailable setup is explicit. |
+| `brain workspace list` | Deterministically list canonical records with the default marker, root, aliases, local user, receiver state, and access policy, then append the selected workspace's redacted required/optional health matrix. Empty, unavailable, and incomplete setup are explicit. |
 | `brain workspace create [--name <name>] [--root <path>]` | Validate the complete candidate, create the normalized root and strict portable manifest, then register the same UUID; root basename supplies an omitted name. A later persistence failure preserves the manifest and every directory path the invocation created for manual cleanup. |
 | `brain workspace attach [<root>]` | Validate a strict compatible manifest in an existing root and register its UUID without editing root contents. Invalid or colliding identities leave registry bytes unchanged. |
 | `brain workspace rename [<workspace>] [<name>]` | Rekey the canonical name while preserving the complete record and updating the default if needed. |
@@ -105,6 +105,7 @@ does not create `users.json` as part of that repair path.
 | `brain workspace default [<workspace>]` | Set the canonical default through a canonical-name or alias selector. |
 | `brain workspace remove [<workspace>]` | Detach only the registry record; root and every local/remote runtime artifact remain untouched. |
 | `brain workspace repair [--manifest] [--local-user-id <id>]` | Recreate a missing manifest that matches the registry and/or set this machine's local identity. Omitting both flags uses the interactive prompt. |
+| `brain workspace migrate [--acknowledge-all-machines-updated]` | Run or resume the coordinated legacy task/user rollout. A synced headless workspace requires explicit `--brain <workspace>` selection and the acknowledgement flag. |
 
 Every optional grammar value has a `/dev/tty` prompt when omitted and a flag
 or positional noninteractive form. For create, attach, remove, and repair,
@@ -121,8 +122,11 @@ without migration inventing a competing default.
 
 Each workspace root carries `<brain-root>/.config/workspace.json`. Schema `1`
 contains the workspace UUID, a stable receiver ingress UUID, and the minimum
-compatible Brain version. Parsing rejects unknown fields, unsupported schema
-versions, invalid UUIDs, and a minimum version newer than the running binary.
+compatible Brain version. Schema `1` is the only accepted manifest schema.
+Version comparison uses a numeric `major.minor.patch` core and rejects missing,
+extra, or nonnumeric components. Parsing also rejects unknown fields,
+unsupported schema versions, invalid UUIDs, and a minimum version newer than
+the running binary with exact update-required guidance.
 The manifest UUID must equal the selected machine-registry UUID.
 The manifest is create-only and strict: create publishes it only when the path
 is absent, attach reads it without editing, and unknown fields or identity
@@ -149,21 +153,46 @@ commands. An existing workspace with no `users.json` and a non-empty legacy
 local ID stays ready without being rewritten. Version/help and hidden internal
 server execution perform no workspace IO or prompt.
 
+### Selected-workspace requirements and status
+
+Brain centralizes configuration health without changing the startup readiness
+contract. Root, compatible manifest UUID/schema, a nonempty portable user
+registry, and a valid selected local user are required availability. Optional
+features use three states: `off` when deliberately disabled or absent, `ready`
+when all selected-workspace inputs are valid, and `incomplete` when configured
+but malformed or partial.
+
+The optional matrix covers cloud sync and its watcher; receiver, SMS, and
+email; advisory access policy plus requested MCPs and non-core skills; managed
+triage habits and modal pattern; PDF conversion; Linear; personalization
+role/organization/tag styles; and browser/web views. `workspace_only` remains
+an advisory policy, not filesystem isolation. PDF conversion appears in the
+matrix but the established TUI startup prerequisite remains unchanged.
+
+`brain workspace list`, `brain sync status`, `brain receiver status`, and
+`brain tasks doctor` read only the pinned selected workspace when they render
+this matrix. They do not inherit fields from the default or any peer workspace,
+and they never reveal sync credentials, provider secrets, phone numbers, or
+email addresses. Every incomplete row supplies noninteractive repair syntax;
+interactive prompt metadata records which inputs are secret without carrying
+their current values.
+
 ### Access policy status
 
 `access_mode` belongs to portable workspace config, never the machine registry.
 The first migrated or created workspace is seeded as `unrestricted`; a later
 created or attached workspace is seeded as `workspace_only`. An already-present
-valid portable value wins. A selected schema-v2 record is checked before use,
-and a missing mode is seeded according to current default/nondefault status;
-`workspace list` checks every record without redirecting an ordinary command.
-Changing the machine default changes routing only and never changes either
-portable value.
+valid portable value wins. A selected schema-v2 record is checked before an
+ordinary mutating or TUI command, and a missing mode is seeded according to
+current default/nondefault status. Read-only `workspace list` does not seed or
+repair any record. Changing the machine default changes routing only and never
+changes either portable value.
 
-`workspace_only` mode is easy to bypass. It is intended only to reduce
-accidents and naive cross-workspace leakage among trusted users. It is
-unsuitable for adversarial users or sensitive isolation. Real isolation
-requires an external OS, VM, machine, or container boundary.
+`workspace_only` is advisory prompt enforcement plus best-effort capability
+filtering, easy to bypass, and not tenant isolation. It is intended only to
+reduce accidents and naive cross-workspace leakage among trusted users.
+Adversarial or sensitive isolation requires an external OS, VM, machine, or
+container boundary.
 
 Brain installs trusted advisory instructions in both agent frontends, filters
 the child environment to selected-workspace context and frontend necessities,
@@ -189,14 +218,19 @@ Claude/Codex enforcement level without printing connection material. Names are
 ASCII case-normalized and must begin with a letter or digit; remaining
 characters may be letters, digits, `.`, `_`, or `-`.
 
-Inbound request actor selection now reads `users.json`: provider signatures are
+Inbound request actor selection reads `users.json`: provider signatures are
 verified first, then the normalized sender must match an enabled phone or email
 identity. Legacy receiver allowlists and response settings remain compatibility
-inputs while the coordinated portable schema migration stays deferred. Task
-`assigned_to`, managed triage-habit policy, and the complete shared receiver
-lifecycle are active. Functional OpenCode sessions and task-schema migration
-activation remain later phases. The agent-controller facade and advisory
-access modes are active; OpenCode is a fail-fast stub.
+inputs until explicit `brain workspace migrate` maps them to portable people.
+That command also owns the final legacy semantic sync, durable backup, task
+schema activation, schema-last remote publication, derived rebuild,
+verification, and resumable journal. After its final legacy sync it reloads
+portable config, users, and CSV assignments before preflight. While that
+journal exists, ordinary sync and sync setup require migration to resume;
+ordinary startup and sync paths never activate migration. Task `assigned_to`,
+managed triage-habit policy, and the complete shared receiver lifecycle are
+active. The agent-controller facade and advisory access modes are active;
+functional OpenCode sessions remain a fail-fast future surface.
 
 ### Selected workspace env
 
@@ -256,10 +290,34 @@ Mirrors `brain config` exactly, over the env store:
 
 `brain sync` reads and drives the `sync` block above; the block itself is
 written by **`brain sync setup`** (interactive: bucket + credentials,
-verify/create the bucket, establish the baseline), not by hand-editing
+validate the selected local manifest, verify or initialize remote workspace
+identity, explicitly adopt a nonempty manifestless target when requested,
+establish the baseline under the UUID sync lock), not by hand-editing
 `env.json` or `brain env set`. See [features.md](features.md) for the full
 command surface (`brain sync [--push|--pull] {setup|repair|status|conflicts}`)
 and [integrations.md](integrations.md) for the rclone handoff.
+
+The bucket must already exist. Setup probes the selected record's configured
+bucket/path before persisting the candidate `sync` block. A matching strict
+remote manifest proceeds; a demonstrably empty remote receives the exact local
+manifest only after setup publishes an append-only UUID-named ownership claim,
+enumerates and validates every claim, and wins deterministic UUID election.
+The first publication of a new claim stages ownership and returns without
+publishing a canonical manifest or saving credentials. A retry elects from the
+durable claim set, then verifies the canonical manifest by read-back. A nonempty manifestless target first
+shows the selected name/UUID, configured target, and observed status, then
+requires a positive interactive confirmation or an exact matching
+`--adopt-workspace-id <UUID>` flag. `--yes` alone is insufficient. Mismatch,
+malformed, incompatible, or present-but-unreadable manifests, and unreachable
+probes fail closed. Concurrent setup processes cannot share the selected
+workspace lock, and different workspace UUIDs targeting the same empty remote
+compete through remote claims; only the elected claimant may publish the
+canonical manifest. Setup keeps its local UUID lock through remote identity,
+task-schema preparation, and the complete initial baseline. It persists the
+candidate machine-local credentials only after the baseline is classified
+`Clean`; attention, abort, and transport-error outcomes leave them unsaved.
+All later sync and check invocations load the same selected record's config and
+repeat this identity gate before remote data work.
 
 Optional `rclone crypt` is enabled by adding an already-obscured
 `crypt_password` to the same machine-local `sync` block; `crypt_password2` is
@@ -409,14 +467,15 @@ lists strictly and fails closed when either is malformed.
 
 ### Receiver response configuration
 
-These portable values configure who may issue remote brain messages and where
-long-form SMS responses are delivered:
+These portable values remain only as legacy migration inputs. Active receiver
+identity, authorization, and response routing live in portable
+`.config/users.json` mappings:
 
 | Variable | Meaning |
 | --- | --- |
-| `response_email` | The user's email address for long responses requested over SMS. |
-| `allowed_sms_senders` | Comma-separated E.164 phone numbers permitted to send SMS/MMS messages, including the leading `+` and country code (for example, `+16072809118`). |
-| `allowed_email_senders` | Comma-separated email addresses permitted to issue brain messages and participate in automatic thread replies. |
+| `response_email` | Legacy migration input for a portable user's response address. |
+| `allowed_sms_senders` | Legacy migration input for portable inbound phone mappings. |
+| `allowed_email_senders` | Legacy migration input for portable inbound email mappings. |
 
 Provider credentials are machine-local values in the selected workspace's
 record in `~/.config/brain/env.json`. `brain receiver setup` prompts for the
@@ -594,9 +653,10 @@ sync with the brain (see [features.md](features.md) for how they customize skill
 
 A missing or broken personalization file parses to empty — the app runs fine
 with no personalization, and skills fall back to generic behavior. Any
-`personalize`/`config` mutation triggers a skill re-render (`skills::resync_skills`)
-so the installed skills stay in sync; the render pipeline itself is a later
-sub-project (the trigger is wired now, currently a no-op).
+`personalize`/`config` mutation triggers the active deterministic skill
+render-and-install pipeline (`skills::resync_skills`) so the installed skills
+stay in sync. The first ready-workspace invocation after a Brain version change
+also runs that pipeline when `skills_auto_sync` is enabled.
 
 ## Persistent state (`~/.cache/brain/workspaces/<workspace-id>/state.db`)
 
@@ -608,9 +668,9 @@ shell** also keeps machine-managed state in a SQLite DB at
 - `brain_sessions` records Claude and Codex session identity plus workspace,
   actor, and channel attribution, with a per-session PID lock used for scoped
   lock-and-recency resume. Written by both `brain` and the SessionStart hook.
-- `meta` — small key/value store; today just `panel_side` (`"left"` or
-  `"right"`), the side the brain panel sits on, set by the palette's "Move
-  brain panel…" command and read on startup.
+- `meta`: small key/value store. `panel_side` (`"left"` or `"right"`) records
+  the panel layout; `skills_synced_version` records the last Brain version that
+  successfully rendered this workspace's installed skills.
 
 You don't edit a workspace state DB by hand. Deleting it is safe: brain recreates it,
 starts a fresh agent session, and reverts to the default right-side layout.
