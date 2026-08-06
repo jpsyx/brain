@@ -79,19 +79,14 @@ impl Fixture {
         }
     }
 
-    fn resolver(&mut self) -> WorkspaceRouteResolver<'_> {
-        WorkspaceRouteResolver::new(
-            &mut self.table,
-            &self.store,
-            self.home.path(),
-            Instant::now(),
-        )
+    fn resolver(&self) -> WorkspaceRouteResolver<'_> {
+        WorkspaceRouteResolver::new(&self.table, &self.store, self.home.path(), Instant::now())
     }
 }
 
 #[test]
 fn only_receiver_enabled_live_ingress_resolves_to_a_verified_context() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     let personal_ingress = fixture.personal_ingress;
     let family_ingress = fixture.family_ingress;
 

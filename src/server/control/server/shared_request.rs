@@ -27,6 +27,11 @@ impl ControlServer {
         deadline: Instant,
         clock: &impl Fn() -> Instant,
     ) -> ControlResponse {
+        if let Err(error) = Self::expire_shared_until(shared, now, deadline, clock) {
+            return ControlResponse::Rejected {
+                message: error.to_string(),
+            };
+        }
         let (generation, registry_store, runtime_home) = {
             let server = shared
                 .lock()

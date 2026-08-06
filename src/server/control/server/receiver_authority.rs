@@ -11,7 +11,7 @@ use super::ControlServer;
 impl ControlServer {
     /// Capture route authority and a filesystem loader without doing IO.
     pub(crate) fn begin_workspace_route(
-        &mut self,
+        &self,
         ingress: crate::server::IngressId,
         now: Instant,
     ) -> Result<
@@ -22,7 +22,7 @@ impl ControlServer {
         crate::server::workspace_route::WorkspaceRouteError,
     > {
         let ticket = crate::server::workspace_route::WorkspaceRouteAuthority::begin(
-            &mut self.leases,
+            &self.leases,
             self.generation,
             ingress,
             now,
@@ -35,7 +35,7 @@ impl ControlServer {
     }
 
     pub(crate) fn begin_local_workspace_route(
-        &mut self,
+        &self,
         ingress: crate::server::IngressId,
         capability: crate::server::lifecycle::LeaseId,
         now: Instant,
@@ -47,7 +47,7 @@ impl ControlServer {
         crate::server::workspace_route::WorkspaceRouteError,
     > {
         let ticket = crate::server::workspace_route::WorkspaceRouteAuthority::begin_local(
-            &mut self.leases,
+            &self.leases,
             self.generation,
             ingress,
             capability,
@@ -62,7 +62,7 @@ impl ControlServer {
 
     /// Revalidate captured route authority after filesystem loading.
     pub(crate) fn finish_workspace_route(
-        &mut self,
+        &self,
         ticket: &crate::server::workspace_route::WorkspaceRouteTicket,
         context: crate::workspace::WorkspaceContext,
         now: Instant,
@@ -71,7 +71,7 @@ impl ControlServer {
         crate::server::workspace_route::WorkspaceRouteError,
     > {
         crate::server::workspace_route::WorkspaceRouteAuthority::finish(
-            &mut self.leases,
+            &self.leases,
             self.generation,
             ticket,
             now,
@@ -88,12 +88,12 @@ impl ControlServer {
 
     /// Revalidate one resolved route immediately before receiver handoff.
     pub(crate) fn revalidate_workspace_route(
-        &mut self,
+        &self,
         route: &crate::server::workspace_route::ResolvedWorkspaceRoute,
         now: Instant,
     ) -> Result<(), crate::server::workspace_route::WorkspaceRouteError> {
         crate::server::workspace_route::WorkspaceRouteAuthority::finish(
-            &mut self.leases,
+            &self.leases,
             self.generation,
             route.authority_ticket()?,
             now,
@@ -146,12 +146,12 @@ impl ControlServer {
     }
 
     pub(crate) fn unavailable_receiver_target(
-        &mut self,
+        &self,
         ingress: crate::server::IngressId,
-        now: Instant,
+        _now: Instant,
     ) -> Option<(crate::workspace::WorkspaceId, RegistryStore)> {
         self.leases
-            .unavailable_workspace(ingress, now)
+            .known_workspace(ingress)
             .map(|workspace_id| (workspace_id, self.registry_store.clone()))
     }
 }

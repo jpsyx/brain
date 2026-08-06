@@ -162,6 +162,16 @@ impl SharedReceiverFixture {
             .expect("persist disabled receiver intent");
     }
 
+    pub fn persist_target_enabled(&self) {
+        brain::workspace::RegistryStore::from_path(self.home.path().join(".config/brain/env.json"))
+            .transition_receiver(
+                self.workspace.name(),
+                self.workspace.id(),
+                brain::workspace::ReceiverAction::Start,
+            )
+            .expect("persist enabled receiver intent");
+    }
+
     pub fn unregister_target(&mut self) {
         self.heartbeat
             .as_mut()

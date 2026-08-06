@@ -299,7 +299,9 @@ child adoption changes the token owner, making parent cleanup a no-op; child
 loss before adoption leaves the token unchanged, so the parent removes it when
 the bounded publication wait ends. During that wait the parent retains the
 elected `Child` and uses `try_wait`, rather than PID liveness, so a zombie is an
-observed failed starter and election retries within the original deadline. If
+observed failed starter and election retries within the original deadline.
+After publication, a lifetime waiter owns and reaps that child so later
+SIGKILL cannot wedge heartbeat recovery behind a zombie token. If
 another startup contender briefly holds
 the advisory mutex at that boundary, explicit cleanup retries at a fixed
 interval for at most two seconds while the exact parent token remains instead
@@ -618,7 +620,8 @@ Before setup writes, it snapshots the selected provider values, exact
 portable-user bytes, and selected Claude/Codex hook artifacts, excluding their
 transaction lock pathnames. Provider, user, and hook writes are ordered under
 one persistent workspace-local advisory lock that remains held through
-rollback. A failure conditionally restores only values and
+rollback. Acquisition polls only to a fixed monotonic deadline and reports the
+exact receiver setup lock that timed out. A failure conditionally restores only values and
 files still equal to this attempt's after-image, preserving concurrent success,
 peer records, and live lock inodes. Manifest identity and URL validation complete before the
 first write, and live reload happens only after the whole transaction succeeds.
@@ -629,7 +632,7 @@ phone/email values are replaced for `--flag value`, `--flag=value`, and
 `receiver set name=value` forms. Env assignments use `env::is_sensitive`, so
 whole `agent_capabilities` documents and nested
 `agent_capabilities.mcps.*.credentials.*` values use the same authoritative
-policy. Each run log is created exclusively with mode
+policy after the same uppercase/dash canonicalization as `brain env set`. Each run log is created exclusively with mode
 `0600` as defense in depth.
 
 The receiver handoff endpoint is the selected workspace's mode-`0600`
@@ -649,7 +652,8 @@ a fresh handoff. A signature-verified unavailable Resend ID is retained as a
 permanent discard in the same bounded cache. Known unavailable ingress is
 resolved before selecting that exact workspace's signing credential, and no
 root, user, prompt, or job socket is opened for this verification. A later live
-replay is rejected before Receiving API access. Dispatch retains the original
+replay is rejected before Receiving API access. Persisted disable uses this
+same exact-workspace path even when live refresh is blocked or fails. Dispatch retains the original
 route ticket, reserves five seconds for
 the response, derives one handoff deadline capped at two seconds and at that
 response cutoff, then revalidates the exact generation, authority incarnation,

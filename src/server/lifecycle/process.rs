@@ -116,6 +116,7 @@ pub(crate) fn connect_or_elect_until(
                 let connection = wait_for_started_connection(client, deadline, &mut starter);
                 handoff.cleanup()?;
                 if let Some(found) = connection? {
+                    reap_published_child(starter);
                     return Ok(found);
                 }
             }
@@ -129,6 +130,17 @@ pub(crate) fn connect_or_elect_until(
             anyhow::bail!("brain server did not come up within {STARTUP_TIMEOUT:?}");
         }
     }
+}
+
+fn reap_published_child(mut child: std::process::Child) {
+    std::thread::Builder::new()
+        .name("brain-server-reaper".to_owned())
+        .spawn(move || {
+            if let Err(error) = child.wait() {
+                crate::logging::log(format!("shared-server child reap failed: {error}"));
+            }
+        })
+        .expect("shared-server child reaper thread must start");
 }
 
 fn wait_for_winner(client: &ServerClient, deadline: Instant) -> Result<Option<ProcessRecord>> {

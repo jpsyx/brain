@@ -172,6 +172,9 @@ mutex, then revokes matching admissions outside it with one absolute deadline.
 Pending and authorized admissions become cancelled; work whose socket commit
 already linearized may finish. Orderly disable and unregister wait only to the
 request deadline, and a timeout leaves their lease mutation unapplied.
+Ordinary lease-table paths filter expired leases without removing them. Shared
+control and watchdog entry use the single revoke-aware removal transition, and
+final socket commit revalidates exact TTL.
 
 Every mutating control request is tagged with the process generation. A stale
 generation yields `StaleGeneration` without touching the table. Registration

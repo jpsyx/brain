@@ -207,7 +207,8 @@ redactor before either file logging or verbose mirroring, so receiver provider
 credentials and portable phone/email values never cross the log boundary.
 Env assignment redaction delegates to the authoritative env sensitivity
 classifier, including whole `agent_capabilities` values and nested MCP
-credential fields.
+credential fields, after the same case-and-dash canonicalization as the env
+command.
 
 ### `paths.rs`
 Legacy single-root resolution only. `brain_root()` / `brain_root_path()` retain
@@ -1025,7 +1026,9 @@ offline queue or launches an agent.
   response and ten seconds per request;
   `dispatch.rs` resolves the selected workspace's portable actor, while
   `dispatch/deliveries.rs` owns transactional, workspace-scoped provider-ID
-  deduplication. Verified
+  deduplication, `dispatch/final_authority.rs` owns the repeated persisted
+  intent and exact-TTL admission checks, and `dispatch/forward.rs` owns bounded
+  live-TUI socket delivery. Verified
   unavailable Resend IDs enter the same bounded memory cache before discard,
   so later availability cannot replay them into a TUI;
   `admission.rs` linearizes cancellable exact-lease admission with revocation,
@@ -1052,8 +1055,9 @@ offline queue or launches an agent.
   focused `server/` children keep the state machine separated by responsibility:
   `listener.rs` owns socket IO, `registration.rs` owns live-TUI filesystem
   validation, `shared_request.rs` owns two-phase deadline-bounded requests, and
-  `receiver_authority.rs` owns route/admission transitions plus exact watchdog
-  revocation. Their tests are split into request/deadline, route-authority,
+  `receiver_authority.rs` owns route/admission transitions plus the only
+  expiry-removal path and exact watchdog revocation. Ordinary table paths
+  filter expiry without consuming it. Their tests are split into request/deadline, route-authority,
   receiver-admission, and shared-fixture modules. The watchdog supplies periodic pruning and guarantees final crashed-lease
   shutdown without traffic. The generation-bound workspace-ingress lookup
   returns only the ingress from that workspace's exact live accepted registration.
@@ -1077,12 +1081,15 @@ offline queue or launches an agent.
   inspection reports filesystem and JSON failures without consuming the
   cleanup capability, so callers may repair and retry;
   `process.rs` owns detached election orchestration, retained elected-child
-  observation through `Child::try_wait`, the hidden server loop, and signal
+  observation through `Child::try_wait`, a lifetime waiter for each published
+  elected child, the hidden server loop, and signal
   cleanup; `watchdog.rs`
   applies clock-injected expiry plus the bounded initial-registration deadline;
   `lease.rs`, `table.rs`, and `decision.rs` own typed leases and latched
   final-shutdown decisions; `table/status.rs` owns immutable status
-  projections. Signal flags and cleanup ownership precede process
+  projections, while `table/transition.rs` owns pure revision/identity helpers
+  and table tests are split by registration versus expiry behavior. Signal
+  flags and cleanup ownership precede process
   state publication. The table and process record never contain roots, users,
   credentials, prompts, logs, or message bodies.
   `lifecycle::pid_alive` remains the stable seam for sync callers.
@@ -1125,7 +1132,9 @@ cancellable admission before enqueue. Disable, unregister, and disable-enable
 ABA either cancel before commit or wait only until the control request's
 absolute deadline outside the mutex. A deadline rejection performs no later
 disable or unregister mutation. Watchdog expiry removes the exact lease and
-cancels every matching pre-commit admission before shutdown. The same final
+cancels every matching pre-commit admission before shutdown. Exact route and
+TTL authority are checked again immediately before admission commit, without
+waiting for the watchdog interval. The same final
 admission boundary first reloads the selected
 canonical registry record and requires the exact workspace UUID's persistent
 receiver intent to remain enabled, so a lost live-refresh notification cannot

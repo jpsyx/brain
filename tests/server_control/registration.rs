@@ -1,4 +1,4 @@
-use super::support::{generation, workspace_id, ControlFixture};
+use super::support::{ControlFixture, generation, workspace_id};
 use brain::server::control::{ControlRequest, ControlResponse, ControlServer};
 use brain::workspace::WorkspaceManifest;
 use std::time::Instant;

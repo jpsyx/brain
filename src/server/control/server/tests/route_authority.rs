@@ -180,7 +180,7 @@ fn disable_after_actor_resolution_rejects_before_socket_handoff() {
     let route_lease = lease(now + Duration::from_secs(30));
     let lease_id = route_lease.lease_id;
     let generation = ServerGeneration::new();
-    let mut server = control_with_lease(generation, route_lease, now);
+    let server = control_with_lease(generation, route_lease, now);
     let (ticket, _) = server
         .begin_workspace_route(ingress(), now)
         .expect("capture accepting route");

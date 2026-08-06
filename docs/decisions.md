@@ -1972,7 +1972,9 @@ or authorized admissions. If commit already won, revocation waits outside the
 control-state mutex only until the original request deadline. A timeout rejects
 the control request and applies no later lease mutation. Watchdog expiry removes
 the exact lease first, preventing new admissions, then cancels every matching
-pre-commit admission. Disabled, missing,
+pre-commit admission. Ordinary lease operations filter expiry but never remove
+it; shared control and watchdog entry use that single revoke-aware removal.
+Final admission revalidates exact TTL immediately before commit. Disabled, missing,
 full, and failed endpoints receive one
 channel-specific unavailable response and the request is discarded.
 
@@ -1998,6 +2000,8 @@ still resolved before credentials; only that routed workspace's signing secret
 is then loaded to verify the event. A verified unavailable Resend ID is retained
 as a permanent discard, so later TUI availability cannot replay it. This is a
 bounded in-memory dedup record, not a queue, replay worker, or headless path.
+Persisted disable remains authoritative before live refresh: its failed route
+retains exact ingress-to-workspace identity for the same verified discard.
 
 The accepting request captures immutable actor, channel, normalized sender,
 response email, and allowed authenticated-thread recipients. The TUI routes
@@ -2275,6 +2279,8 @@ portable users, and frontend hook settings live in separate stores, setup
 cannot use one filesystem transaction. It instead snapshots those exact
 selected artifacts, holds one persistent workspace-local advisory lock across
 snapshot, ordered writes, commit, and bounded rollback, and then releases it.
+Acquisition uses bounded monotonic polling and returns an actionable typed
+timeout before snapshot or mutation.
 This transaction-wide ownership prevents an identical concurrent after-image
 from being mistaken for the failed attempt's bytes. Selected env rollback mutates only the UUID-pinned record, so a
 peer workspace update is never replaced by a whole-registry snapshot. Rollback
@@ -2293,5 +2299,6 @@ headless parity, so raw argv is not safe observability data. The logging entry
 point centrally redacts those option values and `receiver set` assignments
 before both file persistence and verbose mirroring. Env assignments consult the
 same `env::is_sensitive` classifier used by config display, including the whole
-`agent_capabilities` document and nested MCP credential fields. Mode-`0600`, exclusive run
+`agent_capabilities` document and nested MCP credential fields. Names are first
+canonicalized exactly as the env command canonicalizes them. Mode-`0600`, exclusive run
 log creation is an additional local defense, not a substitute for redaction.

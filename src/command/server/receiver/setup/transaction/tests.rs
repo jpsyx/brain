@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::Barrier;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, json};
 
@@ -282,4 +283,33 @@ fn setup_serializes_identical_after_images_across_rollback_ownership() {
             .users
             .is_empty()
     );
+}
+
+#[test]
+fn setup_lock_timeout_is_bounded_actionable_and_mutates_nothing() {
+    let fixture = Fixture::new();
+    let _holder = SetupTransactionLock::acquire(fixture.context.workspace.root()).unwrap();
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(10);
+    let instants = std::sync::Mutex::new(std::collections::VecDeque::from([started, deadline]));
+    let clock = || {
+        instants
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front()
+            .unwrap_or(deadline)
+    };
+
+    let error = SetupTransactionLock::acquire_until(
+        fixture.context.workspace.root(),
+        deadline,
+        &clock,
+        &|_| {},
+    )
+    .unwrap_err();
+
+    let message = format!("{error:#}");
+    assert!(message.contains("receiver setup"), "{message}");
+    assert!(message.contains("timed out"), "{message}");
+    fixture.assert_restored();
 }

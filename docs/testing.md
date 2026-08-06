@@ -363,6 +363,9 @@ first move is a failing test that reproduces it, *then* the fix.
   watchdog/control seam after authorization and before commit. A committed
   admission held past an injected short control deadline proves unregister
   returns bounded rejection and cannot mutate authority later.
+  A route lookup at exact expiry cannot consume the lease ahead of watchdog
+  revocation, and an injected final-admission clock proves exact TTL rejects
+  commit before the next watchdog tick.
   Exact status tests distinguish a
   live disabled lease from an accepting lease. Actual parsed CLI start/stop and
   startup `--with-receiver -b` paths, plus keyboard-driven tasks and search
@@ -442,6 +445,9 @@ first move is a failing test that reproduces it, *then* the fix.
   both retained and removed, then exec the real binary. Both cases prove
   retained-`Child` observation re-enters election inside the original deadline,
   without fixed sleeps or PID zombie assumptions.
+  Production election followed by SIGKILL retains no external child handle;
+  heartbeat recovery proves the published-child waiter reaps retained- and
+  removed-token cases before replacement election.
 - **Automatic sync safety.** `sync/args.rs` proves watcher pushes use one-way,
   non-deleting copy arguments; CSV/counter tests prove push-only reconciliation
   does not write remote-only state locally. UUID collision tests prove stable

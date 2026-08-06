@@ -144,7 +144,7 @@ fn resolve_local_workspace_route(
     now: std::time::Instant,
 ) -> Result<workspace_route::ResolvedWorkspaceRoute, workspace_route::WorkspaceRouteError> {
     let (ticket, loader) = {
-        let mut server = control
+        let server = control
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let route = server.begin_local_workspace_route(ingress, capability, now)?;
@@ -160,7 +160,7 @@ pub(in crate::server) fn resolve_workspace_route(
     now: std::time::Instant,
 ) -> Result<workspace_route::ResolvedWorkspaceRoute, workspace_route::WorkspaceRouteError> {
     let (ticket, loader) = {
-        let mut server = control
+        let server = control
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let route = server.begin_workspace_route(ingress, now)?;

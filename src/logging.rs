@@ -94,7 +94,10 @@ pub fn redact_argv(argv: &[String]) -> Vec<String> {
                 return argument.clone();
             }
             if let Some((name, _)) = argument.split_once('=')
-                && (is_private_receiver_field(name) || crate::env::is_sensitive(name))
+                && {
+                    let canonical = crate::settings::normalize_name(name);
+                    is_private_receiver_field(&canonical) || crate::env::is_sensitive(&canonical)
+                }
             {
                 return format!("{name}=[REDACTED]");
             }

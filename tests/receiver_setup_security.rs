@@ -167,6 +167,48 @@ fn setup_private_argv_values_never_reach_run_logs_or_verbose_output() {
 }
 
 #[test]
+fn canonicalized_agent_capability_assignments_never_cross_binary_logging_boundary() {
+    let fixture = Fixture::new();
+    let whole = r#"{"mcps":{"mail":{"credentials":{"token":"UPPER_WHOLE_SECRET"}}}}"#;
+    let (whole_output, whole_log) = run_with_log(
+        &fixture,
+        &[
+            "--verbose",
+            "-b",
+            "personal",
+            "env",
+            "set",
+            &format!("AGENT-CAPABILITIES={whole}"),
+        ],
+    );
+    let (nested_output, nested_log) = run_with_log(
+        &fixture,
+        &[
+            "--verbose",
+            "-b",
+            "personal",
+            "env",
+            "set",
+            "AGENT-CAPABILITIES.MCPS.mail.CREDENTIALS.token=NESTED_CANONICAL_SECRET",
+        ],
+    );
+
+    assert!(whole_output.status.success());
+    assert!(nested_output.status.success());
+    let observed = format!(
+        "{}{}{}{}{}{}",
+        String::from_utf8_lossy(&whole_output.stdout),
+        String::from_utf8_lossy(&whole_output.stderr),
+        String::from_utf8_lossy(&std::fs::read(whole_log).unwrap()),
+        String::from_utf8_lossy(&nested_output.stdout),
+        String::from_utf8_lossy(&nested_output.stderr),
+        String::from_utf8_lossy(&std::fs::read(nested_log).unwrap()),
+    );
+    assert!(!observed.contains("UPPER_WHOLE_SECRET"), "{observed}");
+    assert!(!observed.contains("NESTED_CANONICAL_SECRET"), "{observed}");
+}
+
+#[test]
 fn malformed_supplied_provider_values_fail_before_any_selected_write() {
     let fixture = Fixture::new();
     for (public_url, from_number) in [

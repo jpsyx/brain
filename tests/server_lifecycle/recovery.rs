@@ -2,7 +2,65 @@ use brain::server::control::{HeartbeatClock, HeartbeatEvent, HeartbeatWorker, Re
 use brain::server::lifecycle::{ProcessRecord, ServerDecision};
 use std::sync::{Arc, Barrier, mpsc::Receiver};
 
-use super::support::{LiveTui, RunningServer, wait_for};
+use super::support::{LiveTui, RunningServer, prepare_workspace_registry, wait_for};
+
+#[test]
+fn published_elected_child_is_reaped_for_heartbeat_recovery_with_token_retained() {
+    published_elected_child_is_reaped_for_heartbeat_recovery(false);
+}
+
+#[test]
+fn published_elected_child_is_reaped_for_heartbeat_recovery_with_token_removed() {
+    published_elected_child_is_reaped_for_heartbeat_recovery(true);
+}
+
+fn published_elected_child_is_reaped_for_heartbeat_recovery(remove_token: bool) {
+    let home = tempfile::tempdir().expect("temporary server home");
+    prepare_workspace_registry(home.path());
+    let paths = brain::server::lifecycle::ServerPaths::from_home(home.path());
+    let client = brain::server::control::ServerClient::with_launch_context(
+        paths.clone(),
+        std::path::PathBuf::from(env!("CARGO_BIN_EXE_brain")),
+        home.path().to_path_buf(),
+    );
+    let tui = LiveTui::new(
+        home.path(),
+        "personal",
+        "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
+        "91a0cfc2-7427-49d5-a2f1-258f985cd7e5",
+        "00000000-0000-0000-0000-000000000031",
+    );
+    let mut registration = tui.registration(brain::server::lifecycle::ServerGeneration::new());
+    let published = client
+        .connect_and_register(&mut registration)
+        .expect("elect and register through production");
+    let status = std::process::Command::new("kill")
+        .args(["-KILL", &published.pid.to_string()])
+        .status()
+        .expect("send SIGKILL");
+    assert!(status.success());
+    if remove_token {
+        std::fs::remove_file(paths.election_lock()).expect("remove adopted election token");
+    }
+    let recovery_boundary = Arc::new(Barrier::new(2));
+    let mut worker = HeartbeatWorker::start_with_clock(
+        client,
+        registration,
+        BarrierClock::new(Arc::clone(&recovery_boundary)),
+    );
+    recovery_boundary.wait();
+    let mut recovered = None;
+    wait_for("production heartbeat recovery after SIGKILL", || {
+        for event in worker.poll() {
+            if let HeartbeatEvent::Recovered(generation) = event {
+                recovered = Some(generation);
+            }
+        }
+        recovered.is_some()
+    });
+    assert_ne!(recovered, Some(published.generation));
+    worker.shutdown().expect("unregister replacement");
+}
 
 #[test]
 fn two_tui_heartbeats_race_recovery_and_share_one_replacement_generation() {

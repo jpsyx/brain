@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::workspace::WorkspaceId;
 
-use super::decision::{AuthorityChange, AuthorityRevision, authority_revision_after};
+use super::decision::AuthorityRevision;
 use super::{
     IngressId, LeaseId, LeaseTiming, ServerDecision, WorkspaceAvailability, WorkspaceLease,
 };
@@ -16,6 +16,11 @@ pub use error::LeaseError;
 #[path = "table/status.rs"]
 mod status;
 pub(crate) use status::LeaseStatusView;
+#[path = "table/transition.rs"]
+mod transition;
+use transition::{
+    next_authority_revision, preserve_authority, same_registration, shutdown_decision,
+};
 
 /// A pure transition request for [`LeaseTable`].
 #[derive(Debug, Clone)]
@@ -91,16 +96,14 @@ impl LeaseTable {
 
     /// Register one verified TUI lease.
     ///
-    /// A stale previous lease for this same workspace is reaped before this
-    /// check. A live duplicate lease or an ingress collision is rejected.
+    /// A duplicate lease or ingress collision is rejected. Expiry removal is
+    /// owned exclusively by the control-server watchdog transition.
     ///
     /// # Errors
     ///
     /// Returns [`LeaseError`] when the lease would violate workspace or ingress
     /// identity ownership or its authority revision cannot advance.
     pub fn register(&mut self, lease: WorkspaceLease, now: Instant) -> Result<(), LeaseError> {
-        self.prune_expired(now);
-
         if lease.expires_at <= now {
             return Err(LeaseError::LeaseExpired {
                 lease_id: lease.lease_id,
@@ -186,14 +189,13 @@ impl LeaseTable {
         now: Instant,
         timing: LeaseTiming,
     ) -> Result<(), LeaseError> {
-        self.prune_expired(now);
         let expires_at = now
             .checked_add(timing.ttl())
             .ok_or(LeaseError::ExpiryOverflow)?;
         let lease = self
             .live
             .values_mut()
-            .find(|lease| lease.lease_id == lease_id)
+            .find(|lease| lease.lease_id == lease_id && lease.expires_at > now)
             .ok_or(LeaseError::LeaseNotLive { lease_id })?;
         let workspace_id = lease.workspace_id;
         lease.expires_at = expires_at;
@@ -214,11 +216,10 @@ impl LeaseTable {
         receiver_enabled: bool,
         now: Instant,
     ) -> Result<(), LeaseError> {
-        self.prune_expired(now);
         let lease = self
             .live
             .values_mut()
-            .find(|lease| lease.lease_id == lease_id)
+            .find(|lease| lease.lease_id == lease_id && lease.expires_at > now)
             .ok_or(LeaseError::LeaseNotLive { lease_id })?;
         if lease.receiver_enabled == receiver_enabled {
             return Ok(());
@@ -240,10 +241,12 @@ impl LeaseTable {
         receiver_enabled: bool,
         now: Instant,
     ) -> Result<(), LeaseError> {
-        self.prune_expired(now);
         let Some(lease) = self.live.get_mut(&workspace_id) else {
             return Ok(());
         };
+        if lease.expires_at <= now {
+            return Ok(());
+        }
         if lease.receiver_enabled == receiver_enabled {
             return Ok(());
         }
@@ -255,18 +258,14 @@ impl LeaseTable {
 
     /// Remove one orderly lease and decide whether the process must exit.
     #[must_use]
-    pub fn unregister(&mut self, lease_id: LeaseId, now: Instant) -> ServerDecision {
-        let expired = self.prune_expired(now);
+    pub fn unregister(&mut self, lease_id: LeaseId, _now: Instant) -> ServerDecision {
         let removed = self
             .live
             .iter()
             .find_map(|(workspace_id, lease)| (lease.lease_id == lease_id).then_some(*workspace_id))
             .and_then(|workspace_id| self.live.remove(&workspace_id))
             .is_some();
-        shutdown_decision(
-            self.shutdown_pending || expired || removed,
-            self.live.is_empty(),
-        )
+        shutdown_decision(self.shutdown_pending || removed, self.live.is_empty())
     }
 
     /// Reap expired leases and decide whether the final lease was lost.
@@ -276,55 +275,55 @@ impl LeaseTable {
         shutdown_decision(self.shutdown_pending || expired, self.live.is_empty())
     }
 
-    /// List each live workspace in canonical-name order after reaping expiry.
+    /// List each unexpired workspace in canonical-name order without mutation.
     #[must_use]
-    pub fn live_workspaces(&mut self, now: Instant) -> Vec<WorkspaceId> {
-        self.prune_expired(now);
-        let mut leases = self.live.values().collect::<Vec<_>>();
+    pub fn live_workspaces(&self, now: Instant) -> Vec<WorkspaceId> {
+        let mut leases = self
+            .live
+            .values()
+            .filter(|lease| lease.expires_at > now)
+            .collect::<Vec<_>>();
         leases.sort_unstable_by(|left, right| left.canonical_name.cmp(&right.canonical_name));
         leases.into_iter().map(|lease| lease.workspace_id).collect()
     }
 
     /// Return only the accepted ingress of an exact live workspace lease.
     #[must_use]
-    pub fn live_ingress(&mut self, workspace_id: WorkspaceId, now: Instant) -> Option<IngressId> {
-        self.prune_expired(now);
-        self.live.get(&workspace_id).map(|lease| lease.ingress_id)
+    pub fn live_ingress(&self, workspace_id: WorkspaceId, now: Instant) -> Option<IngressId> {
+        self.live
+            .get(&workspace_id)
+            .filter(|lease| lease.expires_at > now)
+            .map(|lease| lease.ingress_id)
     }
 
     #[must_use]
     pub fn live_local_route(
-        &mut self,
+        &self,
         workspace_id: WorkspaceId,
         now: Instant,
     ) -> Option<(IngressId, LeaseId)> {
-        self.prune_expired(now);
         self.live
             .get(&workspace_id)
+            .filter(|lease| lease.expires_at > now)
             .map(|lease| (lease.ingress_id, lease.lease_id))
     }
 
     /// Return the receiver snapshot of an exact unexpired workspace lease.
     #[must_use]
-    pub fn live_receiver_enabled(
-        &mut self,
-        workspace_id: WorkspaceId,
-        now: Instant,
-    ) -> Option<bool> {
-        self.prune_expired(now);
+    pub fn live_receiver_enabled(&self, workspace_id: WorkspaceId, now: Instant) -> Option<bool> {
         self.live
             .get(&workspace_id)
+            .filter(|lease| lease.expires_at > now)
             .map(|lease| lease.receiver_enabled)
     }
 
     /// Return routing availability without ever exposing an expired lease.
     #[must_use]
-    pub fn availability(&mut self, ingress_id: IngressId, now: Instant) -> WorkspaceAvailability {
-        self.prune_expired(now);
+    pub fn availability(&self, ingress_id: IngressId, now: Instant) -> WorkspaceAvailability {
         match self
             .live
             .values()
-            .find(|lease| lease.ingress_id == ingress_id)
+            .find(|lease| lease.ingress_id == ingress_id && lease.expires_at > now)
         {
             Some(lease) if lease.receiver_enabled => {
                 WorkspaceAvailability::Accepting(lease.clone())
@@ -337,17 +336,8 @@ impl LeaseTable {
         }
     }
 
-    pub(crate) fn unavailable_workspace(
-        &mut self,
-        ingress_id: IngressId,
-        now: Instant,
-    ) -> Option<WorkspaceId> {
-        self.prune_expired(now);
-        let workspace_id = *self.known_ingresses.get(&ingress_id)?;
-        self.live
-            .get(&workspace_id)
-            .is_none_or(|lease| !lease.receiver_enabled)
-            .then_some(workspace_id)
+    pub(crate) fn known_workspace(&self, ingress_id: IngressId) -> Option<WorkspaceId> {
+        self.known_ingresses.get(&ingress_id).copied()
     }
 
     /// Exact authority incarnation for one current workspace lease.
@@ -380,44 +370,6 @@ impl LeaseTable {
             self.shutdown_pending = true;
         }
         removed_any
-    }
-}
-
-fn next_authority_revision(
-    revisions: &HashMap<WorkspaceId, AuthorityRevision>,
-    workspace_id: WorkspaceId,
-) -> Result<AuthorityRevision, LeaseError> {
-    authority_revision_after(
-        revisions.get(&workspace_id).copied(),
-        AuthorityChange::Revoked,
-    )
-    .ok_or(LeaseError::AuthorityRevisionOverflow)
-}
-
-fn preserve_authority(
-    revisions: &mut HashMap<WorkspaceId, AuthorityRevision>,
-    workspace_id: WorkspaceId,
-) {
-    let revision = revisions.get(&workspace_id).copied();
-    if let Some(preserved) = authority_revision_after(revision, AuthorityChange::Heartbeat) {
-        revisions.insert(workspace_id, preserved);
-    }
-}
-
-fn same_registration(existing: &WorkspaceLease, replay: &WorkspaceLease) -> bool {
-    existing.lease_id == replay.lease_id
-        && existing.workspace_id == replay.workspace_id
-        && existing.canonical_name == replay.canonical_name
-        && existing.ingress_id == replay.ingress_id
-        && existing.tui_pid == replay.tui_pid
-        && existing.job_socket == replay.job_socket
-}
-
-fn shutdown_decision(removed_lease: bool, no_live_leases: bool) -> ServerDecision {
-    if removed_lease && no_live_leases {
-        ServerDecision::ShutdownNow
-    } else {
-        ServerDecision::KeepRunning
     }
 }
 

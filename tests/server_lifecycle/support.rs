@@ -172,7 +172,7 @@ pub(super) fn wait_for(description: &str, mut condition: impl FnMut() -> bool) {
     }
 }
 
-fn prepare_workspace_registry(home: &std::path::Path) {
+pub(super) fn prepare_workspace_registry(home: &std::path::Path) {
     let config = home.join(".config/brain");
     let family = home.join("family");
     let personal = home.join("personal");

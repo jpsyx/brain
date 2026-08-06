@@ -144,7 +144,7 @@ impl WorkspaceContextLoader for VerifiedWorkspaceContextLoader {
 
 /// Ingress resolver retained for direct, single-owner callers.
 pub struct WorkspaceRouteResolver<'a> {
-    leases: &'a mut LeaseTable,
+    leases: &'a LeaseTable,
     registry_store: &'a RegistryStore,
     runtime_home: &'a Path,
     now: Instant,
@@ -154,7 +154,7 @@ impl<'a> WorkspaceRouteResolver<'a> {
     /// Build a resolver over one process's current lease table.
     #[must_use]
     pub const fn new(
-        leases: &'a mut LeaseTable,
+        leases: &'a LeaseTable,
         registry_store: &'a RegistryStore,
         runtime_home: &'a Path,
         now: Instant,
@@ -174,7 +174,7 @@ impl<'a> WorkspaceRouteResolver<'a> {
     /// Returns an error when the ingress is unavailable or its workspace
     /// registry and manifest identity cannot be verified.
     pub fn resolve(
-        &mut self,
+        &self,
         ingress: IngressId,
     ) -> Result<ResolvedWorkspaceRoute, WorkspaceRouteError> {
         let lease = accepting_lease(self.leases, ingress, self.now)?;
@@ -193,7 +193,7 @@ pub(crate) struct WorkspaceRouteAuthority;
 impl WorkspaceRouteAuthority {
     /// Capture one live accepting lease without performing filesystem IO.
     pub(crate) fn begin(
-        leases: &mut LeaseTable,
+        leases: &LeaseTable,
         generation: ServerGeneration,
         ingress: IngressId,
         now: Instant,
@@ -210,7 +210,7 @@ impl WorkspaceRouteAuthority {
     }
 
     pub(crate) fn begin_local(
-        leases: &mut LeaseTable,
+        leases: &LeaseTable,
         generation: ServerGeneration,
         ingress: IngressId,
         capability: crate::server::lifecycle::LeaseId,
@@ -225,7 +225,7 @@ impl WorkspaceRouteAuthority {
 
     /// Revalidate the same process generation and lease authority after IO.
     pub(crate) fn finish(
-        leases: &mut LeaseTable,
+        leases: &LeaseTable,
         generation: ServerGeneration,
         ticket: &WorkspaceRouteTicket,
         now: Instant,
@@ -251,7 +251,7 @@ impl WorkspaceRouteAuthority {
 }
 
 fn accepting_lease(
-    leases: &mut LeaseTable,
+    leases: &LeaseTable,
     ingress: IngressId,
     now: Instant,
 ) -> Result<WorkspaceLease, WorkspaceRouteError> {

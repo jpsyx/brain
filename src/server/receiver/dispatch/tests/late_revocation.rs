@@ -21,6 +21,8 @@ enum LateRevocation {
     Unregister,
     DisableEnableAba,
     Expire,
+    RouteLookupThenExpire,
+    ExpireBeforeCommitWithoutWatchdog,
 }
 
 #[test]
@@ -43,12 +45,24 @@ fn watchdog_expiry_after_final_revalidation_cancels_before_tui_ack() {
     run_late_revocation(LateRevocation::Expire);
 }
 
+#[test]
+fn route_lookup_cannot_consume_expiry_before_watchdog_revokes_admission() {
+    run_late_revocation(LateRevocation::RouteLookupThenExpire);
+}
+
+#[test]
+fn exact_lease_expiry_rejects_commit_without_waiting_for_watchdog_tick() {
+    run_late_revocation(LateRevocation::ExpireBeforeCommitWithoutWatchdog);
+}
+
 fn run_late_revocation(revocation: LateRevocation) {
     let provider_id = match revocation {
         LateRevocation::Disable => "SM-late-disable",
         LateRevocation::Unregister => "SM-late-unregister",
         LateRevocation::DisableEnableAba => "SM-late-aba",
         LateRevocation::Expire => "SM-late-expire",
+        LateRevocation::RouteLookupThenExpire => "SM-route-prune-expire",
+        LateRevocation::ExpireBeforeCommitWithoutWatchdog => "SM-expire-before-commit",
     };
     let fixture = tempfile::tempdir().expect("receiver fixture");
     let workspace_id = WorkspaceId::parse(PERSONAL_ID).expect("workspace ID");
@@ -172,6 +186,23 @@ fn run_late_revocation(revocation: LateRevocation) {
     let (result_tx, result_rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let mut request = request;
+        let admission_clock = matches!(
+            revocation,
+            LateRevocation::ExpireBeforeCommitWithoutWatchdog
+        )
+        .then(|| {
+            let instants = Arc::new(Mutex::new(std::collections::VecDeque::from([
+                now,
+                now + crate::server::lifecycle::LEASE_TTL,
+            ])));
+            Arc::new(move || {
+                instants
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .pop_front()
+                    .unwrap_or(now + crate::server::lifecycle::LEASE_TTL)
+            }) as Arc<dyn Fn() -> Instant + Send + Sync>
+        });
         let mut pipeline = SharedReceiverPipeline {
             route: Some(route),
             request: &mut request,
@@ -179,6 +210,7 @@ fn run_late_revocation(revocation: LateRevocation) {
             channel: Channel::Sms,
             handoff_deadline: None,
             admission: None,
+            admission_clock,
             before_final_admission: Some(Box::new(move || {
                 provider_finished_tx
                     .send(())
@@ -286,8 +318,15 @@ fn run_late_revocation(revocation: LateRevocation) {
                 );
             assert!(matches!(response, ControlResponse::Accepted { .. }));
         }
-        LateRevocation::Expire => {
+        LateRevocation::Expire | LateRevocation::RouteLookupThenExpire => {
             let expiry = now + crate::server::lifecycle::LEASE_TTL;
+            if matches!(revocation, LateRevocation::RouteLookupThenExpire) {
+                control
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .begin_workspace_route(ingress, expiry)
+                    .expect_err("expired route lookup must be unavailable");
+            }
             let decision = ControlServer::expire_shared_until(
                 &control,
                 expiry,
@@ -300,6 +339,7 @@ fn run_late_revocation(revocation: LateRevocation) {
                 crate::server::lifecycle::ServerDecision::ShutdownNow
             );
         }
+        LateRevocation::ExpireBeforeCommitWithoutWatchdog => {}
     }
     release_admission_tx
         .send(())
