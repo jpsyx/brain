@@ -695,6 +695,12 @@ Lock, journal, current state/log, rclone workdir, temporary transport files, and
 CSV baseline callers receive the selected workspace's paths or an explicit
 path derived from them. Sync runtime code never reopens the workspace registry,
 resolves a global brain root, or consults HOME for a convenience path.
+The gated local transport harness exercises two matching local remotes
+concurrently with two production `WorkspacePaths`; it also probes a mismatched
+remote manifest before constructing a bisync run. The hermetic rollout
+acceptance test composes this path contract with shared-server, actor/task,
+merge, triage, and `AgentController` seams without adding a production-only
+acceptance branch.
 
 `check.rs` backs `brain check`, a **read-only** sibling of `sync_once`: it
 first passes the same remote identity gate, then builds the same

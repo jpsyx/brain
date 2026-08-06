@@ -1290,6 +1290,10 @@ reflects exactly what was agreed this round. The whole-operation result also
 carries task and habit display-ID floors directly from those reconciled tables;
 counter reconciliation does not fetch either remote CSV again. Push-only sync
 still advances the local counters to those floors before the next allocation.
+The gated two-workspace local transport test runs baseline publication for two
+UUIDs concurrently and asserts both path and byte ownership remain separate.
+Its mismatch case leaves the selected workspace's workdir absent, which pins
+the remote-manifest gate ahead of both bisync state and portable mutation.
 
 **Journal note.** `command::format_csv_note` folds the `Report` from both
 CSVs into one segment appended to the sync journal's `note` column (see

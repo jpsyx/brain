@@ -89,6 +89,16 @@ first move is a failing test that reproduces it, *then* the fix.
   check, and uses a gated local-rclone remote to verify exact setup publication
   and read-back. `tests/sync_local.rs` starts from matching manifests so the
   transport suite exercises the production gate.
+- **Composed multi-workspace acceptance.**
+  `tests/multi_workspace_acceptance.rs` is one orchestration-focused scenario
+  over two temporary workspaces. It reuses the real schema-v2 registry,
+  portable users, UUID caches, TUI and sync locks, shared-server leases,
+  authenticated SMS routing, task script, UUID CSV merge, triage flag, access
+  policy, capability resolution, and `AgentController` launch boundary. The
+  only doubles are the provider request and agent transport at external
+  process edges. Claude and Codex both produce selected-root launch specs;
+  ratatui, PTYs, and live agent providers never start. Lifecycle waits use
+  bounded polling or channels, not fixed sleeps.
 - **Workspace documentation contract.** `tests/workspace_docs.rs` runs the
   compiled binary's root, workspace, and nested alias help, then checks only
   stable command names and selector spellings against the current README/docs.
@@ -554,7 +564,9 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/sync_workspace_paths.rs` | Direct UUID separation for sync paths, concurrent cross-workspace locks, same-workspace serialization, journal reads, and current-state reads. |
 | `tests/sync_workspace_identity.rs` | Pure and compiled-binary remote manifest identity decisions, fail-closed mutation ordering across sync/repair/check, two-record cross-adoption refusal, and gated real-rclone setup publication/read-back. |
 | `tests/sync_trigger_workspace.rs` | Exact detached canonical argv plus expected workspace UUID, compiled bootstrap mismatch refusal, injected child launch, concurrent cross-workspace lock entry, and same-workspace coalescing/following with bounded channels. |
-| `tests/sync_local.rs` | Gated real-rclone transport plus local CSV merge coverage; the transport invokes rclone with the production UUID-derived bisync workdir and reporter paths. |
+| `tests/sync_local.rs` + `tests/sync_local/` | Gated real-rclone harness with focused transport, CSV merge, conflict, and multi-workspace modules; two concurrent local remotes use distinct production UUID-derived workdirs and CSV baselines, and a mismatched remote manifest refuses before bisync. |
+| `tests/watch_local.rs` | Real watcher callbacks over temporary personal and family roots; dropping one joined worker leaves the peer live, with channel deadlines instead of sleeps. |
+| `tests/multi_workspace_acceptance.rs` + `tests/multi_workspace_acceptance/` | One hermetic personal-plus-family scenario covering selector/default policy, UUID caches and locks, one shared server, authenticated wife assignment through the real task script, deterministic display-ID reconciliation, disabled family triage, Claude/Codex advisory capability parity, family unavailability, personal continuity, and final server shutdown. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |
 | `tests/todo_script_mutators.rs` | Brain-owned task scripts, including selected-root `BRAIN_ROOT` propagation and isolated actor/workspace environment for every subprocess. |
@@ -584,6 +596,24 @@ The suite does not claim a filesystem sandbox, a general prompt-injection
 detector, live cloud migration against a production remote, or functional
 OpenCode behavior. Shared HTTP receiver routing and exact TUI
 job-forwarding are covered by the active Phase 4 integration suites.
+
+### Phase 5 composed acceptance matrix
+
+The Phase 5 scenario uses one temporary machine registry and two roots. The
+omitted selector resolves personal while `-b fam` resolves family; the roots
+have different UUID caches, TUI locks, sync locks, and live leases in one
+shared process. A signed family SMS resolves the portable wife identity and a
+fake agent transport invokes the real Brain-owned task script with that actor,
+producing a wife-assigned row. The same run proves deterministic display-ID
+collision repair, no managed triage state when family triage is disabled,
+equivalent Claude/Codex advisory launches without personal capability
+material, family unavailability after its fake TUI closes, personal receiver
+continuity, and shared-process exit after the final close.
+
+`tests/sync_local.rs` supplies the gated transport complement when `rclone` is
+installed: both workspaces resync concurrently through their production
+`WorkspacePaths`, maintain separate workdirs and CSV baselines, and reject a
+remote UUID mismatch before any bisync workdir or remote content mutation.
 
 `tests/*.rs` reach into the crate via `brain::module::Symbol` because
 `src/lib.rs` re-exports the modules. A binary-only crate has no library to

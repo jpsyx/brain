@@ -348,7 +348,13 @@ fn failed_ack_write_rolls_back_the_just_enqueued_job() {
     client.read_exact(&mut prepared).unwrap();
     assert_eq!(&prepared, b"prepared\n");
     client.write_all(b"commit\n").unwrap();
-    client.shutdown(std::net::Shutdown::Both).unwrap();
+    if let Err(error) = client.shutdown(std::net::Shutdown::Both) {
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::NotConnected,
+            "unexpected client shutdown failure: {error}"
+        );
+    }
     drop(client);
 
     let queue = queue_rx.recv_timeout(Duration::from_secs(1)).unwrap();

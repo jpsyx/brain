@@ -1146,6 +1146,12 @@ outside-world touchpoints:
   `parse_outcome` (the `--resync`/"cannot find prior"/critical-error family →
   `AbortKind::PriorListingMissing`) and self-healed by the existing one-time
   auto-resync in `command::sync_once`.
+- **The gated two-workspace transport check** (`tests/sync_local.rs`) runs two
+  local remotes concurrently with separate workspace UUIDs and production
+  `WorkspacePaths`. It verifies distinct rclone workdirs and semantic CSV
+  baselines, then presents one workspace with the other's remote manifest and
+  proves refusal occurs before a bisync workdir or remote content write. It
+  never reads a configured production remote.
 - **The watcher's exclude set** (`watch::is_watch_relevant`, a pure path
   predicate) mirrors the bisync filter (see `args::bisync_args`'s default
   excludes above): a changed path under `.git`, `.cache`, or a `.DS_Store`, or

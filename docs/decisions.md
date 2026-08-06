@@ -2421,3 +2421,21 @@ same `env::is_sensitive` classifier used by config display, including the whole
 `agent_capabilities` document and nested MCP credential fields. Names are first
 canonicalized exactly as the env command canonicalizes them. Mode-`0600`, exclusive run
 log creation is an additional local defense, not a substitute for redaction.
+
+## Why rollout acceptance composes production seams behind fake external edges
+
+A real TUI, PTY, cloud provider, and agent provider would make the rollout
+scenario slow, credential-dependent, and timing-sensitive without proving
+Brain's own decisions more directly. The Phase 5 acceptance harness therefore
+uses real temporary registries, manifests, users, caches, locks, shared-server
+control and HTTP routing, task script mutation, CSV reconciliation, triage
+configuration, capability planning, and `AgentController`. Only the signed
+provider request and agent transport are doubles at boundaries Brain does not
+own.
+
+This composition keeps one scenario responsible for the personal-plus-family
+lifecycle while focused suites retain exhaustive branch coverage. It also
+prevents test convenience from becoming a production acceptance flag or a
+second workspace lookup path. Shared-process and watcher transitions wait on
+observable conditions with bounded deadlines; they never use fixed sleeps.
+The real-rclone complement remains prerequisite-gated and local-only.
