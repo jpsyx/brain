@@ -601,9 +601,12 @@ the UUID lock and directs the user to resume `brain workspace migrate`.
   UUID, configured remote target, observed remote status, and remote UUID when
   a compatible manifest supplied one. A matching identity proceeds; an empty
   remote first receives an append-only exact-manifest claim under the selected
-  UUID. Concurrent initializers enumerate and validate claims, deterministically
-  elect one UUID, and only the winner may publish and read back the canonical
-  manifest. A nonempty
+  UUID. Publishing a new claim is a staging attempt only: setup stops before
+  canonical publication or credential persistence and asks the user to retry.
+  A retry enumerates and validates the durable claim set, deterministically
+  elects one UUID, and only the winner may publish and read back the canonical
+  manifest. This two-phase rule remains safe when object copy is not atomic and
+  a lower competing UUID arrives after another claim. A nonempty
   manifestless remote requires an explicit `y`/`yes` confirmation, or
   `--adopt-workspace-id <UUID>` with the exact selected UUID for noninteractive
   authorization. A generic `--yes` does not authorize adoption. Mismatched,
@@ -611,9 +614,14 @@ the UUID lock and directs the user to resume `brain workspace migrate`.
   hard refusals. Every authorized initialization or adoption publishes and
   verifies the manifest before credentials or any other remote data are written.
   Setup holds the workspace UUID sync lock across that identity protocol,
-  credential persistence, creation of the `RCLONE_TEST` check-access marker on
-  both sides, and the initial bisync baseline. If a workspace migration journal
-  is active, setup refuses before remote identity work.
+  any safe empty-remote task-schema transition, creation of the `RCLONE_TEST`
+  check-access marker on both sides, and the initial bisync baseline. It saves
+  the candidate credentials only after that baseline returns `Clean`;
+  `NeedsAttention`, `Aborted`, or transport failure leaves them unsaved. A
+  current but unconfigured local workspace may publish its current task CSVs,
+  baselines, and schema marker to an empty compatible remote before the first
+  baseline. It refuses to overwrite legacy remote CSVs. If a workspace
+  migration journal is active, setup refuses before remote identity work.
 - `brain sync repair` — (re-)establish the bisync baseline for a machine that
   already has `sync` env configured. A normal sync automatically performs this
   narrow repair when rclone reports a missing check-access marker, announcing
@@ -906,14 +914,20 @@ a same-field disagreement otherwise resolves by whichever side's
 column; legacy rows without a parseable timestamp fall back to a deterministic
 tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
 `task_id`; schema-v2 tables are aligned by column name and keyed by immutable
-`task_uuid`. A compatibility writer adding or populating that column does not
+`task_uuid`. Before reading or merging either remote CSV, Brain fetches and
+validates the remote `tasks/SCHEMA.json`. A missing remote marker means legacy
+only; malformed, incompatible, or newer metadata, and a legacy/current mismatch,
+refuse the whole lane before publication. A compatibility writer adding or populating that column does not
 activate UUID merge identity before `tasks/SCHEMA.json` does so. If distinct
 UUIDs claim the same `T###` or `H###`, the smaller
 UUID keeps it and the other rows receive deterministic IDs above the greatest
 number visible on either side. `blocked_by` chains and project metadata task
 lists are rewritten to the final labels; composite `see_also` values are too,
 including space-separated and punctuation-wrapped task IDs, without changing
-URLs or longer identifiers that merely contain the same characters. Unsupported schema versions, missing identity columns,
+URLs or longer identifiers that merely contain the same characters.
+Current-schema output uses one full canonical order for known task columns and
+sorts declared forward-compatible columns lexically, so independently migrated
+or merged machines serialize byte-stably. Unsupported schema versions, missing identity columns,
 legacy rows without `task_id`, or undeclared unknown columns refuse the whole
 task/habit operation before any CSV, baseline, metadata, remote, or counter
 write. See [data-model.md](data-model.md)

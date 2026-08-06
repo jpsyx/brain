@@ -149,7 +149,7 @@ fn migrated_header(source: &[String]) -> Vec<String> {
     if !header.iter().any(|column| column == "system_key") {
         header.push("system_key".to_owned());
     }
-    header
+    super::canonical_current_header(&header)
 }
 
 pub(super) fn migrate_schema_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
@@ -172,6 +172,7 @@ pub(super) fn migrate_schema_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
             ("mutable".to_owned(), Value::Bool(true)),
         ])),
     );
+    object.insert("forward_compatible_columns".to_owned(), Value::Bool(true));
     object.insert(
         "identity".to_owned(),
         json!({
@@ -182,4 +183,53 @@ pub(super) fn migrate_schema_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     let mut output = serde_json::to_vec_pretty(&value)?;
     output.push(b'\n');
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{migrate_schema_metadata, migrated_header};
+
+    #[test]
+    fn migration_canonicalizes_all_known_columns_and_sorts_forward_compatible_columns() {
+        let first = [
+            "notes",
+            "z_extension",
+            "task_id",
+            "status",
+            "a_extension",
+            "assigned_to",
+        ]
+        .map(str::to_owned);
+        let second = [
+            "a_extension",
+            "assigned_to",
+            "status",
+            "task_id",
+            "z_extension",
+            "notes",
+        ]
+        .map(str::to_owned);
+        let expected = [
+            "task_uuid",
+            "task_id",
+            "status",
+            "assigned_to",
+            "notes",
+            "system_key",
+            "a_extension",
+            "z_extension",
+        ]
+        .map(str::to_owned);
+
+        assert_eq!(migrated_header(&first), expected);
+        assert_eq!(migrated_header(&second), expected);
+    }
+
+    #[test]
+    fn migrated_schema_declares_forward_compatible_column_preservation() {
+        let migrated = migrate_schema_metadata(b"{}").unwrap();
+        let metadata: serde_json::Value = serde_json::from_slice(&migrated).unwrap();
+
+        assert_eq!(metadata["forward_compatible_columns"], true);
+    }
 }

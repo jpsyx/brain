@@ -942,8 +942,9 @@ mutation, brain therefore compares the selected UUID with the strict remote
 verified capability. Mismatch and invalid manifests fail closed. A missing
 manifest is safe to initialize only when setup proves the remote has no files;
 setup first publishes exact manifest bytes under an append-only UUID-named
-claim, reads the claim back, enumerates and validates all claimants, and elects
-the lowest UUID. Only the winner may publish the canonical manifest, and it
+claim and reads the claim back. A newly staged claim ends that attempt without
+touching the canonical path. On retry, setup enumerates and validates all
+durable claimants and elects the lowest UUID. Only the winner may publish the canonical manifest, and it
 re-probes that path immediately before using immutable-copy defense. This claim
 protocol is necessary because the rclone/B2 surface does not expose a portable
 compare-and-swap for `.config/workspace.json`; distinct claim names avoid the
@@ -1239,15 +1240,18 @@ cannot create a feedback loop.
 **Why the advisory sync lock is keyed by workspace UUID.** Concurrent triggers
 are the norm: shell start + the watcher + a second shell + a manual sync can all
 target the same workspace, and two `rclone bisync` runs for that workspace must
-not overlap. A PID-file lock at `<workspace-cache>/sync/sync.lock`, taken
-atomically (`create_new`/O_EXCL) and reaped when stale (owner PID no longer alive
+not overlap. A generation-tagged owner file at
+`<workspace-cache>/sync/sync.lock` is prepared and synced before an atomic
+same-directory hard-link publishes it, then reaped when stale (owner PID no longer alive
 via `kill -0` or heartbeat mtime older than the stale cap), gives "one sync at a
 time per workspace" cheaply, while allowing two different workspace UUIDs to
 sync concurrently. The heartbeat is the minimal
 extra mechanism needed to avoid the SIGKILL + PID-recycle wedge: a real long
 sync keeps refreshing the lockfile mtime, but a stale lock left behind by a dead
 process stops refreshing and becomes reapable even if the old PID number later
-belongs to an unrelated live process. Crucially the lock wraps **all** sync entry
+belongs to an unrelated live process. Stale takeover first advisory-locks the
+observed inode and rechecks its generation, so competing reapers cannot unlink
+a successor. Crucially the lock wraps **all** sync entry
 points, including the manual command path in `src/command/sync.rs`, setup's
 identity/credential/baseline stages, and the migration schema transition. This closes a latent
 C2/C3 race that existed before C4: two concurrent manual `brain sync`
@@ -1706,10 +1710,11 @@ directory and the log file with the system `open`.
 ## Why sync setup/repair are explicit separate states
 
 `brain sync setup` is the only command that enables cloud sync on a machine: it
-collects Backblaze credentials, writes the machine-local `sync` block, creates
-the `RCLONE_TEST` guard marker, and establishes the first baseline. One UUID
-sync-lock guard spans remote ownership election through that baseline, so a
-manual sync cannot observe persisted credentials before setup state is ready.
+collects Backblaze credentials, creates the `RCLONE_TEST` guard marker, and
+establishes the first baseline. One UUID sync-lock guard spans remote ownership
+election through that baseline. The candidate machine-local `sync` block is
+written only after the baseline returns `Clean`; attention, abort, and transport
+errors leave credentials unsaved, so a manual sync cannot observe partial setup state.
 `brain sync repair` deliberately does less: it repairs/re-establishes an existing setup by
 recreating the marker and running a resync. Keeping the commands separate avoids
 silently enabling cloud sync from a recovery command. The UX rule is that any

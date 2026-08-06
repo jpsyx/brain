@@ -14,10 +14,12 @@ use anyhow::{Context, Result, anyhow, bail};
 use super::identity::CsvKind;
 use crate::workspace::WorkspaceId;
 
+mod columns;
 mod path;
 mod transaction;
 mod transform;
 
+pub(crate) use columns::{canonical_current_header, is_known_current_column};
 use path::validate_backup_destination;
 #[cfg(test)]
 use transaction::journal_path as transaction_journal_path;

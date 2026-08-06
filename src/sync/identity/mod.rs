@@ -255,7 +255,14 @@ fn ensure_remote_identity_for_setup_with<'remote>(
     }
 
     let local_path = WorkspaceManifest::path(root);
-    let winner = claim::register_and_elect(&local_path, manifest.workspace_id(), remote, &mut run)?;
+    let claim::Election::Winner(winner) =
+        claim::register_and_elect(&local_path, manifest.workspace_id(), remote, &mut run)?
+    else {
+        bail!(
+            "remote workspace ownership claim staged for UUID {}; no canonical owner or credentials were changed; run `brain sync setup` again after any competing setup attempt has finished",
+            manifest.workspace_id()
+        );
+    };
     if winner != manifest.workspace_id() {
         bail!(
             "remote workspace ownership claim was won by UUID {winner}; selected workspace UUID {} was not published",
@@ -414,12 +421,11 @@ fn run_remote_command(env: &[(String, String)], args: &[String]) -> RemoteComman
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::BTreeMap;
     use std::fmt::Write as _;
     use std::path::Path;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Barrier, Mutex};
+    use std::sync::{Arc, Condvar, Mutex};
 
     use super::*;
     use crate::sync::remote::Remote;
@@ -460,6 +466,98 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RaceRemoteState {
+        manifest: Option<Vec<u8>>,
+        claims: BTreeMap<String, Vec<u8>>,
+        higher_claim_published: bool,
+        lower_claim_published: bool,
+        manifest_publications: usize,
+    }
+
+    #[derive(Default)]
+    struct RaceRemote {
+        state: Mutex<RaceRemoteState>,
+        changed: Condvar,
+    }
+
+    impl RaceRemote {
+        fn run(&self, args: &[String]) -> RemoteCommandOutput {
+            match args.first().map(String::as_str) {
+                Some("cat") => {
+                    let target = args.get(1).expect("cat target");
+                    let state = self.state.lock().unwrap();
+                    if target.ends_with(REMOTE_MANIFEST) {
+                        state.manifest.as_ref().map_or_else(
+                            || output(false, b"", "object not found"),
+                            |bytes| output(true, bytes, ""),
+                        )
+                    } else {
+                        let name = target.rsplit('/').next().unwrap_or_default();
+                        state.claims.get(name).map_or_else(
+                            || output(false, b"", "object not found"),
+                            |bytes| output(true, bytes, ""),
+                        )
+                    }
+                }
+                Some("lsf") => {
+                    let listing = self.state.lock().unwrap().claims.keys().fold(
+                        String::new(),
+                        |mut listing, name| {
+                            if args
+                                .get(1)
+                                .is_some_and(|target| target.ends_with("workspace-claims"))
+                            {
+                                writeln!(listing, "{name}").unwrap();
+                            } else {
+                                writeln!(listing, ".config/workspace-claims/{name}").unwrap();
+                            }
+                            listing
+                        },
+                    );
+                    output(true, listing.as_bytes(), "")
+                }
+                Some("copyto") => {
+                    let source = args.get(1).expect("copy source");
+                    let target = args.get(2).expect("copy target");
+                    let bytes = std::fs::read(source).unwrap();
+                    let mut state = self.state.lock().unwrap();
+                    if target.contains("/.config/workspace-claims/") {
+                        let name = target.rsplit('/').next().unwrap().to_owned();
+                        if name.starts_with(FAMILY_ID) {
+                            state.claims.insert(name, bytes);
+                            state.higher_claim_published = true;
+                            self.changed.notify_all();
+                            state = self
+                                .changed
+                                .wait_while(state, |state| !state.lower_claim_published)
+                                .unwrap();
+                        } else {
+                            state = self
+                                .changed
+                                .wait_while(state, |state| !state.higher_claim_published)
+                                .unwrap();
+                            state.claims.insert(name, bytes);
+                            state.lower_claim_published = true;
+                            self.changed.notify_all();
+                        }
+                    } else {
+                        state.manifest_publications += 1;
+                        state.manifest = Some(bytes);
+                    }
+                    drop(state);
+                    output(true, b"", "")
+                }
+                command => panic!("unexpected remote command: {command:?} {args:?}"),
+            }
+        }
+
+        fn snapshot(&self) -> (usize, Option<Vec<u8>>) {
+            let state = self.state.lock().unwrap();
+            (state.manifest_publications, state.manifest.clone())
+        }
+    }
+
     #[test]
     fn setup_publishes_the_existing_local_manifest_first_and_verifies_readback() {
         let root = tempfile::tempdir().unwrap();
@@ -476,10 +574,10 @@ mod tests {
             |_, args| {
                 calls.borrow_mut().push(args.to_vec());
                 let response = match step {
-                    0 | 2 | 7 => output(false, b"", "object not found"),
-                    1 | 3 | 8 | 9 => output(true, b"", ""),
-                    4 | 6 | 10 => output(true, &bytes, ""),
-                    5 => output(true, format!("{PERSONAL_ID}.json\n").as_bytes(), ""),
+                    0 | 5 => output(false, b"", "object not found"),
+                    1 | 6 | 7 => output(true, b"", ""),
+                    2 | 4 | 8 => output(true, &bytes, ""),
+                    3 => output(true, format!("{PERSONAL_ID}.json\n").as_bytes(), ""),
                     _ => panic!("unexpected remote command"),
                 };
                 step += 1;
@@ -495,18 +593,7 @@ mod tests {
         );
         assert_eq!(calls[1][0], "lsf");
         assert_eq!(
-            calls[3],
-            [
-                "copyto",
-                WorkspaceManifest::path(root.path())
-                    .to_string_lossy()
-                    .as_ref(),
-                &format!("BRAIN:shared/brain/.config/workspace-claims/{PERSONAL_ID}.json"),
-                "--immutable",
-            ]
-        );
-        assert_eq!(
-            &calls[9][..3],
+            &calls[7][..3],
             [
                 "copyto",
                 WorkspaceManifest::path(root.path())
@@ -516,7 +603,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            &calls[10][..2],
+            &calls[8][..2],
             ["cat", "BRAIN:shared/brain/.config/workspace.json"]
         );
         assert_eq!(
@@ -526,88 +613,59 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_empty_setup_elects_one_claim_without_overwriting_the_manifest() {
-        #[derive(Default)]
-        struct RemoteState {
-            manifest: Option<Vec<u8>>,
-            claims: BTreeMap<String, Vec<u8>>,
-            manifest_publications: usize,
-        }
+    fn first_setup_attempt_stages_a_new_claim_without_publishing_canonical_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let bytes = manifest_bytes(PERSONAL_ID);
+        write_manifest(root.path(), &bytes);
+        let canonical_publications = Cell::new(0);
+        let mut step = 0;
 
+        let error = ensure_remote_identity_for_setup_with(
+            root.path(),
+            workspace_id(PERSONAL_ID),
+            &remote(),
+            |_| Ok(ManifestlessRemoteAdoption::Refuse),
+            |_, args| {
+                let response = match step {
+                    0 | 2 | 7 => output(false, b"", "object not found"),
+                    1 | 3 | 8 => output(true, b"", ""),
+                    4 | 6 | 10 => output(true, &bytes, ""),
+                    5 => output(true, format!("{PERSONAL_ID}.json\n").as_bytes(), ""),
+                    _ if args.first().map(String::as_str) == Some("copyto") => {
+                        canonical_publications.set(canonical_publications.get() + 1);
+                        output(true, b"", "")
+                    }
+                    _ => output(true, format!("{PERSONAL_ID}.json\n").as_bytes(), ""),
+                };
+                step += 1;
+                response
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("claim staged"), "{error:#}");
+        assert_eq!(canonical_publications.get(), 0);
+    }
+
+    #[test]
+    fn late_competing_claims_stage_then_only_one_retry_publishes_with_non_atomic_copy() {
         let personal = tempfile::tempdir().unwrap();
         let family = tempfile::tempdir().unwrap();
         write_manifest(personal.path(), &manifest_bytes(PERSONAL_ID));
         write_manifest(family.path(), &manifest_bytes(FAMILY_ID));
-        let state = Arc::new(Mutex::new(RemoteState::default()));
-        let empty_probe_barrier = Arc::new(Barrier::new(2));
-        let claim_publish_barrier = Arc::new(Barrier::new(2));
-        let root_listings = Arc::new(AtomicUsize::new(0));
+        let state = Arc::new(RaceRemote::default());
 
-        let results = std::thread::scope(|scope| {
+        let first_attempts = std::thread::scope(|scope| {
             let launch = |root: &Path, id: WorkspaceId| {
                 let root = root.to_path_buf();
                 let state = Arc::clone(&state);
-                let empty_probe_barrier = Arc::clone(&empty_probe_barrier);
-                let claim_publish_barrier = Arc::clone(&claim_publish_barrier);
-                let root_listings = Arc::clone(&root_listings);
                 scope.spawn(move || {
                     ensure_remote_identity_for_setup_with(
                         &root,
                         id,
                         &remote(),
                         |_| Ok(ManifestlessRemoteAdoption::Refuse),
-                        |_, args| match args.first().map(String::as_str) {
-                            Some("cat") => {
-                                let target = args.get(1).expect("cat target");
-                                let state = state.lock().unwrap();
-                                if target.ends_with(REMOTE_MANIFEST) {
-                                    state.manifest.as_ref().map_or_else(
-                                        || output(false, b"", "object not found"),
-                                        |bytes| output(true, bytes, ""),
-                                    )
-                                } else {
-                                    let name = target.rsplit('/').next().unwrap_or_default();
-                                    state.claims.get(name).map_or_else(
-                                        || output(false, b"", "object not found"),
-                                        |bytes| output(true, bytes, ""),
-                                    )
-                                }
-                            }
-                            Some("lsf") => {
-                                let target = args.get(1).expect("lsf target");
-                                if target.ends_with("/.config/workspace-claims") {
-                                    let listing = state.lock().unwrap().claims.keys().fold(
-                                        String::new(),
-                                        |mut listing, name| {
-                                            writeln!(listing, "{name}").unwrap();
-                                            listing
-                                        },
-                                    );
-                                    output(true, listing.as_bytes(), "")
-                                } else {
-                                    if root_listings.fetch_add(1, Ordering::SeqCst) < 2 {
-                                        empty_probe_barrier.wait();
-                                    }
-                                    output(true, b"", "")
-                                }
-                            }
-                            Some("copyto") => {
-                                let source = args.get(1).expect("copy source");
-                                let target = args.get(2).expect("copy target");
-                                let bytes = std::fs::read(source).unwrap();
-                                if target.contains("/.config/workspace-claims/") {
-                                    let name = target.rsplit('/').next().unwrap().to_owned();
-                                    state.lock().unwrap().claims.insert(name, bytes);
-                                    claim_publish_barrier.wait();
-                                } else {
-                                    let mut state = state.lock().unwrap();
-                                    state.manifest_publications += 1;
-                                    state.manifest = Some(bytes);
-                                }
-                                output(true, b"", "")
-                            }
-                            command => panic!("unexpected remote command: {command:?} {args:?}"),
-                        },
+                        |_, args| state.run(args),
                     )
                     .map(|_| ())
                 })
@@ -617,11 +675,38 @@ mod tests {
             [personal.join().unwrap(), family.join().unwrap()]
         });
 
-        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
-        let (manifest_publications, manifest) = {
-            let state = state.lock().unwrap();
-            (state.manifest_publications, state.manifest.clone())
-        };
+        assert!(first_attempts.iter().all(Result::is_err));
+        assert!(first_attempts.iter().all(|result| {
+            result
+                .as_ref()
+                .unwrap_err()
+                .to_string()
+                .contains("claim staged")
+        }));
+        assert_eq!(state.snapshot(), (0, None));
+
+        let retries = std::thread::scope(|scope| {
+            let launch = |root: &Path, id: WorkspaceId| {
+                let root = root.to_path_buf();
+                let state = Arc::clone(&state);
+                scope.spawn(move || {
+                    ensure_remote_identity_for_setup_with(
+                        &root,
+                        id,
+                        &remote(),
+                        |_| Ok(ManifestlessRemoteAdoption::Refuse),
+                        |_, args| state.run(args),
+                    )
+                    .map(|_| ())
+                })
+            };
+            let personal = launch(personal.path(), workspace_id(PERSONAL_ID));
+            let family = launch(family.path(), workspace_id(FAMILY_ID));
+            [personal.join().unwrap(), family.join().unwrap()]
+        });
+
+        assert_eq!(retries.iter().filter(|result| result.is_ok()).count(), 1);
+        let (manifest_publications, manifest) = state.snapshot();
         assert_eq!(manifest_publications, 1);
         assert_eq!(
             manifest.as_deref(),
@@ -715,11 +800,11 @@ mod tests {
             |_, args| {
                 calls.borrow_mut().push(args.to_vec());
                 let response = match step {
-                    0 | 2 | 7 => output(false, b"", "object not found"),
-                    1 | 8 => output(true, b"notes.md\n", ""),
-                    3 | 9 => output(true, b"", ""),
-                    4 | 6 | 10 => output(true, &bytes, ""),
-                    5 => output(true, format!("{PERSONAL_ID}.json\n").as_bytes(), ""),
+                    0 | 5 => output(false, b"", "object not found"),
+                    1 | 6 => output(true, b"notes.md\n", ""),
+                    2 | 4 | 8 => output(true, &bytes, ""),
+                    3 => output(true, format!("{PERSONAL_ID}.json\n").as_bytes(), ""),
+                    7 => output(true, b"", ""),
                     _ => panic!("unexpected remote command"),
                 };
                 step += 1;
@@ -736,9 +821,8 @@ mod tests {
         let calls = calls.into_inner();
         assert_eq!(calls[0][0], "cat");
         assert_eq!(calls[1][0], "lsf");
-        assert_eq!(calls[3][0], "copyto");
-        assert_eq!(calls[9][0], "copyto");
-        assert_eq!(calls[10][0], "cat");
+        assert_eq!(calls[7][0], "copyto");
+        assert_eq!(calls[8][0], "cat");
     }
 
     #[test]

@@ -73,7 +73,6 @@ fn legacy_sync_migrates_then_syncs_and_a_second_legacy_machine_joins() {
         join.exit_ok,
         "second-machine legacy resync failed: {join:?}"
     );
-    semantic_sync(&second_paths, &second, &remote);
     assert_eq!(
         std::fs::read_to_string(second.join("tasks/SCHEMA.json")).unwrap(),
         "{}\n",
@@ -84,7 +83,6 @@ fn legacy_sync_migrates_then_syncs_and_a_second_legacy_machine_joins() {
         &second,
         &temporary.path().join("second-backups"),
     );
-    publish_transition(&second_paths, &second, &remote);
     semantic_sync(&second_paths, &second, &remote);
 
     for relative in ["tasks/tasks.csv", "tasks/habits.csv", "tasks/SCHEMA.json"] {
@@ -92,6 +90,60 @@ fn legacy_sync_migrates_then_syncs_and_a_second_legacy_machine_joins() {
             std::fs::read(first.join(relative)).unwrap(),
             std::fs::read(second.join(relative)).unwrap(),
             "second machine did not converge for {relative}"
+        );
+        assert_eq!(
+            std::fs::read(second.join(relative)).unwrap(),
+            std::fs::read(remote.join(relative)).unwrap(),
+            "remote did not converge for {relative}"
+        );
+    }
+}
+
+#[test]
+fn current_unconfigured_workspace_setup_transitions_an_empty_remote_for_a_second_current_machine() {
+    if !rclone_available() {
+        eprintln!("skipping: rclone not on PATH");
+        return;
+    }
+    let temporary = tempfile::tempdir().unwrap();
+    let remote = temporary.path().join("remote");
+    let first = temporary.path().join("first");
+    let second = temporary.path().join("second");
+    for root in [&remote, &first, &second] {
+        std::fs::create_dir_all(root).unwrap();
+    }
+    write_legacy_state(&first);
+    write_legacy_state(&second);
+    let first_paths = workspace_paths(&temporary.path().join("first-home"), workspace_id());
+    let second_paths = workspace_paths(&temporary.path().join("second-home"), workspace_id());
+    migrate_unconfigured(
+        &first_paths,
+        &first,
+        &temporary.path().join("first-backups"),
+    );
+
+    let transitioned = brain::sync::setup::prepare_current_schema_for_setup_with_transport(
+        &first_paths,
+        &first,
+        None,
+        false,
+        |relative, _bytes| rclone_copy(&first.join(relative), &remote.join(relative)),
+    )
+    .unwrap();
+
+    assert!(transitioned);
+    semantic_sync(&first_paths, &first, &remote);
+    migrate_unconfigured(
+        &second_paths,
+        &second,
+        &temporary.path().join("second-backups"),
+    );
+    semantic_sync(&second_paths, &second, &remote);
+    for relative in ["tasks/tasks.csv", "tasks/habits.csv", "tasks/SCHEMA.json"] {
+        assert_eq!(
+            std::fs::read(first.join(relative)).unwrap(),
+            std::fs::read(second.join(relative)).unwrap(),
+            "second current machine did not converge for {relative}"
         );
         assert_eq!(
             std::fs::read(second.join(relative)).unwrap(),
@@ -141,10 +193,26 @@ fn migrate(paths: &brain::workspace::WorkspacePaths, root: &Path, backup_base: &
     .unwrap();
 }
 
+fn migrate_unconfigured(paths: &brain::workspace::WorkspacePaths, root: &Path, backup_base: &Path) {
+    std::fs::create_dir_all(backup_base).unwrap();
+    let backup = backup_base.join("rollout");
+    migrate_inactive(TaskSchemaMigration {
+        workspace_id: workspace_id(),
+        workspace_root: root,
+        task_store_lock: &paths.task_store_lock(),
+        preexisting_backup_base: backup_base,
+        backup_dir: &backup,
+        legacy_semantic_sync: LegacySemanticSync::NotConfigured,
+    })
+    .unwrap();
+}
+
 fn publish_transition(paths: &brain::workspace::WorkspacePaths, root: &Path, remote: &Path) {
+    let remote_schema = std::fs::read_to_string(remote.join("tasks/SCHEMA.json")).ok();
     brain::migration::publish_task_schema_transition_with_transport(
         paths,
         root,
+        remote_schema.as_deref(),
         |relative, _bytes| rclone_copy(&root.join(relative), &remote.join(relative)),
     )
     .unwrap();

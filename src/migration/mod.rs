@@ -15,6 +15,7 @@ pub use backup::{backup_directory, backup_portable_data};
 pub(crate) use coordinator::run;
 pub use journal::{JournalRequest, MigrationJournal};
 pub use plan::{MigrationState, PlanInput, Step, discover_state, migration_plan};
+pub(crate) use schema_transition::publish_task_schema_transition;
 pub use schema_transition::publish_task_schema_transition_with_transport;
 pub use steps::{
     MappingIssue, MappingResolution, MigrationGate, MigrationGateInput, apply_mapping_resolution,
@@ -35,4 +36,14 @@ pub(crate) fn require_no_active_rollout(paths: &crate::workspace::WorkspacePaths
             )
         }),
     }
+}
+
+pub(crate) fn with_activation_lock<T>(
+    paths: &crate::workspace::WorkspacePaths,
+    activate: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let _guard = crate::sync::lock::try_acquire(&paths.sync_lock()).ok_or_else(|| {
+        anyhow::anyhow!("another sync owns this workspace; retry migration after it finishes")
+    })?;
+    activate()
 }

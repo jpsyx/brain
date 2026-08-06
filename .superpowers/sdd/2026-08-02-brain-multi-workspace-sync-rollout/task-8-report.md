@@ -4,14 +4,14 @@
 
 PASS. All required durable docs and release surfaces describe the completed
 Phase 5 module tree and CLI. The final compatible version after review fixes is
-`0.35.1`. All release,
+`0.35.2`. All release,
 acceptance, privacy, read-only, lint, skill, help, and smoke gates passed. The
 branch remains local and the worktree is preserved.
 
 ## Version and base
 
 - Starting version: `0.34.1`
-- Final version: `0.35.1`
+- Final version: `0.35.2`
 - Starting commit: `af1c502d72f3395c08fe18047aae64a4b5ac56d3`
 - Task commit: this local Task 8 commit
 
@@ -178,3 +178,24 @@ but a symlink inserted into a previously missing descendant after validation
 can still race component creation. Descriptor-relative path walking is a
 separate hardening design and is deferred; this pass does not expand the backup
 transaction beyond the six actionable review findings.
+
+## Consolidated final-review wave
+
+A subsequent consolidated review found eight additional correctness boundaries:
+late remote-claim arrival, migration activation before journal creation, remote
+task-schema compatibility, setup from an already-current unconfigured machine,
+complete canonical headers, transition-aware recovery, stale-lock takeover, and
+clean-only credential persistence. Red tests were observed for every production
+boundary before the corresponding fix. The bounded pre-existing backup-base
+symlink issue was also reproduced and fixed; descriptor-relative insertion-race
+hardening remains the sole deferred backup item.
+
+Focused verification is green: setup 15/15, lock 6/6, recovery 2/2,
+header/schema transform 2/2, remote-schema cases 3/3, real-rclone schema
+transitions 2/2, and strict Clippy. The compatible patch version is `0.35.2`.
+The final release suite passed with 1,321 library tests plus every integration
+and doc test. The exact real-rclone identity rerun passed 9/9. Strict Clippy,
+the personal-data guard, 23 Python skill tests, every explicit acceptance and
+security suite, CLI help/conflict checks, the isolated two-workspace smoke,
+focused rustfmt, and patch-hygiene audits all passed. Exact counts and commands
+are recorded in the SDD progress ledger.

@@ -58,8 +58,16 @@ pub fn sync_csvs_with_transport(
     mut push: impl FnMut(&str, &str) -> bool,
 ) -> Result<CsvSyncResult, CsvSyncError> {
     let manifest = std::fs::read_to_string(root.join("tasks/SCHEMA.json")).ok();
-    let schema_status = schema_status(manifest.as_deref())
+    let local_schema_status = schema_status(manifest.as_deref())
         .map_err(|error| CsvSyncError::Preflight(format!("{error:#}")))?;
+    let remote_manifest = fetch("tasks/SCHEMA.json");
+    let remote_schema_status = schema_status(remote_manifest.as_deref())
+        .map_err(|error| CsvSyncError::Preflight(format!("remote {error:#}")))?;
+    if remote_schema_status != local_schema_status {
+        return Err(CsvSyncError::Preflight(format!(
+            "remote task schema is {remote_schema_status:?}, but local task schema is {local_schema_status:?}"
+        )));
+    }
     let mut generations = Vec::with_capacity(CSVS.len());
     for relative in CSVS {
         let local = root.join(relative);
@@ -72,7 +80,7 @@ pub fn sync_csvs_with_transport(
         let local_text = std::fs::read_to_string(&local).unwrap_or_default();
         let remote_text = fetch(relative).unwrap_or_default();
         let parse_generation = |generation: &str, text: &str| {
-            parse(text, schema_status).map_err(|error| {
+            parse(text, local_schema_status).map_err(|error| {
                 CsvSyncError::Preflight(format!("{generation} {relative}: {error}"))
             })
         };

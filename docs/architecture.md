@@ -657,8 +657,9 @@ check-access, bisync, CSV, and counter lanes require that capability. The
 UUID-scoped rclone workdir is not created and stale rclone locks are not reaped
 until this identity proof succeeds. `identity/claim.rs` owns setup's
 append-only `.config/workspace-claims/<uuid>.json` protocol. Concurrent setup
-processes publish exact manifest claims under distinct names, enumerate and
-validate them, elect the lowest UUID deterministically, re-probe the canonical
+processes publish exact manifest claims under distinct names. A new claim
+stages one attempt and returns; retry enumerates and validates the durable set,
+elects the lowest UUID deterministically, and re-probes the canonical
 manifest, and publish it with immutable-copy defense. A losing claimant
 refuses without replacing `.config/workspace.json`;
 `check_access.rs` creates/repairs the root-level marker on
@@ -687,9 +688,11 @@ existing local manifest for an empty remote or an explicitly authorized
 nonempty manifestless remote). Interactive authorization is an explicit yes;
 noninteractive authorization is the exact selected UUID in
 `--adopt-workspace-id`. Setup holds the selected workspace's UUID-scoped sync
-lock across identity election, `sync`-block persistence, check-access marker
-bootstrap, and the baseline `sync_once(Direction::Resync)`. The verified
-manifest boundary completes before setup writes credentials or baseline data.
+lock across identity election, safe empty-remote task-schema preparation,
+check-access marker bootstrap, and the baseline
+`sync_once(Direction::Resync)`. Only `Clean` persists the candidate `sync`
+block; attention, abort, and transport failures leave credentials unsaved. The verified
+manifest boundary completes before setup writes baseline data.
 Mismatched, malformed,
 incompatible, and present-but-unreadable remote manifests fail closed. Ordinary
 and internal identity gates have no adoption authority and remain nonprompting.
@@ -841,8 +844,9 @@ copies via `resolve`, then runs one ordinary `brain sync`. See
 The explicit `brain workspace migrate` coordinator separates pure planning,
 privacy-limited backup, durable journal, portable-user mapping, focused step
 adapters, and final verification. Legacy, Prepared, Current, and
-unsupported-newer states are explicit. Selection, acknowledgement, and the
-initial remote identity gate finish before journal creation. For a configured
+unsupported-newer states are explicit. The coordinator takes the UUID sync lock
+before discovery, planning, or journal creation and retains it through the
+complete rollout. Selection, acknowledgement, and the initial remote identity gate finish before journal creation. For a configured
 workspace, the journaled final legacy sync runs first; the coordinator then
 reloads portable config, users, and both assignment CSVs and reruns mapping
 preflight before backup or portable mutation. The journal lives at
@@ -868,7 +872,7 @@ the active journal. The backup remains machine-local and retained.
 Everything specific to the **tasks main view**, ported from the old `tasks`
 crate under one namespace: `identity` (immutable UUIDs and deterministic
 legacy identity), `schema` (a coordinator-only, backup-owning task-schema
-migration helper split into path validation, pure transformation, and durable
+migration helper split into canonical columns, path validation, pure transformation, and durable
 transaction/recovery modules), `task` (CSV model, legacy-compatible load, and pure
 assignment defaults/membership/UI visibility), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
@@ -899,7 +903,8 @@ it. Legacy CSVs keep `task_id` as their first sync key until that coordinated
 migration runs. After migration, `sync/csv_merge/` owns
 name-aligned UUID merge (`table` + `merge`), deterministic mutable display-ID
 allocation (`reconcile`), and dependency/project reverse-link rewriting
-(`relationships`). `csv_sync/operation.rs` preflights the manifest and every
+(`relationships`). `csv_sync/operation.rs` fetches and validates the remote
+schema marker, then preflights the matching local manifest and every
 base, local, and remote task/habit table as one operation before any write;
 `csv_sync/metadata.rs` stages project metadata and republishes every
 authoritative metadata file so retries heal partial remote publication.

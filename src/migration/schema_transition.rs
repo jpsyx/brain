@@ -13,12 +13,15 @@ const SCHEMA: &str = "tasks/SCHEMA.json";
 pub fn publish_task_schema_transition_with_transport(
     paths: &crate::workspace::WorkspacePaths,
     root: &Path,
+    remote_schema: Option<&str>,
     mut publish: impl FnMut(&str, &[u8]) -> bool,
 ) -> Result<()> {
     let inspection = crate::tasks::schema::inspect_inactive(root)?;
     if !inspection.current {
         bail!("task schema transition requires current local CSV and schema state");
     }
+    crate::sync::csv_merge::schema_status(remote_schema)
+        .map_err(|error| anyhow::anyhow!("remote {error:#}"))?;
     let tasks = read(root, TASKS)?;
     let habits = read(root, HABITS)?;
     let schema = read(root, SCHEMA)?;
@@ -38,7 +41,7 @@ pub fn publish_task_schema_transition_with_transport(
     Ok(())
 }
 
-pub(super) fn publish_task_schema_transition(
+pub(crate) fn publish_task_schema_transition(
     context: &crate::workspace::CommandContext,
     config: &crate::sync::config::SyncConfig,
 ) -> Result<()> {
@@ -55,9 +58,14 @@ pub(super) fn publish_task_schema_transition(
             temporary_dir.display()
         )
     })?;
+    let remote_schema = crate::sync::csv_sync::fetch_remote_task_schema(
+        context.workspace.paths(),
+        verified.remote(),
+    )?;
     publish_task_schema_transition_with_transport(
         context.workspace.paths(),
         context.workspace.root(),
+        remote_schema.as_deref(),
         |relative, bytes| publish_remote(&temporary_dir, verified.remote(), relative, bytes),
     )
 }

@@ -248,10 +248,6 @@ pub fn run_legacy_migration_sync(
     context: &crate::workspace::CommandContext,
     config: &SyncConfig,
 ) -> Result<()> {
-    let _guard = crate::sync::lock::try_acquire(&context.workspace.paths().sync_lock())
-        .ok_or_else(|| {
-            anyhow::anyhow!("another sync owns this workspace; retry migration after it finishes")
-        })?;
     let now = Utc::now();
     let started_at = now.to_rfc3339();
     let finished_at = Utc::now().to_rfc3339();

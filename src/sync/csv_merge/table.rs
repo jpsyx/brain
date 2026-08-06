@@ -230,37 +230,6 @@ pub fn schema_status(manifest: Option<&str>) -> Result<SchemaStatus> {
 
 fn validate_current_table(table: &Table, preserve_unknown: bool) -> Result<()> {
     const REQUIRED: [&str; 4] = ["task_uuid", "task_id", "assigned_to", "system_key"];
-    const KNOWN: [&str; 29] = [
-        "task_uuid",
-        "task_id",
-        "task_name",
-        "task_type",
-        "status",
-        "waiting_since",
-        "priority",
-        "due_date",
-        "hard_deadline",
-        "start_date",
-        "assigned_to",
-        "see_also",
-        "notes",
-        "project",
-        "energy_level",
-        "context",
-        "estimated_duration",
-        "blocked_by",
-        "defer_count",
-        "recur_interval",
-        "recur_unit",
-        "ideal_time",
-        "created_date",
-        "completed_date",
-        "last_touched",
-        "linear_issue",
-        "system_key",
-        "calendar_id",
-        "waiting_for",
-    ];
     for column in REQUIRED {
         if table.column(column).is_none() {
             bail!("task schema version 2 CSV is missing required column {column}");
@@ -271,7 +240,7 @@ fn validate_current_table(table: &Table, preserve_unknown: bool) -> Result<()> {
         if !seen.insert(column) {
             bail!("task schema version 2 CSV has duplicate column {column}");
         }
-        if !preserve_unknown && !KNOWN.contains(&column.as_str()) {
+        if !preserve_unknown && !crate::tasks::schema::is_known_current_column(column) {
             bail!(
                 "task schema version 2 CSV has unknown column {column}; SCHEMA.json must declare forward_compatible_columns=true to preserve it"
             );

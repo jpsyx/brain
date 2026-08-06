@@ -237,6 +237,7 @@ pub fn run(
                 "{}",
                 theme.info("Establishing the baseline (this may take a while)…")
             );
+            prepare_current_schema_for_setup(command, &candidate)?;
             let now = chrono::Utc::now();
             let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
             let date = now.format("%Y-%m-%d").to_string();
@@ -247,27 +248,92 @@ pub fn run(
                 root,
                 Direction::Resync,
                 (&ts, &ts, &date),
-            )?;
-            Ok(())
+            )
         },
     )?;
     println!("{}", theme.success("✓ sync configured."));
     Ok(())
 }
 
+pub fn prepare_current_schema_for_setup_with_transport(
+    paths: &crate::workspace::WorkspacePaths,
+    root: &std::path::Path,
+    remote_schema: Option<&str>,
+    remote_has_csvs: bool,
+    publish: impl FnMut(&str, &[u8]) -> bool,
+) -> Result<bool> {
+    let local = crate::tasks::schema::inspect_inactive(root)?;
+    if !local.current {
+        return Ok(false);
+    }
+    let remote = crate::sync::csv_merge::schema_status(remote_schema)
+        .map_err(|error| anyhow::anyhow!("remote {error:#}"))?;
+    if remote == crate::sync::csv_merge::SchemaStatus::Current {
+        return Ok(false);
+    }
+    if remote_has_csvs {
+        bail!(
+            "current local task schema cannot overwrite legacy remote task CSVs; migrate and reconcile the remote workspace first"
+        );
+    }
+    crate::migration::publish_task_schema_transition_with_transport(
+        paths,
+        root,
+        remote_schema,
+        publish,
+    )?;
+    Ok(true)
+}
+
+fn prepare_current_schema_for_setup(
+    command: &crate::workspace::CommandContext,
+    config: &SyncConfig,
+) -> Result<()> {
+    let local = crate::tasks::schema::inspect_inactive(command.workspace.root())?;
+    if !local.current {
+        return Ok(());
+    }
+    let remote = crate::sync::remote::build_remote(config);
+    let verified = crate::sync::identity::require_remote_identity(
+        command.workspace.root(),
+        command.workspace.id(),
+        &remote,
+    )?;
+    let state = crate::sync::csv_sync::inspect_remote_task_state(
+        command.workspace.paths(),
+        verified.remote(),
+    )?;
+    let remote_status = crate::sync::csv_merge::schema_status(state.schema.as_deref())
+        .map_err(|error| anyhow::anyhow!("remote {error:#}"))?;
+    if remote_status == crate::sync::csv_merge::SchemaStatus::Current {
+        return Ok(());
+    }
+    if state.has_csvs {
+        bail!(
+            "current local task schema cannot overwrite legacy remote task CSVs; migrate and reconcile the remote workspace first"
+        );
+    }
+    crate::migration::publish_task_schema_transition(command, config)
+}
+
 fn run_setup_stages(
     paths: &crate::workspace::WorkspacePaths,
     identity: impl FnOnce() -> Result<()>,
     persist_credentials: impl FnOnce() -> Result<()>,
-    baseline: impl FnOnce() -> Result<()>,
+    baseline: impl FnOnce() -> Result<crate::sync::verify::Outcome>,
 ) -> Result<()> {
     let _guard = crate::sync::lock::try_acquire(&paths.sync_lock()).ok_or_else(|| {
         anyhow::anyhow!("another sync owns this workspace; retry setup after it finishes")
     })?;
     crate::migration::require_no_active_rollout(paths)?;
     identity()?;
-    persist_credentials()?;
-    baseline()
+    match baseline()? {
+        crate::sync::verify::Outcome::Clean => persist_credentials(),
+        crate::sync::verify::Outcome::NeedsAttention(message)
+        | crate::sync::verify::Outcome::Aborted(message) => {
+            bail!("initial sync baseline was not clean: {message}")
+        }
+    }
 }
 
 /// Read one line from `/dev/tty`, prompting with `label` (showing `current` as
@@ -459,12 +525,12 @@ mod tests {
             },
             || {
                 stages.borrow_mut().push("baseline");
-                Ok(())
+                Ok(crate::sync::verify::Outcome::Clean)
             },
         )
         .unwrap();
 
-        assert_eq!(*stages.borrow(), ["identity", "credentials", "baseline"]);
+        assert_eq!(*stages.borrow(), ["identity", "baseline", "credentials"]);
     }
 
     #[test]
@@ -485,7 +551,7 @@ mod tests {
                         Ok(())
                     },
                     || Ok(()),
-                    || Ok(()),
+                    || Ok(crate::sync::verify::Outcome::Clean),
                 )
             });
             entered_rx
@@ -507,6 +573,45 @@ mod tests {
     }
 
     #[test]
+    fn migration_activation_blocks_setup_before_either_can_change_remote_state() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+
+        std::thread::scope(|scope| {
+            let migration_paths = &paths;
+            let migration = scope.spawn(move || {
+                crate::migration::with_activation_lock(migration_paths, || {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    Ok(())
+                })
+            });
+            entered_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("migration reached discovery while holding its activation lock");
+            let identity_entered = std::cell::Cell::new(false);
+
+            let error = run_setup_stages(
+                &paths,
+                || {
+                    identity_entered.set(true);
+                    Ok(())
+                },
+                || Ok(()),
+                || Ok(crate::sync::verify::Outcome::Clean),
+            )
+            .unwrap_err();
+
+            assert!(error.to_string().contains("another sync owns"), "{error:#}");
+            assert!(!identity_entered.get());
+            release_tx.send(()).unwrap();
+            migration.join().unwrap().unwrap();
+        });
+    }
+
+    #[test]
     fn setup_refuses_an_incomplete_migration_before_remote_identity() {
         let temporary = tempfile::tempdir().unwrap();
         let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
@@ -522,7 +627,7 @@ mod tests {
                 Ok(())
             },
             || Ok(()),
-            || Ok(()),
+            || Ok(crate::sync::verify::Outcome::Clean),
         )
         .unwrap_err();
 
@@ -552,13 +657,74 @@ mod tests {
             },
             || {
                 stages.borrow_mut().push("baseline");
-                Ok(())
+                Ok(crate::sync::verify::Outcome::Clean)
             },
         )
         .unwrap_err();
 
         assert!(error.to_string().contains("wrong workspace"));
         assert_eq!(*stages.borrow(), ["identity"]);
+    }
+
+    #[test]
+    fn setup_persists_credentials_only_after_a_clean_baseline() {
+        let stages = RefCell::new(Vec::new());
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+
+        let error = run_setup_stages(
+            &paths,
+            || {
+                stages.borrow_mut().push("identity");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("credentials");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("baseline");
+                Ok(crate::sync::verify::Outcome::Aborted(
+                    "max-delete guard".to_owned(),
+                ))
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("baseline was not clean"),
+            "{error:#}"
+        );
+        assert_eq!(*stages.borrow(), ["identity", "baseline"]);
+    }
+
+    #[test]
+    fn setup_preserves_unsaved_credentials_on_attention_or_baseline_error() {
+        let cases = [
+            Ok(crate::sync::verify::Outcome::NeedsAttention(
+                "conflict copies".to_owned(),
+            )),
+            Err(anyhow::anyhow!("transport failed")),
+        ];
+        for baseline_result in cases {
+            let temporary = tempfile::tempdir().unwrap();
+            let paths =
+                crate::workspace::WorkspacePaths::new(temporary.path(), local_workspace_id());
+            let credentials_persisted = std::cell::Cell::new(false);
+
+            let error = run_setup_stages(
+                &paths,
+                || Ok(()),
+                || {
+                    credentials_persisted.set(true);
+                    Ok(())
+                },
+                || baseline_result,
+            )
+            .unwrap_err();
+
+            assert!(!credentials_persisted.get(), "{error:#}");
+        }
     }
 
     #[test]

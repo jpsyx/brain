@@ -10,16 +10,23 @@ use crate::workspace::{WorkspaceId, WorkspaceManifest};
 
 const CLAIMS_DIRECTORY: &str = ".config/workspace-claims";
 
+pub(super) enum Election {
+    Staged,
+    Winner(WorkspaceId),
+}
+
 pub(super) fn register_and_elect(
     local_manifest: &Path,
     local_id: WorkspaceId,
     remote: &Remote,
     run: &mut impl FnMut(&[(String, String)], &[String]) -> RemoteCommandOutput,
-) -> Result<WorkspaceId> {
+) -> Result<Election> {
     let expected = std::fs::read(local_manifest)
         .with_context(|| format!("reading local ownership claim {}", local_manifest.display()))?;
     let claim = claim_arg(&remote.arg, local_id);
-    ensure_claim(&remote.env, local_manifest, &claim, &expected, run)?;
+    if !ensure_claim(&remote.env, local_manifest, &claim, &expected, run)? {
+        return Ok(Election::Staged);
+    }
 
     let listing = run(
         &remote.env,
@@ -43,7 +50,7 @@ pub(super) fn register_and_elect(
         .copied()
         .ok_or_else(|| anyhow::anyhow!("remote ownership claim disappeared after publication"))?;
     validate_claim(&remote.env, &remote.arg, winner, run)?;
-    Ok(winner)
+    Ok(Election::Winner(winner))
 }
 
 pub(super) fn is_claim_path(path: &[u8]) -> bool {
@@ -57,10 +64,11 @@ fn ensure_claim(
     remote_claim: &str,
     expected: &[u8],
     run: &mut impl FnMut(&[(String, String)], &[String]) -> RemoteCommandOutput,
-) -> Result<()> {
+) -> Result<bool> {
     let existing = run(env, &["cat".to_owned(), remote_claim.to_owned()]);
     if existing.success {
-        return exact_claim(expected, &existing.stdout);
+        exact_claim(expected, &existing.stdout)?;
+        return Ok(true);
     }
 
     let published = run(
@@ -80,7 +88,8 @@ fn ensure_claim(
             "could not publish or verify remote workspace ownership claim: publication={publication}; verification={verification}"
         );
     }
-    exact_claim(expected, &readback.stdout)
+    exact_claim(expected, &readback.stdout)?;
+    Ok(false)
 }
 
 fn exact_claim(expected: &[u8], observed: &[u8]) -> Result<()> {

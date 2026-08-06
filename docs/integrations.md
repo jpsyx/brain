@@ -951,12 +951,15 @@ brain-root lookup.
   target, setup requires either an explicit interactive confirmation or the
   exact selected UUID through `--adopt-workspace-id`; a generic `--yes` is not
   accepted. Mismatched, malformed, incompatible, or present-but-unreadable
-  manifests remain hard refusals. The UUID-scoped sync lock covers remote claim
-  election, manifest publication/read-back, credential persistence, marker
-  bootstrap, and the complete initial baseline. Manifest publication and read-back finish
-  before setup writes the `sync` block into brain env (`crate::env::set_raw`,
-  **not** brain config, see [config.md](config.md)) and runs one
-  `Direction::Resync` sync to establish the baseline. An active workspace
+  manifests remain hard refusals. A newly published ownership claim stages the
+  attempt and returns before canonical publication; a retry elects from the
+  durable claim set. The UUID-scoped sync lock covers remote claim election,
+  manifest publication/read-back, any safe empty-remote task-schema transition,
+  marker bootstrap, and the complete initial baseline. Setup runs one
+  `Direction::Resync` sync, requires its result to be `Clean`, and only then
+  writes the `sync` block into brain env (`crate::env::set_raw`, **not** brain
+  config, see [config.md](config.md)). `NeedsAttention`, `Aborted`, and
+  transport errors leave the candidate credentials unsaved. An active workspace
   migration journal refuses setup before remote identity work. It never creates a bucket
   or treats an unreachable probe as a new bucket. If the existing `sync`
   block contains crypt fields, setup preserves them when refreshing bucket
@@ -1024,14 +1027,18 @@ brain-root lookup.
   `<workspace-cache>/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
   never synced), the local file, and the remote copy (fetched with `rclone
   copyto <remote> <tmp>`, over the same env-var `BRAIN:` remote bisync uses);
-  preflights `tasks/SCHEMA.json` plus the base, local, and remote generations
+  fetches and preflights both local and remote `tasks/SCHEMA.json` plus the base, local, and remote generations
   of both CSVs, then merges with the pure 3-way merge in
   `crate::sync::csv_merge`. Any preflight failure aborts this whole lane before
   CSVs, baselines, project metadata, remote objects, or counters change.
   Nonempty legacy input must contain and remains keyed by `task_id`, even when
   compatibility writers have added `task_uuid` and populated it for new rows;
-  only an active `tasks/SCHEMA.json` schema v2 makes input name-aligned and
-  keyed by immutable `task_uuid`. The
+  only matching active `tasks/SCHEMA.json` schema v2 metadata makes input name-aligned and
+  keyed by immutable `task_uuid`. The absent remote marker is legacy only;
+  malformed, incompatible, newer, and legacy/current mismatch states fail
+  before either remote CSV is read or any publication occurs. Current output
+  orders all known fields canonically and declared forward-compatible fields
+  lexically. The
   inactive task-schema helper is never called by sync; see
   [data-model.md](data-model.md) for the rules. Distinct UUIDs that claim one
   display ID are renumbered deterministically, side-specific `blocked_by` and
@@ -1096,14 +1103,16 @@ brain-root lookup.
   before task UUID identity becomes authoritative. The coordinator immediately
   reloads portable config, users, and both assignment CSVs after that sync;
   newly pulled sender mappings and managed-triage policy are therefore
-  preflighted before backup or mutation. Local schema migration and remote
-  transition remain under one UUID sync lock. The transition publishes both
+  preflighted before backup or mutation. The coordinator takes the UUID sync
+  lock before rollout discovery, planning, or journal creation and retains it
+  through verification. The transition publishes both
   current CSVs, durably writes the exact local baselines, then publishes
   `tasks/SCHEMA.json` last. Every step is atomically recorded, so rerun validates
   the workspace/plan and resumes the same backup. Ordinary sync and setup
   refuse while that journal remains active.
-  Failure reports the exact resume command and, after backup completion,
-  shell-quoted restore commands. Success removes the active journal but keeps
+  Failure reports the exact resume command. It offers shell-quoted local
+  restore commands only before remote schema activation; afterward recovery is
+  resume-only. Success removes the active journal but keeps
   the backup.
   Shared-server control, TUI lease recovery, public opaque-ingress routing,
   authenticated actor resolution, exact TUI job forwarding, and response
@@ -1125,17 +1134,19 @@ rclone handoff automatically. Every automatic trigger runs the sync in a
 can neither write over the TUI nor be killed when the shell quits. Its own
 outside-world touchpoints:
 
-- **The workspace sync lock** (`src/sync/lock.rs`) is a PID file at
+- **The workspace sync lock** (`src/sync/lock.rs`) is a generation-tagged owner file at
   `<workspace-cache>/sync/sync.lock` (beside the sync journal, machine-local
-  cache). It holds the owning process's PID and is taken atomically via
-  `create_new` (O_EXCL), so only one sync runs at a time across every trigger
+  cache). Brain writes and syncs the complete PID plus random generation in a
+  same-directory pending file, takes an advisory file lock, and atomically
+  hard-links that inode into visibility. Only one sync runs at a time across every trigger
   for that UUID (the extras skip rather than queue), while different
   workspaces may sync concurrently. `Guard` owns a heartbeat thread that refreshes the lockfile mtime
-  while the sync is still running. A later acquire reaps the lock when either
+  while the sync is still running. A later acquire advisory-locks the exact
+  observed inode before reaping it when either
   the owner PID is dead (the same `server::lifecycle::pid_alive` `kill -0`
   probe the server uses) or the heartbeat mtime is older than the stale cap;
   that closes the SIGKILL + PID-recycle wedge. `Guard` stops the heartbeat and
-  removes the file on drop, but only if it still holds **our** PID, so a Guard
+  removes the file on drop, but only if it still holds **our generation**, so a Guard
   whose lock was reaped out from under it (a crash-recovery race) never deletes
   the new owner's lock. A missing or garbage lockfile reads as stale/reapable.
   The manual `run_sync` in `command/sync.rs` takes this lock too, closing a pre-existing

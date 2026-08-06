@@ -302,7 +302,9 @@ bucket/path before persisting the candidate `sync` block. A matching strict
 remote manifest proceeds; a demonstrably empty remote receives the exact local
 manifest only after setup publishes an append-only UUID-named ownership claim,
 enumerates and validates every claim, and wins deterministic UUID election.
-The canonical manifest is then verified by read-back. A nonempty manifestless target first
+The first publication of a new claim stages ownership and returns without
+publishing a canonical manifest or saving credentials. A retry elects from the
+durable claim set, then verifies the canonical manifest by read-back. A nonempty manifestless target first
 shows the selected name/UUID, configured target, and observed status, then
 requires a positive interactive confirmation or an exact matching
 `--adopt-workspace-id <UUID>` flag. `--yes` alone is insufficient. Mismatch,
@@ -310,8 +312,10 @@ malformed, incompatible, or present-but-unreadable manifests, and unreachable
 probes fail closed. Concurrent setup processes cannot share the selected
 workspace lock, and different workspace UUIDs targeting the same empty remote
 compete through remote claims; only the elected claimant may publish the
-canonical manifest. Setup keeps its local UUID lock through credential
-persistence and the complete initial baseline.
+canonical manifest. Setup keeps its local UUID lock through remote identity,
+task-schema preparation, and the complete initial baseline. It persists the
+candidate machine-local credentials only after the baseline is classified
+`Clean`; attention, abort, and transport-error outcomes leave them unsaved.
 All later sync and check invocations load the same selected record's config and
 repeat this identity gate before remote data work.
 

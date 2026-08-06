@@ -2,7 +2,7 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 
@@ -81,13 +81,73 @@ fn validate_destination(root: &Path, backup_base: &Path, backup_dir: &Path) -> R
     if !root.is_absolute() || !backup_base.is_absolute() || !backup_dir.is_absolute() {
         bail!("migration backup paths must be absolute");
     }
-    if !backup_dir.starts_with(backup_base) {
+    let root = resolve_path(root)?;
+    let backup_base = resolve_path(backup_base)?;
+    let backup_dir = resolve_path(backup_dir)?;
+    if !backup_dir.starts_with(&backup_base) {
         bail!("migration backup directory must be below its selected workspace cache base");
     }
-    if root.starts_with(backup_dir) || backup_dir.starts_with(root) {
+    if root.starts_with(&backup_dir) || backup_dir.starts_with(&root) {
         bail!("migration backup must be disjoint from the workspace tree");
     }
     Ok(())
+}
+
+fn resolve_path(path: &Path) -> Result<PathBuf> {
+    let normalized = normalize_absolute(path)?;
+    let mut existing = normalized.as_path();
+    let mut missing = Vec::new();
+    let canonical = loop {
+        match fs::canonicalize(existing) {
+            Ok(canonical) => break canonical,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name = existing.file_name().ok_or_else(|| {
+                    anyhow!("cannot resolve migration backup path {}", path.display())
+                })?;
+                missing.push(name.to_owned());
+                existing = existing.parent().ok_or_else(|| {
+                    anyhow!("cannot resolve migration backup path {}", path.display())
+                })?;
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("resolving migration backup path {}", path.display())
+                });
+            }
+        }
+    };
+    let mut resolved = canonical;
+    for component in missing.into_iter().rev() {
+        resolved.push(component);
+    }
+    normalize_absolute(&resolved)
+}
+
+fn normalize_absolute(path: &Path) -> Result<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(Path::new("/")),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    bail!(
+                        "migration backup path escapes its filesystem root: {}",
+                        path.display()
+                    );
+                }
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    if !normalized.is_absolute() {
+        bail!(
+            "migration backup paths must be absolute: {}",
+            path.display()
+        );
+    }
+    Ok(normalized)
 }
 
 fn ensure_directory(path: &Path) -> Result<()> {
@@ -188,6 +248,24 @@ fn write_verified_with_hook(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn preexisting_backup_base_symlink_into_workspace_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("workspace");
+        fs::create_dir_all(&root).unwrap();
+        let base = temporary.path().join("cache-link");
+        symlink(&root, &base).unwrap();
+        let backup = base.join("20260806T120000Z-pre-multi-workspace");
+
+        let error = backup_portable_data(&root, &base, &backup).unwrap_err();
+
+        assert!(error.to_string().contains("disjoint"), "{error:#}");
+        assert!(!root.join("20260806T120000Z-pre-multi-workspace").exists());
+    }
 
     #[test]
     fn backup_publish_failure_leaves_live_data_and_failed_destination_unchanged() {

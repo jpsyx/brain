@@ -21,6 +21,20 @@ pub(crate) fn run(
     explicit_workspace: bool,
     acknowledged_all_machines_updated: bool,
 ) -> Result<()> {
+    super::with_activation_lock(context.workspace.paths(), || {
+        run_locked(
+            context,
+            explicit_workspace,
+            acknowledged_all_machines_updated,
+        )
+    })
+}
+
+fn run_locked(
+    context: &CommandContext,
+    explicit_workspace: bool,
+    acknowledged_all_machines_updated: bool,
+) -> Result<()> {
     let interactive = std::io::stdin().is_terminal();
     let sync_config = crate::sync::config::SyncConfig::load(context);
     let sync_configured = sync_config.is_configured();
@@ -115,12 +129,14 @@ pub(crate) fn run(
         &mut journal,
     ) {
         let backup_complete = journal.completed(Step::BackupPortableData);
+        let remote_transition_complete = journal.completed(Step::PublishTaskSchemaTransition);
         return Err(with_recovery(
             &error,
             context,
             &retained_backup,
             sync_configured,
             backup_complete,
+            remote_transition_complete,
         ));
     }
     eprintln!(
@@ -156,7 +172,6 @@ fn execute(
         (config, users)
     };
     let steps = journal.remaining_steps().to_vec();
-    let mut schema_sync_guard = None;
     for step in steps {
         let theme = crate::theme::Theme::active();
         eprintln!("{}", theme.info(step_message(step)));
@@ -175,7 +190,6 @@ fn execute(
                 journal.record_completed(step)?;
             }
             Step::MigrateTaskColumnsAndUuids => {
-                acquire_schema_sync_guard(context, sync_config, &mut schema_sync_guard)?;
                 migrate_inactive(TaskSchemaMigration {
                     workspace_id: context.workspace.id(),
                     workspace_root: context.workspace.root(),
@@ -191,7 +205,6 @@ fn execute(
                 journal.record_completed(step)?;
             }
             Step::PublishTaskSchemaTransition => {
-                acquire_schema_sync_guard(context, sync_config, &mut schema_sync_guard)?;
                 super::schema_transition::publish_task_schema_transition(context, sync_config)?;
                 journal.record_completed(step)?;
             }
@@ -212,21 +225,6 @@ fn execute(
             }
             Step::MarkComplete => journal.mark_complete()?,
         }
-    }
-    Ok(())
-}
-
-fn acquire_schema_sync_guard(
-    context: &CommandContext,
-    sync_config: &crate::sync::config::SyncConfig,
-    guard: &mut Option<crate::sync::lock::Guard>,
-) -> Result<()> {
-    if sync_config.is_configured() && guard.is_none() {
-        *guard = Some(
-            crate::sync::lock::try_acquire(&context.workspace.paths().sync_lock()).ok_or_else(
-                || anyhow!("another sync owns this workspace; retry migration after it finishes"),
-            )?,
-        );
     }
     Ok(())
 }
@@ -254,6 +252,7 @@ fn with_recovery(
     backup: &Path,
     sync_configured: bool,
     backup_complete: bool,
+    remote_transition_complete: bool,
 ) -> anyhow::Error {
     let instructions = recovery_instructions(
         context.workspace.name().as_str(),
@@ -261,6 +260,7 @@ fn with_recovery(
         backup,
         sync_configured,
         backup_complete,
+        remote_transition_complete,
         Path::exists,
     );
     anyhow!("workspace migration failed: {error:#}\n\n{instructions}")
@@ -272,6 +272,7 @@ fn recovery_instructions(
     backup: &Path,
     sync_configured: bool,
     backup_complete: bool,
+    remote_transition_complete: bool,
     backup_exists: impl Fn(&Path) -> bool,
 ) -> String {
     let acknowledgement = if sync_configured {
@@ -279,7 +280,9 @@ fn recovery_instructions(
     } else {
         ""
     };
-    let recovery = if backup_complete {
+    let recovery = if remote_transition_complete {
+        "The remote task schema transition completed. Do not restore only this machine from backup; resume the migration so local and remote state can be reconciled and verified.".to_owned()
+    } else if backup_complete {
         let mut commands = vec![format!(
             "cp -pR {}/. {}/",
             crate::session::shell_quote(backup.to_string_lossy().as_ref()),
@@ -327,7 +330,9 @@ mod tests {
         let root = Path::new("/tmp/family's brain");
 
         let instructions =
-            super::recovery_instructions("family space", root, backup, true, true, |_| false);
+            super::recovery_instructions("family space", root, backup, true, true, false, |_| {
+                false
+            });
 
         assert!(instructions.contains(
             "Resume: brain workspace migrate -b 'family space' --acknowledge-all-machines-updated"
@@ -348,5 +353,22 @@ mod tests {
             );
         }
         assert!(instructions.contains("brain reindex -b 'family space'"));
+    }
+
+    #[test]
+    fn post_transition_recovery_requires_resume_and_never_restores_only_local_files() {
+        let backup = Path::new("/tmp/family-brain/backups/20260806T120000Z");
+        let root = Path::new("/tmp/family-brain");
+
+        let instructions =
+            super::recovery_instructions("family", root, backup, true, true, true, |_| false);
+
+        assert!(instructions.contains("remote task schema transition completed"));
+        assert!(instructions.contains(
+            "Resume: brain workspace migrate -b 'family' --acknowledge-all-machines-updated"
+        ));
+        assert!(!instructions.contains("cp -pR"));
+        assert!(!instructions.contains("rm -f"));
+        assert!(!instructions.contains("Restore only"));
     }
 }

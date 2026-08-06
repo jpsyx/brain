@@ -5,8 +5,8 @@
 //! UUID-scoped lockfile holds the owning PID; a crash
 //! leaves a stale file the next acquire reaps via PID-liveness.
 
-use std::fs::{self, OpenOptions};
-use std::io::Write as _;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read as _, Seek as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread::JoinHandle;
@@ -29,23 +29,19 @@ pub fn is_stale(owner_alive: bool, age: Duration, cap: Duration) -> bool {
 /// Held lock; removes the lockfile on drop.
 pub struct Guard {
     path: PathBuf,
-    pid: u32,
+    owner: String,
+    file: File,
     heartbeat: Option<Heartbeat>,
 }
 
 impl Drop for Guard {
     fn drop(&mut self) {
         drop(self.heartbeat.take());
-        // Remove the lockfile only if it still holds *our* PID, so a Guard whose
-        // lock was reaped out from under it (a crash-recovery race) never deletes
-        // the new owner's lock.
-        let still_ours = fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|t| t.trim().parse::<u32>().ok())
-            == Some(self.pid);
+        let still_ours = read_owner_path(&self.path).as_deref() == Some(self.owner.as_str());
         if still_ours {
             let _ = fs::remove_file(&self.path);
         }
+        let _ = fs2::FileExt::unlock(&self.file);
     }
 }
 
@@ -63,21 +59,31 @@ impl Drop for Heartbeat {
     }
 }
 
-fn guard_for(path: &Path, heartbeat_interval: Duration) -> Guard {
-    let path = path.to_path_buf();
-    let pid = std::process::id();
-    Guard {
-        heartbeat: Some(start_heartbeat(path.clone(), pid, heartbeat_interval)),
-        path,
-        pid,
-    }
+fn guard_for(
+    path: &Path,
+    owner: String,
+    file: File,
+    heartbeat_interval: Duration,
+) -> std::io::Result<Guard> {
+    let heartbeat_file = file.try_clone()?;
+    Ok(Guard {
+        heartbeat: Some(start_heartbeat(
+            path.to_path_buf(),
+            owner.clone(),
+            heartbeat_file,
+            heartbeat_interval,
+        )),
+        path: path.to_path_buf(),
+        owner,
+        file,
+    })
 }
 
-fn start_heartbeat(path: PathBuf, pid: u32, interval: Duration) -> Heartbeat {
+fn start_heartbeat(path: PathBuf, owner: String, mut file: File, interval: Duration) -> Heartbeat {
     let (stop, rx) = mpsc::channel();
     let handle = std::thread::spawn(move || {
         while rx.recv_timeout(interval).is_err() {
-            if !refresh_lock_if_owned(&path, pid) {
+            if !refresh_lock_if_owned(&path, &owner, &mut file) {
                 break;
             }
         }
@@ -88,15 +94,11 @@ fn start_heartbeat(path: PathBuf, pid: u32, interval: Duration) -> Heartbeat {
     }
 }
 
-fn refresh_lock_if_owned(path: &Path, pid: u32) -> bool {
-    let owns_lock = fs::read_to_string(path)
-        .ok()
-        .and_then(|text| text.trim().parse::<u32>().ok())
-        == Some(pid);
-    if !owns_lock {
+fn refresh_lock_if_owned(path: &Path, owner: &str, file: &mut File) -> bool {
+    if read_owner_path(path).as_deref() != Some(owner) {
         return false;
     }
-    fs::write(path, pid.to_string()).is_ok()
+    write_owner(file, owner).is_ok()
 }
 
 /// Try to acquire the lock without blocking.
@@ -111,43 +113,138 @@ pub fn try_acquire(path: &Path) -> Option<Guard> {
 
 #[must_use]
 fn try_acquire_with_heartbeat(path: &Path, heartbeat_interval: Duration) -> Option<Guard> {
+    try_acquire_with_existing_hook(path, heartbeat_interval, || {})
+}
+
+fn try_acquire_with_existing_hook(
+    path: &Path,
+    heartbeat_interval: Duration,
+    before_existing_lock: impl FnOnce(),
+) -> Option<Guard> {
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
-    match create_exclusive(path) {
-        Ok(()) => Some(guard_for(path, heartbeat_interval)),
-        Err(()) => {
-            if lock_is_stale(path) {
-                let _ = fs::remove_file(path);
-                create_exclusive(path)
-                    .ok()
-                    .map(|()| guard_for(path, heartbeat_interval))
-            } else {
-                None
-            }
-        }
+    match publish_new(path, heartbeat_interval) {
+        Publish::Acquired(guard) => Some(guard),
+        Publish::Failed => None,
+        Publish::Exists => try_takeover_existing(path, heartbeat_interval, before_existing_lock),
     }
 }
 
-/// Atomically create the lockfile with our PID; `Err(())` if it already exists.
-fn create_exclusive(path: &Path) -> Result<(), ()> {
-    let Ok(mut f) = OpenOptions::new().write(true).create_new(true).open(path) else {
-        return Err(());
-    };
-    let _ = write!(f, "{}", std::process::id());
-    Ok(())
+enum Publish {
+    Acquired(Guard),
+    Exists,
+    Failed,
 }
 
-/// Read the lockfile's PID + mtime age and classify staleness (thin IO around
-/// `is_stale`). A missing/garbage lockfile is treated as stale (reapable).
-fn lock_is_stale(path: &Path) -> bool {
-    let Ok(text) = fs::read_to_string(path) else {
+fn publish_new(path: &Path, heartbeat_interval: Duration) -> Publish {
+    publish_new_with_writer(path, heartbeat_interval, write_owner)
+}
+
+fn publish_new_with_writer(
+    path: &Path,
+    heartbeat_interval: Duration,
+    writer: impl FnOnce(&mut File, &str) -> std::io::Result<()>,
+) -> Publish {
+    let owner = format!("{} {}", std::process::id(), uuid::Uuid::new_v4());
+    let Some(parent) = path.parent() else {
+        return Publish::Failed;
+    };
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("lock");
+    let pending = parent.join(format!(".{file_name}.{}.pending", uuid::Uuid::new_v4()));
+    let Ok(mut file) = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&pending)
+    else {
+        return Publish::Failed;
+    };
+    if writer(&mut file, &owner).is_err()
+        || file.sync_data().is_err()
+        || fs2::FileExt::try_lock_exclusive(&file).is_err()
+    {
+        let _ = fs::remove_file(&pending);
+        return Publish::Failed;
+    }
+    let published = match fs::hard_link(&pending, path) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
+        Err(_) => {
+            let _ = fs::remove_file(&pending);
+            return Publish::Failed;
+        }
+    };
+    let _ = fs::remove_file(&pending);
+    if !published {
+        return Publish::Exists;
+    }
+    guard_for(path, owner, file, heartbeat_interval).map_or_else(
+        |_| {
+            let _ = fs::remove_file(path);
+            Publish::Failed
+        },
+        Publish::Acquired,
+    )
+}
+
+fn try_takeover_existing(
+    path: &Path,
+    heartbeat_interval: Duration,
+    before_existing_lock: impl FnOnce(),
+) -> Option<Guard> {
+    let mut existing = OpenOptions::new().read(true).write(true).open(path).ok()?;
+    before_existing_lock();
+    if fs2::FileExt::try_lock_exclusive(&existing).is_err() {
+        return None;
+    }
+    let observed = read_owner_file(&mut existing)?;
+    if read_owner_path(path).as_deref() != Some(observed.as_str())
+        || !lock_record_is_stale(&observed, &existing)
+    {
+        return None;
+    }
+    fs::remove_file(path).ok()?;
+    match publish_new(path, heartbeat_interval) {
+        Publish::Acquired(guard) => Some(guard),
+        Publish::Exists | Publish::Failed => None,
+    }
+}
+
+fn write_owner(file: &mut File, owner: &str) -> std::io::Result<()> {
+    file.rewind()?;
+    file.set_len(0)?;
+    file.write_all(owner.as_bytes())?;
+    file.write_all(b"\n")?;
+    file.flush()
+}
+
+fn read_owner_file(file: &mut File) -> Option<String> {
+    file.rewind().ok()?;
+    let mut owner = String::new();
+    file.read_to_string(&mut owner).ok()?;
+    Some(owner.trim().to_owned())
+}
+
+fn read_owner_path(path: &Path) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .map(|owner| owner.trim().to_owned())
+}
+
+fn lock_record_is_stale(record: &str, file: &File) -> bool {
+    let Some(pid) = record
+        .split_whitespace()
+        .next()
+        .and_then(|pid| pid.parse::<u32>().ok())
+    else {
         return true;
     };
-    let Ok(pid) = text.trim().parse::<u32>() else {
-        return true;
-    };
-    let age = fs::metadata(path)
+    let age = file
+        .metadata()
         .and_then(|m| m.modified())
         .ok()
         .and_then(|modified| modified.elapsed().ok())
@@ -157,6 +254,8 @@ fn lock_is_stale(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Barrier};
+
     use super::*;
 
     #[test]
@@ -229,6 +328,64 @@ mod tests {
             "heartbeat should refresh the lockfile mtime"
         );
         drop(g);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn concurrent_stale_takeover_has_exactly_one_winner() {
+        let dir = std::env::temp_dir().join(format!(
+            "brain-lock-stale-race-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sync.lock");
+        std::fs::write(&path, b"4294967295").unwrap();
+        let barrier = Arc::new(Barrier::new(3));
+        let spawn_contender = || {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                try_acquire_with_existing_hook(&path, HEARTBEAT_INTERVAL, || {
+                    barrier.wait();
+                })
+            })
+        };
+        let contenders = [spawn_contender(), spawn_contender()];
+
+        barrier.wait();
+        let guards = contenders
+            .into_iter()
+            .filter_map(|thread| thread.join().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(guards.len(), 1, "only one stale-lock contender may win");
+        assert!(path.exists());
+        drop(guards);
+        assert!(!path.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn owner_write_failure_never_publishes_a_visible_lock() {
+        let dir = std::env::temp_dir().join(format!(
+            "brain-lock-write-failure-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sync.lock");
+
+        let result = publish_new_with_writer(&path, HEARTBEAT_INTERVAL, |_, _| {
+            Err(std::io::Error::other("injected owner write failure"))
+        });
+
+        assert!(matches!(result, Publish::Failed));
+        assert!(
+            !path.exists(),
+            "a partial owner record must never be visible"
+        );
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

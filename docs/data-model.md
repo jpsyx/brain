@@ -646,8 +646,11 @@ not the schema version alone. It is called only by explicit
 `brain workspace migrate`. The rollout coordinator owns the last legacy
 semantic sync, acknowledgement and identity gates, portable backup, step
 journal, activation, schema-last remote publication, and final verification.
-The local migrated header begins with `task_uuid,task_id` on every machine, so
-independently migrated legacy copies converge byte-for-byte. Existing legacy files retain
+The local migrated header uses a complete canonical order for every known task
+column, then appends forward-compatible columns in lexical order. Migration
+sets `forward_compatible_columns: true`, so independently migrated legacy
+copies and later semantic merges converge byte-for-byte without discarding
+newer fields. Existing legacy files retain
 `task_id` as their merge key until migration. Schema-v2 files merge by
 `task_uuid` and reconcile mutable display IDs without activating that
 migration.
@@ -661,7 +664,8 @@ per workspace UUID. Its active journal is
 come only from `WorkspacePaths`, so two workspaces can migrate independently
 without sharing recovery state. Neither path is portable or synced.
 
-Before creating a journal, the coordinator verifies the selected manifest and
+Before discovery, planning, or journal creation, the coordinator acquires the
+workspace UUID sync lock and retains it through the complete rollout. It then verifies the selected manifest and
 workspace UUID, remote identity when sync is configured, explicit all-machine
 acknowledgement for a synced headless rollout, and a disjoint machine-local
 backup destination. Unconfigured migration also finishes portable user and
@@ -686,8 +690,11 @@ atomically journaled, and the task-schema subtransaction has its own
 prepared/committed recovery boundary for multi-file replacement. An active
 rollout journal makes ordinary sync and sync setup refuse after taking the UUID
 lock, so crash recovery must resume the journaled transition. Success removes
-only the active rollout journal and retains the backup. An interrupted run prints the exact resume command; after
-backup completion it also prints shell-quoted restore commands. Rerunning a
+only the active rollout journal and retains the backup. An interrupted run
+prints the exact resume command. Before remote schema activation, a completed
+backup also permits shell-quoted local restore commands. After the remote
+transition is durably recorded, recovery is resume-only because restoring one
+local machine would diverge from the active remote schema. Rerunning a
 fully current workspace is byte-idempotent and creates no new backup.
 
 Managed triage identity lives in the optional `system_key` column. The reserved
@@ -1061,9 +1068,10 @@ contain the claimant's exact manifest bytes and are append-only setup metadata;
 claim paths alone do not make the target nonempty for setup retry.
 
 Ordinary sync, push, pull, repair, and `brain check` accept only the matching
-outcome. Setup first publishes and reads back its UUID-named claim, strictly
-enumerates and validates all claim names and the elected claim contents, and
-elects the lexically lowest UUID. It then re-probes the canonical manifest;
+outcome. Setup first publishes and reads back its UUID-named claim. A newly
+published claim ends that attempt without canonical publication. A retry
+strictly enumerates and validates all claim names and the elected claim
+contents, and elects the lexically lowest UUID. It then re-probes the canonical manifest;
 only the winner may publish the selected root's exact existing manifest bytes
 to an empty remote, using immutable-copy defense, and must read them back and
 revalidate before saving the
@@ -1074,7 +1082,8 @@ manifest is never adopted implicitly. Setup displays the local canonical name
 and UUID, target, and observed remote status, then requires either an explicit
 interactive confirmation or `--adopt-workspace-id <UUID>` matching the exact
 selected UUID. The setup stages hold the UUID-scoped sync lock from identity
-through credential persistence and initial baseline. No portable remote workspace name exists. Ordinary sync and
+through task-schema preparation and initial baseline, then persist credentials
+only for a clean outcome. No portable remote workspace name exists. Ordinary sync and
 internal server paths cannot supply adoption authority or prompt. Registry
 records, machine-local env credentials, and UUID-derived runtime state remain
 outside the portable remote.
@@ -1304,12 +1313,16 @@ falls back to a deterministic lexicographic tiebreak (the greater cell value
 wins), noted as a soft conflict in the `Report`.
 
 The output header is the deterministic union of names from local, remote, and
-base. Schema version 2 requires `task_uuid`, `task_id`, `assigned_to`, and
+base. Under schema version 2, every known task field uses one canonical order
+and forward-compatible fields follow in lexical order. Schema version 2 requires `task_uuid`, `task_id`, `assigned_to`, and
 `system_key`; `last_touched` remains the preferred conflict timestamp but is
 not an identity requirement. A nonempty legacy table must contain `task_id`.
 Unknown columns survive only when `SCHEMA.json` declares
 `forward_compatible_columns: true`. The manifest and all six base/local/remote
-task and habit tables are preflighted together, so any rejection occurs before
+task and habit tables are preflighted together. The remote schema marker is
+fetched and parsed before either remote CSV; absence is exactly legacy, while
+malformed, incompatible, newer, or local/remote status mismatch is a refusal.
+Any rejection occurs before
 either CSV, baseline, metadata file, remote object, or counter changes.
 
 After row merge, `reconcile.rs` groups equal display IDs. The

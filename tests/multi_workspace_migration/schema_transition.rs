@@ -15,6 +15,7 @@ fn transition_publishes_current_csvs_then_baselines_then_schema_metadata() {
     brain::migration::publish_task_schema_transition_with_transport(
         &paths,
         &root,
+        None,
         |relative, _bytes| {
             if relative == "tasks/SCHEMA.json" {
                 assert_eq!(
@@ -49,6 +50,7 @@ fn transition_failure_before_both_csvs_publish_leaves_schema_and_baselines_unpub
     let error = brain::migration::publish_task_schema_transition_with_transport(
         &paths,
         &root,
+        None,
         |relative, _bytes| {
             published.borrow_mut().push(relative.to_owned());
             relative != "tasks/habits.csv"
@@ -58,6 +60,33 @@ fn transition_failure_before_both_csvs_publish_leaves_schema_and_baselines_unpub
 
     assert!(error.to_string().contains("tasks/habits.csv"), "{error:#}");
     assert_eq!(*published.borrow(), ["tasks/tasks.csv", "tasks/habits.csv"]);
+    assert!(!paths.sync_csv_baselines().exists());
+}
+
+#[test]
+fn transition_refuses_a_newer_remote_schema_before_any_publication() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path().join("workspace");
+    write_current_task_state(&root);
+    let paths = WorkspacePaths::new(temporary.path(), WorkspaceId::parse(WORKSPACE_ID).unwrap());
+    let published = RefCell::new(Vec::new());
+
+    let error = brain::migration::publish_task_schema_transition_with_transport(
+        &paths,
+        &root,
+        Some(r#"{"task_schema_version":3,"merge_key":"task_uuid"}"#),
+        |relative, _bytes| {
+            published.borrow_mut().push(relative.to_owned());
+            true
+        },
+    )
+    .unwrap_err();
+
+    assert!(
+        error.to_string().contains("remote task schema version 3"),
+        "{error:#}"
+    );
+    assert!(published.borrow().is_empty());
     assert!(!paths.sync_csv_baselines().exists());
 }
 

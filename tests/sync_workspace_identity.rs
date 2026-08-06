@@ -286,6 +286,17 @@ fn local_rclone_initializes_only_an_empty_remote_and_verifies_exact_bytes() {
     let local_path = brain::workspace::WorkspaceManifest::path(fixture.personal.workspace.root());
     let before = std::fs::read(&local_path).unwrap();
 
+    let staged = brain::sync::identity::ensure_remote_identity_for_setup(
+        fixture.personal.workspace.root(),
+        fixture.personal.workspace.id(),
+        &remote,
+    )
+    .unwrap_err();
+
+    assert!(staged.to_string().contains("claim staged"), "{staged:#}");
+    assert!(!remote_dir.join(".config/workspace.json").exists());
+    assert_eq!(std::fs::read(&local_path).unwrap(), before);
+
     brain::sync::identity::ensure_remote_identity_for_setup(
         fixture.personal.workspace.root(),
         fixture.personal.workspace.id(),
@@ -293,7 +304,7 @@ fn local_rclone_initializes_only_an_empty_remote_and_verifies_exact_bytes() {
     )
     .unwrap();
 
-    assert_eq!(std::fs::read(local_path).unwrap(), before);
+    assert_eq!(std::fs::read(&local_path).unwrap(), before);
     assert_eq!(
         std::fs::read(remote_dir.join(".config/workspace.json")).unwrap(),
         before
