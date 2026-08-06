@@ -116,6 +116,16 @@ fn update_json_file_with_temporary(
 }
 
 fn write_and_replace_json(temporary: &Path, destination: &Path, bytes: &[u8]) -> Result<()> {
+    let write_destination = match std::fs::symlink_metadata(destination) {
+        Ok(metadata) if metadata.file_type().is_symlink() => std::fs::canonicalize(destination)
+            .with_context(|| format!("resolve hook settings target {}", destination.display()))?,
+        Ok(_) => destination.to_path_buf(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => destination.to_path_buf(),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect hook settings {}", destination.display()));
+        }
+    };
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -132,14 +142,14 @@ fn write_and_replace_json(temporary: &Path, destination: &Path, bytes: &[u8]) ->
         file.sync_all()
             .with_context(|| format!("sync temporary hook settings {}", temporary.display()))?;
         drop(file);
-        std::fs::rename(temporary, destination).with_context(|| {
+        std::fs::rename(temporary, &write_destination).with_context(|| {
             format!(
                 "replace hook settings {} from {}",
                 destination.display(),
                 temporary.display()
             )
         })?;
-        if let Some(parent) = destination.parent()
+        if let Some(parent) = write_destination.parent()
             && let Ok(directory) = std::fs::File::open(parent)
         {
             let _ = directory.sync_all();

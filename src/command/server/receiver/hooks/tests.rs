@@ -176,6 +176,31 @@ fn failed_atomic_hook_replacement_preserves_original_bytes() {
 }
 
 #[test]
+fn atomic_hook_replacement_preserves_an_existing_symlink() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("rendered-hooks.json");
+    let link = temp.path().join("hooks.json");
+    std::fs::write(&target, br#"{"before":true}"#).unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    update_json_file(&link, |settings| {
+        settings["after"] = json!(true);
+    })
+    .unwrap();
+
+    assert!(
+        std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    let updated: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&target).unwrap()).unwrap();
+    assert_eq!(updated["before"], true);
+    assert_eq!(updated["after"], true);
+}
+
+#[test]
 fn concurrent_workspace_installs_preserve_both_roots_and_shared_codex_json() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
