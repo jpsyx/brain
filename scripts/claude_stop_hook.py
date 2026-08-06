@@ -10,6 +10,69 @@ import sys
 import tempfile
 
 
+def assistant_text(content: object) -> str:
+    """Join the text blocks of one assistant message's content."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            value = block.get("text")
+            if isinstance(value, str) and value:
+                parts.append(value)
+    return "\n\n".join(parts)
+
+
+def transcript_final_message(transcript_path: object) -> str | None:
+    """Read the last assistant text message from a Claude transcript JSONL.
+
+    Each line is one event; assistant turns carry
+    `{"type": "assistant", "message": {"role": "assistant", "content": [...]}}`
+    with `text` blocks holding the spoken reply. Returns the last such message
+    that has any text, or None when the transcript is unreadable or has none.
+    """
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return None
+    try:
+        with open(transcript_path, encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return None
+    latest = None
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(record, dict) or record.get("type") != "assistant":
+            continue
+        message = record.get("message")
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        text = assistant_text(message.get("content"))
+        if text.strip():
+            latest = text
+    return latest
+
+
+def resolve_final_message(payload: dict) -> str | None:
+    """The turn's final assistant text, preferring the payload convenience
+    field and falling back to the transcript so a Claude Code build that omits
+    `last_assistant_message` still delivers instead of silently no-op'ing."""
+    candidate = payload.get("last_assistant_message")
+    if isinstance(candidate, str) and candidate.strip():
+        return candidate
+    fallback = transcript_final_message(payload.get("transcript_path"))
+    if fallback and fallback.strip():
+        return fallback
+    return None
+
+
 def stage_response(target: pathlib.Path, body: str) -> pathlib.Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     descriptor, name = tempfile.mkstemp(
@@ -108,8 +171,8 @@ def main() -> None:
         payload = json.load(sys.stdin)
         session_id = payload.get("session_id") or payload.get("thread_id")
         response_id = os.environ.get("BRAIN_RESPONSE_ID") or session_id
-        message = payload.get("last_assistant_message")
-        if not session_id or not response_id or not isinstance(message, str) or not message.strip():
+        message = resolve_final_message(payload)
+        if not session_id or not response_id or not message:
             return
         target_dir = pathlib.Path(launch["BRAIN_RESPONSE_DIR"])
         target = target_dir / f"{response_id}.json"

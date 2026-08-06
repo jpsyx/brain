@@ -203,6 +203,108 @@ fn concurrent_workspace_installs_preserve_both_roots_and_shared_codex_json() {
 }
 
 #[test]
+fn stop_hook_recovers_final_message_from_transcript_when_field_absent() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let root = temp.path().join("brain");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    install_for_home(&root, &home).unwrap();
+    let settings = root.join(".claude/settings.json");
+    let start = configured_command(&settings, "SessionStart");
+    let stop = configured_command(&settings, "Stop");
+
+    let db_path = temp.path().join("state.db");
+    drop(crate::state::Db::open_path(&db_path).unwrap());
+    let connection = rusqlite::Connection::open(&db_path).unwrap();
+    connection
+        .execute(
+            "INSERT INTO brain_sessions
+               (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+                workspace_id, actor_id, channel, created_at, last_active_at)
+             VALUES ('claude', 'pending-claude-launch', 'instance-1', 4242, 'test-launch',
+                     '11111111-1111-4111-8111-111111111111',
+                     'pablo', 'sms', 1, 1)",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
+    // A realistic Claude Code transcript: the turn ends on a text message,
+    // preceded by a thinking-only assistant message. Claude Code sends
+    // `last_assistant_message` today, but the hook must not depend on it — an
+    // absent field is the failure mode that silently dropped every SMS reply.
+    let transcript = temp.path().join("session.jsonl");
+    std::fs::write(
+        &transcript,
+        concat!(
+            r#"{"type":"user","message":{"role":"user","content":"question"}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"the final answer"}]}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    let response_dir = temp.path().join("responses");
+    let common = [
+        (
+            "BRAIN_WORKSPACE_ID",
+            std::ffi::OsStr::new("11111111-1111-4111-8111-111111111111"),
+        ),
+        ("BRAIN_WORKSPACE", std::ffi::OsStr::new("brain")),
+        ("BRAIN_ROOT", root.as_os_str()),
+        ("BRAIN_ACTOR_ID", std::ffi::OsStr::new("pablo")),
+        ("BRAIN_CHANNEL", std::ffi::OsStr::new("sms")),
+        ("BRAIN_AGENT_KIND", std::ffi::OsStr::new("claude")),
+        ("BRAIN_INSTANCE_ID", std::ffi::OsStr::new("instance-1")),
+        ("BRAIN_PID", std::ffi::OsStr::new("4242")),
+        ("BRAIN_STATE_DB", db_path.as_os_str()),
+        ("BRAIN_RESPONSE_DIR", response_dir.as_os_str()),
+        ("BRAIN_RESPONSE_ID", std::ffi::OsStr::new("response-claude-1")),
+    ];
+
+    let started = run_configured(
+        &root,
+        &start,
+        &common,
+        &json!({"session_id":"claude-session-1","source":"startup"}),
+    );
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+
+    let stopped = run_configured(
+        &root,
+        &stop,
+        &common,
+        &json!({
+            "session_id":"claude-session-1",
+            "transcript_path": transcript.to_string_lossy(),
+            "hook_event_name":"Stop",
+            "stop_hook_active": false
+        }),
+    );
+    assert!(
+        stopped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
+
+    let response: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(response_dir.join("response-claude-1.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(response["message"], "the final answer");
+    assert_eq!(response["session_id"], "claude-session-1");
+    assert_eq!(response["channel"], "sms");
+}
+
+#[test]
 fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
