@@ -46,6 +46,7 @@ mod draw_help;
 mod draw_modals;
 mod draw_palette;
 mod event_loop;
+mod filter_tasks;
 mod handlers;
 mod keymap;
 mod links;
@@ -63,6 +64,7 @@ mod status_warning;
 mod tests;
 
 pub use event_loop::run_tui;
+use filter_tasks::filter_tasks;
 
 // Re-export every submodule's items into the `tui` root so each submodule's
 // `use super::*;` can reach its siblings' free functions and shared types
@@ -97,7 +99,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use chrono::NaiveDate;
-use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
+use fuzzy_matcher::skim::SkimMatcherV2;
 use ratatui::{layout::Rect, style::Color, text::Line};
 
 use crate::agent::AgentController;
@@ -378,65 +380,6 @@ pub(crate) struct App<'a> {
     pub(crate) sync_status_next_poll: Instant,
 }
 
-/// In-shell fuzzy filter: score `tasks` against `query`, keeping matches in
-/// descending score order. An empty query returns every task unchanged.
-fn filter_tasks<'a>(
-    tasks: &'a [Task],
-    query: &str,
-    assigned_to: Option<&crate::users::UserId>,
-    matcher: &SkimMatcherV2,
-) -> Vec<&'a Task> {
-    let candidates = tasks
-        .iter()
-        .filter(|task| assigned_to.is_none_or(|user_id| task.assigned_to == user_id.as_str()));
-    if query.trim().is_empty() {
-        return candidates.collect();
-    }
-    let mut scored: Vec<(i64, &Task)> = candidates
-        .filter_map(|t| {
-            let haystack = format!("{} {}", t.id, t.name);
-            matcher.fuzzy_match(&haystack, query).map(|s| (s, t))
-        })
-        .collect();
-    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    scored.into_iter().map(|(_, t)| t).collect()
-}
-
 #[cfg(test)]
-mod assignment_filter_tests {
-    use super::{SkimMatcherV2, filter_tasks};
-    use crate::tasks::task::test_task;
-    use crate::users::UserId;
-
-    #[test]
-    fn runtime_assignment_filter_switches_members_and_can_restore_all() {
-        let mut pablo = test_task("T1", "not_started");
-        pablo.assigned_to = "pablo".to_owned();
-        let mut wife = test_task("T2", "not_started");
-        wife.assigned_to = "wife".to_owned();
-        let tasks = vec![pablo, wife];
-        let matcher = SkimMatcherV2::default().ignore_case();
-        let pablo_id = UserId::parse("pablo").unwrap();
-        let wife_id = UserId::parse("wife").unwrap();
-
-        let pablo_only = filter_tasks(&tasks, "", Some(&pablo_id), &matcher);
-        let wife_only = filter_tasks(&tasks, "", Some(&wife_id), &matcher);
-        let all = filter_tasks(&tasks, "", None, &matcher);
-
-        assert_eq!(
-            pablo_only
-                .iter()
-                .map(|task| task.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["T1"]
-        );
-        assert_eq!(
-            wife_only
-                .iter()
-                .map(|task| task.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["T2"]
-        );
-        assert_eq!(all.len(), 2);
-    }
-}
+#[path = "assignment_filter_tests.rs"]
+mod assignment_filter_tests;

@@ -54,6 +54,7 @@ impl ReceiverAdmission {
     }
 
     #[cfg(test)]
+    #[expect(dead_code)]
     pub(crate) fn is_committed(&self) -> bool {
         self.state.load(Ordering::Acquire) == COMMITTED
     }

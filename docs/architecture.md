@@ -118,6 +118,18 @@ search view. The search panel lives in a bordered half of the shell alongside
 the live brain panel; opening a file or rescoping a bucket happens in place
 and the shell stays up.
 
+## Module ownership boundaries
+
+Large command families are organized as directory modules whose children mirror
+their dependency seams. In particular, `sync::command` keeps orchestration in
+`command/mod.rs`, while status formatting, direction decisions, and conflict
+presentation live in `command/reporting.rs`; the parent re-exports the stable
+call paths. Session-store persistence is colocated under `state/session_store.rs`,
+and sync identity's external command adapter lives under
+`sync/identity/remote_command.rs`. Tests remain colocated with the module they
+exercise, preserving access to private implementation details without making
+the production module a test-suite container.
+
 ## Multi-workspace foundation boundary
 
 The foundation separates workspace payload and runtime state along these
