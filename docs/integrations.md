@@ -836,13 +836,28 @@ brain-root lookup.
   rclone's default one-shot summary), `--resilient --recover` (so an
   interrupted run can resume on the next invocation without forcing a full
   `--resync`), `--check-access --check-filename RCLONE_TEST`, and default
-  excludes (`.git/**`, `.DS_Store`, `.cache/**`, friendly conflict copies
-  `*(conflict *)*`, and raw markers `*.__brainconflict__*`) plus any
+  excludes (`.git/**`, `.DS_Store`, `.cache/**`, the remote identity manifest
+  `.config/workspace.json`, friendly conflict copies `*(conflict *)*`, and raw
+  markers `*.__brainconflict__*`) plus any
   user-configured `sync.exclude` patterns and an optional `sync.max_size` cap
   (`--max-size`, omitted when unset).
   `src/sync/run.rs` (`run_rclone`) spawns `rclone` with that argv and the
   env-var remote, and parses its captured stderr into transferred / deleted /
   error counts plus an abort reason.
+- **Remote ownership is proved before remote data work.**
+  `src/sync/identity.rs` strictly loads the selected root's existing
+  `.config/workspace.json`, requires its UUID to equal the selected
+  `WorkspaceId`, and probes the same path under the `build_remote` target with
+  `rclone cat`. Matching compatible bytes produce a private `VerifiedRemote`
+  capability required by the check-access, bisync, semantic CSV, and counter
+  lanes. Mismatch, malformed JSON, incompatible schema, and a missing manifest
+  on a nonempty remote all refuse before those lanes can mutate anything.
+  Setup alone may initialize a demonstrably empty remote: it uses `rclone lsf
+  --recursive --files-only`, publishes the exact existing local bytes with
+  `copyto`, and reads them back with `cat` before saving credentials or
+  establishing a baseline. An unreachable probe never guesses that the remote
+  is empty. Existing local manifest bytes are validation input, never rewritten
+  by setup or transfer, and cross-workspace adoption is not implicit.
 - **Progress streams live instead of blocking silently.** `run_rclone`
   inherits its own stdout for the child (`Stdio::inherit()`) and pipes only
   stderr (`Stdio::piped()`) — rclone writes its logs/stats to stderr. That
@@ -912,11 +927,14 @@ brain-root lookup.
   critical settings is unit-tested — and pauses. It clearly says this enables
   cloud sync on this machine, then prompts on `/dev/tty`
   for the bucket + B2 key id + application key (pre-filled with any existing
-  values), validates them,
-  writes the `sync` block into brain env (`crate::env::set_raw`, **not**
-  brain config — see [config.md](config.md)), probes the bucket with `rclone
-  lsd` and offers to `rclone mkdir` it if unreachable, then runs one
-  `Direction::Resync` sync to establish the baseline. If the existing `sync`
+  values), validates them, validates the local manifest, and probes the remote
+  identity before persistence. A matching identity proceeds. Setup publishes
+  and reads back the exact local manifest only when the reachable remote has no
+  files; a nonempty manifestless remote fails closed. It then writes the `sync`
+  block into brain env (`crate::env::set_raw`, **not** brain config, see
+  [config.md](config.md)) and runs one `Direction::Resync` sync to establish
+  the baseline. It never creates a bucket or treats an unreachable probe as a
+  new bucket. If the existing `sync`
   block contains crypt fields, setup preserves them when refreshing bucket
   credentials. `brain sync repair` reruns just that last step (check-access marker
   bootstrap + resync), so it is the recovery path for the empty-directory guard

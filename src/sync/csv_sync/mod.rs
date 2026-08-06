@@ -13,9 +13,7 @@ use std::path::{Path, PathBuf};
 use std::{error::Error, fmt};
 
 use crate::sync::args::Direction;
-use crate::sync::config::SyncConfig;
 use crate::sync::csv_merge::{merge, parse, schema_status, serialize, validate_for_merge};
-use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone_capture;
 use operation::sync_csvs_with_transport;
 
@@ -215,11 +213,11 @@ fn write_all(path: &Path, text: &str) {
 /// metadata through the same typed result boundary.
 pub(crate) fn sync_csvs(
     paths: &crate::workspace::WorkspacePaths,
-    cfg: &SyncConfig,
+    verified: crate::sync::identity::VerifiedRemote<'_>,
     root: &Path,
     direction: Direction,
 ) -> Result<CsvSyncResult, CsvSyncError> {
-    let remote = build_remote(cfg);
+    let remote = verified.remote();
     let temporary_dir = paths.sync_dir().join("tmp");
     let _ = std::fs::create_dir_all(&temporary_dir);
     let fetch = |relative: &str| {

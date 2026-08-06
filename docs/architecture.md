@@ -623,14 +623,19 @@ in the separate `env.json`) are ignored here.
 private Backblaze B2 bucket via `rclone bisync`, dispatched in
 `src/command/sync.rs`
 **before** the `markdown-to-pdf` prerequisite gate (like `config`/`env`/
-`personalize`/`skills`). The data flow per run is **build → run → post-pass →
-verify → journal**: `config` (`SyncConfig`, parsed from the brain-env `sync`
+`personalize`/`skills`). The data flow per run is **build → prove remote
+identity → run → post-pass → verify → journal**: `config` (`SyncConfig`, parsed from the brain-env `sync`
 block) feeds `remote::build_remote` (the B2 remote as `RCLONE_CONFIG_*` env
 vars, never on argv) and `args::bisync_args` (the full `rclone bisync` argv:
 conflict resolution bias for the direction, keep-both flags, `--max-delete`,
 default excludes, `--check-access --check-filename RCLONE_TEST`, plus
 `--stats 10s --stats-one-line` for live progress and `--resilient --recover`
-for resumability); `check_access.rs` creates/repairs the root-level marker on
+for resumability). Before any remote or portable mutation,
+`identity.rs` validates the selected root's existing portable manifest, probes
+the remote `.config/workspace.json` through rclone, and returns a private
+`VerifiedRemote` capability only when its UUID and schema match. The
+check-access, bisync, CSV, and counter lanes require that capability;
+`check_access.rs` creates/repairs the root-level marker on
 local + remote before resync runs; `run::run_rclone` checks for the external
 `rclone` executable before spawning it, then streams its stderr live to the terminal while
 capturing it, and parses the capture into transferred/deleted/error counts
@@ -649,10 +654,13 @@ SQLite journal at `<workspace-cache>/sync/journal.db` (table `sync_runs`,
 machine-local, never synced). `command::sync_once` is the thin orchestrator
 that runs this whole pipeline; `command::print_status`/`print_conflicts` back
 `brain sync status`/`brain sync conflicts`. `setup.rs` is `brain sync setup`'s
-interactive flow (collect bucket + credentials, verify/create the bucket via
-`rclone lsd`/`mkdir`, write the `sync` block into brain env, bootstrap the
-check-access markers through `sync_once(Direction::Resync)`, then run one
-baseline `sync_once` with `Direction::Resync`) — `brain sync repair` reruns just
+interactive flow (collect bucket + credentials, validate the local manifest,
+probe the remote identity, publish and read back the exact existing local
+manifest only for an empty remote, write the `sync` block into brain env,
+bootstrap the check-access markers, then run one baseline
+`sync_once(Direction::Resync)`). A nonempty manifestless remote and every
+mismatched, malformed, or incompatible remote manifest fail closed before
+credentials are persisted or data is written. `brain sync repair` reruns just
 that resync on an already configured machine, mainly as the recovery path for
 rclone's own "prior listings missing" guard. See
 [integrations.md](integrations.md) for the rclone handoff detail and
@@ -668,7 +676,8 @@ path derived from them. Sync runtime code never reopens the workspace registry,
 resolves a global brain root, or consults HOME for a convenience path.
 
 `check.rs` backs `brain check`, a **read-only** sibling of `sync_once`: it
-builds the same `Direction::Both` argv via `args::bisync_args` but appends
+first passes the same remote identity gate, then builds the same
+`Direction::Both` argv via `args::bisync_args` and appends
 `--dry-run`, runs it through `run::run_rclone_capture` (a quiet, non-streaming
 counterpart to `run::run_rclone` — no live terminal output, just `(exit_ok,
 combined_output)`), then classifies the captured detection-phase lines with

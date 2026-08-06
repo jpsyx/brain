@@ -179,10 +179,15 @@ fn fetch_remote_csv(
 
 /// Run `brain check`: dry-run bisync, classify pending changes, print the report.
 ///
-/// Thin IO shell; the report text itself is built by [`format_report`]. Never
-/// fails: rclone/IO errors surface as a themed warning rather than a hard
-/// error, since this is a read-only convenience report, not a sync.
-pub fn run(paths: &crate::workspace::WorkspacePaths, cfg: &SyncConfig, root: &std::path::Path) {
+/// Thin IO shell; the report text itself is built by [`format_report`].
+/// Detection errors remain themed warnings, but an unverified remote identity
+/// is a hard refusal before any remote data reads.
+pub fn run(
+    paths: &crate::workspace::WorkspacePaths,
+    workspace_id: crate::workspace::WorkspaceId,
+    cfg: &SyncConfig,
+    root: &std::path::Path,
+) -> anyhow::Result<()> {
     let theme = Theme::active();
     if !cfg.is_configured() {
         crate::logging::log("check unconfigured");
@@ -193,7 +198,7 @@ pub fn run(paths: &crate::workspace::WorkspacePaths, cfg: &SyncConfig, root: &st
                 theme,
             )
         );
-        return;
+        return Ok(());
     }
     let remote = crate::sync::remote::build_remote(cfg);
     crate::logging::log(format!(
@@ -201,6 +206,10 @@ pub fn run(paths: &crate::workspace::WorkspacePaths, cfg: &SyncConfig, root: &st
         root.display(),
         remote.arg
     ));
+    println!("{}", theme.muted("Validating the local workspace manifest…"));
+    println!("{}", theme.muted("Probing the remote workspace identity…"));
+    let verified = crate::sync::identity::require_remote_identity(root, workspace_id, &remote)?;
+    let remote = verified.remote();
     let local = root.to_string_lossy().into_owned();
     let workdir = crate::sync::run::bisync_workdir(paths);
     let mut args = crate::sync::args::bisync_args(
@@ -229,7 +238,7 @@ pub fn run(paths: &crate::workspace::WorkspacePaths, cfg: &SyncConfig, root: &st
             "{}",
             theme.warning("No sync baseline yet — run `brain sync` to establish it.")
         );
-        return;
+        return Ok(());
     }
     let changes: Vec<Change> = output
         .lines()
@@ -261,6 +270,7 @@ pub fn run(paths: &crate::workspace::WorkspacePaths, cfg: &SyncConfig, root: &st
             println!("{}", format_csv_check_error(&error, theme));
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]

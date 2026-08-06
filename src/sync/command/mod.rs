@@ -61,6 +61,7 @@ pub fn hostname() -> String {
 /// verified outcome.
 pub fn sync_once(
     paths: &crate::workspace::WorkspacePaths,
+    workspace_id: crate::workspace::WorkspaceId,
     cfg: &SyncConfig,
     root: &Path,
     dir: Direction,
@@ -107,10 +108,15 @@ pub fn sync_once(
 
     reporter.line(&theme.info(sync_progress(dir)));
 
+    reporter.line(&theme.info("Validating the local workspace manifest…"));
+    reporter.line(&theme.info("Probing the remote workspace identity…"));
+    let verified = crate::sync::identity::require_remote_identity(root, workspace_id, &remote)?;
+    let remote = verified.remote();
+
     if should_bootstrap_check_access(dir) {
         crate::logging::log("sync check-access markers");
         reporter.line(&theme.info("Checking the sync safety marker…"));
-        crate::sync::check_access::ensure_markers(root, &remote)?;
+        crate::sync::check_access::ensure_markers(root, &verified)?;
     }
 
     // We hold this workspace UUID's sync lock here, so any rclone bisync lock
@@ -146,7 +152,7 @@ pub fn sync_once(
             "The check-access marker is missing; running `brain sync repair` automatically to recreate it and re-establish the baseline…",
         ));
         reporter.line(&theme.info("Recreating the local and remote RCLONE_TEST markers…"));
-        crate::sync::check_access::ensure_markers(root, &remote)?;
+        crate::sync::check_access::ensure_markers(root, &verified)?;
         reporter.line(&theme.info("Rebuilding the rclone baseline; live file progress follows…"));
         let repair_argv =
             args::bisync_args(cfg, &local, &remote.arg, &workdir_arg, Direction::Resync);
@@ -183,10 +189,11 @@ pub fn sync_once(
         let _task_owner =
             crate::tasks::store_lock::TaskStoreOwner::acquire_path(&paths.task_store_lock())?;
         let csv = sync_task_state(
-            || crate::sync::csv_sync::sync_csvs(paths, cfg, root, dir),
+            || crate::sync::csv_sync::sync_csvs(paths, verified, root, dir),
             |floors| {
                 reporter.line(&theme.info("Reconciling task and habit id counters…"));
-                let counters = crate::sync::counters::sync_counters(cfg, root, dir, floors);
+                let counters =
+                    crate::sync::counters::sync_counters(verified, root, dir, floors);
                 crate::logging::log(format!("sync id counters {counters:?}"));
             },
         )?;
@@ -195,6 +202,7 @@ pub fn sync_once(
         note
     };
 
+    reporter.line(&journal_progress(theme));
     let journal = Journal::open(&paths.sync_journal())?;
     crate::logging::log(format!("sync journal {}", paths.sync_journal().display()));
     journal.record(&SyncRun {
@@ -338,6 +346,11 @@ pub fn sync_progress(dir: Direction) -> &'static str {
         Direction::Pull => "Comparing local and remote changes, then pulling remote changes…",
         Direction::Resync => "Checking the sync marker and rebuilding the rclone baseline…",
     }
+}
+
+#[must_use]
+pub fn journal_progress(theme: Theme) -> String {
+    theme.info("Recording this run in the workspace sync journal…")
 }
 
 #[must_use]
@@ -732,6 +745,13 @@ mod tests {
     }
 
     #[test]
+    fn journal_progress_names_the_local_run_record() {
+        let line = journal_progress(Theme::dark(false));
+
+        assert!(line.contains("sync journal"), "{line}");
+    }
+
+    #[test]
     fn format_in_progress_names_the_running_direction_and_start() {
         let state = crate::sync::current::CurrentState {
             pid: 4242,
@@ -1037,6 +1057,7 @@ mod tests {
         );
         let err = sync_once(
             &paths,
+            crate::workspace::WorkspaceId::new(),
             &cfg,
             Path::new("/tmp"),
             Direction::Both,

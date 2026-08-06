@@ -80,6 +80,14 @@ first move is a failing test that reproduces it, *then* the fix.
   The gated real-rclone helper in `tests/sync_local.rs` uses the production
   UUID-derived workdir and reporter paths, so transport coverage cannot drift
   back to an adjacent test-only cache.
+- **Remote sync identity contract.** `sync::identity` unit tests exhaust the
+  pure absent, matching, mismatched, malformed, and incompatible decisions and
+  an injected rclone boundary pins probe/publication/read-back ordering.
+  `tests/sync_workspace_identity.rs` composes two selected records, proves
+  cross-workspace refusal before every data command for sync, repair, and
+  check, and uses a gated local-rclone remote to verify exact setup publication
+  and read-back. `tests/sync_local.rs` starts from matching manifests so the
+  transport suite exercises the production gate.
 - **Workspace documentation contract.** `tests/workspace_docs.rs` runs the
   compiled binary's root, workspace, and nested alias help, then checks only
   stable command names and selector spellings against the current README/docs.
@@ -530,6 +538,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` + `tui::app_brain::tests` | Portable mode ownership/defaults, strict and atomic persistence, exact advisory contract, real App launch-context parity, adapter mechanisms, option-terminated prompt argv, selected cwd, honest typed status, naive warning limits, and minimal environment. |
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
 | `tests/sync_workspace_paths.rs` | Direct UUID separation for sync paths, concurrent cross-workspace locks, same-workspace serialization, journal reads, and current-state reads. |
+| `tests/sync_workspace_identity.rs` | Pure and compiled-binary remote manifest identity decisions, fail-closed mutation ordering across sync/repair/check, two-record cross-adoption refusal, and gated real-rclone setup publication/read-back. |
 | `tests/sync_local.rs` | Gated real-rclone transport plus local CSV merge coverage; the transport invokes rclone with the production UUID-derived bisync workdir and reporter paths. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |

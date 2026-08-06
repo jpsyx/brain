@@ -93,6 +93,8 @@ fn run_once(
         );
         return Ok(false);
     }
+    let theme = crate::theme::Theme::active();
+    eprintln!("{}", format_lock_progress(theme));
     crate::logging::log(format!(
         "sync acquire lock {}",
         command.workspace.paths().sync_lock().display()
@@ -113,6 +115,7 @@ fn run_once(
     crate::logging::log(format!("sync start ts={timestamp}"));
     let outcome = crate::sync::command::sync_once(
         command.workspace.paths(),
+        command.workspace.id(),
         config,
         root,
         direction,
@@ -128,9 +131,14 @@ fn run_once(
     Ok(succeeded)
 }
 
+#[must_use]
+fn format_lock_progress(theme: crate::theme::Theme) -> String {
+    theme.info("Acquiring the workspace sync lock…")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::reconcile_after_successful_repair;
+    use super::{format_lock_progress, reconcile_after_successful_repair};
 
     #[test]
     fn successful_repair_restores_missing_managed_triage_definitions() {
@@ -169,5 +177,12 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn lock_progress_names_workspace_scoped_coordination() {
+        let line = format_lock_progress(crate::theme::Theme::dark(false));
+
+        assert!(line.contains("workspace sync lock"), "{line}");
     }
 }

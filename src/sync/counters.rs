@@ -17,8 +17,6 @@
 use std::path::{Path, PathBuf};
 
 use crate::sync::args::Direction;
-use crate::sync::config::SyncConfig;
-use crate::sync::remote::build_remote;
 use crate::sync::run::run_rclone_capture;
 
 /// The two id-counter files reconciled out-of-band, as repo-relative paths.
@@ -175,12 +173,12 @@ pub(crate) fn sync_counters_with_transport(
 /// tables published in the same sync operation.
 #[must_use]
 pub(crate) fn sync_counters(
-    cfg: &SyncConfig,
+    verified: crate::sync::identity::VerifiedRemote<'_>,
     root: &Path,
     direction: Direction,
     floors: crate::sync::csv_sync::DisplayIdFloors,
 ) -> Vec<(String, Option<u32>)> {
-    let remote = build_remote(cfg);
+    let remote = verified.remote();
     let fetch = |relative: &str| {
         let tag = relative.replace('/', "_");
         let tmp =

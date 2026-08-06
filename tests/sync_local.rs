@@ -34,11 +34,28 @@ fn workspace_paths(base: &Path) -> brain::workspace::WorkspacePaths {
 
 fn run(a: &Path, b: &Path, dir: Direction) -> brain::sync::run::RunOutcome {
     if dir == Direction::Resync {
+        if !brain::workspace::WorkspaceManifest::path(a).exists() {
+            let manifest = brain::workspace::WorkspaceManifest::new(workspace_id());
+            manifest.write_new(a).unwrap();
+            let remote_manifest = brain::workspace::WorkspaceManifest::path(b);
+            std::fs::create_dir_all(remote_manifest.parent().unwrap()).unwrap();
+            std::fs::copy(
+                brain::workspace::WorkspaceManifest::path(a),
+                remote_manifest,
+            )
+            .unwrap();
+        }
         let remote = Remote {
             env: Vec::new(),
             arg: b.to_string_lossy().into_owned(),
         };
-        brain::sync::check_access::ensure_markers(a, &remote).unwrap();
+        let verified = brain::sync::identity::require_remote_identity(
+            a,
+            workspace_id(),
+            &remote,
+        )
+        .unwrap();
+        brain::sync::check_access::ensure_markers(a, &verified).unwrap();
     }
     let parent = a.parent().unwrap();
     let paths = workspace_paths(parent);
@@ -53,6 +70,11 @@ fn run(a: &Path, b: &Path, dir: Direction) -> brain::sync::run::RunOutcome {
     );
     let reporter = Reporter::begin(&paths, "both", "t", std::process::id());
     run_rclone(&reporter, &[], &args)
+}
+
+fn workspace_id() -> brain::workspace::WorkspaceId {
+    brain::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b")
+        .expect("valid workspace id")
 }
 
 #[test]

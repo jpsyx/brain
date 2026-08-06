@@ -28,15 +28,17 @@ pub enum Direction {
 /// rewrites it to the friendly `name (conflict host date).ext`.
 pub const CONFLICT_MARKER: &str = "__brainconflict__";
 
-/// Default excludes: VCS/OS cruft, the machine-local cache, friendly conflict
-/// copies, raw rclone conflict markers (so neither fans out on later syncs; the
-/// marker exclude does not stop rclone from creating the initial copy), the two
-/// task CSVs (`tasks/tasks.csv`, `tasks/habits.csv`) reconciled out-of-band via
+/// Default excludes: the separately identity-gated portable workspace manifest,
+/// VCS/OS cruft, the machine-local cache, friendly conflict copies, raw rclone
+/// conflict markers (so neither fans out on later syncs; the marker exclude does
+/// not stop rclone from creating the initial copy), the two task CSVs
+/// (`tasks/tasks.csv`, `tasks/habits.csv`) reconciled out-of-band via
 /// the id-keyed 3-way merge in `csv_sync`, and the two id counters
 /// (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) reconciled out-of-band via
 /// the max-merge in `counters` (bisync's newer-wins would regress a counter and
 /// cause id collisions), not by bisync.
-const EXCLUDES: [&str; 9] = [
+const EXCLUDES: [&str; 10] = [
+    ".config/workspace.json",
     ".git/**",
     ".DS_Store",
     ".cache/**",
@@ -216,6 +218,21 @@ mod tests {
                 .any(|w| w[0] == "--exclude" && w[1] == "tasks/habits.csv"),
             "{a:?}"
         );
+    }
+
+    #[test]
+    fn excludes_the_workspace_manifest_after_identity_verification() {
+        let bisync = args(Direction::Both);
+        let push = push_args(&cfg(), "/root", "BRAIN:b");
+
+        for argv in [&bisync, &push] {
+            assert!(
+                argv.windows(2).any(|pair| {
+                    pair[0] == "--exclude" && pair[1] == ".config/workspace.json"
+                }),
+                "{argv:?}"
+            );
+        }
     }
 
     #[test]

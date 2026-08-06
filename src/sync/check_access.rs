@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use crate::sync::remote::Remote;
+use crate::sync::identity::VerifiedRemote;
 
 /// rclone's default check-access marker filename, made explicit in argv.
 pub const CHECK_FILENAME: &str = "RCLONE_TEST";
@@ -30,7 +30,7 @@ pub fn ensure_local_marker(root: &Path) -> Result<()> {
 }
 
 /// Ensure both local and remote check-access markers exist.
-pub fn ensure_markers(root: &Path, remote: &Remote) -> Result<()> {
+pub fn ensure_markers(root: &Path, remote: &VerifiedRemote<'_>) -> Result<()> {
     ensure_markers_with(root, remote, crate::sync::run::run_rclone_capture)
 }
 
@@ -38,7 +38,7 @@ pub fn ensure_markers(root: &Path, remote: &Remote) -> Result<()> {
 /// for tests.
 pub fn ensure_markers_with(
     root: &Path,
-    remote: &Remote,
+    remote: &VerifiedRemote<'_>,
     run: impl FnMut(&[(String, String)], &[String]) -> (bool, String),
 ) -> Result<()> {
     ensure_local_marker(root)?;
@@ -48,15 +48,15 @@ pub fn ensure_markers_with(
 /// Ensure the remote marker exists by copying the local marker to the remote root.
 pub fn ensure_remote_marker_with(
     root: &Path,
-    remote: &Remote,
+    remote: &VerifiedRemote<'_>,
     mut run: impl FnMut(&[(String, String)], &[String]) -> (bool, String),
 ) -> Result<()> {
     let args = vec![
         "copyto".to_owned(),
         marker_path(root).display().to_string(),
-        remote_marker_arg(&remote.arg),
+        remote_marker_arg(&remote.remote().arg),
     ];
-    let (ok, output) = run(&remote.env, &args);
+    let (ok, output) = run(&remote.remote().env, &args);
     if ok {
         Ok(())
     } else {
@@ -95,17 +95,21 @@ mod tests {
 
     #[test]
     fn ensure_remote_marker_copies_local_marker_to_remote_marker() {
-        let tmp = std::env::temp_dir().join(format!("brain-check-access-remote-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "brain-check-access-remote-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&tmp).unwrap();
         ensure_local_marker(&tmp).unwrap();
-        let remote = Remote {
+        let remote = crate::sync::remote::Remote {
             env: vec![("RCLONE_CONFIG_BRAIN_TYPE".to_owned(), "b2".to_owned())],
             arg: "BRAIN:bucket/prefix".to_owned(),
         };
 
         let mut seen_env = Vec::new();
         let mut seen_args = Vec::new();
-        ensure_remote_marker_with(&tmp, &remote, |env, args| {
+        let verified = crate::sync::identity::verified_remote_for_test(&remote);
+        ensure_remote_marker_with(&tmp, &verified, |env, args| {
             seen_env = env.to_vec();
             seen_args = args.to_vec();
             (true, String::new())
@@ -127,11 +131,18 @@ mod tests {
 
     #[test]
     fn ensure_markers_writes_local_marker_before_remote_copy() {
-        let tmp = std::env::temp_dir().join(format!("brain-check-access-both-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "brain-check-access-both-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&tmp).unwrap();
-        let remote = Remote { env: Vec::new(), arg: "BRAIN:bucket".to_owned() };
+        let remote = crate::sync::remote::Remote {
+            env: Vec::new(),
+            arg: "BRAIN:bucket".to_owned(),
+        };
+        let verified = crate::sync::identity::verified_remote_for_test(&remote);
 
-        ensure_markers_with(&tmp, &remote, |_, args| {
+        ensure_markers_with(&tmp, &verified, |_, args| {
             assert!(
                 tmp.join(CHECK_FILENAME).exists(),
                 "local marker must exist before the remote copy runs"

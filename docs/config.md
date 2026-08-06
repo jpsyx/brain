@@ -256,10 +256,19 @@ Mirrors `brain config` exactly, over the env store:
 
 `brain sync` reads and drives the `sync` block above; the block itself is
 written by **`brain sync setup`** (interactive: bucket + credentials,
-verify/create the bucket, establish the baseline), not by hand-editing
+validate the selected local manifest, verify or initialize remote workspace
+identity, establish the baseline), not by hand-editing
 `env.json` or `brain env set`. See [features.md](features.md) for the full
 command surface (`brain sync [--push|--pull] {setup|repair|status|conflicts}`)
 and [integrations.md](integrations.md) for the rclone handoff.
+
+The bucket must already exist. Setup probes the selected record's configured
+bucket/path before persisting the candidate `sync` block. A matching strict
+remote manifest proceeds; a demonstrably empty remote receives the exact local
+manifest and is verified by read-back. Mismatch, malformed or incompatible
+manifests, nonempty manifestless remotes, and unreachable probes fail closed.
+All later sync and check invocations load the same selected record's config and
+repeat this identity gate before remote data work.
 
 Optional `rclone crypt` is enabled by adding an already-obscured
 `crypt_password` to the same machine-local `sync` block; `crypt_password2` is

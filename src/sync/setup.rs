@@ -1,6 +1,6 @@
 //! `brain sync setup`: check rclone, collect the B2 bucket + credentials into
-//! the brain-env `sync` block, verify/create the bucket, and establish the
-//! baseline.
+//! the brain-env `sync` block, verify the remote workspace identity, and
+//! establish the baseline.
 //!
 //! Interactive on /dev/tty; only the input validation is pure and unit-tested.
 
@@ -61,8 +61,8 @@ pub fn validate(bucket: &str, key_id: &str, app_key: &str) -> Result<()> {
     Ok(())
 }
 
-/// Interactive setup. Writes the `sync` block into brain env, verifies/creates
-/// the bucket, and runs the initial baseline sync. Never unit-tested (I/O + net).
+/// Interactive setup. Verifies the remote workspace identity, writes the
+/// `sync` block into brain env, and runs the initial baseline sync.
 pub fn run(command: &crate::workspace::CommandContext) -> Result<()> {
     let theme = Theme::active();
     if !crate::sync::run::rclone_present() {
@@ -92,28 +92,51 @@ pub fn run(command: &crate::workspace::CommandContext) -> Result<()> {
     validate(&bucket, &key_id, &app_key)?;
 
     let block = sync_block(&bucket, &key_id, &app_key, &existing);
-    crate::env::set_raw(command, "sync", block)?;
-
-    verify_or_create_bucket(command, theme)?;
-
-    println!(
-        "{}",
-        theme.info("Establishing the baseline (this may take a while)…")
-    );
-    let cfg = SyncConfig::load(command);
+    let candidate: SyncConfig = serde_json::from_value(block.clone())?;
+    let remote = crate::sync::remote::build_remote(&candidate);
     let root = command.workspace.root();
-    let now = chrono::Utc::now();
-    let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let date = now.format("%Y-%m-%d").to_string();
-    crate::sync::command::sync_once(
-        command.workspace.paths(),
-        &cfg,
-        root,
-        Direction::Resync,
-        (&ts, &ts, &date),
+    run_setup_stages(
+        || {
+            println!("{}", theme.info("Validating the local workspace manifest…"));
+            println!("{}", theme.info("Probing the remote workspace identity…"));
+            crate::sync::identity::ensure_remote_identity_for_setup(
+                root,
+                command.workspace.id(),
+                &remote,
+            )
+        },
+        || crate::env::set_raw(command, "sync", block),
+        || {
+            println!(
+                "{}",
+                theme.info("Establishing the baseline (this may take a while)…")
+            );
+            let now = chrono::Utc::now();
+            let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+            let date = now.format("%Y-%m-%d").to_string();
+            crate::sync::command::sync_once(
+                command.workspace.paths(),
+                command.workspace.id(),
+                &candidate,
+                root,
+                Direction::Resync,
+                (&ts, &ts, &date),
+            )?;
+            Ok(())
+        },
     )?;
     println!("{}", theme.success("✓ sync configured."));
     Ok(())
+}
+
+fn run_setup_stages(
+    identity: impl FnOnce() -> Result<()>,
+    persist_credentials: impl FnOnce() -> Result<()>,
+    baseline: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    identity()?;
+    persist_credentials()?;
+    baseline()
 }
 
 /// Read one line from `/dev/tty`, prompting with `label` (showing `current` as
@@ -162,7 +185,7 @@ fn ask_has_bucket(theme: Theme) -> Result<bool> {
 #[must_use]
 pub fn setup_intro(theme: Theme) -> String {
     format!(
-        "{}\n\nThis will enable cloud sync on this machine: brain will connect to a private Backblaze B2 bucket, save the sync credentials in machine-local brain env, create the RCLONE_TEST safety marker, and establish the first baseline.\n",
+        "{}\n\nThis will enable cloud sync on this machine: brain will connect to an existing private Backblaze B2 bucket, verify the remote workspace identity, save the sync credentials in machine-local brain env, create the RCLONE_TEST safety marker, and establish the first baseline.\n",
         theme.accent("brain sync setup")
     )
 }
@@ -187,38 +210,10 @@ fn sync_block(
     })
 }
 
-/// Probe the configured bucket with rclone; offer to create it if missing.
-fn verify_or_create_bucket(command: &crate::workspace::CommandContext, theme: Theme) -> Result<()> {
-    let cfg = SyncConfig::load(command);
-    let remote = crate::sync::remote::build_remote(&cfg);
-    // `rclone lsd <remote>` lists dirs; success means the bucket is reachable.
-    let mut probe = std::process::Command::new("rclone");
-    probe.arg("lsd").arg(&remote.arg);
-    for (k, v) in &remote.env {
-        probe.env(k, v);
-    }
-    let ok = probe.output().is_ok_and(|o| o.status.success());
-    if ok {
-        return Ok(());
-    }
-    println!(
-        "{}",
-        theme.warning("Bucket not reachable; attempting to create it…")
-    );
-    let mut mk = std::process::Command::new("rclone");
-    mk.arg("mkdir").arg(&remote.arg);
-    for (k, v) in &remote.env {
-        mk.env(k, v);
-    }
-    let created = mk.output().is_ok_and(|o| o.status.success());
-    if !created {
-        bail!("could not reach or create the B2 bucket — check the bucket name and credentials");
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
     use super::*;
 
     #[test]
@@ -267,6 +262,10 @@ mod tests {
         let intro = setup_intro(Theme::dark(false));
         assert!(intro.contains("This will enable cloud sync"), "{intro}");
         assert!(intro.contains("brain sync setup"), "{intro}");
+        assert!(
+            intro.contains("verify the remote workspace identity"),
+            "{intro}"
+        );
     }
 
     #[test]
@@ -290,5 +289,52 @@ mod tests {
         assert_eq!(block["crypt_password2"], "obscured-salt");
         assert_eq!(block["crypt_filename_encryption"], "obfuscate");
         assert_eq!(block["crypt_directory_name_encryption"], false);
+    }
+
+    #[test]
+    fn setup_stages_verify_remote_identity_before_persisting_credentials_or_syncing_data() {
+        let stages = RefCell::new(Vec::new());
+
+        run_setup_stages(
+            || {
+                stages.borrow_mut().push("identity");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("credentials");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("baseline");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(*stages.borrow(), ["identity", "credentials", "baseline"]);
+    }
+
+    #[test]
+    fn identity_refusal_preserves_credentials_and_skips_the_baseline() {
+        let stages = RefCell::new(Vec::new());
+
+        let error = run_setup_stages(
+            || {
+                stages.borrow_mut().push("identity");
+                anyhow::bail!("wrong workspace")
+            },
+            || {
+                stages.borrow_mut().push("credentials");
+                Ok(())
+            },
+            || {
+                stages.borrow_mut().push("baseline");
+                Ok(())
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("wrong workspace"));
+        assert_eq!(*stages.borrow(), ["identity"]);
     }
 }

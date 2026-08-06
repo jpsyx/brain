@@ -121,8 +121,12 @@ pub fn run(
     if matches!(&cli.command, Some(Cmd::Check)) {
         crate::logging::log("dispatch check");
         let config = crate::sync::config::SyncConfig::load(context);
-        crate::sync::check::run(context.workspace.paths(), &config, context.workspace.root());
-        return Ok(());
+        return crate::sync::check::run(
+            context.workspace.paths(),
+            context.workspace.id(),
+            &config,
+            context.workspace.root(),
+        );
     }
     if let Some(Cmd::Reindex(args)) = &cli.command {
         crate::logging::log("dispatch reindex");

@@ -897,6 +897,20 @@ explicitly on the user: brain can store rclone-obscured values in machine-local
 env, but it cannot recover encrypted remote data after the original passphrases
 are lost.
 
+**Why the portable manifest is a mandatory remote ownership gate.** A bucket
+and path are location, not identity. Two selected workspace records can be
+misconfigured to point at the same location, and the `RCLONE_TEST` marker only
+proves path symmetry. Before any check-marker, bisync, CSV, counter, or portable
+mutation, brain therefore compares the selected UUID with the strict remote
+`.config/workspace.json` and exposes the remote to mutation code only through a
+verified capability. Mismatch and invalid manifests fail closed. A missing
+manifest is safe to initialize only when setup proves the remote has no files;
+setup publishes the exact existing local bytes and reads them back before
+persisting credentials or writing data. Existing local manifests are never
+rewritten, and ordinary transfer excludes the manifest so it cannot replace a
+remote owner's identity. A nonempty manifestless remote requires a future
+explicit adoption workflow because absence alone cannot prove ownership.
+
 **Why `--max-delete` shipped first, and why `--check-access` is now enabled.** rclone offers `--check-access`
 as a symmetry guard (both sides must show matching `RCLONE_TEST` marker files,
 or the run aborts) and `--max-delete` as a blast-radius guard (abort if a run

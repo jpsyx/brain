@@ -962,6 +962,25 @@ record and deserializes it, falling back to `SyncConfig::default()`
 on a missing key or a parse failure — a broken or absent `sync` block never
 blocks startup.
 
+## Remote workspace identity (`sync/identity.rs`)
+
+Every remote data path is owned by one portable workspace manifest at
+`.config/workspace.json`. The remote file uses the same strict schema and UUID
+as the selected root's local manifest. The pure identity decision has five
+outcomes: matching and compatible proceeds; absent on a demonstrably empty
+remote permits setup initialization; mismatched UUID, malformed JSON,
+incompatible schema, and absent on a nonempty remote refuse.
+
+Ordinary sync, push, pull, repair, and `brain check` accept only the matching
+outcome. Setup may publish the selected root's exact existing manifest bytes to
+an empty remote, then must read them back and revalidate before saving the
+candidate sync block or writing check markers, CSVs, counters, or bisync data.
+The local manifest is immutable validation input in this flow and is excluded
+from ordinary rclone transfer. A remote that already contains data but lacks a
+manifest is not adopted implicitly; adoption requires a separate explicit
+workflow. Registry records, machine-local env credentials, and UUID-derived
+runtime state remain outside the portable remote.
+
 ## Sync journal (`src/sync/journal.rs`, `<workspace-cache>/sync/journal.db`)
 
 Every `brain sync` run (including `setup`'s initial baseline) is recorded into

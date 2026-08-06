@@ -553,9 +553,10 @@ demand if it does not exist yet; `brain env` does not create it because env
 configuration lives outside the brain root.
 
 During a configured run, sync prints the current phase as it proceeds: the
-comparison and selected direction, rclone's live file progress, and the task /
-habit CSV merge. If `rclone` is missing, it stops before remote work and prints
-two clearly labeled installation choices: the Homebrew command
+workspace-scoped lock, local manifest validation, remote identity probe,
+comparison and selected direction, rclone's live file progress, task/habit CSV
+merge, and journal write. If `rclone` is missing, it stops before remote work
+and prints two clearly labeled installation choices: the Homebrew command
 (`brew install rclone`) or the official installer command.
 
 - `brain sync` (bare) — bidirectional sync; a same-file conflict is resolved
@@ -571,9 +572,14 @@ two clearly labeled installation choices: the Homebrew command
   guide to creating one (private bucket, Default Encryption **enabled**, Object
   Lock **disabled**, and a bucket-scoped application key) and waits for you before
   continuing. Then it collects the B2 bucket + credentials (writes the `sync`
-  block into **brain env**, not brain config — see [config.md](config.md)),
-  verifies or creates the bucket, creates the `RCLONE_TEST` check-access marker
-  on both sides, and establishes the initial bisync baseline.
+  block into **brain env**, not brain config, see [config.md](config.md)). The
+  bucket must already exist and be reachable. Setup validates the selected
+  workspace's existing local manifest and probes remote
+  `.config/workspace.json`. A matching identity proceeds; an empty remote gets
+  the exact local manifest published and read back before credentials or other
+  data are written. A mismatched, malformed, incompatible, or nonempty
+  manifestless remote is refused. Setup then creates the `RCLONE_TEST`
+  check-access marker on both sides and establishes the initial bisync baseline.
 - `brain sync repair` — (re-)establish the bisync baseline for a machine that
   already has `sync` env configured. A normal sync automatically performs this
   narrow repair when rclone reports a missing check-access marker, announcing
@@ -612,11 +618,13 @@ tool is missing.
 
 **Live progress.** A running sync is no longer a silent block. Before any slow
 work begins, brain prints the sync mode, local root, remote target, and the
-plain-English plan. It then announces the safety-marker check, rclone handoff,
-and task/habit CSV merge before each phase starts. During the rclone phase,
-file progress streams to the terminal live, with a one-line update roughly
-every 10 seconds (files/bytes transferred, percent complete, transfer rate,
-ETA) — useful on the first sync of a large brain, which can take a while.
+plain-English plan. It then announces lock coordination, local manifest
+validation, the remote identity probe, safety-marker check, rclone handoff,
+task/habit CSV merge, and journal write before each phase starts. During the
+rclone phase, file progress streams to the terminal live, with a one-line
+update roughly every 10 seconds (files/bytes transferred, percent complete,
+transfer rate, ETA) — useful on the first sync of a large brain, which can take
+a while.
 
 Every sync (foreground or background) mirrors that same progress to a machine-
 local log (`<workspace-cache>/sync/current.log`) and records a small `current.json`
