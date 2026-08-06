@@ -5,7 +5,7 @@ use brain::migration::{
     MappingIssue, MappingResolution, MigrationGate, MigrationGateInput, apply_mapping_resolution,
     headless_mapping_remediation, mapping_issues,
 };
-use brain::users::{User, UserId, Users};
+use brain::users::{AssignmentRewrites, User, UserId, Users};
 
 const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 
@@ -108,6 +108,10 @@ fn headless_mapping_failure_prints_only_shipped_user_command_forms() {
             .contains("brain user update <USER_ID> -b family --add-email relative@example.test")
     );
     assert!(commands.contains("brain user add -b family --id relative --name <DISPLAY_NAME>"));
+    assert!(
+        commands.contains("brain user reassign relative <EXISTING_USER_ID> -b family"),
+        "an unmapped assignment may belong to someone already in the registry: {commands}"
+    );
     assert!(!commands.contains("workspace user"));
 }
 
@@ -124,14 +128,17 @@ fn interactive_mapping_resolution_can_attach_sender_to_existing_or_create_assign
         }],
     };
 
+    let mut rewrites = AssignmentRewrites::new();
     apply_mapping_resolution(
         &mut users,
+        &mut rewrites,
         &MappingIssue::Phone("+12125550100".to_owned()),
         MappingResolution::Existing(UserId::parse("alex").unwrap()),
     )
     .unwrap();
     apply_mapping_resolution(
         &mut users,
+        &mut rewrites,
         &MappingIssue::Assignment("relative".to_owned()),
         MappingResolution::New {
             id: UserId::parse("relative").unwrap(),
@@ -151,6 +158,65 @@ fn interactive_mapping_resolution_can_attach_sender_to_existing_or_create_assign
             .name,
         "Relative"
     );
+    assert!(
+        rewrites.is_empty(),
+        "an assignment that keeps its own ID needs no task rewrite"
+    );
+}
+
+#[test]
+fn an_assignment_can_adopt_an_existing_member_instead_of_creating_a_duplicate_person() {
+    let mut users = Users {
+        schema_version: 1,
+        users: vec![User {
+            id: UserId::parse("pablo").unwrap(),
+            name: "Pablo".to_owned(),
+            phones: Vec::new(),
+            emails: Vec::new(),
+            response_email: None,
+        }],
+    };
+    let mut rewrites = AssignmentRewrites::new();
+
+    for legacy in ["me", "Pablo S"] {
+        apply_mapping_resolution(
+            &mut users,
+            &mut rewrites,
+            &MappingIssue::Assignment(legacy.to_owned()),
+            MappingResolution::Existing(UserId::parse("pablo").unwrap()),
+        )
+        .unwrap();
+    }
+
+    assert_eq!(users.users.len(), 1);
+    assert_eq!(rewrites.apply("me"), "pablo");
+    assert_eq!(rewrites.apply("Pablo S"), "pablo");
+}
+
+#[test]
+fn adopting_an_unknown_member_for_an_assignment_is_rejected() {
+    let mut users = Users {
+        schema_version: 1,
+        users: vec![User {
+            id: UserId::parse("pablo").unwrap(),
+            name: "Pablo".to_owned(),
+            phones: Vec::new(),
+            emails: Vec::new(),
+            response_email: None,
+        }],
+    };
+    let mut rewrites = AssignmentRewrites::new();
+
+    let error = apply_mapping_resolution(
+        &mut users,
+        &mut rewrites,
+        &MappingIssue::Assignment("me".to_owned()),
+        MappingResolution::Existing(UserId::parse("nobody").unwrap()),
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("nobody"), "{error:#}");
+    assert!(rewrites.is_empty());
 }
 
 #[test]

@@ -47,6 +47,13 @@ pub enum UserAction {
         #[arg(long)]
         response_email: Option<String>,
     },
+    /// Move work from any assignment value onto an existing member.
+    Reassign {
+        /// Current `assigned_to` value in the task CSVs.
+        from: Option<String>,
+        /// Existing portable user ID that receives the work.
+        to: Option<String>,
+    },
     /// Remove one member, optionally reassigning their tasks first.
     Remove {
         /// Portable user ID.
@@ -76,6 +83,9 @@ mod tests {
             vec!["brain", "user", "add", "--id", "alex", "--name", "Alex"],
             vec!["brain", "user", "update"],
             vec!["brain", "user", "update", "alex", "--name", "Alex R"],
+            vec!["brain", "user", "reassign"],
+            vec!["brain", "user", "reassign", "me"],
+            vec!["brain", "user", "reassign", "me", "alex"],
             vec!["brain", "user", "remove"],
             vec!["brain", "user", "remove", "alex", "--reassign-to", "sam"],
             vec!["brain", "user", "local"],

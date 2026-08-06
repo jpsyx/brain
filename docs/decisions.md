@@ -2543,3 +2543,35 @@ prevents test convenience from becoming a production acceptance flag or a
 second workspace lookup path. Shared-process and watcher transitions wait on
 observable conditions with bounded deadlines; they never use fixed sleeps.
 The real-rclone complement remains prerequisite-gated and local-only.
+
+## Why identity mapping adopts an existing person instead of only creating one
+
+A legacy workspace assigns work to whatever string its owner typed: `me`, a
+first name, an ID that was retired years ago. The rollout's mapping gate used to
+treat every unresolved `assigned_to` value as a new person and ask only for a
+display name, so the one answer a human most often wants — "that is me, and I am
+already in this registry" — could not be given. The result was a duplicate
+person for the same human, which the owner then deleted by hand, leaving the
+task rows pointing at nobody.
+
+So a mapping answer now chooses between the people who exist and adding someone
+new, and adopting an existing person is a first-class outcome. Because the
+portable model stores the member ID directly in `assigned_to`, adoption cannot
+be recorded in `users.json` alone: it is an `AssignmentRewrites` entry that the
+journaled task-schema cutover applies to both CSVs, inside the same transaction
+that establishes UUID merge identity, with the retained backup holding the
+pre-rewrite values. That is also why the rewrite happens there rather than in an
+earlier step: the durable backup is captured before the cutover, and a second
+writer between the two would make the backup and the migrated files disagree.
+
+Adoption also removes the old requirement that a legacy assignment value parse
+as a portable user ID. `Wife` could previously stall the whole rollout; it can
+now be adopted onto `sam` and disappears from the data. Keeping a value as a new
+ID still requires exact lower-case kebab case, so the registry never gains a
+malformed ID by accident.
+
+The same decision is available outside the rollout as `brain user reassign`,
+which is both the headless equivalent of the interactive answer and the repair
+for a workspace that already migrated with a duplicate person. It never mutates
+`users.json`, so a mistaken value cannot silently create or delete a member; it
+reports how many rows moved and writes nothing when none do.

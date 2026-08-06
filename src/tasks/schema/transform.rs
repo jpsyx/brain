@@ -7,6 +7,7 @@ use serde_json::{Map, Value, json};
 
 use super::TASK_SCHEMA_VERSION;
 use crate::tasks::identity::{CsvKind, TaskUuid, legacy_task_uuid};
+use crate::users::AssignmentRewrites;
 use crate::workspace::WorkspaceId;
 
 pub(super) fn is_current(tasks: &[u8], habits: &[u8], schema: &[u8]) -> Result<bool> {
@@ -59,6 +60,7 @@ pub(super) fn migrate_csv(
     bytes: &[u8],
     workspace_id: WorkspaceId,
     kind: CsvKind,
+    rewrites: &AssignmentRewrites,
 ) -> Result<Vec<u8>> {
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
     let source_header = reader
@@ -104,6 +106,10 @@ pub(super) fn migrate_csv(
         } else {
             let assignment = row.remove("assignee").unwrap_or_default();
             row.insert("assigned_to".to_owned(), assignment);
+        }
+        if let Some(assignment) = row.get("assigned_to") {
+            let rewritten = rewrites.apply(assignment).to_owned();
+            row.insert("assigned_to".to_owned(), rewritten);
         }
         row.entry("system_key".to_owned()).or_default();
         rows.push(row);
@@ -261,8 +267,40 @@ pub(super) fn migrate_schema_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{migrate_schema_metadata, migrated_header, repair_duplicate_uuids};
+    use super::{migrate_csv, migrate_schema_metadata, migrated_header, repair_duplicate_uuids};
+    use crate::tasks::identity::CsvKind;
+    use crate::users::{AssignmentRewrites, UserId};
     use crate::workspace::WorkspaceId;
+
+    #[test]
+    fn migration_moves_every_mapped_legacy_assignment_onto_its_portable_member() {
+        let workspace_id = WorkspaceId::parse("00000000-0000-4000-8000-000000000001").unwrap();
+        let mut rewrites = AssignmentRewrites::new();
+        rewrites.record("me", &UserId::parse("pablo").unwrap());
+        rewrites.record("Wife", &UserId::parse("sam").unwrap());
+
+        let migrated = migrate_csv(
+            b"task_id,task_name,assignee\nT1,Plan,me\nT2,Walk,Wife\nT3,Rest,pablo\nT4,Idle,\n",
+            workspace_id,
+            CsvKind::Tasks,
+            &rewrites,
+        )
+        .unwrap();
+
+        let mut reader = csv::Reader::from_reader(migrated.as_slice());
+        let headers = reader.headers().unwrap().clone();
+        assert!(!headers.iter().any(|header| header == "assignee"));
+        let index = headers
+            .iter()
+            .position(|header| header == "assigned_to")
+            .unwrap();
+        let assignments = reader
+            .records()
+            .map(|row| row.unwrap().get(index).unwrap_or_default().to_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(assignments, ["pablo", "sam", "pablo", ""]);
+    }
 
     #[test]
     fn migration_canonicalizes_all_known_columns_and_sorts_forward_compatible_columns() {

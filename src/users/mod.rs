@@ -1,5 +1,6 @@
 //! Portable workspace members and their normalized contact identities.
 
+mod assignment;
 mod command;
 mod id;
 mod model;
@@ -8,6 +9,7 @@ mod store;
 mod transaction;
 mod validate;
 
+pub use assignment::AssignmentRewrites;
 pub use command::{
     LegacyUserMigration, UserMutation, apply_mutation, propose_legacy_user_migration,
     proposed_user_id,

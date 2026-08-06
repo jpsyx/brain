@@ -350,7 +350,9 @@ and `validate` reject unknown schema fields and ambiguous enabled identities;
 `transaction` coordinates grouped registry and assignment changes with a
 portable recovery journal plus a workspace UUID-scoped machine lock; and
 `command` owns pure add/update/remove mutations plus the inactive legacy
-conversion proposal. A pending grouped transaction restores the old generation
+conversion proposal; and `assignment` holds the pure map from raw `assigned_to`
+values to the members that replace them, shared by the migration cutover and
+`brain user reassign`. A pending grouped transaction restores the old generation
 before the next portable-user load. The selected machine record's
 `local_user_id` must name one member when this portable file exists. It
 identifies a person, not a device, owner, creator, or authorization principal.
@@ -850,7 +852,12 @@ before discovery, planning, or journal creation and retains it through the
 complete rollout. Selection, acknowledgement, and the initial remote identity gate finish before journal creation. For a configured
 workspace, the journaled final legacy sync runs first; the coordinator then
 reloads portable config, users, and both assignment CSVs and reruns mapping
-preflight before backup or portable mutation. The journal lives at
+preflight before backup or portable mutation. `migration/mapping_prompt.rs`
+holds the pure question text, the numbered member options, and the answer
+interpretation, so the `/dev/tty` shell in `migration/users.rs` only reads and
+writes lines. An answer that adopts an existing person for an assignment value
+becomes an `AssignmentRewrites` entry that the coordinator hands to the
+task-schema cutover. The journal lives at
 `<workspace-cache>/migrations/multi-workspace-v1.json`; the retained backup
 lives under `<workspace-cache>/migration-backups/` and contains only the
 portable rollout inventory. The coordinator reuses existing sync, manifest,

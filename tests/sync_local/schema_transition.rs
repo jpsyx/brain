@@ -231,6 +231,7 @@ fn migrate(paths: &brain::workspace::WorkspacePaths, root: &Path, backup_base: &
         preexisting_backup_base: backup_base,
         backup_dir: &backup,
         legacy_semantic_sync: LegacySemanticSync::Complete,
+        assignment_rewrites: &brain::users::AssignmentRewrites::new(),
     })
     .unwrap();
 }
@@ -245,6 +246,7 @@ fn migrate_unconfigured(paths: &brain::workspace::WorkspacePaths, root: &Path, b
         preexisting_backup_base: backup_base,
         backup_dir: &backup,
         legacy_semantic_sync: LegacySemanticSync::NotConfigured,
+        assignment_rewrites: &brain::users::AssignmentRewrites::new(),
     })
     .unwrap();
 }

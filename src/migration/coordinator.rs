@@ -201,6 +201,7 @@ fn execute(
                     } else {
                         LegacySemanticSync::NotConfigured
                     },
+                    assignment_rewrites: prepared_users.assignment_rewrites(),
                 })?;
                 journal.record_completed(step)?;
             }

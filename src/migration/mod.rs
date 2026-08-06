@@ -6,6 +6,7 @@ mod backup;
 mod coordinator;
 mod journal;
 mod legacy_join;
+mod mapping_prompt;
 mod plan;
 mod schema_transition;
 mod steps;

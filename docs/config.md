@@ -149,7 +149,9 @@ incomplete record. Before every ordinary command, Brain then requires manifest
 agreement and, when `users.json` exists, a local ID that names one portable
 person. An interactive first-use flow creates and selects the first person; a
 headless invocation reports exact `brain user add` and `brain user local`
-commands. An existing workspace with no `users.json` and a non-empty legacy
+commands. Migration mapping adds `brain user reassign` to that headless
+vocabulary, because a legacy assignment value often belongs to someone the
+registry already has. An existing workspace with no `users.json` and a non-empty legacy
 local ID stays ready without being rewritten. Version/help and hidden internal
 server execution perform no workspace IO or prompt.
 

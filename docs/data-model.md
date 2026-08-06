@@ -693,7 +693,14 @@ published by this bridge.
 The coordinator then reloads config, portable users, and
 both CSV assignment columns and reruns mapping preflight before backup or
 portable mutation. If both `assigned_to` and legacy `assignee` exist,
-`assigned_to` is canonical. The journal binds the migration ID, workspace UUID,
+`assigned_to` is canonical. One mapping answer either adds a portable person or
+adopts an existing one. Adopting an existing person for an assignment value
+records that value in an assignment rewrite set instead of creating a second
+person; the recheck that must find no remaining issue runs against the rewritten
+values, and the journaled task cutover applies the same set to `assigned_to` in
+both CSVs while the retained backup keeps the original values. An adopted phone
+or email records no rewrite because those identities move into the member
+record itself. The journal binds the migration ID, workspace UUID,
 canonical root, original plan, original timestamp, retained backup, and
 completed steps. Reentry must match that identity exactly and resumes the same
 generation; a mismatch fails closed.

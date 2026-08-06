@@ -5,7 +5,9 @@ use std::collections::BTreeSet;
 use anyhow::{Result, bail};
 
 use crate::config::Config;
-use crate::users::{User, UserId, UserMutation, Users, apply_mutation};
+use crate::users::{
+    AssignmentRewrites, User, UserId, UserMutation, Users, UsersError, apply_mutation,
+};
 
 /// A portable identity that must be mapped before rollout mutation starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,13 +24,25 @@ pub enum MappingResolution {
 }
 
 /// Apply one interactive identity decision to an in-memory portable registry.
+///
+/// An assignment that adopts a portable member under another ID records a task
+/// rewrite instead of creating a second person for the same human.
 pub fn apply_mapping_resolution(
     users: &mut Users,
+    rewrites: &mut AssignmentRewrites,
     issue: &MappingIssue,
     resolution: MappingResolution,
 ) -> Result<()> {
     let target = match resolution {
-        MappingResolution::Existing(id) => id,
+        MappingResolution::Existing(id) => {
+            if users.user(&id).is_none() {
+                return Err(UsersError::UnknownUser {
+                    user_id: id.to_string(),
+                }
+                .into());
+            }
+            id
+        }
         MappingResolution::New { id, name } => {
             apply_mutation(
                 users,
@@ -65,9 +79,8 @@ pub fn apply_mapping_resolution(
             },
         )?,
         MappingIssue::Assignment(value) => {
-            let expected = UserId::parse(value)?;
-            if target != expected {
-                bail!("legacy assignment {value} must retain portable user ID {expected}");
+            if value.trim() != target.as_str() {
+                rewrites.record(value, &target);
             }
         }
     }
@@ -148,9 +161,9 @@ pub fn headless_mapping_remediation(workspace: &str, issues: &[MappingIssue]) ->
             MappingIssue::Email(value) => {
                 format!("brain user update <USER_ID> -b {workspace} --add-email {value}")
             }
-            MappingIssue::Assignment(value) => {
-                format!("brain user add -b {workspace} --id {value} --name <DISPLAY_NAME>")
-            }
+            MappingIssue::Assignment(value) => format!(
+                "brain user add -b {workspace} --id {value} --name <DISPLAY_NAME>\nbrain user reassign {value} <EXISTING_USER_ID> -b {workspace}"
+            ),
         })
         .collect::<Vec<_>>()
         .join("\n")

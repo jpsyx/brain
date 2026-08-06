@@ -65,6 +65,8 @@ pub struct TaskSchemaMigration<'a> {
     /// Machine-local destination at or below `preexisting_backup_base`.
     pub backup_dir: &'a Path,
     pub legacy_semantic_sync: LegacySemanticSync,
+    /// Legacy `assigned_to` values the rollout mapped onto portable members.
+    pub assignment_rewrites: &'a crate::users::AssignmentRewrites,
 }
 
 /// Whether an inactive migration changed its fixture/workspace inputs.
@@ -139,8 +141,18 @@ fn migrate_inactive_with_hook(
     }
 
     back_up_portable_files(&tasks_dir, &backup_base, &backup_dir, &mut hook)?;
-    let migrated_tasks = migrate_csv(&tasks_bytes, request.workspace_id, CsvKind::Tasks)?;
-    let migrated_habits = migrate_csv(&habits_bytes, request.workspace_id, CsvKind::Habits)?;
+    let migrated_tasks = migrate_csv(
+        &tasks_bytes,
+        request.workspace_id,
+        CsvKind::Tasks,
+        request.assignment_rewrites,
+    )?;
+    let migrated_habits = migrate_csv(
+        &habits_bytes,
+        request.workspace_id,
+        CsvKind::Habits,
+        request.assignment_rewrites,
+    )?;
     let (migrated_tasks, migrated_habits) =
         repair_duplicate_uuids(&migrated_tasks, &migrated_habits, request.workspace_id)?;
     let migrated_schema = migrate_schema_metadata(&schema_bytes)?;
@@ -376,6 +388,7 @@ mod transaction_tests {
         backup: PathBuf,
         task_store_lock: PathBuf,
         original: BTreeMap<&'static str, Vec<u8>>,
+        rewrites: crate::users::AssignmentRewrites,
     }
 
     impl Fixture {
@@ -415,6 +428,7 @@ mod transaction_tests {
                 backup,
                 task_store_lock,
                 original,
+                rewrites: crate::users::AssignmentRewrites::new(),
             }
         }
 
@@ -426,6 +440,7 @@ mod transaction_tests {
                 preexisting_backup_base: &self.backup_base,
                 backup_dir: &self.backup,
                 legacy_semantic_sync: LegacySemanticSync::Complete,
+                assignment_rewrites: &self.rewrites,
             }
         }
 

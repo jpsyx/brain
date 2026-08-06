@@ -5,6 +5,7 @@ use brain::tasks::identity::{CsvKind, legacy_task_uuid};
 use brain::tasks::schema::{
     LegacySemanticSync, MigrationOutcome, TaskSchemaMigration, migrate_inactive,
 };
+use brain::users::AssignmentRewrites;
 use brain::workspace::WorkspaceId;
 
 const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
@@ -73,6 +74,7 @@ impl Fixture {
             preexisting_backup_base: &self.backup_base,
             backup_dir,
             legacy_semantic_sync: sync,
+            assignment_rewrites: &AssignmentRewrites::new(),
         })
     }
 
@@ -151,6 +153,47 @@ fn deterministic_legacy_identity_is_scoped_by_workspace_and_csv_kind() {
 }
 
 #[test]
+fn a_mapped_legacy_assignment_moves_to_its_portable_member_in_both_csvs() {
+    let unmapped = Fixture::new();
+    unmapped.migrate(LegacySemanticSync::Complete).unwrap();
+    assert_eq!(assignments(&unmapped), ["pablo", "wife", "wife"]);
+
+    let mapped = Fixture::new();
+    let mut rewrites = AssignmentRewrites::new();
+    rewrites.record("wife", &brain::users::UserId::parse("sam").unwrap());
+
+    migrate_inactive(TaskSchemaMigration {
+        workspace_id: WorkspaceId::parse(WORKSPACE_ID).unwrap(),
+        workspace_root: &mapped.root,
+        task_store_lock: &mapped.temporary.path().join("tasks.transaction.lock"),
+        preexisting_backup_base: &mapped.backup_base,
+        backup_dir: &mapped.backup,
+        legacy_semantic_sync: LegacySemanticSync::Complete,
+        assignment_rewrites: &rewrites,
+    })
+    .unwrap();
+
+    assert_eq!(assignments(&mapped), ["pablo", "sam", "sam"]);
+    assert_eq!(
+        std::fs::read(mapped.backup.join("tasks/tasks.csv")).unwrap(),
+        mapped.original["tasks.csv"],
+        "the retained backup keeps the pre-rewrite assignments"
+    );
+}
+
+fn assignments(fixture: &Fixture) -> Vec<String> {
+    ["tasks.csv", "habits.csv"]
+        .into_iter()
+        .flat_map(|name| {
+            let (_, rows) = fixture.csv(name);
+            rows.into_iter()
+                .map(|row| row["assigned_to"].clone())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[test]
 fn inactive_migration_requires_the_rollout_owned_legacy_sync_precondition() {
     let fixture = Fixture::new();
 
@@ -179,6 +222,7 @@ fn inactive_migration_requires_an_existing_durable_backup_base() {
         preexisting_backup_base: &missing_base,
         backup_dir: &backup,
         legacy_semantic_sync: LegacySemanticSync::Complete,
+        assignment_rewrites: &AssignmentRewrites::new(),
     })
     .unwrap_err();
 

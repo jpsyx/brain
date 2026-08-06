@@ -358,10 +358,20 @@ delegated task values.
   senders or triage policy apply to this run. The schema transition publishes
   current task and habit CSVs, durably establishes their UUID baselines, and
   publishes `tasks/SCHEMA.json` last. It then rebuilds derived data and verifies
-  every identity boundary before removing the journal. Synced headless use requires explicit
+  every identity boundary before removing the journal.
+  Each mapping question names the legacy phone, email, or assignment value in
+  plain English and offers every existing portable person as a numbered row
+  before the row that adds someone new; an answer is a row number or an exact
+  member ID. Adopting an existing person for an assignment records a rewrite
+  instead of inventing a second person for the same human: the cutover moves
+  those `assigned_to` rows onto the chosen member inside the same journaled task
+  transaction, and the retained backup keeps the pre-rewrite values. A legacy
+  assignment value that is not valid lower-case kebab case can only be adopted,
+  never kept as a new ID. Synced headless use requires explicit
   `--brain <workspace>` selection plus
   `--acknowledge-all-machines-updated`; incomplete mapping prints exact
-  `brain user ... -b <workspace>` remediation. A failed step reports the
+  `brain user ... -b <workspace>` remediation, offering both
+  `brain user add` and `brain user reassign` for an unresolved assignment. A failed step reports the
   retained backup and the exact resume command. Every journaled failure is
   resume-only, including a failure before the remote-publication step is
   recorded, because a remote write may have succeeded before the local journal
@@ -470,6 +480,16 @@ portable person. Compatibility setup offers an email only when the email
 receiver allowlist is configured. A legacy response email migrates to the first
 person only when it matches that allowlist; otherwise it remains unresolved
 for explicit review.
+
+`brain user reassign [<from>] [<to>]` moves every task and habit assigned to one
+raw `assigned_to` value onto an existing portable person. `<from>` is any literal
+value found in the task files, including one that was never a portable member
+(`me`, a first name, a retired ID); `<to>` must already exist. Interactive
+invocations list the assignment values that name nobody in the registry, then
+list the members, and accept a row number or an exact value at either prompt. The
+reassignment reports how many tasks moved, never adds or removes a person, and
+writes nothing when no row matches. Both CSVs are replaced through the same
+grouped portable transaction used by removal.
 
 `brain user local [<id>]` selects an existing portable person for this machine.
 `brain user remove [<id>]` refuses to remove the last person and scans both

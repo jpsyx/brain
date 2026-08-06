@@ -6,22 +6,31 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
+use super::mapping_prompt::{
+    MappingChoice, interpret_choice, mapping_options, mapping_question, proposed_new_id,
+};
 use super::{
     MappingIssue, MappingResolution, apply_mapping_resolution, headless_mapping_remediation,
     mapping_issues,
 };
 use crate::config::Config;
 use crate::users::{
-    UserId, UserMutation, Users, UsersStore, apply_mutation, propose_legacy_user_migration,
+    AssignmentRewrites, UserId, UserMutation, Users, UsersStore, apply_mutation,
+    propose_legacy_user_migration,
 };
 use crate::workspace::CommandContext;
 
 pub(super) struct PreparedUsers {
     users: Users,
     original: Option<Vec<u8>>,
+    rewrites: AssignmentRewrites,
 }
 
 impl PreparedUsers {
+    pub(super) const fn assignment_rewrites(&self) -> &AssignmentRewrites {
+        &self.rewrites
+    }
+
     pub(super) fn persist(&self, context: &CommandContext) -> Result<()> {
         let path = UsersStore::path(&context.workspace);
         let observed = match fs::read(&path) {
@@ -81,6 +90,7 @@ pub(super) fn prepare(
         Err(error) => return Err(error.into()),
     };
 
+    let mut rewrites = AssignmentRewrites::new();
     let issues = mapping_issues(&users, config, &assignments);
     if !issues.is_empty() {
         let Some(terminal) = terminal else {
@@ -91,13 +101,21 @@ pub(super) fn prepare(
         };
         for issue in &issues {
             let resolution = terminal.resolve(issue, &users)?;
-            apply_mapping_resolution(&mut users, issue, resolution)?;
+            apply_mapping_resolution(&mut users, &mut rewrites, issue, resolution)?;
         }
     }
-    if !mapping_issues(&users, config, &assignments).is_empty() {
+    let resolved = assignments
+        .iter()
+        .map(|value| rewrites.apply(value).to_owned())
+        .collect::<Vec<_>>();
+    if !mapping_issues(&users, config, &resolved).is_empty() {
         bail!("legacy identity mapping remained incomplete");
     }
-    Ok(PreparedUsers { users, original })
+    Ok(PreparedUsers {
+        users,
+        original,
+        rewrites,
+    })
 }
 
 pub(super) struct Terminal {
@@ -130,22 +148,43 @@ impl Terminal {
     }
 
     fn resolve(&mut self, issue: &MappingIssue, users: &Users) -> Result<MappingResolution> {
-        if let MappingIssue::Assignment(value) = issue {
-            let id = UserId::parse(value)?;
-            let name = self.required(&format!("Display name for assigned user {value}:"))?;
-            return Ok(MappingResolution::New { id, name });
+        let theme = crate::theme::Theme::active();
+        writeln!(self.writer, "{}", theme.heading(&mapping_question(issue)))?;
+        for option in mapping_options(issue, users) {
+            writeln!(self.writer, "  {}", theme.value(&option))?;
         }
-        let label = match issue {
-            MappingIssue::Phone(value) => format!("Portable user ID for legacy phone {value}:"),
-            MappingIssue::Email(value) => format!("Portable user ID for legacy email {value}:"),
-            MappingIssue::Assignment(_) => unreachable!(),
+        let choice = loop {
+            let answer = self.required("Choose a person by number or ID:")?;
+            if let Some(choice) = interpret_choice(users, &answer) {
+                break choice;
+            }
+            writeln!(
+                self.writer,
+                "{}",
+                theme.warning("Answer with one of the numbers above or an existing user ID.")
+            )?;
         };
-        let id = UserId::parse(&self.required(&label)?)?;
-        if users.user(&id).is_some() {
-            Ok(MappingResolution::Existing(id))
-        } else {
-            let name = self.required(&format!("Display name for new user {id}:"))?;
-            Ok(MappingResolution::New { id, name })
+        match choice {
+            MappingChoice::Existing(id) => Ok(MappingResolution::Existing(id)),
+            MappingChoice::CreateNew => {
+                let id = match proposed_new_id(issue) {
+                    Some(id) => id,
+                    None => self.new_user_id()?,
+                };
+                let name = self.required(&format!("Display name for {id}:"))?;
+                Ok(MappingResolution::New { id, name })
+            }
+        }
+    }
+
+    fn new_user_id(&mut self) -> Result<UserId> {
+        let theme = crate::theme::Theme::active();
+        loop {
+            let value = self.required("New user ID (lower-case kebab case):")?;
+            match UserId::parse(&value) {
+                Ok(id) => return Ok(id),
+                Err(error) => writeln!(self.writer, "{}", theme.warning(&error.to_string()))?,
+            }
         }
     }
 

@@ -14,9 +14,12 @@ use crate::users::{
 };
 use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceManifest};
 
+mod reassign;
 mod removal;
+mod select;
 
 use removal::remove_user;
+use select::{Choice, interpret_row, numbered_rows};
 
 pub fn run(args: &UserArgs, selector: Option<&str>, store: &RegistryStore) -> Result<()> {
     if std::io::stdin().is_terminal() && needs_prompt(&args.action) {
@@ -128,6 +131,27 @@ fn run_with_io(
             )?;
             UsersStore::save(&workspace, &users)?;
             println!("{}", theme.success("Portable user updated"));
+            Ok(())
+        }
+        UserAction::Reassign { from, to } => {
+            let users = UsersStore::load(&workspace)?;
+            let from = match from {
+                Some(value) => {
+                    required_value(Some(value), "Assignment value:", reader, writer, theme)?
+                }
+                None => prompt_assignment_value(&workspace, &users, reader, writer, theme)?,
+            };
+            let to = match to {
+                Some(value) => UserId::parse(value)?,
+                None => prompt_member(&users, reader, writer, theme)?,
+            };
+            let moved = reassign::reassign(&workspace, &from, &to)?;
+            let summary = moved_summary(moved, &from, &to);
+            if moved == 0 {
+                println!("{}", theme.warning(&summary));
+            } else {
+                println!("{}", theme.success(&summary));
+            }
             Ok(())
         }
         UserAction::Remove { id, reassign_to } => {
@@ -245,6 +269,75 @@ fn set_local_user(store: &RegistryStore, workspace: &WorkspaceContext, id: &User
     })
 }
 
+fn moved_summary(moved: usize, from: &str, to: &UserId) -> String {
+    match moved {
+        0 => format!("No task or habit is assigned to {from}"),
+        1 => format!("Moved 1 task from {from} to {to}"),
+        _ => format!("Moved {moved} tasks from {from} to {to}"),
+    }
+}
+
+fn prompt_assignment_value(
+    workspace: &WorkspaceContext,
+    users: &Users,
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
+    theme: Theme,
+) -> Result<String> {
+    let values = reassign::assignment_values(workspace)?;
+    let choices = reassign::unmapped_assignments(&values, users)
+        .iter()
+        .map(|value| Choice::new(value, value))
+        .collect::<Vec<_>>();
+    if !choices.is_empty() {
+        writeln!(
+            writer,
+            "{}",
+            theme.heading("Assignment values with no portable person")
+        )?;
+    }
+    select_value("Move work assigned to:", &choices, reader, writer, theme)
+}
+
+fn prompt_member(
+    users: &Users,
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
+    theme: Theme,
+) -> Result<UserId> {
+    let choices = users
+        .users
+        .iter()
+        .map(|user| Choice::new(user.id.as_str(), &format!("{} ({})", user.id, user.name)))
+        .collect::<Vec<_>>();
+    writeln!(writer, "{}", theme.heading("Portable users"))?;
+    let value = select_value("Move that work to:", &choices, reader, writer, theme)?;
+    UserId::parse(&value).map_err(Into::into)
+}
+
+fn select_value(
+    label: &str,
+    choices: &[Choice],
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
+    theme: Theme,
+) -> Result<String> {
+    for row in numbered_rows(choices) {
+        writeln!(writer, "  {}", theme.value(&row))?;
+    }
+    loop {
+        let answer = required_value(None, label, reader, writer, theme)?;
+        if let Some(value) = interpret_row(choices, &answer) {
+            return Ok(value);
+        }
+        writeln!(
+            writer,
+            "{}",
+            theme.warning("Answer with one of the numbers above or an exact value.")
+        )?;
+    }
+}
+
 fn needs_prompt(action: &UserAction) -> bool {
     match action {
         UserAction::List => false,
@@ -262,6 +355,7 @@ fn needs_prompt(action: &UserAction) -> bool {
                     && add_email.is_empty()
                     && response_email.is_none())
         }
+        UserAction::Reassign { from, to } => from.is_none() || to.is_none(),
         UserAction::Remove { id, .. } | UserAction::Local { id } => id.is_none(),
     }
 }
@@ -353,4 +447,25 @@ fn normalized_response(id: &UserId, value: Option<&str>) -> Result<Option<String
             })
         })
         .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::moved_summary;
+    use crate::users::UserId;
+
+    #[test]
+    fn the_move_summary_counts_tasks_in_plain_singular_and_plural_english() {
+        let to = UserId::parse("pablo").unwrap();
+
+        assert_eq!(
+            moved_summary(0, "ghost", &to),
+            "No task or habit is assigned to ghost"
+        );
+        assert_eq!(moved_summary(1, "me", &to), "Moved 1 task from me to pablo");
+        assert_eq!(
+            moved_summary(4, "me", &to),
+            "Moved 4 tasks from me to pablo"
+        );
+    }
 }
