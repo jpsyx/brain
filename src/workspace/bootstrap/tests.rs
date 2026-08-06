@@ -6,8 +6,14 @@ use serde_json::Map;
 
 use super::{
     BootstrapContext, InteractionMode, RegistryOnlyPromptOrder, bootstrap_with_io_and_hook,
-    registry_only_bootstrap_with, registry_only_prompt_order,
+    registry_only_bootstrap_with, registry_only_prompt_order, should_resync_skills,
 };
+
+#[test]
+fn migration_bootstrap_defers_skill_writes_until_after_rollout_preflight() {
+    assert!(!should_resync_skills(Invocation::WorkspaceMigrate));
+    assert!(should_resync_skills(Invocation::Tasks));
+}
 use crate::cli::try_parse_from;
 use crate::workspace::{
     Invocation, MachineRegistry, REGISTRY_SCHEMA_VERSION, RegistryStore, WorkspaceId,

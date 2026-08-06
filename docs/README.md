@@ -51,6 +51,7 @@ src/
   cli/           : focused clap surface (global + command-family modules)
   workspace/     : typed identity, schema-v2 registry, and current workspace command family
   users/         : portable people, normalized identities, and atomic users.json storage
+  migration/     : explicit journaled legacy-to-multi-workspace rollout
   config.rs      — typed knobs (triage pattern, linear, rollover)
   paths.rs       : legacy migration-only root compatibility
   settings/      — config store + `brain config` + markdown-to-pdf prereq

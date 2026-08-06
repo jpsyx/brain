@@ -192,8 +192,7 @@ pub fn sync_once(
             || crate::sync::csv_sync::sync_csvs(paths, verified, root, dir),
             |floors| {
                 reporter.line(&theme.info("Reconciling task and habit id counters…"));
-                let counters =
-                    crate::sync::counters::sync_counters(verified, root, dir, floors);
+                let counters = crate::sync::counters::sync_counters(verified, root, dir, floors);
                 crate::logging::log(format!("sync id counters {counters:?}"));
             },
         )?;
@@ -242,6 +241,34 @@ pub fn sync_once(
     })?;
     crate::logging::log("sync journal recorded");
     Ok(outcome)
+}
+
+/// Run the rollout's final legacy semantic sync under the workspace sync lock.
+pub fn run_legacy_migration_sync(
+    context: &crate::workspace::CommandContext,
+    config: &SyncConfig,
+) -> Result<()> {
+    let _guard = crate::sync::lock::try_acquire(&context.workspace.paths().sync_lock())
+        .ok_or_else(|| {
+            anyhow::anyhow!("another sync owns this workspace; retry migration after it finishes")
+        })?;
+    let now = Utc::now();
+    let started_at = now.to_rfc3339();
+    let finished_at = Utc::now().to_rfc3339();
+    let date = now.format("%Y-%m-%d").to_string();
+    match sync_once(
+        context.workspace.paths(),
+        context.workspace.id(),
+        config,
+        context.workspace.root(),
+        Direction::Both,
+        (&started_at, &finished_at, &date),
+    )? {
+        Outcome::Clean => Ok(()),
+        Outcome::NeedsAttention(message) | Outcome::Aborted(message) => {
+            bail!("final legacy semantic sync was not clean: {message}")
+        }
+    }
 }
 
 /// Summarize the CSV merge outcomes into a journal note segment, e.g.

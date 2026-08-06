@@ -61,7 +61,22 @@ impl<'a> CommandSelection<'a> {
 }
 
 /// Run an ordinary workspace command against bootstrap's pinned identity.
-pub(crate) fn run_ready(args: &WorkspaceArgs, context: &CommandContext) -> Result<()> {
+pub(crate) fn run_ready(
+    args: &WorkspaceArgs,
+    context: &CommandContext,
+    explicit_workspace: bool,
+) -> Result<()> {
+    if let WorkspaceAction::Migrate {
+        acknowledge_all_machines_updated,
+    } = &args.action
+    {
+        return crate::migration::run(
+            context,
+            explicit_workspace,
+            *acknowledge_all_machines_updated,
+        )
+        .map_err(mutate::render_command_error);
+    }
     run_inner(
         args,
         CommandSelection::Pinned {
@@ -250,6 +265,9 @@ fn run_inner(
                     .as_deref()
                     .or_else(|| answers.value(prompt::PromptField::LocalUserId)),
             )
+        }
+        WorkspaceAction::Migrate { .. } => {
+            anyhow::bail!("internal workspace migration expected a ready command context")
         }
     }
 }

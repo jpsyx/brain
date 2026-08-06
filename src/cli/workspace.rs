@@ -56,6 +56,12 @@ pub enum WorkspaceAction {
         #[arg(long, value_name = "USER_ID")]
         local_user_id: Option<String>,
     },
+    /// Upgrade a legacy workspace to the multi-workspace data model.
+    Migrate {
+        /// Confirm every machine that uses the workspace runs a migration-capable Brain version.
+        #[arg(long)]
+        acknowledge_all_machines_updated: bool,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -86,7 +92,7 @@ pub enum WorkspaceAliasAction {
 mod tests {
     use clap::Parser;
 
-    use crate::cli::{Cli, Cmd, try_parse_from};
+    use crate::cli::{Cli, Cmd, WorkspaceAction, try_parse_from};
 
     #[test]
     fn workspace_selector_is_global_and_retains_its_raw_value() {
@@ -198,5 +204,38 @@ mod tests {
         let message = missing.to_string();
         assert!(message.contains("--brain <WORKSPACE>"));
         assert!(message.contains("value"));
+    }
+
+    #[test]
+    fn workspace_migrate_accepts_human_and_acknowledged_headless_forms() {
+        let human = Cli::try_parse_from(["brain", "workspace", "migrate"]).unwrap();
+        let headless = Cli::try_parse_from([
+            "brain",
+            "workspace",
+            "migrate",
+            "--brain",
+            "family",
+            "--acknowledge-all-machines-updated",
+        ])
+        .unwrap();
+
+        let Some(Cmd::Workspace(human)) = human.command else {
+            panic!("expected workspace command");
+        };
+        assert!(matches!(
+            human.action,
+            WorkspaceAction::Migrate {
+                acknowledge_all_machines_updated: false
+            }
+        ));
+        let Some(Cmd::Workspace(headless)) = headless.command else {
+            panic!("expected workspace command");
+        };
+        assert!(matches!(
+            headless.action,
+            WorkspaceAction::Migrate {
+                acknowledge_all_machines_updated: true
+            }
+        ));
     }
 }

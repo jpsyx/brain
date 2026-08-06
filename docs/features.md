@@ -235,7 +235,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env. Use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
 | `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present. |
-| `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair}` | Manage the schema-v2 machine registry and portable manifest. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. `repair --manifest --local-user-id <id>` supplies readiness explicitly. |
+| `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair\|migrate}` | Manage the schema-v2 registry, portable manifest, and coordinated legacy rollout. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. |
 | `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
@@ -349,6 +349,17 @@ delegated task values.
 - `workspace repair [--manifest] [--local-user-id <id>]` retains the legacy
   manifest and local-ID repair surface. New portable workspaces select an
   existing person with `brain user local <id>`.
+- `workspace migrate` explicitly runs or resumes the legacy-to-multi-workspace
+  rollout. It creates a UUID-scoped machine-local journal and retained portable
+  backup, runs a final legacy semantic sync when configured, maps every
+  unresolved sender and assignment before mutation, activates task UUID merge
+  identity, rebuilds derived data, and verifies every identity boundary before
+  removing the journal. Synced headless use requires explicit
+  `--brain <workspace>` selection plus
+  `--acknowledge-all-machines-updated`; incomplete mapping prints exact
+  `brain user ... -b <workspace>` remediation. A failed step reports the
+  retained backup, the exact resume command, and, after the backup step has
+  completed, shell-quoted restore commands for abandoning the rollout.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
   text under `NO_COLOR`. Valid portable modes include an honest three-line
   access/enforcement/sandbox status. Missing modes are seeded before listing;
@@ -483,19 +494,17 @@ New task and habit rows also receive immutable UUIDv4 `task_uuid` values.
 Commands still locate rows by mutable display `task_id`, then preserve the
 matched UUID during completion and edits. A spawned habit occurrence receives
 a new UUID while retaining assignment and `system_key`. Deterministic UUIDv5
-conversion for legacy rows exists only behind an inactive helper: it requires
-the rollout-owned last-legacy-sync state, an existing durable machine-local
-backup base, and an explicit destination beneath that base. No startup,
-readiness, sync, or command path invokes it. Existing
-legacy CSV sync remains keyed by `task_id` until coordinated migration. The
-inactive helper rejects backup/workspace path overlap, creates a deep backup
+conversion for legacy rows is activated only by explicit workspace migration.
+It requires the rollout-owned last-legacy-sync state, an existing durable
+machine-local backup base, and an explicit destination beneath that base.
+Existing legacy CSV sync remains keyed by `task_id` until coordinated
+migration. The helper rejects backup/workspace path overlap, creates a deep backup
 path one component at a time while syncing every actual parent, durably syncs
 every exact backup, and journals the three-file replacement so a retry
 recovers from failure or interruption at any replacement boundary. Journal
 publication errors also remove their temporary file before returning. Once a
 coordinator activates schema version 2, sync switches to immutable
-`task_uuid` identity while `task_id` remains a mutable display label; this
-release still does not activate the migration itself.
+`task_uuid` identity while `task_id` remains a mutable display label.
 
 Managed triage habits are a portable per-workspace feature, enabled by
 default. Brain identifies its daily and weekly chains with

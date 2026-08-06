@@ -22,7 +22,7 @@ use path::validate_backup_destination;
 #[cfg(test)]
 use transaction::journal_path as transaction_journal_path;
 use transaction::{FileChange, MigrationStep, recover_pending, replace_group};
-use transform::{is_current, migrate_csv, migrate_schema_metadata};
+use transform::{is_current, migrate_csv, migrate_schema_metadata, schema_version};
 
 pub const TASK_SCHEMA_VERSION: u64 = 2;
 
@@ -70,6 +70,23 @@ pub enum MigrationOutcome {
     AlreadyCurrent,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Inspection {
+    pub(crate) version: Option<u64>,
+    pub(crate) current: bool,
+}
+
+pub(crate) fn inspect_inactive(workspace_root: &Path) -> Result<Inspection> {
+    let tasks_dir = workspace_root.join("tasks");
+    let tasks = read_required(&tasks_dir.join("tasks.csv"))?;
+    let habits = read_required(&tasks_dir.join("habits.csv"))?;
+    let schema = read_required(&tasks_dir.join("SCHEMA.json"))?;
+    Ok(Inspection {
+        version: schema_version(&schema)?,
+        current: is_current(&tasks, &habits, &schema)?,
+    })
+}
+
 /// Apply the schema conversion only after a rollout coordinator supplies the
 /// legacy-sync decision and a machine-local backup destination.
 pub fn migrate_inactive(request: TaskSchemaMigration<'_>) -> Result<MigrationOutcome> {
@@ -101,6 +118,13 @@ fn migrate_inactive_with_hook(
     let habits_bytes = read_required(&habits_path)?;
     let schema_bytes = read_required(&schema_path)?;
 
+    if let Some(found) = schema_version(&schema_bytes)?
+        && found > TASK_SCHEMA_VERSION
+    {
+        bail!(
+            "task schema {found} is newer than supported schema {TASK_SCHEMA_VERSION}; refusing migration"
+        );
+    }
     if is_current(&tasks_bytes, &habits_bytes, &schema_bytes)? {
         return Ok(MigrationOutcome::AlreadyCurrent);
     }

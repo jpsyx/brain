@@ -1057,9 +1057,11 @@ brain-root lookup.
   Invalid metadata, malformed records, and duplicate active identities render a
   warning naming the generation and relative CSV; they never panic or emit a
   false clean result.
-- **Phase 2 did not activate migration or shared HTTP receiver routing.**
-  The task-schema migrator remains an inactive fixture-tested interface; Phase
-  5 owns its last legacy sync, backups, activation, and real-workspace rollout.
+- **Task-schema activation is an explicit coordinated operation.**
+  `brain workspace migrate` owns the last legacy semantic sync, remote identity
+  and all-machines gates, portable backups, resumable journal, task UUID
+  activation, derived rebuild, and final verification. Ordinary startup,
+  readiness, and sync never activate it.
   Shared-server control, TUI lease recovery, public opaque-ingress routing,
   authenticated actor resolution, exact TUI job forwarding, and response
   delivery are now active.

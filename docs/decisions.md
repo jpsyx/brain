@@ -316,7 +316,7 @@ creation/reassignment controls, and filtering. Compatibility is intentionally
 asymmetric: readers accept the legacy `assignee` heading, while any writer
 normalizes to `assigned_to`.
 
-## Why task UUID migration is inactive until coordinated rollout
+## Why task UUID migration runs only through the coordinated rollout
 
 Human-facing `T###` and `H###` values are useful locators but cannot safely be
 the permanent merge identity once two machines can allocate the same display
@@ -325,9 +325,9 @@ a deterministic UUIDv5 input scoped by workspace, CSV kind, and legacy display
 ID. Completion and ordinary edits preserve the UUID; habit recurrence creates
 a new UUID while retaining assignment and `system_key`.
 
-Activation is deliberately separate. The fixture-tested schema helper requires
-an explicit last-legacy-sync state, an existing durable machine-local backup
-base, and a destination beneath that base; no runtime path calls it. Existing
+Activation is deliberately separate. The schema helper requires an explicit
+last-legacy-sync state, an existing durable machine-local backup base, and a
+destination beneath that base; only `brain workspace migrate` calls it. Existing
 legacy CSVs keep `task_id` identity so their semantic merge remains compatible;
 schema-v2 CSVs merge by UUID, but the helper remains inactive. The UUID column
 alone is not activation: compatibility writers may add `task_uuid` for
@@ -341,8 +341,9 @@ recovery journal. A publication error removes the journal temporary before
 returning. A retry restores
 the complete legacy generation after a prepared interruption or retains the
 complete new generation after commit, so a mixed schema is never accepted as a
-new migration input. The coordinated rollout still owns the final legacy sync,
-backup activation, and rollout journal.
+new migration input. The coordinated rollout owns the final legacy sync,
+all-machines and remote identity gates, sender mapping, backup activation,
+rollout journal, derived rebuild, and final cross-store verification.
 
 ## Why both `tasks.csv` work and brain notes route through `brain`
 

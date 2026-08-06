@@ -146,8 +146,9 @@ not use that UUID-scoped path.
 The frontend-neutral `agent` facade, concrete Claude/Codex adapters, PTY
 transport, main and triage controller ownership, receiver controller dispatch,
 advisory portable access modes, and a fail-fast OpenCode selection stub now
-exist. Functional OpenCode sessions and coordinated task-schema activation
-remain later phases. The shared process control protocol, live TUI leases,
+exist. Functional OpenCode sessions remain a later phase; coordinated
+task-schema activation is available only through explicit workspace migration.
+The shared process control protocol, live TUI leases,
 heartbeats, crash recovery, final-TUI shutdown, opaque-ingress routing,
 authentication, actor resolution, exact TUI forwarding, and delivery are
 active.
@@ -266,8 +267,8 @@ validated person ID, display name, and initiating channel through queueing,
 session lookup, hooks, task-agent prompts, completion, and response delivery.
 When readiness admits a legacy workspace with no portable user file,
 `local_actor` uses its exact lower-case kebab legacy local ID as an interactive
-compatibility actor and writes nothing; the inactive portable migration remains
-inactive. Readiness rejects every nonblank ID that the `UserId` parser would
+compatibility actor and writes nothing; readiness never activates portable
+migration. Readiness rejects every nonblank ID that the `UserId` parser would
 reject, so actor bootstrap cannot discover a weaker legacy acceptance rule.
 
 ### `agent/`
@@ -805,10 +806,22 @@ Together these back the `/second-brain resolve-conflicts` skill: it reads
 copies via `resolve`, then runs one ordinary `brain sync`. See
 [integrations.md](integrations.md) for that contract in full.
 
+### `migration/`
+
+The explicit `brain workspace migrate` coordinator separates pure planning,
+privacy-limited backup, durable journal, portable-user mapping, focused step
+adapters, and final verification. Legacy, Prepared, Current, and
+unsupported-newer states are explicit. User/all-machines/remote gates finish
+before journal creation; the coordinator then reuses existing sync, manifest,
+users, task-schema, triage, and reindex transactions. Final verification checks
+registry and manifest identity, membership, task UUID and assignment
+invariants, triage state, derived indexes, and remote identity before removing
+the active journal. The exact backup remains machine-local and retained.
+
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`
 crate under one namespace: `identity` (immutable UUIDs and deterministic
-legacy identity), `schema` (an explicitly inactive, backup-owning task-schema
+legacy identity), `schema` (a coordinator-only, backup-owning task-schema
 migration helper split into path validation, pure transformation, and durable
 transaction/recovery modules), `task` (CSV model, legacy-compatible load, and pure
 assignment defaults/membership/UI visibility), `view` (sub-views +
@@ -835,9 +848,9 @@ permanent backup entry and transaction artifact is file-synced and
 parent-directory-synced before live replacement. A durable
 prepared/committed journal makes failure or interruption between replacements
 recoverable; retry rolls a prepared generation back before migrating, or
-finishes committed cleanup. Nothing in startup, readiness, sync, or command
-dispatch invokes it. Legacy CSVs keep `task_id` as their first sync key until
-that coordinated migration runs. After migration, `sync/csv_merge/` owns
+finishes committed cleanup. Only explicit `brain workspace migrate` invokes
+it. Legacy CSVs keep `task_id` as their first sync key until that coordinated
+migration runs. After migration, `sync/csv_merge/` owns
 name-aligned UUID merge (`table` + `merge`), deterministic mutable display-ID
 allocation (`reconcile`), and dependency/project reverse-link rewriting
 (`relationships`). `csv_sync/operation.rs` preflights the manifest and every
@@ -847,7 +860,7 @@ authoritative metadata file so retries heal partial remote publication.
 Its publication result distinguishes local filesystem failures from remote
 transport failures so command diagnostics identify the failing boundary.
 `counters` consumes display-ID floors from the reconciled tables only after
-that operation succeeds. None of these paths activates the migration helper.
+that operation succeeds. Ordinary sync never activates the migration helper.
 
 App construction reconciles managed triage state before loading its final task
 and habit vectors. Task reindex does the same before generic Python rules and

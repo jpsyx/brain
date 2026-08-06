@@ -476,7 +476,8 @@ interactive command creates the first portable person, selects it locally, and
 continues the requested command. Headless setup uses `brain user add` followed
 by `brain user local` (or, once one person exists, the sole-user adoption above).
 An existing workspace with no `users.json` and a non-empty legacy local ID
-remains ready so this release does not activate an unreviewed migration.
+remains ready because ordinary startup never activates migration. The explicit
+workspace migration command performs the reviewed conversion.
 
 ### Portable people (`.config/users.json`)
 
@@ -591,7 +592,7 @@ unrelated edits preserve it, and explicit changes validate membership. Readers
 accept legacy `assignee`, prefer `assigned_to` when both exist, and writers
 migrate to `assigned_to` by column name. Task rows accept an optional
 `task_uuid` during the compatibility window; all new rows receive UUIDv4, and
-mutations preserve any existing UUID. The inactive schema helper derives
+mutations preserve any existing UUID. The coordinator-only schema helper derives
 legacy UUIDv5 values from
 `<workspace-uuid>:<csv-kind>:<legacy-task-id>`, backs up both CSVs, both
 counters, and `SCHEMA.json`, then writes task schema version 2 with
@@ -607,9 +608,10 @@ sequential atomic replacements, so retry can roll back an interrupted prepared
 generation or finish cleanup for a committed one; failed journal publication
 removes its temporary file immediately. Current detection validates the merge
 key, mutable display identity, canonical assignment, `system_key`, and UUIDs,
-not the schema version alone. It is not called by startup, readiness, sync, or
-commands. The rollout coordinator still owns the last legacy semantic sync,
-activation, and backup location. Existing legacy files retain `task_id` as
+not the schema version alone. It is called only by explicit
+`brain workspace migrate`. The rollout coordinator owns the last legacy
+semantic sync, acknowledgement and identity gates, portable backup, step
+journal, activation, and final verification. Existing legacy files retain `task_id` as
 their merge key until migration. Schema-v2 files merge by `task_uuid` and
 reconcile mutable display IDs without activating that migration.
 Managed triage identity lives in the optional `system_key` column. The reserved

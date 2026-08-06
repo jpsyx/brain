@@ -133,4 +133,18 @@ impl WorkspacePaths {
     pub fn sync_csv_baselines(&self) -> PathBuf {
         self.sync_dir().join("baselines")
     }
+
+    /// Active journal for the legacy-to-multi-workspace rollout.
+    #[must_use]
+    pub fn migration_journal(&self) -> PathBuf {
+        self.cache_dir
+            .join("migrations")
+            .join("multi-workspace-v1.json")
+    }
+
+    /// Retained machine-local backups created by workspace migration.
+    #[must_use]
+    pub fn migration_backups(&self) -> PathBuf {
+        self.cache_dir.join("migration-backups")
+    }
 }

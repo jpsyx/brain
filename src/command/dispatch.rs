@@ -57,7 +57,9 @@ pub fn run(
             DispatchCapability::Registry(store) => {
                 super::workspace::run_registry_only(args, cli.brain.as_deref(), store)
             }
-            DispatchCapability::Ready(context) => super::workspace::run_ready(args, context),
+            DispatchCapability::Ready(context) => {
+                super::workspace::run_ready(args, context, cli.brain.is_some())
+            }
             DispatchCapability::None => {
                 anyhow::bail!("internal workspace command dispatch expected a workspace capability")
             }

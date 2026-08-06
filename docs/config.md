@@ -105,6 +105,7 @@ does not create `users.json` as part of that repair path.
 | `brain workspace default [<workspace>]` | Set the canonical default through a canonical-name or alias selector. |
 | `brain workspace remove [<workspace>]` | Detach only the registry record; root and every local/remote runtime artifact remain untouched. |
 | `brain workspace repair [--manifest] [--local-user-id <id>]` | Recreate a missing manifest that matches the registry and/or set this machine's local identity. Omitting both flags uses the interactive prompt. |
+| `brain workspace migrate [--acknowledge-all-machines-updated]` | Run or resume the coordinated legacy task/user rollout. A synced headless workspace requires explicit `--brain <workspace>` selection and the acknowledgement flag. |
 
 Every optional grammar value has a `/dev/tty` prompt when omitted and a flag
 or positional noninteractive form. For create, attach, remove, and repair,

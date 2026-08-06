@@ -188,6 +188,35 @@ fn inactive_migration_requires_an_existing_durable_backup_base() {
 }
 
 #[test]
+fn inactive_migration_refuses_a_newer_task_schema_without_changing_live_files() {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.root.join("tasks/SCHEMA.json"),
+        br#"{"task_schema_version":3,"merge_key":"task_uuid","display_identity":{"field":"task_id","mutable":true}}"#,
+    )
+    .unwrap();
+    let before = ["tasks.csv", "habits.csv", "SCHEMA.json"].map(|name| {
+        (
+            name,
+            std::fs::read(fixture.root.join("tasks").join(name)).unwrap(),
+        )
+    });
+
+    let error = fixture
+        .migrate(LegacySemanticSync::Complete)
+        .expect_err("a future schema must not be downgraded");
+
+    assert!(error.to_string().contains("task schema 3"), "{error:#}");
+    for (name, bytes) in before {
+        assert_eq!(
+            std::fs::read(fixture.root.join("tasks").join(name)).unwrap(),
+            bytes
+        );
+    }
+    assert!(!fixture.backup.exists());
+}
+
+#[test]
 fn fixture_migration_preserves_rows_and_display_ids_and_backs_up_portable_inputs() {
     let fixture = Fixture::new();
 

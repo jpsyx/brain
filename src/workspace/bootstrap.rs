@@ -169,9 +169,15 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
             std::env::var_os("BRAIN_WORKSPACE_ID").as_deref(),
             command_context.workspace.id(),
         )?;
-        crate::skills::resync_on_version_change(&command_context.workspace);
+        if should_resync_skills(invocation_for(cli)) {
+            crate::skills::resync_on_version_change(&command_context.workspace);
+        }
     }
     Ok(context)
+}
+
+const fn should_resync_skills(invocation: Invocation) -> bool {
+    !matches!(invocation, Invocation::WorkspaceMigrate)
 }
 
 fn validate_expected_workspace_id(
@@ -270,6 +276,10 @@ fn bootstrap_with_io_and_hook(
             "workspace root {} is unavailable; restore it or detach the workspace",
             selected.record().root.display()
         );
+    }
+    if invocation_for(cli) == Invocation::WorkspaceMigrate {
+        after_readiness()?;
+        return context_from_record(&store, canonical_name, &record, home, current_dir);
     }
     let access_mode = if selected.canonical_name() == &registry.default_workspace {
         crate::access::AccessMode::Unrestricted
