@@ -8,7 +8,7 @@
 
 `brain` is the user's **central terminal dispatch** for everything around
 their second brain and task system: manage tasks (agenda, triage, habits),
-fuzzy-pick a note across the PARA buckets, or think with an always-on agent
+fuzzy-pick a note across the PARA buckets, or think with a live agent
 brain panel. Bare `brain` opens a **persistent shell** with three main views
 (tasks, brain-directory search, and logs) alongside a session-resuming agent
 brain panel. `brain workspace …` manages the machine's workspace registry;
@@ -31,9 +31,9 @@ The code is the source-of-truth for *how*. They must agree on *what*.
    `HaystackBuf` normalization, the picker's match/row model.
 4. **[keybindings.md](keybindings.md)** — the app-level, tasks-view, and
    brain-search-view key tables, plus the kitty-protocol caveat.
-5. **[integrations.md](integrations.md)** — `run.sh`, the brain panel's
-   Claude/Codex launch (`claude_cmd`, `codex_cmd`), the file-open / Finder / PDF / trash
-   handoffs, the tasks-view shell-outs, and the SessionStart hook / state DB.
+5. **[integrations.md](integrations.md):** `run.sh`, `AgentController`, the
+   Claude/Codex launch and OpenCode stub, shared TUI-lifetime server, workspace
+   sync/migration boundaries, file handoffs, and frontend hooks / state DB.
 6. **[config.md](config.md)** — the config store, the `brain config`
    command, the `markdown-to-pdf` prerequisite, and root resolution.
 7. **[testing.md](testing.md)** — the red/green TDD doctrine, what we
@@ -49,7 +49,9 @@ src/
   main.rs        : entry point, workspace bootstrap, and command dispatch
   lib.rs         — public re-exports for integration tests
   cli/           : focused clap surface (global + command-family modules)
-  workspace/     : typed identity, schema-v2 registry, and current workspace command family
+  workspace/     : WorkspaceContext, schema-v2 registry, requirements, and commands
+  actor/         : immutable ActorContext for local and authenticated requests
+  agent/         : AgentController plus Claude/Codex adapters and OpenCode stub
   users/         : portable people, normalized identities, and atomic users.json storage
   migration/     : explicit journaled legacy-to-multi-workspace rollout
   config.rs      — typed knobs (triage pattern, linear, rollover)
@@ -58,14 +60,16 @@ src/
   entry.rs       — Bucket + Entry; walkdir collection with hidden filter
   tui/           : persistent shell (tasks, search, and logs views + agent panel)
   pty_pane.rs    — PTY-backed brain panel (portable-pty + vt100)
-  session.rs     — pure agent command/env + resume-vs-fresh plan
-  state.rs       — SQLite session store + layout pref (lock + recency)
+  session.rs     : compatibility re-exports over the frontend-neutral agent layer
+  state.rs       : UUID-scoped SQLite sessions, completion, and metadata
+  sync/          : UUID-scoped runtime, remote identity, triggers, and CSV merge
   picker/        — ratatui fuzzy picker (matching, grouping, navigation)
   menu/          — ratatui command palette (Ctrl-p overlay)
   render.rs      — pure functions → styled ratatui Lines (picker UI)
   open_target.rs — "how to open this path" + new-iTerm2-tab opener
 scripts/
-  claude_session_start_hook.py — records the live Claude session id
+  claude_session_start_hook.py : records attributed Claude/Codex session starts
+  claude_stop_hook.py          : records attributed Claude/Codex completions
 tests/
   entry_collect.rs   — entry::collect against real temp dir trees
   root_resolution.rs — config parse + tilde expansion composition

@@ -4,7 +4,7 @@
 
 PASS. The composed acceptance harness, gated two-workspace local-rclone
 coverage, watcher lifecycle coverage, durable documentation, release tests,
-and strict lint gate are complete. One local task commit will contain the work;
+and strict lint gate are complete. Local commit `af1c502` contains the work;
 nothing was pushed.
 
 ## Version and base

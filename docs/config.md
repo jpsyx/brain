@@ -188,10 +188,11 @@ current default/nondefault status. Read-only `workspace list` does not seed or
 repair any record. Changing the machine default changes routing only and never
 changes either portable value.
 
-`workspace_only` mode is easy to bypass. It is intended only to reduce
-accidents and naive cross-workspace leakage among trusted users. It is
-unsuitable for adversarial users or sensitive isolation. Real isolation
-requires an external OS, VM, machine, or container boundary.
+`workspace_only` is advisory prompt enforcement plus best-effort capability
+filtering, easy to bypass, and not tenant isolation. It is intended only to
+reduce accidents and naive cross-workspace leakage among trusted users.
+Adversarial or sensitive isolation requires an external OS, VM, machine, or
+container boundary.
 
 Brain installs trusted advisory instructions in both agent frontends, filters
 the child environment to selected-workspace context and frontend necessities,
@@ -217,14 +218,16 @@ Claude/Codex enforcement level without printing connection material. Names are
 ASCII case-normalized and must begin with a letter or digit; remaining
 characters may be letters, digits, `.`, `_`, or `-`.
 
-Inbound request actor selection now reads `users.json`: provider signatures are
+Inbound request actor selection reads `users.json`: provider signatures are
 verified first, then the normalized sender must match an enabled phone or email
 identity. Legacy receiver allowlists and response settings remain compatibility
-inputs while the coordinated portable schema migration stays deferred. Task
-`assigned_to`, managed triage-habit policy, and the complete shared receiver
-lifecycle are active. Functional OpenCode sessions and task-schema migration
-activation remain later phases. The agent-controller facade and advisory
-access modes are active; OpenCode is a fail-fast stub.
+inputs until explicit `brain workspace migrate` maps them to portable people.
+That command also owns the final legacy semantic sync, durable backup, task
+schema activation, derived rebuild, verification, and resumable journal;
+ordinary startup and sync paths never activate migration. Task `assigned_to`,
+managed triage-habit policy, and the complete shared receiver lifecycle are
+active. The agent-controller facade and advisory access modes are active;
+functional OpenCode sessions remain a fail-fast future surface.
 
 ### Selected workspace env
 
@@ -637,9 +640,10 @@ sync with the brain (see [features.md](features.md) for how they customize skill
 
 A missing or broken personalization file parses to empty — the app runs fine
 with no personalization, and skills fall back to generic behavior. Any
-`personalize`/`config` mutation triggers a skill re-render (`skills::resync_skills`)
-so the installed skills stay in sync; the render pipeline itself is a later
-sub-project (the trigger is wired now, currently a no-op).
+`personalize`/`config` mutation triggers the active deterministic skill
+render-and-install pipeline (`skills::resync_skills`) so the installed skills
+stay in sync. The first ready-workspace invocation after a Brain version change
+also runs that pipeline when `skills_auto_sync` is enabled.
 
 ## Persistent state (`~/.cache/brain/workspaces/<workspace-id>/state.db`)
 
@@ -651,9 +655,9 @@ shell** also keeps machine-managed state in a SQLite DB at
 - `brain_sessions` records Claude and Codex session identity plus workspace,
   actor, and channel attribution, with a per-session PID lock used for scoped
   lock-and-recency resume. Written by both `brain` and the SessionStart hook.
-- `meta` — small key/value store; today just `panel_side` (`"left"` or
-  `"right"`), the side the brain panel sits on, set by the palette's "Move
-  brain panel…" command and read on startup.
+- `meta`: small key/value store. `panel_side` (`"left"` or `"right"`) records
+  the panel layout; `skills_synced_version` records the last Brain version that
+  successfully rendered this workspace's installed skills.
 
 You don't edit a workspace state DB by hand. Deleting it is safe: brain recreates it,
 starts a fresh agent session, and reverts to the default right-side layout.

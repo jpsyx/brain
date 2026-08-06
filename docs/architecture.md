@@ -17,8 +17,9 @@ execution surfaces are a persistent TUI and short-lived command families:
   interactive agent session in a PTY). You switch main views with
   `Ctrl+L`/`Ctrl+H` (cycle) or `Ctrl+T`/`Ctrl+B` (jump); the brain panel
   persists across a switch and closing it makes the main view full-width. The
-  process owns the terminal until you quit and keeps a little SQLite state so
-  it resumes the right Claude session and remembers the panel layout. See
+  process owns the terminal until you quit and keeps UUID-scoped SQLite state
+  for frontend sessions, completion delivery, and panel layout. Claude may
+  resume an eligible transcript; Codex currently starts fresh. See
   [glossary.md](glossary.md) for the main-view / sub-view / panel vocabulary.
 - **Short-lived command families** cover non-TUI task utilities, config, env,
   workspace, portable users, sync, personalization, skills, server/receiver,
@@ -126,7 +127,7 @@ boundaries:
 | --- | --- | --- |
 | Portable workspace | `<workspace-root>/` | Notes, tasks, `.config/workspace.json`, `.config/users.json`, config, personalization, extensions, and plugins |
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
-| Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI lock, portable-user transaction lock, inbox, responses, capability artifacts, and sync lock/journal/current state/baselines |
+| Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI/task/user locks, inbox, responses, capability artifacts, migration journal/backups, and sync lock/journal/current state/workdir/baselines |
 | Shared infrastructure | `~/.cache/brain/server/` | Generation-tagged process coordination and an infrastructure-only log, never a default workspace payload path |
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
@@ -620,7 +621,8 @@ so the "Delete" command performs a recoverable, user-style trash rather than
 an `rm`.
 
 ### `main_view.rs`
-The app-level main-view axis: the `MainView` enum (`Tasks` / `BrainSearch`),
+The app-level main-view axis: the `MainView` enum (`Tasks` / `BrainSearch` /
+`Logs`),
 `MainView::step` cycling, and the pure key-classifiers `ctrl_cycles_view`
 (`Ctrl+H`/`Ctrl+L`), `ctrl_jumps_view` (`Ctrl+T`/`Ctrl+B`), and
 `alt_opens_help` (`Alt+S`). Pure and unit-tested; the merged `tui` App applies
@@ -747,7 +749,7 @@ the IO/threads/`Command`:
   `Direction::Push` run. That direction uses a one-way, non-deleting rclone
   copy; its CSV/counter pass reads remote state only to build a safe upload and
   never writes local state, so the push cannot re-arm its own watcher.
-- `trigger.rs` — the single shell-facing entry point. The pure request builder
+- `trigger.rs`: the single shell-facing entry point. The pure request builder
   pins the canonical selector and expected UUID; the injected
   `DetachedSyncRunner` boundary makes child launch observable in tests.
   `spawn_detached_sync(workspace, dir)` spawns the current exe as
@@ -830,11 +832,18 @@ The explicit `brain workspace migrate` coordinator separates pure planning,
 privacy-limited backup, durable journal, portable-user mapping, focused step
 adapters, and final verification. Legacy, Prepared, Current, and
 unsupported-newer states are explicit. User/all-machines/remote gates finish
-before journal creation; the coordinator then reuses existing sync, manifest,
-users, task-schema, triage, and reindex transactions. Final verification checks
-registry and manifest identity, membership, task UUID and assignment
+before journal creation. The journal lives at
+`<workspace-cache>/migrations/multi-workspace-v1.json`; the retained backup
+lives under `<workspace-cache>/migration-backups/` and contains only the
+portable rollout inventory. The coordinator reuses existing sync, manifest,
+users, task-schema, triage, and reindex transactions. Its first journaled step
+is the final legacy semantic sync when sync is configured, so UUID task merge
+identity never becomes authoritative first. Every completed step is persisted
+atomically; rerun validates the exact workspace UUID/root/plan and resumes the
+original backup instead of starting another generation. Final verification
+checks registry and manifest identity, membership, task UUID and assignment
 invariants, triage state, derived indexes, and remote identity before removing
-the active journal. The exact backup remains machine-local and retained.
+the active journal. The backup remains machine-local and retained.
 
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`

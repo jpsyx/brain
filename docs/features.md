@@ -425,10 +425,11 @@ selected-root cwd, and a filtered child environment. The PTY evaluates the
 configured frontend command without loading login or interactive shell
 profiles, so those profiles cannot restore filtered variables. An initial
 prompt follows an explicit frontend option terminator, so option-looking user
-or inbound text stays prompt data. Workspace-only mode is easy to bypass. It
-reduces accidents and naive leakage among trusted users, but is unsuitable for
-adversarial users or sensitive isolation. Real isolation requires an external
-OS, VM, machine, or container boundary. Claude and Codex continue to use the
+or inbound text stays prompt data. `workspace_only` is advisory prompt
+enforcement plus best-effort capability filtering, easy to bypass, and not
+tenant isolation. It reduces accidents and naive leakage among trusted users.
+Real adversarial or sensitive isolation requires an external OS, VM, machine,
+or container boundary. Claude and Codex continue to use the
 user's shared frontend login; selecting a workspace does not create another
 identity.
 A pure literal-path check can warn about obvious absolute or `~/` paths outside
@@ -642,8 +643,8 @@ validation, the remote identity probe, safety-marker check, rclone handoff,
 task/habit CSV merge, and journal write before each phase starts. During the
 rclone phase, file progress streams to the terminal live, with a one-line
 update roughly every 10 seconds (files/bytes transferred, percent complete,
-transfer rate, ETA) — useful on the first sync of a large brain, which can take
-a while.
+transfer rate and ETA). This is useful on the first sync of a large brain,
+which can take a while.
 
 Every sync (foreground or background) mirrors that same progress to a machine-
 local log (`<workspace-cache>/sync/current.log`) and records a small `current.json`
@@ -947,9 +948,8 @@ any other tag renders as its raw name until you add a style under `tag_styles`
 in the personalization JSON. So the public binary carries no personal taxonomy.
 
 **Every mutation re-renders skills.** `personalize set`/`edit`, first-run
-onboarding, and `config set` all trigger a skill re-render so the installed
-skills never drift from your values. (The render pipeline itself lands in a
-later sub-project; the trigger is wired now.)
+onboarding, and `config set` all run the active deterministic render/install
+pipeline so the installed skills stay aligned with the selected workspace.
 
 Like `config`, `personalize` runs before the `markdown-to-pdf` prerequisite
 gate, so it always works. See [config.md](config.md) and

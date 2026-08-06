@@ -137,7 +137,10 @@ mod tests {
         // brain owns rclone's bisync state dir: its location is fixed (not
         // rclone's HOME-dependent default) and its lock files are reapable.
         assert_eq!(pair_after(&args(Direction::Both), "--workdir"), Some("/wd"));
-        assert_eq!(pair_after(&args(Direction::Resync), "--workdir"), Some("/wd"));
+        assert_eq!(
+            pair_after(&args(Direction::Resync), "--workdir"),
+            Some("/wd")
+        );
     }
 
     fn pair_after<'a>(v: &'a [String], flag: &str) -> Option<&'a str> {
@@ -227,9 +230,8 @@ mod tests {
 
         for argv in [&bisync, &push] {
             assert!(
-                argv.windows(2).any(|pair| {
-                    pair[0] == "--exclude" && pair[1] == ".config/workspace.json"
-                }),
+                argv.windows(2)
+                    .any(|pair| { pair[0] == "--exclude" && pair[1] == ".config/workspace.json" }),
                 "{argv:?}"
             );
         }

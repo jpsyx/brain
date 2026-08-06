@@ -272,9 +272,15 @@ state; watchdog expiry remains a separate mutation.
 ├── state.db
 ├── tui.lock
 ├── jobs.sock              (live TUI only, mode 0600)
+├── users.transaction.lock
+├── tasks.transaction.lock
 ├── inbox/
 ├── responses/
 ├── logs/                  (reserved, currently unused)
+├── capabilities/
+├── migrations/
+│   └── multi-workspace-v1.json
+├── migration-backups/
 └── sync/
     ├── sync.lock
     ├── journal.db
@@ -284,8 +290,9 @@ state; watchdog expiry remains a separate mutation.
     └── baselines/
 ```
 
-Its state database, TUI lock, live job socket, inbox, responses, reserved log
-path, and sync working data are all children of that base. `cache_dir()` borrows the stored
+Its state database, transaction/TUI locks, live job socket, inbox, responses,
+capability material, migration journal/backups, reserved log path, and sync
+working data are all children of that base. `cache_dir()` borrows the stored
 base; each child accessor derives an owned path. Distinct IDs therefore cannot
 share runtime paths. `WorkspacePaths` remains the sole UUID-derived authority;
 sync's focused workdir and CSV-baseline helpers only append below its `sync/`
@@ -638,9 +645,39 @@ key, mutable display identity, canonical assignment, `system_key`, and UUIDs,
 not the schema version alone. It is called only by explicit
 `brain workspace migrate`. The rollout coordinator owns the last legacy
 semantic sync, acknowledgement and identity gates, portable backup, step
-journal, activation, and final verification. Existing legacy files retain `task_id` as
-their merge key until migration. Schema-v2 files merge by `task_uuid` and
-reconcile mutable display IDs without activating that migration.
+journal, activation, and final verification. Existing legacy files retain
+`task_id` as their merge key until migration. Schema-v2 files merge by
+`task_uuid` and reconcile mutable display IDs without activating that
+migration.
+
+### Coordinated rollout journal and retained backup
+
+Explicit `brain workspace migrate` owns one machine-local rollout generation
+per workspace UUID. Its active journal is
+`<workspace-cache>/migrations/multi-workspace-v1.json`; its retained backup is
+`<workspace-cache>/migration-backups/<UTC>-pre-multi-workspace/`. Both paths
+come only from `WorkspacePaths`, so two workspaces can migrate independently
+without sharing recovery state. Neither path is portable or synced.
+
+Before creating a journal, the coordinator verifies the selected manifest and
+workspace UUID, compatible local/remote schemas, portable user and assignment
+mappings, remote identity when sync is configured, explicit all-machine
+acknowledgement for a synced headless rollout, and a disjoint machine-local
+backup destination. The journal binds the migration ID, workspace UUID,
+canonical root, original plan, original timestamp, retained backup, and
+completed steps. Reentry must match that identity exactly and resumes the same
+generation; a mismatch fails closed.
+
+The ordered steps are final legacy semantic sync, portable backup, user
+migration, task-schema migration, managed-triage reconciliation, reindex, and
+final verification. The final legacy sync completes before UUID task identity
+can become authoritative. Each completed step is atomically journaled, and the
+task-schema subtransaction has its own prepared/committed recovery boundary for
+multi-file replacement. Success removes only the active rollout journal and
+retains the backup. An interrupted run prints the exact resume command; after
+backup completion it also prints shell-quoted restore commands. Rerunning a
+fully current workspace is byte-idempotent and creates no new backup.
+
 Managed triage identity lives in the optional `system_key` column. The reserved
 values `brain.triage.daily` and `brain.triage.weekly` identify Brain-owned
 chains even if their display names change. When enabled, reconciliation keeps
@@ -681,10 +718,11 @@ snapshot. Unrestricted mode has no boundary prompt. Workspace-only mode builds
 one advisory prompt naming the selected root and actor, then every interactive,
 SMS, email, fresh, resumed, and triage request carries it to the selected
 frontend. Initial prompt text follows the frontend's option terminator, so a
-leading `-` remains prompt data. The policy is easy-to-bypass prompt guidance
-plus capability filtering. It reduces accidents and naive leakage among
-trusted users, but it is not suitable for adversarial or sensitive isolation;
-that requires an external OS, VM, machine, or container boundary.
+leading `-` remains prompt data. `workspace_only` is advisory prompt
+enforcement plus best-effort capability filtering, easy to bypass, and not
+tenant isolation. It reduces accidents and naive leakage among trusted users;
+adversarial or sensitive isolation requires an external OS, VM, machine, or
+container boundary.
 
 `CapabilityPlan` is a separate immutable launch snapshot. Portable config owns
 only ordered logical `allowed_mcps` and `allowed_skills` names. Resolution reads
@@ -951,10 +989,10 @@ does nothing, with no watcher thread or startup sync).
 - `current.log` — the in-progress run's progress lines, appended live so a
   following `brain sync` can tail them and `brain sync status` stays honest.
   Truncated at the start of each run.
-- `bisync/` — the brain-owned rclone bisync workdir (`--workdir`): its `.lst`
+- `bisync/`: the brain-owned rclone bisync workdir (`--workdir`), with `.lst`
   baseline listings, and any `.lck` lock file (reaped before each run while
   brain holds its own sync lock, since it can only be from a dead run).
-- `baselines/` — the selected workspace's semantic task and habit CSV
+- `baselines/`: the selected workspace's semantic task and habit CSV
   snapshots. They never overlap another UUID's baselines and never enter the
   portable workspace.
 

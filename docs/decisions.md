@@ -43,12 +43,12 @@ Decisions taken during the merge (see the conversation that produced it):
 
 ## Why `brain` is a "central dispatch", not a single-purpose tool
 
-The user lives in the terminal and wants **one command** to reach
-everything around `~/brain`: manage tasks, jump to a note, search across PARA
-buckets, or think with an agent session rooted in the brain. Rather than
+The user lives in the terminal and wants **one command** to reach everything
+inside the selected workspace: manage tasks, jump to a note, search across PARA
+buckets, or think with an agent session rooted there. Rather than
 memorize several separate entry points, `brain` is the front door: a single
 persistent shell with three main views (tasks, brain-directory search, and logs)
-and an always-on brain panel. New top-level capabilities should be added as a
+and a live brain panel. New top-level capabilities should be added as a
 main view, a palette row, or a keybinding inside that shell, not as a separate
 command (or a shell-mutating one-shot subcommand) the user has to discover.
 
@@ -348,8 +348,9 @@ Activation is deliberately separate. The schema helper requires an explicit
 last-legacy-sync state, an existing durable machine-local backup base, and a
 destination beneath that base; only `brain workspace migrate` calls it. Existing
 legacy CSVs keep `task_id` identity so their semantic merge remains compatible;
-schema-v2 CSVs merge by UUID, but the helper remains inactive. The UUID column
-alone is not activation: compatibility writers may add `task_uuid` for
+schema-v2 CSVs merge by UUID, but only the explicit rollout coordinator may
+invoke the activation helper. The UUID column alone is not activation:
+compatibility writers may add `task_uuid` for
 new rows while legacy rows remain blank, and sync continues to use `task_id`
 until `tasks/SCHEMA.json` declares the coordinated current schema. The helper
 rejects canonical or lexical path overlap with the workspace, creates each
@@ -386,16 +387,14 @@ thin binary entry point share one module graph. This avoids compiling a second
 private copy of every module and keeps `main.rs` limited to bootstrap and
 dispatch.
 
-## Why bare `brain` is a persistent two-panel shell with an always-on claude
+## Why bare `brain` is a persistent shell with a live agent panel
 
-The user wanted `claude` rooted in `~/brain` to be *always present and
-continuous* — not launched per question and torn down. So bare `brain` is no
-longer a fire-once picker; it's a persistent shell with fuzzy search on one
-side and a live `claude` PTY (the "brain panel") on the other, mirroring the
-`tasks` TUI's embedded brain pane. The two coexist because finding a note and
-thinking with claude are complementary, not modal. We start focused on the
-brain panel so the resumed conversation is immediately typable; `Alt+H` /
-`Alt+L` switch panels (spatial, so they follow a layout swap).
+The agent session should stay available while the user works, not launch per
+question and disappear. Bare `brain` is therefore a persistent shell with
+three main views beside a live frontend-neutral PTY (the "brain panel"), rooted
+in the selected workspace. Finding a note and thinking with an agent are
+complementary, not modal. Startup focuses the tasks view while leaving the
+panel open; `Alt+H` / `Alt+L` switch focus spatially and follow a layout swap.
 
 ## Why claude exiting closes the panel instead of quitting the shell
 
@@ -1337,14 +1336,14 @@ hybrid model — identity is a runtime lookup (`brain personalize show`), so it
 changes instantly without a rebuild, while structural per-user variation is left
 to the skill render pipeline.
 
-## Why mutations call a `resync_skills()` seam (currently a no-op)
+## Why mutations call `resync_skills()` (historical seam, now active)
 
 Any `config set` / `personalize set` / onboarding change should keep the
-installed skills consistent with the user's values, so every mutation path calls
-a single `skills::resync_skills()` hook. The real render/install pipeline is a
-later sub-project; wiring the seam now (as a no-op) means that sub-project only
-fills in the body, without hunting down every mutation. It must never fail a
-mutation — a `config set` succeeds even if a future render step errors.
+installed skills consistent with the user's values, so every mutation path
+calls one `skills::resync_skills()` hook. That hook began as the rollout seam;
+it now runs the deterministic render/install pipeline. It remains best effort:
+a `config set` succeeds even if rendering fails, while the unchanged version
+stamp lets a later invocation retry.
 
 ## Why the renderer resolves tags via a process cache, not threaded state
 
@@ -1376,20 +1375,16 @@ Pablo's machines once the B4 bridge stops jpsyx from pruning brain-owned entries
 The link *targets* are a pure function (`layout::link_ops`), unit-tested; the FS
 shell (`install`) stays thin.
 
-## Why the skill sync is gated off (`skills_auto_sync`) during rollout
+## Why skill auto-sync had a rollout gate (historical; default now on)
 
-`resync_skills()` is wired into every config/personalize mutation, but a mutation
-must not silently rewrite the user's live agent registry while the pipeline is
-still being built (sub-projects B1–B3) — on Pablo's machine that registry is
-still jpsyx-owned, and dual management would collide. So the auto-sync is gated
-behind a config flag defaulting to `false`; the pipeline is exercised only via
-`brain skills sync --root <sandbox>` until the B4 cutover flips the flag and
-fixes jpsyx's prune. Safety-first: the default can't disturb a live setup.
+During sub-projects B1 through B3, `resync_skills()` was gated off because the
+live registry still had another owner and the render/install pipeline was not
+ready. The B4 cutover completed that ownership transition and activated the
+same seam.
 
-**Post-B4:** the flag now defaults to `true` — the rollout is over, the registry
-is brain-owned, and jpsyx no longer fights brain for it, so a mutation *should*
-re-render the live registry (program invariant #5). Setting it `false` reverts to
-sync-only-on-demand via explicit `brain skills sync`.
+`skills_auto_sync` now defaults to `true`: config/personalize mutations and the
+first ready-workspace invocation after a version change render the live
+registry. Setting it `false` leaves only explicit `brain skills sync`.
 
 ## Why a version-stamped auto-resync (a brain update must ship skill changes)
 

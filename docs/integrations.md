@@ -5,7 +5,8 @@ families. It has no shell-mutating one-shot commands, so there is no plan
 protocol and no zsh wrapper. The TUI owns interactive file opening, Finder
 reveals, PDF conversion, trash, and agent launches by spawning processes
 itself. This doc covers how the binary is run and each of those handoffs, plus
-the SessionStart hook and state DB.
+the frontend SessionStart/Stop hooks, UUID-scoped state DB, shared TUI-lifetime
+server, and workspace-scoped sync boundary.
 
 ## How brain is run (`run.sh`)
 
@@ -171,6 +172,11 @@ that begins with `-` cannot become a Claude flag or Codex config override.
 Fresh, resumed, interactive, SMS, email, and daily-triage
 requests use the same policy construction. Unrestricted mode adds no policy
 instruction.
+
+`workspace_only` is advisory prompt enforcement plus best-effort capability
+filtering, easy to bypass, and not tenant isolation. The selected cwd,
+environment filtering, and literal-path warning reduce accidental leakage;
+they do not create an OS, VM, container, or filesystem security boundary.
 
 Capability selection is separate from the boundary prompt. Portable config
 requests logical MCP and skill names; only the selected workspace registry
@@ -484,7 +490,7 @@ It respects `enable_triage_habits` (a disabled feature is a `Disabled` no-op
 that still dismisses the nudge). This is why only the Yes path needs the
 tab/token/`require` machinery above.
 
-## Claude Sessions: SessionStart/Stop Hooks + State DB
+## Agent sessions: SessionStart/Stop hooks and state DB
 
 Which session to run is decided by the **lock + recency** model in
 `state.rs` (DB at `<workspace-cache>/state.db`, WAL):
@@ -1003,8 +1009,8 @@ brain-root lookup.
   structured, id-keyed data. Instead `command::sync_once` runs a dedicated
   step (`crate::sync::csv_sync::sync_csvs`) once bisync itself hasn't aborted.
   It holds the workspace task-store owner across CSV publication and dependent
-  counter reconciliation. For each CSV it then
-  for each CSV it reads the cached baseline (`csv_sync::baseline_path`,
+  counter reconciliation. For each CSV it reads the cached baseline
+  (`csv_sync::baseline_path`,
   `<workspace-cache>/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
   never synced), the local file, and the remote copy (fetched with `rclone
   copyto <remote> <tmp>`, over the same env-var `BRAIN:` remote bisync uses);
@@ -1073,7 +1079,15 @@ brain-root lookup.
   `brain workspace migrate` owns the last legacy semantic sync, remote identity
   and all-machines gates, portable backups, resumable journal, task UUID
   activation, derived rebuild, and final verification. Ordinary startup,
-  readiness, and sync never activate it.
+  readiness, and sync never activate it. The UUID-scoped journal is
+  `<workspace-cache>/migrations/multi-workspace-v1.json`; its original retained
+  backup stays below `<workspace-cache>/migration-backups/`. When sync is
+  configured, the first journaled step uses the existing legacy semantic sync
+  before task UUID identity becomes authoritative. Every step is atomically
+  recorded, so rerun validates the workspace/plan and resumes the same backup.
+  Failure reports the exact resume command and, after backup completion,
+  shell-quoted restore commands. Success removes the active journal but keeps
+  the backup.
   Shared-server control, TUI lease recovery, public opaque-ingress routing,
   authenticated actor resolution, exact TUI job forwarding, and response
   delivery are now active.

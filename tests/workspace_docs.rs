@@ -53,6 +53,14 @@ fn current_docs() -> String {
         .join("\n")
 }
 
+fn current_docs_normalized() -> String {
+    CURRENT_DOCS
+        .iter()
+        .map(|path| read_doc_normalized(path))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn documented_workspace_commands_and_selectors_exist_in_clap() {
     let root_help = brain_help(&["--help"]);
@@ -116,10 +124,9 @@ fn current_docs_pin_workspace_storage_and_reject_obsolete_root_writes() {
 
 #[test]
 fn current_docs_state_the_advisory_security_and_default_invariants() {
-    let docs = current_docs().to_lowercase();
+    let docs = current_docs_normalized().to_lowercase();
     for phrase in [
-        "prompt-based guidance",
-        "not a filesystem sandbox",
+        "workspace_only` is advisory prompt enforcement plus best-effort capability filtering, easy to bypass, and not tenant isolation",
         "changing the default workspace never changes access mode",
     ] {
         assert!(docs.contains(phrase), "current docs are missing {phrase:?}");
@@ -207,6 +214,21 @@ fn root_help_names_tasks_search_and_logs_as_three_main_views() {
     for view in ["tasks", "search", "logs"] {
         assert!(help.contains(view), "root help is missing the {view} view");
     }
+}
+
+#[test]
+fn root_help_names_the_current_shortcuts_binding() {
+    let help = brain_help(&["--help"]);
+    assert!(help.contains("Alt-S shows help"));
+    assert!(!help.contains("Alt-? shows help"));
+}
+
+#[test]
+fn cargo_metadata_describes_the_current_multi_workspace_agent_surface() {
+    let manifest = read_doc("Cargo.toml");
+    assert!(manifest.contains(
+        "description = \"Multi-workspace terminal dispatch for notes, tasks, sync, and agent sessions.\""
+    ));
 }
 
 #[test]
@@ -389,6 +411,8 @@ fn generic_agenda_after_build_hook_is_documented() {
 fn readme_scopes_workspace_silos_to_persisted_artifacts() {
     let readme = read_doc_normalized("README.md");
     assert!(readme.contains("persisted state, configuration, and runtime artifacts"));
-    assert!(readme.contains("not a filesystem sandbox"));
+    assert!(readme.contains(
+        "workspace_only` is advisory prompt enforcement plus best-effort capability filtering, easy to bypass, and not tenant isolation"
+    ));
     assert!(!readme.contains("Every workspace is a silo"));
 }

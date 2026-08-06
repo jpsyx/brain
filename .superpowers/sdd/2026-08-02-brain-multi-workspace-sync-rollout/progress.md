@@ -1,4 +1,4 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-08-02-brain-multi-workspace-sync-rollout.md
+# SDD ledger for plan: docs/superpowers/plans/2026-08-02-brain-multi-workspace-sync-rollout.md
 
 Base: f28598469e58fc942de9a80a6fe3e292c4ea31e2
 Starting version: 0.31.10
@@ -35,3 +35,7 @@ Task 6: complete (commits 67e3ac2..f4f69a8, self-review and task-local gates cle
 Task 7: RED composed acceptance first resolved the authenticated family sender as `family-member` instead of portable `wife`; the next run reached the real task script and exposed missing temporary `tasks/` provisioning. The two-workspace local-rclone RED then showed the old harness helper forced one fixed workspace ID, so the family workdir did not exist.
 Task 7: final release RED reproduced Task 1's deferred macOS receiver cleanup race when a peer close made test-side `shutdown(Both)` return `NotConnected`; cleanup now accepts only that already-disconnected state, exact test 20/20 and receiver suite 21/21 green, with no sleep or production change.
 Task 7: complete (single local task commit after f4f69a8, self-review and task-local gates clean; version 0.34.1). One hermetic scenario proves all eleven personal-plus-family lifecycle assertions through real Brain seams with fake external transports. The gated local-rclone complement proves concurrent UUID-scoped workdirs/baselines and pre-bisync mismatch refusal; watcher lifecycle uses bounded channels. Strict Clippy and full release suite green. Deferred minor: repo-wide rustfmt drift inherited from earlier branch tasks remains for Task 8, while every Task 7 Rust file passes focused rustfmt check.
+
+Task 8: RED found the pre-release version, legacy docs-security assertions, stale `Alt-?` root help, and stale single-root/Claude Cargo description. Focused assertions failed before each corresponding release-surface change and then passed.
+Task 8: complete in the local task commit after af1c502 (final version 0.35.0). All required durable docs, AGENTS contracts, CLI help, Cargo metadata, and release surfaces now match the Phase 5 module tree and explicit migration/remote identity/requirements/acceptance behavior. Full release, strict Clippy, personal-data, Python skill, local-rclone, watch, migration, acceptance, privacy, read-only, docs, help, temporary CLI smoke, stale-language, and patch-hygiene gates are green.
+Task 8: deferred minor: exact base f285984 already has 1,310 repo-wide rustfmt diff lines/100 headers. Focused edition-2024 `skip_children=true` formatting over 102 Phase 5/Task 8 files passes; final repo-wide audit has 1,003 lines/76 headers and zero current-only path-normalized drift versus the exact base. No unrelated formatting sweep was retained.

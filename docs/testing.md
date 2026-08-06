@@ -570,7 +570,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |
 | `tests/todo_script_mutators.rs` | Brain-owned task scripts, including selected-root `BRAIN_ROOT` propagation and isolated actor/workspace environment for every subprocess. |
-| `tests/task_schema_migration.rs` + `tasks::schema::transaction_tests` | Temp-only inactive migration fixtures: workspace/kind-scoped deterministic UUIDv5, explicit last-legacy-sync and pre-existing durable-backup-base preconditions, exact durable portable backups, canonical/lexical backup-path separation, strict current-schema detection, row/display-ID preservation, byte-idempotent reruns, injected deep-directory and backup-file parent open/sync failures, immediate journal-temporary cleanup, and crash/failure recovery before and throughout replacement. |
+| `tests/task_schema_migration.rs` + `tasks::schema::transaction_tests` | Temp-only coordinator-owned migration primitives: workspace/kind-scoped deterministic UUIDv5, explicit last-legacy-sync and pre-existing durable-backup-base preconditions, exact durable portable backups, canonical/lexical backup-path separation, strict current-schema detection, row/display-ID preservation, byte-idempotent reruns, injected deep-directory and backup-file parent open/sync failures, immediate journal-temporary cleanup, and crash/failure recovery before and throughout replacement. Ordinary startup and sync never call this activation path. |
 | `tests/multi_workspace_migration.rs` + `tests/multi_workspace_migration/` | Exact rollout ordering and state classification, UUID-scoped journal resumption, injected atomic journal/backup failures, privacy-limited backup inventory, sender/assignment gates with shipped headless remediation, and a compiled-binary local rollout proving preflight no-write refusal, complete cutover, retained backup, and byte-idempotent rerun. |
 | `tests/task_id_collision_merge.rs` + `sync::csv_merge`/`csv_sync`/`counters` tests | Temp-only and pure fixtures for UUID merge identity, name-aligned headers, deterministic display-ID collision winners/allocation, mirror-order and repeat convergence, pipe/comma `blocked_by`, production-format free-text `see_also` rewrites with URL and substring preservation, deleted-target fallback without marker leaks, project metadata reverse links, retry and local/remote error classification, strict/forward-compatible whole-operation schema policy, no-write refusal, and task/habit next-counter floors. |
 | `tests/triage_habits_config.rs` + `tasks::triage_habits` tests | Temp-only managed-definition reconciliation, rename-stable marker identity, CLI/TUI/web mutation guards, strict malformed-config refusal, managed-only and unmanaged-carrier display-reference purge, authenticated workspace-bound journal recovery, interprocess ownership, transaction module-size guards, live-file continuity, fresh re-enable, startup/reindex/repair restoration, suppressed-alert post-sync refresh, palette-enable/startup-refresh interleaving, and injected crashes at internal publication and cleanup boundaries. |
@@ -659,8 +659,22 @@ cargo test --release --test receiver_setup_workspace
 # workspace documentation contract
 cargo test --release --test workspace_docs
 
-# lint clean (pedantic + nursery are on)
-cargo clippy --release --all-targets
+# strict lint (pedantic + nursery are on)
+cargo clippy --release --all-targets -- -D warnings
+
+# release/privacy/skill gates
+cargo test --release bundled_skills_carry_no_personal_data
+python3 -m unittest discover -s skills/todo/scripts/tests
+
+# Phase 5 composed and gated transport/lifecycle coverage
+cargo test --release --test multi_workspace_acceptance -- --nocapture
+cargo test --release --test multi_workspace_migration -- --nocapture
+cargo test --release --test sync_local -- --nocapture
+cargo test --release --test watch_local -- --nocapture
+
+# source-format and patch hygiene
+cargo fmt --check
+git diff --check
 
 # verbose
 cargo test --release -- --nocapture

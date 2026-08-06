@@ -1,9 +1,9 @@
 [package]
 name = "brain"
-version = "0.34.1"
+version = "0.35.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Brain CLI: cd between ~/brain buckets, fuzzy-pick across them, or hand off to claude."
+description = "Multi-workspace terminal dispatch for notes, tasks, sync, and agent sessions."
 license = "MIT"
 
 [[bin]]

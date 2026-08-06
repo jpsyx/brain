@@ -206,7 +206,10 @@ pub fn run(
         root.display(),
         remote.arg
     ));
-    println!("{}", theme.muted("Validating the local workspace manifest…"));
+    println!(
+        "{}",
+        theme.muted("Validating the local workspace manifest…")
+    );
     println!("{}", theme.muted("Probing the remote workspace identity…"));
     let verified = crate::sync::identity::require_remote_identity(root, workspace_id, &remote)?;
     let remote = verified.remote();

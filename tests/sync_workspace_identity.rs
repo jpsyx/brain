@@ -3,14 +3,14 @@ use std::sync::Arc;
 
 use brain::sync::config::SyncConfig;
 use brain::sync::identity::{
-    check_remote_identity, check_remote_manifest_identity, RemoteIdentityDecision,
+    RemoteIdentityDecision, check_remote_identity, check_remote_manifest_identity,
 };
-use brain::users::{User, UserId, Users, UsersStore, USERS_SCHEMA_VERSION};
+use brain::users::{USERS_SCHEMA_VERSION, User, UserId, Users, UsersStore};
 use brain::workspace::{
     CommandContext, MachineRegistry, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
     WorkspaceRecord,
 };
-use serde_json::{json, Map};
+use serde_json::{Map, json};
 
 const PERSONAL_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 const FAMILY_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
