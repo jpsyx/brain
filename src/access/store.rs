@@ -36,21 +36,6 @@ pub(crate) fn ensure_registry_access_modes(
     Ok(changed)
 }
 
-pub(crate) fn load_portable_access_mode(root: &Path) -> Result<AccessMode> {
-    let path = config_path(root);
-    let config = load_config_map(&path)?;
-    match config.get("access_mode") {
-        Some(Value::String(value)) => AccessMode::parse(value).ok_or_else(|| {
-            anyhow::anyhow!(
-                "invalid access_mode `{value}` in {} (expected unrestricted or workspace_only)",
-                path.display()
-            )
-        }),
-        Some(_) => bail!("access_mode in {} must be a string", path.display()),
-        None => bail!("access_mode is missing from {}", path.display()),
-    }
-}
-
 pub(crate) fn set_portable_access_mode(root: &Path, mode: AccessMode) -> Result<()> {
     let path = config_path(root);
     let mut config = load_config_map(&path)?;

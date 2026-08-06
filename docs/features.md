@@ -362,9 +362,12 @@ delegated task values.
   completed, shell-quoted restore commands for abandoning the rollout.
 - `workspace list` uses themed semantic tokens and becomes deterministic plain
   text under `NO_COLOR`. Valid portable modes include an honest three-line
-  access/enforcement/sandbox status. Missing modes are seeded before listing;
-  malformed config or an invalid mode stops with an error instead of being
-  displayed as pending or guessed as unrestricted.
+  access/enforcement/sandbox status. It then appends the selected workspace's
+  redacted requirements matrix. Required availability is distinct from
+  optional `off`, `ready`, and `incomplete` feature state. The list path does
+  not seed missing modes, repair setup, render skills, create locks, or inspect
+  a peer workspace as a fallback. Malformed selected config is reported as
+  incomplete rather than guessed as unrestricted.
 
 For create, attach, remove, and repair, brain collects and validates all missing
 values from `/dev/tty` before legacy classification, migration, or mutation.
@@ -908,12 +911,14 @@ floor locally before another task or habit can be allocated. Neither machine
 ever re-hands-out an id the other already used, so there are no id collisions
 regardless of which machine synced last.
 
-**Doctor.** `brain tasks doctor` reports rclone/sync health as one
-informational line: `rclone ✓ <version> · sync configured` or
-`rclone ✗ not installed · sync off`. An unconfigured (or rclone-less) sync is
-a normal, healthy state — it never fails the doctor check. Before probing, the
-doctor prints the state DB path, the SessionStart hook settings file, and the
-external/env checks it is about to run.
+**Doctor.** `brain tasks doctor` prints one themed report for the selected
+workspace. It validates the UUID-scoped session DB plus both Claude and Codex
+SessionStart hook registrations (OpenCode remains inert), reports the rclone
+probe, and appends the same redacted requirements matrix used by other status
+surfaces. Missing rclone with sync off is informational and does not fail
+doctor. Doctor opens an existing SQLite database read-only, probes rclone with
+an explicit no-config path, and never creates config, cache, lock, journal, or
+skill-render state. Hook repair names the exact installer and selected root.
 
 ### `brain personalize`
 
@@ -1134,6 +1139,15 @@ write the skill render stamp, or elect/start/churn the shared process. Receiver
 status uses one generation-bound control response for both server and exact
 workspace facts. A live control failure is reported, and neither status request
 expires leases or changes server lifecycle state.
+
+Receiver status preserves its four lifecycle rows, then adds receiver, SMS,
+and email health for the selected workspace. Persisted receiver intent is the
+feature switch. When it is off, both channels are off even if stale provider
+fields remain. When intent is on, a channel becomes active from any provider
+field or an inbound-enabled portable `users.json` mapping; a malformed or
+partial active channel is incomplete. A ready channel requires its complete
+machine-local provider fields, public URL, and at least one matching portable
+inbound mapping. Status never prints provider secrets or sender addresses.
 
 If all TUIs are closed, the final unregister stops the server immediately, so
 an inbound text reaches no Brain process and receives no Brain response. If

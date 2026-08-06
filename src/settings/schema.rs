@@ -39,17 +39,17 @@ pub(super) const VARS: [VarSpec; 13] = [
     },
     VarSpec {
         name: "response_email",
-        description: "Email address for long-form responses requested by SMS and authenticated brain messages.",
+        description: "Legacy migration input for a response address. Active receiver identity and authorization live in portable users.json.",
         default: None,
     },
     VarSpec {
         name: "allowed_sms_senders",
-        description: "Comma-separated E.164 phone numbers permitted to message Brain, including + and country code (for example, +16072809118).",
+        description: "Legacy migration input for SMS senders. Active inbound authorization lives in portable users.json phone mappings.",
         default: None,
     },
     VarSpec {
         name: "allowed_email_senders",
-        description: "Comma-separated email addresses permitted to send messages to the brain.",
+        description: "Legacy migration input for email senders. Active inbound authorization lives in portable users.json email mappings.",
         default: None,
     },
     VarSpec {

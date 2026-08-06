@@ -72,9 +72,8 @@ pub enum Command {
     /// `tasks search lamaze classes` ≡ `tasks lamaze classes`.
     Search(SearchArgs),
 
-    /// Validate that the state DB + Stop hook are wired up. Prints a
-    /// one-line-per-check report and exits 0 on full health, 1 if any
-    /// check fails.
+    /// Validate selected-workspace requirements, session DB, and Claude/Codex
+    /// hooks. Exits 0 when required agent-session checks pass.
     Doctor,
 }
 

@@ -97,7 +97,7 @@ does not create `users.json` as part of that repair path.
 
 | Command | Effect |
 | --- | --- |
-| `brain workspace list` | Deterministically list canonical records with the default marker, root, aliases, local user, receiver state, and the root's portable `access_mode` when available. Empty/unavailable setup is explicit. |
+| `brain workspace list` | Deterministically list canonical records with the default marker, root, aliases, local user, receiver state, and access policy, then append the selected workspace's redacted required/optional health matrix. Empty, unavailable, and incomplete setup are explicit. |
 | `brain workspace create [--name <name>] [--root <path>]` | Validate the complete candidate, create the normalized root and strict portable manifest, then register the same UUID; root basename supplies an omitted name. A later persistence failure preserves the manifest and every directory path the invocation created for manual cleanup. |
 | `brain workspace attach [<root>]` | Validate a strict compatible manifest in an existing root and register its UUID without editing root contents. Invalid or colliding identities leave registry bytes unchanged. |
 | `brain workspace rename [<workspace>] [<name>]` | Rekey the canonical name while preserving the complete record and updating the default if needed. |
@@ -153,16 +153,40 @@ commands. An existing workspace with no `users.json` and a non-empty legacy
 local ID stays ready without being rewritten. Version/help and hidden internal
 server execution perform no workspace IO or prompt.
 
+### Selected-workspace requirements and status
+
+Brain centralizes configuration health without changing the startup readiness
+contract. Root, compatible manifest UUID/schema, a nonempty portable user
+registry, and a valid selected local user are required availability. Optional
+features use three states: `off` when deliberately disabled or absent, `ready`
+when all selected-workspace inputs are valid, and `incomplete` when configured
+but malformed or partial.
+
+The optional matrix covers cloud sync and its watcher; receiver, SMS, and
+email; advisory access policy plus requested MCPs and non-core skills; managed
+triage habits and modal pattern; PDF conversion; Linear; personalization
+role/organization/tag styles; and browser/web views. `workspace_only` remains
+an advisory policy, not filesystem isolation. PDF conversion appears in the
+matrix but the established TUI startup prerequisite remains unchanged.
+
+`brain workspace list`, `brain sync status`, `brain receiver status`, and
+`brain tasks doctor` read only the pinned selected workspace when they render
+this matrix. They do not inherit fields from the default or any peer workspace,
+and they never reveal sync credentials, provider secrets, phone numbers, or
+email addresses. Every incomplete row supplies noninteractive repair syntax;
+interactive prompt metadata records which inputs are secret without carrying
+their current values.
+
 ### Access policy status
 
 `access_mode` belongs to portable workspace config, never the machine registry.
 The first migrated or created workspace is seeded as `unrestricted`; a later
 created or attached workspace is seeded as `workspace_only`. An already-present
-valid portable value wins. A selected schema-v2 record is checked before use,
-and a missing mode is seeded according to current default/nondefault status;
-`workspace list` checks every record without redirecting an ordinary command.
-Changing the machine default changes routing only and never changes either
-portable value.
+valid portable value wins. A selected schema-v2 record is checked before an
+ordinary mutating or TUI command, and a missing mode is seeded according to
+current default/nondefault status. Read-only `workspace list` does not seed or
+repair any record. Changing the machine default changes routing only and never
+changes either portable value.
 
 `workspace_only` mode is easy to bypass. It is intended only to reduce
 accidents and naive cross-workspace leakage among trusted users. It is
@@ -427,14 +451,15 @@ lists strictly and fails closed when either is malformed.
 
 ### Receiver response configuration
 
-These portable values configure who may issue remote brain messages and where
-long-form SMS responses are delivered:
+These portable values remain only as legacy migration inputs. Active receiver
+identity, authorization, and response routing live in portable
+`.config/users.json` mappings:
 
 | Variable | Meaning |
 | --- | --- |
-| `response_email` | The user's email address for long responses requested over SMS. |
-| `allowed_sms_senders` | Comma-separated E.164 phone numbers permitted to send SMS/MMS messages, including the leading `+` and country code (for example, `+16072809118`). |
-| `allowed_email_senders` | Comma-separated email addresses permitted to issue brain messages and participate in automatic thread replies. |
+| `response_email` | Legacy migration input for a portable user's response address. |
+| `allowed_sms_senders` | Legacy migration input for portable inbound phone mappings. |
+| `allowed_email_senders` | Legacy migration input for portable inbound email mappings. |
 
 Provider credentials are machine-local values in the selected workspace's
 record in `~/.config/brain/env.json`. `brain receiver setup` prompts for the

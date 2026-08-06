@@ -56,9 +56,13 @@ helpers and shell-outs live in the tasks modules:
   metadata writers use that owner too. Python CSV and JSON writers reject a
   changed read snapshot and use a synced same-directory atomic replacement.
   The protected `remove_task.py` boundary rejects enabled managed-row deletion.
-- **`brain tasks doctor`** — prints a progress plan via
-  `tasks::doctor::format_doctor_plan` before checking the state DB schema,
-  SessionStart hook settings, `rclone version`, and sync env.
+- **`brain tasks doctor`**: prints a progress plan before checking the selected
+  UUID-scoped state DB schema, both Claude and Codex SessionStart hook settings,
+  `rclone version`, and the centralized selected-workspace requirements. It
+  opens SQLite through an immutable read-only URI so a WAL database cannot be
+  checkpointed by observation, passes an explicit no-config path to the rclone
+  probe, and does not create cache, config, lock, journal, or rendered-skill state.
+  OpenCode remains outside the active controller health check.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
 - **`brain habits` / palette "Open habits in browser"**: connect to the
   already-running shared brain process and open its
@@ -955,6 +959,14 @@ brain-root lookup.
   stays its own. `brain sync status` reads the most recent row plus the
   configured trigger flags and the open-conflict count; see
   [data-model.md](data-model.md) for the row schema.
+  Status opens the journal through an immutable read-only URI, preventing an
+  observational read from checkpointing WAL state. It first renders cloud-sync
+  and watcher requirement health from the raw
+  selected record, so a partial or malformed block is `incomplete`, not
+  silently `off`. That local status does not cache or claim a remote identity;
+  setup and every data-moving sync/repair/check operation still probe the
+  remote manifest and require the selected workspace UUID immediately before
+  transport.
 - **Conflicts, on disk.** rclone leaves the losing side of a same-file
   conflict named `<original>.__brainconflict__<N>` (literal dot + suffix +
   trailing integer, e.g. `one.md.__brainconflict__1`), on both sides; a

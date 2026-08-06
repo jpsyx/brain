@@ -52,10 +52,7 @@ pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandConte
             crate::logging::log("sync init alias -> repair");
             run_repair(command, &cfg, args.if_idle)
         }
-        Some(SyncAction::Status) => {
-            crate::logging::log("sync status");
-            crate::sync::command::print_status(command.workspace.paths(), &cfg, root)
-        }
+        Some(SyncAction::Status) => print_status(command, &cfg),
         Some(SyncAction::Conflicts { json }) => {
             crate::logging::log(format!("sync conflicts json={json}"));
             crate::sync::command::print_conflicts(root, *json)
@@ -74,6 +71,46 @@ pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandConte
             run_once(command, &cfg, direction, args.if_idle).map(|_| ())
         }
     }
+}
+
+fn print_status(
+    command: &crate::workspace::CommandContext,
+    config: &crate::sync::config::SyncConfig,
+) -> Result<()> {
+    crate::logging::log("sync status");
+    let requirements = crate::workspace::requirements(command)?;
+    let sync = requirements
+        .iter()
+        .filter(|requirement| {
+            matches!(
+                requirement.scope(),
+                crate::workspace::RequirementScope::CloudSync
+                    | crate::workspace::RequirementScope::SyncWatcher
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    print!(
+        "{}",
+        crate::workspace::format_requirements(
+            command.workspace.name(),
+            &sync,
+            crate::theme::Theme::active(),
+        )
+    );
+    let status = sync
+        .iter()
+        .find(|requirement| requirement.scope() == &crate::workspace::RequirementScope::CloudSync)
+        .map(crate::workspace::Requirement::status);
+    if matches!(
+        status,
+        Some(crate::workspace::RequirementStatus::Feature(
+            crate::workspace::FeatureStatus::Incomplete
+        ))
+    ) {
+        return Ok(());
+    }
+    crate::sync::command::print_status(command.workspace.paths(), config, command.workspace.root())
 }
 
 fn run_repair(

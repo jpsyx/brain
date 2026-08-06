@@ -434,7 +434,8 @@ first move is a failing test that reproduces it, *then* the fix.
   injects an extra cross-routed job into a copy of the history and proves its
   exact-route assertion rejects that mutation. It contains no fixed sleep.
 - **Literal read-only status.** `tests/status_read_only.rs` runs the compiled
-  `brain server status` and selected `brain receiver status` commands. It
+  `brain server status`, selected `brain receiver status`, `brain sync status`,
+  `brain workspace list`, and `brain tasks doctor` commands. It
   snapshots every file type, Unix mode, regular-file byte sequence and SHA-256,
   symlink target, and recursively traversed referent before and after. Referent
   traversal records cycles rather than following them forever. The suite covers
@@ -453,7 +454,8 @@ first move is a failing test that reproduces it, *then* the fix.
   and shutdown state untouched for the watchdog. This catches accidental
   migration, config initialization, users transaction locks, skill rendering,
   state-DB/render-stamp writes, election, control-error suppression, and status
-  pruning.
+  pruning. Dedicated WAL fixtures also prove that sync status and tasks doctor
+  do not checkpoint or otherwise mutate an existing SQLite database.
 - **Shared-server control protocol.** `tests/server_control.rs` is split into
   focused codec, registration, and transition suites. It covers bounded
   newline-delimited JSON round trips, malformed and oversized rejection,
@@ -544,6 +546,8 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: manifest-aware create/attach, persistence failures, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. |
 | `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
+| `tests/workspace_requirements.rs` + `tests/workspace_requirements/` | Central required/optional matrix, fail-closed malformed sync/receiver fields, portable receiver mappings, advisory capability health, redaction, exact selected-record isolation, and focused shared fixtures. |
+| `tests/status_read_only.rs` | Filesystem snapshots proving workspace list, sync status, receiver status, tasks doctor, and server status do not create or mutate machine/workspace state, including symlink and live-process cases. |
 | `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, valid-v2 portable-policy upgrade, and persistence-failure preservation. |
 | `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` + `tui::app_brain::tests` | Portable mode ownership/defaults, strict and atomic persistence, exact advisory contract, real App launch-context parity, adapter mechanisms, option-terminated prompt argv, selected cwd, honest typed status, naive warning limits, and minimal environment. |
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |

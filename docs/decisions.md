@@ -232,6 +232,25 @@ children repeat the canonical `--brain` selector, and Brain-owned integrations
 receive exactly workspace ID, canonical name, root, and actor ID. Therefore a
 later default change cannot redirect an already-started operation.
 
+## Why feature requirements do not replace workspace readiness
+
+Readiness answers one blocking question: can this invocation safely bind a
+root, portable identity, and local actor to the selected workspace? Optional
+feature health answers a different operational question: is a deliberately
+enabled integration usable? Folding both into one state machine would either
+block unrelated commands on optional integrations or let malformed enabled
+features masquerade as disabled.
+
+Brain therefore keeps required availability distinct from optional `off`,
+`ready`, and `incomplete` state. Startup reuses only the centralized required
+field decision and preserves its existing repair behavior. Read-only status
+surfaces inspect the already-pinned selected record and render redacted health;
+they do not initialize defaults, recover transactions, create SQLite files,
+render skills, or borrow setup from another workspace. Machine-local secrets
+and sender addresses influence presence checks but never enter the requirement
+model or formatter. The PDF row is informational here, while the existing TUI
+startup PDF prerequisite remains a separate hard gate.
+
 ## Why changing the default never changes workspace policy
 
 The machine default is routing metadata, not workspace data. It names the

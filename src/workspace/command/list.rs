@@ -15,39 +15,53 @@ struct WorkspaceListRow {
     aliases: String,
     local_user: Option<String>,
     receiver_enabled: bool,
-    access_mode: AccessMode,
+    access_mode: Option<AccessMode>,
 }
 
-pub(super) fn print(registry: &MachineRegistry, theme: Theme) -> Result<()> {
-    let rows = collect_rows(registry)?;
+pub(super) fn print(
+    registry: &MachineRegistry,
+    context: Option<&crate::workspace::CommandContext>,
+    theme: Theme,
+) -> Result<()> {
+    let rows = collect_rows(registry);
     print!("{}", format_rows(&rows, theme));
+    if let Some(context) = context {
+        print!(
+            "\n{}",
+            crate::workspace::format_requirements(
+                context.workspace.name(),
+                &crate::workspace::requirements(context)?,
+                theme,
+            )
+        );
+    }
     Ok(())
 }
 
-fn collect_rows(registry: &MachineRegistry) -> Result<Vec<WorkspaceListRow>> {
+fn collect_rows(registry: &MachineRegistry) -> Vec<WorkspaceListRow> {
     registry
         .workspaces
         .iter()
-        .map(|(name, record)| {
-            Ok(WorkspaceListRow {
-                name: name.to_string(),
-                is_default: name == &registry.default_workspace,
-                root: record.root.display().to_string(),
-                aliases: if record.aliases.is_empty() {
-                    "none".to_owned()
-                } else {
-                    record
-                        .aliases
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                },
-                local_user: (!record.local_user_id.trim().is_empty())
-                    .then(|| record.local_user_id.clone()),
-                receiver_enabled: record.receiver_enabled,
-                access_mode: crate::access::load_portable_access_mode(&record.root)?,
-            })
+        .map(|(name, record)| WorkspaceListRow {
+            name: name.to_string(),
+            is_default: name == &registry.default_workspace,
+            root: record.root.display().to_string(),
+            aliases: if record.aliases.is_empty() {
+                "none".to_owned()
+            } else {
+                record
+                    .aliases
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+            local_user: (!record.local_user_id.trim().is_empty())
+                .then(|| record.local_user_id.clone()),
+            receiver_enabled: record.receiver_enabled,
+            access_mode: crate::config::Config::try_load_from_root(&record.root)
+                .ok()
+                .map(|config| config.access_mode),
         })
         .collect()
 }
@@ -78,8 +92,12 @@ fn format_rows(rows: &[WorkspaceListRow], theme: Theme) -> String {
             theme.muted("disabled")
         };
         let _ = writeln!(output, "    receiver: {receiver}");
-        for line in crate::access::render_access_status(row.access_mode, theme).lines() {
-            let _ = writeln!(output, "    {line}");
+        if let Some(access_mode) = row.access_mode {
+            for line in crate::access::render_access_status(access_mode, theme).lines() {
+                let _ = writeln!(output, "    {line}");
+            }
+        } else {
+            let _ = writeln!(output, "    Access mode  {}", theme.warning("incomplete"));
         }
     }
     output

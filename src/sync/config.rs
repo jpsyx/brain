@@ -34,6 +34,14 @@ pub struct SyncConfig {
     pub debounce_ms: u64,
 }
 
+/// Health of the selected workspace's raw `sync` block.
+#[derive(Debug, Clone)]
+pub(crate) enum SyncConfigInspection {
+    Off,
+    Ready(Box<SyncConfig>),
+    Incomplete,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -45,6 +53,39 @@ fn default_debounce_ms() -> u64 {
 }
 
 impl SyncConfig {
+    /// Inspect a raw selected-record value without collapsing malformed or
+    /// partial configuration into the disabled default.
+    #[must_use]
+    pub(crate) fn inspect_value(value: Option<&serde_json::Value>) -> SyncConfigInspection {
+        let Some(value) = value else {
+            return SyncConfigInspection::Off;
+        };
+        let Some(object) = value.as_object() else {
+            return SyncConfigInspection::Incomplete;
+        };
+        if object.is_empty() {
+            return SyncConfigInspection::Off;
+        }
+        match object.get("enabled") {
+            Some(serde_json::Value::Bool(false)) => return SyncConfigInspection::Off,
+            Some(serde_json::Value::Bool(true)) => {}
+            Some(_) | None => return SyncConfigInspection::Incomplete,
+        }
+        let Ok(config) = serde_json::from_value::<Self>(value.clone()) else {
+            return SyncConfigInspection::Incomplete;
+        };
+        if [&config.b2_bucket, &config.b2_key_id, &config.b2_app_key]
+            .iter()
+            .any(|field| field.trim().is_empty())
+            || !object
+                .get("b2_path")
+                .is_some_and(serde_json::Value::is_string)
+        {
+            return SyncConfigInspection::Incomplete;
+        }
+        SyncConfigInspection::Ready(Box::new(config))
+    }
+
     /// Load the `sync` block from the brain-env store; defaults when absent.
     #[must_use]
     pub fn load(command: &crate::workspace::CommandContext) -> Self {

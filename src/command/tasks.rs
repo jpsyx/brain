@@ -26,6 +26,10 @@ pub fn launch(
         Some(TasksCommand::Doctor) => {
             let db_path = context.workspace.paths().state_db();
             let settings_dir = root.join(".claude");
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
+            let codex_hooks = home.join(".codex/hooks.json");
             eprintln!(
                 "{}",
                 crate::tasks::doctor::format_doctor_plan(
@@ -34,12 +38,28 @@ pub fn launch(
                     crate::theme::Theme::active(),
                 )
             );
-            let diagnostic = crate::tasks::doctor::run_doctor(
+            let requirements = crate::workspace::requirements(context)?;
+            let sync_ready = requirements.iter().any(|requirement| {
+                requirement.scope() == &crate::workspace::RequirementScope::CloudSync
+                    && matches!(
+                        requirement.status(),
+                        crate::workspace::RequirementStatus::Feature(
+                            crate::workspace::FeatureStatus::Ready
+                        )
+                    )
+            });
+            let diagnostic = crate::tasks::doctor::run_doctor_with_frontends(
                 &db_path,
                 &settings_dir,
-                crate::sync::config::SyncConfig::load(context).is_configured(),
+                &codex_hooks,
+                sync_ready,
             );
-            std::process::exit(crate::tasks::doctor::print_report(&diagnostic));
+            std::process::exit(crate::tasks::doctor::print_workspace_report(
+                &diagnostic,
+                context.workspace.name(),
+                context.workspace.root(),
+                &requirements,
+            ));
         }
         None => resolve_query(&cli.query, today),
     };

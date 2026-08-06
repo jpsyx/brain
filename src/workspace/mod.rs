@@ -11,6 +11,7 @@ mod paths;
 mod read_only;
 mod readiness;
 pub mod registry;
+mod requirements;
 
 pub use bootstrap::{BootstrapContext, CommandContext, bootstrap, bootstrap_with_io};
 pub use bootstrap_policy::{
@@ -30,6 +31,10 @@ pub use registry::{
     MachineRegistry, MigrationOutcome, REGISTRY_SCHEMA_VERSION, ReceiverAction, RegistryError,
     RegistryOperation, RegistryStore, SelectedWorkspace, WorkspaceRecord, migrate_legacy,
     receiver_transition, validate_registry,
+};
+pub use requirements::{
+    FeatureStatus, PromptMetadata, RequiredStatus, Requirement, RequirementScope,
+    RequirementStatus, format_requirements, requirements,
 };
 
 #[cfg(test)]

@@ -37,6 +37,22 @@ impl Journal {
         Self::from_conn(conn)
     }
 
+    /// Read recent rows without creating a database, schema, lock, or WAL.
+    pub fn recent_read_only(path: &Path, limit: usize) -> Result<Vec<SyncRun>> {
+        if !path.is_file() {
+            return Ok(Vec::new());
+        }
+        let conn = Connection::open_with_flags(
+            immutable_uri(path),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        let journal = Self { conn };
+        journal.recent(limit)
+    }
+
     fn configure(conn: &Connection) -> Result<()> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -136,6 +152,20 @@ impl Journal {
         })?;
         Ok(rows.filter_map(Result::ok).collect())
     }
+}
+
+fn immutable_uri(path: &Path) -> String {
+    let mut uri = String::from("file:");
+    for byte in path.as_os_str().as_encoded_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_' | b'.' | b'~') {
+            uri.push(char::from(*byte));
+        } else {
+            use std::fmt::Write as _;
+            let _ = write!(uri, "%{byte:02X}");
+        }
+    }
+    uri.push_str("?immutable=1");
+    uri
 }
 
 #[cfg(test)]

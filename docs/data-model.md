@@ -479,6 +479,33 @@ An existing workspace with no `users.json` and a non-empty legacy local ID
 remains ready because ordinary startup never activates migration. The explicit
 workspace migration command performs the reviewed conversion.
 
+### Requirement health is not readiness
+
+`workspace::Requirement` is a read-only projection over one pinned
+`CommandContext`:
+
+| Field | Meaning |
+| --- | --- |
+| `scope` | One required component or optional feature, including dynamic MCP and skill names. |
+| `status` | `Required(Ready|Unavailable)` or `Feature(Off|Ready|Incomplete)`; required and optional states cannot be confused. |
+| `prompts` | Labels plus a secret/non-secret bit for an interactive setup surface; no stored value is retained. |
+| `remediation` | Exact noninteractive CLI syntax for an unavailable or incomplete row. |
+
+Required rows cover the selected root, compatible matching manifest, nonempty
+schema-1 portable user registry, and a local user ID that names a portable
+person. Optional rows cover sync/watcher, receiver/SMS/email,
+access/MCPs/skills, triage habits/modal, PDF, Linear, personalization, and
+browser/web views. A disabled feature has no setup error. A present malformed
+sync block or provider field fails closed as incomplete. Receiver channel
+activation comes from receiver intent plus current provider-field presence or
+portable inbound mappings, not a second channel toggle.
+
+The inspector reloads the exact canonical record and rechecks its UUID against
+the pinned context. It never falls back to another record. Sync requirement
+health describes complete local configuration; every actual setup, sync,
+repair, or check still probes the remote portable manifest and refuses a UUID
+mismatch before data movement.
+
 ### Portable people (`.config/users.json`)
 
 Schema `1` is strict and rejects unknown fields:

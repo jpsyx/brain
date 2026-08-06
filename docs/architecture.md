@@ -258,6 +258,18 @@ checks against the selected registry UUID. The detached shared-server child is t
 exception: it owns only machine-shared lifecycle/control state and resolves
 request payloads by workspace UUID, so it has no selected `--brain` argument.
 
+`requirements/` is the centralized, read-only selected-workspace health
+inspector. It keeps required availability (root, compatible manifest, portable
+users, and local user selection) separate from optional feature health
+(`off`, `ready`, or `incomplete`). Its focused inspectors cover sync, receiver
+channels, access/capabilities, triage, PDF conversion, Linear, personalization,
+and browser/web views; rendering exposes prompt secrecy and exact repair syntax
+without stored values. Startup reuses only its required-field decision, so this
+model does not replace or broaden the readiness state machine. Workspace list,
+sync status, receiver status, and tasks doctor call it with the already-pinned
+`CommandContext`; none consults a peer workspace or repairs state while
+observing it.
+
 ### `actor/`
 
 The immutable effective person for one request lineage. `resolve` uses the

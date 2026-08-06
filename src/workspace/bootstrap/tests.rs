@@ -62,7 +62,7 @@ fn registry_only_bootstrap_never_runs_migration_after_preflight_cancellation() {
 }
 
 #[test]
-fn bootstrap_pins_the_selected_uuid_when_the_default_changes_mid_bootstrap() {
+fn read_only_workspace_list_skips_mutating_bootstrap_hooks() {
     let home = tempfile::tempdir().unwrap();
     let config_home = tempfile::tempdir().unwrap();
     let family_root = home.path().join("family");
@@ -136,14 +136,10 @@ fn bootstrap_pins_the_selected_uuid_when_the_default_changes_mid_bootstrap() {
     assert_eq!(context.workspace.id(), family_id);
     assert_eq!(context.workspace.name().as_str(), "family");
     assert_eq!(context.actor.user_id().as_str(), "pablo");
-    let error = crate::command::dispatch::run(cli, crate::session::AgentKind::Claude, &outcome)
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("unknown workspace selector family"),
-        "{error:#}"
-    );
+    let persisted = RegistryStore::load_from(store.path()).unwrap();
+    assert_eq!(persisted.default_workspace.as_str(), "family");
+    assert!(persisted.select(Some("family")).is_ok());
+    crate::command::dispatch::run(cli, crate::session::AgentKind::Claude, &outcome).unwrap();
 }
 
 #[test]

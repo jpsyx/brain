@@ -114,6 +114,25 @@ fn print_receiver_refresh_warning(outcome: &ReceiverActionOutcome) {
 pub(super) fn print_receiver_status(context: &crate::workspace::CommandContext) -> Result<()> {
     let status = read_receiver_status(context)?;
     print_receiver_status_snapshot(status);
+    let requirements = crate::workspace::requirements(context)?
+        .into_iter()
+        .filter(|requirement| {
+            matches!(
+                requirement.scope(),
+                crate::workspace::RequirementScope::Receiver
+                    | crate::workspace::RequirementScope::Sms
+                    | crate::workspace::RequirementScope::Email
+            )
+        })
+        .collect::<Vec<_>>();
+    print!(
+        "{}",
+        crate::workspace::format_requirements(
+            context.workspace.name(),
+            &requirements,
+            crate::theme::Theme::active(),
+        )
+    );
     Ok(())
 }
 

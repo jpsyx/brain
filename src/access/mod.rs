@@ -27,6 +27,5 @@ pub(crate) use mcp::{
 };
 pub(crate) use skills::ResolvedSkillSource;
 pub(crate) use store::{
-    ensure_portable_access_mode, ensure_registry_access_modes, load_portable_access_mode,
-    set_portable_access_mode,
+    ensure_portable_access_mode, ensure_registry_access_modes, set_portable_access_mode,
 };

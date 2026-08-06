@@ -180,7 +180,7 @@ const fn should_resync_skills(invocation: Invocation) -> bool {
     !matches!(invocation, Invocation::WorkspaceMigrate)
 }
 
-fn validate_expected_workspace_id(
+pub(super) fn validate_expected_workspace_id(
     raw_expected: Option<&std::ffi::OsStr>,
     selected: super::WorkspaceId,
 ) -> Result<()> {

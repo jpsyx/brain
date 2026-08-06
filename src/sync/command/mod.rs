@@ -518,8 +518,7 @@ pub fn print_status(
             println!("{}", format_in_progress(&state, theme));
         }
     }
-    let journal = Journal::open(&paths.sync_journal())?;
-    let recent = journal.recent(1)?;
+    let recent = Journal::recent_read_only(&paths.sync_journal(), 1)?;
     println!("{}", format_last_run(recent.first(), theme));
     println!("{}", format_triggers(cfg, theme));
     let conflicts = conflicts::list_conflicts(root);
