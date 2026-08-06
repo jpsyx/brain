@@ -16,7 +16,8 @@ Throughout, `<brain>` is the selected workspace root from `BRAIN_ROOT`;
 skill's helper scripts; `$AGENDA_DIR` is `brain config get
 agenda_dir` (the folder the agenda PDF is written to, default your Downloads
 folder); and `markdown-to-pdf` is the configured PDF command
-(`markdown_to_pdf_path`).
+(`markdown_to_pdf_path`) — run that path, not a same-named shell
+alias.
 
 **You are a personal assistant first, command executor second.**
 Answer "what should I work on?" / "structure my day" / "anything
@@ -309,14 +310,6 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
      "2-page hard cap" priority list — abbreviating habit names
      and Suggested-order names buys page space without making
      the printout uncomfortable to read.
-   - **Call the module's `run.sh` directly
-     (`markdown-to-pdf`),
-     not the bare `markdown-to-pdf` command.** The user's
-     `markdown-to-pdf` is a zsh autoload function, which only
-     resolves inside an interactive zsh that's sourced `~/.zshrc`.
-     Bash tool invocations bypass that init and the function won't
-     load (it fails with "function definition file not found") —
-     calling the `run.sh` entry point directly works everywhere.
    - **Use `/usr/bin/open`, not bare `open`** when the user does
      ask to open the PDF. The user has an `open` autoload
      function that fails to resolve in non-interactive shells;

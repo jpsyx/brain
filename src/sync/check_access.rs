@@ -70,12 +70,18 @@ mod tests {
 
     #[test]
     fn marker_path_lives_at_the_brain_root() {
-        assert_eq!(marker_path(Path::new("/brain")), PathBuf::from("/brain/RCLONE_TEST"));
+        assert_eq!(
+            marker_path(Path::new("/brain")),
+            PathBuf::from("/brain/RCLONE_TEST")
+        );
     }
 
     #[test]
     fn remote_marker_arg_trims_remote_root_slash() {
-        assert_eq!(remote_marker_arg("BRAIN:bucket/prefix/"), "BRAIN:bucket/prefix/RCLONE_TEST");
+        assert_eq!(
+            remote_marker_arg("BRAIN:bucket/prefix/"),
+            "BRAIN:bucket/prefix/RCLONE_TEST"
+        );
     }
 
     #[test]
@@ -95,7 +101,8 @@ mod tests {
 
     #[test]
     fn ensure_remote_marker_copies_local_marker_to_remote_marker() {
-        let tmp = std::env::temp_dir().join(format!("brain-check-access-remote-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("brain-check-access-remote-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         ensure_local_marker(&tmp).unwrap();
         let remote = Remote {
@@ -127,9 +134,13 @@ mod tests {
 
     #[test]
     fn ensure_markers_writes_local_marker_before_remote_copy() {
-        let tmp = std::env::temp_dir().join(format!("brain-check-access-both-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("brain-check-access-both-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
-        let remote = Remote { env: Vec::new(), arg: "BRAIN:bucket".to_owned() };
+        let remote = Remote {
+            env: Vec::new(),
+            arg: "BRAIN:bucket".to_owned(),
+        };
 
         ensure_markers_with(&tmp, &remote, |_, args| {
             assert!(

@@ -72,7 +72,10 @@ fn truncate_label_dir(rel: &str, max: usize) -> String {
     let prefix = category.chars().count() + MID.chars().count();
     let budget = max.saturating_sub(prefix);
     let rest_count = rest.chars().count();
-    let tail: String = rest.chars().skip(rest_count.saturating_sub(budget)).collect();
+    let tail: String = rest
+        .chars()
+        .skip(rest_count.saturating_sub(budget))
+        .collect();
     format!("{category}{MID}{tail}")
 }
 
@@ -179,7 +182,10 @@ mod tests {
     #[test]
     fn long_filenames_are_elided_with_a_trailing_md() {
         let label = create_pdf_label("really-long-note-name-that-overflows.md");
-        assert!(label.starts_with("Create PDF for 'really-long"), "got: {label}");
+        assert!(
+            label.starts_with("Create PDF for 'really-long"),
+            "got: {label}"
+        );
         assert!(label.contains("..."), "got: {label}");
         assert!(label.ends_with("md'"), "got: {label}");
         // The shown filename is capped at LABEL_MAX_FILENAME chars.

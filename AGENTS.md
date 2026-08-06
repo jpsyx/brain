@@ -124,6 +124,15 @@ cargo clippy --release --all-targets
 The `brain` command runs `run.sh`, which builds the binary when the sources
 change and `exec`s it. The user never types `cargo run`.
 
+`install.sh` is the other entry point: it builds release and installs the binary
+at `$BIN_DIR/brain` (default `~/.local/bin`). Keep it **idempotent** — a fixed
+filename, overwritten in place, so it doubles as the updater and never leaves a
+second copy — and keep it working **for anyone who clones this repo**, on a
+machine that knows nothing about it. When a prerequisite is missing or the
+result won't be usable, say so and print the fix (no Rust toolchain, a `BIN_DIR`
+that isn't on `$PATH`). Never let a stranger's install fail silently or leave a
+command they can't invoke.
+
 ## Agent dev-skills (pinned per-repo, not global)
 
 This repo pins the agent **development** skills contributors should use (so

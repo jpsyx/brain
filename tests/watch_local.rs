@@ -6,8 +6,8 @@
 //! macOS runs this through Brain's deterministic polling fallback; other
 //! platforms exercise notify's recommended native backend.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use brain::sync::watch::spawn_watcher_with;
@@ -40,7 +40,10 @@ fn watcher_fires_after_a_file_changes() {
     while fires.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(fires.load(Ordering::SeqCst) >= 1, "watcher should fire after a change");
+    assert!(
+        fires.load(Ordering::SeqCst) >= 1,
+        "watcher should fire after a change"
+    );
 
     drop(handle); // stops the watcher thread without blocking teardown
     std::fs::remove_dir_all(&root).ok();

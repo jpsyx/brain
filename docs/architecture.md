@@ -1226,7 +1226,11 @@ sibling so the two projects share a stack:
   deterministic task identities for fixture-tested legacy migration.
 - `include_dir` — embeds the repo's `skills/` dir (SKILL.md + scripts) into the
   binary so a public cloner needs no repo checkout; `brain skills sync` writes
-  them out. Multi-file skill assets rule out `include_str!`.
+  them out. Multi-file skill assets rule out `include_str!`. It embeds the tree
+  exactly as it sits on the *building* machine, so `embed::is_build_artifact`
+  drops build litter (`__pycache__/`, `*.pyc`/`*.pyo`, `.DS_Store`) on the way
+  in: a `.pyc` records the absolute path it was compiled from, which would ship
+  the builder's filesystem layout inside a public binary.
 - `signal-hook`: installs safe SIGINT/SIGTERM flags for the shared process.
   The accept loop observes the flag and lets its generation owner remove only
   the matching process record and control socket, without unsafe signal code.

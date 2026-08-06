@@ -72,7 +72,8 @@ mod tests {
         let h = HaystackBuf::new("ann-afloat");
         // "afloat" begins at normalized char index 3 ("ann" = 0,1,2).
         let positions = [3u32, 4, 5];
-        let bytes = char_positions_to_byte_positions(&positions, &h.normalized_char_to_display_byte);
+        let bytes =
+            char_positions_to_byte_positions(&positions, &h.normalized_char_to_display_byte);
         // In the *display* string, 'a' of "afloat" sits after "ann-" → byte 4.
         assert!(bytes.contains(&4));
     }

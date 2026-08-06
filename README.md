@@ -20,9 +20,21 @@ git clone https://github.com/jpsyx/brain.git
 cd brain
 ```
 
-Then pick one of two ways to run it.
+Then pick one of three ways to run it.
 
-**A. Install it on your `PATH`** (simplest — gives you a global `brain`):
+**A. `./install.sh`** (simplest — builds and puts `brain` on your `PATH`):
+
+```sh
+./install.sh               # builds release, installs `brain` into ~/.local/bin
+brain                      # run it
+```
+
+Re-run it after a `git pull` to update: it overwrites the same binary in place,
+never leaving a second copy. Set `BIN_DIR` to install somewhere else
+(`BIN_DIR=/usr/local/bin ./install.sh`); if the directory isn't on your `PATH`,
+the installer says so and prints the line to add.
+
+**B. `cargo install --path .`** (the same idea, the Cargo way):
 
 ```sh
 cargo install --path .     # builds release, installs `brain` into ~/.cargo/bin
@@ -31,7 +43,7 @@ brain                      # run it (ensure ~/.cargo/bin is on your PATH)
 
 Re-run `cargo install --path .` after a `git pull` to update.
 
-**B. Run through `run.sh`** (auto-rebuilds whenever the sources change):
+**C. Run through `run.sh`** (auto-rebuilds whenever the sources change):
 
 `run.sh` builds the binary on first run (and whenever the `src/` is newer than
 the binary), then `exec`s it and forwards your arguments — so it always runs the

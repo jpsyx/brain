@@ -97,7 +97,8 @@ fn skip_button_marks_managed_daily_triage_done_without_launching_an_agent() {
          u1,H35,Morning Triage,not_started,2026-08-04,1,days,2026-08-04,,,pablo,brain.triage.daily\n",
     )
     .expect("write managed daily triage habit");
-    app.reload_tasks().expect("reload after seeding the managed habit");
+    app.reload_tasks()
+        .expect("reload after seeding the managed habit");
 
     // Press Skip on the daily-triage nudge.
     app.confirm = Some(crate::tui::ConfirmState::run_triage(
@@ -109,8 +110,14 @@ fn skip_button_marks_managed_daily_triage_done_without_launching_an_agent() {
     // The modal is dismissed and no agent panel was launched — Skip is a pure
     // in-process CSV mutation.
     assert!(app.confirm.is_none(), "modal should be dismissed");
-    assert!(app.brain.is_none(), "Skip must not launch the main brain panel");
-    assert!(app.triage_brain.is_none(), "Skip must not open a triage tab");
+    assert!(
+        app.brain.is_none(),
+        "Skip must not launch the main brain panel"
+    );
+    assert!(
+        app.triage_brain.is_none(),
+        "Skip must not open a triage tab"
+    );
 
     // Today's occurrence is completed and tomorrow's is spawned.
     let csv = std::fs::read_to_string(&habits_path).expect("read habits");

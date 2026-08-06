@@ -199,8 +199,8 @@ fn item_line(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::labels::open_dir_label;
+    use super::*;
 
     #[test]
     fn palette_width_fits_the_widest_row_including_its_shortcut() {
