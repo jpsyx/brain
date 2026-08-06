@@ -918,8 +918,9 @@ column; legacy rows without a parseable timestamp fall back to a deterministic
 tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
 `task_id`; schema-v2 tables are aligned by column name and keyed by immutable
 `task_uuid`. Before reading or merging either remote CSV, Brain fetches and
-validates the remote `tasks/SCHEMA.json`. A missing remote marker means legacy
-only. Every present remote marker must be valid JSON with a typed, supported
+validates the remote `tasks/SCHEMA.json`. A missing marker or the recognized
+pre-v2 marker (with `tasks_csv` and `habits_csv` keyed by `task_id`) means
+legacy. Every other present marker must be valid JSON with a typed, supported
 schema version and the UUID merge key; malformed, incomplete, wrong-typed,
 incompatible, or newer metadata, and a legacy/current mismatch,
 refuse the whole lane before publication. A compatibility writer adding or populating that column does not

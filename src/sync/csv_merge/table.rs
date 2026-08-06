@@ -228,13 +228,16 @@ pub fn schema_status(manifest: Option<&str>) -> Result<SchemaStatus> {
     Ok(SchemaStatus::Current)
 }
 
-/// Parse remote schema metadata, where only an absent object is legacy.
+/// Parse remote schema metadata, accepting the known pre-v2 task schema as legacy.
 pub fn remote_schema_status(manifest: Option<&str>) -> Result<SchemaStatus> {
     let Some(manifest) = manifest else {
         return Ok(SchemaStatus::Legacy);
     };
     let metadata: serde_json::Value =
         serde_json::from_str(manifest).context("parsing remote tasks/SCHEMA.json")?;
+    if is_known_legacy_manifest(&metadata) {
+        return Ok(SchemaStatus::Legacy);
+    }
     let version = metadata
         .get("task_schema_version")
         .ok_or_else(|| anyhow::anyhow!("remote task_schema_version is missing"))?
@@ -268,6 +271,18 @@ pub fn remote_schema_status(manifest: Option<&str>) -> Result<SchemaStatus> {
         bail!("remote task schema version 2 must declare its display identity mutable");
     }
     Ok(SchemaStatus::Current)
+}
+
+fn is_known_legacy_manifest(metadata: &serde_json::Value) -> bool {
+    ["tasks_csv", "habits_csv"].into_iter().all(|section| {
+        let Some(section) = metadata.get(section).and_then(serde_json::Value::as_object) else {
+            return false;
+        };
+        section.get("key").and_then(serde_json::Value::as_str) == Some("task_id")
+            && section
+                .get("columns")
+                .is_some_and(serde_json::Value::is_array)
+    })
 }
 
 fn validate_current_table(table: &Table, preserve_unknown: bool) -> Result<()> {
@@ -330,6 +345,19 @@ mod tests {
             ))
             .unwrap(),
             SchemaStatus::Current
+        );
+    }
+
+    #[test]
+    fn known_legacy_remote_schema_is_legacy() {
+        let legacy = r#"{
+            "tasks_csv": {"key": "task_id", "columns": []},
+            "habits_csv": {"key": "task_id", "columns": []}
+        }"#;
+
+        assert_eq!(
+            remote_schema_status(Some(legacy)).unwrap(),
+            SchemaStatus::Legacy
         );
     }
 

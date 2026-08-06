@@ -383,9 +383,11 @@ present remote manifest and both current CSVs, merges by the still-shared
 the local legacy generation. The following journaled cutover assigns
 deterministic UUIDs only to local-only rows and retains schema-last publication.
 
-Only actual absence of the remote schema marker means legacy. Any present
-object is an authoritative protocol claim, so malformed JSON, missing or
-wrong-typed required fields, unsupported versions, and a non-UUID merge key
+Only actual absence or the recognized pre-v2 task-schema marker means legacy.
+The compatibility marker must contain both `tasks_csv` and `habits_csv`
+sections, each keyed by `task_id` and carrying a column list. Any other
+present object is an authoritative protocol claim, so malformed JSON, missing
+or wrong-typed required fields, unsupported versions, and a non-UUID merge key
 must fail before task CSV reads or writes.
 
 Task-schema activation is a distributed publication boundary, not only a local
