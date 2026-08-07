@@ -78,6 +78,23 @@ impl ControlServer {
                     }
                 }
             }
+            ControlRequest::BackgroundStart(registration) => {
+                if clock() >= deadline {
+                    return deadline_rejection();
+                }
+                match super::registration::validate_background_with(
+                    &registry_store,
+                    registration,
+                    now,
+                ) {
+                    Ok(lease) => Some(PreparedControl::Register(lease)),
+                    Err(error) => {
+                        return ControlResponse::Rejected {
+                            message: error.to_string(),
+                        };
+                    }
+                }
+            }
             ControlRequest::RefreshEnabled { workspace_id, .. } => {
                 if clock() >= deadline {
                     return deadline_rejection();

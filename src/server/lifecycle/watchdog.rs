@@ -17,6 +17,10 @@ impl Watchdog {
         }
     }
 
+    pub(super) fn background(started_at: Instant) -> Self {
+        Self::new(started_at, Duration::from_secs(365 * 24 * 60 * 60 * 100))
+    }
+
     /// Expire leases or stop an elected process whose caller never registers.
     pub(super) fn tick(
         &self,
@@ -92,6 +96,18 @@ mod tests {
         assert_eq!(
             watchdog.tick(&mut leases, started_at + Duration::from_secs(5)),
             Ok(ServerDecision::ShutdownNow)
+        );
+    }
+
+    #[test]
+    fn background_server_does_not_stop_before_a_tui_registers() {
+        let started_at = Instant::now();
+        let watchdog = Watchdog::background(started_at);
+        let mut leases = LeaseTable::default();
+
+        assert_eq!(
+            watchdog.tick(&mut leases, started_at + Duration::from_secs(30)),
+            Ok(ServerDecision::KeepRunning)
         );
     }
 }

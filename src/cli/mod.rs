@@ -87,8 +87,10 @@ pub enum Cmd {
     /// Open today's habits page, or manage a habit
     /// (`brain habits revive <name>`, `brain habits skip <id>`).
     ///
-    /// Bare `brain habits` opens the browser page when a TUI has attached the
-    /// shared server. `brain habits revive <fuzzy name>` (alias `fix`) respawns a
+    /// Bare `brain habits` opens the browser page and starts a background
+    /// server when no brain TUI is open. `brain habits kill` stops that
+    /// background server when no brain TUI is open. `brain habits revive
+    /// <fuzzy name>` (alias `fix`) respawns a
     /// recurring habit whose chain lapsed, meaning every occurrence is marked
     /// done with none pending. `brain habits skip <id|fuzzy>` opts out of a
     /// habit for today (cadence-aware: a daily habit is marked done + respawned;

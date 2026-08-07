@@ -85,6 +85,40 @@ pub(super) fn validate_registration_with(
     })
 }
 
+pub(super) fn validate_background_with(
+    registry_store: &RegistryStore,
+    registration: &LeaseRegistration,
+    now: Instant,
+) -> Result<WorkspaceLease> {
+    let registry = RegistryStore::load_from(registry_store.path())
+        .context("reopening the machine workspace registry")?;
+    let selected = registry
+        .select(Some(&registration.canonical_name))
+        .context("selecting the registered canonical workspace")?;
+    let record = selected.record();
+    if record.workspace_id != registration.workspace_id {
+        anyhow::bail!("workspace registration UUID does not match the machine registry");
+    }
+    let manifest = WorkspaceManifest::load(&record.root, env!("CARGO_PKG_VERSION"))
+        .context("reopening the registered workspace manifest")?;
+    if manifest.workspace_id() != registration.workspace_id
+        || crate::server::lifecycle::IngressId::from(manifest.receiver_ingress_id())
+            != registration.ingress_id
+    {
+        anyhow::bail!("workspace ingress UUID does not match its manifest");
+    }
+    Ok(WorkspaceLease {
+        lease_id: registration.lease_id,
+        workspace_id: registration.workspace_id,
+        canonical_name: WorkspaceName::parse(&registration.canonical_name)?,
+        ingress_id: registration.ingress_id,
+        tui_pid: 0,
+        job_socket: std::path::PathBuf::new(),
+        receiver_enabled: record.receiver_enabled,
+        expires_at: now + std::time::Duration::from_secs(100 * 365 * 24 * 60 * 60),
+    })
+}
+
 fn validate_live_tui(
     runtime_paths: &crate::workspace::WorkspacePaths,
     expected_pid: u32,

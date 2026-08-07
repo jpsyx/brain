@@ -108,6 +108,9 @@ pub fn run(
     if let Some(Cmd::Habits(args)) = &cli.command {
         match &args.action {
             None => crate::logging::log("dispatch habits"),
+            Some(crate::cli::HabitsAction::Kill) => {
+                crate::logging::log("dispatch habits kill");
+            }
             Some(crate::cli::HabitsAction::Revive(_)) => {
                 crate::logging::log("dispatch habits revive");
             }

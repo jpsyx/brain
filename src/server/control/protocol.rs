@@ -33,6 +33,8 @@ pub struct LeaseRegistration {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum ControlRequest {
+    /// Keep the shared server alive for a browser-only habits session.
+    BackgroundStart(LeaseRegistration),
     /// Register a newly ready TUI.
     Register(LeaseRegistration),
     /// Renew one live lease.
@@ -77,7 +79,9 @@ pub enum ControlRequest {
 impl ControlRequest {
     pub(super) const fn generation(&self) -> Option<ServerGeneration> {
         match self {
-            Self::Register(registration) => Some(registration.generation),
+            Self::Register(registration) | Self::BackgroundStart(registration) => {
+                Some(registration.generation)
+            }
             Self::Heartbeat { generation, .. }
             | Self::RefreshEnabled { generation, .. }
             | Self::Unregister { generation, .. }

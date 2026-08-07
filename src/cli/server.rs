@@ -102,6 +102,8 @@ pub enum ServerAction {
         generation: crate::server::lifecycle::ServerGeneration,
         #[arg(long)]
         port: u16,
+        #[arg(long, hide = true)]
+        background: bool,
     },
 }
 

@@ -22,7 +22,9 @@ pub use lease::{
 };
 pub use paths::ServerPaths;
 pub(crate) use process::connect_or_elect_until_with_publication_hook;
-pub use process::{choose_port, connect_or_elect, logs, run_process, status};
+pub use process::{
+    choose_port, connect_or_elect, connect_or_elect_background, logs, run_process, status,
+};
 pub(crate) use state::read_record;
 pub use state::{ProcessRecord, ServerGeneration, ServerGenerationError};
 pub(crate) use table::LeaseStatusView;

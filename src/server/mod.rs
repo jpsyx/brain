@@ -78,7 +78,11 @@ pub fn workspace_ingress(workspace: &crate::workspace::WorkspaceContext) -> Resu
 /// Returns an error if the address can't be bound or the bound port can't be
 /// resolved.
 pub fn run(generation: lifecycle::ServerGeneration, port: u16) -> Result<()> {
-    lifecycle::run_process(&lifecycle::ServerPaths::default(), generation, port)
+    lifecycle::run_process(&lifecycle::ServerPaths::default(), generation, port, false)
+}
+
+pub fn run_background(generation: lifecycle::ServerGeneration, port: u16) -> Result<()> {
+    lifecycle::run_process(&lifecycle::ServerPaths::default(), generation, port, true)
 }
 
 /// Build the response for a single request. The routing decision itself is the

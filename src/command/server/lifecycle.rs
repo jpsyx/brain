@@ -13,9 +13,17 @@ pub fn run_server(args: &crate::cli::ServerArgs) -> Result<()> {
             crate::logging::log("server logs");
             crate::server::lifecycle::logs()
         }
-        ServerAction::Run { generation, port } => {
+        ServerAction::Run {
+            generation,
+            port,
+            background,
+        } => {
             crate::logging::log(format!("server run generation={generation} port={port}"));
-            crate::server::run(*generation, *port)
+            if *background {
+                crate::server::run_background(*generation, *port)
+            } else {
+                crate::server::run(*generation, *port)
+            }
         }
     }
 }

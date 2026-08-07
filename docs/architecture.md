@@ -1119,12 +1119,14 @@ Brain has one machine-wide, TUI-lifetime shared process. It serves the local
 habits and triage routes, owns the public route grammar, and authenticates and
 forwards receiver requests only to live workspace TUIs.
 
-The lifecycle is closed around those TUIs. Startup binds the workspace-local
+The lifecycle is closed around those TUIs except for the explicit browser-only
+habits lease. Startup binds the workspace-local
 job socket before election and registration; heartbeats renew only the
 registered lease; recovery re-enters the election after a stale generation.
 The final orderly unregister stops the process immediately, while the watchdog
-stops it when the final crashed lease reaches TTL. With no TUI there is no
-process and therefore no inbound Brain response. If a peer TUI keeps the
+stops it when the final crashed lease reaches TTL. A background habits lease
+keeps the process alive without a TUI until `brain habits kill`; a TUI
+registration replaces that lease. If a peer TUI keeps the
 process alive but the selected target is unavailable, the handler sends one
 unavailable response and discards the message. No process component stores an
 offline queue or launches an agent.

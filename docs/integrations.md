@@ -68,11 +68,15 @@ helpers and shell-outs live in the tasks modules:
   probe, and does not create cache, config, lock, journal, or rendered-skill state.
   OpenCode probes use disposable HOME/XDG roots and remove them afterward.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
-- **`brain habits` / palette "Open habits in browser"**: connect to the
-  already-running shared brain process and open its
-  `/local/<exact-live-lease>/w/<selected-ingress>/habits` page via the system
-  `open`. These short-lived paths never participate in process election;
-  if no TUI owns a live process, they ask the user to open a brain TUI first.
+- **`brain habits`**: when no TUI is open, elects the shared process in
+  background mode, attaches a temporary browser-only workspace lease, and
+  opens `/local/<exact-live-lease>/w/<selected-ingress>/habits` via the system
+  `open`. A TUI can subsequently reuse that process and replace the temporary
+  lease. A second start is rejected. `brain habits kill` removes the
+  background lease and stops the process, but refuses while a TUI lease is
+  live.
+- **Palette "Open habits in browser"**: uses the current TUI lease and does
+  not start or stop the shared process.
   The process itself carries no
   selected `--brain`; each habits request instead carries an opaque ingress ID.
   The process requires its live lease before reloading the exact registry record

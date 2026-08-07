@@ -254,6 +254,8 @@ management and reporting commands stay outside the persistent shell.
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
 | `brain server {status\|logs}` | Inspect the TUI-lifetime shared process without starting, stopping, or repairing it (see below). |
+| `brain habits` | Start the shared habits server in the background when no TUI is open, then open today's habits page. A second start is rejected while the server or a TUI is already active. |
+| `brain habits kill` | Stop a background habits server. It is rejected while any brain TUI is open. |
 | `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
 | `brain --no-daily-triage-check` | Open the TUI without ever showing the daily-triage startup nudge. Process-scoped (this run only); not a persistent config change. Combines with any other flag/subcommand. |
 | `brain receiver {setup\|set\|start\|stop\|status\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, or read shared-process logs. No receiver command starts or restarts a process. |
@@ -1262,8 +1264,10 @@ TUI registration. If the electing TUI disappears before registering, the child
 exits and cleans its PID, control socket, and election token instead of becoming
 an unowned background daemon.
 
-There is no public server start or kill command. The lifecycle layer exposes
-`connect_or_elect` only for long-lived TUI startup and crash recovery. The TUI
+The habits command may explicitly elect a background server and attach a
+browser-only lease; `brain habits kill` removes that lease only when no TUI is
+live. The lifecycle layer exposes `connect_or_elect` for long-lived TUI startup
+and `connect_or_elect_background` for this habits path. The TUI
 registers before launching its agent through one bounded handshake. If the
 selected generation exits before registration, the handshake re-enters election
 and registers against the winner; authoritative identity rejection is not
@@ -1302,12 +1306,11 @@ workspace cannot make that route accept. Email body and attachment content is
 retrieved through Resend's Receiving APIs; HTML-only messages and attachment
 download URLs are preserved for the agent.
 
-`brain habits` and the habits palette action connect only to the process
-already attached to a live TUI. They never elect or spawn one independently.
-Without that process, the command fails with an instruction to open a Brain
-TUI first; with one, it prints the local
+`brain habits` elects a background process when none exists, then prints the
+local
 `/local/<exact-live-lease>/w/<selected-ingress>/habits` URL
-before handing it to the system browser.
+before handing it to the system browser. A TUI reuses that process by replacing
+the browser-only lease. `brain habits kill` refuses while a TUI is open.
 
 `brain habits revive <fuzzy name>` (alias `brain habits fix`) repairs a **lapsed
 habit** — a recurring habit whose every occurrence is `done` with none pending,

@@ -10,6 +10,9 @@ pub struct HabitsArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum HabitsAction {
+    /// Stop the background habits server when no brain TUI is open.
+    Kill,
+
     /// Respawn a lapsed habit by fuzzy name (alias: `fix`). A lapsed habit is
     /// one whose every occurrence is `done` with none pending, so it silently
     /// dropped off the agenda. Multiple words are joined, so quotes are
@@ -113,6 +116,15 @@ mod tests {
     fn bare_habits_has_no_action() {
         let cli = Cli::try_parse_from(["brain", "habits"]).expect("parse");
         assert!(matches!(cli.command, Some(Cmd::Habits(args)) if args.action.is_none()));
+    }
+
+    #[test]
+    fn habits_kill_parses_as_a_lifecycle_action() {
+        let cli = Cli::try_parse_from(["brain", "habits", "kill"]).expect("parse");
+        assert!(matches!(
+            cli.command,
+            Some(Cmd::Habits(args)) if matches!(args.action, Some(HabitsAction::Kill))
+        ));
     }
 
     #[test]

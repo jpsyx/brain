@@ -110,22 +110,28 @@ impl LeaseTable {
             });
         }
         if let Some(existing) = self.live.get_mut(&lease.workspace_id) {
-            if same_registration(existing, &lease) {
-                let next_revision = (existing.receiver_enabled != lease.receiver_enabled)
-                    .then(|| next_authority_revision(&self.authority_revisions, lease.workspace_id))
-                    .transpose()?;
-                existing.expires_at = lease.expires_at;
-                existing.receiver_enabled = lease.receiver_enabled;
-                if let Some(next_revision) = next_revision {
-                    self.authority_revisions
-                        .insert(lease.workspace_id, next_revision);
+            if existing.tui_pid == 0 && lease.tui_pid != 0 {
+                self.live.remove(&lease.workspace_id);
+            } else {
+                if same_registration(existing, &lease) {
+                    let next_revision = (existing.receiver_enabled != lease.receiver_enabled)
+                        .then(|| {
+                            next_authority_revision(&self.authority_revisions, lease.workspace_id)
+                        })
+                        .transpose()?;
+                    existing.expires_at = lease.expires_at;
+                    existing.receiver_enabled = lease.receiver_enabled;
+                    if let Some(next_revision) = next_revision {
+                        self.authority_revisions
+                            .insert(lease.workspace_id, next_revision);
+                    }
+                    self.shutdown_pending = false;
+                    return Ok(());
                 }
-                self.shutdown_pending = false;
-                return Ok(());
+                return Err(LeaseError::WorkspaceAlreadyLeased {
+                    workspace_id: lease.workspace_id,
+                });
             }
-            return Err(LeaseError::WorkspaceAlreadyLeased {
-                workspace_id: lease.workspace_id,
-            });
         }
         if self
             .live

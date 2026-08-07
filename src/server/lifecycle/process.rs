@@ -73,20 +73,40 @@ pub fn logs() -> Result<()> {
 /// Returns an error when election, spawning, or bounded startup fails.
 pub fn connect_or_elect(client: &ServerClient) -> Result<ProcessRecord> {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
-    connect_or_elect_until(client, deadline)
+    connect_or_elect_until_with_mode(client, deadline, false)
 }
 
-pub(crate) fn connect_or_elect_until(
+pub fn connect_or_elect_background(client: &ServerClient) -> Result<ProcessRecord> {
+    let deadline = Instant::now() + STARTUP_TIMEOUT;
+    connect_or_elect_until_with_mode(client, deadline, true)
+}
+
+fn connect_or_elect_until_with_mode(
     client: &ServerClient,
     deadline: Instant,
+    background: bool,
 ) -> Result<ProcessRecord> {
-    connect_or_elect_until_with_publication_hook(client, deadline, &mut |_| {})
+    connect_or_elect_until_with_publication_hook_and_mode(client, deadline, &mut |_| {}, background)
 }
 
 pub(crate) fn connect_or_elect_until_with_publication_hook(
     client: &ServerClient,
     deadline: Instant,
     after_publication: &mut impl FnMut(&ProcessRecord),
+) -> Result<ProcessRecord> {
+    connect_or_elect_until_with_publication_hook_and_mode(
+        client,
+        deadline,
+        after_publication,
+        false,
+    )
+}
+
+fn connect_or_elect_until_with_publication_hook_and_mode(
+    client: &ServerClient,
+    deadline: Instant,
+    after_publication: &mut impl FnMut(&ProcessRecord),
+    background: bool,
 ) -> Result<ProcessRecord> {
     loop {
         let record = super::state::read_record(client.paths());
@@ -119,7 +139,7 @@ pub(crate) fn connect_or_elect_until_with_publication_hook(
                     remove_stale_socket(client.paths())?;
                 }
                 let port = choose_port(preferred_is_free(PREFERRED_PORT), PREFERRED_PORT);
-                let mut starter = client.spawn(guard.generation(), port)?;
+                let mut starter = client.spawn(guard.generation(), port, background)?;
                 let handoff = guard.handoff();
                 let connection = wait_for_started_connection(client, deadline, &mut starter);
                 match connection {
@@ -233,7 +253,12 @@ fn remove_stale_socket(paths: &ServerPaths) -> Result<()> {
 ///
 /// Returns an error when election validation, binding, state publication, or
 /// the process loop fails.
-pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16) -> Result<()> {
+pub fn run_process(
+    paths: &ServerPaths,
+    generation: ServerGeneration,
+    port: u16,
+    background: bool,
+) -> Result<()> {
     let election = ElectionGuard::adopt(paths, generation)?;
     let _owner = ProcessOwner {
         paths: paths.clone(),
@@ -267,7 +292,11 @@ pub fn run_process(paths: &ServerPaths, generation: ServerGeneration, port: u16)
         runtime_home,
     )));
     let http_workers = crate::server::http_workers::HttpWorkers::start(server, &control_server)?;
-    let watchdog = Watchdog::new(Instant::now(), INITIAL_REGISTRATION_TIMEOUT);
+    let watchdog = if background {
+        Watchdog::background(Instant::now())
+    } else {
+        Watchdog::new(Instant::now(), INITIAL_REGISTRATION_TIMEOUT)
+    };
 
     while !terminate.load(Ordering::Relaxed) {
         let decision = {

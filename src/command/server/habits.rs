@@ -8,6 +8,7 @@ pub fn run_habits(
 ) -> Result<()> {
     match &args.action {
         None => open_habits(context),
+        Some(crate::cli::HabitsAction::Kill) => kill_habits(context),
         Some(crate::cli::HabitsAction::Revive(revive)) => {
             crate::tasks::revive::run(&context.workspace, &revive.query.join(" "), &context.actor)
         }
@@ -26,10 +27,52 @@ pub fn run_habits(
     }
 }
 
+fn kill_habits(context: &crate::workspace::CommandContext) -> Result<()> {
+    let client = crate::server::lifecycle::ServerClient::default();
+    let (record, snapshot) = client.snapshot()?;
+    if snapshot.live_leases > 0 {
+        anyhow::bail!("habit server cannot be stopped while a brain TUI is open");
+    }
+    let (_, capability) = client.workspace_local_route(context.workspace.id())?;
+    let decision = client.unregister_generation(record.generation, capability)?;
+    if decision != crate::server::lifecycle::ServerDecision::ShutdownNow {
+        anyhow::bail!("habit server did not accept the stop request");
+    }
+    println!(
+        "{}",
+        crate::theme::Theme::active().success("Habit server stopped")
+    );
+    Ok(())
+}
+
 fn open_habits(context: &crate::workspace::CommandContext) -> Result<()> {
     let theme = crate::theme::Theme::active();
-    crate::logging::log("habits connect to existing server");
     let client = crate::server::lifecycle::ServerClient::default();
+    let record = match client.snapshot() {
+        Ok((_, snapshot)) if snapshot.live_leases > 0 => {
+            anyhow::bail!("brain TUI is already running; close it before starting brain habits")
+        }
+        Ok(_) => anyhow::bail!("brain habits is already running"),
+        Err(_) => {
+            crate::logging::log("habits start background server");
+            crate::server::lifecycle::connect_or_elect_background(&client)?
+        }
+    };
+    let manifest = crate::workspace::WorkspaceManifest::load(
+        context.workspace.root(),
+        env!("CARGO_PKG_VERSION"),
+    )?;
+    let registration = crate::server::control::LeaseRegistration {
+        generation: record.generation,
+        lease_id: crate::server::lifecycle::LeaseId::new(),
+        workspace_id: context.workspace.id(),
+        canonical_name: context.workspace.name().to_string(),
+        ingress_id: manifest.receiver_ingress_id().into(),
+        tui_pid: 0,
+        resolved_root: context.workspace.root().to_path_buf(),
+        job_socket: std::path::PathBuf::new(),
+    };
+    client.start_background(&registration)?;
     let port = client.connect_existing()?.port;
     let (ingress, capability) = client.workspace_local_route(context.workspace.id())?;
     let target = crate::server::habits_url(port, ingress, capability);

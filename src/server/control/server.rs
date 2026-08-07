@@ -118,6 +118,9 @@ impl ControlServer {
                 let decision = self.leases.apply(LeaseAction::Register { lease, now })?;
                 ControlOutcome::Decision(decision)
             }
+            ControlRequest::BackgroundStart(_) => {
+                anyhow::bail!("background server startup must use the shared control path")
+            }
             ControlRequest::Heartbeat { lease_id, .. } => {
                 let decision = self.leases.apply(LeaseAction::Heartbeat {
                     lease_id,

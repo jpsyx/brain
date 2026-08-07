@@ -45,6 +45,18 @@ pub struct ServerClient {
 }
 
 impl ServerClient {
+    pub fn start_background(&self, registration: &LeaseRegistration) -> Result<ProcessRecord> {
+        let record = self.connect_existing()?;
+        match self.request(&ControlRequest::BackgroundStart(registration.clone()))? {
+            ControlResponse::Accepted { generation, .. } if generation == record.generation => {
+                Ok(record)
+            }
+            ControlResponse::StaleGeneration => {
+                anyhow::bail!("shared brain server generation changed while starting habits")
+            }
+            response => anyhow::bail!("unexpected background server response: {response:?}"),
+        }
+    }
     /// Target one explicit shared-server directory.
     #[must_use]
     pub const fn new(paths: ServerPaths) -> Self {
@@ -254,7 +266,12 @@ impl ServerClient {
             .context("connecting to the shared brain server")
     }
 
-    pub(crate) fn spawn(&self, generation: ServerGeneration, port: u16) -> Result<Child> {
+    pub(crate) fn spawn(
+        &self,
+        generation: ServerGeneration,
+        port: u16,
+        background: bool,
+    ) -> Result<Child> {
         use std::os::unix::process::CommandExt as _;
 
         fs::create_dir_all(self.paths.directory())
@@ -280,6 +297,9 @@ impl ServerClient {
             "--port",
             &port.to_string(),
         ]);
+        if background {
+            command.arg("--background");
+        }
         if let Some(home) = &self.home {
             command.env("HOME", home);
         }
