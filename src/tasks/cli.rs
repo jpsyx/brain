@@ -70,6 +70,11 @@ pub enum Command {
     /// Add a task or habit directly to the selected workspace's native CSV store.
     Add(Box<AddArgs>),
 
+    /// Edit fields on one existing task or habit (absolute values, no defer
+    /// penalty). Aliases: `edit`, `update`.
+    #[command(aliases = ["edit", "update"])]
+    Set(Box<SetArgs>),
+
     /// Search task names, notes, projects, and IDs for the given terms.
     /// Equivalent to typing the same terms positionally — e.g.
     /// `tasks search lamaze classes` ≡ `tasks lamaze classes`.
@@ -129,6 +134,61 @@ pub struct AddArgs {
     pub json: bool,
 }
 
+/// `tasks set <id>` — every mirrored property, plus the habit opt-in.
+///
+/// Names deliberately match `tasks add` (`--name`, `--due`, `--priority`, …) so
+/// one mental model covers create and edit. Omitting every field drops a human
+/// into an interactive field picker; an agent always passes flags.
+#[derive(Args, Debug)]
+pub struct SetArgs {
+    /// Task or habit to edit: t123, T123, 123, h43, H43, or a unique fuzzy name.
+    pub id: String,
+
+    /// New title.
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// New due date: YYYY-MM-DD, `today`, `tomorrow`, or empty to clear it.
+    #[arg(long)]
+    pub due: Option<String>,
+
+    /// New priority (p0..p4).
+    #[arg(long)]
+    pub priority: Option<String>,
+
+    /// New status (not_started, in_progress, waiting, done, backlog).
+    #[arg(long)]
+    pub status: Option<String>,
+
+    /// Replace the notes field.
+    #[arg(long)]
+    pub notes: Option<String>,
+
+    /// Move the task to a project slug (empty to unlink).
+    #[arg(long)]
+    pub project: Option<String>,
+
+    /// Attach or repoint the mirrored issue identifier (e.g. AVA-123).
+    #[arg(long)]
+    pub linear_issue: Option<String>,
+
+    /// New estimated duration in minutes.
+    #[arg(long)]
+    pub duration: Option<String>,
+
+    /// New time-of-day slot for a habit ("6:45 AM"). Habits only.
+    #[arg(long)]
+    pub ideal_time: Option<String>,
+
+    /// Required to edit a habit row, and refused for a task.
+    #[arg(long)]
+    pub habit: bool,
+
+    /// Emit one JSON object describing the applied changes.
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[derive(Args, Debug)]
 pub struct CompleteArgs {
     /// Task or habit ID: t123, T123, 123 (assumed task), h43, H43.
@@ -177,6 +237,12 @@ pub struct Filters {
     /// Filter by portable workspace user ID.
     #[arg(long, value_name = "USER_ID", global = true)]
     pub assigned_to: Option<String>,
+
+    /// Filter by mirrored issue-tracker identifier (e.g. AVA-123).
+    /// Case-insensitive exact match on the `linear_issue` column — the lookup
+    /// for "which local task mirrors this issue?".
+    #[arg(long, value_name = "ISSUE", global = true)]
+    pub linear_issue: Option<String>,
 
     /// Only past-due tasks (due_date < today, status != done).
     #[arg(long, global = true)]

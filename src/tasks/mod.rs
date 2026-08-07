@@ -18,6 +18,7 @@ pub mod render;
 pub mod revive;
 pub mod schema;
 pub mod selector;
+pub mod set;
 pub mod shortcuts;
 pub mod skip;
 pub(crate) mod store_lock;

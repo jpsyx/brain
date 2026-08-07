@@ -111,6 +111,9 @@ fn keeps_filters(t: &Task, f: &Filters, today: NaiveDate) -> bool {
         && (!f.stale || t.is_stale(today))
         && (!f.no_due || t.due_date.is_none())
         && (!f.blocked || !t.blocked_by.is_empty())
+        && f.linear_issue
+            .as_deref()
+            .is_none_or(|w| t.linear_issue.eq_ignore_ascii_case(w.trim()))
         && f.search.as_deref().is_none_or(|q| t.matches_search(q))
 }
 
@@ -262,4 +265,48 @@ mod tests {
             vec!["T2"]
         );
     }
+
+    #[test]
+    fn linear_issue_filter_selects_only_the_mirrored_task() {
+        let today = d(2026, 8, 7);
+        let mut linked = test_task("T1", "not_started");
+        linked.due_date = Some(today);
+        linked.linear_issue = "AVA-123".to_owned();
+        let mut other = test_task("T2", "not_started");
+        other.due_date = Some(today);
+        other.linear_issue = "AVA-999".to_owned();
+        let mut unlinked = test_task("T3", "not_started");
+        unlinked.due_date = Some(today);
+
+        let mut cli = empty_cli();
+        cli.filters.linear_issue = Some("AVA-123".to_owned());
+        let view = build_view(
+            &cli,
+            &Selector::All,
+            None,
+            vec![linked, other, unlinked],
+            today,
+        );
+
+        assert_eq!(
+            view.tasks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            vec!["T1"]
+        );
+    }
+
+    #[test]
+    fn linear_issue_filter_is_case_insensitive_and_matches_done_rows_when_included() {
+        let today = d(2026, 8, 7);
+        let mut linked = test_task("T1", "done");
+        linked.due_date = Some(today);
+        linked.linear_issue = "AVA-123".to_owned();
+
+        let mut cli = empty_cli();
+        cli.filters.linear_issue = Some("ava-123".to_owned());
+        cli.filters.include_done = true;
+        let view = build_view(&cli, &Selector::All, None, vec![linked], today);
+
+        assert_eq!(view.tasks.len(), 1);
+    }
+
 }

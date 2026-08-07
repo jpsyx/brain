@@ -26,8 +26,9 @@ execution surfaces are a persistent TUI and short-lived command families:
   workspace, portable users, sync, personalization, skills, server/receiver,
   habits, checks, and reindexing. They mutate or report through their focused handlers, then
   exit without opening the persistent shell. `brain tasks complete`,
-  `brain tasks doctor`, and `brain tasks --no-tui` are short-lived;
-  `brain tasks search` opens the persistent TUI.
+  `brain tasks add`, `brain tasks set`, `brain tasks doctor`, and
+  `brain tasks --no-tui` are short-lived; `brain tasks search` opens the
+  persistent TUI.
 
 There are **no** shell-mutating one-shot commands: no `cd`, `msg`, or
 per-bucket search subcommand, and no freeform note search. Interactive
@@ -92,6 +93,8 @@ argv
            ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
            └─ Cmd::Tasks(rest)       ─→ TasksCli::parse_from(rest) → tasks_launch:
                                           complete → complete::run (native CSV completion)
+                                          add      → add::create_in_workspace
+                                          set      → set::set_in_workspace (pure set::plan decides)
                                           doctor   → doctor::run_doctor
                                           --no-tui → plain::print_plain
                                           search   → CustomSearch → tui::run_tui

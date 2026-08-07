@@ -2681,3 +2681,39 @@ completed the 4th comes due the 5th), and a rung landing exactly on today is
 skipped for a full further interval. Anchoring to the completion date instead
 would have drifted every weekly habit off its weekday, so cadence wins;
 `recurrence_anchor` in `src/tasks/complete/tests.rs` pins each case.
+
+## C7 — `tasks set` is absolute-value and defer-count-free; `--linear-issue` is a filter
+
+Two capabilities existed only as bundled Python (`list_linked_tasks.py`,
+`defer_task.py`), so anything outside the `/todo` skill had to shell into those
+scripts or read `tasks.csv` directly. Both are now native, which is what lets an
+external caller (a Linear-side skill, a cron job, another agent) drive Brain
+through the CLI alone.
+
+**Finding the local mirror of an issue is a filter, not a subcommand.**
+`--linear-issue` joins the existing global `Filters`, so it composes with every
+view and with `--include-done` / `--include-deferred` instead of inventing a
+parallel lookup path with its own output shape. Reaching a closed or parked
+mirror — the common case when reconciling a completed issue — is then just the
+flags the caller already knows. Matching is case-insensitive exact on the column;
+substring matching would let `AVA-17` silently claim `AVA-177`.
+
+**Editing is absolute-value, and deliberately not a defer.** `defer_task.py`
+exists to record slippage: it increments `defer_count`, which feeds the
+high-defer warnings and the chronic-ignore sweep. But when a tracker moves an
+issue's due date, or a title or priority changes upstream, that is not the user
+avoiding the work, and counting it corrupts the signal those passes depend on.
+So `set` writes exactly the columns named and never touches `defer_count`;
+relative, penalty-counting pushes stay with the defer path. The two are different
+operations that happened to share a column.
+
+`set` reuses `add`'s flag names so one mental model covers create and edit, and
+resolves rows through the same `locate` as `complete` (ID, bare number, or unique
+fuzzy name). A no-op edit reports "unchanged" and writes nothing, so a mirror
+pass can run repeatedly without churning the file or its `last_touched`. Per
+C6, a habit row requires the explicit `--habit` opt-in: rescheduling a habit is
+legitimate but must never be something a cleanup pass reaches by accident.
+
+The pure/impure split is `set::plan` (every validation and the exact
+before/after list) versus the thin read-modify-write in `set::set_in_root_with_today`,
+so all the rejections are unit-testable without a filesystem.
