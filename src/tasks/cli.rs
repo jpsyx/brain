@@ -67,6 +67,9 @@ pub enum Command {
     #[command(aliases = ["finish", "done"])]
     Complete(CompleteArgs),
 
+    /// Add a task or habit directly to the selected workspace's native CSV store.
+    Add(Box<AddArgs>),
+
     /// Search task names, notes, projects, and IDs for the given terms.
     /// Equivalent to typing the same terms positionally — e.g.
     /// `tasks search lamaze classes` ≡ `tasks lamaze classes`.
@@ -75,6 +78,51 @@ pub enum Command {
     /// Validate selected-workspace requirements, session DB, and Claude/Codex
     /// hooks. Exits 0 when required agent-session checks pass.
     Doctor,
+}
+
+#[derive(Args, Debug)]
+pub struct AddArgs {
+    #[arg(long)]
+    pub name: String,
+    #[arg(long = "type")]
+    pub task_type: Option<String>,
+    #[arg(long)]
+    pub priority: String,
+    #[arg(long)]
+    pub due: Option<String>,
+    #[arg(long)]
+    pub start: Option<String>,
+    #[arg(long)]
+    pub hard_deadline: bool,
+    #[arg(long)]
+    pub see_also: Option<String>,
+    #[arg(long)]
+    pub notes: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+    #[arg(long)]
+    pub energy: Option<String>,
+    #[arg(long)]
+    pub context: Option<String>,
+    #[arg(long)]
+    pub duration: Option<String>,
+    #[arg(long)]
+    pub blocked_by: Option<String>,
+    #[arg(long)]
+    pub assigned_to: Option<String>,
+    #[arg(long)]
+    pub linear_issue: Option<String>,
+    #[arg(long)]
+    pub habit: bool,
+    #[arg(long)]
+    pub interval: Option<u32>,
+    #[arg(long)]
+    pub unit: Option<String>,
+    #[arg(long)]
+    pub chunks: Option<u32>,
+    /// Emit one JSON object describing all created rows.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -182,8 +230,8 @@ pub struct DisplayOpts {
 
 #[cfg(test)]
 mod tests {
-    use super::Cli;
-    use clap::CommandFactory;
+    use super::{Cli, Command};
+    use clap::{CommandFactory, Parser};
 
     #[test]
     fn help_describes_tasks_under_the_selected_workspace() {
@@ -191,5 +239,46 @@ mod tests {
 
         assert!(help.contains("selected workspace"), "{help}");
         assert!(!help.contains("~/brain/tasks"), "{help}");
+    }
+
+    #[test]
+    fn task_creation_options_are_a_supported_subcommand() {
+        let parsed = Cli::try_parse_from([
+            "tasks",
+            "add",
+            "--name",
+            "Follow up",
+            "--type",
+            "ceo",
+            "--priority",
+            "p1",
+            "--due",
+            "2026-08-10",
+            "--notes",
+            "from email",
+        ])
+        .expect("tasks add should parse");
+
+        assert!(matches!(parsed.command, Some(Command::Add(_))));
+    }
+
+    #[test]
+    fn task_creation_supports_json_output() {
+        let parsed = Cli::try_parse_from([
+            "tasks",
+            "add",
+            "--name",
+            "Follow up",
+            "--type",
+            "personal|needs_attention",
+            "--priority",
+            "p1",
+            "--json",
+        ])
+        .expect("tasks add --json should parse");
+        let Some(Command::Add(args)) = parsed.command else {
+            panic!("expected add");
+        };
+        assert!(args.json);
     }
 }

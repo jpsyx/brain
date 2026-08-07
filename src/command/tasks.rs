@@ -22,6 +22,36 @@ pub fn launch(
         Some(TasksCommand::Complete(args)) => {
             return crate::tasks::complete::run(&context.workspace, &args.id, &context.actor);
         }
+        Some(TasksCommand::Add(args)) => {
+            let request = crate::tasks::add::CreateRequest {
+                name: args.name,
+                task_type: args.task_type,
+                priority: args.priority,
+                due: args.due,
+                start: args.start,
+                hard_deadline: args.hard_deadline,
+                see_also: args.see_also,
+                notes: args.notes,
+                project: args.project,
+                energy: args.energy,
+                context: args.context,
+                duration: args.duration,
+                blocked_by: args.blocked_by,
+                assigned_to: args.assigned_to,
+                linear_issue: args.linear_issue,
+                habit: args.habit,
+                interval: args.interval,
+                unit: args.unit,
+                chunks: args.chunks,
+            };
+            let result = crate::tasks::add::create_in_workspace(
+                &context.workspace,
+                &context.actor,
+                &request,
+            )?;
+            println!("{}", format_add_result(&result, args.json)?);
+            return Ok(());
+        }
         Some(TasksCommand::Search(args)) => Initial::CustomSearch(args.query.join(" ")),
         Some(TasksCommand::Doctor) => {
             let db_path = context.workspace.paths().state_db();
@@ -84,6 +114,19 @@ pub fn launch(
         with_receiver,
         skip_daily_triage_check,
     )
+}
+
+fn format_add_result(result: &crate::tasks::add::CreateResult, json: bool) -> Result<String> {
+    if json {
+        Ok(serde_json::to_string(result)?)
+    } else {
+        Ok(result
+            .created
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
 }
 
 enum Initial {
@@ -220,4 +263,26 @@ pub fn rewrite_mark_grammar(args: Vec<String>) -> Vec<String> {
     rewritten.push(args[id_position].clone());
     rewritten.extend_from_slice(&args[id_position + 1 + consume..]);
     rewritten
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_add_result;
+    use crate::tasks::add::{CreateResult, CreatedRow};
+
+    #[test]
+    fn add_output_is_stable_text_or_json() {
+        let result = CreateResult {
+            created: vec![CreatedRow {
+                id: "T1".to_owned(),
+                name: "Reply".to_owned(),
+                kind: "task".to_owned(),
+            }],
+        };
+        assert_eq!(format_add_result(&result, false).unwrap(), "T1");
+        assert_eq!(
+            format_add_result(&result, true).unwrap(),
+            r#"{"created":[{"id":"T1","name":"Reply","kind":"task"}]}"#
+        );
+    }
 }

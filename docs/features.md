@@ -241,6 +241,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` or `--open-code` / `-oc` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
 | `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
+| `brain tasks add --name <name> --type <type> --priority <p0..p4> [OPTIONS]` | Create a task or habit through native Brain logic, preserving assignment, project/Linear metadata, chunking, validation, and CSV behavior. Use `--json` for automation; plain output prints each created ID. |
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
