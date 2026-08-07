@@ -8,6 +8,7 @@
 //! brain-search view. See [`docs/glossary.md`](../../docs/glossary.md) for the
 //! main-view / sub-view / brain-panel vocabulary.
 
+pub mod add;
 pub mod cli;
 pub mod complete;
 pub mod doctor;
