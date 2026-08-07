@@ -42,6 +42,7 @@ pub fn launch(
                 habit: args.habit,
                 interval: args.interval,
                 unit: args.unit,
+                ideal_time: args.ideal_time,
                 chunks: args.chunks,
             };
             let result = crate::tasks::add::create_in_workspace(

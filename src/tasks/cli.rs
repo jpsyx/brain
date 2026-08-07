@@ -118,6 +118,10 @@ pub struct AddArgs {
     pub interval: Option<u32>,
     #[arg(long)]
     pub unit: Option<String>,
+    /// Time of day a habit belongs to ("6:45 AM"). Habits only; drives the
+    /// Morning/Afternoon/Evening grouping in the habits views.
+    #[arg(long)]
+    pub ideal_time: Option<String>,
     #[arg(long)]
     pub chunks: Option<u32>,
     /// Emit one JSON object describing all created rows.

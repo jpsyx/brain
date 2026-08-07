@@ -12,6 +12,49 @@ workspace/actor environment; they deliberately fail instead of falling back to
 a home-directory brain. Preserve each row's `assigned_to` unless the user asks
 for explicit reassignment through the validated `/todo assign` path.
 
+## Triage never touches habits (hard invariant)
+
+**Every cleanup pass in this skill operates on `tasks.csv` only. Habits are
+excluded from triage, always.** Read `<brain>/tasks/habits.csv` for exactly two
+reasons: the weekly-vs-daily routing check, and marking this run's own managed
+Morning Triage / Weekly in-basket occurrence done (Steps 9 and weekly Step 3).
+Nothing else in triage may read it, and **nothing in triage may ever delete,
+drop, defer, backlog, purge, or reschedule a habit row.**
+
+This is not a style preference — it is a data-integrity rule. A past-due habit
+is the normal resting state of a habit the user hasn't gotten to; the pending row
+*is* the habit, and it is the only record of the cadence. Dropping it as if it
+were a stale task destroys the entire chain, silently taking every future
+occurrence with it.
+
+Concretely, for every pass below:
+
+- **Past-due triage (Steps 1–4), the at-risk scan (Step 6), and the
+  chronic-ignore sweep (Step 7) enumerate `tasks.csv` rows only.** A habit must
+  never appear in a group, a count, a bulk operation, or a per-task prompt. If a
+  past-due list you assembled contains an `H###` row, the list is wrong — rebuild
+  it from `tasks.csv`.
+- **"Drop all" and per-task "Drop" apply to tasks only.** `remove_task.py`
+  refuses a habit needle unless given `--habit`; triage must **never** pass that
+  flag, under any circumstance, including a direct user instruction mid-triage
+  (send them to `/todo remove` for that, so retiring a habit is a deliberate act
+  outside a bulk cleanup).
+- **"Defer all N days" applies to tasks only.** Do not use `defer_task.py` or
+  `defer_habit.py` on a habit during triage. A habit the user wants out of the
+  way today is handled by `/todo`'s cadence-aware `brain habits skip`, after
+  triage, at their explicit request.
+- **Step 0's backlog auto-purge only touches `status=backlog` rows in
+  `tasks.csv`.** Habits have no backlog state and are not eligible.
+- **Never "clean up" habits as a courtesy.** Do not offer it, do not batch it
+  into a summary action, and do not treat a long list of past-due habits as a
+  problem to solve. Mention it at most as an observation, and only when the user
+  asks about habits.
+
+The one habit mutation triage performs is completing its *own* managed
+occurrence via the protected command in Step 9 / weekly Step 3, which advances
+the chain rather than ending it. See
+[/todo "Habits are never cleanup fodder"](../todo/SKILL.md#habits-are-never-cleanup-fodder).
+
 ## Establish "today" from the system clock FIRST (before anything else)
 
 Every triage action is date-sensitive. **Before doing anything, run
@@ -129,6 +172,9 @@ mention the purge ran.** Just run it and move on. (See /todo SKILL.md
 
 ## Step 1 — Pick the most useful grouping
 
+The set being grouped is the past-due rows of **`tasks.csv` only** — never
+`habits.csv` (see [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
+
 Try these in order; commit to the **first** one whose largest bucket has at least 3 items (otherwise you're just walking 1-by-1 anyway):
 
 1. **By `task_type`** — "8 code tasks past due", "12 personal tasks past due". This is usually the most natural grouping.
@@ -158,7 +204,7 @@ The "> 30d old" cross-cut is shown even when the primary grouping is by `task_ty
 ## Step 3 — Bulk operations per group
 
 - **Defer all N days** — accept any positive integer; quick-picks are `1`, `7`, `14`. Increments `defer_count` for each **except no-penalty defers**: a task with `status=waiting` or a non-empty `blocked_by` defers without raising `defer_count` (the slip isn't the user's fault). `defer_task.py` handles this automatically; `--no-count` forces it for other not-our-fault cases. If any task in the group hits `defer_count >= 3` *after* the bulk defer, flag it in the summary.
-- **Drop all** — confirms with the count, then removes them from the CSV. Never silently destructive.
+- **Drop all** — confirms with the count, then removes those rows from `tasks.csv` via `remove_task.py`. Never silently destructive, and never applied to a habit (see [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
 - **1-by-1** — walks the group with per-task prompts (see Step 4).
 - **Skip group** — moves to next.
 
@@ -269,6 +315,8 @@ If the user is in a hurry, accept `skip at-risk` (or just "skip") at the start o
 ## Step 7 — Chronic-ignore sweep
 
 After the at-risk preview, sweep tasks that have rotted in the backlog — neither past-due (handled in Steps 1–4) nor about to slip (handled in Step 6), but **inert**. These are deadwood candidates. The goal is to clear them, not to revive them by default.
+
+**Tasks only.** An inert habit is not deadwood — a habit nobody has done in weeks is still a habit the user keeps, and its pending row is the only record of the cadence. The detector reads `tasks.csv`; never extend this sweep to `habits.csv` (see [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
 
 ### Eligibility (computed by the detector)
 

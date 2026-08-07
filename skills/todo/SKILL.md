@@ -1208,6 +1208,12 @@ load-bearing ones:
   links or confirmation needed for removal, `/todo remove` must execute
   [scripts/remove_task.py](scripts/remove_task.py) so deletion crosses the
   config-aware task-store guard. Never delete a CSV row directly.
+  Removing a **habit** additionally requires `--habit`, because deleting a habit
+  row destroys the entire recurring chain including every future occurrence. The
+  script refuses a habit needle without that flag, so only an explicit "retire
+  this habit" request may pass it — confirm with the user first, and prefer
+  [scripts/defer_habit.py](scripts/defer_habit.py) when they only want the next
+  occurrence pushed out. See [Habits are never cleanup fodder](#habits-are-never-cleanup-fodder).
 - **`/todo chronic`** — list chronically-ignored tasks (the same set
   that `/triage` Step 7 sweeps). Backed by
   [scripts/find_chronic_ignored.py](scripts/find_chronic_ignored.py).
@@ -1299,6 +1305,33 @@ Completed habits stay in habits.csv for 7 days then get pruned by
 same retention rule only while managed triage habits are enabled. Cleanup does
 not perform the feature-off purge; the transactional Brain reconciler owns
 that coupled config/data change. That's your audit trail.
+
+## Habits are never cleanup fodder
+
+**A past-due habit is not a stale task, and no cleanup pass may ever delete,
+drop, defer, backlog, or purge one.** A habit that is weeks past due is the
+normal resting state of a habit the user hasn't gotten to — the pending row *is*
+the habit. Deleting that row destroys the whole chain: there is no other record
+of the cadence, so every future occurrence disappears with it and the habit
+silently stops existing.
+
+The rules, in force for every flow in this skill and for `/triage`:
+
+- **Only `status=done` habit rows are ever removed automatically**, and only by
+  `cleanup_done_habits.py` after its 7-day retention window. A
+  `not_started` habit row is never removed automatically, at any age.
+- **Never route a habit through a task-cleanup script.** `remove_task.py`
+  refuses a habit needle unless given `--habit`;
+  `backlog_task.py` refuses habits outright. Do not work around either.
+- **Retiring a habit is an explicit user decision**, never inferred from the row
+  being old. Ask, and only then pass `--habit`.
+- **To get a past-due habit out of the way, move it, don't kill it**: `brain
+  habits skip` (cadence-aware) or `defer_habit.py` push the occurrence forward
+  and keep the chain alive. Prefer these in every case where a task would have
+  been dropped.
+- **A lapsed chain is repaired, not recreated.** If every row for a habit is
+  `done` and nothing is pending, run `brain habits revive <fuzzy>`; don't
+  hand-add a replacement row.
 
 ## Skipping a habit
 

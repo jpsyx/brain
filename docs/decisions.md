@@ -2639,3 +2639,45 @@ which is both the headless equivalent of the interactive answer and the repair
 for a workspace that already migrated with a duplicate person. It never mutates
 `users.json`, so a mistaken value cannot silently create or delete a member; it
 reports how many rows moved and writes nothing when none do.
+
+## C6 — habits are excluded from every cleanup pass, enforced at the writer
+
+A habit's pending row *is* the habit. `habits.csv` holds no separate definition
+of a recurring habit — only its occurrences — so the single `not_started` row is
+the only record of the cadence, the priority, and the `ideal_time`. Completion
+appends the next occurrence and the chain walks forward one row at a time.
+
+That makes a habit row look exactly like a stale task to a cleanup pass, and
+catastrophic to treat as one: dropping a past-due habit row deletes the whole
+chain, silently taking every future occurrence with it. A past-due habit is not
+deadwood — it is the normal resting state of a habit the user hasn't gotten to
+yet, and being weeks late carries no signal that they want it gone.
+
+This bit us for real: a triage pass dropped 21 live `not_started` habit rows
+(daily and weekly chains the user still kept), and because each row was the
+chain, the habits simply stopped existing. Nothing errored and nothing was
+reported, because deleting a habit row is a perfectly legal CSV write.
+
+So the exclusion is enforced at the writer rather than only asked for in prose.
+`remove_task.py` resolves needles through `_csvlib.locate`, which searches
+`tasks.csv` *and* `habits.csv`; it now refuses a habit row unless the caller
+passes `--habit`, and refuses `--habit` for a task. The bundled `triage` skill
+is forbidden from ever passing that flag, so the destructive path is unreachable
+from a cleanup pass even if the model misjudges a row. `backlog_task.py` already
+refused habits; `cleanup_done_habits.py` only ever removes `status=done` rows
+past their 7-day retention window, never a pending one.
+
+The escape hatches keep chains alive instead of ending them: `brain habits skip`
+(cadence-aware) and `defer_habit.py` push an occurrence forward, and
+`brain habits revive` repairs a chain whose rows are all `done`. Retiring a habit
+stays possible, but only as an explicit user decision through `/todo remove`,
+never inferred from a row's age.
+
+The recurrence rule this protects is deliberately cadence-preserving: the next
+occurrence is the first rung of the `due_date + N × interval` ladder **strictly
+after** today. A late completion therefore keeps its original cadence even when
+that puts the next occurrence as soon as tomorrow (a 3-day habit due the 2nd and
+completed the 4th comes due the 5th), and a rung landing exactly on today is
+skipped for a full further interval. Anchoring to the completion date instead
+would have drifted every weekly habit off its weekday, so cadence wins;
+`recurrence_anchor` in `src/tasks/complete/tests.rs` pins each case.

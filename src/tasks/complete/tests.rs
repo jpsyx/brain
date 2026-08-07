@@ -274,3 +274,58 @@ fn spawned_habit_gets_new_uuid_and_retains_system_key_and_assignment() {
     assert_eq!(rows[1]["system_key"], "brain.triage.daily");
     assert_eq!(rows[1]["assigned_to"], "wife");
 }
+
+/// The recurrence contract for a late completion: the cadence ladder is
+/// anchored to the row's own `due_date`, and the next occurrence is the first
+/// rung **strictly after** today. So a late completion keeps the original
+/// cadence even when that lands the next occurrence as soon as tomorrow, and a
+/// rung falling exactly on today is skipped for a full further interval.
+mod recurrence_anchor {
+    use super::super::next_due;
+    use chrono::{Datelike, NaiveDate};
+
+    fn day(text: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
+    }
+
+    #[test]
+    fn keeps_the_cadence_when_late_even_if_the_next_rung_is_tomorrow() {
+        // 3-day habit due Aug 2, completed 2 days late on Aug 4: the ladder's
+        // next rung is Aug 5, and cadence wins over "a full interval away".
+        assert_eq!(next_due("2026-08-02", 3, "days", day("2026-08-04")).unwrap(), "2026-08-05");
+    }
+
+    #[test]
+    fn skips_a_rung_that_lands_exactly_on_today() {
+        // Daily habit due Aug 6 completed Aug 7: the Aug 7 rung is today, so
+        // the next occurrence is a full interval past it.
+        assert_eq!(next_due("2026-08-06", 1, "days", day("2026-08-07")).unwrap(), "2026-08-08");
+        // Same rule at a 3-day cadence: Aug 2 + 3 = Aug 5 is today → Aug 8.
+        assert_eq!(next_due("2026-08-02", 3, "days", day("2026-08-05")).unwrap(), "2026-08-08");
+    }
+
+    #[test]
+    fn preserves_the_weekday_of_a_stale_weekly_habit() {
+        // Monday-weekly habit 8 weeks stale still lands on a Monday.
+        let next = next_due("2026-06-01", 1, "weeks", day("2026-07-29")).unwrap();
+        assert_eq!(next, "2026-08-03");
+        assert_eq!(day(&next).weekday(), chrono::Weekday::Mon);
+    }
+
+    #[test]
+    fn preserves_the_day_of_month_for_a_stale_monthly_habit() {
+        assert_eq!(next_due("2026-04-07", 1, "months", day("2026-08-07")).unwrap(), "2026-09-07");
+    }
+
+    #[test]
+    fn an_on_time_completion_advances_exactly_one_interval() {
+        assert_eq!(next_due("2026-08-07", 1, "days", day("2026-08-07")).unwrap(), "2026-08-08");
+        assert_eq!(next_due("2026-08-07", 1, "weeks", day("2026-08-07")).unwrap(), "2026-08-14");
+    }
+
+    #[test]
+    fn an_early_completion_keeps_the_scheduled_anchor() {
+        // Due Aug 10, completed Aug 7: the ladder still runs from Aug 10.
+        assert_eq!(next_due("2026-08-10", 1, "weeks", day("2026-08-07")).unwrap(), "2026-08-17");
+    }
+}

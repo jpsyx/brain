@@ -56,7 +56,11 @@ helpers and shell-outs live in the tasks modules:
   operations, the habits web completion route, and bundled Python project
   metadata writers use that owner too. Python CSV and JSON writers reject a
   changed read snapshot and use a synced same-directory atomic replacement.
-  The protected `remove_task.py` boundary rejects enabled managed-row deletion.
+  The protected `remove_task.py` boundary rejects enabled managed-row deletion,
+  and refuses any habit row unless the caller passes `--habit`: deleting a habit
+  row destroys its whole recurrence chain, so a task-cleanup pass must not be
+  able to reach one. Task-cleanup callers (notably the bundled `triage` skill,
+  which excludes habits entirely) never pass that flag.
 - **`brain tasks doctor`**: prints a progress plan before checking the selected
   UUID-scoped state DB schema, every registry-declared lifecycle artifact,
   OpenCode executable compatibility, `rclone version`, and the centralized

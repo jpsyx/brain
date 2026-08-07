@@ -51,6 +51,7 @@ const HABIT_COLUMNS: &[&str] = &[
     "estimated_duration",
     "recur_interval",
     "recur_unit",
+    "ideal_time",
     "created_date",
     "completed_date",
     "last_touched",
@@ -77,6 +78,9 @@ pub struct CreateRequest {
     pub habit: bool,
     pub interval: Option<u32>,
     pub unit: Option<String>,
+    /// Time of day a habit is meant to happen (`6:45 AM`). Habits only — it is
+    /// what the habits view groups Morning/Afternoon/Evening by.
+    pub ideal_time: Option<String>,
     pub chunks: Option<u32>,
 }
 
@@ -137,6 +141,10 @@ pub fn create_in_root_for_actor_with_today(
             request.interval.unwrap().to_string(),
         );
         row.insert("recur_unit".to_owned(), request.unit.clone().unwrap());
+        row.insert(
+            "ideal_time".to_owned(),
+            request.ideal_time.clone().unwrap_or_default(),
+        );
         append(&mut csv, HABIT_COLUMNS, row.clone());
         write_csv(&path, &csv)?;
         return Ok(CreateResult {
@@ -230,6 +238,9 @@ fn validate(request: &CreateRequest) -> Result<()> {
     } else {
         if request.task_type.as_deref().is_none_or(str::is_empty) {
             bail!("--type is required for non-habit tasks");
+        }
+        if request.ideal_time.is_some() {
+            bail!("--ideal-time is only supported with --habit (tasks have no time-of-day slot)");
         }
         if let Some(chunks) = request.chunks {
             if chunks == 1 {
@@ -504,4 +515,55 @@ mod tests {
         assert!(error.to_string().contains("--chunks is not supported"));
         assert!(!root.path().join("tasks").exists());
     }
+
+    #[test]
+    fn a_created_habit_records_its_ideal_time_for_time_of_day_grouping() {
+        let root = tempdir().unwrap();
+        std::fs::create_dir(root.path().join("tasks")).unwrap();
+        let actor: ActorContext = serde_json::from_str(
+            r#"{"user_id":"pablo","display_name":"Pablo","channel":"interactive"}"#,
+        )
+        .unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 8, 7).unwrap();
+        let request = CreateRequest {
+            name: "Workout".to_owned(),
+            priority: "p1".to_owned(),
+            habit: true,
+            interval: Some(1),
+            unit: Some("days".to_owned()),
+            ideal_time: Some("6:45 AM".to_owned()),
+            ..CreateRequest::default()
+        };
+
+        create_in_root_for_actor_with_today(root.path(), &actor, &request, today).unwrap();
+
+        let csv = read_csv(&root.path().join("tasks/habits.csv")).unwrap();
+        assert!(csv.header.iter().any(|column| column == "ideal_time"));
+        assert_eq!(field(&csv.rows[0], "ideal_time"), "6:45 AM");
+    }
+
+    #[test]
+    fn ideal_time_is_rejected_for_a_plain_task() {
+        let root = tempdir().unwrap();
+        std::fs::create_dir(root.path().join("tasks")).unwrap();
+        let actor: ActorContext = serde_json::from_str(
+            r#"{"user_id":"pablo","display_name":"Pablo","channel":"interactive"}"#,
+        )
+        .unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 8, 7).unwrap();
+        let request = CreateRequest {
+            name: "File receipts".to_owned(),
+            task_type: Some("personal".to_owned()),
+            priority: "p2".to_owned(),
+            ideal_time: Some("6:45 AM".to_owned()),
+            ..CreateRequest::default()
+        };
+
+        let error = create_in_root_for_actor_with_today(root.path(), &actor, &request, today)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("--ideal-time"), "{error}");
+    }
+
 }

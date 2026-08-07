@@ -262,6 +262,69 @@ mod tests {
     }
 
     #[test]
+    fn web_completion_spawns_the_next_occurrence_rather_than_ending_the_chain() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join("tasks")).unwrap();
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .unwrap();
+        // `done` reads the clock, so anchor the habit to today and expect the
+        // first occurrence strictly after it.
+        let today = Local::now().date_naive();
+        let expected_next = (today + chrono::Days::new(1)).to_string();
+        let habits_path = root.join("tasks/habits.csv");
+        std::fs::write(
+            &habits_path,
+            format!(
+                "task_uuid,task_id,task_name,status,due_date,assigned_to,recur_interval,recur_unit,completed_date,system_key\n\
+                 8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H7,Workout,not_started,{today},member,1,days,,\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".config/config.json"),
+            "{\"enable_triage_habits\":false}\n",
+        )
+        .unwrap();
+        let workspace = crate::workspace::WorkspaceContext::new(
+            temporary.path(),
+            crate::workspace::WorkspaceId::new(),
+            crate::workspace::WorkspaceName::parse("family").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+
+        let outcome = done(&workspace, r#"{"task_id":"H7"}"#);
+
+        assert_eq!(
+            outcome,
+            DoneOutcome::Done {
+                next_due: Some(expected_next.clone())
+            }
+        );
+        let rows = crate::tasks::complete::read_csv(&habits_path).unwrap().rows;
+        assert_eq!(rows.len(), 2, "the chain must continue, not end");
+        assert_eq!(rows[0].get("task_id").unwrap(), "H7");
+        assert_eq!(rows[0].get("status").unwrap(), "done");
+        let spawned = &rows[1];
+        assert_eq!(spawned.get("task_name").unwrap(), "Workout");
+        assert_eq!(spawned.get("status").unwrap(), "not_started");
+        assert_eq!(spawned.get("due_date").unwrap(), &expected_next);
+        assert!(spawned.get("completed_date").unwrap().is_empty());
+        assert_ne!(spawned.get("task_id").unwrap(), "H7");
+        assert_ne!(
+            spawned.get("task_uuid").unwrap(),
+            "8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4"
+        );
+    }
+
+    #[test]
     fn web_completion_rejects_malformed_portable_config_without_mutating_rows() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("family");
