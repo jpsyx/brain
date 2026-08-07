@@ -995,7 +995,7 @@ See [config.md](config.md) for migration and storage details.
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
 | `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
 | `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to `codex`. |
-| `opencode_cmd` | `String` | `opencode` | Reserved command for the constructible OpenCode stub. Blank falls back to `opencode`; no lifecycle path executes it. |
+| `opencode_cmd` | `String` | `opencode` | Machine-local command used to launch the OpenCode brain-panel adapter. Blank falls back to `opencode`; Brain appends its named agent and session arguments. |
 | `agent_capabilities` | `Object` | *(unset)* | Selected-workspace machine material. `mcps[]` contains a logical `name`, exactly one `command` plus optional `args` or `url`, and optional `credentials` (`environment`, `headers`, `bearer_token`). `skills[]` contains a logical `name` and machine-local directory `path`. Credential descendants render as `(set)` in env listings. |
 
 All declared env variables and recursively flattened nested values render

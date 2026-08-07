@@ -184,10 +184,20 @@ fn default_csv_path(root: &Path) -> PathBuf {
     root.join("tasks").join("tasks.csv")
 }
 
-pub fn take_codex_flag(args: &mut Vec<String>) -> bool {
-    let before = args.len();
-    args.retain(|arg| arg != "--codex" && arg != "-cx");
-    args.len() != before
+pub fn take_agent_flag(args: &mut Vec<String>) -> Option<crate::session::AgentKind> {
+    let mut selected = None;
+    args.retain(|arg| {
+        let kind = match arg.as_str() {
+            "--codex" | "-cx" => Some(crate::session::AgentKind::Codex),
+            "--open-code" | "-oc" => Some(crate::session::AgentKind::OpenCode),
+            _ => None,
+        };
+        kind.is_none_or(|kind| {
+            selected = Some(kind);
+            false
+        })
+    });
+    selected
 }
 
 #[must_use]
@@ -218,26 +228,44 @@ pub fn rewrite_mark_grammar(args: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::take_codex_flag;
+    use super::take_agent_flag;
 
     #[test]
     fn delegated_codex_flag_is_removed() {
         let mut args = vec!["today".to_owned(), "--codex".to_owned(), "--mit".to_owned()];
-        assert!(take_codex_flag(&mut args));
+        assert_eq!(
+            take_agent_flag(&mut args),
+            Some(crate::session::AgentKind::Codex)
+        );
         assert_eq!(args, vec!["today", "--mit"]);
     }
 
     #[test]
     fn delegated_cx_alias_is_removed() {
         let mut args = vec!["today".to_owned(), "-cx".to_owned(), "--mit".to_owned()];
-        assert!(take_codex_flag(&mut args));
+        assert_eq!(
+            take_agent_flag(&mut args),
+            Some(crate::session::AgentKind::Codex)
+        );
         assert_eq!(args, vec!["today", "--mit"]);
+    }
+
+    #[test]
+    fn delegated_open_code_flag_and_alias_are_removed() {
+        for flag in ["--open-code", "-oc"] {
+            let mut args = vec!["today".to_owned(), flag.to_owned(), "--mit".to_owned()];
+            assert_eq!(
+                take_agent_flag(&mut args),
+                Some(crate::session::AgentKind::OpenCode)
+            );
+            assert_eq!(args, vec!["today", "--mit"]);
+        }
     }
 
     #[test]
     fn absent_delegated_agent_flag_leaves_arguments_unchanged() {
         let mut args = vec!["today".to_owned()];
-        assert!(!take_codex_flag(&mut args));
+        assert_eq!(take_agent_flag(&mut args), None);
         assert_eq!(args, vec!["today"]);
     }
 }

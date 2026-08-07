@@ -43,7 +43,7 @@ pub(super) const VARS: [VarSpec; 13] = [
     },
     VarSpec {
         name: "opencode_cmd",
-        description: "Command reserved for the OpenCode brain-panel stub on THIS machine. Defaults to opencode; Brain does not execute it yet.",
+        description: "Command used to launch OpenCode for the brain panel on THIS machine. Defaults to opencode; Brain appends the Brain agent and session arguments.",
         default: Some(DEFAULT_OPENCODE_CMD),
         legacy_config_fallback: false,
     },

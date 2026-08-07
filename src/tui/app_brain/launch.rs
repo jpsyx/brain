@@ -134,12 +134,6 @@ impl App<'_> {
         } else {
             self.interactive_session_id = None;
         }
-        let frontend = crate::agent::configured_frontend(&self.command_context, self.agent_kind);
-        if let Err(error) = frontend.ensure_available() {
-            crate::logging::log(format!("brain panel frontend unavailable: {error}"));
-            self.flash = Some(FlashKind::Error(error.to_string()));
-            return false;
-        }
         let capability_plan = match self.launch_capability_plan() {
             Ok(plan) => plan,
             Err(error) => {
@@ -156,6 +150,13 @@ impl App<'_> {
         let requested_actor = self.requested_receiver_actor.clone();
         let actor = requested_actor
             .unwrap_or_else(|| crate::actor::ActorContext::follow_up(&self.interactive_actor));
+        let transport = brain_transport(self);
+        let mut controller = self.controller_for_transport(actor.clone(), transport);
+        if let Err(error) = controller.ensure_available() {
+            crate::logging::log(format!("brain panel frontend unavailable: {error}"));
+            self.flash = Some(FlashKind::Error(error.to_string()));
+            return false;
+        }
         let scope = crate::state::SessionScope::new(
             self.agent_kind,
             self.command_context.workspace.id(),
@@ -173,14 +174,14 @@ impl App<'_> {
                 let Ok(candidate) = crate::agent::AgentSession::new(&id) else {
                     continue;
                 };
-                if !frontend
+                if !controller
                     .resume_candidate_exists(&candidate)
                     .unwrap_or(false)
                 {
                     skipped_missing = true;
                     continue;
                 }
-                let response_id = match frontend.response_id(&candidate) {
+                let response_id = match controller.response_id(&candidate) {
                     Ok(response_id) => response_id,
                     Err(error) => {
                         crate::logging::log(format!(
@@ -210,7 +211,7 @@ impl App<'_> {
             .expect("selected session IDs are non-blank");
         let response_id = match resume {
             Some((_, response_id)) => response_id,
-            None => match frontend.response_id(&agent_session) {
+            None => match controller.response_id(&agent_session) {
                 Ok(response_id) => response_id,
                 Err(error) => {
                     crate::logging::log(format!("brain panel response identity failed: {error}"));
@@ -280,13 +281,6 @@ impl App<'_> {
             request = request.with_capability_plan(plan);
         }
         request = request.with_hook_metadata(hooks);
-        let transport = brain_transport(self);
-        let mut controller = AgentController::new(
-            Arc::clone(&self.command_context.workspace),
-            actor.clone(),
-            frontend,
-            transport,
-        );
         // Placeholder size; the first draw resizes the PTY to the real panel.
         let launch_result = if fresh_session {
             register_fresh_before_launch(

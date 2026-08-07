@@ -83,15 +83,11 @@ pub(crate) fn build_command(
     configured_command: &str,
     plan: &SessionPlan,
     prompt: Option<&str>,
-) -> Result<String, AgentError> {
+) -> String {
     match kind {
-        AgentKind::Claude => Ok(ClaudeFrontend::command_for(
-            configured_command,
-            plan,
-            prompt,
-        )),
-        AgentKind::Codex => Ok(CodexFrontend::command_for(configured_command, plan, prompt)),
-        AgentKind::OpenCode => Err(AgentError::UnsupportedFrontend(AgentKind::OpenCode)),
+        AgentKind::Claude => ClaudeFrontend::command_for(configured_command, plan, prompt),
+        AgentKind::Codex => CodexFrontend::command_for(configured_command, plan, prompt),
+        AgentKind::OpenCode => OpenCodeFrontend::command_for(configured_command, plan, prompt),
     }
 }
 

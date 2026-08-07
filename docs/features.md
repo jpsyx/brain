@@ -225,7 +225,7 @@ management and reporting commands stay outside the persistent shell.
 | --- | --- |
 | `brain` | Open the persistent shell on the tasks view (the startup default) with the default Claude brain panel. |
 | `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. Claude remains the default. |
-| `brain --open-code` / `brain -oc` | Select the constructible OpenCode stub. It exits with a themed unsupported error before workspace bootstrap, TUI, PTY, hook, or server startup. `--codex --open-code` exits with `🔴 Choose one agent frontend: --codex or --open-code.` |
+| `brain --open-code` / `brain -oc` | Select the OpenCode brain-panel adapter. Brain launches OpenCode in the selected workspace, passes the initial prompt separately, tracks the OpenCode session ID, and delivers completion through the shared controller lifecycle. `--codex --open-code` exits with `🔴 Choose one agent frontend: --codex or --open-code.` |
 | `brain --brain <workspace>` / `brain -b <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--brain=<workspace>` is equivalent; `--` ends option extraction. |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` may be passed before or after `tasks` to use Codex in the brain panel. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
@@ -285,7 +285,7 @@ record in the schema-v2 registry (`$XDG_CONFIG_HOME/brain/env.json`, falling
 back to `~/.config/brain/env.json`). These are values that would be *wrong* if
 copied to another machine: `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
 self-healing), `claude_cmd`/`codex_cmd` (this machine's functional agent launch commands),
-`opencode_cmd` (reserved for the nonfunctional stub), and the
+`opencode_cmd` (the machine-local OpenCode launch command), and the
 Backblaze `sync` block (written by `brain sync setup`, below — see
 [config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:
@@ -989,7 +989,7 @@ regardless of which machine synced last.
 
 **Doctor.** `brain tasks doctor` prints one themed report for the selected
 workspace. It validates the UUID-scoped session DB plus both Claude and Codex
-SessionStart hook registrations (OpenCode remains inert), reports the rclone
+SessionStart and OpenCode plugin registrations, reports the rclone
 probe, and appends the same redacted requirements matrix used by other status
 surfaces. Missing rclone with sync off is informational and does not fail
 doctor. Doctor opens an existing SQLite database read-only, probes rclone with

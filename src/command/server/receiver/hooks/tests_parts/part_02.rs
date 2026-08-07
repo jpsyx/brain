@@ -110,3 +110,20 @@ fn atomic_hook_replacement_preserves_an_existing_symlink() {
     assert_eq!(updated["before"], true);
     assert_eq!(updated["after"], true);
 }
+
+#[test]
+fn install_adds_an_idempotent_opencode_brain_plugin() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("family");
+    let home = temp.path().join("home");
+
+    install_for_home(&root, &home).unwrap();
+
+    let plugin = root.join(".opencode/plugins/brain.js");
+    let source = std::fs::read_to_string(&plugin).unwrap();
+    assert!(source.contains("session.created"));
+    assert!(source.contains("session.idle"));
+
+    install_for_home(&root, &home).unwrap();
+    assert_eq!(std::fs::read_to_string(plugin).unwrap(), source);
+}

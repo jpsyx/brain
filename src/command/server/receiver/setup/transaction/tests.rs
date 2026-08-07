@@ -167,6 +167,7 @@ fn every_persistence_and_hook_failure_restores_exact_selected_bytes_and_peer_sta
         CommitStep::Hook(InstallStep::StopScript),
         CommitStep::Hook(InstallStep::ClaudeSettings),
         CommitStep::Hook(InstallStep::CodexSettings),
+        CommitStep::Hook(InstallStep::OpenCodePlugin),
     ] {
         let fixture = Fixture::new();
         let error = persist_plan_with_hook(&plan(), &fixture.context, &fixture.home, |step| {

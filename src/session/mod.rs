@@ -50,9 +50,7 @@ pub fn shell_quote(s: &str) -> String {
 /// # Errors
 ///
 /// Returns [`crate::agent::AgentError::EmptySessionId`] when the compatibility
-/// plan contains a blank session ID, or
-/// [`crate::agent::AgentError::UnsupportedFrontend`] for the OpenCode selection
-/// stub.
+/// plan contains a blank session ID.
 pub fn build_llm_command(
     brain_root: &Path,
     agent_kind: AgentKind,
@@ -64,7 +62,7 @@ pub fn build_llm_command(
         Plan::Resume(id) => crate::agent::SessionPlan::resume(crate::agent::AgentSession::new(id)?),
         Plan::Fresh(id) => crate::agent::SessionPlan::fresh(crate::agent::AgentSession::new(id)?),
     };
-    let command = crate::agent::build_command(agent_kind, llm_cmd, &session_plan, prompt)?;
+    let command = crate::agent::build_command(agent_kind, llm_cmd, &session_plan, prompt);
     Ok(format!(
         "cd {} && {command}",
         shell_quote(&brain_root.display().to_string())

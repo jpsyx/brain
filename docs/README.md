@@ -32,7 +32,7 @@ The code is the source-of-truth for *how*. They must agree on *what*.
 4. **[keybindings.md](keybindings.md)** — the app-level, tasks-view, and
    brain-search-view key tables, plus the kitty-protocol caveat.
 5. **[integrations.md](integrations.md):** `run.sh`, `AgentController`, the
-   Claude/Codex launch and OpenCode stub, shared TUI-lifetime server, workspace
+   Claude/Codex/OpenCode launch adapters, shared TUI-lifetime server, workspace
    sync/migration boundaries, file handoffs, and frontend hooks / state DB.
 6. **[config.md](config.md)** — the config store, the `brain config`
    command, the `markdown-to-pdf` prerequisite, and root resolution.
@@ -51,7 +51,7 @@ src/
   cli/           : focused clap surface (global + command-family modules)
   workspace/     : WorkspaceContext, schema-v2 registry, requirements, and commands
   actor/         : immutable ActorContext for local and authenticated requests
-  agent/         : AgentController plus Claude/Codex adapters and OpenCode stub
+  agent/         : AgentController plus Claude/Codex/OpenCode adapters
   users/         : portable people, normalized identities, and atomic users.json storage
   migration/     : explicit journaled legacy-to-multi-workspace rollout
   config.rs      — typed knobs (triage pattern, linear, rollover)

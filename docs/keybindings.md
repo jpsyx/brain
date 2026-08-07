@@ -2,7 +2,8 @@
 
 The merged `brain` shell has **three main views** (tasks, brain-directory
 search, and logs) and one app-level **brain panel** (the selected
-agent PTY: Claude by default, Codex with `--codex` / `-cx`). The reserved
+agent PTY: Claude by default, Codex with `--codex` / `-cx`, or OpenCode with
+`--open-code` / `-oc`). The selected frontend owns its PTY input translation.
 `--open-code` / `-oc` selector currently fails fast before opening the shell.
 See [glossary.md](glossary.md) for the vocabulary. Startup: the **tasks
 view** is showing, the **brain panel is open** (on the right) but unfocused, so

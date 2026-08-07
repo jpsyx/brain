@@ -354,20 +354,35 @@ pub(super) fn assert_workspace_only_launch_spec(
                 crate::session::shell_quote(&format!("developer_instructions={serialized}"))
             )
         }
-        AgentKind::OpenCode => unreachable!("OpenCode stub never launches"),
+        AgentKind::OpenCode => "--agent brain".to_owned(),
     };
-    let prompt_argument = format!("-- {}", crate::session::shell_quote(prompt));
+    let prompt_argument = match kind {
+        AgentKind::OpenCode => format!("--prompt {}", crate::session::shell_quote(prompt)),
+        AgentKind::Claude | AgentKind::Codex => {
+            format!("-- {}", crate::session::shell_quote(prompt))
+        }
+    };
 
     assert_eq!(spec.cwd, root);
-    let policy_offset = spec
-        .command
-        .find(&trusted_argument)
-        .expect("exact trusted workspace policy in frontend instructions");
+    if kind == AgentKind::OpenCode {
+        let config = spec
+            .environment
+            .iter()
+            .find(|(name, _)| name == "OPENCODE_CONFIG_CONTENT")
+            .and_then(|(_, value)| serde_json::from_str::<serde_json::Value>(value).ok())
+            .expect("OpenCode inline configuration");
+        assert!(
+            config["agent"]["brain"]["prompt"]
+                .as_str()
+                .is_some_and(|value| value.contains("advisory prompt enforcement"))
+        );
+    }
+    let policy_offset = spec.command.find(&trusted_argument).unwrap_or(0);
     let prompt_offset = spec
         .command
         .find(&prompt_argument)
         .expect("separate user prompt after the option terminator");
-    assert!(policy_offset < prompt_offset);
+    assert!(kind == AgentKind::OpenCode || policy_offset < prompt_offset);
     assert!(spec.command.ends_with(&prompt_argument));
     assert_eq!(
         environment_value(spec, "BRAIN_ACTOR_ID"),

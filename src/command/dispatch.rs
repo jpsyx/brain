@@ -151,11 +151,7 @@ pub fn run(
         ),
         Some(Cmd::Tasks(ref mut args)) => {
             crate::logging::log("dispatch tasks");
-            let agent_kind = if super::tasks::take_codex_flag(&mut args.rest) {
-                crate::session::AgentKind::Codex
-            } else {
-                agent_kind
-            };
+            let agent_kind = super::tasks::take_agent_flag(&mut args.rest).unwrap_or(agent_kind);
             let rewritten = super::tasks::rewrite_mark_grammar(
                 std::iter::once("brain tasks".to_owned())
                     .chain(std::mem::take(&mut args.rest))
@@ -187,20 +183,15 @@ pub fn run(
     }
 }
 
-/// Reject a known selection stub before workspace, TUI, hook, server, or PTY setup.
+/// Validate the selected agent frontend before workspace, TUI, hook, server,
+/// or PTY setup.
 ///
 /// # Errors
 ///
-/// Returns [`crate::agent::AgentError::UnsupportedFrontend`] for OpenCode.
 pub fn validate_agent_kind(
-    agent_kind: crate::session::AgentKind,
+    _agent_kind: crate::session::AgentKind,
 ) -> Result<(), crate::agent::AgentError> {
-    match agent_kind {
-        crate::session::AgentKind::Claude | crate::session::AgentKind::Codex => Ok(()),
-        crate::session::AgentKind::OpenCode => Err(crate::agent::AgentError::UnsupportedFrontend(
-            crate::session::AgentKind::OpenCode,
-        )),
-    }
+    Ok(())
 }
 
 fn ready_context(capability: DispatchCapability<'_>) -> Result<&CommandContext> {

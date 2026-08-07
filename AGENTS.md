@@ -19,8 +19,8 @@ Bare `brain` (and `brain tasks …`) opens a **persistent shell** (`tui/`) with
 startup default) and the **brain-directory search view** (fuzzy-pick over the
 selected root), plus the **logs view**, and one app-level **brain panel** (an
 interactive agent session in a PTY, Claude by default or Codex with `--codex` /
-`-cx`, open at startup and shared by all views). `--open-code` / `-oc` is a
-reserved fail-fast stub until OpenCode is functional. Switch views with
+`-cx`, open at startup and shared by all views). `--open-code` / `-oc` selects
+the functional OpenCode adapter. Switch views with
 `Ctrl+L`/`Ctrl+H` (cycle) or
 `Ctrl+T`/`Ctrl+B` (jump). Read [docs/glossary.md](docs/glossary.md) first for
 the main-view / sub-view / brain-panel vocabulary.
@@ -66,7 +66,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | A **tasks-view** keybinding | `docs/keybindings.md`, the `src/tasks/shortcuts.rs` table (footer + help modal), `compact_footer_line` in `src/tasks/render/chrome.rs`, **and** (if it's also a palette / task-action row) `shortcut_for` in `src/tui/palette/command.rs` |
 | A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+S`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
 | A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu/model.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
-| How the brain panel launches Claude, Codex, or the OpenCode stub (`claude_cmd`, `codex_cmd`, `open_code_cmd`, frontend selectors), or the file-open / Finder path | `docs/integrations.md` (controller/adapters in `src/agent/`; compatibility builders in `src/session.rs`; agent commands in `src/env/`; openers in `src/open_target.rs`) |
+| How the brain panel launches Claude, Codex, or OpenCode (`claude_cmd`, `codex_cmd`, `opencode_cmd`, frontend selectors), or the file-open / Finder path | `docs/integrations.md` (controller/adapters in `src/agent/`; compatibility builders in `src/session.rs`; agent commands in `src/env/`; openers in `src/open_target.rs`) |
 | The SessionStart/Stop hooks, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{claude_session_start_hook,claude_stop_hook}.py`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
 | Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, the `sync` block's fields, or **root resolution** (`root` is structural workspace-registry data in `~/.config/brain/env.json`, never writable free-form env; the legacy `~/.config/brain-root` pointer is read-only migration input) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; legacy compatibility in `src/paths.rs`; selected roots in `src/workspace/`; the `sync` block schema in `src/sync/config.rs`) |
@@ -295,9 +295,9 @@ users in `skills/`.)
   and test equivalent lifecycle, prompt, completion, and delivery behavior for
   both functional frontends. If one exposes a different integration surface
   (for example, Claude settings versus Codex `~/.codex/hooks.json`), bridge the
-  difference inside Brain. Keep OpenCode's adapter intentionally inert and
-  fail-fast until that frontend is implemented; never route around the
-  controller to make one call site appear supported.
+  difference inside Brain. Keep every frontend behind the same controller
+  facade; never route around the controller to make one call site appear
+  supported.
 - **Auto-commit project-management-log-only changes straight to `main`.** When
   a change is **exclusively** an update to the project-management log under
   `docs/product-manager/` made through the `/repo-product-manager` skill (a new

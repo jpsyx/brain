@@ -1,8 +1,8 @@
 //! `tasks doctor`: validate selected-workspace feature and agent health.
 //! wired up.
 //!
-//! Reports on the selected workspace's state DB, Claude and Codex
-//! SessionStart hooks, rclone, sync state, and centralized feature requirements.
+//! Reports on the selected workspace's state DB, frontend lifecycle
+//! integrations, rclone, sync state, and centralized feature requirements.
 //!
 //! A missing frontend hook means that frontend cannot record the brain panel's
 //! sessions for resume.
@@ -27,6 +27,7 @@ pub struct Diagnosis {
     pub codex_hooks_path: PathBuf,
     pub claude_hook_installed: bool,
     pub codex_hook_installed: bool,
+    pub opencode_plugin_installed: bool,
     pub rclone_version: Option<String>,
     pub sync_configured: bool,
 }
@@ -38,6 +39,7 @@ impl Diagnosis {
             && self.db_schema_ok
             && self.claude_hook_installed
             && self.codex_hook_installed
+            && self.opencode_plugin_installed
     }
 }
 
@@ -93,9 +95,11 @@ pub fn run_doctor_with_frontends(
         diag.hook_command = Some(cmd);
     }
     diag.codex_hook_installed = find_session_start_hook(&diag.codex_hooks_path).is_some();
+    let workspace_root = settings_dir.parent().unwrap_or_else(|| Path::new("."));
+    diag.opencode_plugin_installed = workspace_root.join(".opencode/plugins/brain.js").is_file();
     crate::logging::log(format!(
-        "doctor hooks claude={} codex={}",
-        diag.claude_hook_installed, diag.codex_hook_installed
+        "doctor frontend integrations claude={} codex={} opencode={}",
+        diag.claude_hook_installed, diag.codex_hook_installed, diag.opencode_plugin_installed
     ));
     crate::logging::log("doctor probe rclone");
     diag.rclone_version = detect_rclone_version();
@@ -289,7 +293,14 @@ pub fn format_workspace_report(
         mark(diag.codex_hook_installed),
         health(diag.codex_hook_installed, theme)
     );
-    if !diag.claude_hook_installed || !diag.codex_hook_installed {
+    let _ = writeln!(
+        output,
+        "    {} OpenCode Brain plugin: {}",
+        mark(diag.opencode_plugin_installed),
+        health(diag.opencode_plugin_installed, theme)
+    );
+    if !diag.claude_hook_installed || !diag.codex_hook_installed || !diag.opencode_plugin_installed
+    {
         let installer = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/install_hook.sh");
         let _ = writeln!(
             output,

@@ -109,7 +109,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub codex: bool,
 
-    /// Select the fail-fast OpenCode stub. Alias: -oc.
+    /// Use OpenCode for the brain panel. Alias: -oc.
     #[arg(long = "open-code", global = true)]
     pub open_code: bool,
 

@@ -232,7 +232,9 @@ journal exists, ordinary sync and sync setup require migration to resume;
 ordinary startup and sync paths never activate migration. Task `assigned_to`,
 managed triage-habit policy, and the complete shared receiver lifecycle are
 active. The agent-controller facade and advisory access modes are active;
-functional OpenCode sessions remain a fail-fast future surface.
+OpenCode sessions use the same controller, state, and receiver lifecycle as
+Claude and Codex. OpenCode-specific command arguments and lifecycle events are
+owned by its adapter.
 
 ### Selected workspace env
 
@@ -246,7 +248,7 @@ record fields are managed by `brain workspace`, not exposed as free-form env.
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
 | `codex_cmd` | `codex` | Command that launches the brain panel's Codex frontend on **this machine**. Current live panels start fresh because the adapter rejects resume candidates; the compatibility command builder retains `resume <id>` syntax for a validated future source. Fresh Codex panels launch without Claude-only `--session-id` / `--resume` flags. Blank falls back to `codex`. |
-| `opencode_cmd` | `opencode` | Reserved command for the selectable OpenCode stub on **this machine**. Blank falls back to `opencode`; the current stub never executes it. |
+| `opencode_cmd` | `opencode` | Command used to launch OpenCode on **this machine**. Blank falls back to `opencode`; Brain appends its named agent and session arguments. |
 | `agent_capabilities` | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
 | `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus the mandatory startup pull and change-triggered pushes; there is no periodic idle pull. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
 

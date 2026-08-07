@@ -189,12 +189,12 @@ first move is a failing test that reproduces it, *then* the fix.
   blank compatibility-plan session IDs), and `env_for`. The command matrix
   lives here once; the integration characterization suite keeps only its real
   hook and environment boundaries.
-- **OpenCode fail-fast smoke boundary.** `tests/opencode_smoke.rs` covers
-  `--open-code`, normalized `-oc`, the typed mutually exclusive selection
-  error and exact plain rendering, early process rejection, direct adapter
-  rejection, and every controller lifecycle/input/terminal-control rejection
-  against an instrumented transport with no side effects. Env units cover the
-  reserved command value. No test launches OpenCode.
+- **OpenCode smoke boundary.** `tests/opencode_smoke.rs` covers `--open-code`,
+  normalized `-oc`, mutually exclusive selection, adapter command generation,
+  trusted named-agent configuration, semantic input translation, session
+  identity, and controller delegation without launching a real OpenCode
+  process. Hook installer tests cover idempotent plugin installation and
+  transactional rollback.
 - **Portable advisory access policy.** `tests/workspace_access_policy.rs`
   proves first/later create and attach defaults, valid-v2 upgrade seeding,
   strict typed status, trusted config mutation, and default-switch byte

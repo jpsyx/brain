@@ -34,6 +34,15 @@ fn semantic_operations_are_forwarded_without_callers_constructing_keystrokes() {
 }
 
 #[test]
+fn availability_is_checked_through_the_controller_facade() {
+    let (controller, recording, _, _) = controller();
+
+    controller.ensure_available().expect("frontend available");
+
+    assert!(recording.events().is_empty());
+}
+
+#[test]
 fn launch_preserves_fresh_and_resume_session_selection() {
     let (mut controller, recording, workspace, actor) = controller();
     let fresh = SessionPlan::fresh(AgentSession::new("fresh-1").expect("session"));

@@ -11,7 +11,7 @@ pub enum AgentKind {
     Claude,
     /// OpenAI Codex.
     Codex,
-    /// OpenCode (selection stub only).
+    /// OpenCode.
     OpenCode,
 }
 

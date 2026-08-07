@@ -41,7 +41,7 @@ fn tasks_doctor_is_grouped_by_workspace_and_does_not_write_state() {
     assert!(stdout.contains("Workspace brain"), "{stdout}");
     assert!(stdout.contains("Claude SessionStart"), "{stdout}");
     assert!(stdout.contains("Codex SessionStart"), "{stdout}");
-    assert!(!stdout.contains("OpenCode"), "{stdout}");
+    assert!(stdout.contains("OpenCode Brain plugin"), "{stdout}");
     assert!(stdout.contains("Features"), "{stdout}");
 }
 

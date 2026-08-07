@@ -301,10 +301,17 @@ Inbound actor precedence remains immutable request context after provider
 authentication. Task `assigned_to` now defaults to that actor, while unrelated
 mutations preserve the existing assignment and explicit changes validate
 portable membership. This deliberately adds no owner, creator, audit, or device
-semantics. The agent-controller facade and fail-fast OpenCode selection stub
-are active; shared receiver leases and authenticated forwarding are active as
-well. Functional OpenCode behavior remains a later phase. Actor context is
+semantics. The agent-controller facade and shared receiver leases are active,
+and OpenCode uses the same lifecycle boundary through its adapter and plugin.
+Actor context is
 attribution and routing, not a new authentication or access-control boundary.
+
+The agent-controller facade keeps frontend-specific command lines, environment
+policy, lifecycle hooks, session identity, and PTY control behind one semantic
+surface. Claude, Codex, and OpenCode adapters own their syntax differences;
+callers do not branch on frontend-specific keystrokes. OpenCode's plugin is a
+thin event bridge into the existing Brain hooks so attribution, completion, and
+delivery continue to use the frontend-neutral state database.
 
 The same portable user ID may be selected on multiple computers because it
 names the person, not their machine. We intentionally add no cross-machine

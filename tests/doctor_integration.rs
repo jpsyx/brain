@@ -115,6 +115,9 @@ fn diagnosis_is_ok_when_all_checks_pass() {
         ]}]}}"#,
     )
     .unwrap();
+    let plugin = tmp.path().join("brain/.opencode/plugins/brain.js");
+    std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+    std::fs::write(plugin, "session.created session.idle").unwrap();
     let diag = brain::tasks::doctor::run_doctor_with_frontends(
         &db_path,
         &settings_dir,
@@ -127,7 +130,7 @@ fn diagnosis_is_ok_when_all_checks_pass() {
 }
 
 #[test]
-fn doctor_requires_claude_and_codex_hooks_but_has_no_opencode_check() {
+fn doctor_requires_all_functional_frontend_integrations() {
     let tmp = tempfile::TempDir::new().unwrap();
     let db_path = tmp.path().join("state.db");
     make_db(&db_path);
@@ -151,6 +154,7 @@ fn doctor_requires_claude_and_codex_hooks_but_has_no_opencode_check() {
 
     assert!(diag.claude_hook_installed);
     assert!(!diag.codex_hook_installed);
+    assert!(!diag.opencode_plugin_installed);
     assert!(!diag.is_ok());
 }
 

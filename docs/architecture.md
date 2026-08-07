@@ -156,10 +156,10 @@ Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
 not use that UUID-scoped path.
 
-The frontend-neutral `agent` facade, concrete Claude/Codex adapters, PTY
-transport, main and triage controller ownership, receiver controller dispatch,
-advisory portable access modes, and a fail-fast OpenCode selection stub now
-exist. Functional OpenCode sessions remain a later phase; coordinated
+The frontend-neutral `agent` facade, concrete Claude/Codex/OpenCode adapters,
+PTY transport, main and triage controller ownership, receiver controller
+dispatch, advisory portable access modes, and the OpenCode lifecycle plugin
+now exist. Coordinated
 task-schema activation is available only through explicit workspace migration.
 The shared process control protocol, live TUI leases,
 heartbeats, crash recovery, final-TUI shutdown, opaque-ingress routing,

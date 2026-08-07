@@ -152,6 +152,7 @@ impl SetupSnapshot {
             root.join(".claude/brain-hooks/claude_stop_hook.py"),
             root.join(".claude/settings.json"),
             home.join(".codex/hooks.json"),
+            root.join(".opencode/plugins/brain.js"),
         ];
         let files = paths
             .into_iter()
@@ -161,6 +162,8 @@ impl SetupSnapshot {
             root.join(".claude/brain-hooks"),
             root.join(".claude"),
             home.join(".codex"),
+            root.join(".opencode/plugins"),
+            root.join(".opencode"),
         ]
         .into_iter()
         .map(|path| DirectorySnapshot {
@@ -291,6 +294,7 @@ impl SetupSnapshot {
             InstallStep::StopScript => root.join(".claude/brain-hooks/claude_stop_hook.py"),
             InstallStep::ClaudeSettings => root.join(".claude/settings.json"),
             InstallStep::CodexSettings => home.join(".codex/hooks.json"),
+            InstallStep::OpenCodePlugin => root.join(".opencode/plugins/brain.js"),
         };
         self.record_file(&path)
     }

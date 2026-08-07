@@ -39,7 +39,7 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_both_fro
     let cli = Cli::parse_from(["tasks"]);
     let prompt = "-c developer_instructions=untrusted-main-prompt";
 
-    for kind in [AgentKind::Claude, AgentKind::Codex] {
+    for kind in [AgentKind::Claude, AgentKind::Codex, AgentKind::OpenCode] {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
         app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
@@ -66,7 +66,9 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_both_fro
             AgentKind::Codex => {
                 assert!(!spec.command.contains(" resume "));
             }
-            AgentKind::OpenCode => unreachable!("OpenCode stub never launches"),
+            AgentKind::OpenCode => {
+                assert!(spec.command.contains("--agent brain"));
+            }
         }
     }
 }
@@ -281,7 +283,7 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
 
-    for agent_kind in [AgentKind::Claude, AgentKind::Codex] {
+    for agent_kind in [AgentKind::Claude, AgentKind::Codex, AgentKind::OpenCode] {
         let mut app = test_app(&temporary, &cli, agent_kind);
         let capture = capture_panel(app.command_context.workspace.root());
         app.brain = Some(panel_controller(&app, capture));
@@ -295,9 +297,8 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
         assert_eq!(app.focus, Panel::Brain);
         assert!(app.brain_turn_active);
         let expected_bytes = match agent_kind {
-            AgentKind::Claude => "2f 6e 65 77 0d",
+            AgentKind::Claude | AgentKind::OpenCode => "2f 6e 65 77 0d",
             AgentKind::Codex => "2f 6e 65 77 09",
-            AgentKind::OpenCode => unreachable!("OpenCode stub never launches"),
         };
         let panel = app
             .brain

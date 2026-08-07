@@ -1,4 +1,4 @@
-//! Workspace-sensitive Claude and Codex hook installation.
+//! Workspace-sensitive lifecycle integration for configured agent frontends.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -175,6 +175,7 @@ pub(super) enum InstallStep {
     StopScript,
     ClaudeSettings,
     CodexSettings,
+    OpenCodePlugin,
 }
 
 fn install_for_home(root: &Path, home: &Path) -> Result<()> {
@@ -239,6 +240,23 @@ pub(super) fn install_for_home_with(
         replace_entry(codex_hooks, "Stop", "claude_stop_hook.py", &codex_stop);
     })?;
     after_write(InstallStep::CodexSettings)?;
+    let opencode_plugin = root.join(".opencode/plugins/brain.js");
+    if let Some(parent) = opencode_plugin.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(
+        &opencode_plugin,
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/scripts/opencode_brain_plugin.js"
+        )),
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&opencode_plugin, std::fs::Permissions::from_mode(0o644))?;
+    }
+    after_write(InstallStep::OpenCodePlugin)?;
     Ok(())
 }
 

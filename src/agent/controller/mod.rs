@@ -87,6 +87,11 @@ impl AgentController {
         }
     }
 
+    /// Check that the selected frontend can service facade operations.
+    pub fn ensure_available(&self) -> Result<(), AgentError> {
+        self.frontend.ensure_available()
+    }
+
     /// Build a frontend launch spec and start it through the transport.
     ///
     /// # Errors
