@@ -1127,8 +1127,10 @@ The opaque ingress first resolves through the
 shared process's live lease table. Only then does the server reload schema v2,
 verify the exact registry workspace and root plus matching portable manifest,
 and read or write that workspace's habits CSV. Missing, malformed, unknown,
-receiver-disabled, no-live-TUI, unavailable, or mismatched routes never fall
-back to the machine default; the unavailable cases return 503. POST routing
+no-live-TUI, unavailable, or mismatched routes never fall back to the machine
+default; the unavailable cases return 503. Receiver enablement gates
+provider-facing routes, not local capability-protected habits and triage pages.
+POST routing
 and live-lease checks happen before body IO, and local habits/triage action
 bodies larger than 16 KiB return 413. TUI links retain the ingress accepted at
 registration, while `brain habits -b <workspace>` asks the live shared process

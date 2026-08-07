@@ -206,7 +206,7 @@ fn local_actions_reject_a_peer_workspace_lease_capability() {
 }
 
 #[test]
-fn receiver_disabled_live_ingress_is_unavailable_while_peer_stays_routable() {
+fn receiver_disabled_live_ingress_still_allows_local_habits_actions() {
     let server = ServerFixture::new(FAMILY_ID);
     server.disable_family_receiver();
 
@@ -226,8 +226,8 @@ fn receiver_disabled_live_ingress_is_unavailable_while_peer_stays_routable() {
         server.personal_lease, server.personal_ingress
     ));
 
-    assert!(family.starts_with("HTTP/1.1 503"), "{family}");
-    assert!(family_triage.starts_with("HTTP/1.1 503"), "{family_triage}");
+    assert!(family.starts_with("HTTP/1.1 200"), "{family}");
+    assert!(family_triage.starts_with("HTTP/1.1 200"), "{family_triage}");
     assert!(personal.starts_with("HTTP/1.1 200"), "{personal}");
     assert!(personal.contains("Personal habit"), "{personal}");
 }

@@ -314,6 +314,20 @@ impl LeaseTable {
             .map(|lease| (lease.ingress_id, lease.lease_id))
     }
 
+    /// Return the exact live lease for a local capability route, regardless of
+    /// the workspace's inbound receiver setting.
+    #[must_use]
+    pub(crate) fn live_local_lease(
+        &self,
+        ingress_id: IngressId,
+        now: Instant,
+    ) -> Option<WorkspaceLease> {
+        self.live
+            .values()
+            .find(|lease| lease.ingress_id == ingress_id && lease.expires_at > now)
+            .cloned()
+    }
+
     /// Return the receiver snapshot of an exact unexpired workspace lease.
     #[must_use]
     pub fn live_receiver_enabled(&self, workspace_id: WorkspaceId, now: Instant) -> Option<bool> {

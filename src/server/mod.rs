@@ -155,7 +155,7 @@ fn resolve_local_workspace_route(
         drop(server);
         route
     };
-    resolve_workspace_route_ticket(control, &ticket, std::time::Instant::now, &loader)
+    resolve_local_workspace_route_ticket(control, &ticket, std::time::Instant::now, &loader)
 }
 
 pub(in crate::server) fn resolve_workspace_route(
@@ -340,6 +340,19 @@ fn resolve_workspace_route_ticket(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .finish_workspace_route(ticket, context, now())
+}
+
+fn resolve_local_workspace_route_ticket(
+    control: &Mutex<control::ControlServer>,
+    ticket: &workspace_route::WorkspaceRouteTicket,
+    now: impl Fn() -> std::time::Instant,
+    loader: &impl workspace_route::WorkspaceContextLoader,
+) -> Result<workspace_route::ResolvedWorkspaceRoute, workspace_route::WorkspaceRouteError> {
+    let context = loader.load(ticket.lease())?;
+    control
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .finish_local_workspace_route(ticket, context, now())
 }
 
 fn read_local_action_body(request: &mut http::Request) -> Result<String, LocalActionBodyError> {

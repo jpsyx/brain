@@ -507,9 +507,10 @@ was lost. At admission commit, that filesystem reload remains outside the
 control mutex. One combined operation then acquires control, samples the
 monotonic instant inside the lock, revalidates exact route and admission
 identity, and performs the admission CAS before unlocking.
-Unknown ingress returns 404. Known ingress that is receiver-disabled or has no
-live TUI returns 503 before local route behavior or receiver dispatch; it is
-never acknowledged as accepted work.
+Unknown ingress returns 404. Receiver-disabled or no-live-TUI ingress returns
+503 for provider-facing receiver dispatch. Local capability routes remain
+available to a live TUI or browser-only habits lease even when inbound
+receiver intent is disabled.
 
 The shared listener uses four fixed process-lifetime accept workers and no
 application request queue. Each connection carries one request, request heads

@@ -53,7 +53,7 @@ impl ControlServer {
             capability,
             now,
         )?;
-        let loader = crate::server::workspace_route::VerifiedWorkspaceContextLoader::new(
+        let loader = crate::server::workspace_route::VerifiedWorkspaceContextLoader::new_local(
             self.registry_store.clone(),
             self.runtime_home.clone(),
         );
@@ -71,6 +71,31 @@ impl ControlServer {
         crate::server::workspace_route::WorkspaceRouteError,
     > {
         crate::server::workspace_route::WorkspaceRouteAuthority::finish(
+            &self.leases,
+            self.generation,
+            ticket,
+            now,
+        )?;
+        Ok(
+            crate::server::workspace_route::ResolvedWorkspaceRoute::with_authority(
+                context,
+                ticket.lease().clone(),
+                self.registry_store.clone(),
+                ticket.clone(),
+            ),
+        )
+    }
+
+    pub(crate) fn finish_local_workspace_route(
+        &self,
+        ticket: &crate::server::workspace_route::WorkspaceRouteTicket,
+        context: crate::workspace::WorkspaceContext,
+        now: Instant,
+    ) -> Result<
+        crate::server::workspace_route::ResolvedWorkspaceRoute,
+        crate::server::workspace_route::WorkspaceRouteError,
+    > {
+        crate::server::workspace_route::WorkspaceRouteAuthority::finish_local(
             &self.leases,
             self.generation,
             ticket,

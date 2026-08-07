@@ -122,6 +122,7 @@ pub(crate) trait WorkspaceContextLoader: Send {
 pub(crate) struct VerifiedWorkspaceContextLoader {
     registry_store: RegistryStore,
     runtime_home: std::path::PathBuf,
+    require_receiver_enabled: bool,
 }
 
 impl VerifiedWorkspaceContextLoader {
@@ -132,13 +133,30 @@ impl VerifiedWorkspaceContextLoader {
         Self {
             registry_store,
             runtime_home,
+            require_receiver_enabled: true,
+        }
+    }
+
+    pub(crate) const fn new_local(
+        registry_store: RegistryStore,
+        runtime_home: std::path::PathBuf,
+    ) -> Self {
+        Self {
+            registry_store,
+            runtime_home,
+            require_receiver_enabled: false,
         }
     }
 }
 
 impl WorkspaceContextLoader for VerifiedWorkspaceContextLoader {
     fn load(&self, lease: &WorkspaceLease) -> Result<WorkspaceContext, WorkspaceRouteError> {
-        load_verified_context(&self.registry_store, &self.runtime_home, lease)
+        load_verified_context(
+            &self.registry_store,
+            &self.runtime_home,
+            lease,
+            self.require_receiver_enabled,
+        )
     }
 }
 
@@ -178,7 +196,7 @@ impl<'a> WorkspaceRouteResolver<'a> {
         ingress: IngressId,
     ) -> Result<ResolvedWorkspaceRoute, WorkspaceRouteError> {
         let lease = accepting_lease(self.leases, ingress, self.now)?;
-        let context = load_verified_context(self.registry_store, self.runtime_home, &lease)?;
+        let context = load_verified_context(self.registry_store, self.runtime_home, &lease, true)?;
         Ok(ResolvedWorkspaceRoute::new(
             context,
             lease,
@@ -216,7 +234,15 @@ impl WorkspaceRouteAuthority {
         capability: crate::server::lifecycle::LeaseId,
         now: Instant,
     ) -> Result<WorkspaceRouteTicket, WorkspaceRouteError> {
-        let ticket = Self::begin(leases, generation, ingress, now)?;
+        let lease = local_lease(leases, ingress, now)?;
+        let ticket =
+            WorkspaceRouteTicket {
+                generation,
+                authority_revision: leases.authority_revision(lease.workspace_id).ok_or_else(
+                    || WorkspaceRouteError::new(503, "workspace route authority is stale"),
+                )?,
+                lease,
+            };
         if ticket.lease.lease_id != capability {
             return Err(WorkspaceRouteError::new(404, "local route not found"));
         }
@@ -247,6 +273,50 @@ impl WorkspaceRouteAuthority {
             ));
         }
         Ok(())
+    }
+
+    /// Revalidate a local capability route without consulting receiver intent.
+    pub(crate) fn finish_local(
+        leases: &LeaseTable,
+        generation: ServerGeneration,
+        ticket: &WorkspaceRouteTicket,
+        now: Instant,
+    ) -> Result<(), WorkspaceRouteError> {
+        if ticket.generation != generation {
+            return Err(WorkspaceRouteError::new(
+                503,
+                "workspace route authority is stale",
+            ));
+        }
+        let current = local_lease(leases, ticket.lease.ingress_id, now)?;
+        let current_revision = leases.authority_revision(current.workspace_id);
+        if current_revision != Some(ticket.authority_revision)
+            || !same_authority(&current, &ticket.lease)
+        {
+            return Err(WorkspaceRouteError::new(
+                503,
+                "workspace route authority changed while loading",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn local_lease(
+    leases: &LeaseTable,
+    ingress: IngressId,
+    now: Instant,
+) -> Result<WorkspaceLease, WorkspaceRouteError> {
+    if let Some(lease) = leases.live_local_lease(ingress, now) {
+        return Ok(lease);
+    }
+    if leases.known_workspace(ingress).is_some() {
+        Err(WorkspaceRouteError::new(
+            503,
+            "workspace route is unavailable",
+        ))
+    } else {
+        Err(WorkspaceRouteError::new(404, "workspace route not found"))
     }
 }
 
@@ -279,6 +349,7 @@ fn load_verified_context(
     registry_store: &RegistryStore,
     runtime_home: &Path,
     lease: &WorkspaceLease,
+    require_receiver_enabled: bool,
 ) -> Result<WorkspaceContext, WorkspaceRouteError> {
     let registry = RegistryStore::load_from(registry_store.path()).map_err(|error| {
         WorkspaceRouteError::new(500, format!("workspace registry unavailable: {error}"))
@@ -293,7 +364,7 @@ fn load_verified_context(
             "workspace registry identity does not match its live lease",
         ));
     }
-    if !record.receiver_enabled {
+    if require_receiver_enabled && !record.receiver_enabled {
         return Err(WorkspaceRouteError::new(
             503,
             "workspace receiver route is disabled",
