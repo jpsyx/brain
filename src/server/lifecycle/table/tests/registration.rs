@@ -140,6 +140,18 @@ fn tui_registration_replaces_the_browser_only_background_lease() {
 }
 
 #[test]
+fn live_tui_count_excludes_a_browser_only_background_lease() {
+    let now = Instant::now();
+    let mut table = LeaseTable::default();
+    let mut background = lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(3), now, true);
+    background.tui_pid = 0;
+    background.job_socket = PathBuf::new();
+    table.register(background, now).unwrap();
+
+    assert_eq!(table.live_tui_count_at(now), 0);
+}
+
+#[test]
 fn rejects_a_duplicate_live_lease_id() {
     let now = Instant::now();
     let mut table = LeaseTable::default();

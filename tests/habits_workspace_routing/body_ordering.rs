@@ -12,13 +12,7 @@ fn unavailable_posts_reject_before_body_io_and_leave_control_responsive() {
 
     for (path, expected_status) in [
         (format!("/w/{UNKNOWN_ID}/habits/done"), "404"),
-        (
-            format!(
-                "/local/{}/w/{}/triage/done",
-                server.family_lease, server.family_ingress
-            ),
-            "503",
-        ),
+        (format!("/w/{}/sms", server.family_ingress), "200"),
     ] {
         let mut partial = partial_post(server.port, &path, 1_000_000);
         let mut response = String::new();

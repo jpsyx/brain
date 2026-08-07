@@ -101,6 +101,9 @@ pub enum Cmd {
     /// syncing. Read-only: runs `rclone bisync --dry-run` under the hood.
     Check,
 
+    /// Stop every running Brain shared server and TUI process on this machine.
+    Killall,
+
     /// Rebuild the derived lookup CSVs (`projects-lookup.csv`,
     /// `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`,
     /// and re-apply the task/habit automation rules. Bare `brain reindex` does
@@ -112,4 +115,21 @@ pub enum Cmd {
 
     /// Manage portable members of the selected workspace.
     User(UserArgs),
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Cli, Cmd};
+
+    #[test]
+    fn killall_parses_as_a_top_level_command() {
+        assert!(matches!(
+            Cli::try_parse_from(["brain", "killall"])
+                .expect("parse killall")
+                .command,
+            Some(Cmd::Killall)
+        ));
+    }
 }

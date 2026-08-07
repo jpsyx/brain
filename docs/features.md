@@ -253,7 +253,8 @@ management and reporting commands stay outside the persistent shell.
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
-| `brain server {status\|logs}` | Inspect the TUI-lifetime shared process without starting, stopping, or repairing it (see below). |
+| `brain server {status\|logs}` | Inspect the shared process without starting, stopping, or repairing it (see below). |
+| `brain killall` | Stop every running Brain shared server and TUI process on this machine, including receiver-serving server processes. |
 | `brain habits` | Start the shared habits server in the background when no TUI is open, then open today's habits page. A second start is rejected while the server or a TUI is already active. |
 | `brain habits kill` | Stop a background habits server. It is rejected while any brain TUI is open. |
 | `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |

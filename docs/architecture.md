@@ -186,7 +186,7 @@ boundary. It links the library modules instead of declaring a duplicate module
 tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
 `command/{configuration,tasks,sync,server,workspace,users,reindex}` modules own the
 existing handlers. `command/server/` further separates receiver setup, HTTP
-server lifecycle, and habits dispatch. Receiver command ownership is reflected
+server lifecycle, habits dispatch, and machine-wide process cleanup. Receiver command ownership is reflected
 on disk: `receiver/mod.rs` owns dispatch, `receiver/setup/` owns selected-record
 provider planning plus portable-user mapping. Its `setup/transaction.rs` owns
 bounded rollback orchestration across the selected machine record, portable

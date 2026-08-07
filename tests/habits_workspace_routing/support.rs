@@ -318,10 +318,3 @@ pub(super) fn partial_post(port: u16, path: &str, advertised_length: usize) -> T
         .expect("write partial HTTP request");
     stream
 }
-
-pub(super) fn wait_until(deadline: Instant, condition: impl Fn() -> bool) {
-    while !condition() {
-        assert!(Instant::now() < deadline, "condition did not become true");
-        std::thread::park_timeout(Duration::from_millis(1));
-    }
-}

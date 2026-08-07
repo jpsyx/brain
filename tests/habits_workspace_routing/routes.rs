@@ -233,7 +233,7 @@ fn receiver_disabled_live_ingress_still_allows_local_habits_actions() {
 }
 
 #[test]
-fn persisted_disable_rejects_before_the_live_lease_refreshes() {
+fn persisted_disable_does_not_block_local_habits_routes() {
     let server = ServerFixture::new(FAMILY_ID);
     server.persist_family_receiver_disabled();
 
@@ -246,6 +246,6 @@ fn persisted_disable_rejects_before_the_live_lease_refreshes() {
         server.personal_lease, server.personal_ingress
     ));
 
-    assert!(family.starts_with("HTTP/1.1 503"), "{family}");
+    assert!(family.starts_with("HTTP/1.1 200"), "{family}");
     assert!(personal.starts_with("HTTP/1.1 200"), "{personal}");
 }

@@ -17,7 +17,7 @@ impl LeaseTable {
     #[must_use]
     pub(crate) fn status_view(&self, workspace_id: WorkspaceId, now: Instant) -> LeaseStatusView {
         LeaseStatusView {
-            live_leases: self.live_count_at(now),
+            live_leases: self.live_tui_count_at(now),
             receiver_enabled: self
                 .live
                 .get(&workspace_id)
@@ -26,12 +26,12 @@ impl LeaseTable {
         }
     }
 
-    /// Count unexpired leases without pruning or advancing lifecycle state.
+    /// Count only live leases owned by actual brain TUI processes.
     #[must_use]
-    pub(crate) fn live_count_at(&self, now: Instant) -> usize {
+    pub(crate) fn live_tui_count_at(&self, now: Instant) -> usize {
         self.live
             .values()
-            .filter(|lease| lease.expires_at > now)
+            .filter(|lease| lease.expires_at > now && lease.tui_pid != 0)
             .count()
     }
 }

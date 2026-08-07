@@ -80,6 +80,10 @@ pub fn run(
         crate::logging::log("dispatch server");
         return super::server::run_server(args);
     }
+    if matches!(&cli.command, Some(Cmd::Killall)) {
+        crate::logging::log("dispatch killall");
+        return super::server::killall();
+    }
     let context = ready_context(capability)?;
     if let Some(Cmd::Config(args)) = &cli.command {
         crate::logging::log("dispatch config");
@@ -178,6 +182,7 @@ pub fn run(
             | Cmd::Receiver(_)
             | Cmd::Habits(_)
             | Cmd::Check
+            | Cmd::Killall
             | Cmd::Reindex(_)
             | Cmd::Workspace(_)
             | Cmd::User(_),

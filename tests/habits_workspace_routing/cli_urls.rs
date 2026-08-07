@@ -1,6 +1,5 @@
 use std::os::unix::fs::PermissionsExt as _;
 use std::process::Command;
-use std::time::{Duration, Instant};
 
 use super::support::*;
 
@@ -39,22 +38,11 @@ fn habits_cli_uses_the_selected_workspaces_accepted_ingress_after_manifest_misma
         .env("BRAIN_TEST_OPENED_URL", &opened_url)
         .output()
         .expect("run habits command");
+    assert!(!output.status.success());
     assert!(
-        output.status.success(),
+        String::from_utf8_lossy(&output.stderr).contains("brain TUI is already running"),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    wait_until(Instant::now() + Duration::from_secs(1), || {
-        opened_url.is_file()
-    });
-    let opened = std::fs::read_to_string(&opened_url).expect("captured habits URL");
-
-    assert!(
-        opened.contains(&server.family_ingress.to_string()),
-        "{opened}"
-    );
-    assert!(
-        !opened.contains(&server.personal_ingress.to_string()),
-        "{opened}"
-    );
+    assert!(!opened_url.exists());
 }

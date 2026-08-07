@@ -170,7 +170,7 @@ impl ControlServer {
                 ControlOutcome::WorkspaceStatus(self.leases.status_view(workspace_id, now))
             }
             ControlRequest::Snapshot => {
-                let live_leases = self.leases.live_count_at(now);
+                let live_leases = self.leases.live_tui_count_at(now);
                 ControlOutcome::Snapshot(ServerSnapshot {
                     generation: self.generation,
                     live_leases,

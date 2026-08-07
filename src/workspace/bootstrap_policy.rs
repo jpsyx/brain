@@ -26,6 +26,7 @@ pub enum Invocation {
     Skills,
     Server,
     ServerStatus,
+    Killall,
     Receiver,
     ReceiverStatus,
     Habits,
@@ -77,6 +78,7 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::Skills
         | Invocation::Server
         | Invocation::ServerStatus
+        | Invocation::Killall
         | Invocation::Receiver
         | Invocation::ReceiverStatus
         | Invocation::Habits
@@ -91,9 +93,11 @@ pub(super) const fn registry_only_prompt_order(
 #[must_use]
 pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
     match invocation {
-        Invocation::Help | Invocation::Version | Invocation::Server | Invocation::ServerStatus => {
-            BootstrapPolicy::None
-        }
+        Invocation::Help
+        | Invocation::Version
+        | Invocation::Server
+        | Invocation::ServerStatus
+        | Invocation::Killall => BootstrapPolicy::None,
         Invocation::AgentHook | Invocation::InternalServer => BootstrapPolicy::InternalNoPrompt,
         Invocation::WorkspaceCreate
         | Invocation::WorkspaceAttach
@@ -152,6 +156,7 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
             }
         }
         Some(Cmd::Check) => Invocation::Check,
+        Some(Cmd::Killall) => Invocation::Killall,
         Some(Cmd::Personalize(_)) => Invocation::Personalize,
         Some(Cmd::Skills(_)) => Invocation::Skills,
         Some(Cmd::Server(args)) => match args.action {

@@ -405,8 +405,9 @@ so the same value can retry after repair. Losing TUI contenders use bounded
 polling for the published winner.
 
 The process is not an independently managed daemon. Public `brain server`
-actions are read-only `status` and `logs`; there is no start, kill, or restart
-surface. Only live TUI startup and heartbeat recovery may call the electing
+actions are read-only `status` and `logs`; `brain killall` is the explicit
+machine-wide emergency cleanup surface for shared servers and TUI processes.
+Only live TUI startup and heartbeat recovery may call the electing
 client. Habits and triage callers attach without electing. The final orderly
 lease removal returns `ShutdownNow` immediately; an injected-clock watchdog
 expires crashed leases, preserves final-expiry shutdown across rejected late
