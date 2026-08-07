@@ -4,27 +4,49 @@ use clap::Parser;
 
 use super::Cmd;
 
-pub(super) fn normalize_agent_aliases<I, S>(args: I) -> Vec<String>
-where
-    I: IntoIterator<Item = S>,
-    S: Into<String>,
-{
-    args.into_iter()
-        .map(Into::into)
-        .map(|arg| match arg.as_str() {
-            "-cx" => "--codex".to_owned(),
-            "-oc" => "--open-code".to_owned(),
-            _ => arg,
-        })
-        .collect()
-}
-
 pub(super) fn normalize_global_args<I, S>(args: I) -> Vec<String>
 where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    extract_workspace_selectors(normalize_agent_aliases(args))
+    let args = args.into_iter().map(Into::into).collect();
+    extract_workspace_selectors(extract_agent_selectors(args))
+}
+
+fn extract_agent_selectors(args: Vec<String>) -> Vec<String> {
+    let Some((program, tail)) = args.split_first() else {
+        return args;
+    };
+    let mut selectors = Vec::new();
+    let mut delegated = Vec::new();
+    let mut terminated = false;
+    for argument in tail {
+        if terminated {
+            delegated.push(argument.clone());
+            continue;
+        }
+        match argument.as_str() {
+            "--" => {
+                terminated = true;
+                delegated.push(argument.clone());
+            }
+            "--codex" | "-cx" => push_unique(&mut selectors, "--codex"),
+            "--open-code" | "-oc" => push_unique(&mut selectors, "--open-code"),
+            _ => delegated.push(argument.clone()),
+        }
+    }
+
+    let mut normalized = Vec::with_capacity(args.len());
+    normalized.push(program.clone());
+    normalized.extend(selectors);
+    normalized.extend(delegated);
+    normalized
+}
+
+fn push_unique(selectors: &mut Vec<String>, selector: &str) {
+    if !selectors.iter().any(|existing| existing == selector) {
+        selectors.push(selector.to_owned());
+    }
 }
 
 fn extract_workspace_selectors(args: Vec<String>) -> Vec<String> {
@@ -168,6 +190,7 @@ impl std::error::Error for AgentSelectionError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::try_parse_from;
     use crate::session::AgentKind;
     use clap::CommandFactory;
 
@@ -195,7 +218,7 @@ mod tests {
 
     #[test]
     fn cx_alias_selects_codex_frontend() {
-        let cli = Cli::try_parse_from(normalize_agent_aliases(["brain", "-cx"])).expect("parse");
+        let cli = try_parse_from(["brain", "-cx"]).expect("parse");
         assert!(cli.codex);
         assert_eq!(cli.selected_agent(), Ok(AgentKind::Codex));
     }
@@ -228,5 +251,85 @@ mod tests {
                 .expect("parse")
                 .no_daily_triage_check
         );
+    }
+
+    #[test]
+    fn frontend_selectors_are_recognized_in_every_supported_task_position() {
+        for (arguments, expected) in [
+            (vec!["brain", "--codex"], AgentKind::Codex),
+            (vec!["brain", "-cx"], AgentKind::Codex),
+            (vec!["brain", "--open-code"], AgentKind::OpenCode),
+            (vec!["brain", "-oc"], AgentKind::OpenCode),
+            (vec!["brain", "tasks", "--open-code"], AgentKind::OpenCode),
+            (
+                vec!["brain", "tasks", "--open-code", "today"],
+                AgentKind::OpenCode,
+            ),
+            (
+                vec!["brain", "tasks", "today", "--open-code"],
+                AgentKind::OpenCode,
+            ),
+            (
+                vec!["brain", "tasks", "today", "-oc", "--no-tui"],
+                AgentKind::OpenCode,
+            ),
+        ] {
+            let cli = try_parse_from(arguments.clone()).expect("selector parse");
+            assert_eq!(cli.selected_agent(), Ok(expected), "{arguments:?}");
+            if let Some(crate::cli::Cmd::Tasks(tasks)) = cli.command {
+                assert!(
+                    tasks.rest.iter().all(|argument| !matches!(
+                        argument.as_str(),
+                        "--codex" | "-cx" | "--open-code" | "-oc"
+                    )),
+                    "selector leaked into delegated tasks arguments: {arguments:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_cross_frontend_selector_combination_is_a_typed_conflict() {
+        for arguments in [
+            vec!["brain", "--codex", "--open-code"],
+            vec!["brain", "-cx", "-oc"],
+            vec!["brain", "--codex", "tasks", "today", "-oc"],
+            vec!["brain", "tasks", "--open-code", "today", "--codex"],
+            vec!["brain", "tasks", "today", "-cx", "--open-code"],
+            vec!["brain", "--codex", "-cx", "tasks", "today", "-oc"],
+        ] {
+            let cli = try_parse_from(arguments.clone()).expect("selectors parse before validation");
+            assert_eq!(
+                cli.selected_agent(),
+                Err(AgentSelectionError::ConflictingFrontends),
+                "{arguments:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_same_frontend_selectors_are_idempotent() {
+        for (arguments, expected) in [
+            (vec!["brain", "--codex", "-cx"], AgentKind::Codex),
+            (
+                vec!["brain", "tasks", "--open-code", "today", "-oc"],
+                AgentKind::OpenCode,
+            ),
+        ] {
+            let cli = try_parse_from(arguments.clone()).expect("duplicate selector");
+            assert_eq!(cli.selected_agent(), Ok(expected), "{arguments:?}");
+        }
+    }
+
+    #[test]
+    fn option_terminator_preserves_selector_looking_task_values() {
+        let cli = try_parse_from(["brain", "tasks", "search", "--", "--open-code", "-cx"])
+            .expect("terminated task values");
+
+        assert_eq!(cli.selected_agent(), Ok(AgentKind::Claude));
+        let Some(crate::cli::Cmd::Tasks(tasks)) = cli.command else {
+            panic!("tasks command");
+        };
+        assert_eq!(tasks.rest, ["search", "--", "--open-code", "-cx"]);
     }
 }

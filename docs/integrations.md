@@ -5,7 +5,7 @@ families. It has no shell-mutating one-shot commands, so there is no plan
 protocol and no zsh wrapper. The TUI owns interactive file opening, Finder
 reveals, PDF conversion, trash, and agent launches by spawning processes
 itself. This doc covers how the binary is run and each of those handoffs, plus
-the frontend SessionStart/Stop hooks, UUID-scoped state DB, shared TUI-lifetime
+the frontend lifecycle bridges, UUID-scoped state DB, shared TUI-lifetime
 server, and workspace-scoped sync boundary.
 
 ## How brain is run (`run.sh`)
@@ -58,12 +58,15 @@ helpers and shell-outs live in the tasks modules:
   changed read snapshot and use a synced same-directory atomic replacement.
   The protected `remove_task.py` boundary rejects enabled managed-row deletion.
 - **`brain tasks doctor`**: prints a progress plan before checking the selected
-  UUID-scoped state DB schema, both Claude and Codex SessionStart hook settings,
-  `rclone version`, and the centralized selected-workspace requirements. It
+  UUID-scoped state DB schema, every registry-declared lifecycle artifact,
+  OpenCode executable compatibility, `rclone version`, and the centralized
+  selected-workspace requirements. Hook commands are checked by event and
+  current script suffix; Brain-owned bridge and plugin files require exact
+  bundled contents, so stale files fail independently. It
   opens SQLite through an immutable read-only URI so a WAL database cannot be
   checkpointed by observation, passes an explicit no-config path to the rclone
   probe, and does not create cache, config, lock, journal, or rendered-skill state.
-  OpenCode remains outside the active controller health check.
+  OpenCode probes use disposable HOME/XDG roots and remove them afterward.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
 - **`brain habits` / palette "Open habits in browser"**: connect to the
   already-running shared brain process and open its
@@ -113,7 +116,7 @@ helpers and shell-outs live in the tasks modules:
 
 This is the "central dispatch" design: `brain` is the single terminal command,
 and each capability is either an in-process main view (tasks, brain-directory
-search) or a spawned process it drives (Claude or Codex for conversational work,
+search) or a spawned process it drives (Claude, Codex, or OpenCode for conversational work,
 Finder/editor for files, `markdown-to-pdf` for conversions).
 
 ## The Brain Panel: Claude, Codex, Or OpenCode
@@ -125,21 +128,43 @@ inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex`,
 launches `opencode` with the named Brain agent, translates semantic input to
 OpenCode control sequences, and supplies the trusted Brain policy through
 `OPENCODE_CONFIG_CONTENT`. The installed `.opencode/plugins/brain.js` bridge
-maps OpenCode session-created and session-idle events into Brain's existing
-lifecycle hooks. Selecting both non-default frontends exits with
+maps OpenCode `session.created` and `session.idle` events into Brain's generic
+lifecycle bridges. Selecting both non-default frontends exits with
 `🔴 Choose one agent frontend: --codex or --open-code.`
 
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
 | Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `<claude_cmd> [--mcp-config <cache-json> --strict-mcp-config] --resume <id>` or `--session-id <id>` |
 | Codex | `codex_cmd` in brain env, default `codex` | Current panels launch fresh as `<codex_cmd> [-c <capability-override>...]`; the adapter retains `resume <id>` for a future validated resume source |
-| OpenCode adapter | `opencode_cmd` in brain env, default `opencode` | Launches with the Brain agent, separate initial prompt, and optional `--session`; lifecycle uses the workspace Brain plugin. |
+| OpenCode | `opencode_cmd` in brain env, default `opencode` | `<opencode_cmd> --agent brain [--session <validated-id>] [--prompt <initial-prompt>]`; lifecycle uses the workspace Brain plugin. |
 
-`agent::ClaudeFrontend` and `agent::CodexFrontend` own these command shapes and
-splice the configured base command in verbatim so it may carry its own flags.
-`agent::OpenCodeFrontend` owns only stable identity and typed unsupported
-results. All frontend operations are fallible so the controller can reject the
-adapter availability and setup before a transport side effect.
+The crate-private `agent::ClaudeFrontend`, `agent::CodexFrontend`, and
+`agent::OpenCodeFrontend` adapters own these command shapes and splice the
+configured base command in verbatim so it may carry its own flags. Shared and
+external callers cannot construct an adapter or issue an adapter operation;
+they use `AgentController`, with `LaunchSpec` and `InputSequence` exposed only
+as transport-boundary values. `agent::registry` is the exhaustive integration
+table: each row owns identity, command key/default, construction, command
+building, lifecycle installation descriptors, health descriptors, capability
+evidence, and any compatibility probe. TUI, setup, doctor, status, and
+compatibility helpers consume that registry instead of growing parallel
+frontend branches. All frontend operations are fallible so the controller can
+reject availability and setup before a transport side effect.
+
+OpenCode compatibility is a supported-feature policy, not a promise about
+every future release. Before launch, and during doctor, Brain checks the
+configured command for a runnable version, `--agent`, `--prompt`, and
+`--session`, JSON `session list --format`, `debug config --pure`, Brain's
+generated capability schema, and loading of the bundled lifecycle plugin.
+Those contracts are anchored to OpenCode's official [CLI](https://opencode.ai/docs/cli/),
+[configuration](https://opencode.ai/docs/config/),
+[agent](https://opencode.ai/docs/agents/), and
+[plugin](https://opencode.ai/docs/plugins/) references.
+These probes run with disposable HOME and XDG roots and bounded output/time;
+they do not alter the user's OpenCode state. Successful reports are cached by
+configured command for that Brain process. A future OpenCode version remains
+supported when those tested surfaces remain compatible; otherwise Brain fails
+with the missing capability and an `opencode_cmd` remediation.
 Before the main panel claims a free resumable session, it resolves the selected
 workspace's capability plan and asks the adapter for the candidate's stable
 response identity. A validation or identity error therefore cannot strand a
@@ -147,7 +172,8 @@ free session as claimed. If the later transport launch fails, Brain releases
 the instance claim and clears the response identity for the attempted
 interactive or receiver launch.
 The TUI owns an `AgentController` for each live main or triage panel and calls
-semantic submit, queue, new-session, snapshot, and shutdown operations. The
+semantic type, immediate submit, busy-turn follow-up, new-session, snapshot,
+completion, resume, and shutdown operations. The
 crate-level `session::build_llm_command` remains a compatibility wrapper for
 pure callers. `PtyPane` implements the frontend-neutral transport and
 applies a complete launch spec; its working directory is set to the
@@ -167,12 +193,32 @@ Every `LaunchRequest` also carries an immutable access-policy snapshot built
 from the selected workspace, resolved actor, and portable config before any
 user or inbound prompt is considered. In `workspace_only` mode, Claude receives
 that advisory through `--append-system-prompt`; Codex receives it through the
-`developer_instructions` config override. The ordinary user prompt remains a
-separate argument after the frontend's `--` option terminator, so prompt text
-that begins with `-` cannot become a Claude flag or Codex config override.
+`developer_instructions` config override. Claude and Codex place the ordinary
+user prompt after their option terminator; OpenCode passes it as one quoted
+`--prompt` value. Prompt text that begins with `-` therefore cannot become a
+frontend flag or config override.
 Fresh, resumed, interactive, SMS, email, and daily-triage
 requests use the same policy construction. Unrestricted mode adds no policy
 instruction.
+
+OpenCode receives the policy through the Brain-owned `agent.brain.prompt` in
+`OPENCODE_CONFIG_CONTENT`; launch always selects that agent with `--agent
+brain`. Brain first parses inherited `OPENCODE_CONFIG_CONTENT` as a JSON object.
+Unrelated top-level and nested values survive. Brain replaces only
+`agent.brain`, `default_agent`, stale `mcp.brain_ws_*` entries, and the selected
+workspace's new `brain_ws_*` MCP entries; it appends the selected actor-local
+skill directory once under `skills.paths`. A non-object at any required merge
+location fails before launch. The explicit inline variable therefore has
+highest precedence for Brain-owned launch keys without discarding unrelated
+user configuration.
+
+The PTY starts from an empty environment. For OpenCode only, Brain restores the
+ambient documented `OPENCODE_*` namespace so configuration paths, TUI settings,
+and other frontend controls continue to work. It then replaces
+`OPENCODE_CONFIG_CONTENT` with the validated merged value above, so inherited
+user configuration survives without allowing an ambient value to displace
+Brain's reserved agent and capability layer. Claude and Codex do not inherit
+that namespace.
 
 `workspace_only` is advisory prompt enforcement plus best-effort capability
 filtering, easy to bypass, and not tenant isolation. The selected cwd,
@@ -208,6 +254,14 @@ configuration and do not prove exclusion of unrelated global servers, Codex
 MCP and skill enforcement remains advisory. Brain does not set `CODEX_HOME` or
 select a separate profile.
 
+OpenCode selected MCPs use the same UUID-and-name-derived `brain_ws_*`
+namespace and environment references for credentials, so secrets remain out of
+argv and inline JSON. The selected skill directory and deny-by-default skill
+permission map are added to the Brain agent. Brain can prove that it generated
+and schema-probed these entries, but it cannot prove that inherited global MCP
+or skill sources are excluded by OpenCode. OpenCode capability evidence is
+therefore `advisory-only`, matching Codex's honesty boundary.
+
 The selected skill view is rendered per workspace UUID and actor below the
 capability cache. It incorporates that root's extensions and contains only
 available selected sources. Machine sources are loaded from exactly their
@@ -224,8 +278,8 @@ so switching workspaces cannot prune or rewrite global skill state. Run
 the formatter never receives connection values or credentials.
 
 Capability artifacts are frontend-lifecycle state. A Claude launch removes
-stale Codex wrappers and abandoned Claude temporary files; a Codex launch
-removes stale Claude JSON and temporary files. Unrestricted launches remove the
+stale Codex/OpenCode runtime artifacts and abandoned Claude temporary files; a
+Codex or OpenCode launch removes stale peer artifacts. Unrestricted launches remove the
 whole workspace capability cache. Cleanup treats symlinks as links rather than
 following them. Before any recursive removal, Brain validates the trusted
 workspace cache root and each existing component down through
@@ -247,21 +301,29 @@ They remain easy to bypass, are unsuitable for adversarial users or sensitive
 isolation, and do not replace an external OS, VM, machine, or container
 boundary.
 
-When brain injects a prompt into an already-open panel, the controller sends
-the text first and owns the final semantic queue action a couple of event-loop
-ticks later so the frontend
-doesn't treat the submit key as part of a paste. Claude receives `Enter`.
-Codex receives `Tab`, because Codex uses `Tab` to queue a message behind active
-work and treats `Enter` as immediate steering.
+When Brain injects a prompt into an already-open panel, the caller requests one
+semantic busy-turn follow-up from `AgentController`. The selected adapter owns
+the complete native sequence: Claude and OpenCode encode literal text followed
+by `Enter`; Codex encodes literal text followed by `Tab`, its native queue key.
+The controller does not expose or duplicate those keystrokes. The TUI may hold
+a receiver job until the current turn is eligible for handoff, but once it
+calls the facade the frontend's native busy-turn behavior owns the follow-up.
 
 The TUI separately tracks whether a prompt has actually been submitted.
 Opening the panel is therefore not itself considered active work. This lets an
 inbound SMS or email replace an idle startup panel immediately, even if the
-daily-triage modal is still covering it, while a real local Claude or Codex
+daily-triage modal is still covering it, while a real local Claude, Codex, or OpenCode
 turn still finishes before receiver work switches sessions. The Stop response
 file clears that active-turn state even while a receiver lease is warm. A
 failed receiver-session launch leaves the message in the queue for a backoff
 retry.
+
+Receiver behavior is frontend-neutral after authentication. An SMS or email
+job carries the same immutable workspace, actor, channel, response email, and
+allowed-thread recipients into an OpenCode `LaunchRequest`; the plugin's idle
+event reaches the generic completion bridge, and the ordinary response worker
+delivers the authorized artifact. OpenCode receives no special delivery bypass
+and cannot broaden recipients.
 
 ### The daily-triage tab and its completion signal
 
@@ -275,7 +337,7 @@ launched through an `AgentController` and a fresh `LaunchRequest` seeded with
   `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. The selected adapter adds
   the common workspace identity and `BRAIN_AGENT_KIND`, while
   `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, and `BRAIN_RESPONSE_ID` remain absent.
-  The SessionStart hook requires those tracking variables in addition to
+  The session-start bridge requires those tracking variables in addition to
   workspace identity, so the triage session is never written to
   `brain_sessions` and is never a resume candidate.
 - **Completion is signalled, not inferred.** A triage pass can involve
@@ -491,25 +553,32 @@ It respects `enable_triage_habits` (a disabled feature is a `Disabled` no-op
 that still dismisses the nudge). This is why only the Yes path needs the
 tab/token/`require` machinery above.
 
-## Agent sessions: SessionStart/Stop hooks and state DB
+These triage rules are identical for Claude, Codex, and OpenCode. OpenCode's
+plugin may observe the ephemeral root session, but the generic session-start
+and turn-complete bridges no-op without the tracking attribution intentionally
+omitted from the triage request; only the one-time triage-done signal closes
+the tab.
+
+## Agent sessions: lifecycle bridges and state DB
 
 Which session to run is decided by the **lock + recency** model in
 `state.rs` (DB at `<workspace-cache>/state.db`, WAL):
 
 1. At ordinary command bootstrap brain resolves the local actor once. TUI
-   startup first acquires the workspace singleton, then refreshes the selected
-   workspace's Claude and Codex hooks before opening or migrating the state DB,
+   startup first acquires the workspace singleton, then refreshes every
+   registry-declared lifecycle artifact before opening or migrating the state DB,
    reaps locks held by dead
    PIDs, then walks `sessions_by_recency()` within the exact
    frontend/workspace/actor/channel scope
-   and resumes the first whose **transcript actually exists** on disk —
-   `~/.claude/projects/<mangled selected-root>/<id>.jsonl`
-   (the Claude adapter's project-dir rule plus a fallback scan). A session opened but
-   never chatted in leaves a DB row with **no** transcript, which `claude
-   --resume` can't find (the "couldn't find session with ID …" error); brain
-   skips those. If it claims a valid candidate it `--resume`s it; otherwise
-   it starts a fresh `--session-id` (registered, locked to this PID) and, if
-   it skipped a missing-transcript candidate, shows a status-line alert:
+   and asks the selected adapter to validate each candidate. Claude requires
+   `~/.claude/projects/<mangled selected-root>/<id>.jsonl` (its project-dir
+   rule plus a fallback scan). OpenCode takes one read-only snapshot from
+   `session list --format json` in the selected root and accepts only live,
+   non-archived, non-deleted root sessions whose reported directory resolves
+   to that exact root. Child sessions and another workspace's IDs are never
+   resume evidence. Codex currently rejects every resume candidate. If Brain
+   claims a valid candidate it uses the adapter's resume shape; otherwise it
+   starts fresh and, if it skipped a stale candidate, shows a status-line alert:
    *"couldn't find a session to resume; starting a new brain chat"*.
 2. brain passes the selected workspace's `BRAIN_WORKSPACE_ID`,
    `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and
@@ -524,7 +593,7 @@ Which session to run is decided by the **lock + recency** model in
    enabled portable sender; the queued workspace UUID and actor override the
    machine default for that complete request lineage. The accepting pipeline
    also captures the initiating user's normalized `response_email` and only
-   allowlisted participants from that authenticated thread. Claude and Codex
+   allowlisted participants from that authenticated thread. Claude, Codex, and OpenCode
    receive the same immutable actor/channel through `AgentController`, and
    later registry or `users.json` changes cannot substitute another response
    identity while the turn is running.
@@ -535,9 +604,10 @@ Which session to run is decided by the **lock + recency** model in
    never fall back to a home-directory brain. New rows use `BRAIN_ACTOR_ID` for
    `assigned_to`, while explicit assignment reads the selected root's portable
    `users.json` before writing.
-3. A **SessionStart hook** —
-   `scripts/claude_session_start_hook.py`, wired into
-   `<brain-root>/.claude/settings.json` under `hooks.SessionStart` — fires on
+3. The generic **session-start bridge**,
+   `scripts/agent_session_start_hook.py`, is wired into Claude and Codex
+   `hooks.SessionStart`; OpenCode's workspace plugin invokes it for a root
+   `session.created` event. It fires on
    every session start / resume / `/clear` / compact. Reading those env
    vars, it accepts only an exact registered frontend/workspace/session/actor/
    channel tuple or a new frontend ID rotating an already registered active
@@ -553,7 +623,8 @@ Which session to run is decided by the **lock + recency** model in
    before authorization; rejected or failed attempts roll back without
    changing either lineage, and SQLite's busy timeout lets a contender retry
    the decision after the current writer commits.
-4. A **Stop hook** (`scripts/claude_stop_hook.py`) records the turn's final
+4. The generic **turn-complete bridge**
+   (`scripts/agent_turn_complete_hook.py`) records the turn's final
    assistant message under
    `<workspace-cache>/responses/<response-id>.json` only while the exact
    frontend/workspace/session/actor/channel/instance tuple is still locked in
@@ -562,7 +633,7 @@ Which session to run is decided by the **lock + recency** model in
    `last_assistant_message` convenience field and, when a Claude Code build
    omits it, falls back to parsing the last assistant text message out of the
    Stop payload's `transcript_path` JSONL. Delivery therefore never hinges on a
-   single optional field — a turn with no recoverable final text is the only
+   single optional field; a turn with no recoverable final text is the only
    no-op. The hook stages a unique, synced file, starts `BEGIN IMMEDIATE`,
    rechecks that locked tuple, and updates the same predicate only when exactly
    one row matches. It publishes and syncs the artifact before committing the
@@ -571,7 +642,7 @@ Which session to run is decided by the **lock + recency** model in
    SessionStart rotation serializes at the transaction boundary, so a stale
    Stop event cannot complete the prior lineage. The stable response ID is
    independent of the frontend session ID, which gives fresh Codex turns the
-   same completion path as Claude. The artifact includes frontend, workspace,
+   same completion path as Claude and OpenCode. The artifact includes frontend, workspace,
    session, response, actor, channel, and completion status. The
    TUI discards it unless both match the launched session context.
    For an interactive turn, the TUI consumes it as the completion signal that
@@ -589,31 +660,50 @@ Which session to run is decided by the **lock + recency** model in
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
 
-Codex panels use the same hook scripts and state DB. Every TUI startup and
-receiver setup writes equivalent `SessionStart` and `Stop` entries to
-`~/.codex/hooks.json`. Shared Codex hook updates take an adjacent machine-wide
-SQLite transaction lock, reload current bytes under that lock, and publish
-synced JSON through a same-directory atomic rename. Concurrent workspace TUIs
-therefore preserve one another's registrations and unrelated settings; a
-failed replacement preserves the prior bytes. Current
-Codex CLI versions may ask you to trust those hooks once in the Codex UI.
-Claude and Codex remain separate scopes in one session store, and both report
-session starts and completed receiver turns through the same brain response
-protocol.
-Brain verifies the exact installed `hooks.json` command shape and executes both
-scripts against Codex-style `thread_id` payloads in tests. Whether Codex emits
-those documented lifecycle events is frontend-owned behavior and is not
-simulated as an external Codex process test.
+Claude and Codex register the same generic bridge scripts. Claude stores
+project-relative `SessionStart` and `Stop` entries in
+`<brain-root>/.claude/settings.json`; Codex stores portable
+`python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/<script>.py"` entries
+in `~/.codex/hooks.json`. Shared Codex updates use an adjacent machine-wide
+SQLite transaction lock and same-directory atomic replacement, preserving peer
+workspace registrations and unrelated JSON. Current Codex versions may ask the
+user to trust those hooks once in the Codex UI.
+
+OpenCode installs one exact workspace plugin at
+`<brain-root>/.opencode/plugins/brain.js`. On a root `session.created`, the
+plugin sends `{session_id, source}` to the generic session-start bridge. On
+`session.idle`, it resolves the reported session through the OpenCode client,
+rejects child sessions, fetches messages for that selected directory, and sends
+only the newest completed, non-synthetic assistant text to the generic
+turn-complete bridge. Repeated idle events remain safe because the Python
+bridge authorizes and publishes against the exact active DB tuple. The plugin
+passes payloads over stdin, forwards only the narrow runtime and `BRAIN_*`
+environment allowlist, and logs lookup or bridge failures through OpenCode.
+
+Every registry-declared static workspace artifact is confined to the selected
+workspace before any installation directory is created. Brain resolves leaf
+and parent symlink chains, canonicalizes existing ancestors while retaining a
+missing tail, and rejects a destination outside the workspace without touching
+the referent. A symlink whose final destination remains inside the workspace is
+preserved and updated atomically. The standalone repair installer applies the
+same confinement before copying a bridge or plugin.
+
+The plugin stays deliberately thin. OpenCode-specific event names and SDK calls
+belong in JavaScript, while session rotation, tuple authorization,
+deduplication, atomic response publication, and receiver delivery remain in
+Brain's generic Python bridges and SQLite transaction. This keeps one security
+and delivery contract for all frontends instead of reimplementing DB authority
+inside a frontend plugin.
 
 **One hook namespace, one DB per workspace.** Before the merge, `brain` and `tasks`
 each ran their own SessionStart hook keyed on separate env-var namespaces
 (`BRAIN_*` vs `TASKS_*`) writing separate DBs, so the two shells never adopted
 each other's sessions. The merged shell has a single app-level brain panel, so
-there is now exactly **one** hook (`scripts/claude_session_start_hook.py`, keyed
-on `BRAIN_*`), one DB per workspace UUID (`<workspace-cache>/state.db`, table
+there is now exactly one generic lifecycle protocol, keyed on `BRAIN_*`, one DB
+per workspace UUID (`<workspace-cache>/state.db`, table
 `brain_sessions`), and
-one namespace. Both installers deploy the two scripts into
-`<brain-root>/.claude/brain-hooks/` and register them in that workspace's
+one namespace. Registry-driven installation deploys the two generic scripts into
+`<brain-root>/.claude/brain-hooks/` and registers them in that workspace's
 `.claude/settings.json`.
 
 **Hook commands are project-relative, not root-specific.** The registered
@@ -629,15 +719,17 @@ directory, so Brain emits `python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hoo
 for Codex. `BRAIN_ROOT` selects a workspace explicitly; `$HOME/brain` is the
 portable default. Brain does not depend on jpsyx-configs.
 
-`scripts/install_hook.sh` deploys + installs both the SessionStart and the brain
-`claude_stop_hook.py` Stop hook (stripping any stale entries — old absolute /
-wrong-home / legacy `rc/` paths — matched by script basename). Every TUI
-startup does the same automatically before state migration or agent launch;
-`brain receiver setup` also refreshes both frontends. The standalone
+`scripts/install_hook.sh` deploys the generic session-start and turn-complete
+bridges, compatibility entry points, Claude/Codex hook settings, and the
+OpenCode plugin from the same lifecycle registry contract. It strips stale
+legacy commands by script basename while preserving unrelated settings. Every
+TUI startup does the same automatically before state migration or agent launch;
+`brain receiver setup` also refreshes every registered frontend. The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
-change Claude settings manually. Its root precedence is the explicit argument,
+change Claude, Codex, or OpenCode integration state manually. Its root
+precedence is the explicit argument,
 then `BRAIN_ROOT`, with `$HOME/brain` retained only as a documented legacy
-single-workspace fallback. The Stop hook is
+single-workspace fallback. The turn-complete bridge is
 required for receiver jobs: it records the completed assistant response so the
 TUI can deliver it over SMS or email without exposing the full thinking trace.
 
@@ -668,7 +760,8 @@ shared process, and a failed notification leaves the saved configuration as
 the commit point with a warning.
 
 Before setup writes, it snapshots the selected provider values, exact
-portable-user bytes, and selected Claude/Codex hook artifacts, excluding their
+portable-user bytes, and selected registry-declared lifecycle artifacts,
+excluding their
 transaction lock pathnames. Provider, user, and hook writes are ordered under
 one persistent workspace-local advisory lock that remains held through
 rollback. Acquisition checks its fixed monotonic deadline before each lock

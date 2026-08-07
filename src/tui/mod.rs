@@ -167,6 +167,8 @@ pub(crate) struct App<'a> {
     config: Config,
     /// Agent frontend running in the brain panel for this shell.
     agent_kind: AgentKind,
+    /// Machine-local launch command resolved once with the shell context.
+    agent_command: String,
     /// The logical day (see `logical_day`) the daily-triage nudge was last
     /// evaluated for. A refresh only re-runs the check when the current
     /// logical day differs from this, so the modal fires at most once per
@@ -369,7 +371,10 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_response_email: Option<String>,
     pub(crate) receiver_email_reply: Option<crate::server::receiver::EmailReplyContext>,
     pub(crate) receiver_session_id: Option<String>,
+    /// Stable response artifact ID for the interactive frontend session.
     pub(crate) interactive_session_id: Option<String>,
+    /// Opaque frontend session ID used only for validated resume operations.
+    pub(crate) interactive_agent_session_id: Option<String>,
     pub(crate) receiver_resume_session: Option<String>,
     pub(crate) receiver_started: Option<std::time::Instant>,
     pub(crate) receiver_delay_sent: bool,

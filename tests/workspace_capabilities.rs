@@ -2,6 +2,8 @@
 mod frontend_claude;
 #[path = "workspace_capabilities/frontend_lifecycle.rs"]
 mod frontend_lifecycle;
+#[path = "workspace_capabilities/frontend_opencode.rs"]
+mod frontend_opencode;
 #[path = "workspace_capabilities/frontend_redaction.rs"]
 mod frontend_redaction;
 #[path = "workspace_capabilities/frontends.rs"]

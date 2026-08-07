@@ -1,13 +1,12 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use brain::access::{
     AccessMode, CapabilityEnforcement, MachineCapabilityEnvironment, capability_plan,
 };
-use brain::agent::{AgentFrontend, AgentSession, ClaudeFrontend, LaunchRequest, SessionPlan};
+use brain::agent::{AgentKind, AgentSession, LaunchRequest, SessionPlan};
 use brain::config::Config;
 
-use crate::support::{actor, family_id, temporary_workspace};
+use crate::support::{actor, family_id, launch_spec, temporary_workspace};
 
 #[cfg(unix)]
 #[test]
@@ -46,13 +45,7 @@ fn claude_uses_owner_only_workspace_mcp_json_and_strict_selection_flags() {
         AccessMode::WorkspaceOnly,
     )
     .with_capability_plan(plan);
-    let frontend = ClaudeFrontend::new(
-        "claude",
-        workspace.root().to_path_buf(),
-        PathBuf::from("/unused/projects"),
-    );
-
-    let spec = frontend.launch_spec(&request).expect("Claude launch spec");
+    let spec = launch_spec(AgentKind::Claude, "claude", &request).expect("Claude launch spec");
 
     let config_path = workspace.paths().capability_mcp_config();
     assert!(spec.command.contains("--mcp-config"), "{}", spec.command);
@@ -142,13 +135,7 @@ fn claude_downgrades_strict_mcp_claims_for_ambiguous_or_indirect_commands() {
         )
         .with_capability_plan(plan);
 
-        let spec = ClaudeFrontend::new(
-            command,
-            workspace.root().to_path_buf(),
-            PathBuf::from("/unused/projects"),
-        )
-        .launch_spec(&request)
-        .expect("Claude launch spec");
+        let spec = launch_spec(AgentKind::Claude, command, &request).expect("Claude launch spec");
 
         assert_eq!(
             spec.capabilities.mcps.enforcement("notion"),

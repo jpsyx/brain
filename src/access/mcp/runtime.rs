@@ -87,6 +87,92 @@ pub(crate) struct CodexMcpLaunch {
     pub(crate) environment: Vec<(String, String)>,
 }
 
+pub(crate) struct OpenCodeMcpLaunch {
+    pub(crate) entries: serde_json::Map<String, serde_json::Value>,
+    pub(crate) environment: Vec<(String, String)>,
+}
+
+pub(crate) fn opencode_mcp_launch(plan: &CapabilityPlan) -> OpenCodeMcpLaunch {
+    let mut entries = serde_json::Map::new();
+    let mut environment = Vec::new();
+    for connection in plan.mcps.available_connections() {
+        let server_name =
+            isolated_server_name(plan.credentials.source_workspace(), &connection.name);
+        let mut value = serde_json::Map::new();
+        if let Some(command) = connection.command.as_ref() {
+            value.insert("type".to_owned(), serde_json::Value::from("local"));
+            value.insert(
+                "command".to_owned(),
+                serde_json::Value::Array(
+                    std::iter::once(command)
+                        .chain(&connection.args)
+                        .cloned()
+                        .map(serde_json::Value::from)
+                        .collect(),
+                ),
+            );
+            let variables = connection
+                .credentials
+                .environment
+                .iter()
+                .enumerate()
+                .filter_map(|(index, (target, value))| {
+                    value.as_ref().map(|secret| {
+                        let source = generated_secret_name(&connection.name, "ENV", index);
+                        environment.push((source.clone(), secret.clone()));
+                        (
+                            target.clone(),
+                            serde_json::Value::from(format!("{{env:{source}}}")),
+                        )
+                    })
+                })
+                .collect::<serde_json::Map<_, _>>();
+            if !variables.is_empty() {
+                value.insert(
+                    "environment".to_owned(),
+                    serde_json::Value::Object(variables),
+                );
+            }
+        } else if let Some(url) = connection.url.as_ref() {
+            value.insert("type".to_owned(), serde_json::Value::from("remote"));
+            value.insert("url".to_owned(), serde_json::Value::from(url.clone()));
+            let mut headers = connection
+                .credentials
+                .headers
+                .iter()
+                .enumerate()
+                .filter_map(|(index, (header, value))| {
+                    value.as_ref().map(|secret| {
+                        let source = generated_secret_name(&connection.name, "HEADER", index);
+                        environment.push((source.clone(), secret.clone()));
+                        (
+                            header.clone(),
+                            serde_json::Value::from(format!("{{env:{source}}}")),
+                        )
+                    })
+                })
+                .collect::<serde_json::Map<_, _>>();
+            if let Some(secret) = connection.credentials.bearer_token.as_ref() {
+                let source = generated_secret_name(&connection.name, "BEARER", 0);
+                environment.push((source.clone(), secret.clone()));
+                headers.insert(
+                    "Authorization".to_owned(),
+                    serde_json::Value::from(format!("Bearer {{env:{source}}}")),
+                );
+            }
+            if !headers.is_empty() {
+                value.insert("headers".to_owned(), serde_json::Value::Object(headers));
+            }
+        }
+        value.insert("enabled".to_owned(), serde_json::Value::Bool(true));
+        entries.insert(server_name, serde_json::Value::Object(value));
+    }
+    OpenCodeMcpLaunch {
+        entries,
+        environment,
+    }
+}
+
 pub(crate) fn codex_mcp_launch(
     workspace: &WorkspaceContext,
     plan: &CapabilityPlan,
@@ -100,7 +186,7 @@ pub(crate) fn codex_mcp_launch(
     let result = (|| -> Result<(), CapabilityError> {
         for connection in plan.mcps.available_connections() {
             let server_name =
-                codex_server_name(plan.credentials.source_workspace(), &connection.name);
+                isolated_server_name(plan.credentials.source_workspace(), &connection.name);
             let prefix = format!("mcp_servers.{server_name}");
             if let Some(command) = connection.command.as_ref() {
                 let mut mappings = Vec::new();
@@ -252,7 +338,7 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn codex_server_name(workspace: WorkspaceId, logical_name: &str) -> String {
+fn isolated_server_name(workspace: WorkspaceId, logical_name: &str) -> String {
     let workspace = workspace
         .to_string()
         .chars()

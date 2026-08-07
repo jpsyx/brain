@@ -7,8 +7,8 @@ use brain::{
     access::AccessMode,
     actor::{ActorContext, RequestIdentity},
     agent::{
-        AccessPolicy, AgentController, AgentError, AgentFrontend, AgentKind, AgentSession,
-        AgentTransport, LaunchRequest, LaunchSpec, OpenCodeFrontend, SessionPlan,
+        AgentController, AgentError, AgentKind, AgentSession, AgentTransport, CompletionStrategy,
+        InputSequence, LaunchRequest, LaunchSpec, SessionPlan,
     },
     cli::{AgentSelectionError, try_parse_from},
     theme::Theme,
@@ -45,102 +45,135 @@ fn conflicting_frontend_flags_return_a_typed_exactly_rendered_error() {
 
 #[test]
 fn conflicting_frontend_flags_exit_before_startup_side_effects() {
-    let home = tempfile::tempdir().expect("temporary home");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_brain"))
-        .args(["--codex", "--open-code"])
-        .env("HOME", home.path())
-        .env("XDG_CONFIG_HOME", home.path().join("config"))
-        .env("NO_COLOR", "1")
-        .output()
-        .expect("run brain conflict");
+    for arguments in [
+        vec!["--codex", "--open-code"],
+        vec!["-cx", "-oc"],
+        vec!["--codex", "tasks", "today", "-oc"],
+        vec!["tasks", "--open-code", "today", "--codex"],
+        vec!["tasks", "today", "-cx", "--open-code"],
+        vec!["--codex", "-cx", "tasks", "today", "-oc"],
+    ] {
+        let home = tempfile::tempdir().expect("temporary home");
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_brain"))
+            .args(&arguments)
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path().join("config"))
+            .env("NO_COLOR", "1")
+            .output()
+            .expect("run brain conflict");
 
-    assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty(), "stdout: {:?}", output.stdout);
-    assert_eq!(
-        String::from_utf8(output.stderr).expect("UTF-8 stderr"),
-        "🔴 Choose one agent frontend: --codex or --open-code.\n"
-    );
-    assert_eq!(
-        std::fs::read_dir(home.path())
-            .expect("read temporary home")
-            .count(),
-        0,
-        "selection conflict must precede registry, hook, server, and TUI setup"
-    );
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}");
+        assert!(
+            output.stdout.is_empty(),
+            "{arguments:?}: {:?}",
+            output.stdout
+        );
+        assert_eq!(
+            String::from_utf8(output.stderr).expect("UTF-8 stderr"),
+            "🔴 Choose one agent frontend: --codex or --open-code.\n",
+            "{arguments:?}"
+        );
+        assert_eq!(
+            std::fs::read_dir(home.path())
+                .expect("read temporary home")
+                .count(),
+            0,
+            "selection conflict must precede registry, hook, server, and TUI setup: {arguments:?}"
+        );
+    }
 }
 
 #[test]
-fn opencode_builds_fresh_and_resumed_commands() {
+fn opencode_input_and_workspace_scoped_session_contracts_are_explicit() {
     let temporary = tempfile::tempdir().expect("temporary workspace");
     let workspace = workspace(temporary.path());
-    let actor = actor();
-    let fresh = launch_request(
-        Arc::clone(&workspace),
-        actor.clone(),
-        SessionPlan::fresh(AgentSession::new("fresh-1").expect("session")),
-    );
-    let resumed = LaunchRequest::new(
-        workspace,
-        actor,
-        SessionPlan::resume(AgentSession::new("session-1").expect("session")),
-        Some("don't lose this".to_owned()),
-        AccessPolicy::default(),
-    );
-    let frontend = OpenCodeFrontend::new("opencode --model future");
-
-    assert_eq!(frontend.kind(), AgentKind::OpenCode);
-    assert_eq!(frontend.kind().label(), "OpenCode");
-    assert_eq!(
-        frontend.launch_spec(&fresh).expect("fresh launch").command,
-        "opencode --model future --agent brain"
-    );
-    assert_eq!(
-        frontend
-            .launch_spec(&resumed)
-            .expect("resume launch")
-            .command,
-        "opencode --model future --agent brain --session 'session-1' --prompt 'don'\\''t lose this'"
-    );
-}
-
-#[test]
-fn opencode_translates_semantic_input_and_session_identity() {
-    let frontend = OpenCodeFrontend::new("opencode");
+    std::fs::create_dir_all(workspace.root()).expect("workspace root");
+    let log = temporary.path().join("invocations.log");
+    let command = fake_command(&log);
+    let (mut controller, recording) = recording_controller(&workspace, &command);
     let session = AgentSession::new("session-1").expect("session");
 
+    controller.submit_now().expect("submit");
+    controller
+        .queue_after_active_turn("next")
+        .expect("busy-turn follow-up");
+    controller.start_new_session().expect("new session");
     assert_eq!(
-        frontend.submit_input(),
-        Ok(brain::agent::InputSequence::bytes(b"\r"))
+        recording.inputs.lock().expect("recorded input").as_slice(),
+        [b"\r".to_vec(), b"next\r".to_vec(), b"/new\r".to_vec()]
     );
+    assert_eq!(controller.kind(), AgentKind::OpenCode);
     assert_eq!(
-        frontend.queue_input(),
-        Ok(brain::agent::InputSequence::bytes(b"\r"))
+        controller.completion_strategy(),
+        Ok(CompletionStrategy::Hook)
     );
-    assert_eq!(
-        frontend.new_session_input(),
-        Ok(brain::agent::InputSequence::bytes(b"/new\r"))
-    );
-    assert_eq!(
-        frontend.completion_strategy(),
-        Ok(brain::agent::CompletionStrategy::Hook)
-    );
-    assert_eq!(frontend.transcript(&session), Ok(None));
     assert!(
-        frontend
+        controller
             .resume_candidate_exists(&session)
             .expect("session validation")
     );
     assert!(
-        frontend
-            .can_resume_response_session()
+        !controller
+            .resume_candidate_exists(&AgentSession::new("stale").unwrap())
+            .expect("stale session validation")
+    );
+    assert!(
+        !controller
+            .resume_candidate_exists(&AgentSession::new("child").unwrap())
+            .expect("child session validation")
+    );
+    assert!(
+        controller
+            .can_resume_response_session(&session)
             .expect("resume support")
     );
-    let first = frontend.response_id(&session).expect("response identity");
+    let invocations = std::fs::read_to_string(&log).expect("invocation log");
+    let session_invocations = invocations
+        .lines()
+        .filter(|line| line.ends_with("|session list --format json"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        session_invocations.len(),
+        2,
+        "candidate validation shares one snapshot; receiver validation is fresh"
+    );
+    let canonical_workspace = workspace
+        .root()
+        .canonicalize()
+        .expect("canonical workspace");
+    assert!(session_invocations.iter().all(|line| {
+        let (cwd, arguments) = line.split_once('|').expect("recorded invocation");
+        Path::new(cwd)
+            .canonicalize()
+            .is_ok_and(|path| path == canonical_workspace)
+            && arguments == "session list --format json"
+    }));
+    let first = controller.response_id(&session).expect("response identity");
     assert_eq!(
         first,
-        frontend.response_id(&session).expect("stable identity")
+        controller.response_id(&session).expect("stable identity")
     );
     assert!(uuid::Uuid::parse_str(&first).is_ok());
+}
+
+fn shell_word(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
+}
+
+#[test]
+fn opencode_rejects_a_missing_command_with_an_actionable_prelaunch_error() {
+    let temporary = tempfile::tempdir().expect("temporary workspace");
+    let workspace = workspace(temporary.path());
+    let (controller, _recording) = recording_controller(&workspace, "missing-opencode-binary");
+
+    let error = controller
+        .ensure_available()
+        .expect_err("missing OpenCode command must fail preflight");
+
+    assert_eq!(
+        error.to_string(),
+        "frontend error: OpenCode is unavailable: the configured command could not run. Install OpenCode or set `brain env set opencode_cmd <command>`."
+    );
 }
 
 #[test]
@@ -154,10 +187,34 @@ fn opencode_puts_the_trusted_policy_in_its_named_agent_config() {
         SessionPlan::fresh(AgentSession::new("fresh-1").expect("session")),
         Some("untrusted --prompt text".to_owned()),
         AccessMode::WorkspaceOnly,
+    )
+    .with_capability_plan(
+        brain::access::capability_plan(
+            &brain::config::Config {
+                access_mode: AccessMode::WorkspaceOnly,
+                allowed_mcps: Vec::new(),
+                allowed_skills: Vec::new(),
+                ..brain::config::Config::default()
+            },
+            &brain::access::MachineCapabilityEnvironment::from_value(
+                workspace.id(),
+                serde_json::json!({}),
+            )
+            .expect("empty machine capabilities"),
+        )
+        .expect("empty capability plan"),
     );
-    let spec = OpenCodeFrontend::new("opencode")
-        .launch_spec(&request)
-        .expect("OpenCode launch");
+    let log = temporary.path().join("invocations.log");
+    let command = fake_command(&log);
+    let (mut controller, recording) = recording_controller(&workspace, &command);
+    controller.launch(&request).expect("OpenCode launch");
+    let spec = recording
+        .launches
+        .lock()
+        .expect("recorded launch")
+        .first()
+        .cloned()
+        .expect("OpenCode launch spec");
     let config = spec
         .environment
         .iter()
@@ -171,69 +228,9 @@ fn opencode_puts_the_trusted_policy_in_its_named_agent_config() {
             .expect("Brain agent prompt")
             .contains("advisory prompt enforcement")
     );
-    assert_eq!(
-        spec.command,
-        "opencode --agent brain --prompt 'untrusted --prompt text'"
-    );
-}
-
-#[test]
-fn opencode_controller_delegates_lifecycle_and_input_to_transport() {
-    let temporary = tempfile::tempdir().expect("temporary workspace");
-    let workspace = workspace(temporary.path());
-    let actor = actor();
-    let effects = Arc::new(Mutex::new(Vec::new()));
-    let mut controller = AgentController::new(
-        Arc::clone(&workspace),
-        actor.clone(),
-        Box::new(OpenCodeFrontend::new("opencode")),
-        Box::new(RecordingTransport {
-            effects: Arc::clone(&effects),
-        }),
-    );
-    let fresh = launch_request(
-        Arc::clone(&workspace),
-        actor,
-        SessionPlan::fresh(AgentSession::new("fresh-1").expect("session")),
-    );
-    let session = AgentSession::new("session-1").expect("session");
-
-    assert_eq!(controller.kind(), AgentKind::OpenCode);
-    controller.launch(&fresh).expect("fresh launch");
-    controller.type_text("hello").expect("type");
-    controller.submit_now().expect("submit");
-    controller.queue_after_active_turn("next").expect("queue");
-    controller.tick().expect("first queue tick");
-    controller.tick().expect("second queue tick");
-    controller.start_new_session().expect("new session");
-    assert_eq!(
-        controller.completion_strategy(),
-        Ok(brain::agent::CompletionStrategy::Hook)
-    );
-    assert_eq!(controller.transcript(&session), Ok(None));
-    assert_eq!(controller.snapshot(), Ok("snapshot".to_owned()));
-    assert_eq!(controller.is_alive(), Ok(true));
     assert!(
-        controller
-            .resume_candidate_exists(&session)
-            .expect("session validation")
-    );
-    assert!(
-        controller
-            .can_resume_response_session()
-            .expect("resume support")
-    );
-    controller.terminal_screen().expect("screen");
-    controller.resize(24, 80).expect("resize");
-    controller.scroll_up(3).expect("scroll up");
-    controller.scroll_down(3).expect("scroll down");
-    controller.scroll_to_bottom().expect("scroll bottom");
-    assert_eq!(controller.terminal_rows(), Ok(24));
-    controller.shutdown().expect("shutdown");
-
-    assert!(
-        effects.lock().expect("effects lock").contains(&"spawn"),
-        "functional OpenCode must reach the selected transport"
+        spec.command
+            .ends_with("--agent brain --prompt 'untrusted --prompt text'")
     );
 }
 
@@ -271,72 +268,69 @@ fn actor() -> ActorContext {
     .expect("actor")
 }
 
-fn launch_request(
-    workspace: Arc<WorkspaceContext>,
-    actor: ActorContext,
-    plan: SessionPlan,
-) -> LaunchRequest {
-    LaunchRequest::new(workspace, actor, plan, None, AccessPolicy::default())
+fn fake_command(log: &Path) -> String {
+    let fake =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/opencode/fake_opencode.sh");
+    format!(
+        "OPENCODE_TEST_LOG={} {}",
+        shell_word(log),
+        shell_word(&fake)
+    )
+}
+
+fn recording_controller(
+    workspace: &Arc<WorkspaceContext>,
+    command: &str,
+) -> (AgentController, Arc<Recording>) {
+    let recording = Arc::new(Recording::default());
+    let controller = AgentController::for_workspace_with_command(
+        Arc::clone(workspace),
+        AgentKind::OpenCode,
+        command.to_owned(),
+        actor(),
+        Box::new(RecordingTransport {
+            recording: Arc::clone(&recording),
+        }),
+    );
+    (controller, recording)
+}
+
+#[derive(Default)]
+struct Recording {
+    launches: Mutex<Vec<LaunchSpec>>,
+    inputs: Mutex<Vec<Vec<u8>>>,
 }
 
 struct RecordingTransport {
-    effects: Arc<Mutex<Vec<&'static str>>>,
-}
-
-impl RecordingTransport {
-    fn record(&self, effect: &'static str) {
-        self.effects.lock().expect("effects lock").push(effect);
-    }
+    recording: Arc<Recording>,
 }
 
 impl AgentTransport for RecordingTransport {
-    fn spawn(&mut self, _spec: &LaunchSpec) -> Result<(), AgentError> {
-        self.record("spawn");
+    fn spawn(&mut self, spec: &LaunchSpec) -> Result<(), AgentError> {
+        self.recording
+            .launches
+            .lock()
+            .expect("recorded launches")
+            .push(spec.clone());
         Ok(())
     }
 
-    fn send(&mut self, _input: brain::agent::InputSequence) -> Result<(), AgentError> {
-        self.record("send");
+    fn send(&mut self, input: InputSequence) -> Result<(), AgentError> {
+        self.recording
+            .inputs
+            .lock()
+            .expect("recorded inputs")
+            .push(input.into_bytes());
         Ok(())
     }
 
     fn snapshot(&self) -> String {
-        self.record("snapshot");
-        "snapshot".to_owned()
+        String::new()
     }
 
     fn is_alive(&self) -> bool {
-        self.record("is_alive");
         true
     }
 
-    fn shutdown(&mut self) {
-        self.record("shutdown");
-    }
-
-    fn terminal_screen(&self) -> Option<Arc<std::sync::RwLock<vt100::Parser>>> {
-        self.record("terminal_screen");
-        None
-    }
-
-    fn resize(&mut self, _rows: u16, _cols: u16) {
-        self.record("resize");
-    }
-
-    fn scroll_up(&mut self, _rows: usize) {
-        self.record("scroll_up");
-    }
-
-    fn scroll_down(&mut self, _rows: usize) {
-        self.record("scroll_down");
-    }
-
-    fn scroll_to_bottom(&mut self) {
-        self.record("scroll_to_bottom");
-    }
-
-    fn terminal_rows(&self) -> u16 {
-        self.record("terminal_rows");
-        24
-    }
+    fn shutdown(&mut self) {}
 }

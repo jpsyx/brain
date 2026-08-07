@@ -35,6 +35,16 @@ impl App<'_> {
         if let Some(mut controller) = self.brain.take() {
             let _ = controller.shutdown();
         }
+        if !receiver_panel {
+            let scope = crate::agent::SessionScope::new(
+                self.agent_kind,
+                self.command_context.workspace.id(),
+                crate::actor::ActorContext::follow_up(&self.interactive_actor),
+            );
+            if let Some(session_id) = self.db.locked_session_for_instance(&self.instance, &scope) {
+                self.interactive_agent_session_id = Some(session_id);
+            }
+        }
         self.session_actor = None;
         self.brain_turn_active = false;
         self.alert = None;
@@ -105,18 +115,6 @@ impl App<'_> {
             .flatten()
         {
             let _ = controller.shutdown();
-        }
-    }
-
-    /// Advance frontend-neutral delayed controller input for live panels.
-    pub(crate) fn tick_agent_controllers(&mut self) {
-        for controller in [&mut self.brain, &mut self.triage_brain]
-            .into_iter()
-            .flatten()
-        {
-            if let Err(error) = controller.tick() {
-                crate::logging::log(format!("agent input delivery failed: {error}"));
-            }
         }
     }
 

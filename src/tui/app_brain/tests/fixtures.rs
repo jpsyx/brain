@@ -3,198 +3,12 @@ use super::*;
 mod session_support;
 pub(crate) use session_support::*;
 
+mod recording;
+pub(super) use recording::*;
+
 const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 pub(super) const ACCEPTED_INGRESS: &str = "57b162df-983a-45c3-ac7e-bad94eb27a99";
 pub(super) const ACCEPTED_LOCAL_CAPABILITY: &str = "57b162df-983a-45c3-ac7e-bad94eb27a99";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum ControllerEvent {
-    SubmitNow,
-    QueueAfterActiveTurn,
-    QueueDelivered,
-    StartNewSession,
-    ScrollUp(usize),
-    ScrollDown(usize),
-    Shutdown,
-}
-
-#[derive(Clone, Default)]
-pub(super) struct ControllerRecording(Arc<Mutex<Vec<ControllerEvent>>>);
-
-impl ControllerRecording {
-    fn record(&self, event: ControllerEvent) {
-        self.0.lock().expect("controller recording").push(event);
-    }
-
-    pub(super) fn events(&self) -> Vec<ControllerEvent> {
-        self.0.lock().expect("controller recording").clone()
-    }
-}
-
-struct RecordingFrontend {
-    recording: ControllerRecording,
-}
-
-impl AgentFrontend for RecordingFrontend {
-    fn kind(&self) -> AgentKind {
-        AgentKind::Claude
-    }
-
-    fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
-        Ok(LaunchSpec::new(
-            "recording-agent",
-            request.workspace().root().to_path_buf(),
-            Vec::new(),
-            HookMetadata::none(),
-        ))
-    }
-
-    fn submit_input(&self) -> Result<InputSequence, AgentError> {
-        self.recording.record(ControllerEvent::SubmitNow);
-        Ok(InputSequence::bytes(b"\r"))
-    }
-
-    fn queue_input(&self) -> Result<InputSequence, AgentError> {
-        self.recording.record(ControllerEvent::QueueAfterActiveTurn);
-        Ok(InputSequence::bytes(b"\x1dqueue"))
-    }
-
-    fn new_session_input(&self) -> Result<InputSequence, AgentError> {
-        self.recording.record(ControllerEvent::StartNewSession);
-        Ok(InputSequence::bytes(b"/new\r"))
-    }
-
-    fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
-        Ok(CompletionStrategy::Hook)
-    }
-
-    fn transcript(&self, _session: &AgentSession) -> Result<Option<PathBuf>, AgentError> {
-        Ok(None)
-    }
-
-    fn resume_candidate_exists(&self, _session: &AgentSession) -> Result<bool, AgentError> {
-        Ok(true)
-    }
-
-    fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {
-        Ok(session.as_str().to_owned())
-    }
-
-    fn can_resume_response_session(&self) -> Result<bool, AgentError> {
-        Ok(true)
-    }
-}
-
-struct RecordingTransport {
-    recording: ControllerRecording,
-    alive: bool,
-    snapshot: String,
-}
-
-impl AgentTransport for RecordingTransport {
-    fn spawn(&mut self, _spec: &LaunchSpec) -> Result<(), AgentError> {
-        self.alive = true;
-        Ok(())
-    }
-
-    fn send(&mut self, input: InputSequence) -> Result<(), AgentError> {
-        if input.into_bytes().ends_with(b"\x1dqueue") {
-            self.recording.record(ControllerEvent::QueueDelivered);
-        }
-        Ok(())
-    }
-
-    fn snapshot(&self) -> String {
-        self.snapshot.clone()
-    }
-
-    fn is_alive(&self) -> bool {
-        self.alive
-    }
-
-    fn shutdown(&mut self) {
-        self.recording.record(ControllerEvent::Shutdown);
-        self.alive = false;
-    }
-
-    fn scroll_up(&mut self, rows: usize) {
-        self.recording.record(ControllerEvent::ScrollUp(rows));
-    }
-
-    fn scroll_down(&mut self, rows: usize) {
-        self.recording.record(ControllerEvent::ScrollDown(rows));
-    }
-
-    fn terminal_rows(&self) -> u16 {
-        40
-    }
-}
-
-#[derive(Clone, Default)]
-pub(super) struct LaunchRecording(pub(super) Arc<Mutex<Vec<LaunchSpec>>>);
-
-pub(super) struct LaunchRecordingTransport {
-    pub(super) recording: LaunchRecording,
-    pub(super) alive: bool,
-}
-
-impl AgentTransport for LaunchRecordingTransport {
-    fn spawn(&mut self, spec: &LaunchSpec) -> Result<(), AgentError> {
-        self.recording
-            .0
-            .lock()
-            .expect("launch recording")
-            .push(spec.clone());
-        self.alive = true;
-        Ok(())
-    }
-
-    fn send(&mut self, _input: InputSequence) -> Result<(), AgentError> {
-        Ok(())
-    }
-
-    fn snapshot(&self) -> String {
-        String::new()
-    }
-
-    fn is_alive(&self) -> bool {
-        self.alive
-    }
-
-    fn shutdown(&mut self) {
-        self.alive = false;
-    }
-}
-
-pub(super) fn recording_controller(
-    app: &App<'_>,
-    alive: bool,
-    snapshot: &str,
-) -> (AgentController, ControllerRecording) {
-    recording_controller_for_actor(app, app.interactive_actor.clone(), alive, snapshot)
-}
-
-pub(super) fn recording_controller_for_actor(
-    app: &App<'_>,
-    actor: crate::actor::ActorContext,
-    alive: bool,
-    snapshot: &str,
-) -> (AgentController, ControllerRecording) {
-    let recording = ControllerRecording::default();
-    let controller = AgentController::new(
-        Arc::clone(&app.command_context.workspace),
-        actor,
-        Box::new(RecordingFrontend {
-            recording: recording.clone(),
-        }),
-        Box::new(RecordingTransport {
-            recording: recording.clone(),
-            alive,
-            snapshot: snapshot.to_owned(),
-        }),
-    );
-    (controller, recording)
-}
 
 pub(super) fn test_app<'a>(
     temporary: &tempfile::TempDir,
@@ -214,9 +28,15 @@ pub(super) fn test_app<'a>(
         "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
     )
     .expect("write habits");
+    let fake_opencode =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/opencode/fake_opencode.sh");
     std::fs::write(
         root.join(".config/config.json"),
-        "{\"claude_cmd\":\"sh -c 'sleep 30' #\",\"codex_cmd\":\"codex-test\"}\n",
+        serde_json::json!({
+            "claude_cmd": "sh -c 'sleep 30' #",
+            "codex_cmd": "codex-test",
+        })
+        .to_string(),
     )
     .expect("write test agent command");
     let workspace = WorkspaceContext::new(
@@ -228,11 +48,28 @@ pub(super) fn test_app<'a>(
         temporary.path(),
     )
     .expect("workspace context");
-    let context = CommandContext::for_test(
-        Arc::new(workspace),
-        RegistryStore::from_path(temporary.path().join("env.json")),
-        "pablo",
-    );
+    let registry_store = RegistryStore::from_path(temporary.path().join("env.json"));
+    registry_store
+        .replace(&crate::workspace::MachineRegistry {
+            schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
+            default_workspace: workspace.name().clone(),
+            workspaces: std::collections::BTreeMap::from([(
+                workspace.name().clone(),
+                crate::workspace::WorkspaceRecord {
+                    workspace_id: workspace.id(),
+                    root: workspace.root().to_path_buf(),
+                    aliases: std::collections::BTreeSet::new(),
+                    local_user_id: "pablo".to_owned(),
+                    receiver_enabled: false,
+                    env: serde_json::Map::from_iter([(
+                        "opencode_cmd".to_owned(),
+                        serde_json::Value::String(fake_opencode.display().to_string()),
+                    )]),
+                },
+            )]),
+        })
+        .expect("write test registry");
+    let context = CommandContext::for_test(Arc::new(workspace), registry_store, "pablo");
     let today = NaiveDate::from_ymd_opt(2026, 8, 4).expect("valid date");
     let view = build_view(cli, &Selector::All, Some(View::All), Vec::new(), today);
     let assignment = AssignmentContext::legacy(&context.actor);

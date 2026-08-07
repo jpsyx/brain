@@ -175,7 +175,7 @@ fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
 }
 
 #[test]
-fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_both_frontends() {
+fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_frontend() {
     let cli = Cli::parse_from(["tasks"]);
     let cases = [
         (
@@ -194,7 +194,7 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_both_fro
         ),
     ];
 
-    for kind in [AgentKind::Claude, AgentKind::Codex] {
+    for kind in AgentKind::ALL {
         for (channel, actor, sender, participants, label) in &cases {
             let temporary = tempfile::tempdir().expect("temporary directory");
             let mut app = test_app(&temporary, &cli, kind);
@@ -252,9 +252,37 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_both_fro
                 },
             )
             .unwrap();
+            let current = crate::workspace::RegistryStore::load_from(
+                app.command_context.registry_store.path(),
+            )
+            .unwrap();
+            let mut environment = serde_json::Map::from_iter([(
+                "resend_from_email".to_owned(),
+                serde_json::json!("other-workspace@example.test"),
+            )]);
+            if let Some(command) = current.workspaces[app.command_context.workspace.name()]
+                .env
+                .get("opencode_cmd")
+            {
+                environment.insert("opencode_cmd".to_owned(), command.clone());
+            }
             std::fs::write(
                 app.command_context.registry_store.path(),
-                r#"{"schema_version":2,"default_workspace":"family","workspaces":{"family":{"workspace_id":"e806258e-491a-436d-9db4-a5ca9903e0d4","root":"/changed","aliases":[],"local_user_id":"other","receiver_enabled":true,"env":{"resend_from_email":"other-workspace@example.test"}}}}"#,
+                serde_json::to_vec(&serde_json::json!({
+                    "schema_version": 2,
+                    "default_workspace": "family",
+                    "workspaces": {
+                        "family": {
+                            "workspace_id": "e806258e-491a-436d-9db4-a5ca9903e0d4",
+                            "root": "/changed",
+                            "aliases": [],
+                            "local_user_id": "other",
+                            "receiver_enabled": true,
+                            "env": environment
+                        }
+                    }
+                }))
+                .unwrap(),
             )
             .unwrap();
 
@@ -290,7 +318,12 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_both_fro
             );
             let spec = {
                 let specs = recording.0.lock().unwrap();
-                assert_eq!(specs.len(), 1);
+                assert_eq!(
+                    specs.len(),
+                    1,
+                    "kind={kind:?} channel={channel:?} alert={:?}",
+                    app.alert
+                );
                 specs[0].clone()
             };
             assert_workspace_only_launch_spec(&app, &spec, kind, actor, &prompt);

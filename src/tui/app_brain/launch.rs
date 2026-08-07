@@ -41,10 +41,11 @@ impl App<'_> {
         actor: crate::actor::ActorContext,
         transport: Box<dyn crate::agent::AgentTransport>,
     ) -> AgentController {
-        AgentController::new(
-            Arc::clone(&self.command_context.workspace),
+        AgentController::configured_with_command(
+            &self.command_context,
+            self.agent_kind,
+            self.agent_command.clone(),
             actor,
-            crate::agent::configured_frontend(&self.command_context, self.agent_kind),
             transport,
         )
     }
@@ -133,6 +134,7 @@ impl App<'_> {
             self.receiver_session_id = None;
         } else {
             self.interactive_session_id = None;
+            self.interactive_agent_session_id = None;
         }
         let capability_plan = match self.launch_capability_plan() {
             Ok(plan) => plan,
@@ -238,6 +240,7 @@ impl App<'_> {
         }
         if !receiver_request {
             self.interactive_session_id = Some(response_id.clone());
+            self.interactive_agent_session_id = Some(session_id);
         }
         let fresh_session = matches!(plan, Plan::Fresh(_));
         self.alert = if fresh_session {
@@ -321,6 +324,7 @@ impl App<'_> {
                     self.receiver_session_id = None;
                 } else {
                     self.interactive_session_id = None;
+                    self.interactive_agent_session_id = None;
                 }
                 self.session_actor = None;
                 let _ = SessionStore::release(&self.db, &self.instance);

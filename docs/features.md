@@ -21,7 +21,8 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
 - **Logs view:** a scrollable view of the current run log, opened from the
   palette or the main-view cycle.
 - **Brain panel** — a live, interactive agent session in an embedded PTY,
-  Claude by default or Codex with `--codex` / `-cx`, open at startup and shared by all
+  Claude by default, Codex with `--codex` / `-cx`, or OpenCode with
+  `--open-code` / `-oc`, open at startup and shared by all
   main views. It does not belong to a view: switching views leaves it open;
   closing it (`Ctrl+X`, or the agent
   exiting) makes the active main view full-width.
@@ -50,7 +51,7 @@ embedded frontends does not strand the scroll binding.
 
 Every live main or daily-triage session sits behind an `AgentController`.
 Keyboard, receiver, render, scroll, completion, and close paths call semantic
-operations on that facade; only the Claude and Codex adapters know their
+operations on that facade; only the Claude, Codex, and OpenCode adapters know their
 commands, input sequences, session rules, and hooks. Whole-shell teardown
 explicitly shuts down both controllers before their transports are dropped.
 
@@ -103,29 +104,36 @@ and touches nothing. The agenda refreshes in place and a `✓ daily triage
 skipped` flash confirms it. (Contrast **Yes**, which is agent-driven because a
 real pass involves judgement.)
 
-**Session resume.** On startup the brain panel resumes your **most recent
-Claude session** — the continuous conversation picks up where it left off.
-If you type `/new` (or `/clear`) inside claude — or press `Ctrl+N` — that
-fresh session becomes the one brain resumes next time. Brain permits one live TUI per workspace UUID:
+**Session resume.** On startup Claude resumes the most recent candidate whose
+workspace transcript exists. OpenCode asks the configured command for
+`session list --format json` in the selected root and resumes only a live,
+non-archived, non-deleted root session whose reported directory is that exact
+root. If a stale DB row no longer has matching frontend evidence, Brain skips
+it and starts a fresh chat with a status-line explanation. Codex currently
+starts fresh. If you type `/new` (or `/clear`) inside an agent, or press
+`Ctrl+N`, the generic lifecycle bridge records the new root-session ID when
+the frontend emits its start event. Brain permits one live TUI per workspace UUID:
 a second TUI for the same UUID receives a clear
 already-running message, while TUIs for different workspace UUIDs may run at
 the same time. If the
-session it would resume has no transcript yet (you opened brain last time but
-never sent a message), it can't be resumed — brain starts a fresh chat and
-says so in the status line. See [integrations.md](integrations.md) and
+candidate is stale, Brain starts a fresh chat and says so in the status line.
+See [integrations.md](integrations.md) and
 [data-model.md](data-model.md) for the lock-and-recency model.
 
-Codex is selected per run with `brain --codex`, `brain -cx`,
-`brain tasks --codex`, or `brain tasks -cx` and
-uses `codex_cmd` from brain env (default `codex`). Claude uses `claude_cmd`
-from brain env (default `claude --dangerously-skip-permissions`). Codex
+Codex is selected per run with `--codex` / `-cx`; OpenCode is selected with
+`--open-code` / `-oc`. The selectors may appear before or after `tasks` and
+its delegated positionals, stop at `--`, and reject mixed frontend selection.
+The adapters use `codex_cmd`, `opencode_cmd`, and `claude_cmd` from brain env.
+Codex
 participates in the same frontend/workspace/actor/channel session store but
 currently rejects resume candidates, so live Codex panels start fresh. Every TUI
-startup refreshes the selected workspace's Claude and Codex hooks before state
+startup refreshes the registry-declared lifecycle artifacts before state
 migration or agent launch, so remote prompts and completion delivery use the
 same current protocol. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
-queue key; Claude still receives `Enter`.
+native busy-turn queue key. Claude and OpenCode receive `Enter`. Text and the
+adapter-defined final key are one semantic facade operation, so callers never
+construct frontend keystrokes.
 
 Workspace-only launches also resolve portable logical MCP and skill allowlists
 against only the selected workspace's machine record. Claude receives selected
@@ -134,8 +142,11 @@ Brain reports this selection as strict only when `claude_cmd` is a safely parsed
 direct Claude invocation with no conflicting Brain-owned flags; indirect or
 shell-ambiguous commands are reported as advisory. Codex receives documented
 per-call config overrides, but its inherited
-global MCP and skill sources cannot currently be proven excluded. Selected
-skill names are trusted guidance for both frontends. `brain skills status`
+global MCP and skill sources cannot currently be proven excluded. OpenCode
+receives Brain-owned `agent.brain`, `default_agent`, selected `brain_ws_*` MCP
+entries, and a selected skill path through merged inline configuration, but
+inherited global sources also cannot be proven excluded. Selected skill names
+are trusted guidance for all three frontends. `brain skills status`
 labels each requested capability as `strictly-selected`, `advisory-only`, or
 `unavailable`, rather than claiming isolation the frontend does not provide.
 Unrestricted launches skip capability parsing and remove stale workspace-only
@@ -227,7 +238,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. Claude remains the default. |
 | `brain --open-code` / `brain -oc` | Select the OpenCode brain-panel adapter. Brain launches OpenCode in the selected workspace, passes the initial prompt separately, tracks the OpenCode session ID, and delivers completion through the shared controller lifecycle. `--codex --open-code` exits with `🔴 Choose one agent frontend: --codex or --open-code.` |
 | `brain --brain <workspace>` / `brain -b <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--brain=<workspace>` is equivalent; `--` ends option extraction. |
-| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` may be passed before or after `tasks` to use Codex in the brain panel. |
+| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` or `--open-code` / `-oc` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
 | `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
@@ -241,7 +252,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
-| `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex enforcement level without printing connection material or credentials. |
+| `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
 | `brain server {status\|logs}` | Inspect the TUI-lifetime shared process without starting, stopping, or repairing it (see below). |
 | `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
 | `brain --no-daily-triage-check` | Open the TUI without ever showing the daily-triage startup nudge. Process-scoped (this run only); not a persistent config change. Combines with any other flag/subcommand. |
@@ -447,12 +458,13 @@ trusted config. `workspace_only` adds advisory system/developer instructions,
 selected-root cwd, and a filtered child environment. The PTY evaluates the
 configured frontend command without loading login or interactive shell
 profiles, so those profiles cannot restore filtered variables. An initial
-prompt follows an explicit frontend option terminator, so option-looking user
-or inbound text stays prompt data. `workspace_only` is advisory prompt
+prompt uses the adapter's protected prompt argument (an option terminator for
+Claude/Codex and one quoted `--prompt` value for OpenCode), so option-looking
+user or inbound text stays prompt data. `workspace_only` is advisory prompt
 enforcement plus best-effort capability filtering, easy to bypass, and not
 tenant isolation. It reduces accidents and naive leakage among trusted users.
 Real adversarial or sensitive isolation requires an external OS, VM, machine,
-or container boundary. Claude and Codex continue to use the
+or container boundary. Claude, Codex, and OpenCode continue to use the
 user's shared frontend login; selecting a workspace does not create another
 identity.
 A pure literal-path check can warn about obvious absolute or `~/` paths outside
@@ -988,8 +1000,12 @@ ever re-hands-out an id the other already used, so there are no id collisions
 regardless of which machine synced last.
 
 **Doctor.** `brain tasks doctor` prints one themed report for the selected
-workspace. It validates the UUID-scoped session DB plus both Claude and Codex
-SessionStart and OpenCode plugin registrations, reports the rclone
+workspace. It validates the UUID-scoped session DB and every registry-declared
+lifecycle artifact independently. Hook events must contain the current
+session-start and turn-complete bridge commands; bridge and plugin files must
+exactly match Brain's bundled bytes. OpenCode compatibility additionally checks
+the configured command's version, required TUI flags, JSON session listing,
+generated capability schema, and plugin load in disposable HOME/XDG roots. It reports the rclone
 probe, and appends the same redacted requirements matrix used by other status
 surfaces. Missing rclone with sync off is informational and does not fail
 doctor. Doctor opens an existing SQLite database read-only, probes rclone with
@@ -1175,7 +1191,7 @@ Inbound messages wait only for a submitted agent turn, not merely for the
 brain panel to exist. An idle startup panel is closed and replaced by the
 SMS- or email-specific session immediately, including while the daily-triage
 modal is visible. The modal itself never closes the agent panel. A submitted
-local turn is allowed to finish first; its Stop-hook completion is consumed
+local turn is allowed to finish first; its lifecycle completion is consumed
 even while an SMS/email lease is warm, so queued messages cannot become
 stranded. After a remote response, its channel panel remains open and reusable
 for three minutes. Another message reuses it only when both channel and actor
@@ -1190,8 +1206,8 @@ worker so provider latency never blocks TUI input or `Ctrl+Q`.
 
 When cloud sync is configured, receiver dispatch also applies the two-hour
 freshness gate described above. The HTTP acknowledgement remains immediate,
-but stale local state is pulled before the queued message reaches Claude or
-Codex.
+but stale local state is pulled before the queued message reaches the selected
+Claude, Codex, or OpenCode frontend.
 
 Receiver enablement is persistent workspace intent, separate from process and
 lease availability. `brain receiver start`, `brain receiver stop`, startup

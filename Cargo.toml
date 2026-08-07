@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.37.0"
+version = "0.38.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Multi-workspace terminal dispatch for notes, tasks, sync, and agent sessions."
@@ -37,10 +37,10 @@ notify = "8"
 # Safe nonblocking Unix-socket creation plus bounded poll lets the shared
 # control plane enforce one connect deadline without unsafe code or detached
 # connector threads. This crate was already present through portable-pty.
-nix = { version = "0.28", features = ["fs", "poll", "socket"] }
+nix = { version = "0.28", features = ["fs", "poll", "signal", "socket"] }
 nucleo-matcher = "0.3"
 regex = "1"
-# PTY-backed brain panel: portable-pty spawns the interactive `claude` child,
+# PTY-backed brain panel: portable-pty spawns the selected agent frontend,
 # vt100 parses its byte stream into a screen buffer, and tui-term renders that
 # buffer inside ratatui. Mirrors the `tasks` sibling project's stack.
 portable-pty = "0.9"

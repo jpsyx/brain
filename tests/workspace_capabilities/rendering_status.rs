@@ -1,5 +1,6 @@
 use brain::access::{AccessMode, MachineCapabilityEnvironment, capability_plan};
 use brain::config::Config;
+use brain::session::AgentKind;
 
 use crate::support::{actor, family_id, named_actor, temporary_workspace};
 
@@ -27,7 +28,7 @@ fn capability_status_reports_request_availability_and_honest_frontend_enforcemen
 
     let status = brain::skills::command::format_capability_status(
         &plan,
-        "claude",
+        &frontend_commands("claude"),
         brain::theme::Theme::dark(false),
     );
 
@@ -36,7 +37,7 @@ fn capability_status_reports_request_availability_and_honest_frontend_enforcemen
         "{status}"
     );
     assert!(
-        status.contains("Claude=strictly-selected  Codex=advisory-only"),
+        status.contains("Claude=strictly-selected  Codex=advisory-only  OpenCode=advisory-only"),
         "{status}"
     );
     assert!(
@@ -44,7 +45,7 @@ fn capability_status_reports_request_availability_and_honest_frontend_enforcemen
         "{status}"
     );
     assert!(
-        status.contains("Claude=unavailable  Codex=unavailable"),
+        status.contains("Claude=unavailable  Codex=unavailable  OpenCode=unavailable"),
         "{status}"
     );
     assert!(
@@ -52,7 +53,7 @@ fn capability_status_reports_request_availability_and_honest_frontend_enforcemen
         "{status}"
     );
     assert!(
-        status.contains("Claude=advisory-only  Codex=advisory-only"),
+        status.contains("Claude=advisory-only  Codex=advisory-only  OpenCode=advisory-only"),
         "{status}"
     );
     assert!(!status.contains("machine-secret"), "{status}");
@@ -77,14 +78,22 @@ fn capability_status_downgrades_claude_for_an_indirect_configured_command() {
 
     let status = brain::skills::command::format_capability_status(
         &plan,
-        "sh -c 'exec claude'",
+        &frontend_commands("sh -c 'exec claude'"),
         brain::theme::Theme::dark(false),
     );
 
     assert!(
-        status.contains("Claude=advisory-only  Codex=advisory-only"),
+        status.contains("Claude=advisory-only  Codex=advisory-only  OpenCode=advisory-only"),
         "{status}"
     );
+}
+
+fn frontend_commands(claude: &str) -> Vec<(AgentKind, String)> {
+    vec![
+        (AgentKind::Claude, claude.to_owned()),
+        (AgentKind::Codex, "codex".to_owned()),
+        (AgentKind::OpenCode, "opencode".to_owned()),
+    ]
 }
 
 #[test]

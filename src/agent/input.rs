@@ -11,7 +11,7 @@ pub struct InputSequence(Vec<u8>);
 impl InputSequence {
     /// Construct a frontend-defined input sequence.
     #[must_use]
-    pub fn bytes(bytes: impl Into<Vec<u8>>) -> Self {
+    pub(crate) fn bytes(bytes: impl Into<Vec<u8>>) -> Self {
         Self(bytes.into())
     }
 
@@ -28,6 +28,14 @@ impl InputSequence {
             }
         }
         Self(bytes)
+    }
+
+    /// Encode literal text followed by one frontend-defined semantic key sequence.
+    #[must_use]
+    pub(crate) fn text_with_suffix(text: &str, suffix: &[u8]) -> Self {
+        let mut input = Self::text(text).0;
+        input.extend_from_slice(suffix);
+        Self(input)
     }
 
     /// Consume the sequence for delivery by a transport implementation.

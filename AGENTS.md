@@ -41,8 +41,9 @@ agent work flows through `AgentController`. The persistent shell keeps
 UUID-scoped state
 (`~/.cache/brain/workspaces/<workspace-uuid>/state.db`, table
 `brain_sessions`) for frontend session locks, completion delivery, and panel
-layout. Claude can resume an eligible transcript; Codex starts fresh while
-using equivalent installed SessionStart/Stop hooks and the same state schema.
+layout. Claude and OpenCode can resume an eligible workspace-scoped session;
+Codex starts fresh. All three use the same frontend-neutral state and
+completion schema through registry-declared lifecycle integrations.
 One machine-wide shared HTTP process exists only for the lifetime of live TUI
 leases and stops after the final orderly close or expired crashed lease.
 
@@ -67,7 +68,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+S`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
 | A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu/model.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
 | How the brain panel launches Claude, Codex, or OpenCode (`claude_cmd`, `codex_cmd`, `opencode_cmd`, frontend selectors), or the file-open / Finder path | `docs/integrations.md` (controller/adapters in `src/agent/`; compatibility builders in `src/session.rs`; agent commands in `src/env/`; openers in `src/open_target.rs`) |
-| The SessionStart/Stop hooks, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{claude_session_start_hook,claude_stop_hook}.py`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
+| The session-start/turn-complete bridges, frontend registry, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{agent_session_start_hook,agent_turn_complete_hook}.py`, `scripts/opencode_brain_plugin.js`, `src/agent/registry.rs`, `src/agent/registry/contract.rs`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
 | Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, the `sync` block's fields, or **root resolution** (`root` is structural workspace-registry data in `~/.config/brain/env.json`, never writable free-form env; the legacy `~/.config/brain-root` pointer is read-only migration input) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; legacy compatibility in `src/paths.rs`; selected roots in `src/workspace/`; the `sync` block schema in `src/sync/config.rs`) |
 | `brain sync` itself (the `sync`/`--push`/`--pull`/`setup`/`repair`/`status`/`conflicts` surface), the rclone bisync transport, keep-both conflict naming, the `--max-delete` guard, or the sync journal | `docs/features.md` + `docs/integrations.md` + `docs/architecture.md` + `docs/data-model.md` (pipeline in `src/sync/`: `config`, `remote`, `args`, `run`, `conflicts`, `verify`, `journal`, `setup`, `command`; dispatched before the gate in `src/main.rs`) |
@@ -290,10 +291,11 @@ users in `skills/`.)
   The **one exception** is a project-management-log-only commit (see the next
   rule): it touches no source, triggers no release, and must **not** bump the
   version.
-- **Every LLM capability must flow through `AgentController` and work with both
-  Claude and Codex.** When adding or changing brain-panel behavior, implement
-  and test equivalent lifecycle, prompt, completion, and delivery behavior for
-  both functional frontends. If one exposes a different integration surface
+- **Every LLM capability must flow through `AgentController` and work with
+  Claude, Codex, and OpenCode.** When adding or changing brain-panel behavior,
+  implement and test equivalent lifecycle, prompt, completion, and delivery
+  behavior for every registered frontend. If one exposes a different
+  integration surface
   (for example, Claude settings versus Codex `~/.codex/hooks.json`), bridge the
   difference inside Brain. Keep every frontend behind the same controller
   facade; never route around the controller to make one call site appear

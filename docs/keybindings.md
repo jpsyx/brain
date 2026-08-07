@@ -4,7 +4,6 @@ The merged `brain` shell has **three main views** (tasks, brain-directory
 search, and logs) and one app-level **brain panel** (the selected
 agent PTY: Claude by default, Codex with `--codex` / `-cx`, or OpenCode with
 `--open-code` / `-oc`). The selected frontend owns its PTY input translation.
-`--open-code` / `-oc` selector currently fails fast before opening the shell.
 See [glossary.md](glossary.md) for the vocabulary. Startup: the **tasks
 view** is showing, the **brain panel is open** (on the right) but unfocused, so
 `j`/`k` work immediately.
@@ -29,8 +28,8 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 | `Ctrl+B` | Jump to the **brain-directory** view | Main-panel focus only |
 | `Alt+H` / `Alt+L` | Focus the **left** / **right** panel | Spatial: follows the layout when the brain panel is swapped sides. `Alt+H` from the brain panel is the reliable way back to the main view |
 | `Alt+U` / `Alt+D` | Scroll the focused panel a half-page up / down | Brain panel scrolls its scrollback; the main view pages. Fires while the selected agent has focus or a filter is active. Also accepts macOS Option-produced equivalents when richer keyboard reporting surfaces those instead of Alt-modified ASCII |
-| `Ctrl+M` | Open (or focus) the brain panel | Resumes the latest Claude session; Codex panels currently launch fresh. Needs the kitty protocol to stay distinct from Enter |
-| `Ctrl+N` | Start a new agent session in the brain panel | Types `/new` and submits or queues it. Only while the panel is open |
+| `Ctrl+M` | Open (or focus) the brain panel | Resumes the latest eligible Claude or exact-workspace OpenCode session; Codex panels currently launch fresh. Needs the kitty protocol to stay distinct from Enter |
+| `Ctrl+N` | Start a new agent session in the brain panel | Runs the selected adapter's semantic new-session action (`/new` plus its native submit). Only while the panel is open |
 | `Alt+[` / `Alt+]` | Cycle the brain-panel tab (previous / next): **main** session ↔ **daily-triage** session | The reliable switch (resolves as Alt-modified brackets or the macOS Option smart-quote glyphs). No-op unless a daily-triage tab is open. The command palette (`Ctrl+P`) also carries **Show main brain session** / **Show daily triage session**. `Alt+1` / `Alt+2` still select a tab directly on terminals that support Alt+digit, but that encoding is unreliable, hence the bracket cycle. From either panel |
 | `Ctrl+X` | Close the brain panel (ends its agent session) | The main view goes full-width. From either panel. **On the daily-triage tab it closes only that ephemeral session**, leaving the main session up |
 | `Alt+S` | Open the keyboard-shortcuts help modal | Replaces the old bare `?`; bound to `Alt+S` so a literal `?` still types into the brain-search filter. Distinct Meta sequence on every terminal |

@@ -12,6 +12,19 @@ use crate::{
     workspace::WorkspaceContext,
 };
 
+/// Frontend-neutral input intent translated atomically by one adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentAction<'a> {
+    /// Type literal text without submitting it.
+    TypeText(&'a str),
+    /// Submit the text already present in the frontend composer.
+    SubmitNow,
+    /// Send a follow-up using the frontend's native busy-turn behavior.
+    FollowUpAfterActiveTurn(&'a str),
+    /// Begin a fresh conversation through the frontend's own command surface.
+    StartNewSession,
+}
+
 /// All frontend-neutral inputs required to launch an agent.
 #[derive(Clone)]
 pub struct LaunchRequest {
@@ -142,6 +155,7 @@ impl LaunchRequest {
 
 /// A complete, frontend-specific launch description for a transport.
 #[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LaunchSpec {
     /// Executable shell command, including frontend-specific arguments.
     pub command: String,
@@ -178,7 +192,7 @@ impl std::fmt::Debug for LaunchSpec {
 impl LaunchSpec {
     /// Construct the complete transport launch description.
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         command: impl Into<String>,
         cwd: PathBuf,
         environment: Vec<(String, String)>,
@@ -205,7 +219,7 @@ impl LaunchSpec {
 }
 
 /// A concrete agent frontend translated behind the shared controller.
-pub trait AgentFrontend: Send {
+pub(crate) trait AgentFrontend: Send {
     /// This frontend's stable kind.
     fn kind(&self) -> AgentKind;
 
@@ -217,20 +231,16 @@ pub trait AgentFrontend: Send {
     /// Translate a neutral launch request into a complete launch spec.
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError>;
 
-    /// Input sequence that immediately submits the current turn.
-    fn submit_input(&self) -> Result<InputSequence, AgentError>;
+    /// Remove frontend-owned artifacts prepared for a child that failed to start.
+    fn rollback_launch(&self, _request: &LaunchRequest) -> Result<(), AgentError> {
+        Ok(())
+    }
 
-    /// Input sequence that queues text after the active turn.
-    fn queue_input(&self) -> Result<InputSequence, AgentError>;
-
-    /// Input sequence that begins a fresh in-frontend session.
-    fn new_session_input(&self) -> Result<InputSequence, AgentError>;
+    /// Translate one semantic input action into an atomic terminal sequence.
+    fn input_for(&self, action: AgentAction<'_>) -> Result<InputSequence, AgentError>;
 
     /// Completion mechanism used by this frontend.
     fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError>;
-
-    /// Location of the frontend's transcript for a known session.
-    fn transcript(&self, session: &AgentSession) -> Result<Option<PathBuf>, AgentError>;
 
     /// Whether this known session is safe to offer as a resume candidate.
     fn resume_candidate_exists(&self, session: &AgentSession) -> Result<bool, AgentError>;
@@ -238,8 +248,8 @@ pub trait AgentFrontend: Send {
     /// Stable response artifact identity for a launched session.
     fn response_id(&self, session: &AgentSession) -> Result<String, AgentError>;
 
-    /// Whether a completed receiver session ID can restore interactive work.
-    fn can_resume_response_session(&self) -> Result<bool, AgentError>;
+    /// Whether a completed receiver frontend session can restore interactive work.
+    fn can_resume_response_session(&self, session: &AgentSession) -> Result<bool, AgentError>;
 }
 
 pub(crate) fn shell_quote(value: &str) -> String {
@@ -271,6 +281,7 @@ pub(super) fn launch_environment(
                 .map(|value| (name.to_owned(), value))
         })
         .collect::<Vec<_>>();
+    environment.extend(ambient_frontend_environment(kind, std::env::vars()));
     environment.extend(
         request
             .workspace()
@@ -281,4 +292,53 @@ pub(super) fn launch_environment(
     environment.push(("BRAIN_AGENT_KIND".to_owned(), kind.as_str().to_owned()));
     environment.extend(request.hook_metadata().values().iter().cloned());
     environment
+}
+
+fn ambient_frontend_environment(
+    kind: AgentKind,
+    ambient: impl IntoIterator<Item = (String, String)>,
+) -> Vec<(String, String)> {
+    if kind != AgentKind::OpenCode {
+        return Vec::new();
+    }
+    ambient
+        .into_iter()
+        .filter(|(name, _)| name.starts_with("OPENCODE_"))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opencode_preserves_its_documented_environment_namespace_only_for_opencode() {
+        let ambient = vec![
+            (
+                "OPENCODE_CONFIG".to_owned(),
+                "/tmp/opencode.json".to_owned(),
+            ),
+            ("OPENCODE_CONFIG_DIR".to_owned(), "/tmp/opencode".to_owned()),
+            ("OPENCODE_TUI_CONFIG".to_owned(), "/tmp/tui.json".to_owned()),
+            ("OPENCODE_DISABLE_AUTOUPDATE".to_owned(), "true".to_owned()),
+            ("UNRELATED_SECRET".to_owned(), "do-not-copy".to_owned()),
+        ];
+
+        let opencode = ambient_frontend_environment(AgentKind::OpenCode, ambient.clone());
+        let claude = ambient_frontend_environment(AgentKind::Claude, ambient);
+
+        assert_eq!(
+            opencode,
+            vec![
+                (
+                    "OPENCODE_CONFIG".to_owned(),
+                    "/tmp/opencode.json".to_owned()
+                ),
+                ("OPENCODE_CONFIG_DIR".to_owned(), "/tmp/opencode".to_owned()),
+                ("OPENCODE_TUI_CONFIG".to_owned(), "/tmp/tui.json".to_owned()),
+                ("OPENCODE_DISABLE_AUTOUPDATE".to_owned(), "true".to_owned()),
+            ]
+        );
+        assert!(claude.is_empty());
+    }
 }

@@ -3,10 +3,10 @@ use std::sync::Arc;
 use brain::access::{
     AccessMode, CapabilityEnforcement, MachineCapabilityEnvironment, capability_plan,
 };
-use brain::agent::{AgentFrontend, AgentSession, CodexFrontend, LaunchRequest, SessionPlan};
+use brain::agent::{AgentKind, AgentSession, LaunchRequest, SessionPlan};
 use brain::config::Config;
 
-use crate::support::{actor, family_id, temporary_workspace};
+use crate::support::{actor, family_id, launch_spec, temporary_workspace};
 
 #[test]
 fn codex_uses_documented_secret_free_overrides_and_reports_base_exclusion_as_advisory() {
@@ -43,9 +43,7 @@ fn codex_uses_documented_secret_free_overrides_and_reports_base_exclusion_as_adv
     )
     .with_capability_plan(plan);
 
-    let spec = CodexFrontend::new("codex")
-        .launch_spec(&request)
-        .expect("Codex launch spec");
+    let spec = launch_spec(AgentKind::Codex, "codex", &request).expect("Codex launch spec");
 
     let isolated_name = "mcp_servers.brain_ws_8ccd7c411b6e4a3cb91e1b0117b77a2b_6e6f74696f6e";
     assert!(spec.command.contains(&format!("{isolated_name}.url=")));
@@ -126,9 +124,7 @@ fn codex_workspace_server_keys_are_stable_and_collision_free_for_punctuation() {
             AccessMode::WorkspaceOnly,
         )
         .with_capability_plan(plan);
-        CodexFrontend::new("codex")
-            .launch_spec(&request)
-            .expect("Codex launch spec")
+        launch_spec(AgentKind::Codex, "codex", &request).expect("Codex launch spec")
     };
 
     let first = launch();
@@ -205,9 +201,7 @@ fn codex_remaps_same_named_stdio_secrets_into_collision_free_mcp_child_environme
     )
     .with_capability_plan(plan);
 
-    let spec = CodexFrontend::new("codex")
-        .launch_spec(&request)
-        .expect("Codex launch spec");
+    let spec = launch_spec(AgentKind::Codex, "codex", &request).expect("Codex launch spec");
 
     let secret_entries = spec
         .environment
@@ -282,9 +276,7 @@ fn installed_codex_parser_accepts_the_generated_per_invocation_overrides() {
         AccessMode::WorkspaceOnly,
     )
     .with_capability_plan(plan);
-    let spec = CodexFrontend::new("codex")
-        .launch_spec(&request)
-        .expect("Codex launch spec");
+    let spec = launch_spec(AgentKind::Codex, "codex", &request).expect("Codex launch spec");
     let parser_command = format!(
         "{} -- 'capability parser probe' >/dev/null",
         spec.command

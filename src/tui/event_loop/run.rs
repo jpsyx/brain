@@ -28,7 +28,6 @@ pub(crate) fn event_loop<B: Backend>(
         // keystroke is needed and the closing Ctrl-C is never seen as a quit:
         // the two presses that quit the agent now auto-close the panel.
         app.close_exited_brain_panel();
-        app.tick_agent_controllers();
         for event in server_lease.poll() {
             match event {
                 crate::server::control::HeartbeatEvent::Recovered(generation) => {

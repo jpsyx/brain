@@ -78,7 +78,7 @@ means adding a palette row or a keybinding, not another command to memorize.
 brain                 # persistent shell, tasks view (Claude brain panel)
 brain --codex         # same shell, with Codex in the brain panel
 brain -cx            # short alias for --codex
-brain --open-code     # select the OpenCode stub; exits unsupported before startup
+brain --open-code     # same shell, with OpenCode in the brain panel
 brain -oc             # short alias for --open-code
 brain tasks           # same shell, launched on the tasks view explicitly
 brain tasks today --no-tui        # print today's tasks, no TUI
@@ -124,12 +124,14 @@ work and how to make them yours without forking the repo.
 - A Rust toolchain (only to build; `run.sh` builds on first run and when sources change).
 - [`markdown-to-pdf`](#the-markdown-to-pdf-prerequisite) on your `PATH` — brain
   uses it to turn notes/agendas into PDFs. Auto-discovered on first run.
-- The `claude` CLI for the default brain panel, or the `codex` CLI if you run
-  `brain --codex` / `brain -cx`.
+- The `claude` CLI for the default brain panel, the `codex` CLI for
+  `brain --codex` / `brain -cx`, or a compatible `opencode` CLI for
+  `brain --open-code` / `brain -oc`.
 
-OpenCode is selectable with `--open-code` / `-oc`, but it is currently a
-fail-fast stub. Brain does not run an `opencode` process, inspect OpenCode
-sessions, install OpenCode hooks, or deliver OpenCode receiver responses.
+OpenCode support includes fresh and resumable workspace sessions, semantic
+submit/queue/new-chat input, selected workspace capabilities, lifecycle and
+receiver completion through the bundled plugin, and a preflight compatibility
+probe for the CLI surfaces Brain uses.
 
 **Register a workspace**
 
@@ -344,13 +346,12 @@ mode.
 
 The `AgentController` facade and advisory access controls are active. TUI and
 receiver callers use semantic launch, type, submit, queue, new-session,
-completion, transcript, terminal, and shutdown operations. Claude and Codex
-adapters translate those operations into their own commands, input sequences,
-resume rules, and hook behavior. OpenCode is represented only by a
-constructible fail-fast adapter; every operation returns unsupported before a
-PTY or child process is touched. Functional OpenCode sessions remain a later
-phase. The shared receiver lease, ingress, authentication, forwarding, and
-delivery lifecycle is active.
+completion, session eligibility, terminal, and shutdown operations. Claude,
+Codex, and OpenCode adapters translate those operations into their own commands,
+input sequences,
+resume rules, and lifecycle behavior. OpenCode uses the same facade and shared
+receiver lease, ingress, authentication, forwarding, and delivery lifecycle as
+the other functional frontends.
 
 Task-schema activation is available only through the explicit, selected
 `brain workspace migrate` command. It checks compatibility, portable-user
@@ -410,7 +411,7 @@ brain env get root             # selected workspace root (read-only)
 brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf
 brain env set claude_cmd='claude --dangerously-skip-permissions'
 brain env set codex_cmd='codex --model gpt-5'
-brain env set opencode_cmd='opencode' # reserved; the stub never executes it
+brain env set opencode_cmd='opencode'
 brain env get root -b family
 ```
 
@@ -420,7 +421,7 @@ brain env get root -b family
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on this machine. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command the Claude brain panel launches on this machine. |
 | `codex_cmd` | `codex` | Command the Codex brain panel launches on this machine. |
-| `opencode_cmd` | `opencode` | Reserved OpenCode command value. The selectable stub never executes it. |
+| `opencode_cmd` | `opencode` | Command the OpenCode brain panel launches on this machine. |
 
 ### The `markdown-to-pdf` prerequisite
 

@@ -22,8 +22,8 @@ pub(crate) use artifact::{
 };
 pub(crate) use mcp::{
     cleanup_claude_runtime_artifacts, cleanup_codex_runtime_artifacts,
-    cleanup_workspace_capabilities, codex_mcp_launch, prepare_workspace_capabilities,
-    write_claude_runtime_config,
+    cleanup_workspace_capabilities, codex_mcp_launch, opencode_mcp_launch,
+    prepare_workspace_capabilities, write_claude_runtime_config,
 };
 pub(crate) use skills::ResolvedSkillSource;
 pub(crate) use store::{

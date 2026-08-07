@@ -1,5 +1,9 @@
 # Brain Agent Facade Completion and OpenCode Implementation Plan
 
+> **Status:** Historical foundation implemented in `c385c10`. The remaining
+> production-parity work is tracked by
+> [2026-08-06-brain-opencode-gap-closure.md](2026-08-06-brain-opencode-gap-closure.md).
+
 > **For agentic workers:** REQUIRED SKILLS: Use `subagent-driven-development` to execute independent tasks, `test-driven-development` for every production change, and `rust-skills` for all Rust work. Use `systematic-debugging` before changing characterized behavior in response to a regression.
 
 **Goal:** Make `AgentController` the only public interface for LLM operations, preserve complete Claude and Codex implementations behind that facade, and promote OpenCode from its fail-fast stub to a functional third frontend selected with `--open-code` or `-oc`.

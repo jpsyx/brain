@@ -40,7 +40,7 @@ The code is the source-of-truth for *how*. They must agree on *what*.
    test (and deliberately don't), and the test layout.
 8. **[decisions.md](decisions.md)** — the "why" behind the non-obvious
    choices: `/dev/tty` rendering, kitty flags, slug normalization, the
-   config-driven `claude` launch, the central-dispatch framing.
+   registry-driven agent facade, and the central-dispatch framing.
 
 ## Source layout (quick map)
 
@@ -51,7 +51,7 @@ src/
   cli/           : focused clap surface (global + command-family modules)
   workspace/     : WorkspaceContext, schema-v2 registry, requirements, and commands
   actor/         : immutable ActorContext for local and authenticated requests
-  agent/         : AgentController plus Claude/Codex/OpenCode adapters
+  agent/         : AgentController, frontend registry, and Claude/Codex/OpenCode adapters
   users/         : portable people, normalized identities, and atomic users.json storage
   migration/     : explicit journaled legacy-to-multi-workspace rollout
   config.rs      — typed knobs (triage pattern, linear, rollover)
@@ -68,8 +68,10 @@ src/
   render.rs      — pure functions → styled ratatui Lines (picker UI)
   open_target.rs — "how to open this path" + new-iTerm2-tab opener
 scripts/
-  claude_session_start_hook.py : records attributed Claude/Codex session starts
-  claude_stop_hook.py          : records attributed Claude/Codex completions
+  agent_session_start_hook.py  : frontend-neutral attributed session rotation
+  agent_turn_complete_hook.py  : frontend-neutral authorized completion publication
+  opencode_brain_plugin.js     : thin OpenCode event-to-bridge adapter
+  claude_*_hook.py             : installed compatibility entry points
 tests/
   entry_collect.rs   — entry::collect against real temp dir trees
   root_resolution.rs — config parse + tilde expansion composition
@@ -88,7 +90,7 @@ CLAUDE.md        — symlink → AGENTS.md
 | What does pressing Ctrl-Enter do in the picker? | keybindings.md |
 | What is "Open tasks"? | features.md → "Open tasks" |
 | How does `ann-afloat` match the query `afloat`? | data-model.md → "HaystackBuf" |
-| How does the brain panel launch `claude`? | integrations.md → "The brain panel" |
+| How does the brain panel launch an agent frontend? | integrations.md → "The Brain Panel" |
 | Why does `brain` need no plan protocol or wrapper? | decisions.md |
 | How do I create, attach, or select a workspace? | config.md and features.md |
 | How do I add a test the right way? | testing.md |

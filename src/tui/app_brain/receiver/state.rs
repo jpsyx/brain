@@ -6,10 +6,17 @@ use crate::agent::SessionStore;
 
 impl App<'_> {
     pub(in crate::tui::app_brain) fn close_receiver_panel(&mut self, restore_interactive: bool) {
-        let can_resume = self
-            .brain
-            .as_ref()
-            .is_some_and(|controller| controller.can_resume_response_session().unwrap_or(false));
+        let resume_session = self
+            .interactive_agent_session_id
+            .as_deref()
+            .and_then(|id| crate::agent::AgentSession::new(id).ok());
+        let can_resume = self.brain.as_ref().is_some_and(|controller| {
+            resume_session.as_ref().is_some_and(|session| {
+                controller
+                    .can_resume_response_session(session)
+                    .unwrap_or(false)
+            })
+        });
         if let Some(mut controller) = self.brain.take() {
             let _ = controller.shutdown();
         }
@@ -22,7 +29,7 @@ impl App<'_> {
         self.reload_after_brain();
         if restore_interactive {
             self.receiver_resume_session = can_resume
-                .then(|| self.interactive_session_id.take())
+                .then(|| self.interactive_agent_session_id.take())
                 .flatten();
             self.open_or_focus_brain(None);
         }

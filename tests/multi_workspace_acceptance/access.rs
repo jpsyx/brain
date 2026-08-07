@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use brain::access::{AccessMode, capability_plan_for};
 use brain::actor::ActorContext;
 use brain::agent::{
-    AgentController, AgentError, AgentFrontend, AgentSession, AgentTransport, ClaudeFrontend,
-    CodexFrontend, InputSequence, LaunchRequest, LaunchSpec, SessionPlan,
+    AgentController, AgentError, AgentKind, AgentSession, AgentTransport, InputSequence,
+    LaunchRequest, LaunchSpec, SessionPlan,
 };
 
 use super::setup::{Scenario, command_context};
@@ -30,31 +30,28 @@ pub(crate) fn assert_frontend_neutral_workspace_only_launch(
     .with_capability_plan(plan);
     let captured = Arc::new(Mutex::new(Vec::new()));
 
-    for frontend in frontends(scenario) {
+    let context = command_context(scenario);
+    for kind in AgentKind::ALL {
         let transport = RecordingTransport {
             launches: Arc::clone(&captured),
         };
-        let mut controller = AgentController::new(
-            Arc::clone(&scenario.family),
-            actor.clone(),
-            frontend,
-            Box::new(transport),
-        );
+        let mut controller =
+            AgentController::configured(&context, kind, actor.clone(), Box::new(transport));
         controller.launch(&request).expect("controller launch");
     }
 
     let launches = captured.lock().expect("recorded launches");
-    assert_eq!(launches.len(), 2);
+    assert_eq!(launches.len(), AgentKind::ALL.len());
     for launch in launches.iter() {
         assert_eq!(launch.cwd, scenario.family.root());
-        assert!(launch.command.contains("Workspace root:"));
-        assert!(
-            launch
-                .command
-                .contains(&scenario.family.root().display().to_string())
-        );
-        assert!(launch.command.contains("advisory prompt enforcement"));
-        assert!(!launch.command.contains("personal-capability-secret"));
+        let trusted_launch_surface = std::iter::once(launch.command.as_str())
+            .chain(launch.environment.iter().map(|(_, value)| value.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(trusted_launch_surface.contains("Workspace root:"));
+        assert!(trusted_launch_surface.contains(&scenario.family.root().display().to_string()));
+        assert!(trusted_launch_surface.contains("advisory prompt enforcement"));
+        assert!(!trusted_launch_surface.contains("personal-capability-secret"));
         assert!(
             launch
                 .environment
@@ -62,17 +59,6 @@ pub(crate) fn assert_frontend_neutral_workspace_only_launch(
                 .all(|(_, value)| value != "personal-capability-secret")
         );
     }
-}
-
-fn frontends(scenario: &Scenario) -> [Box<dyn AgentFrontend>; 2] {
-    [
-        Box::new(ClaudeFrontend::new(
-            "claude",
-            scenario.family.root().to_path_buf(),
-            scenario.home.join(".claude/projects"),
-        )),
-        Box::new(CodexFrontend::new("codex")),
-    ]
 }
 
 struct RecordingTransport {

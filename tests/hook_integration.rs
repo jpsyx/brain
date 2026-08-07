@@ -1,4 +1,4 @@
-//! Integration tests for `scripts/claude_session_start_hook.py`.
+//! Integration tests for `scripts/agent_session_start_hook.py`.
 //!
 //! We exercise the real Python script with a controlled env and stdin (the
 //! hook input JSON claude would send) against a temp sqlite DB created by the
@@ -16,6 +16,8 @@ use rusqlite::Connection;
 
 #[path = "hook_integration/atomic.rs"]
 mod atomic;
+#[path = "hook_integration/contracts.rs"]
+mod contracts;
 #[path = "hook_integration/installer.rs"]
 mod installer;
 
@@ -23,6 +25,12 @@ mod installer;
 fn hook_script() -> PathBuf {
     let manifest = env!("CARGO_MANIFEST_DIR");
     PathBuf::from(manifest)
+        .join("scripts")
+        .join("agent_session_start_hook.py")
+}
+
+fn legacy_hook_script() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("scripts")
         .join("claude_session_start_hook.py")
 }
@@ -95,6 +103,18 @@ fn run_scoped_hook(
     instance: &str,
     input: &str,
 ) -> std::process::Output {
+    run_hook_command(
+        scoped_hook_command(db_path, agent_kind, actor_id, instance),
+        input,
+    )
+}
+
+fn scoped_hook_command(
+    db_path: &Path,
+    agent_kind: &str,
+    actor_id: &str,
+    instance: &str,
+) -> Command {
     let mut cmd = Command::new("python3");
     cmd.arg(hook_script());
     cmd.env("BRAIN_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111");
@@ -106,7 +126,7 @@ fn run_scoped_hook(
     cmd.env("BRAIN_INSTANCE_ID", instance);
     cmd.env("BRAIN_PID", "4242");
     cmd.env("BRAIN_STATE_DB", db_path);
-    run_hook_command(cmd, input)
+    cmd
 }
 
 fn spawn_hook_command(mut cmd: Command, input: &str) -> Child {
@@ -212,22 +232,48 @@ fn hook_rejects_an_unregistered_workspace_session_tuple() {
 }
 
 #[test]
-fn hook_records_session_locked_to_instance_and_pid() {
+fn normalized_session_id_records_exact_identity_for_every_frontend() {
+    for agent_kind in ["claude", "codex", "opencode"] {
+        let (_tmp, db) = fresh_db();
+        let pending = format!("pending-{agent_kind}");
+        let real = format!("real-{agent_kind}");
+        let instance = format!("instance-{agent_kind}");
+        register_session(&db, agent_kind, "pablo", &pending, &instance, 4242);
+
+        let out = run_scoped_hook(&db, agent_kind, "pablo", &instance, &start_input(&real));
+
+        assert!(
+            out.status.success(),
+            "{agent_kind} hook failed: stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(read_session(&db, &pending).unwrap().1, None);
+        assert_eq!(
+            read_session(&db, &real),
+            Some((
+                instance,
+                Some(4242),
+                agent_kind.to_owned(),
+                "11111111-1111-4111-8111-111111111111".to_owned(),
+                "pablo".to_owned(),
+                "interactive".to_owned(),
+            ))
+        );
+    }
+}
+
+#[test]
+fn claude_named_start_launcher_preserves_the_normalized_contract() {
     let (_tmp, db) = fresh_db();
-    register_session(&db, "claude", "pablo", "claude-abc", "inst-1", 4242);
-    let out = run_hook(&db, Some(("inst-1", 4242)), &start_input("claude-abc"));
-    assert!(
-        out.status.success(),
-        "hook failed: stderr={}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let row = read_session(&db, "claude-abc").expect("session recorded");
-    assert_eq!(row.0, "inst-1");
-    assert_eq!(row.1, Some(4242));
-    assert_eq!(row.2, "claude");
-    assert_eq!(row.3, "11111111-1111-4111-8111-111111111111");
-    assert_eq!(row.4, "pablo");
-    assert_eq!(row.5, "interactive");
+    register_session(&db, "claude", "pablo", "pending", "inst-1", 4242);
+    let mut command = attributed_hook_command(&db, "claude", "pablo", "inst-1", 4242);
+    command.arg(legacy_hook_script());
+
+    let output = run_hook_command(command, &start_input("real"));
+
+    assert!(output.status.success(), "launcher failed: {output:?}");
+    assert_eq!(read_session(&db, "pending").unwrap().1, None);
+    assert_eq!(read_session(&db, "real").unwrap().1, Some(4242));
 }
 
 #[test]

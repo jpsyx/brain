@@ -1,11 +1,10 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::access::AccessMode;
-use crate::agent::{
-    AgentFrontend, AgentSession, ClaudeFrontend, CodexFrontend, LaunchRequest, SessionPlan,
+use crate::agent::{AgentKind, AgentSession, LaunchRequest, SessionPlan};
+use crate::workspace::{
+    CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
 };
-use crate::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
 use super::{acquire_singleton_then_refresh, load_startup_config, startup_sync_plan};
 
@@ -45,7 +44,7 @@ fn held_workspace_singleton_prevents_hook_refresh() {
 }
 
 #[test]
-fn unrestricted_startup_ignores_malformed_unused_capability_fields_for_both_frontends() {
+fn unrestricted_startup_ignores_malformed_unused_capability_fields_for_every_frontend() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("brain");
     std::fs::create_dir_all(root.join(".config")).unwrap();
@@ -74,14 +73,13 @@ fn unrestricted_startup_ignores_malformed_unused_capability_fields_for_both_fron
     let config = load_startup_config(&workspace).expect("unrestricted startup config");
 
     assert_eq!(config.access_mode, AccessMode::Unrestricted);
-    for frontend in [
-        Box::new(ClaudeFrontend::new(
-            "claude",
-            root,
-            PathBuf::from("/unused/projects"),
-        )) as Box<dyn AgentFrontend>,
-        Box::new(CodexFrontend::new("codex")),
-    ] {
+    let command = CommandContext::for_test(
+        Arc::clone(&workspace),
+        RegistryStore::from_path(temp.path().join("env.json")),
+        "pablo",
+    );
+    for kind in AgentKind::ALL {
+        let frontend = crate::agent::configured_frontend(&command, kind);
         let request = LaunchRequest::from_trusted_context(
             Arc::clone(&workspace),
             crate::actor::test_actor("pablo"),

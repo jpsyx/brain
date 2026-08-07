@@ -16,64 +16,156 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod frontend;
+mod render;
+
+pub use frontend::{FrontendCompatibility, FrontendHealth};
+pub use render::{format_workspace_report, print_report, print_workspace_report, sync_line};
+
 #[derive(Debug, Default, Clone)]
 pub struct Diagnosis {
     pub db_path: PathBuf,
     pub db_present: bool,
     pub db_schema_ok: bool,
     pub settings_path: PathBuf,
-    pub hook_installed: bool,
     pub hook_command: Option<String>,
-    pub codex_hooks_path: PathBuf,
-    pub claude_hook_installed: bool,
-    pub codex_hook_installed: bool,
-    pub opencode_plugin_installed: bool,
+    pub frontend_health: Vec<FrontendHealth>,
+    frontend_compatibility: Vec<FrontendCompatibility>,
     pub rclone_version: Option<String>,
     pub sync_configured: bool,
 }
 
 impl Diagnosis {
     #[must_use]
-    pub const fn is_ok(&self) -> bool {
+    pub fn is_ok(&self) -> bool {
+        let required_compatibility = crate::agent::registrations()
+            .iter()
+            .filter(|registration| registration.requires_compatibility_probe())
+            .collect::<Vec<_>>();
         self.db_present
             && self.db_schema_ok
-            && self.claude_hook_installed
-            && self.codex_hook_installed
-            && self.opencode_plugin_installed
+            && self.frontend_health.len() == crate::agent::AgentKind::ALL.len()
+            && all_frontends_ready(&self.frontend_health)
+            && self.frontend_compatibility.len() == required_compatibility.len()
+            && required_compatibility.iter().all(|registration| {
+                self.frontend_compatibility.iter().any(|compatibility| {
+                    compatibility.kind() == registration.kind() && compatibility.is_ready()
+                })
+            })
     }
+
+    /// Registry-ordered health for every functional frontend.
+    #[must_use]
+    pub fn frontend_health(&self) -> &[FrontendHealth] {
+        &self.frontend_health
+    }
+
+    /// Whether the selected registered frontend's integration is ready.
+    #[must_use]
+    pub fn frontend_ready(&self, kind: crate::agent::AgentKind) -> bool {
+        self.frontend_health
+            .iter()
+            .find(|health| health.kind() == kind)
+            .is_some_and(FrontendHealth::is_ready)
+    }
+
+    /// Read-only executable compatibility rows collected by doctor.
+    #[must_use]
+    pub fn frontend_compatibility(&self) -> &[FrontendCompatibility] {
+        &self.frontend_compatibility
+    }
+
+    pub(crate) fn record_frontend_compatibility(
+        &mut self,
+        kind: crate::agent::AgentKind,
+        result: Result<Option<String>, crate::agent::AgentError>,
+    ) {
+        self.frontend_compatibility
+            .retain(|health| health.kind() != kind);
+        self.frontend_compatibility
+            .push(FrontendCompatibility::from_result(kind, result));
+    }
+}
+
+fn all_frontends_ready(health: &[FrontendHealth]) -> bool {
+    health.iter().all(FrontendHealth::is_ready)
 }
 
 /// Run all checks. Pure function over paths so tests can point it at
 /// a temp dir; the binary entry point passes the selected workspace's
-/// UUID-scoped state DB and `.claude` directory.
+/// UUID-scoped state DB and an injected legacy settings directory.
 #[must_use]
-pub fn run_doctor(db_path: &Path, settings_dir: &Path, sync_configured: bool) -> Diagnosis {
-    run_doctor_with_frontends(
+pub fn run_doctor(
+    db_path: &Path,
+    settings_dir: &Path,
+    sync_configured: bool,
+    compatibility: &[(
+        crate::agent::AgentKind,
+        Result<Option<String>, crate::agent::AgentError>,
+    )],
+) -> Diagnosis {
+    let workspace_root = settings_dir.parent().unwrap_or_else(|| Path::new("."));
+    run_doctor_for_workspace(
         db_path,
-        settings_dir,
-        Path::new(".codex/hooks.json"),
+        workspace_root,
+        Path::new("."),
         sync_configured,
+        compatibility,
     )
 }
 
-/// Run the Claude/Codex-parity checks against explicit read-only paths.
+/// Compatibility wrapper over explicit legacy settings and hooks paths.
 #[must_use]
 pub fn run_doctor_with_frontends(
     db_path: &Path,
     settings_dir: &Path,
     codex_hooks_path: &Path,
     sync_configured: bool,
+    compatibility: &[(
+        crate::agent::AgentKind,
+        Result<Option<String>, crate::agent::AgentError>,
+    )],
 ) -> Diagnosis {
+    let workspace_root = settings_dir.parent().unwrap_or_else(|| Path::new("."));
+    let home = codex_hooks_path
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or_else(|| Path::new("."));
+    run_doctor_for_workspace(
+        db_path,
+        workspace_root,
+        home,
+        sync_configured,
+        compatibility,
+    )
+}
+
+/// Run every registry-declared health check from a workspace root and home.
+#[must_use]
+pub fn run_doctor_for_workspace(
+    db_path: &Path,
+    workspace_root: &Path,
+    home: &Path,
+    sync_configured: bool,
+    compatibility: &[(
+        crate::agent::AgentKind,
+        Result<Option<String>, crate::agent::AgentError>,
+    )],
+) -> Diagnosis {
+    let primary_session = frontend::primary_session_check(workspace_root, home);
+    let settings_path = primary_session
+        .as_ref()
+        .map(|(path, _, _)| path.clone())
+        .unwrap_or_default();
     crate::logging::log(format!(
-        "doctor start db={} settings_dir={}",
+        "doctor start db={} workspace_root={}",
         db_path.display(),
-        settings_dir.display()
+        workspace_root.display()
     ));
     let mut diag = Diagnosis {
         db_path: db_path.to_path_buf(),
         db_schema_ok: true, // vacuous when DB is missing
-        settings_path: settings_dir.join("settings.json"),
-        codex_hooks_path: codex_hooks_path.to_path_buf(),
+        settings_path,
         ..Default::default()
     };
     crate::logging::log("doctor check state db");
@@ -89,17 +181,17 @@ pub fn run_doctor_with_frontends(
         "doctor check SessionStart hook {}",
         diag.settings_path.display()
     ));
-    if let Some(cmd) = find_session_start_hook(&diag.settings_path) {
-        diag.hook_installed = true;
-        diag.claude_hook_installed = true;
-        diag.hook_command = Some(cmd);
+    diag.frontend_health = frontend::inspect(workspace_root, home);
+    for (kind, result) in compatibility {
+        diag.record_frontend_compatibility(*kind, result.clone());
     }
-    diag.codex_hook_installed = find_session_start_hook(&diag.codex_hooks_path).is_some();
-    let workspace_root = settings_dir.parent().unwrap_or_else(|| Path::new("."));
-    diag.opencode_plugin_installed = workspace_root.join(".opencode/plugins/brain.js").is_file();
+    diag.hook_command = primary_session
+        .and_then(|(path, _, suffix)| frontend::session_start_command(&path, suffix));
     crate::logging::log(format!(
         "doctor frontend integrations claude={} codex={} opencode={}",
-        diag.claude_hook_installed, diag.codex_hook_installed, diag.opencode_plugin_installed
+        diag.frontend_ready(crate::agent::AgentKind::Claude),
+        diag.frontend_ready(crate::agent::AgentKind::Codex),
+        diag.frontend_ready(crate::agent::AgentKind::OpenCode)
     ));
     crate::logging::log("doctor probe rclone");
     diag.rclone_version = detect_rclone_version();
@@ -117,12 +209,14 @@ pub fn format_doctor_plan(
     theme: crate::theme::Theme,
 ) -> String {
     format!(
-        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
+        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
         theme.heading("Checking brain task environment"),
         theme.muted("state DB:"),
         theme.value(&db_path.display().to_string()),
         theme.muted("SessionStart hook:"),
         theme.value(&settings_path.display().to_string()),
+        theme.muted("OpenCode:"),
+        "probing configured command",
         theme.muted("rclone:"),
         "probing PATH",
         theme.muted("sync config:"),
@@ -175,194 +269,6 @@ fn immutable_sqlite_uri(path: &Path) -> String {
     }
     uri.push_str("?immutable=1");
     uri
-}
-
-/// Walk one frontend settings file for Brain's deployed SessionStart hook.
-/// Returns the command on hit. Lenient on JSON shape: any unexpected structure
-/// returns `None`.
-fn find_session_start_hook(settings_path: &Path) -> Option<String> {
-    let raw = std::fs::read_to_string(settings_path).ok()?;
-    let val: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let entries = val.get("hooks")?.get("SessionStart")?.as_array()?;
-    for entry in entries {
-        let hooks = entry.get("hooks").and_then(|h| h.as_array());
-        let Some(hooks) = hooks else { continue };
-        for hook in hooks {
-            let cmd = hook.get("command").and_then(|c| c.as_str());
-            if let Some(cmd) = cmd {
-                if cmd.ends_with(".claude/brain-hooks/claude_session_start_hook.py") {
-                    return Some(cmd.to_owned());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// One-line rclone/sync health summary for `brain tasks doctor`.
-#[must_use]
-pub fn sync_line(
-    rclone_version: Option<&str>,
-    configured: bool,
-    theme: crate::theme::Theme,
-) -> String {
-    let rclone = rclone_version.map_or_else(
-        || theme.error("rclone ✗ not installed"),
-        |v| theme.success(&format!("rclone ✓ {v}")),
-    );
-    let sync = if configured {
-        theme.success("sync configured")
-    } else {
-        theme.muted("sync off")
-    };
-    format!("{rclone} · {sync}")
-}
-
-/// Render a human-readable report to stdout. Returns 0 on full
-/// health, 1 otherwise — useful as a `--ci` exit code.
-#[must_use]
-pub fn print_report(diag: &Diagnosis) -> i32 {
-    let ok = |b: bool| if b { "✓" } else { "✗" };
-    println!("tasks doctor");
-    println!(
-        "  {} state DB: {}",
-        ok(diag.db_present),
-        diag.db_path.display()
-    );
-    if diag.db_present {
-        println!("  {} state DB schema", ok(diag.db_schema_ok));
-    } else {
-        println!("    (will be created on first tasks-shell run)");
-    }
-    println!(
-        "  {} SessionStart hook in {}",
-        ok(diag.hook_installed),
-        diag.settings_path.display()
-    );
-    if let Some(cmd) = &diag.hook_command {
-        println!("    → {cmd}");
-    } else {
-        println!(
-            "    install with: {}/scripts/install_hook.sh",
-            env!("CARGO_MANIFEST_DIR")
-        );
-    }
-    println!(
-        "  {}",
-        sync_line(
-            diag.rclone_version.as_deref(),
-            diag.sync_configured,
-            crate::theme::Theme::active()
-        )
-    );
-    i32::from(!diag.is_ok())
-}
-
-/// Render the themed doctor report and centralized feature matrix.
-#[must_use]
-pub fn format_workspace_report(
-    diag: &Diagnosis,
-    workspace: &crate::workspace::WorkspaceName,
-    workspace_root: &Path,
-    requirements: &[crate::workspace::Requirement],
-    theme: crate::theme::Theme,
-) -> String {
-    let mut output = String::new();
-    let _ = writeln!(
-        output,
-        "{} {}",
-        theme.heading("Workspace"),
-        theme.accent(workspace.as_str())
-    );
-    let _ = writeln!(output, "  {}", theme.heading("Agent sessions"));
-    let _ = writeln!(
-        output,
-        "    {} state database: {}",
-        mark(diag.db_present && diag.db_schema_ok),
-        health(diag.db_present && diag.db_schema_ok, theme)
-    );
-    let _ = writeln!(
-        output,
-        "    {} Claude SessionStart: {}",
-        mark(diag.claude_hook_installed),
-        health(diag.claude_hook_installed, theme)
-    );
-    let _ = writeln!(
-        output,
-        "    {} Codex SessionStart: {}",
-        mark(diag.codex_hook_installed),
-        health(diag.codex_hook_installed, theme)
-    );
-    let _ = writeln!(
-        output,
-        "    {} OpenCode Brain plugin: {}",
-        mark(diag.opencode_plugin_installed),
-        health(diag.opencode_plugin_installed, theme)
-    );
-    if !diag.claude_hook_installed || !diag.codex_hook_installed || !diag.opencode_plugin_installed
-    {
-        let installer = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/install_hook.sh");
-        let _ = writeln!(
-            output,
-            "      {} {}",
-            theme.muted("fix:"),
-            theme.accent(&format!(
-                "{} {}",
-                shell_quote(&installer),
-                shell_quote(workspace_root)
-            ))
-        );
-    }
-    let _ = writeln!(output, "  {}", theme.heading("Tools"));
-    let _ = writeln!(
-        output,
-        "    {}",
-        sync_line(diag.rclone_version.as_deref(), diag.sync_configured, theme)
-    );
-    output.push('\n');
-    output.push_str(&crate::workspace::format_requirements(
-        workspace,
-        requirements,
-        theme,
-    ));
-    output
-}
-
-/// Print the complete selected-workspace doctor report.
-#[must_use]
-pub fn print_workspace_report(
-    diag: &Diagnosis,
-    workspace: &crate::workspace::WorkspaceName,
-    workspace_root: &Path,
-    requirements: &[crate::workspace::Requirement],
-) -> i32 {
-    print!(
-        "{}",
-        format_workspace_report(
-            diag,
-            workspace,
-            workspace_root,
-            requirements,
-            crate::theme::Theme::active(),
-        )
-    );
-    i32::from(!diag.is_ok())
-}
-
-const fn mark(ok: bool) -> &'static str {
-    if ok { "✓" } else { "✗" }
-}
-
-fn health(ok: bool, theme: crate::theme::Theme) -> String {
-    if ok {
-        theme.success("ready")
-    } else {
-        theme.error("needs repair")
-    }
-}
-
-fn shell_quote(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
 }
 
 #[cfg(test)]

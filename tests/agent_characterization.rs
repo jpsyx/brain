@@ -102,8 +102,12 @@ fn register_hook_session(db_path: &Path, agent_kind: &str, session_id: &str) {
 }
 
 #[test]
-fn triage_launch_environment_is_untracked_for_both_frontends() {
-    for (agent, expected_kind) in [(AgentKind::Claude, "claude"), (AgentKind::Codex, "codex")] {
+fn triage_launch_environment_is_untracked_for_every_frontend() {
+    for (agent, expected_kind) in [
+        (AgentKind::Claude, "claude"),
+        (AgentKind::Codex, "codex"),
+        (AgentKind::OpenCode, "opencode"),
+    ] {
         let env = env_for_triage(
             &workspace(),
             &actor(),
@@ -173,6 +177,7 @@ fn completion_hook_keeps_job_identity_and_actor_context_for_each_frontend() {
     let cases = [
         ("session_id", "claude-session-9", "claude"),
         ("thread_id", "codex-thread-9", "codex"),
+        ("session_id", "opencode-session-9", "opencode"),
     ];
 
     for (field, session_id, frontend) in cases {
@@ -211,5 +216,70 @@ fn completion_hook_keeps_job_identity_and_actor_context_for_each_frontend() {
         assert_eq!(value["channel"], "interactive");
         assert_eq!(value["message"], "Done");
         assert_eq!(value["completion_status"], "completed");
+    }
+}
+
+#[test]
+fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
+    let semantic_calls = [
+        (include_str!("../src/tui/handlers/input.rs"), "submit_now"),
+        (
+            include_str!("../src/tui/app_brain/launch.rs"),
+            "queue_after_active_turn",
+        ),
+        (
+            include_str!("../src/tui/app_brain/launch.rs"),
+            "start_new_session",
+        ),
+        (
+            include_str!("../src/tui/app_brain/launch.rs"),
+            "resume_candidate_exists",
+        ),
+        (
+            include_str!("../src/tui/app_brain/receiver/state.rs"),
+            "can_resume_response_session",
+        ),
+    ];
+    for (caller, operation) in semantic_calls {
+        assert!(
+            caller.contains(operation),
+            "missing semantic operation {operation}"
+        );
+    }
+
+    let callers = [
+        ("launch", include_str!("../src/tui/app_brain/launch.rs")),
+        ("input", include_str!("../src/tui/handlers/input.rs")),
+        (
+            "receiver dispatch",
+            include_str!("../src/tui/app_brain/receiver/dispatch.rs"),
+        ),
+        (
+            "receiver completion",
+            include_str!("../src/tui/app_brain/receiver/completion.rs"),
+        ),
+        (
+            "receiver state",
+            include_str!("../src/tui/app_brain/receiver/state.rs"),
+        ),
+    ];
+    for adapter_detail in [
+        "ClaudeFrontend",
+        "CodexFrontend",
+        "OpenCodeFrontend",
+        "InputSequence",
+        "--session-id",
+        "--session",
+        "--prompt",
+        "b\"\\r\"",
+        "b\"\\t\"",
+        "\"/new",
+    ] {
+        for (name, caller) in callers {
+            assert!(
+                !caller.contains(adapter_detail),
+                "{name} leaked adapter detail {adapter_detail}"
+            );
+        }
     }
 }

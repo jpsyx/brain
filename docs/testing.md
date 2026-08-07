@@ -96,7 +96,7 @@ first move is a failing test that reproduces it, *then* the fix.
   authenticated SMS routing, task script, UUID CSV merge, triage flag, access
   policy, capability resolution, and `AgentController` launch boundary. The
   only doubles are the provider request and agent transport at external
-  process edges. Claude and Codex both produce selected-root launch specs;
+  process edges. Claude, Codex, and OpenCode produce selected-root launch specs;
   ratatui, PTYs, and live agent providers never start. Lifecycle waits use
   bounded polling or channels, not fixed sleeps.
 - **Workspace documentation contract.** `tests/workspace_docs.rs` runs the
@@ -107,21 +107,21 @@ first move is a failing test that reproduces it, *then* the fix.
   `brain env`; and requires the prompt-based/non-sandbox disclaimer plus the
   invariant that changing the default workspace never changes access mode. It
   deliberately avoids snapshots and punctuation-heavy prose.
-- **Hook integration.** `tests/hook_integration.rs` plus its focused
+- **Lifecycle integration.** `tests/hook_integration.rs` plus its focused
   `hook_integration/{atomic,installer}.rs` modules run the real Python
-  SessionStart hook against a temporary SQLite DB and the real shell installer
+  generic session-start bridge against a temporary SQLite DB and the real shell installer
   against temporary homes/roots. They cover the typed workspace/actor
   identity plus session attribution contract, selected-root argument and
-  `BRAIN_ROOT` precedence, project-relative commands, actor-scoped Claude and
-  Codex rotation, atomic target-claim serialization, rollback and retry after
+  `BRAIN_ROOT` precedence, project-relative commands, actor-scoped Claude,
+  Codex, and OpenCode rotation, atomic target-claim serialization, rollback and retry after
   an injected mutation failure, equal opaque IDs with conflicting immutable
   attribution, schema-v2 row preservation, and malformed/ambient no-op
   behavior. The hook-installer
   unit tests live in `src/command/server/receiver/hooks/tests.rs`; they pin the
   exact installed Codex JSON command schema, execute the
-  actual configured start and stop commands as one attributed lifecycle, and
+  actual configured start and completion commands as one attributed lifecycle, and
   proves stale deployed scripts are refreshed. A regression test runs the real
-  Claude Stop hook on a payload with **no** `last_assistant_message` but a
+  compatibility Claude completion entry point on a payload with **no** `last_assistant_message` but a
   `transcript_path` present and proves it still publishes the response artifact
   by recovering the final assistant text from the transcript — delivery must
   not hinge on that one optional field. Further unit tests prove locked
@@ -131,10 +131,10 @@ first move is a failing test that reproduces it, *then* the fix.
   prevents hook refresh.
   `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
   completion contract for a Codex-style `thread_id` payload. It also pauses a
-  real Stop hook after payload parsing, rotates the same live Claude lineage
-  through the real SessionStart hook, and proves the stale completion is
+  real turn-complete bridge after payload parsing, rotates the same live Claude lineage
+  through the real session-start bridge, and proves the stale completion is
   rejected after serialization. A deterministic publication-failure fixture
-  proves both Claude and Codex retain `active` state and leave no staged file.
+  proves every registered frontend retains `active` state and leaves no staged file.
 - **The config store (`settings/vars.rs`).** Schema resolution against an explicit
   map (defaults vs overrides — never the real store), the `config list` table
   layout and coloring, value coercion (`4`→number), name normalization, the
@@ -176,7 +176,7 @@ first move is a failing test that reproduces it, *then* the fix.
   skipping, root-skipping, tolerance of a missing bucket.
 - **The session store** (`state.rs`, in-memory SQLite). Scoped resume
   ordering, exact composite-scope `claim` win/lose, registration + `release`
-  round-trip, `completed` to `active` reactivation for both frontends, exact
+  round-trip, `completed` to `active` reactivation for every frontend, exact
   composite-scope `reap_dead_locks` with an injected pid-liveness predicate,
   preservation of equal opaque IDs across scopes, the
   two-shells-take-distinct-sessions invariant, and `panel_side` round-trip +
@@ -189,12 +189,24 @@ first move is a failing test that reproduces it, *then* the fix.
   blank compatibility-plan session IDs), and `env_for`. The command matrix
   lives here once; the integration characterization suite keeps only its real
   hook and environment boundaries.
-- **OpenCode smoke boundary.** `tests/opencode_smoke.rs` covers `--open-code`,
+- **OpenCode compatibility and acceptance boundaries.** `tests/opencode_smoke.rs`
+  covers `--open-code`,
   normalized `-oc`, mutually exclusive selection, adapter command generation,
   trusted named-agent configuration, semantic input translation, session
-  identity, and controller delegation without launching a real OpenCode
-  process. Hook installer tests cover idempotent plugin installation and
-  transactional rollback.
+  identity, and controller delegation. `tests/opencode_acceptance.rs` drives a
+  real deterministic fake executable through `AgentController`, including
+  exact argv/environment, fresh and validated-resume launch, literal text,
+  immediate submit, native busy-turn follow-up, `/new`, and idempotent shutdown.
+  `tests/opencode_plugin.rs` runs the actual plugin under a Bun/Node SDK harness,
+  covering root/child/resumed event shapes, message selection, minimal
+  environment, failure logging, repeated-idle deduplication, and the real
+  Python bridges plus SQLite DB. `tests/opencode_compatibility_script.rs` and
+  probe unit tests cover required CLI surfaces, generated config schema,
+  plugin loading, timeout/output bounds, caching, and disposable HOME/XDG
+  isolation. Installer and doctor tests cover idempotence, rollback, and exact
+  stale plugin/bridge detection. The standalone-installer suite also starts
+  from stale mixed Codex hooks, runs repair twice, and proves canonical generic
+  hooks are installed exactly once while unrelated settings survive.
 - **Portable advisory access policy.** `tests/workspace_access_policy.rs`
   proves first/later create and attach defaults, valid-v2 upgrade seeding,
   strict typed status, trusted config mutation, and default-switch byte
@@ -204,27 +216,31 @@ first move is a failing test that reproduces it, *then* the fix.
   `tests/access_boundary.rs` pins the exact non-sandbox prompt fragments,
   unrestricted absence, immutable inbound separation, all actor/session/triage
   contexts, honest themed status, and the deliberately bypassable literal-path
-  warning. `tests/agent_access_adapter.rs` proves Claude system-prompt and Codex
-  developer-instruction installation, selected cwd, the explicit minimal
+  warning. `tests/agent_access_adapter.rs` proves Claude system-prompt, Codex
+  developer-instruction, and OpenCode Brain-agent installation, selected cwd, the explicit minimal
   environment, and real shell argv termination for option-looking prompts.
   App-level controller tests capture the actual fresh/resumed main-panel,
-  authenticated SMS/email, and triage launch specs for both frontends, including
+  authenticated SMS/email, and triage launch specs for all frontends, including
   exact trusted policy, cwd, separate prompt, actor, and channel. A nested-process PTY test proves unrelated inherited workspace
   secrets do not reach the child after `env_clear`; a temporary-HOME profile
   regression proves the non-profile shell cannot recreate a filtered secret.
+  Adapter environment unit tests prove only OpenCode receives ambient
+  `OPENCODE_*` variables and that Brain's merged `OPENCODE_CONFIG_CONTENT`
+  remains authoritative.
 - **Workspace capabilities.** `tests/workspace_capabilities.rs` separates
   portable logical selection from selected-record machine material, pins the
   missing-versus-empty skill defaults, normalized/invalid logical names,
   malformed transport data, unavailable credentials, and skill sources. It
   verifies Claude's owner-only strict MCP JSON and conservative direct-command
   evidence, Codex's secret-free documented per-call overrides against the
-  installed parser, collision-free stdio secret remapping, honest enforcement
+  installed parser, OpenCode's inherited-config-preserving Brain layer and
+  secret-free generated MCP schema, collision-free stdio secret remapping, honest enforcement
   reports, exact symlink-free actor/root-local skill rendering without
   global-registry mutation, canonical machine-source containment, parent-link
   retarget rejection, lifecycle cleanup, safe symlink unlinking, cache-root and
   actor-ancestor sentinel preservation, and redacted status/Debug output.
   Setup-seam tests prove unrestricted startup does not parse unused malformed
-  capability lists for either frontend while mode/live fields and all
+  capability lists for every frontend while mode/live fields and all
   workspace-only capability fields stay strict. App-level tests prove
   unrestricted launch assembly does not parse unused malformed capability data
   and both workspace-only main and triage requests attach the same plan.
@@ -233,6 +249,11 @@ first move is a failing test that reproduces it, *then* the fix.
   workspace-only-with-plan reach frontend or transport work. App launch tests
   also prove malformed capability configuration leaves a free resumable
   session unclaimed and clears the attempted response identity.
+- **Facade source boundary.** `tests/agent_registry_boundary.rs` rejects public
+  concrete frontend modules, adapter traits, or adapter operation exports and
+  guards shared call sites against direct frontend branching. Black-box
+  integration tests launch all three frontends through `AgentController` and a
+  recording transport.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).
@@ -243,7 +264,7 @@ first move is a failing test that reproduces it, *then* the fix.
   Recording frontend/transport tests under `tui/app_brain/tests/` cover
   `AgentController` and its App consumers: failed fresh registration prevents
   launch, Enter calls semantic submit and reactivates the scoped store row,
-  injected work queues and reactivates after a controller-owned two-tick delay,
+  injected work uses the selected adapter's semantic busy-turn sequence,
   `Ctrl-N` targets the effective main or triage tab, shutdown fires once, and
   agent exit closes only the panel. It also proves half-page scroll targets the
   visible triage controller and whole-shell teardown explicitly shuts down both
@@ -256,13 +277,13 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Receiver dispatch state.** `tui/receiver_state.rs` proves that an idle
   open panel switches to queued receiver work, an active submitted turn waits,
   a same-channel warm panel is reused, a different channel replaces it, and a
-  warm receiver lease never hides interactive Stop-hook completion. Failed
+  warm receiver lease never hides interactive bridge completion. Failed
   launches retain their message and retry backoff deadlines are honored.
   `sync/freshness.rs` tests the strict two-hour message threshold;
   `sync/journal.rs` proves push-only/aborted rows do not refresh it.
   `server/delivery.rs` verifies that provider delivery is dispatched off the
   TUI thread. The app receiver tests mutate `users.json` and the machine
-  registry after queue acceptance, then prove Claude and Codex both launch
+  registry after queue acceptance, then prove Claude, Codex, and OpenCode launch
   through `AgentController` with the captured actor, channel, response email,
   and allowed participant recipients.
 - **Receiver admission and workspace isolation.**
@@ -308,8 +329,15 @@ first move is a failing test that reproduces it, *then* the fix.
   cases cover supplied and existing selected-record values, malformed public
   origins, both provider sender forms, guided clearing, conditional channels,
   and redacted failures. Injected failures after the provider write, users
-  write, and every Claude/Codex hook write prove exact byte restoration, peer
-  preservation, rollback-error aggregation, and no live reload after failure.
+  write, and every registry-declared lifecycle directory, hook-settings lock,
+  and artifact write compare an exact recursive before/after tree. The snapshot
+  includes bytes, modes, symlinks, directories, and pre-existing lock files,
+  proving exact restoration, peer preservation, rollback-error aggregation,
+  and no live reload after failure. Static-artifact regressions separately
+  prove leaf and parent symlinks cannot escape the selected workspace, an
+  external dangling chain creates no target, and an in-workspace symlink
+  remains intact across idempotent installation. The standalone installer also
+  rejects a symlinked plugin parent whose referent is outside the selected root.
 - **Shared-server lease state.** `server/lifecycle/table.rs` uses injected
   monotonic instants and timing values to prove that different workspace leases
   coexist, duplicate live workspace, ingress, or lease identities fail, an
@@ -530,7 +558,7 @@ first move is a failing test that reproduces it, *then* the fix.
   mode, pushes kitty flags, spawns the selected agent PTY, and runs the panel loop. We
   test the *pure* logic it calls (`handle_key`, `App::*`, `focus_*`,
   `panel_borders`, `key_to_bytes`, the render helpers); we don't drive a real
-  terminal or a real Claude/Codex process.
+  terminal or a live Claude/Codex/OpenCode provider process.
 - **Ratatui frame output.** We assert on the `Line`s we build, not on
   which cell ratatui painted them into.
 - **`std::process::Command` / system `open` / `osascript`.** Spawning
@@ -538,10 +566,11 @@ first move is a failing test that reproduces it, *then* the fix.
   (`finder_target`, `edit_shell_command`, `iterm_new_tab_applescript`,
   `build_llm_command`), not the spawn.
 - **Real agent-provider behavior.** The Rust suite executes the exact installed
-  SessionStart and Stop commands against temporary roots and SQLite databases,
-  but it does not launch a real Claude or Codex provider session. Provider event
-  emission remains the frontend's documented contract, not behavior Brain can
-  manufacture or verify in isolation.
+  lifecycle commands against temporary roots and SQLite databases, drives a
+  deterministic fake OpenCode process, and loads the real OpenCode plugin in a
+  fake SDK harness. It does not send a prompt to a live Claude, Codex, or
+  OpenCode provider. Provider event emission remains the frontend's documented
+  contract, not behavior Brain can manufacture or verify in isolation.
 - **Tautological defaults / getters.** `Bucket::Projects.label()` returns
   `"Projects"` — we keep one stability check, not a battery of getter
   tests.
@@ -567,13 +596,16 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/status_read_only.rs` | Filesystem snapshots proving workspace list, sync status, receiver status, tasks doctor, and server status do not create or mutate machine/workspace state, including symlink and live-process cases. |
 | `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, valid-v2 portable-policy upgrade, and persistence-failure preservation. |
 | `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` + `tui::app_brain::tests` | Portable mode ownership/defaults, strict and atomic persistence, exact advisory contract, real App launch-context parity, adapter mechanisms, option-terminated prompt argv, selected cwd, honest typed status, naive warning limits, and minimal environment. |
+| `tests/opencode_smoke.rs` + `tests/opencode_acceptance.rs` | Selector, command, session, semantic-input, facade, and deterministic fake-process acceptance for OpenCode without a live provider call. |
+| `tests/opencode_plugin.rs` + `tests/fixtures/opencode/plugin_harness.js` | The real thin plugin under Bun/Node with fake SDK events, root-session filtering, completion extraction, failure logging, repeated-idle deduplication, and generic-bridge publication. |
+| `tests/opencode_compatibility_script.rs` + `agent::opencode::probe` tests | Supported-feature probes, generated config and plugin loading, isolated HOME/XDG state, bounded execution, cache behavior, and the opt-in compatibility script. |
 | `tests/workspace_runtime_isolation.rs` + `tests/workspace_runtime_isolation/` | Two-workspace portable-store, env-identity, default-change, state, lock, response, and sync-runtime isolation, split by concern with shared fixture support. |
 | `tests/sync_workspace_paths.rs` | Direct UUID separation for sync paths, concurrent cross-workspace locks, same-workspace serialization, journal reads, and current-state reads. |
 | `tests/sync_workspace_identity.rs` | Pure and compiled-binary remote manifest identity decisions, fail-closed mutation ordering across sync/repair/check, two-record cross-adoption refusal, absence of UUID workdir creation before identity, active-migration refusal before rclone, and gated real-rclone setup claim/publication/read-back. Unit barriers additionally prove two-phase late-claim election remains safe with a non-atomic canonical-copy fake. |
 | `tests/sync_trigger_workspace.rs` | Exact detached canonical argv plus expected workspace UUID, compiled bootstrap mismatch refusal, injected child launch, concurrent cross-workspace lock entry, and same-workspace coalescing/following with bounded channels. |
 | `tests/sync_local.rs` + `tests/sync_local/` | Gated real-rclone harness with focused transport, CSV merge, conflict, schema-transition, and multi-workspace modules; two concurrent local remotes use distinct production UUID-derived workdirs and CSV baselines, a mismatched remote manifest refuses before bisync, a wrong-typed present task schema refuses without publication, and a configured second legacy machine joins an already-current remote through the real coordinator, floors stale task/habit counters, allocates non-colliding IDs through the real mutators, then converges both machines and remote byte-for-byte. |
 | `tests/watch_local.rs` | Real watcher callbacks over temporary personal and family roots; dropping one joined worker leaves the peer live, with channel deadlines instead of sleeps. |
-| `tests/multi_workspace_acceptance.rs` + `tests/multi_workspace_acceptance/` | One hermetic personal-plus-family scenario covering selector/default policy, UUID caches and locks, one shared server, authenticated wife assignment through the real task script, deterministic display-ID reconciliation, disabled family triage, Claude/Codex advisory capability parity, family unavailability, personal continuity, and final server shutdown. |
+| `tests/multi_workspace_acceptance.rs` + `tests/multi_workspace_acceptance/` | One hermetic personal-plus-family scenario covering selector/default policy, UUID caches and locks, one shared server, authenticated wife assignment through the real task script, deterministic display-ID reconciliation, disabled family triage, registered-frontend advisory capability parity, family unavailability, personal continuity, and final server shutdown. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `tests/phase2_acceptance.rs` | Hermetic composed acceptance fixtures for one portable person selected from two independent machine registries and authenticated inbound identity flowing through `ActorContext` into a real task-script assignment. |
 | `tests/todo_script_mutators.rs` | Brain-owned task scripts, including selected-root `BRAIN_ROOT` propagation and isolated actor/workspace environment for every subprocess. |
@@ -602,8 +634,8 @@ No test reads or writes a real user workspace.
 | Re-enable starts fresh | `disabling_purges_every_managed_row_and_derived_reference_then_reenables_fresh` proves exactly two new open managed rows, new UUIDs, and no restored history. |
 
 The suite does not claim a filesystem sandbox, a general prompt-injection
-detector, live cloud migration against a production remote, or functional
-OpenCode behavior. Shared HTTP receiver routing and exact TUI
+detector, live cloud migration against a production remote, or live provider
+compatibility beyond the probed OpenCode feature contract. Shared HTTP receiver routing and exact TUI
 job-forwarding are covered by the active Phase 4 integration suites.
 
 ### Phase 5 composed acceptance matrix
@@ -615,7 +647,7 @@ shared process. A signed family SMS resolves the portable wife identity and a
 fake agent transport invokes the real Brain-owned task script with that actor,
 producing a wife-assigned row. The same run proves deterministic display-ID
 collision repair, no managed triage state when family triage is disabled,
-equivalent Claude/Codex advisory launches without personal capability
+equivalent registered-frontend advisory launches without personal capability
 material, family unavailability after its fake TUI closes, personal receiver
 continuity, and shared-process exit after the final close.
 

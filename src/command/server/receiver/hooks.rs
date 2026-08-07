@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 fn replace_entry(
     settings: &mut serde_json::Value,
     event: &str,
-    hook_basename: &str,
+    hook_basenames: &[&str],
     command: &str,
 ) {
     let hooks = settings
@@ -36,9 +36,10 @@ fn replace_entry(
                 .get("command")
                 .and_then(serde_json::Value::as_str)
                 .is_some_and(|candidate| {
-                    candidate
-                        .trim_end_matches(['"', '\''])
-                        .ends_with(hook_basename)
+                    let candidate = candidate.trim_end_matches(['"', '\'']);
+                    hook_basenames
+                        .iter()
+                        .any(|basename| candidate.ends_with(basename))
                 })
         });
         !items.is_empty()
@@ -53,12 +54,12 @@ fn command(hook_path: &Path, root: &Path) -> String {
     )
 }
 
-fn codex_command(hook_path: &Path) -> String {
-    let hook_name = hook_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .expect("hook paths have UTF-8 file names");
-    format!(r#"python3 "${{BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/{hook_name}""#)
+fn portable_root_command(hook_path: &Path) -> String {
+    let relative = hook_path
+        .to_string_lossy()
+        .trim_start_matches('/')
+        .to_owned();
+    format!(r#"python3 "${{BRAIN_ROOT:-$HOME/brain}}/{relative}""#)
 }
 
 fn hook_lock_path(path: &Path) -> PathBuf {
@@ -77,42 +78,62 @@ fn hook_temporary_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{file_name}.tmp-{}", uuid::Uuid::new_v4()))
 }
 
+#[cfg(test)]
 fn update_json_file(path: &Path, mutation: impl FnOnce(&mut serde_json::Value)) -> Result<()> {
     update_json_file_with_temporary(path, &hook_temporary_path(path), mutation)
 }
 
+#[cfg(test)]
 fn update_json_file_with_temporary(
     path: &Path,
     temporary: &Path,
     mutation: impl FnOnce(&mut serde_json::Value),
 ) -> Result<()> {
+    update_json_file_with_temporary_and_lock(path, temporary, mutation, || Ok(()))
+}
+
+fn update_json_file_with_temporary_and_lock(
+    path: &Path,
+    temporary: &Path,
+    mutation: impl FnOnce(&mut serde_json::Value),
+    after_lock_created: impl FnOnce() -> Result<()>,
+) -> Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent)
         .with_context(|| format!("create hook settings directory {}", parent.display()))?;
     let lock_path = hook_lock_path(path);
-    let connection = rusqlite::Connection::open(&lock_path)
-        .with_context(|| format!("open hook settings lock {}", lock_path.display()))?;
-    connection
-        .busy_timeout(Duration::from_secs(10))
-        .context("configure hook settings lock")?;
-    connection
-        .execute_batch("PRAGMA journal_mode = OFF; BEGIN IMMEDIATE")
-        .with_context(|| format!("acquire hook settings lock {}", lock_path.display()))?;
+    let lock_existed = lock_path.exists();
+    let result = (|| {
+        let connection = rusqlite::Connection::open(&lock_path)
+            .with_context(|| format!("open hook settings lock {}", lock_path.display()))?;
+        after_lock_created()?;
+        connection
+            .busy_timeout(Duration::from_secs(10))
+            .context("configure hook settings lock")?;
+        connection
+            .execute_batch("PRAGMA journal_mode = OFF; BEGIN IMMEDIATE")
+            .with_context(|| format!("acquire hook settings lock {}", lock_path.display()))?;
 
-    let mut settings = match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .with_context(|| format!("parse hook settings {}", path.display()))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
-        Err(error) => {
-            return Err(error).with_context(|| format!("read hook settings {}", path.display()));
-        }
-    };
-    mutation(&mut settings);
-    let mut bytes = serde_json::to_vec_pretty(&settings)
-        .with_context(|| format!("serialize hook settings {}", path.display()))?;
-    bytes.push(b'\n');
+        let mut settings = match std::fs::read(path) {
+            Ok(bytes) => serde_json::from_slice(&bytes)
+                .with_context(|| format!("parse hook settings {}", path.display()))?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("read hook settings {}", path.display()));
+            }
+        };
+        mutation(&mut settings);
+        let mut bytes = serde_json::to_vec_pretty(&settings)
+            .with_context(|| format!("serialize hook settings {}", path.display()))?;
+        bytes.push(b'\n');
 
-    write_and_replace_json(temporary, path, &bytes)
+        write_and_replace_json(temporary, path, &bytes)
+    })();
+    if result.is_err() && !lock_existed {
+        let _ = std::fs::remove_file(lock_path);
+    }
+    result
 }
 
 fn write_and_replace_json(temporary: &Path, destination: &Path, bytes: &[u8]) -> Result<()> {
@@ -162,6 +183,170 @@ fn write_and_replace_json(temporary: &Path, destination: &Path, bytes: &[u8]) ->
     result
 }
 
+fn write_static_file(
+    destination: &Path,
+    write_destination: &Path,
+    contents: &str,
+    mode: u32,
+) -> Result<()> {
+    let parent = write_destination.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)
+        .with_context(|| format!("create lifecycle directory {}", parent.display()))?;
+    let file_name = write_destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("artifact");
+    let temporary = parent.join(format!(".{file_name}.tmp-{}", uuid::Uuid::new_v4()));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(mode);
+    }
+    #[cfg(not(unix))]
+    let _ = mode;
+    let mut file = options
+        .open(&temporary)
+        .with_context(|| format!("create lifecycle temporary {}", temporary.display()))?;
+    let result = (|| {
+        file.write_all(contents.as_bytes())
+            .with_context(|| format!("write lifecycle temporary {}", temporary.display()))?;
+        file.sync_all()
+            .with_context(|| format!("sync lifecycle temporary {}", temporary.display()))?;
+        drop(file);
+        std::fs::rename(&temporary, write_destination).with_context(|| {
+            format!(
+                "replace lifecycle artifact {} from {}",
+                destination.display(),
+                temporary.display()
+            )
+        })?;
+        if let Ok(directory) = std::fs::File::open(parent) {
+            let _ = directory.sync_all();
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
+    }
+    result
+}
+
+fn resolve_write_destination(path: &Path) -> Result<PathBuf> {
+    let mut current = path.to_path_buf();
+    let mut visited = std::collections::BTreeSet::new();
+    for _ in 0..64 {
+        let metadata = match std::fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(current),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("inspect lifecycle path {}", current.display()));
+            }
+        };
+        if !metadata.file_type().is_symlink() {
+            return Ok(current);
+        }
+        anyhow::ensure!(
+            visited.insert(current.clone()),
+            "symlink cycle while installing {}",
+            path.display()
+        );
+        let target = std::fs::read_link(&current)
+            .with_context(|| format!("read lifecycle symlink {}", current.display()))?;
+        current = if target.is_absolute() {
+            target
+        } else {
+            current
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(target)
+        };
+    }
+    anyhow::bail!(
+        "symlink chain exceeds safe depth while installing {}",
+        path.display()
+    )
+}
+
+fn normalize_absolute_path(path: &Path) -> Result<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("resolve current directory for lifecycle installation")?
+            .join(path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            std::path::Component::RootDir => normalized.push(component.as_os_str()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                anyhow::ensure!(
+                    normalized.pop(),
+                    "lifecycle path escapes the filesystem root: {}",
+                    path.display()
+                );
+            }
+            std::path::Component::Normal(segment) => normalized.push(segment),
+        }
+    }
+    Ok(normalized)
+}
+
+fn canonicalize_with_missing_tail(path: &Path) -> Result<PathBuf> {
+    let mut current = normalize_absolute_path(path)?;
+    let mut missing = Vec::new();
+    loop {
+        match std::fs::canonicalize(&current) {
+            Ok(mut resolved) => {
+                for segment in missing.iter().rev() {
+                    resolved.push(segment);
+                }
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if std::fs::symlink_metadata(&current)
+                    .is_ok_and(|metadata| metadata.file_type().is_symlink())
+                {
+                    return Err(error).with_context(|| {
+                        format!("resolve lifecycle symlink {}", current.display())
+                    });
+                }
+                let segment = current.file_name().ok_or_else(|| {
+                    anyhow::anyhow!("no existing ancestor for lifecycle path {}", path.display())
+                })?;
+                missing.push(segment.to_os_string());
+                anyhow::ensure!(
+                    current.pop(),
+                    "no existing ancestor for lifecycle path {}",
+                    path.display()
+                );
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("resolve lifecycle path {}", current.display()));
+            }
+        }
+    }
+}
+
+fn resolve_confined_write_destination(path: &Path, workspace: &Path) -> Result<PathBuf> {
+    let write_destination = resolve_write_destination(path)?;
+    let resolved_workspace = canonicalize_with_missing_tail(workspace)?;
+    let resolved_destination = canonicalize_with_missing_tail(&write_destination)?;
+    anyhow::ensure!(
+        resolved_destination.starts_with(&resolved_workspace),
+        "lifecycle artifact {} resolves outside workspace {}",
+        path.display(),
+        workspace.display()
+    );
+    Ok(write_destination)
+}
+
 pub(super) fn install(root: &Path) -> Result<()> {
     let home = std::path::PathBuf::from(
         std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?,
@@ -169,94 +354,98 @@ pub(super) fn install(root: &Path) -> Result<()> {
     install_for_home(root, &home)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum InstallStep {
-    SessionScript,
-    StopScript,
-    ClaudeSettings,
-    CodexSettings,
-    OpenCodePlugin,
-}
-
 fn install_for_home(root: &Path, home: &Path) -> Result<()> {
     install_for_home_with(root, home, |_| Ok(()))
+}
+
+pub(crate) fn lifecycle_installations() -> Vec<crate::agent::LifecycleInstallation> {
+    crate::agent::registrations()
+        .iter()
+        .flat_map(|registration| registration.lifecycle().iter().copied())
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LifecycleInstallStep {
+    Directory(crate::agent::LifecycleInstallation),
+    Lock(crate::agent::LifecycleInstallation),
+    Artifact(crate::agent::LifecycleInstallation),
 }
 
 pub(super) fn install_for_home_with(
     root: &Path,
     home: &Path,
-    mut after_write: impl FnMut(InstallStep) -> Result<()>,
+    mut after_step: impl FnMut(LifecycleInstallStep) -> Result<()>,
 ) -> Result<()> {
-    let hook_dir = root.join(".claude").join("brain-hooks");
-    std::fs::create_dir_all(&hook_dir)?;
-    let session_path = hook_dir.join("claude_session_start_hook.py");
-    let stop_path = hook_dir.join("claude_stop_hook.py");
-    std::fs::write(
-        &session_path,
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/scripts/claude_session_start_hook.py"
-        )),
-    )?;
-    after_write(InstallStep::SessionScript)?;
-    std::fs::write(
-        &stop_path,
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/scripts/claude_stop_hook.py"
-        )),
-    )?;
-    after_write(InstallStep::StopScript)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&session_path, std::fs::Permissions::from_mode(0o755))?;
-        std::fs::set_permissions(&stop_path, std::fs::Permissions::from_mode(0o755))?;
+    for installation in lifecycle_installations() {
+        let path = installation.path(root, home);
+        let payload = installation.payload();
+        let static_destination = match payload {
+            crate::agent::LifecyclePayload::StaticFile { .. } => {
+                Some(resolve_confined_write_destination(&path, root)?)
+            }
+            crate::agent::LifecyclePayload::HookSettings { .. } => None,
+        };
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create lifecycle directory {}", parent.display()))?;
+        after_step(LifecycleInstallStep::Directory(installation))?;
+        match payload {
+            crate::agent::LifecyclePayload::StaticFile { contents, mode } => {
+                write_static_file(
+                    &path,
+                    static_destination
+                        .as_deref()
+                        .expect("static lifecycle payload has a resolved destination"),
+                    contents,
+                    mode,
+                )?;
+            }
+            crate::agent::LifecyclePayload::HookSettings {
+                style,
+                session_script,
+                completion_script,
+                legacy_session_scripts,
+                legacy_completion_scripts,
+            } => {
+                let session_path = root.join(session_script);
+                let stop_path = root.join(completion_script);
+                let (session, stop) = match style {
+                    crate::agent::HookCommandStyle::WorkspaceRelative => {
+                        (command(&session_path, root), command(&stop_path, root))
+                    }
+                    crate::agent::HookCommandStyle::PortableBrainRoot => (
+                        portable_root_command(Path::new(session_script)),
+                        portable_root_command(Path::new(completion_script)),
+                    ),
+                };
+                update_json_file_with_temporary_and_lock(
+                    &path,
+                    &hook_temporary_path(&path),
+                    |settings| {
+                        let mut session_basenames = legacy_session_scripts.to_vec();
+                        session_basenames.push(
+                            Path::new(session_script)
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .expect("registered session script has a UTF-8 basename"),
+                        );
+                        let mut completion_basenames = legacy_completion_scripts.to_vec();
+                        completion_basenames.push(
+                            Path::new(completion_script)
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .expect("registered completion script has a UTF-8 basename"),
+                        );
+                        replace_entry(settings, "SessionStart", &session_basenames, &session);
+                        replace_entry(settings, "Stop", &completion_basenames, &stop);
+                    },
+                    || after_step(LifecycleInstallStep::Lock(installation)),
+                )?;
+            }
+        }
+        after_step(LifecycleInstallStep::Artifact(installation))?;
     }
-    let session = command(&session_path, root);
-    let stop = command(&stop_path, root);
-    let codex_session = codex_command(&session_path);
-    let codex_stop = codex_command(&stop_path);
-    let settings_path = root.join(".claude/settings.json");
-    update_json_file(&settings_path, |settings| {
-        replace_entry(
-            settings,
-            "SessionStart",
-            "claude_session_start_hook.py",
-            &session,
-        );
-        replace_entry(settings, "Stop", "claude_stop_hook.py", &stop);
-    })?;
-    after_write(InstallStep::ClaudeSettings)?;
-    let codex_dir = home.join(".codex");
-    let codex_hooks_path = codex_dir.join("hooks.json");
-    update_json_file(&codex_hooks_path, |codex_hooks| {
-        replace_entry(
-            codex_hooks,
-            "SessionStart",
-            "claude_session_start_hook.py",
-            &codex_session,
-        );
-        replace_entry(codex_hooks, "Stop", "claude_stop_hook.py", &codex_stop);
-    })?;
-    after_write(InstallStep::CodexSettings)?;
-    let opencode_plugin = root.join(".opencode/plugins/brain.js");
-    if let Some(parent) = opencode_plugin.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(
-        &opencode_plugin,
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/scripts/opencode_brain_plugin.js"
-        )),
-    )?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&opencode_plugin, std::fs::Permissions::from_mode(0o644))?;
-    }
-    after_write(InstallStep::OpenCodePlugin)?;
     Ok(())
 }
 

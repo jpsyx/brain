@@ -7,10 +7,11 @@
 mod claude;
 mod codex;
 mod controller;
-pub mod frontend;
+pub(crate) mod frontend;
 pub mod hooks;
-pub mod input;
+mod input;
 mod opencode;
+mod registry;
 pub mod session;
 
 use std::{
@@ -19,63 +20,49 @@ use std::{
 };
 
 pub use crate::access::AccessPolicy;
-pub use claude::ClaudeFrontend;
-pub use codex::CodexFrontend;
 pub use controller::{AgentController, AgentTransport};
-pub use frontend::{AgentFrontend, LaunchRequest, LaunchSpec};
+pub use frontend::{LaunchRequest, LaunchSpec};
 pub use hooks::HookMetadata;
 pub use input::InputSequence;
-pub use opencode::OpenCodeFrontend;
 pub use session::{
     AgentKind, AgentSession, CompletionStatus, CompletionStrategy, SessionPlan, SessionScope,
     SessionStore,
 };
 
+pub(crate) use claude::ClaudeFrontend;
 pub(crate) use claude::DEFAULT_COMMAND as DEFAULT_CLAUDE_COMMAND;
 pub(crate) use claude::project_dir_name as claude_project_dir_name;
+pub(crate) use codex::CodexFrontend;
 pub(crate) use codex::DEFAULT_COMMAND as DEFAULT_CODEX_COMMAND;
+pub(crate) use frontend::{AgentAction, AgentFrontend};
 pub(crate) use opencode::DEFAULT_COMMAND as DEFAULT_OPENCODE_COMMAND;
+pub(crate) use opencode::OpenCodeFrontend;
+pub(crate) use opencode::compatibility_version as opencode_compatibility_version;
+pub(crate) use registry::{
+    HealthCheckDescriptor, HealthCheckExpectation, HookCommandStyle, LifecycleInstallation,
+    LifecyclePayload, primary_session_health_check, registration, registrations,
+};
 
 pub(crate) fn configured_command(
     command: &crate::workspace::CommandContext,
     kind: AgentKind,
 ) -> String {
-    match kind {
-        AgentKind::Claude => crate::env::resolve_one(command, "claude_cmd")
-            .unwrap_or_else(|| DEFAULT_CLAUDE_COMMAND.to_owned()),
-        AgentKind::Codex => crate::env::resolve_one(command, "codex_cmd")
-            .unwrap_or_else(|| DEFAULT_CODEX_COMMAND.to_owned()),
-        AgentKind::OpenCode => crate::env::resolve_one(command, "opencode_cmd")
-            .unwrap_or_else(|| DEFAULT_OPENCODE_COMMAND.to_owned()),
-    }
+    registration(kind).configured_command(command)
+}
+
+pub(crate) fn configured_frontend_with_command(
+    workspace: &crate::workspace::WorkspaceContext,
+    kind: AgentKind,
+    configured_command: String,
+) -> Box<dyn AgentFrontend> {
+    (registration(kind).frontend_constructor())(workspace, configured_command)
 }
 
 pub(crate) fn configured_frontend(
     command: &crate::workspace::CommandContext,
     kind: AgentKind,
 ) -> Box<dyn AgentFrontend> {
-    let configured = configured_command(command, kind);
-    match kind {
-        AgentKind::Claude => {
-            let workspace_root = command.workspace.root().to_path_buf();
-            if let Some(home) = std::env::var_os("HOME") {
-                Box::new(ClaudeFrontend::new(
-                    configured,
-                    workspace_root,
-                    std::path::PathBuf::from(home)
-                        .join(".claude")
-                        .join("projects"),
-                ))
-            } else {
-                Box::new(ClaudeFrontend::without_projects_dir(
-                    configured,
-                    workspace_root,
-                ))
-            }
-        }
-        AgentKind::Codex => Box::new(CodexFrontend::new(configured)),
-        AgentKind::OpenCode => Box::new(OpenCodeFrontend::new(configured)),
-    }
+    registration(kind).frontend(command)
 }
 
 pub(crate) fn build_command(
@@ -84,11 +71,7 @@ pub(crate) fn build_command(
     plan: &SessionPlan,
     prompt: Option<&str>,
 ) -> String {
-    match kind {
-        AgentKind::Claude => ClaudeFrontend::command_for(configured_command, plan, prompt),
-        AgentKind::Codex => CodexFrontend::command_for(configured_command, plan, prompt),
-        AgentKind::OpenCode => OpenCodeFrontend::command_for(configured_command, plan, prompt),
-    }
+    registration(kind).build_command(configured_command, plan, prompt)
 }
 
 /// A facade, frontend, or transport operation could not complete.

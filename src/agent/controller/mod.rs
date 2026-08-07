@@ -5,8 +5,8 @@ use std::sync::{Arc, RwLock};
 use crate::{
     actor::ActorContext,
     agent::{
-        AgentError, AgentFrontend, AgentSession, CompletionStrategy, InputSequence, LaunchRequest,
-        LaunchSpec,
+        AgentAction, AgentError, AgentFrontend, AgentSession, CompletionStrategy, InputSequence,
+        LaunchRequest, LaunchSpec,
     },
     workspace::WorkspaceContext,
 };
@@ -57,21 +57,63 @@ pub struct AgentController {
     actor: ActorContext,
     frontend: Box<dyn AgentFrontend>,
     transport: Box<dyn AgentTransport>,
-    pending_input: Option<PendingInput>,
     shutdown: bool,
 }
 
-struct PendingInput {
-    ticks: u8,
-    input: InputSequence,
-}
-
-const QUEUED_INPUT_DELAY_TICKS: u8 = 2;
-
 impl AgentController {
+    /// Construct a controller from the selected configured frontend.
+    #[must_use]
+    pub fn configured(
+        command: &crate::workspace::CommandContext,
+        kind: crate::agent::AgentKind,
+        actor: ActorContext,
+        transport: Box<dyn AgentTransport>,
+    ) -> Self {
+        Self::new(
+            Arc::clone(&command.workspace),
+            actor,
+            crate::agent::configured_frontend(command, kind),
+            transport,
+        )
+    }
+
+    pub(crate) fn configured_with_command(
+        command: &crate::workspace::CommandContext,
+        kind: crate::agent::AgentKind,
+        configured_command: String,
+        actor: ActorContext,
+        transport: Box<dyn AgentTransport>,
+    ) -> Self {
+        Self::new(
+            Arc::clone(&command.workspace),
+            actor,
+            crate::agent::configured_frontend_with_command(
+                &command.workspace,
+                kind,
+                configured_command,
+            ),
+            transport,
+        )
+    }
+
+    /// Construct a controller for an already resolved workspace with an explicit
+    /// frontend command.
+    #[must_use]
+    pub fn for_workspace_with_command(
+        workspace: Arc<WorkspaceContext>,
+        kind: crate::agent::AgentKind,
+        configured_command: String,
+        actor: ActorContext,
+        transport: Box<dyn AgentTransport>,
+    ) -> Self {
+        let frontend =
+            crate::agent::configured_frontend_with_command(&workspace, kind, configured_command);
+        Self::new(workspace, actor, frontend, transport)
+    }
+
     /// Construct a controller bound to one workspace, actor, frontend, and transport.
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         workspace: Arc<WorkspaceContext>,
         actor: ActorContext,
         frontend: Box<dyn AgentFrontend>,
@@ -82,7 +124,6 @@ impl AgentController {
             actor,
             frontend,
             transport,
-            pending_input: None,
             shutdown: false,
         }
     }
@@ -110,7 +151,15 @@ impl AgentController {
             return Err(AgentError::ContextMismatch);
         }
         let spec = self.frontend.launch_spec(request)?;
-        self.transport.spawn(&spec)
+        if let Err(spawn_error) = self.transport.spawn(&spec) {
+            if let Err(rollback_error) = self.frontend.rollback_launch(request) {
+                return Err(AgentError::Frontend(format!(
+                    "{spawn_error}; launch rollback failed: {rollback_error}"
+                )));
+            }
+            return Err(spawn_error);
+        }
+        Ok(())
     }
 
     /// Type literal text into the active agent without submitting it.
@@ -120,7 +169,8 @@ impl AgentController {
     /// Returns an error when the transport cannot deliver the text.
     pub fn type_text(&mut self, text: &str) -> Result<(), AgentError> {
         self.frontend.ensure_available()?;
-        self.transport.send(InputSequence::text(text))
+        self.transport
+            .send(self.frontend.input_for(AgentAction::TypeText(text))?)
     }
 
     /// Forward frontend-neutral terminal bytes that are not a semantic submit.
@@ -140,7 +190,8 @@ impl AgentController {
     /// Returns an error when the transport cannot deliver the frontend input.
     pub fn submit_now(&mut self) -> Result<(), AgentError> {
         self.frontend.ensure_available()?;
-        self.transport.send(self.frontend.submit_input()?)
+        self.transport
+            .send(self.frontend.input_for(AgentAction::SubmitNow)?)
     }
 
     /// Queue non-blank text after the frontend's active turn.
@@ -154,31 +205,10 @@ impl AgentController {
         if text.trim().is_empty() {
             return Err(AgentError::EmptyInput);
         }
-        self.transport.send(InputSequence::text(text))?;
-        self.pending_input = Some(PendingInput {
-            ticks: QUEUED_INPUT_DELAY_TICKS,
-            input: self.frontend.queue_input()?,
-        });
-        Ok(())
-    }
-
-    /// Advance controller-owned delayed input by one event-loop tick.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a pending frontend input becomes due and the
-    /// transport cannot deliver it.
-    pub fn tick(&mut self) -> Result<(), AgentError> {
-        self.frontend.ensure_available()?;
-        let Some(pending) = self.pending_input.as_mut() else {
-            return Ok(());
-        };
-        pending.ticks = pending.ticks.saturating_sub(1);
-        if pending.ticks > 0 {
-            return Ok(());
-        }
-        let pending = self.pending_input.take().expect("pending input exists");
-        self.transport.send(pending.input)
+        self.transport.send(
+            self.frontend
+                .input_for(AgentAction::FollowUpAfterActiveTurn(text))?,
+        )
     }
 
     /// Request a new session through the selected frontend.
@@ -188,22 +218,14 @@ impl AgentController {
     /// Returns an error when the transport cannot deliver the frontend input.
     pub fn start_new_session(&mut self) -> Result<(), AgentError> {
         self.frontend.ensure_available()?;
-        self.transport.send(self.frontend.new_session_input()?)
+        self.transport
+            .send(self.frontend.input_for(AgentAction::StartNewSession)?)
     }
 
     /// The selected frontend's completion mechanism.
     pub fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
         self.frontend.ensure_available()?;
         self.frontend.completion_strategy()
-    }
-
-    /// Look up a transcript through the selected frontend.
-    pub fn transcript(
-        &self,
-        session: &AgentSession,
-    ) -> Result<Option<std::path::PathBuf>, AgentError> {
-        self.frontend.ensure_available()?;
-        self.frontend.transcript(session)
     }
 
     /// Snapshot the transport's visible output.
@@ -222,7 +244,6 @@ impl AgentController {
     pub fn shutdown(&mut self) -> Result<(), AgentError> {
         self.frontend.ensure_available()?;
         if !self.shutdown {
-            self.pending_input = None;
             self.transport.shutdown();
             self.shutdown = true;
         }
@@ -254,9 +275,9 @@ impl AgentController {
     }
 
     /// Whether the selected frontend can resume a completed receiver session.
-    pub fn can_resume_response_session(&self) -> Result<bool, AgentError> {
+    pub fn can_resume_response_session(&self, session: &AgentSession) -> Result<bool, AgentError> {
         self.frontend.ensure_available()?;
-        self.frontend.can_resume_response_session()
+        self.frontend.can_resume_response_session(session)
     }
 
     /// Terminal screen for rendering an interactive transport.

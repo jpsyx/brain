@@ -5,6 +5,9 @@ use std::time::{Duration, Instant};
 
 const WORKSPACE_ID: &str = "11111111-1111-4111-8111-111111111111";
 
+#[path = "stop_hook_actor/contracts.rs"]
+mod contracts;
+
 fn hook_script(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("scripts")
@@ -116,7 +119,7 @@ fn codex_completion_uses_the_job_response_id_and_preserves_actor_context() {
         )
         .unwrap();
     let command = attributed_hook_command(
-        "claude_stop_hook.py",
+        "agent_turn_complete_hook.py",
         &state_db,
         &response_dir,
         "codex",
@@ -199,7 +202,10 @@ hook.main()
         "job-before-new",
     );
     stop.arg("-c").arg(PAUSE_AFTER_PAYLOAD);
-    stop.env("BRAIN_TEST_HOOK", hook_script("claude_stop_hook.py"));
+    stop.env(
+        "BRAIN_TEST_HOOK",
+        hook_script("agent_turn_complete_hook.py"),
+    );
     stop.env("BRAIN_TEST_READY", &ready);
     stop.env("BRAIN_TEST_GO", &go);
     let stopped = spawn_hook(
@@ -220,7 +226,7 @@ hook.main()
     );
 
     let start = attributed_hook_command(
-        "claude_session_start_hook.py",
+        "agent_session_start_hook.py",
         &state_db,
         &response_dir,
         "claude",
@@ -268,7 +274,7 @@ hook.main()
 
 #[test]
 fn artifact_publication_failure_never_commits_completion_or_leaves_a_staged_file() {
-    for (agent_kind, session_field) in [("claude", "session_id"), ("codex", "thread_id")] {
+    for agent_kind in ["claude", "codex", "opencode"] {
         let temporary = tempfile::tempdir().unwrap();
         let response_dir = temporary.path().join("responses");
         let state_db = temporary.path().join("state.db");
@@ -279,7 +285,7 @@ fn artifact_publication_failure_never_commits_completion_or_leaves_a_staged_file
         std::fs::create_dir_all(response_dir.join("job-failure.json")).unwrap();
 
         let command = attributed_hook_command(
-            "claude_stop_hook.py",
+            "agent_turn_complete_hook.py",
             &state_db,
             &response_dir,
             agent_kind,
@@ -289,7 +295,7 @@ fn artifact_publication_failure_never_commits_completion_or_leaves_a_staged_file
         let output = run_hook(
             command,
             &serde_json::json!({
-                session_field: session_id,
+                "session_id": session_id,
                 "last_assistant_message": "must not complete"
             }),
         );

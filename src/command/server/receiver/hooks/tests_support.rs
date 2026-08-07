@@ -5,8 +5,8 @@ use std::process::{Command, Stdio};
 use serde_json::json;
 
 use super::{
-    codex_command, command, install_for_home, replace_entry, update_json_file,
-    update_json_file_with_temporary,
+    command, install_for_home, lifecycle_installations, portable_root_command, replace_entry,
+    update_json_file, update_json_file_with_temporary,
 };
 
 fn configured_command(path: &Path, event: &str) -> String {
@@ -43,4 +43,3 @@ fn run_configured(
     drop(child.stdin.take());
     child.wait_with_output().unwrap()
 }
-

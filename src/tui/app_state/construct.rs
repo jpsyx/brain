@@ -61,6 +61,7 @@ impl<'a> App<'a> {
             (all_tasks, all_habits)
         });
         let interactive_actor = command_context.actor.clone();
+        let agent_command = crate::agent::configured_command(&command_context, agent_kind);
         let receiver_enabled = crate::command::server::receiver_enabled(&command_context)
             .unwrap_or_else(|error| {
                 crate::logging::log(format!("receiver intent load failed: {error:#}"));
@@ -89,6 +90,7 @@ impl<'a> App<'a> {
             skip_daily_triage_check,
             config,
             agent_kind,
+            agent_command,
             full_notes: cli.display.full_notes,
             expanded_notes: HashSet::new(),
             cli,
@@ -156,6 +158,7 @@ impl<'a> App<'a> {
             receiver_email_reply: None,
             receiver_session_id: None,
             interactive_session_id: None,
+            interactive_agent_session_id: None,
             receiver_resume_session: None,
             receiver_started: None,
             receiver_delay_sent: false,

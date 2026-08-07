@@ -1,7 +1,5 @@
 //! OpenAI Codex translation behind the frontend-neutral agent facade.
 
-use std::path::PathBuf;
-
 use crate::agent::{
     AgentError, AgentFrontend, AgentKind, AgentSession, CompletionStrategy, HookMetadata,
     InputSequence, LaunchRequest, LaunchSpec, SessionPlan,
@@ -11,7 +9,7 @@ use crate::agent::{
 pub(crate) const DEFAULT_COMMAND: &str = "codex";
 
 /// Codex command, input, completion, and transcript conventions.
-pub struct CodexFrontend {
+pub(crate) struct CodexFrontend {
     command: String,
 }
 
@@ -121,24 +119,27 @@ impl AgentFrontend for CodexFrontend {
         .with_capabilities(report))
     }
 
-    fn submit_input(&self) -> Result<InputSequence, AgentError> {
-        Ok(InputSequence::bytes(b"\r"))
+    fn rollback_launch(&self, request: &LaunchRequest) -> Result<(), AgentError> {
+        crate::access::cleanup_workspace_capabilities(request.workspace())
+            .map_err(|error| AgentError::Frontend(error.to_string()))
     }
 
-    fn queue_input(&self) -> Result<InputSequence, AgentError> {
-        Ok(InputSequence::bytes(b"\t"))
-    }
-
-    fn new_session_input(&self) -> Result<InputSequence, AgentError> {
-        Ok(InputSequence::bytes(b"/new\t"))
+    fn input_for(
+        &self,
+        action: crate::agent::AgentAction<'_>,
+    ) -> Result<InputSequence, AgentError> {
+        Ok(match action {
+            crate::agent::AgentAction::TypeText(text) => InputSequence::text(text),
+            crate::agent::AgentAction::SubmitNow => InputSequence::bytes(b"\r"),
+            crate::agent::AgentAction::FollowUpAfterActiveTurn(text) => {
+                InputSequence::text_with_suffix(text, b"\t")
+            }
+            crate::agent::AgentAction::StartNewSession => InputSequence::bytes(b"/new\t"),
+        })
     }
 
     fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
         Ok(CompletionStrategy::Hook)
-    }
-
-    fn transcript(&self, _session: &AgentSession) -> Result<Option<PathBuf>, AgentError> {
-        Ok(None)
     }
 
     fn resume_candidate_exists(&self, _session: &AgentSession) -> Result<bool, AgentError> {
@@ -150,7 +151,7 @@ impl AgentFrontend for CodexFrontend {
         Ok(uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, identity.as_bytes()).to_string())
     }
 
-    fn can_resume_response_session(&self) -> Result<bool, AgentError> {
+    fn can_resume_response_session(&self, _session: &AgentSession) -> Result<bool, AgentError> {
         Ok(false)
     }
 }

@@ -18,10 +18,18 @@ use super::layout::Layout;
 pub fn run_status(context: &crate::workspace::CommandContext) -> Result<()> {
     let config = crate::config::Config::try_load(&context.workspace)?;
     let plan = crate::access::capability_plan_for(&config, context)?;
-    let claude_command = crate::agent::configured_command(context, crate::agent::AgentKind::Claude);
+    let commands = crate::agent::registrations()
+        .iter()
+        .map(|registration| {
+            (
+                registration.kind(),
+                registration.configured_command(context),
+            )
+        })
+        .collect::<Vec<_>>();
     println!(
         "{}",
-        format_capability_status(&plan, &claude_command, crate::theme::Theme::active())
+        format_capability_status(&plan, &commands, crate::theme::Theme::active())
     );
     Ok(())
 }
@@ -30,7 +38,7 @@ pub fn run_status(context: &crate::workspace::CommandContext) -> Result<()> {
 #[must_use]
 pub fn format_capability_status(
     plan: &crate::access::CapabilityPlan,
-    claude_command: &str,
+    commands: &[(crate::agent::AgentKind, String)],
     theme: crate::theme::Theme,
 ) -> String {
     let mut output = theme.heading("Workspace agent capabilities");
@@ -41,15 +49,31 @@ pub fn format_capability_status(
         theme.value(&plan.credentials.source_workspace().to_string())
     )
     .expect("writing to a String cannot fail");
-    append_mcp_status(&mut output, plan, claude_command, theme);
-    append_skill_status(&mut output, plan, theme);
+    let reports = crate::agent::registrations()
+        .iter()
+        .map(|registration| {
+            let command = commands
+                .iter()
+                .find(|(kind, _)| *kind == registration.kind())
+                .map_or_else(
+                    || registration.default_command(),
+                    |(_, command)| command.as_str(),
+                );
+            (
+                registration.label(),
+                plan.enforcement_report((registration.capability_evidence())(command)),
+            )
+        })
+        .collect::<Vec<_>>();
+    append_mcp_status(&mut output, plan, &reports, theme);
+    append_skill_status(&mut output, plan, &reports, theme);
     output
 }
 
 fn append_mcp_status(
     output: &mut String,
     plan: &crate::access::CapabilityPlan,
-    claude_command: &str,
+    reports: &[(&str, crate::access::CapabilityEnforcementReport)],
     theme: crate::theme::Theme,
 ) {
     write!(output, "\n\n{}", theme.accent("MCP capabilities"))
@@ -63,17 +87,13 @@ fn append_mcp_status(
         .expect("writing to a String cannot fail");
         return;
     }
-    let claude = plan.enforcement_report(crate::agent::ClaudeFrontend::mcp_enforcement_evidence(
-        claude_command,
-    ));
-    let codex = plan.enforcement_report(crate::access::EnforcementEvidence::advisory_only());
     for name in plan.mcps.names() {
         append_capability_row(
             output,
             name,
             plan.mcps.unavailable_reason(name),
-            claude.mcps.enforcement(name),
-            codex.mcps.enforcement(name),
+            reports,
+            |report| report.mcps.enforcement(name),
             theme,
         );
     }
@@ -86,6 +106,7 @@ fn append_mcp_status(
 fn append_skill_status(
     output: &mut String,
     plan: &crate::access::CapabilityPlan,
+    reports: &[(&str, crate::access::CapabilityEnforcementReport)],
     theme: crate::theme::Theme,
 ) {
     write!(output, "\n\n{}", theme.accent("Skill capabilities"))
@@ -99,14 +120,13 @@ fn append_skill_status(
         .expect("writing to a String cannot fail");
         return;
     }
-    let report = plan.enforcement_report(crate::access::EnforcementEvidence::advisory_only());
     for name in plan.skills.names() {
         append_capability_row(
             output,
             name,
             plan.skills.unavailable_reason(name),
-            report.skills.enforcement(name),
-            report.skills.enforcement(name),
+            reports,
+            |report| report.skills.enforcement(name),
             theme,
         );
     }
@@ -120,25 +140,33 @@ fn append_capability_row(
     output: &mut String,
     name: &str,
     unavailable_reason: Option<&str>,
-    claude: Option<crate::access::CapabilityEnforcement>,
-    codex: Option<crate::access::CapabilityEnforcement>,
+    reports: &[(&str, crate::access::CapabilityEnforcementReport)],
+    enforcement: impl Fn(
+        &crate::access::CapabilityEnforcementReport,
+    ) -> Option<crate::access::CapabilityEnforcement>,
     theme: crate::theme::Theme,
 ) {
     let available = unavailable_reason.is_none();
     write!(
         output,
-        "\n  {}  requested={}  available={}  Claude={}  Codex={}",
+        "\n  {}  requested={}  available={}",
         theme.value(name),
         theme.success("yes"),
         if available {
             theme.success("yes")
         } else {
             theme.warning("no")
-        },
-        themed_enforcement(theme, claude),
-        themed_enforcement(theme, codex)
+        }
     )
     .expect("writing to a String cannot fail");
+    for (label, report) in reports {
+        write!(
+            output,
+            "  {label}={}",
+            themed_enforcement(theme, enforcement(report))
+        )
+        .expect("writing to a String cannot fail");
+    }
     if let Some(reason) = unavailable_reason {
         write!(output, "\n    {}", theme.muted(reason)).expect("writing to a String cannot fail");
     }

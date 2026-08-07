@@ -309,9 +309,18 @@ attribution and routing, not a new authentication or access-control boundary.
 The agent-controller facade keeps frontend-specific command lines, environment
 policy, lifecycle hooks, session identity, and PTY control behind one semantic
 surface. Claude, Codex, and OpenCode adapters own their syntax differences;
-callers do not branch on frontend-specific keystrokes. OpenCode's plugin is a
+the adapter trait, adapter operation enum, and concrete adapters are
+crate-private so callers cannot bypass the facade. Public launch and input
+values exist only to let an external transport consume a controller-produced
+plan. Callers do not branch on frontend-specific keystrokes. OpenCode's plugin is a
 thin event bridge into the existing Brain hooks so attribution, completion, and
-delivery continue to use the frontend-neutral state database.
+delivery continue to use the frontend-neutral state database. The plugin owns
+only OpenCode event/SDK translation, root-session filtering, and extraction of
+the newest completed assistant text. It deliberately does not authorize DB
+rows, rotate lineages, deduplicate completion, publish response files, or route
+receiver delivery. Those security-sensitive decisions remain in Brain's
+generic Python bridges and one SQLite transaction contract shared by every
+frontend.
 
 The same portable user ID may be selected on multiple computers because it
 names the person, not their machine. We intentionally add no cross-machine
@@ -491,7 +500,7 @@ drive it directly; on any other terminal the editor path falls back to
 ## Why SQLite (not a JSON file) for session + layout state
 
 The state is written by *multiple* processes that can race: several `brain`
-shells, plus the Claude SessionStart hook (a separate Python process) firing
+shells, plus the generic session-start bridge (a separate Python process) firing
 on every session start/resume/`/clear`. A JSON file would need hand-rolled
 locking to stay consistent; SQLite in WAL mode gives concurrent readers + a
 single writer with no busy-storms for free, and the `tasks` sibling already
@@ -509,24 +518,24 @@ resumes its last conversation; a second can't grab the one the first holds,
 so it takes the next-free session or a fresh one. Crashes don't strand a
 session — dead-PID locks are reaped (`kill -0`) on the next startup.
 
-## Why SessionStart and Stop hooks have distinct jobs
+## Why session-start and turn-complete bridges have distinct jobs
 
 brain can choose a session id up front (`--session-id`), but if the user
-types `/new` (or `/clear`) mid-run, Claude may rotate to an id brain never
+types `/new` (or `/clear`) mid-run, a frontend may rotate to an id Brain never
 saw. That fresh conversation is the one they would want to resume next time.
-A **SessionStart** hook fires on every start/resume/clear/compact with the live
+A **session-start bridge** runs for every supported frontend start event with the live
 `session_id` (keyed to the shell via `BRAIN_INSTANCE_ID` / `BRAIN_PID` env),
 so brain always learns the current id and returns the exact scoped row to
 `active`.
 
-The **Stop** hook has a separate, per-turn responsibility. It writes the
+The **turn-complete bridge** has a separate, per-turn responsibility. It writes the
 authenticated completion artifact and marks that same scoped row `completed`,
 which lets queued receiver work advance. It does not end the persistent
 conversation or make the PTY disposable. The next successful local or queued
 submit calls `SessionStore::mark_active`, so ordinary turns after the first one
-do not depend on another SessionStart event to reactivate the row.
+do not depend on another session-start event to reactivate the row.
 
-Stop authorization, artifact publication, and completion mutation form one
+Completion authorization, artifact publication, and completion mutation form one
 ordered operation. The hook stages a unique synced response file, acquires
 `BEGIN IMMEDIATE`, and rechecks the exact currently locked frontend, session,
 workspace, actor, channel, and Brain-instance tuple. Its update uses that same
@@ -535,7 +544,7 @@ published and its directory synced before the database commits `completed`.
 If publication or commit fails, the transaction rolls back and the hook
 removes or restores only its own published inode. This ordering forbids a
 committed completion without its artifact. It also makes a concurrent
-SessionStart rotation win or serialize before Stop rechecks the old lineage,
+session-start rotation win or serialize before completion rechecks the old lineage,
 instead of allowing a stale parsed payload to complete an unlocked row.
 
 Rotation authorization and mutation must be one write transaction. A target
@@ -547,10 +556,10 @@ the transaction boundary, then re-read current ownership; authorization
 no-ops and exceptions explicitly roll back, while the target upsert and prior
 session release commit together.
 
-## Why the Stop hook reads the transcript, not just `last_assistant_message`
+## Why the completion bridge reads a Claude transcript when needed
 
-The final response the user receives over SMS/email exists only if the Stop
-hook writes the response artifact, and there is no hook-independent backstop
+The final response the user receives over SMS/email exists only if the
+turn-complete bridge writes the response artifact, and there is no independent backstop
 for a still-alive panel: `App::close_brain`'s PTY-scrape fallback runs only
 after the agent process exits, which never happens for brain's persistent
 Claude session. So the hook is the single trigger, and it must not depend on a
@@ -587,10 +596,11 @@ the user asked to know when their conversation didn't carry over.
 ## Why the brain panel launch is frontend-aware
 
 The TUI and receiver call the `AgentController` facade's semantic launch,
-input, lifecycle, completion, terminal, and shutdown operations. Only the
-Claude and Codex adapters translate those requests. The inert OpenCode adapter
-implements the same shape but returns `UnsupportedFrontend` before transport
-access for every operation.
+input, lifecycle, completion, terminal, and shutdown operations. Claude,
+Codex, and OpenCode adapters translate those requests. An exhaustive frontend
+registry owns construction, command metadata, lifecycle installation, health
+checks, capability evidence, and compatibility probes, so shared callers do
+not need another concrete-frontend branch.
 
 The brain panel must control frontend-specific session arguments, so it can't
 defer to a shell alias that might inject incompatible flags. Claude remains the
@@ -602,16 +612,27 @@ so existing installs keep working while new edits are machine-local.
 
 Codex is selected per run with `--codex` / `-cx` and uses `codex_cmd` in brain env
 (default `codex`) because the right Codex wrapper/model flags can be
-machine-specific. `session::build_llm_command` splices either configured base
+machine-specific. OpenCode is selected with `--open-code` / `-oc` and uses
+`opencode_cmd` (default `opencode`). `session::build_llm_command` splices each configured base
 command in verbatim, then appends the selected frontend's own session shape:
 Claude gets `--resume <id>` or `--session-id <id>`; Codex gets `resume <id>`
-only when a Codex id is known and no Claude-only flags for fresh launches.
+only when a Codex id is known and no Claude-only flags for fresh launches;
+OpenCode gets `--agent brain`, an optional validated `--session <id>`, and an
+optional separate `--prompt <text>`.
+
+OpenCode resume evidence comes from `session list --format json` run in the
+selected workspace. Brain accepts only live root sessions whose reported
+directory resolves to that exact root. This is stricter than trusting a stale
+DB row and prevents a matching opaque ID from another root or child session
+from becoming a resume target. Missing evidence falls through to the next
+candidate or a visible fresh-chat fallback.
 
 The state DB keys sessions by frontend, opaque session ID, workspace, actor,
 and channel. Hook upserts, claims, and dead-lock reaping use that exact
 composite scope, so equal opaque IDs in different scopes never overwrite or
-unlock one another. A separate stable response ID lets the Stop hook signal a
-fresh Codex turn without pretending Brain chose Codex's thread ID.
+unlock one another. A separate stable response ID lets the generic completion
+bridge signal a fresh Codex or OpenCode turn without pretending Brain chose
+the frontend's session ID.
 
 Main-panel launch completes fallible capability resolution and adapter response
 identity lookup before claiming a resumable row. Once claimed, only request
@@ -621,19 +642,51 @@ frontend identity error from removing an otherwise free conversation from the
 resume queue, and every failed path clears the response identity for the launch
 slot it attempted.
 
-Hook refresh follows workspace singleton acquisition, so a rejected second TUI
+Lifecycle refresh follows workspace singleton acquisition, so a rejected second TUI
 cannot alter the lifecycle contract of the live process. Different-workspace
 TUIs remain concurrent, so their shared `~/.codex/hooks.json` updates use a
 machine-wide SQLite transaction lock plus same-directory atomic replacement.
 The lock prevents lost read-modify-write updates; the rename prevents readers
 from observing partial JSON and preserves the old bytes on failure.
 
+## Why OpenCode support is feature-probed and isolated
+
+OpenCode is supported through the concrete CLI and plugin surfaces Brain uses,
+not by assuming every release forever is compatible. Brain probes the required
+TUI flags, JSON session listing, pure config resolution, generated capability
+schema, and plugin loading. Each probe runs with disposable HOME and XDG roots
+so an availability check cannot create or rewrite the user's OpenCode state.
+Successful evidence is cached only for the configured command and current
+Brain process. This gives users an actionable compatibility error when a future
+release changes a required surface while keeping doctor and launch honest.
+
+Inherited `OPENCODE_CONFIG_CONTENT` is merged rather than replaced because it
+may contain unrelated user choices. Brain owns only its named agent, default
+agent selection, generated `brain_ws_*` MCP namespace, and selected skill-path
+addition. Structural type conflicts fail before launch. This narrow ownership
+preserves user config while preventing stale Brain-generated MCP entries from
+surviving a workspace or capability change.
+
+The PTY still clears the inherited process environment. OpenCode is the narrow
+exception: its documented controls share the `OPENCODE_*` namespace, so Brain
+copies that namespace into OpenCode launches and then overwrites
+`OPENCODE_CONFIG_CONTENT` with the merged reserved layer. This preserves user
+configuration paths and frontend controls while keeping Brain's trusted launch
+keys authoritative. The namespace is not copied into Claude or Codex.
+
+Registry static artifacts are workspace-owned state, so following an arbitrary
+workspace symlink outside the selected root would turn setup into an unrelated
+file write. Installation therefore resolves the complete leaf and ancestor
+chain before creating directories and rejects any final destination outside the
+canonical selected workspace. In-workspace symlinks remain supported and the
+atomic replacement targets their confined referent.
+
 ## Why workspace capabilities reuse shared frontend authentication
 
 Workspace capability selection is configuration, not a second identity. Brain
 therefore keeps portable logical allowlists in the root while commands, URLs,
 paths, and credentials stay in that workspace's selected machine record. It
-does not create Claude or Codex auth profiles.
+does not create separate frontend auth profiles.
 
 Claude has a conditionally verified strict MCP boundary: a cache-local
 generated JSON plus `--mcp-config --strict-mcp-config`, when Brain can safely
@@ -647,8 +700,12 @@ documented `-c` overrides merge with base config. Namespacing generated server
 keys prevents collision with known global names, while per-server wrappers
 prevent same-named stdio secrets from colliding with frontend environment.
 Neither mechanism can prove that other global servers are excluded, so Codex
-remains advisory. Enforcement status is derived from the concrete command and
-launch flags and never upgraded from advisory by logical selection alone.
+remains advisory. OpenCode merges Brain's named agent, generated `brain_ws_*`
+MCP entries, and selected skill path into inherited inline config. Brain probes
+the generated schema and plugin load but cannot prove inherited global MCP or
+skill sources are excluded, so OpenCode also remains advisory. Enforcement
+status is derived from concrete launch evidence and never upgraded from
+advisory by logical selection alone.
 
 Capability selection is mandatory controller context in workspace-only mode,
 not optional adapter decoration. The controller accepts exactly two context
@@ -663,7 +720,7 @@ That skip begins at TUI setup, before `App` construction. Startup first parses
 `access_mode` and every live non-capability setting strictly. It omits only the
 unused logical capability lists when the validated mode is unrestricted;
 workspace-only startup retains strict list parsing. This keeps malformed dead
-configuration from blocking either frontend without weakening the mode gate.
+configuration from blocking any registered frontend without weakening the mode gate.
 
 Selected skill copies live under the workspace UUID and actor cache. They do
 not link to, prune, or rewrite the shared registry. This preserves the user's
@@ -1520,7 +1577,7 @@ discovery and attaches no provider-specific meaning to that content.
 
 The repo must stay 100% generic and a plugin is the user's own artifact; neither
 should be mutated by personalization. So injection happens only when writing the
-*built* copy that Claude/Codex read (`render` → `install`), leaving the source
+*built* copy that registered frontends read (`render` → `install`), leaving the source
 pristine. This is the structural half of the A hybrid model (identity stays a
 runtime lookup; behavior changes are rendered), and it keeps `git status` on the
 repo clean no matter how heavily a user personalizes.
@@ -2202,7 +2259,7 @@ retains exact ingress-to-workspace identity for the same verified discard.
 
 The accepting request captures immutable actor, channel, normalized sender,
 response email, and allowed authenticated-thread recipients. The TUI routes
-that same context through `AgentController` for Claude and Codex. Configuration
+that same context through `AgentController` for Claude, Codex, and OpenCode. Configuration
 changes during the turn cannot replace the initiating actor or broaden reply
 recipients.
 
@@ -2256,7 +2313,7 @@ slow Twilio or Resend request from freezing keyboard input or delaying
 
 An open agent PTY is not proof that work is active: brain opens an idle panel
 before the startup daily-triage modal. The receiver therefore tracks submitted
-turns separately and lets the Stop hook clear that state. Queued receiver work
+turns separately and lets the turn-complete bridge clear that state. Queued receiver work
 can replace an idle panel immediately, but never interrupts a submitted local
 turn. A receiver launch is committed only after PTY creation succeeds; failure
 keeps the message queued and applies a retry backoff.
@@ -2336,7 +2393,7 @@ a much larger refactor for capability we deliberately do not want.
 `App::open_triage_tab` builds an `AgentController` from a `LaunchRequest` whose
 hook metadata carries only `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`.
 The adapter adds the common workspace identity and agent kind, but the request
-has no instance ID, state DB, or response ID. The SessionStart hook therefore
+has no instance ID, state DB, or response ID. The session-start bridge therefore
 never records it, and it is never a resume candidate. If the shell closes
 mid-triage the session is lost and the startup nudge simply fires again next
 launch, which is the desired behavior.

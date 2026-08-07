@@ -19,7 +19,8 @@ execution surfaces are a persistent TUI and short-lived command families:
   persists across a switch and closing it makes the main view full-width. The
   process owns the terminal until you quit and keeps UUID-scoped SQLite state
   for frontend sessions, completion delivery, and panel layout. Claude may
-  resume an eligible transcript; Codex currently starts fresh. See
+  resume an eligible transcript, OpenCode may resume an eligible live root
+  session from the exact selected workspace, and Codex currently starts fresh. See
   [glossary.md](glossary.md) for the main-view / sub-view / panel vocabulary.
 - **Short-lived command families** cover non-TUI task utilities, config, env,
   workspace, portable users, sync, personalization, skills, server/receiver,
@@ -63,7 +64,7 @@ explicit plain-task output, and help. `--verbose` mirrors logs to stdout for
 non-TUI commands. Clap errors and diagnostics go to stderr. The TUI renders to
 `/dev/tty`; TUI runs keep stdout quiet and expose the log through the tasks
 command palette. The binary
-opens files, cds its own PTY, launches `claude`, and reveals in Finder itself,
+opens files, cds its own PTY, launches the selected agent frontend, and reveals in Finder itself,
 from inside the running shell. See [decisions.md](decisions.md) for why Brain
 needs no wrapper or plan protocol, and [integrations.md](integrations.md) for
 the launch/handoff detail.
@@ -103,8 +104,8 @@ tui::run_tui(command_context, view, cli, …) (the persistent shell)
        ├─ agent::SessionStore: reap dead locks, scoped resume / claim or register
        ├─ App owns one AgentController per live main/triage panel
        │    ├─ access::AccessPolicy snapshots trusted portable mode/root/actor
-       │    ├─ agent::{ClaudeFrontend,CodexFrontend} translate semantic operations
-       │    ├─ agent::OpenCodeFrontend rejects every operation before transport access
+       │    ├─ agent::{ClaudeFrontend,CodexFrontend,OpenCodeFrontend} translate semantic operations
+       │    ├─ agent::registry owns construction, lifecycle, health, and compatibility metadata
        │    └─ PtyPane clears inherited env, spawns the complete spec, and carries bytes
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
        ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; status and log actions open the logs view)
@@ -157,9 +158,9 @@ Active run logs remain under `/tmp` through `logging.rs`.
 not use that UUID-scoped path.
 
 The frontend-neutral `agent` facade, concrete Claude/Codex/OpenCode adapters,
-PTY transport, main and triage controller ownership, receiver controller
-dispatch, advisory portable access modes, and the OpenCode lifecycle plugin
-now exist. Coordinated
+registry-driven construction and lifecycle metadata, PTY transport, main and
+triage controller ownership, receiver controller dispatch, advisory portable
+access modes, and the OpenCode lifecycle plugin are active. Coordinated
 task-schema activation is available only through explicit workspace migration.
 The shared process control protocol, live TUI leases,
 heartbeats, crash recovery, final-TUI shutdown, opaque-ingress routing,
@@ -188,11 +189,12 @@ existing handlers. `command/server/` further separates receiver setup, HTTP
 server lifecycle, and habits dispatch. Receiver command ownership is reflected
 on disk: `receiver/mod.rs` owns dispatch, `receiver/setup/` owns selected-record
 provider planning plus portable-user mapping. Its `setup/transaction.rs` owns
-bounded rollback across the selected machine record, portable users, and hook
-artifacts. One workspace-local advisory lock spans snapshot, every write,
+bounded rollback orchestration across the selected machine record, portable
+users, and hook artifacts; `setup/transaction/{lock,snapshot}.rs` own the
+advisory lock and exact filesystem restoration mechanics. One workspace-local advisory lock spans snapshot, every write,
 commit, and rollback, so concurrent setup attempts cannot claim or restore one
 another's identical after-images. `receiver/hooks.rs` owns
-workspace-sensitive Claude/Codex hook installation;
+registry-driven frontend lifecycle installation;
 its focused installer tests live in the owned `receiver/hooks/tests.rs`
 submodule.
 
@@ -300,24 +302,39 @@ reject, so actor bootstrap cannot discover a weaker legacy acceptance rule.
 
 The frontend-neutral agent boundary. `controller` owns the semantic
 `AgentController` facade and the transport trait, so callers can type, submit,
-queue, start sessions, launch, inspect completion and transcripts, snapshot,
+queue, start sessions, launch, inspect completion and session eligibility, snapshot,
 and shut down without constructing frontend keystrokes. `frontend` defines the
-frontend trait plus complete launch request and launch spec types; `input`,
+crate-private frontend trait and adapter operation enum plus complete launch
+request and launch spec types. Concrete Claude, Codex, and OpenCode adapters
+are also crate-private; callers and black-box tests construct a controller and
+cross only the facade. Public launch-spec and input-sequence values are the
+transport DTOs needed by external `AgentTransport` implementations, while
+their adapter-side constructors remain internal. `input`,
 `session`, and `hooks` own the shared input, validated session-plan, completion,
 and hook metadata values. `session` owns the canonical `AgentKind` identity,
 frontend-neutral `SessionStore`, immutable `SessionScope`, and durable
 `CompletionStatus`;
 the crate-level `session.rs` re-exports it and keeps adapter-backed command/env
-wrappers for compatibility callers and pure tests. `claude` and `codex` own launch
-syntax, input sequences, completion, transcript, and session-lifecycle rules.
+wrappers for compatibility callers and pure tests. `claude`, `codex`, and
+`opencode` own launch syntax, input sequences, completion, transcript or
+session-discovery, and lifecycle rules. `registry` is the exhaustive table of
+frontend constructors, command metadata, lifecycle installations, exact health
+checks, capability evidence, and compatibility probes. Shared command, doctor,
+and setup code consume that table instead of switching on concrete frontends.
 `PtyPane` implements `AgentTransport`. The main panel and ephemeral triage tab
 are both stored as `Option<AgentController>`; keyboard, receiver, draw, scroll,
 close, and event-loop code call controller semantics and never construct
-frontend keystrokes. The controller also owns the short delayed queue action
-that keeps injected text separate from its final frontend input.
-`opencode` supplies a constructible frontend whose lifecycle, input, session,
-completion, and response operations all return typed unsupported errors before
-transport access.
+frontend keystrokes. Busy-turn follow-up is one controller operation; each
+adapter returns the complete native text and final-key sequence.
+`opencode` merges Brain's reserved inline configuration, performs isolated
+feature and schema probes, discovers resumable sessions for the exact selected
+root, and translates semantic controller actions to OpenCode's native input.
+Its compatibility probe runs version, TUI-option, session-list, generated-config,
+and plugin-load checks in disposable HOME/XDG roots. Successful reports are
+cached by configured command for the process; failed probes remain actionable
+and are not cached as compatibility evidence. Session discovery runs
+`session list --format json` in the selected root and admits only non-archived,
+non-deleted root sessions whose reported directory resolves to that same root.
 `LaunchRequest::HookMetadata` is trusted input that adapters merge into the
 explicit child environment. The plan-mandated `LaunchSpec::hooks` slot is
 currently reserved and empty; `PtyPane` does not consume a second hook channel.
@@ -1007,7 +1024,7 @@ the brain-search picker
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
 then launches the selected frontend through an `AgentController`
-(Claude resume-vs-fresh; Codex fresh) and `focus_tasks()`
+(Claude or OpenCode resume-vs-fresh; Codex fresh) and `focus_tasks()`
 returns focus to the tasks main view so `j`/`k` work at once. It then wires the auto-sync
 triggers (a mandatory detached pull-biased startup sync and, when
 `watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
@@ -1065,8 +1082,8 @@ complete `LaunchRequest` values: the adapter supplies common workspace identity
 and `BRAIN_AGENT_KIND`; the main panel's `HookMetadata` adds instance, PID,
 state DB, and response attribution, while the triage panel adds only
 `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. `claude_cmd`, `codex_cmd`,
-and the reserved `opencode_cmd` are machine-local brain env values. The two
-functional configured commands are spliced in
+and `opencode_cmd` are machine-local brain env values. The three functional
+configured commands are spliced in
 verbatim so they may carry their own flags, and brain never depends on a shell
 alias.
 
@@ -1085,7 +1102,7 @@ close another workspace's triage tab.
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
-`brain_sessions` tracks Claude and Codex sessions by a composite agent-kind,
+`brain_sessions` tracks Claude, Codex, and OpenCode sessions by a composite agent-kind,
 session-ID, workspace-UUID, actor-ID, and channel key with a `locked_pid` lock
 and `active`/`completed` completion status;
 `meta` stores the `panel_side` layout preference and the
@@ -1282,7 +1299,7 @@ Queued inbound work is never allowed to interrupt an active agent turn.
 distinguishes a submitted turn from an idle open PTY, so an idle startup panel
 can switch to the receiver session even when a modal is on screen. It also
 distinguishes active receiver work from a three-minute warm channel lease:
-interactive Stop-hook completions are still polled, a same-channel message
+interactive lifecycle completions are still polled, a same-channel message
 reuses the warm PTY, and another channel replaces it only after work finishes.
 `tui/app_sync.rs` holds inbound dispatch behind a pull when downstream state is
 more than two hours old and exposes current sync state to the footer and
@@ -1325,7 +1342,7 @@ rebuild:
   exits the panel **closes** (search goes full-width) — it does not quit the
   shell. `open_or_focus_brain` ("Message brain" / `Ctrl-M`) re-opens it.
 - **Exactly one frontend session per brain instance is locked at a time.**
-  A SessionStart hook may update an exact registered tuple or rotate an
+  A session-start bridge may update an exact registered tuple or rotate an
   already registered active lineage; it rejects unregistered events and frees
   the instance's other sessions on every accepted start
   (so `/new` leaves the prior conversation resumable). Its authorization and

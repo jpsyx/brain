@@ -99,6 +99,33 @@ fn register_fresh_then_release_makes_it_resumable() {
 }
 
 #[test]
+fn locked_session_for_instance_is_scoped_and_tracks_frontend_rotation() {
+    let db = Db::open_in_memory().unwrap();
+    let selected = scope();
+    db.register_scoped_fresh("placeholder", "shell", 999, &selected)
+        .unwrap();
+    db.conn
+        .execute(
+            "UPDATE brain_sessions SET agent_session_id = 'frontend-real-id'
+             WHERE brain_instance_id = 'shell'",
+            [],
+        )
+        .unwrap();
+
+    assert_eq!(
+        db.locked_session_for_instance("shell", &selected)
+            .as_deref(),
+        Some("frontend-real-id")
+    );
+    let other = SessionScope::new(
+        crate::session::AgentKind::OpenCode,
+        selected.workspace_id(),
+        selected.actor().clone(),
+    );
+    assert!(db.locked_session_for_instance("shell", &other).is_none());
+}
+
+#[test]
 fn claim_wins_once_then_loses_on_a_held_session() {
     let db = Db::open_in_memory().unwrap();
     seed(&db, "s1", "i0", None, 100);

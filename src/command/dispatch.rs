@@ -151,7 +151,6 @@ pub fn run(
         ),
         Some(Cmd::Tasks(ref mut args)) => {
             crate::logging::log("dispatch tasks");
-            let agent_kind = super::tasks::take_agent_flag(&mut args.rest).unwrap_or(agent_kind);
             let rewritten = super::tasks::rewrite_mark_grammar(
                 std::iter::once("brain tasks".to_owned())
                     .chain(std::mem::take(&mut args.rest))

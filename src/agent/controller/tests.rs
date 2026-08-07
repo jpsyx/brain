@@ -1,7 +1,7 @@
 include!("test_support.rs");
 
 #[test]
-fn semantic_operations_are_forwarded_without_callers_constructing_keystrokes() {
+fn semantic_operations_deliver_follow_up_without_timer_ticks() {
     let (mut controller, recording, _, _) = controller();
 
     controller.type_text("hello").expect("type text");
@@ -15,20 +15,28 @@ fn semantic_operations_are_forwarded_without_callers_constructing_keystrokes() {
         vec![
             Event::Type("hello".to_owned()),
             Event::Submit,
-            Event::Type("next".to_owned()),
+            Event::Queue("next".to_owned()),
         ]
     );
+}
 
-    controller.tick().expect("first delayed-input tick");
-    controller.tick().expect("second delayed-input tick");
+#[test]
+fn repeated_follow_ups_preserve_fifo_order_before_new_session_and_shutdown() {
+    let (mut controller, recording, _, _) = controller();
+
+    controller.queue_after_active_turn("first").unwrap();
+    controller.queue_after_active_turn("second").unwrap();
+    controller.start_new_session().unwrap();
+    controller.shutdown().unwrap();
 
     assert_eq!(
         recording.events(),
         vec![
-            Event::Type("hello".to_owned()),
-            Event::Submit,
-            Event::Type("next".to_owned()),
-            Event::Queue("next".to_owned()),
+            Event::Queue("first".to_owned()),
+            Event::Queue("second".to_owned()),
+            Event::FrontendNewSession,
+            Event::TransportNewSession(InputSequence::bytes(NEW_SESSION_MARKER)),
+            Event::Shutdown,
         ]
     );
 }
@@ -40,6 +48,77 @@ fn availability_is_checked_through_the_controller_facade() {
     controller.ensure_available().expect("frontend available");
 
     assert!(recording.events().is_empty());
+}
+
+#[test]
+fn compatibility_failure_precedes_frontend_launch_and_transport_spawn() {
+    let (mut controller, recording, workspace, actor) = controller();
+    controller.frontend = Box::new(RecordingFrontend {
+        recording: recording.clone(),
+        available: false,
+    });
+    let request = request(
+        workspace,
+        actor,
+        SessionPlan::fresh(AgentSession::new("fresh-1").expect("session")),
+    );
+
+    let error = controller.launch(&request).expect_err("preflight failure");
+
+    assert_eq!(
+        error,
+        AgentError::Frontend("compatibility probe failed".to_owned())
+    );
+    assert!(recording.events().is_empty());
+}
+
+#[test]
+fn failed_transport_spawn_rolls_back_frontend_launch_artifacts() {
+    let (mut controller, recording, workspace, actor) = controller();
+    controller.transport = Box::new(FailingSpawnTransport {
+        recording: recording.clone(),
+    });
+    let request = request(
+        workspace,
+        actor,
+        SessionPlan::fresh(AgentSession::new("fresh-1").expect("session")),
+    );
+
+    let error = controller.launch(&request).expect_err("spawn must fail");
+
+    assert_eq!(error, AgentError::Transport("spawn failed".to_owned()));
+    assert_eq!(
+        recording.events(),
+        vec![
+            Event::Launch(request.session_plan().clone()),
+            Event::Spawn,
+            Event::Rollback
+        ]
+    );
+}
+
+#[test]
+fn configured_controller_selects_the_frontend_without_exposing_adapter_construction() {
+    let workspace = workspace();
+    let actor = crate::actor::test_actor("pablo");
+    let command = crate::workspace::CommandContext::for_test(
+        Arc::clone(&workspace),
+        crate::workspace::RegistryStore::from_path(Path::new("/missing/env.json").to_path_buf()),
+        "pablo",
+    );
+    let recording = Recording::default();
+
+    let controller = AgentController::configured(
+        &command,
+        AgentKind::OpenCode,
+        actor,
+        Box::new(RecordingTransport {
+            recording,
+            pending_text: None,
+        }),
+    );
+
+    assert_eq!(controller.kind(), AgentKind::OpenCode);
 }
 
 #[test]
@@ -215,19 +294,14 @@ fn access_context_accepts_only_unrestricted_without_a_plan_or_matching_workspace
 }
 
 #[test]
-fn completion_strategy_and_transcript_lookup_delegate_to_the_frontend() {
+fn completion_strategy_delegates_to_the_frontend() {
     let (controller, recording, _, _) = controller();
-    let session = AgentSession::new("session-1").expect("session");
 
     assert_eq!(
         controller.completion_strategy(),
         Ok(CompletionStrategy::Hook)
     );
-    assert_eq!(
-        controller.transcript(&session),
-        Ok(Some(PathBuf::from("/transcripts/session-1")))
-    );
-    assert_eq!(recording.events(), vec![Event::Transcript(session)]);
+    assert!(recording.events().is_empty());
 }
 
 #[test]

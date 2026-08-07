@@ -24,7 +24,7 @@ fn local_workspace_urls_use_the_ingress_accepted_at_registration() {
 fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
     let cli = Cli::parse_from(["tasks"]);
 
-    for kind in [AgentKind::Claude, AgentKind::Codex] {
+    for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
         app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
@@ -77,6 +77,31 @@ fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
             .expect("session count");
         assert_eq!(registered, 0, "triage sessions remain untracked");
     }
+}
+
+#[test]
+fn opencode_triage_completion_cleans_up_the_ephemeral_transport_and_signal_once() {
+    let cli = Cli::parse_from(["tasks"]);
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
+    let recording = TransportRecording::default();
+    app.triage_done_url_override = Some("http://127.0.0.1:4773/triage/done".to_owned());
+    app.triage_transport_override = Some(recording.transport());
+
+    app.open_triage_tab();
+    let token = app.triage_token.clone().expect("triage token");
+    crate::triage_signal::record_done(&app.command_context.workspace, &token, &[])
+        .expect("completion signal");
+
+    app.tick_triage_done();
+    app.tick_triage_done();
+
+    assert!(app.triage_brain.is_none());
+    assert!(app.triage_token.is_none());
+    assert_eq!(app.active_brain_tab, BrainTab::Main);
+    assert_eq!(app.focus, Panel::Tasks);
+    assert_eq!(recording.shutdowns(), 1);
+    assert!(!crate::triage_signal::done_path(&app.command_context.workspace).exists());
 }
 
 #[test]
@@ -136,11 +161,21 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
     use std::collections::{BTreeMap, BTreeSet};
 
     let cli = Cli::parse_from(["tasks"]);
-    for kind in [AgentKind::Claude, AgentKind::Codex] {
+    for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
         app.config.access_mode = crate::access::AccessMode::Unrestricted;
         let name = app.command_context.workspace.name().clone();
+        let mut environment =
+            crate::workspace::RegistryStore::load_from(app.command_context.registry_store.path())
+                .expect("current registry")
+                .workspaces[&name]
+                .env
+                .clone();
+        environment.insert(
+            "agent_capabilities".to_owned(),
+            serde_json::json!({"mcps": "malformed"}),
+        );
         app.command_context
             .registry_store
             .replace(&crate::workspace::MachineRegistry {
@@ -154,10 +189,7 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
                         aliases: BTreeSet::new(),
                         local_user_id: "pablo".to_owned(),
                         receiver_enabled: false,
-                        env: serde_json::Map::from_iter([(
-                            "agent_capabilities".to_owned(),
-                            serde_json::json!({"mcps": "malformed"}),
-                        )]),
+                        env: environment,
                     },
                 )]),
             })

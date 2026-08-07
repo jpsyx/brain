@@ -1,15 +1,12 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-};
+use std::{path::Path, sync::{Arc, Mutex}};
 
 use crate::{
     access::{AccessMode, MachineCapabilityEnvironment, capability_plan},
     actor::ActorContext,
     agent::{
-        AccessPolicy, AgentController, AgentError, AgentFrontend, AgentKind, AgentSession,
-        AgentTransport, CompletionStrategy, HookMetadata, InputSequence, LaunchRequest, LaunchSpec,
-        SessionPlan,
+        AccessPolicy, AgentAction, AgentController, AgentError, AgentFrontend, AgentKind,
+        AgentSession, AgentTransport, CompletionStrategy, HookMetadata, InputSequence,
+        LaunchRequest, LaunchSpec, SessionPlan,
     },
     config::Config,
     workspace::{WorkspaceContext, WorkspaceId, WorkspaceName},
@@ -25,9 +22,9 @@ enum Event {
     Queue(String),
     Launch(SessionPlan),
     Spawn,
+    Rollback,
     FrontendNewSession,
     TransportNewSession(InputSequence),
-    Transcript(AgentSession),
     Shutdown,
 }
 
@@ -48,11 +45,20 @@ impl Recording {
 
 struct RecordingFrontend {
     recording: Recording,
+    available: bool,
 }
 
 impl AgentFrontend for RecordingFrontend {
     fn kind(&self) -> AgentKind {
         AgentKind::Claude
+    }
+
+    fn ensure_available(&self) -> Result<(), AgentError> {
+        if self.available {
+            Ok(())
+        } else {
+            Err(AgentError::Frontend("compatibility probe failed".to_owned()))
+        }
     }
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
@@ -66,27 +72,30 @@ impl AgentFrontend for RecordingFrontend {
         ))
     }
 
-    fn submit_input(&self) -> Result<InputSequence, AgentError> {
-        self.recording.record(Event::Submit);
-        Ok(InputSequence::bytes(b"\x1dsubmit"))
+    fn rollback_launch(&self, _request: &LaunchRequest) -> Result<(), AgentError> {
+        self.recording.record(Event::Rollback);
+        Ok(())
     }
 
-    fn queue_input(&self) -> Result<InputSequence, AgentError> {
-        Ok(InputSequence::bytes(QUEUE_MARKER))
-    }
-
-    fn new_session_input(&self) -> Result<InputSequence, AgentError> {
-        self.recording.record(Event::FrontendNewSession);
-        Ok(InputSequence::bytes(NEW_SESSION_MARKER))
+    fn input_for(&self, action: AgentAction<'_>) -> Result<InputSequence, AgentError> {
+        Ok(match action {
+            AgentAction::TypeText(text) => InputSequence::text(text),
+            AgentAction::SubmitNow => {
+                self.recording.record(Event::Submit);
+                InputSequence::bytes(b"\x1dsubmit")
+            }
+            AgentAction::FollowUpAfterActiveTurn(text) => {
+                InputSequence::text_with_suffix(text, QUEUE_MARKER)
+            }
+            AgentAction::StartNewSession => {
+                self.recording.record(Event::FrontendNewSession);
+                InputSequence::bytes(NEW_SESSION_MARKER)
+            }
+        })
     }
 
     fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
         Ok(CompletionStrategy::Hook)
-    }
-
-    fn transcript(&self, session: &AgentSession) -> Result<Option<PathBuf>, AgentError> {
-        self.recording.record(Event::Transcript(session.clone()));
-        Ok(Some(PathBuf::from("/transcripts").join(session.as_str())))
     }
 
     fn resume_candidate_exists(&self, _session: &AgentSession) -> Result<bool, AgentError> {
@@ -97,7 +106,7 @@ impl AgentFrontend for RecordingFrontend {
         Ok(session.as_str().to_owned())
     }
 
-    fn can_resume_response_session(&self) -> Result<bool, AgentError> {
+    fn can_resume_response_session(&self, _session: &AgentSession) -> Result<bool, AgentError> {
         Ok(true)
     }
 }
@@ -105,6 +114,31 @@ impl AgentFrontend for RecordingFrontend {
 struct RecordingTransport {
     recording: Recording,
     pending_text: Option<String>,
+}
+
+struct FailingSpawnTransport {
+    recording: Recording,
+}
+
+impl AgentTransport for FailingSpawnTransport {
+    fn spawn(&mut self, _spec: &LaunchSpec) -> Result<(), AgentError> {
+        self.recording.record(Event::Spawn);
+        Err(AgentError::Transport("spawn failed".to_owned()))
+    }
+
+    fn send(&mut self, _input: InputSequence) -> Result<(), AgentError> {
+        Ok(())
+    }
+
+    fn snapshot(&self) -> String {
+        String::new()
+    }
+
+    fn is_alive(&self) -> bool {
+        false
+    }
+
+    fn shutdown(&mut self) {}
 }
 
 impl AgentTransport for RecordingTransport {
@@ -176,6 +210,7 @@ fn controller() -> (
         actor.clone(),
         Box::new(RecordingFrontend {
             recording: recording.clone(),
+            available: true,
         }),
         Box::new(RecordingTransport {
             recording: recording.clone(),
@@ -220,4 +255,3 @@ fn capabilities(
         .expect("machine capabilities");
     capability_plan(&config, &machine).expect("capability plan")
 }
-

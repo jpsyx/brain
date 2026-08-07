@@ -25,16 +25,18 @@ pub fn launch(
         Some(TasksCommand::Search(args)) => Initial::CustomSearch(args.query.join(" ")),
         Some(TasksCommand::Doctor) => {
             let db_path = context.workspace.paths().state_db();
-            let settings_dir = root.join(".claude");
             let home = std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
-            let codex_hooks = home.join(".codex/hooks.json");
+            let primary_health_path = crate::agent::primary_session_health_check().map_or_else(
+                || root.to_path_buf(),
+                |descriptor| descriptor.path(root, &home),
+            );
             eprintln!(
                 "{}",
                 crate::tasks::doctor::format_doctor_plan(
                     &db_path,
-                    &settings_dir.join("settings.json"),
+                    &primary_health_path,
                     crate::theme::Theme::active(),
                 )
             );
@@ -48,11 +50,21 @@ pub fn launch(
                         )
                     )
             });
-            let diagnostic = crate::tasks::doctor::run_doctor_with_frontends(
+            let compatibility = crate::agent::registrations()
+                .iter()
+                .filter_map(|registration| {
+                    let command = registration.configured_command(context);
+                    registration
+                        .compatibility(&command)
+                        .map(|result| (registration.kind(), result))
+                })
+                .collect::<Vec<_>>();
+            let diagnostic = crate::tasks::doctor::run_doctor_for_workspace(
                 &db_path,
-                &settings_dir,
-                &codex_hooks,
+                root,
+                &home,
                 sync_ready,
+                &compatibility,
             );
             std::process::exit(crate::tasks::doctor::print_workspace_report(
                 &diagnostic,
@@ -184,22 +196,6 @@ fn default_csv_path(root: &Path) -> PathBuf {
     root.join("tasks").join("tasks.csv")
 }
 
-pub fn take_agent_flag(args: &mut Vec<String>) -> Option<crate::session::AgentKind> {
-    let mut selected = None;
-    args.retain(|arg| {
-        let kind = match arg.as_str() {
-            "--codex" | "-cx" => Some(crate::session::AgentKind::Codex),
-            "--open-code" | "-oc" => Some(crate::session::AgentKind::OpenCode),
-            _ => None,
-        };
-        kind.is_none_or(|kind| {
-            selected = Some(kind);
-            false
-        })
-    });
-    selected
-}
-
 #[must_use]
 pub fn rewrite_mark_grammar(args: Vec<String>) -> Vec<String> {
     if args.len() < 3 || !args[1].eq_ignore_ascii_case("mark") {
@@ -224,48 +220,4 @@ pub fn rewrite_mark_grammar(args: Vec<String>) -> Vec<String> {
     rewritten.push(args[id_position].clone());
     rewritten.extend_from_slice(&args[id_position + 1 + consume..]);
     rewritten
-}
-
-#[cfg(test)]
-mod tests {
-    use super::take_agent_flag;
-
-    #[test]
-    fn delegated_codex_flag_is_removed() {
-        let mut args = vec!["today".to_owned(), "--codex".to_owned(), "--mit".to_owned()];
-        assert_eq!(
-            take_agent_flag(&mut args),
-            Some(crate::session::AgentKind::Codex)
-        );
-        assert_eq!(args, vec!["today", "--mit"]);
-    }
-
-    #[test]
-    fn delegated_cx_alias_is_removed() {
-        let mut args = vec!["today".to_owned(), "-cx".to_owned(), "--mit".to_owned()];
-        assert_eq!(
-            take_agent_flag(&mut args),
-            Some(crate::session::AgentKind::Codex)
-        );
-        assert_eq!(args, vec!["today", "--mit"]);
-    }
-
-    #[test]
-    fn delegated_open_code_flag_and_alias_are_removed() {
-        for flag in ["--open-code", "-oc"] {
-            let mut args = vec!["today".to_owned(), flag.to_owned(), "--mit".to_owned()];
-            assert_eq!(
-                take_agent_flag(&mut args),
-                Some(crate::session::AgentKind::OpenCode)
-            );
-            assert_eq!(args, vec!["today", "--mit"]);
-        }
-    }
-
-    #[test]
-    fn absent_delegated_agent_flag_leaves_arguments_unchanged() {
-        let mut args = vec!["today".to_owned()];
-        assert_eq!(take_agent_flag(&mut args), None);
-        assert_eq!(args, vec!["today"]);
-    }
 }

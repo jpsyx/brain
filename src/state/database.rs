@@ -239,6 +239,31 @@ impl Db {
         rows.flatten().collect()
     }
 
+    /// Return the exact frontend session currently locked by one live shell lineage.
+    #[must_use]
+    pub fn locked_session_for_instance(
+        &self,
+        instance: &str,
+        scope: &SessionScope,
+    ) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT agent_session_id FROM brain_sessions
+                 WHERE brain_instance_id = ?1 AND locked_pid IS NOT NULL
+                   AND agent_kind = ?2 AND workspace_id = ?3
+                   AND actor_id = ?4 AND channel = ?5",
+                rusqlite::params![
+                    instance,
+                    scope.agent_kind().as_str(),
+                    scope.workspace_id().to_string(),
+                    scope.actor().user_id().as_str(),
+                    scope.actor().channel().as_str(),
+                ],
+                |row| row.get(0),
+            )
+            .ok()
+    }
+
     /// Try to lock an existing free session to this shell. Returns `true`
     /// when the claim won; `false` if another shell grabbed it first (the
     /// caller should re-`pick_resume` and try again, or start fresh).

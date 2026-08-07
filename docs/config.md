@@ -196,12 +196,12 @@ reduce accidents and naive cross-workspace leakage among trusted users.
 Adversarial or sensitive isolation requires an external OS, VM, machine, or
 container boundary.
 
-Brain installs trusted advisory instructions in both agent frontends, filters
+Brain installs trusted advisory instructions in all registered agent frontends, filters
 the child environment to selected-workspace context and frontend necessities,
 sets the selected root as the child working directory, and exposes an
-intentionally naive literal-path warning. Claude and Codex continue to use the
-user's shared frontend login; workspace selection does not create separate
-credentials. The status output describes the advisory boundary directly:
+intentionally naive literal-path warning. Claude, Codex, and OpenCode continue
+to use the user's shared frontend login; workspace selection does not create
+separate credentials. The status output describes the advisory boundary directly:
 
 ```text
 Access mode  workspace-only
@@ -216,7 +216,7 @@ mode the frontends use their ordinary global MCP and skill configuration. In
 workspace-only mode Brain resolves the logical names against only the selected
 workspace record's `agent_capabilities` environment object. Run
 `brain skills status` to see requested names, availability, and the honest
-Claude/Codex enforcement level without printing connection material. Names are
+Claude/Codex/OpenCode enforcement level without printing connection material. Names are
 ASCII case-normalized and must begin with a letter or digit; remaining
 characters may be letters, digits, `.`, `_`, or `-`.
 
@@ -248,9 +248,19 @@ record fields are managed by `brain workspace`, not exposed as free-form env.
 | `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
 | `codex_cmd` | `codex` | Command that launches the brain panel's Codex frontend on **this machine**. Current live panels start fresh because the adapter rejects resume candidates; the compatibility command builder retains `resume <id>` syntax for a validated future source. Fresh Codex panels launch without Claude-only `--session-id` / `--resume` flags. Blank falls back to `codex`. |
-| `opencode_cmd` | `opencode` | Command used to launch OpenCode on **this machine**. Blank falls back to `opencode`; Brain appends its named agent and session arguments. |
+| `opencode_cmd` | `opencode` | Command used to launch OpenCode on **this machine**. Blank falls back to `opencode`; Brain appends `--agent brain`, optional validated `--session <id>`, and optional `--prompt <text>`. The command must pass Brain's isolated supported-feature probes. |
 | `agent_capabilities` | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
 | `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus the mandatory startup pull and change-triggered pushes; there is no periodic idle pull. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
+
+OpenCode launch configuration is supplied through `OPENCODE_CONFIG_CONTENT`.
+If that variable already exists, it must contain a JSON object. Brain preserves
+unrelated values and owns only `agent.brain`, `default_agent`, generated
+`mcp.brain_ws_*` entries, and the selected workspace skill-path addition. Old
+`brain_ws_*` MCP entries are pruned before current entries are added. In
+workspace-only mode the Brain agent also receives deny-by-default selected
+skill permissions; unrestricted mode leaves the user's ordinary global
+capabilities in effect. The merged inline object is passed only to the child
+and is not written to the user's OpenCode config file.
 
 `agent_capabilities` has this selected-record shape. Each MCP defines exactly
 one of `command` or `url`; every credentials field is machine-local. A custom
@@ -669,9 +679,9 @@ shell** also keeps machine-managed state in a SQLite DB at
 `~/.cache/brain/workspaces/<workspace-id>/state.db` (created on first run; see `state.rs` and
 [data-model.md](data-model.md)):
 
-- `brain_sessions` records Claude and Codex session identity plus workspace,
+- `brain_sessions` records Claude, Codex, and OpenCode session identity plus workspace,
   actor, and channel attribution, with a per-session PID lock used for scoped
-  lock-and-recency resume. Written by both `brain` and the SessionStart hook.
+  lock-and-recency resume. Written by Brain and the generic session-start bridge.
 - `meta`: small key/value store. `panel_side` (`"left"` or `"right"`) records
   the panel layout; `skills_synced_version` records the last Brain version that
   successfully rendered this workspace's installed skills.

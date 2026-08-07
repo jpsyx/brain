@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use brain::access::{AccessMode, MachineCapabilityEnvironment, capability_plan};
-use brain::agent::{AgentFrontend, AgentSession, CodexFrontend, LaunchRequest, SessionPlan};
+use brain::agent::{AgentKind, AgentSession, LaunchRequest, SessionPlan};
 use brain::config::Config;
 
-use crate::support::{actor, family_id, temporary_workspace};
+use crate::support::{actor, family_id, launch_spec, temporary_workspace};
 
 #[test]
 fn debug_output_redacts_capability_credentials_prompts_and_launch_environment_values() {
@@ -38,9 +38,7 @@ fn debug_output_redacts_capability_credentials_prompts_and_launch_environment_va
         AccessMode::WorkspaceOnly,
     )
     .with_capability_plan(plan.clone());
-    let spec = CodexFrontend::new("codex")
-        .launch_spec(&request)
-        .expect("Codex launch spec");
+    let spec = launch_spec(AgentKind::Codex, "codex", &request).expect("Codex launch spec");
 
     for debug in [
         format!("{machine:?}"),

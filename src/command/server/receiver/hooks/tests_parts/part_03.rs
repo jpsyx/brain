@@ -24,11 +24,11 @@ fn concurrent_workspace_installs_preserve_both_roots_and_shared_codex_json() {
     for root in [&family, &work] {
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "SessionStart"),
-            "python3 .claude/brain-hooks/claude_session_start_hook.py"
+            "python3 .claude/brain-hooks/agent_session_start_hook.py"
         );
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "Stop"),
-            "python3 .claude/brain-hooks/claude_stop_hook.py"
+            "python3 .claude/brain-hooks/agent_turn_complete_hook.py"
         );
     }
     let codex_bytes = std::fs::read(home.join(".codex/hooks.json")).unwrap();
@@ -38,11 +38,11 @@ fn concurrent_workspace_installs_preserve_both_roots_and_shared_codex_json() {
     assert_eq!(codex["hooks"]["Stop"].as_array().unwrap().len(), 1);
     assert_eq!(
         codex["hooks"]["SessionStart"][0]["hooks"][0]["command"],
-        r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_session_start_hook.py""#
+        r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py""#
     );
     assert_eq!(
         codex["hooks"]["Stop"][0]["hooks"][0]["command"],
-        r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_stop_hook.py""#
+        r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py""#
     );
 }
 
@@ -194,14 +194,14 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
         codex_schema["hooks"]["SessionStart"],
         json!([{"hooks": [{
             "type": "command",
-            "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_session_start_hook.py\""
+            "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py\""
         }]}])
     );
     assert_eq!(
         codex_schema["hooks"]["Stop"],
         json!([{"hooks": [{
             "type": "command",
-            "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_stop_hook.py\""
+            "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py\""
         }]}])
     );
     let start = configured_command(&codex_hooks, "SessionStart");
@@ -242,14 +242,14 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
         &root,
         &start,
         &common,
-        &serde_json::json!({"thread_id":"codex-thread-1","source":"startup"}),
+        &serde_json::json!({"session_id":"codex-thread-1","source":"startup"}),
     );
     let stopped = run_configured(
         &root,
         &stop,
         &common,
         &serde_json::json!({
-            "thread_id":"codex-thread-1",
+            "session_id":"codex-thread-1",
             "last_assistant_message":"Finished"
         }),
     );

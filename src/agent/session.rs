@@ -16,14 +16,13 @@ pub enum AgentKind {
 }
 
 impl AgentKind {
+    /// Every functional frontend in stable display order.
+    pub const ALL: [Self; 3] = [Self::Claude, Self::Codex, Self::OpenCode];
+
     /// Human label for UI copy.
     #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Claude => "Claude",
-            Self::Codex => "Codex",
-            Self::OpenCode => "OpenCode",
-        }
+    pub fn label(self) -> &'static str {
+        crate::agent::registration(self).label()
     }
 
     /// Stable state-database representation.
@@ -184,6 +183,14 @@ mod tests {
     #[test]
     fn session_id_rejects_blank_values() {
         assert_eq!(AgentSession::new("  "), Err(AgentError::EmptySessionId));
+    }
+
+    #[test]
+    fn all_frontends_are_listed_once_in_display_order() {
+        assert_eq!(
+            AgentKind::ALL,
+            [AgentKind::Claude, AgentKind::Codex, AgentKind::OpenCode]
+        );
     }
 }
 

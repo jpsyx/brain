@@ -1,12 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use std::sync::Barrier;
-use std::time::{Duration, Instant};
 
 use serde_json::{Map, json};
 
 use super::*;
-use crate::command::server::receiver::hooks::InstallStep;
 use crate::users::{User, UserId, Users, UsersStore};
 use crate::workspace::{
     CommandContext, MachineRegistry, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
@@ -14,7 +11,7 @@ use crate::workspace::{
 };
 
 struct Fixture {
-    _directory: tempfile::TempDir,
+    directory: tempfile::TempDir,
     home: std::path::PathBuf,
     context: CommandContext,
     registry_before: Vec<u8>,
@@ -84,12 +81,18 @@ impl Fixture {
         .unwrap();
         let codex = home.join(".codex/hooks.json");
         std::fs::write(&codex, b"{\"peer\":true}\n").unwrap();
+        std::fs::create_dir_all(root.join(".config")).unwrap();
+        std::fs::write(
+            root.join(".config/.receiver-setup.transaction.lock"),
+            b"stable setup lock\n",
+        )
+        .unwrap();
         let context = CommandContext::new(workspace, store).unwrap();
         Self {
             registry_before: std::fs::read(context.registry_store.path()).unwrap(),
             users_before: std::fs::read(UsersStore::path(&context.workspace)).unwrap(),
             codex_before: std::fs::read(codex).unwrap(),
-            _directory: directory,
+            directory,
             home,
             context,
         }
@@ -109,13 +112,62 @@ impl Fixture {
             self.codex_before
         );
         for path in [
+            ".claude/brain-hooks/agent_session_start_hook.py",
+            ".claude/brain-hooks/agent_turn_complete_hook.py",
             ".claude/brain-hooks/claude_session_start_hook.py",
             ".claude/brain-hooks/claude_stop_hook.py",
             ".claude/settings.json",
+            ".opencode/plugins/brain.js",
         ] {
             assert!(!self.context.workspace.root().join(path).exists(), "{path}");
         }
     }
+
+    fn tree_snapshot(&self) -> BTreeMap<std::path::PathBuf, TreeEntry> {
+        fn visit(
+            base: &std::path::Path,
+            path: &std::path::Path,
+            entries: &mut BTreeMap<std::path::PathBuf, TreeEntry>,
+        ) {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let mut children = std::fs::read_dir(path)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            children.sort();
+            for child in children {
+                let relative = child.strip_prefix(base).unwrap().to_path_buf();
+                let metadata = std::fs::symlink_metadata(&child).unwrap();
+                let mode = metadata.permissions().mode() & 0o777;
+                let entry = if metadata.file_type().is_symlink() {
+                    TreeEntry::Symlink(std::fs::read_link(&child).unwrap())
+                } else if metadata.is_dir() {
+                    TreeEntry::Directory(mode)
+                } else {
+                    TreeEntry::File {
+                        bytes: std::fs::read(&child).unwrap(),
+                        mode,
+                    }
+                };
+                entries.insert(relative, entry);
+                if metadata.is_dir() {
+                    visit(base, &child, entries);
+                }
+            }
+        }
+
+        let mut entries = BTreeMap::new();
+        visit(self.directory.path(), self.directory.path(), &mut entries);
+        entries
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum TreeEntry {
+    Directory(u32),
+    File { bytes: Vec<u8>, mode: u32 },
+    Symlink(std::path::PathBuf),
 }
 
 #[test]
@@ -163,13 +215,25 @@ fn every_persistence_and_hook_failure_restores_exact_selected_bytes_and_peer_sta
     for target in [
         CommitStep::Providers,
         CommitStep::Users,
-        CommitStep::Hook(InstallStep::SessionScript),
-        CommitStep::Hook(InstallStep::StopScript),
-        CommitStep::Hook(InstallStep::ClaudeSettings),
-        CommitStep::Hook(InstallStep::CodexSettings),
-        CommitStep::Hook(InstallStep::OpenCodePlugin),
+        CommitStep::Directory("agent-session-start-script"),
+        CommitStep::Hook("agent-session-start-script"),
+        CommitStep::Directory("agent-turn-complete-script"),
+        CommitStep::Hook("agent-turn-complete-script"),
+        CommitStep::Directory("claude-session-start-compatibility-script"),
+        CommitStep::Hook("claude-session-start-compatibility-script"),
+        CommitStep::Directory("claude-stop-compatibility-script"),
+        CommitStep::Hook("claude-stop-compatibility-script"),
+        CommitStep::Directory("claude-settings"),
+        CommitStep::Lock("claude-settings"),
+        CommitStep::Hook("claude-settings"),
+        CommitStep::Directory("codex-settings"),
+        CommitStep::Lock("codex-settings"),
+        CommitStep::Hook("codex-settings"),
+        CommitStep::Directory("opencode-plugin"),
+        CommitStep::Hook("opencode-plugin"),
     ] {
         let fixture = Fixture::new();
+        let before = fixture.tree_snapshot();
         let error = persist_plan_with_hook(&plan(), &fixture.context, &fixture.home, |step| {
             anyhow::ensure!(step != target, "injected {target:?} failure");
             Ok(())
@@ -178,165 +242,99 @@ fn every_persistence_and_hook_failure_restores_exact_selected_bytes_and_peer_sta
 
         assert!(error.to_string().contains("injected"), "{error:#}");
         fixture.assert_restored();
+        assert_eq!(fixture.tree_snapshot(), before, "failed at {target:?}");
     }
 }
 
 #[test]
-fn failed_setup_rollback_preserves_a_concurrent_success_and_live_lock_inode() {
-    use std::os::unix::fs::MetadataExt as _;
+fn setup_rejects_an_external_bridge_symlink_and_preserves_its_target_exactly() {
+    use std::os::unix::fs::PermissionsExt as _;
 
     let fixture = Fixture::new();
-    let context = fixture.context.clone();
-    let home = fixture.home.clone();
-    let provider_written = Arc::new(Barrier::new(2));
-    let release_failure = Arc::new(Barrier::new(2));
-    let thread_provider_written = Arc::clone(&provider_written);
-    let thread_release_failure = Arc::clone(&release_failure);
-    let lock = home.join(".codex/.hooks.json.transaction.lock");
-    std::fs::write(&lock, b"live lock").unwrap();
-    let lock_inode = std::fs::metadata(&lock).unwrap().ino();
+    let hook_dir = fixture.context.workspace.root().join(".claude/brain-hooks");
+    std::fs::create_dir_all(&hook_dir).unwrap();
+    let target = fixture.home.join("rendered-session-bridge.py");
+    let middle = fixture.home.join("current-session-bridge.py");
+    let original = b"original rendered bridge\n";
+    std::fs::write(&target, original).unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+    std::os::unix::fs::symlink(&target, &middle).unwrap();
+    let link = hook_dir.join("agent_session_start_hook.py");
+    std::os::unix::fs::symlink(&middle, &link).unwrap();
 
-    let failing = std::thread::spawn(move || {
-        persist_plan_with_hook(&plan(), &context, &home, |step| {
-            if step == CommitStep::Providers {
-                thread_provider_written.wait();
-                thread_release_failure.wait();
-                anyhow::bail!("injected failure after concurrent success");
-            }
-            Ok(())
-        })
-    });
-    provider_written.wait();
-    crate::env::set(&fixture.context, "codex_cmd", "concurrent-codex").unwrap();
-    release_failure.wait();
+    let error =
+        persist_plan_with_hook(&plan(), &fixture.context, &fixture.home, |_| Ok(())).unwrap_err();
 
-    assert!(failing.join().unwrap().is_err());
-    assert_eq!(
-        crate::env::get(&fixture.context, "codex_cmd").as_deref(),
-        Some("concurrent-codex")
-    );
-    assert_eq!(std::fs::metadata(lock).unwrap().ino(), lock_inode);
-}
-
-#[test]
-fn setup_serializes_identical_after_images_across_rollback_ownership() {
-    let fixture = Fixture::new();
-    let failing_context = fixture.context.clone();
-    let failing_home = fixture.home.clone();
-    let provider_written = Arc::new(Barrier::new(2));
-    let release_failure = Arc::new(Barrier::new(2));
-    let thread_provider_written = Arc::clone(&provider_written);
-    let thread_release_failure = Arc::clone(&release_failure);
-    let failing = std::thread::spawn(move || {
-        persist_plan_with_hook(&plan(), &failing_context, &failing_home, |step| {
-            if step == CommitStep::Providers {
-                thread_provider_written.wait();
-                thread_release_failure.wait();
-            }
-            anyhow::ensure!(
-                step != CommitStep::Users,
-                "injected failure after identical concurrent setup"
-            );
-            Ok(())
-        })
-    });
-    provider_written.wait();
-
-    let concurrent_context = fixture.context.clone();
-    let concurrent_home = fixture.home.clone();
-    let (concurrent_tx, concurrent_rx) = std::sync::mpsc::sync_channel(1);
-    let concurrent = std::thread::spawn(move || {
-        concurrent_tx
-            .send(persist_plan_with_hook(
-                &plan(),
-                &concurrent_context,
-                &concurrent_home,
-                |_| Ok(()),
-            ))
-            .expect("report concurrent setup");
-    });
-    let early = concurrent_rx.recv_timeout(std::time::Duration::from_millis(250));
-    let concurrent_was_blocked = matches!(&early, Err(std::sync::mpsc::RecvTimeoutError::Timeout));
-    release_failure.wait();
-    let failing_result = failing.join().expect("failing setup worker");
-    let concurrent_result = match early {
-        Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => concurrent_rx
-            .recv_timeout(std::time::Duration::from_secs(1))
-            .expect("serialized setup completion"),
-        Err(error) => panic!("concurrent setup channel failed: {error}"),
-    };
-    concurrent.join().expect("concurrent setup worker");
-
-    assert!(failing_result.is_err());
     assert!(
-        concurrent_was_blocked,
-        "concurrent setup crossed the active transaction"
-    );
-    concurrent_result.expect("serialized concurrent setup");
-    assert_eq!(
-        crate::env::get(&fixture.context, "resend_api_key").as_deref(),
-        Some("re_secret")
+        error.to_string().contains("resolves outside workspace"),
+        "{error:#}"
     );
     assert!(
-        UsersStore::load(&fixture.context.workspace)
-            .expect("users after serialized setup")
-            .users
-            .is_empty()
+        std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read_link(&link).unwrap(), middle);
+    assert!(
+        std::fs::symlink_metadata(&middle)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read_link(&middle).unwrap(), target);
+    assert_eq!(std::fs::read(&link).unwrap(), original);
+    assert_eq!(
+        std::fs::metadata(&link).unwrap().permissions().mode() & 0o777,
+        0o640
     );
 }
 
 #[test]
-fn setup_lock_timeout_is_bounded_actionable_and_mutates_nothing() {
+fn setup_rejects_an_external_dangling_bridge_symlink_without_creating_its_target() {
     let fixture = Fixture::new();
-    let holder = std::sync::Mutex::new(Some(
-        SetupTransactionLock::acquire(fixture.context.workspace.root()).unwrap(),
-    ));
-    let started = Instant::now();
-    let deadline = started + Duration::from_millis(10);
-    let current = std::sync::Mutex::new(started);
-    let clock = || {
-        *current
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    };
-    let poll = |_| {
-        holder
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        *current
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = deadline;
-    };
+    let hook_dir = fixture.context.workspace.root().join(".claude/brain-hooks");
+    std::fs::create_dir_all(&hook_dir).unwrap();
+    let target = fixture.home.join("not-yet-rendered-session-bridge.py");
+    let middle = fixture.home.join("current-session-bridge.py");
+    std::os::unix::fs::symlink(&target, &middle).unwrap();
+    let link = hook_dir.join("agent_session_start_hook.py");
+    std::os::unix::fs::symlink(&middle, &link).unwrap();
 
-    let error = SetupTransactionLock::acquire_until(
-        fixture.context.workspace.root(),
-        deadline,
-        &clock,
-        &poll,
-    )
-    .unwrap_err();
+    let error =
+        persist_plan_with_hook(&plan(), &fixture.context, &fixture.home, |_| Ok(())).unwrap_err();
 
-    let message = format!("{error:#}");
-    assert!(message.contains("receiver setup"), "{message}");
-    assert!(message.contains("timed out"), "{message}");
-    fixture.assert_restored();
+    assert!(
+        error.to_string().contains("resolves outside workspace"),
+        "{error:#}"
+    );
+    assert!(!target.exists());
+    assert!(
+        std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read_link(&link).unwrap(), middle);
+    assert!(
+        std::fs::symlink_metadata(&middle)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read_link(&middle).unwrap(), target);
 }
 
 #[test]
-fn setup_lock_rejects_an_already_elapsed_deadline_even_when_free() {
-    let fixture = Fixture::new();
-    let deadline = Instant::now();
+fn relative_path_symlink_cycle_is_rejected_at_a_bounded_depth() {
+    let temporary = tempfile::tempdir().unwrap();
+    std::fs::create_dir(temporary.path().join("sub")).unwrap();
+    let cycle = temporary.path().join("a");
+    std::os::unix::fs::symlink("sub/../a", &cycle).unwrap();
 
-    let error = SetupTransactionLock::acquire_until(
-        fixture.context.workspace.root(),
-        deadline,
-        &|| deadline,
-        &|_| panic!("elapsed acquisition must not poll"),
-    )
-    .unwrap_err();
+    let error = resolve_symlink_chain(&cycle).unwrap_err();
 
-    assert!(error.to_string().contains("timed out"), "{error:#}");
-    fixture.assert_restored();
+    assert!(error.to_string().contains("safe depth"), "{error:#}");
 }
+
+mod locking;

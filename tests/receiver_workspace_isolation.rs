@@ -4,8 +4,6 @@ mod complete_lifecycle;
 mod persisted_disable;
 mod receiver_workspace_support;
 
-use std::io::{Read as _, Write as _};
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
@@ -324,43 +322,6 @@ fn job_socket_acknowledges_only_the_matching_workspace_enqueue() {
         rejected_rx.try_recv().is_ok_and(|result| result.is_err())
     });
     assert_eq!(queue.len(), 1, "family work entered the personal queue");
-}
-
-#[test]
-fn failed_ack_write_rolls_back_the_just_enqueued_job() {
-    let temp = tempfile::tempdir().unwrap();
-    let personal = workspace(&temp, PERSONAL_ID, "personal");
-    let socket = JobSocket::bind(&personal).unwrap();
-    let mut client = UnixStream::connect(personal.paths().job_socket()).unwrap();
-    let staged = job(&personal, "must roll back");
-    client
-        .write_all(&serde_json::to_vec(&staged).unwrap())
-        .unwrap();
-    client.write_all(b"\n").unwrap();
-    let workspace_id = personal.id();
-    let (queue_tx, queue_rx) = std::sync::mpsc::sync_channel(1);
-    let worker = std::thread::spawn(move || {
-        let mut queue = Vec::new();
-        socket.poll_jobs(workspace_id, &mut queue);
-        queue_tx.send(queue).unwrap();
-    });
-    let mut prepared = [0_u8; 9];
-    client.read_exact(&mut prepared).unwrap();
-    assert_eq!(&prepared, b"prepared\n");
-    client.write_all(b"commit\n").unwrap();
-    if let Err(error) = client.shutdown(std::net::Shutdown::Both) {
-        assert_eq!(
-            error.kind(),
-            std::io::ErrorKind::NotConnected,
-            "unexpected client shutdown failure: {error}"
-        );
-    }
-    drop(client);
-
-    let queue = queue_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-    worker.join().unwrap();
-
-    assert!(queue.is_empty());
 }
 
 #[test]

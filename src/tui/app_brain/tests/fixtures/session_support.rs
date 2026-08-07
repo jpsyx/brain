@@ -6,10 +6,10 @@ pub(crate) fn live_panel(root: &Path) -> PtyPane {
 }
 
 pub(crate) fn panel_controller(app: &App<'_>, panel: PtyPane) -> AgentController {
-    AgentController::new(
-        Arc::clone(&app.command_context.workspace),
+    AgentController::configured(
+        &app.command_context,
+        app.agent_kind,
         app.interactive_actor.clone(),
-        crate::agent::configured_frontend(&app.command_context, app.agent_kind),
         Box::new(panel),
     )
 }

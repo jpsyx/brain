@@ -3,12 +3,14 @@ use std::{path::PathBuf, sync::Arc};
 use crate::{
     actor::{ActorContext, RequestIdentity},
     agent::{
-        AccessPolicy, AgentFrontend, AgentSession, ClaudeFrontend, CodexFrontend,
+        AccessPolicy, AgentAction, AgentFrontend, AgentSession, ClaudeFrontend, CodexFrontend,
         CompletionStrategy, InputSequence, LaunchRequest, SessionPlan,
     },
     users::{USERS_SCHEMA_VERSION, User, UserId, Users},
     workspace::{WorkspaceContext, WorkspaceId, WorkspaceName},
 };
+
+mod contract;
 
 fn workspace() -> Arc<WorkspaceContext> {
     Arc::new(
@@ -154,39 +156,43 @@ fn adapters_translate_submit_queue_and_new_session_input() {
     );
     let codex = CodexFrontend::new("codex");
 
-    assert_eq!(claude.submit_input(), Ok(InputSequence::bytes(b"\r")));
-    assert_eq!(codex.submit_input(), Ok(InputSequence::bytes(b"\r")));
-    assert_eq!(claude.queue_input(), Ok(InputSequence::bytes(b"\r")));
-    assert_eq!(codex.queue_input(), Ok(InputSequence::bytes(b"\t")));
     assert_eq!(
-        claude.new_session_input(),
+        claude.input_for(AgentAction::SubmitNow),
+        Ok(InputSequence::bytes(b"\r"))
+    );
+    assert_eq!(
+        codex.input_for(AgentAction::SubmitNow),
+        Ok(InputSequence::bytes(b"\r"))
+    );
+    assert_eq!(
+        claude.input_for(AgentAction::FollowUpAfterActiveTurn("next")),
+        Ok(InputSequence::bytes(b"next\r"))
+    );
+    assert_eq!(
+        codex.input_for(AgentAction::FollowUpAfterActiveTurn("next")),
+        Ok(InputSequence::bytes(b"next\t"))
+    );
+    assert_eq!(
+        claude.input_for(AgentAction::StartNewSession),
         Ok(InputSequence::bytes(b"/new\r"))
     );
     assert_eq!(
-        codex.new_session_input(),
+        codex.input_for(AgentAction::StartNewSession),
         Ok(InputSequence::bytes(b"/new\t"))
     );
 }
 
 #[test]
-fn adapters_own_completion_and_transcript_conventions() {
+fn adapters_own_completion_conventions() {
     let claude = ClaudeFrontend::new(
         "claude",
         PathBuf::from("/workspaces/family brain"),
         PathBuf::from("/home/tester/.claude/projects"),
     );
     let codex = CodexFrontend::new("codex");
-    let session = AgentSession::new("sess-9").expect("session");
 
     assert_eq!(claude.completion_strategy(), Ok(CompletionStrategy::Hook));
     assert_eq!(codex.completion_strategy(), Ok(CompletionStrategy::Hook));
-    assert_eq!(
-        claude.transcript(&session),
-        Ok(Some(PathBuf::from(
-            "/home/tester/.claude/projects/-workspaces-family brain/sess-9.jsonl"
-        )))
-    );
-    assert_eq!(codex.transcript(&session), Ok(None));
 }
 
 #[test]
@@ -207,8 +213,8 @@ fn adapters_own_session_tracking_and_response_identity() {
         Ok(codex_response_id.as_str())
     );
     assert!(uuid::Uuid::parse_str(&codex_response_id).is_ok());
-    assert_eq!(claude.can_resume_response_session(), Ok(true));
-    assert_eq!(codex.can_resume_response_session(), Ok(false));
+    assert_eq!(claude.can_resume_response_session(&session), Ok(true));
+    assert_eq!(codex.can_resume_response_session(&session), Ok(false));
 }
 
 #[test]

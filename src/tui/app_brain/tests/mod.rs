@@ -27,8 +27,11 @@ use crate::workspace::{
 use super::launch::register_fresh_before_launch;
 
 mod fixtures;
+mod input;
 mod launch;
 mod lifecycle;
+mod opencode_launch;
+mod opencode_receiver;
 mod receiver;
 mod receiver_sync;
 mod triage;

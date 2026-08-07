@@ -35,11 +35,11 @@ fn fresh_session_registration_failure_prevents_agent_launch() {
 }
 
 #[test]
-fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_both_frontends() {
+fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_every_frontend() {
     let cli = Cli::parse_from(["tasks"]);
     let prompt = "-c developer_instructions=untrusted-main-prompt";
 
-    for kind in [AgentKind::Claude, AgentKind::Codex, AgentKind::OpenCode] {
+    for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
         app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
@@ -58,15 +58,22 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_both_fro
             specs[0].clone()
         };
         assert_workspace_only_launch_spec(&app, &spec, kind, &actor, prompt);
-        let session = app.interactive_session_id.as_deref().unwrap();
+        let response_id = app.interactive_session_id.as_deref().unwrap();
+        let agent_session_id = app.interactive_agent_session_id.as_deref().unwrap();
         match kind {
             AgentKind::Claude => {
-                assert!(spec.command.contains(&format!("--session-id '{session}'")));
+                assert_eq!(response_id, agent_session_id);
+                assert!(
+                    spec.command
+                        .contains(&format!("--session-id '{agent_session_id}'"))
+                );
             }
             AgentKind::Codex => {
+                assert_ne!(response_id, agent_session_id);
                 assert!(!spec.command.contains(" resume "));
             }
             AgentKind::OpenCode => {
+                assert_ne!(response_id, agent_session_id);
                 assert!(spec.command.contains("--agent brain"));
             }
         }
@@ -142,6 +149,7 @@ fn capability_failure_leaves_a_resumable_session_free_and_clears_response_identi
         "fallible prelaunch work must finish before claiming the candidate"
     );
     assert!(app.interactive_session_id.is_none());
+    assert!(app.interactive_agent_session_id.is_none());
     assert!(app.receiver_session_id.is_none());
     assert!(recording.0.lock().expect("launch recording").is_empty());
 }
@@ -150,7 +158,7 @@ fn capability_failure_leaves_a_resumable_session_free_and_clears_response_identi
 fn app_main_unrestricted_launch_does_not_parse_malformed_capability_configuration() {
     let cli = Cli::parse_from(["tasks"]);
 
-    for kind in [AgentKind::Claude, AgentKind::Codex] {
+    for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
         app.config.access_mode = crate::access::AccessMode::Unrestricted;
@@ -279,74 +287,48 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
 }
 
 #[test]
-fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
-    let temporary = tempfile::tempdir().expect("temporary directory");
-    let cli = Cli::parse_from(["tasks"]);
-
-    for agent_kind in [AgentKind::Claude, AgentKind::Codex, AgentKind::OpenCode] {
-        let mut app = test_app(&temporary, &cli, agent_kind);
-        let capture = capture_panel(app.command_context.workspace.root());
-        app.brain = Some(panel_controller(&app, capture));
-        assert!(
-            wait_for_panel_contents(app.brain.as_ref().expect("panel"), "READY"),
-            "capture panel did not become ready"
-        );
-
-        assert!(!app.handle_new_session_shortcut(KeyCode::Char('n'), false));
-        assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
-        assert_eq!(app.focus, Panel::Brain);
-        assert!(app.brain_turn_active);
-        let expected_bytes = match agent_kind {
-            AgentKind::Claude | AgentKind::OpenCode => "2f 6e 65 77 0d",
-            AgentKind::Codex => "2f 6e 65 77 09",
-        };
-        let panel = app
-            .brain
-            .as_ref()
-            .expect("panel remains open until capture exits");
-        assert!(
-            wait_for_panel_contents(panel, expected_bytes),
-            "capture panel did not receive deferred /new bytes: {}",
-            panel.snapshot().expect("supported capture panel snapshot")
-        );
-    }
-}
-
-#[test]
-fn ctrl_n_targets_the_active_main_or_triage_controller_including_triage_only() {
+fn receiver_restore_uses_the_frontend_session_id_not_the_response_artifact_id() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    let (main, main_recording) = recording_controller(&app, true, "main");
-    let (triage, triage_recording) = recording_controller(&app, true, "triage");
-    app.brain = Some(main);
-    app.triage_brain = Some(triage);
-
-    app.active_brain_tab = BrainTab::Main;
-    assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
-    assert_eq!(
-        main_recording.events(),
-        vec![ControllerEvent::StartNewSession]
+    let frontend_session_id = "frontend-session-id";
+    let interactive_scope = SessionScope::new(
+        AgentKind::Claude,
+        app.command_context.workspace.id(),
+        app.interactive_actor.clone(),
     );
-    assert!(triage_recording.events().is_empty());
+    let frontend_session = AgentSession::new(frontend_session_id).unwrap();
+    SessionStore::register(
+        &app.db,
+        &frontend_session,
+        "prior-shell",
+        42,
+        &interactive_scope,
+    )
+    .unwrap();
+    SessionStore::release(&app.db, "prior-shell").unwrap();
+    let _transcript =
+        ClaudeTranscript::create(app.command_context.workspace.root(), frontend_session_id);
+    let (controller, _) = recording_controller(&app, true, "receiver");
+    app.brain = Some(controller);
+    app.receiver_session_id = Some("receiver-response-artifact".to_owned());
+    app.interactive_session_id = Some("interactive-response-artifact".to_owned());
+    app.interactive_agent_session_id = Some(frontend_session_id.to_owned());
+    let launches = LaunchRecording::default();
+    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
+        recording: launches.clone(),
+        alive: false,
+    }));
 
-    app.active_brain_tab = BrainTab::Triage;
-    assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
+    app.close_receiver_panel(true);
+
+    let specs = launches.0.lock().expect("launch recording");
+    assert_eq!(specs.len(), 1);
+    assert!(specs[0].command.contains("--resume 'frontend-session-id'"));
+    assert!(!specs[0].command.contains("interactive-response-artifact"));
+    drop(specs);
     assert_eq!(
-        main_recording.events(),
-        vec![ControllerEvent::StartNewSession]
+        app.interactive_agent_session_id.as_deref(),
+        Some(frontend_session_id)
     );
-    assert_eq!(
-        triage_recording.events(),
-        vec![ControllerEvent::StartNewSession]
-    );
-
-    let triage_only_temporary = tempfile::tempdir().expect("temporary directory");
-    let mut triage_only = test_app(&triage_only_temporary, &cli, AgentKind::Claude);
-    let (triage, recording) = recording_controller(&triage_only, true, "triage only");
-    triage_only.triage_brain = Some(triage);
-    triage_only.active_brain_tab = BrainTab::Triage;
-
-    assert!(triage_only.handle_new_session_shortcut(KeyCode::Char('n'), true));
-    assert_eq!(recording.events(), vec![ControllerEvent::StartNewSession]);
 }

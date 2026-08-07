@@ -14,8 +14,8 @@ mod validation;
 
 pub(crate) use runtime::{
     cleanup_claude_runtime_artifacts, cleanup_codex_runtime_artifacts,
-    cleanup_workspace_capabilities, codex_mcp_launch, prepare_workspace_capabilities,
-    write_claude_runtime_config,
+    cleanup_workspace_capabilities, codex_mcp_launch, opencode_mcp_launch,
+    prepare_workspace_capabilities, write_claude_runtime_config,
 };
 
 /// Machine-local material available to one selected workspace.

@@ -55,6 +55,15 @@ pub(crate) fn prepare(fixture: &DualWorkspaceReceiverFixture) -> Scenario {
             }]
         }),
     );
+    family_record.env.insert(
+        "opencode_cmd".to_owned(),
+        serde_json::Value::String(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/opencode/fake_opencode.sh")
+                .display()
+                .to_string(),
+        ),
+    );
     store.replace(&registry).expect("acceptance registry");
 
     let personal = Arc::new(context(&home, &fixture.personal, "pablo"));

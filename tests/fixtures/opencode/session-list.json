@@ -1,0 +1,10 @@
+[
+  {
+    "id": "session-root",
+    "title": "Root session",
+    "updated": 1786017600000,
+    "created": 1786014000000,
+    "projectId": "project-fixture",
+    "directory": "WORKSPACE_ROOT"
+  }
+]

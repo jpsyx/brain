@@ -769,8 +769,8 @@ remain only in `LaunchRequest::initial_prompt`; it cannot change the policy
 snapshot. Unrestricted mode has no boundary prompt. Workspace-only mode builds
 one advisory prompt naming the selected root and actor, then every interactive,
 SMS, email, fresh, resumed, and triage request carries it to the selected
-frontend. Initial prompt text follows the frontend's option terminator, so a
-leading `-` remains prompt data. `workspace_only` is advisory prompt
+frontend. Claude/Codex use an option terminator and OpenCode uses one quoted
+`--prompt` value, so a leading `-` remains prompt data. `workspace_only` is advisory prompt
 enforcement plus best-effort capability filtering, easy to bypass, and not
 tenant isolation. It reduces accidents and naive leakage among trusted users;
 adversarial or sensitive isolation requires an external OS, VM, machine, or
@@ -815,17 +815,17 @@ bypass it.
 ## Persistent state (`state.rs`, `<workspace-cache>/state.db`)
 
 The persistent shell tracks frontend-scoped actor sessions and the layout
-preference in SQLite (WAL). Receiver completion is hook-backed in both
-frontends.
+preference in SQLite (WAL). Receiver completion uses the same generic lifecycle
+bridge for all registered frontends.
 Two tables:
 
 ```sql
 brain_sessions(
-  agent_kind         TEXT NOT NULL,  -- claude | codex
+  agent_kind         TEXT NOT NULL,  -- claude | codex | opencode
   agent_session_id   TEXT NOT NULL,
   brain_instance_id  TEXT NOT NULL,  -- one per running `brain` shell (a lineage)
   locked_pid         INTEGER,        -- live brain holding it, or NULL when free
-  source             TEXT,           -- last SessionStart source (startup/resume/clear/…)
+  source             TEXT,           -- last session-start source (startup/resume/clear/…)
   workspace_id       TEXT NOT NULL,
   actor_id           TEXT NOT NULL,
   channel            TEXT NOT NULL,  -- interactive | sms | email
@@ -856,19 +856,23 @@ without a manual `brain skills sync`.
   `agent::claude::project_dir_name`); a session opened but never chatted in has a
   DB row but no `<id>.jsonl`, and `claude --resume` can't find it, so it's
   skipped (and the user gets a status-line alert when that forces a fresh
-  chat). Codex participates in the same store but currently rejects resume
-  candidates and starts fresh.
+  chat). OpenCode snapshots `session list --format json` in the selected root
+  and accepts only a live root session whose reported directory resolves to
+  that exact workspace; archived, deleted, child, malformed, and cross-root
+  rows are rejected. A stale DB candidate therefore falls through to the next
+  row or a fresh launch. Codex participates in the same store but currently
+  rejects resume candidates and starts fresh.
 - `SessionStore::claim` → lock a free session in the exact composite scope to this
   shell's PID (loses cleanly if another shell grabbed that scoped row first).
-- `SessionStore::register` inserts a fresh placeholder for either frontend with
-  complete immutable attribution and `active` status. SessionStart records the
-  actual Claude or Codex session ID only when the exact tuple is registered or
-  the ID rotates an already registered active shell lineage; every other hook
-  event is rejected. The authorization reads and accepted rotation mutation
+- `SessionStore::register` inserts a fresh placeholder for any registered frontend with
+  complete immutable attribution and `active` status. The session-start bridge records the
+  actual frontend session ID only when the exact tuple is registered or
+  the ID rotates an already registered active shell lineage; every other event
+  is rejected. The authorization reads and accepted rotation mutation
   share one `BEGIN IMMEDIATE` transaction, so concurrent target claims are
   serialized and a rejected or failed attempt preserves both lineages.
-- `SessionStore::mark_completed` and the Stop hook transition the exact scoped
-  row to `completed`; an accepted SessionStart or
+- `SessionStore::mark_completed` and the turn-complete bridge transition the exact scoped
+  row to `completed`; an accepted session-start event or
   `SessionStore::mark_active` after a successful local or queued submit returns
   it to `active`.
 - Legacy schema-v2 through schema-v4 rows migrate transactionally as Claude,
@@ -879,7 +883,7 @@ without a manual `brain skills sync`.
 - Receiver runtime state distinguishes an active remote job
   (`receiver_started` is set) from a warm channel panel (`receiver_session_id`
   plus a three-minute `receiver_lease`). A warm lease never counts as active
-  LLM work. This lets Stop-hook completion release queued work while keeping
+  LLM work. This lets bridge completion release queued work while keeping
   the completed SMS/email conversation visible and reusable.
 - `SessionStore::release` → when the panel closes (the agent exits) or the shell quits, clear
   this instance's locks and stamp `last_active` (floats it to the top of the
@@ -891,8 +895,8 @@ without a manual `brain skills sync`.
   independent.
 
 The invariant: at most one live shell holds a given session (no tangled
-threads), and exactly one session per instance is current (the SessionStart
-hook frees the instance's others on every start, handling `/new`). The
+threads), and exactly one session per instance is current (the session-start
+bridge frees the instance's others on every start, handling `/new`). The
 `PanelSide` enum (`Left` / `Right`, default `Right`) lives in `state.rs`
 because it's the persisted layout value.
 
@@ -900,7 +904,7 @@ because it's the persisted layout value.
 ephemeral triage session (`App.triage_brain`) is launched by an
 `AgentController` from a fresh `LaunchRequest`. Its hook metadata carries the
 triage done URL and token but no `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, or
-`BRAIN_RESPONSE_ID`. The SessionStart hook no-ops without the tracking values,
+`BRAIN_RESPONSE_ID`. The session-start bridge no-ops without the tracking values,
 so no `brain_sessions` row is ever written and it is never a resume candidate.
 It lives only in process memory (`App.triage_brain` /
 `App.active_brain_tab: BrainTab` / `App.triage_token`) and is torn down when
@@ -995,8 +999,15 @@ See [config.md](config.md) for migration and storage details.
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
 | `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
 | `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to `codex`. |
-| `opencode_cmd` | `String` | `opencode` | Machine-local command used to launch the OpenCode brain-panel adapter. Blank falls back to `opencode`; Brain appends its named agent and session arguments. |
+| `opencode_cmd` | `String` | `opencode` | Machine-local command used to launch OpenCode. Blank falls back to `opencode`; Brain appends `--agent brain`, optional validated `--session`, and optional `--prompt`, after isolated compatibility probes. |
 | `agent_capabilities` | `Object` | *(unset)* | Selected-workspace machine material. `mcps[]` contains a logical `name`, exactly one `command` plus optional `args` or `url`, and optional `credentials` (`environment`, `headers`, `bearer_token`). `skills[]` contains a logical `name` and machine-local directory `path`. Credential descendants render as `(set)` in env listings. |
+
+For OpenCode, the effective inline config is an inherited JSON object plus a
+reserved Brain layer. Brain owns `agent.brain`, `default_agent`, generated
+`mcp.brain_ws_*` keys, and the selected actor's rendered skill-path entry.
+Every unrelated key survives. The generated MCP values contain environment
+variable names, never credential values, and OpenCode capability enforcement
+remains advisory because inherited global sources cannot be proven absent.
 
 All declared env variables and recursively flattened nested values render
 through the same `Resolved { name, value, description }` type `brain config`

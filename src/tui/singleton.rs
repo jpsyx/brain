@@ -134,36 +134,7 @@ impl JobSocket {
                     }
                     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
                     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
-                    let response = read_job(&mut stream).and_then(|job| {
-                        if job.workspace_id != workspace_id {
-                            anyhow::bail!("inbound job targets another workspace");
-                        }
-                        if queue.len() >= crate::server::receiver::INBOUND_QUEUE_CAPACITY {
-                            anyhow::bail!("inbound queue is full");
-                        }
-                        stream
-                            .write_all(b"prepared\n")
-                            .context("acknowledging staged job")?;
-                        let command = read_admission_command(&mut stream)?;
-                        anyhow::ensure!(command == "commit", "job admission was cancelled");
-                        queue.push(job);
-                        Ok(())
-                    });
-                    let accepted = response.is_ok();
-                    let message = if accepted {
-                        "accepted\n".to_owned()
-                    } else {
-                        let error = response.expect_err("checked error");
-                        format!("rejected: {error:#}\n").replace(['\r', '\n'], " ")
-                    };
-                    if let Err(error) = stream.write_all(message.as_bytes()) {
-                        if accepted {
-                            queue.pop();
-                        }
-                        crate::logging::log(format!(
-                            "workspace job acknowledgment failed: {error}"
-                        ));
-                    }
+                    process_job_stream(&mut stream, workspace_id, queue);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(error) => {
@@ -175,7 +146,42 @@ impl JobSocket {
     }
 }
 
-fn read_job(stream: &mut UnixStream) -> Result<crate::server::receiver::InboundJob> {
+fn process_job_stream(
+    stream: &mut (impl Read + Write),
+    workspace_id: crate::workspace::WorkspaceId,
+    queue: &mut Vec<crate::server::receiver::InboundJob>,
+) {
+    let response = read_job(stream).and_then(|job| {
+        if job.workspace_id != workspace_id {
+            anyhow::bail!("inbound job targets another workspace");
+        }
+        if queue.len() >= crate::server::receiver::INBOUND_QUEUE_CAPACITY {
+            anyhow::bail!("inbound queue is full");
+        }
+        stream
+            .write_all(b"prepared\n")
+            .context("acknowledging staged job")?;
+        let command = read_admission_command(stream)?;
+        anyhow::ensure!(command == "commit", "job admission was cancelled");
+        queue.push(job);
+        Ok(())
+    });
+    let accepted = response.is_ok();
+    let message = if accepted {
+        "accepted\n".to_owned()
+    } else {
+        let error = response.expect_err("checked error");
+        format!("rejected: {error:#}\n").replace(['\r', '\n'], " ")
+    };
+    if let Err(error) = stream.write_all(message.as_bytes()) {
+        if accepted {
+            queue.pop();
+        }
+        crate::logging::log(format!("workspace job acknowledgment failed: {error}"));
+    }
+}
+
+fn read_job(stream: &mut impl Read) -> Result<crate::server::receiver::InboundJob> {
     let mut bytes = Vec::new();
     let mut byte = [0_u8; 1];
     while bytes.len() <= crate::server::receiver::dispatch::JOB_FRAME_LIMIT {
@@ -194,7 +200,7 @@ fn read_job(stream: &mut UnixStream) -> Result<crate::server::receiver::InboundJ
     serde_json::from_slice(&bytes).context("decoding inbound job")
 }
 
-fn read_admission_command(stream: &mut UnixStream) -> Result<String> {
+fn read_admission_command(stream: &mut impl Read) -> Result<String> {
     let mut bytes = Vec::new();
     let mut byte = [0_u8; 1];
     while bytes.len() <= 16 {
@@ -217,7 +223,39 @@ impl Drop for JobSocket {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
+
+    struct FailFinalAcknowledgment {
+        input: Cursor<Vec<u8>>,
+        writes: Vec<u8>,
+        write_count: usize,
+    }
+
+    impl Read for FailFinalAcknowledgment {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.input.read(buffer)
+        }
+    }
+
+    impl Write for FailFinalAcknowledgment {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.write_count += 1;
+            if self.write_count == 2 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "injected final acknowledgment failure",
+                ));
+            }
+            self.writes.extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn missing_pid_is_reclaimable() {
@@ -253,5 +291,60 @@ mod tests {
         let mode = std::fs::metadata(path).unwrap().permissions().mode();
 
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn failed_final_acknowledgment_removes_the_staged_job_deterministically() {
+        let workspace_id =
+            crate::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+        let users = crate::users::Users {
+            schema_version: crate::users::USERS_SCHEMA_VERSION,
+            users: vec![crate::users::User {
+                id: crate::users::UserId::parse("member").unwrap(),
+                name: "Member".to_owned(),
+                phones: vec![crate::users::PhoneIdentity {
+                    value: "+12125550100".to_owned(),
+                    inbound_allowed: true,
+                }],
+                emails: Vec::new(),
+                response_email: None,
+            }],
+        };
+        let actor = crate::actor::resolve_actor(
+            &crate::users::UserId::parse("member").unwrap(),
+            crate::actor::RequestIdentity::Sms {
+                from: "+12125550100",
+            },
+            &users,
+        )
+        .unwrap();
+        let job = crate::server::receiver::InboundJob {
+            job_id: uuid::Uuid::new_v4(),
+            workspace_id,
+            actor,
+            channel: crate::server::receiver::Channel::Sms,
+            authenticated_sender: "+12125550100".to_owned(),
+            prompt: "must roll back".to_owned(),
+            attachments: Vec::new(),
+            received_at_unix_ms: 1,
+            provider_id: None,
+            thread_participants: vec!["+12125550100".to_owned()],
+            response_email: None,
+            allowed_response_recipients: Vec::new(),
+            email_reply: None,
+        };
+        let mut input = serde_json::to_vec(&job).unwrap();
+        input.extend_from_slice(b"\ncommit\n");
+        let mut stream = FailFinalAcknowledgment {
+            input: Cursor::new(input),
+            writes: Vec::new(),
+            write_count: 0,
+        };
+        let mut queue = Vec::new();
+
+        process_job_stream(&mut stream, workspace_id, &mut queue);
+
+        assert!(queue.is_empty());
+        assert_eq!(stream.writes, b"prepared\n");
     }
 }
