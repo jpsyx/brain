@@ -100,34 +100,6 @@ pub fn run(
     Ok(())
 }
 
-fn protect_managed_completion(
-    workspace: &crate::workspace::WorkspaceContext,
-    raw_id: &str,
-) -> Result<()> {
-    protect_managed_completion_at(
-        workspace.root(),
-        raw_id,
-        crate::config::Config::load(workspace).enable_triage_habits,
-    )
-}
-
-fn protect_managed_completion_at(root: &Path, raw_id: &str, enabled: bool) -> Result<()> {
-    let tasks_dir = root.join("tasks");
-    let tasks = read_csv(&tasks_dir.join("tasks.csv"))?;
-    let habits = read_csv(&tasks_dir.join("habits.csv"))?;
-    let row = match locate(&tasks, &habits, raw_id)? {
-        Located::Task(index) => tasks.rows.get(index),
-        Located::Habit(index) => habits.rows.get(index),
-    }
-    .ok_or_else(|| anyhow!("task row disappeared"))?;
-    crate::tasks::triage_habits::protect_system_key(
-        &field(row, "system_key"),
-        enabled,
-        crate::tasks::triage_habits::ManagedTaskError::ManagedTaskCannotComplete,
-    )?;
-    Ok(())
-}
-
 pub(crate) fn complete_in_workspace_for_actor_with_today(
     workspace: &crate::workspace::WorkspaceContext,
     raw_id: &str,
@@ -135,20 +107,18 @@ pub(crate) fn complete_in_workspace_for_actor_with_today(
     actor: &crate::actor::ActorContext,
 ) -> Result<CompletionResult> {
     let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
-    protect_managed_completion(workspace, raw_id)?;
     complete_in_root_for_actor_with_today(workspace.root(), raw_id, today, actor)
 }
 
-pub(crate) fn complete_in_root_protected_with_owner_and_today(
+/// Complete one task on behalf of a caller that already owns the task store.
+pub(crate) fn complete_in_root_with_owner_and_today(
     root: &Path,
     lock_path: &Path,
     owner: &crate::tasks::store_lock::TaskStoreOwner,
     raw_id: &str,
     today: NaiveDate,
-    enabled: bool,
 ) -> Result<CompletionResult> {
     owner.verify_path(lock_path)?;
-    protect_managed_completion_at(root, raw_id, enabled)?;
     complete_in_root_with_today(root, raw_id, today)
 }
 

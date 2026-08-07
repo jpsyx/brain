@@ -52,6 +52,7 @@ pub struct LeaseTable {
     known_ingresses: HashMap<IngressId, WorkspaceId>,
     known_workspace_ingresses: HashMap<WorkspaceId, IngressId>,
     authority_revisions: HashMap<WorkspaceId, AuthorityRevision>,
+    inherited_capabilities: HashMap<WorkspaceId, LeaseId>,
     shutdown_pending: bool,
 }
 
@@ -109,9 +110,13 @@ impl LeaseTable {
                 lease_id: lease.lease_id,
             });
         }
+        let mut superseded = None;
         if let Some(existing) = self.live.get_mut(&lease.workspace_id) {
             if existing.tui_pid == 0 && lease.tui_pid != 0 {
-                self.live.remove(&lease.workspace_id);
+                superseded = self
+                    .live
+                    .remove(&lease.workspace_id)
+                    .map(|background| background.lease_id);
             } else {
                 if same_registration(existing, &lease) {
                     let next_revision = (existing.receiver_enabled != lease.receiver_enabled)
@@ -177,6 +182,10 @@ impl LeaseTable {
             .insert(lease.workspace_id, lease.ingress_id);
         self.authority_revisions
             .insert(lease.workspace_id, next_revision);
+        if let Some(superseded) = superseded {
+            self.inherited_capabilities
+                .insert(lease.workspace_id, superseded);
+        }
         self.live.insert(lease.workspace_id, lease);
         self.shutdown_pending = false;
         Ok(())
@@ -262,6 +271,26 @@ impl LeaseTable {
         Ok(())
     }
 
+    /// A local capability one live lease inherited from the browser-only
+    /// background lease it superseded.
+    ///
+    /// `brain habits` hands the browser a page whose URL carries the lease that
+    /// was live when it rendered. A TUI starting afterwards replaces that
+    /// browser-only lease with its own, and the already-open page cannot know
+    /// it. So the superseding lease keeps honoring exactly the one capability
+    /// it took over, for as long as it is itself live; losing the workspace's
+    /// live lease retires it with everything else.
+    #[must_use]
+    pub(crate) fn honors_local_capability(
+        &self,
+        workspace_id: WorkspaceId,
+        capability: LeaseId,
+    ) -> bool {
+        self.inherited_capabilities
+            .get(&workspace_id)
+            .is_some_and(|inherited| *inherited == capability)
+    }
+
     /// Remove one orderly lease and decide whether the process must exit.
     #[must_use]
     pub fn unregister(&mut self, lease_id: LeaseId, _now: Instant) -> ServerDecision {
@@ -269,7 +298,10 @@ impl LeaseTable {
             .live
             .iter()
             .find_map(|(workspace_id, lease)| (lease.lease_id == lease_id).then_some(*workspace_id))
-            .and_then(|workspace_id| self.live.remove(&workspace_id))
+            .and_then(|workspace_id| {
+                self.inherited_capabilities.remove(&workspace_id);
+                self.live.remove(&workspace_id)
+            })
             .is_some();
         shutdown_decision(self.shutdown_pending || removed, self.live.is_empty())
     }
@@ -384,6 +416,7 @@ impl LeaseTable {
             .collect::<Vec<_>>();
         let removed_any = !expired.is_empty();
         for workspace_id in expired {
+            self.inherited_capabilities.remove(&workspace_id);
             self.live.remove(&workspace_id);
         }
         if removed_any && self.live.is_empty() {

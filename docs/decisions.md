@@ -2514,11 +2514,54 @@ fail or drift; a direct call cannot.
 Two invariants keep this honest. It **respects `enable_triage_habits`**: with the
 feature off the call is a `Disabled` no-op that reads and writes nothing (so a
 fork with the feature disabled behaves identically, and the nudge — which itself
-only fires when the feature is on — is still dismissed). And it goes through the
-one sanctioned managed-habit mutation path: the ordinary complete/skip CLIs still
-refuse managed rows (`protect_system_key`); `complete_managed` is the deliberate,
-protection-bypassing exception, mirroring the bundled
-`apply_sync_rules.py --complete-managed-triage`.
+only fires when the feature is on — is still dismissed). And it selects the row
+by stable `system_key` rather than by id, mirroring the bundled
+`apply_sync_rules.py --complete-managed-triage`, so no caller has to know which
+occurrence id the current cycle happens to carry.
+
+## Why "managed" protects deletion but not completion
+
+`ManagedTaskError` originally had a `ManagedTaskCannotComplete` arm, so the
+ordinary complete paths (`brain tasks complete`, the TUI's mark-complete, the
+habits page's done button) refused a managed triage row and pointed at
+`complete_managed` instead. That was the wrong line to draw. What Brain owns
+about a managed chain is its **existence and cadence**: reconciliation
+guarantees exactly one open occurrence per enabled chain, which is why removing,
+reviving, and skipping one are still refused (each leaves reconciliation with
+nothing coherent to maintain, or silently manufactures a second pending row).
+Completion threatens none of that — `complete_habit` marks the occurrence done
+and spawns the next from a clone that keeps the `system_key`, which is precisely
+what `complete_managed` does. The user doing their own triage and ticking it off
+in the browser was being told "managed triage habits cannot be completed
+outside triage", which is both wrong and unfixable from where they stood.
+
+So completion is now unguarded everywhere and `complete_managed` is no longer an
+exception to a protection — it is just the id-free, `system_key`-keyed entry
+point that the nudge's Skip button and the CLI share. The daily-triage nudge
+already asks "does any occurrence of the named habit carry today's
+`completed_date`?", so a manual completion suppresses the modal with no extra
+wiring.
+
+## Why a superseding lease inherits the capability it replaced
+
+`brain habits` elects a background process, attaches a browser-only lease
+(`tui_pid == 0`), and hands the browser a URL containing that lease's ID as its
+local capability. Starting a TUI for the same workspace replaces that lease with
+a real one — and the already-open page cannot know it, so every later request
+carried a capability the table no longer recognized and the page died with
+`local route not found`. The user's only recourse was to relaunch habits from
+the TUI to get a fresh URL.
+
+The lease table therefore records the one capability a superseding lease took
+over (`inherited_capabilities`), and `begin_local` accepts either the live
+lease's own ID or that inherited one. It is deliberately narrow: one capability
+per workspace, only from the background-to-TUI takeover, retired the moment the
+holding lease unregisters or expires. Nothing else about the route relaxes —
+the ticket still resolves to the *live* lease, so authority revision, generation,
+and post-IO revalidation are unchanged, and a capability that never owned the
+ingress is still a 404. The alternative (having the TUI adopt the background
+lease's ID) would have entangled registration, heartbeat, and unregister
+identity for a purely presentational URL.
 ## Why receiver enablement is persistent intent, not process state
 
 The shared server exists only while at least one workspace TUI lease is live,

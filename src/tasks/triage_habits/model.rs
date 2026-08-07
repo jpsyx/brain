@@ -3,10 +3,16 @@
 pub const DAILY_SYSTEM_KEY: &str = "brain.triage.daily";
 pub const WEEKLY_SYSTEM_KEY: &str = "brain.triage.weekly";
 
+/// The mutations a managed triage chain refuses while it is enabled.
+///
+/// Completion is deliberately absent: being managed means Brain owns the
+/// chain's existence and cadence, not that the user may not tick an occurrence
+/// off. Doing today's triage by hand and marking it done is exactly the
+/// intended use; only removing, reviving, or skipping a managed row would
+/// leave Brain's reconciliation with nothing to maintain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManagedTaskError {
     ManagedTaskCannotDelete,
-    ManagedTaskCannotComplete,
     ManagedTaskCannotRevive,
     ManagedTaskCannotSkip,
 }
@@ -16,9 +22,6 @@ impl std::fmt::Display for ManagedTaskError {
         let message = match self {
             Self::ManagedTaskCannotDelete => {
                 "managed triage habits cannot be deleted while enabled"
-            }
-            Self::ManagedTaskCannotComplete => {
-                "managed triage habits cannot be completed outside triage while enabled"
             }
             Self::ManagedTaskCannotRevive => {
                 "managed triage habits cannot be revived manually while enabled"
@@ -43,13 +46,6 @@ pub fn can_remove(
     config: &crate::config::Config,
 ) -> Result<(), ManagedTaskError> {
     protect(task, config, ManagedTaskError::ManagedTaskCannotDelete)
-}
-
-pub fn can_complete(
-    task: &crate::tasks::task::Task,
-    config: &crate::config::Config,
-) -> Result<(), ManagedTaskError> {
-    protect(task, config, ManagedTaskError::ManagedTaskCannotComplete)
 }
 
 pub fn can_revive(

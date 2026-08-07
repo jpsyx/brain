@@ -18,17 +18,6 @@ fn task_for_id<'a>(tasks: &'a [Task], habits: &'a [Task], raw_id: &str) -> Optio
         .find(|task| task.id.eq_ignore_ascii_case(raw_id))
 }
 
-fn protect_completion(
-    tasks: &[Task],
-    habits: &[Task],
-    raw_id: &str,
-    config: &Config,
-) -> Result<(), crate::tasks::triage_habits::ManagedTaskError> {
-    task_for_id(tasks, habits, raw_id).map_or(Ok(()), |task| {
-        crate::tasks::triage_habits::can_complete(task, config)
-    })
-}
-
 fn protect_removal(
     tasks: &[Task],
     habits: &[Task],
@@ -164,7 +153,6 @@ impl App<'_> {
     /// Complete a task or habit natively, then refresh from disk.
     pub(crate) fn mark_task_complete(&mut self, raw_id: &str) -> Result<()> {
         let id = complete::normalize_id(raw_id)?;
-        protect_completion(&self.all_tasks, &self.all_habits, &id, &self.config)?;
         complete::complete_in_workspace_for_actor_with_today(
             &self.command_context.workspace,
             &id,

@@ -1239,7 +1239,7 @@ load-bearing ones:
 Brain may maintain two protected habit chains, identified by
 `system_key=brain.triage.daily` and `system_key=brain.triage.weekly`. The
 system key is authoritative even when a visible habit name is changed. While
-`brain config get enable_triage_habits` is `true`, managed triage rows cannot be removed, completed, revived, or skipped through ordinary `/todo`, task, or habit mutation paths. Do not work around the guard by editing CSV directly. The `/triage` skill owns its narrow completion helper.
+`brain config get enable_triage_habits` is `true`, managed triage rows cannot be removed, revived, or skipped through ordinary `/todo`, task, or habit mutation paths. Do not work around the guard by editing CSV directly. Completing one is *not* guarded: a managed occurrence may be marked done through any ordinary completion path, exactly like any other habit, because the user is allowed to do their own triage by hand. The `/triage` skill also owns a narrow keyed completion helper for the same chains.
 
 When the setting is `false`, Brain's transactional reconciler removes the
 managed definitions, open occurrences, completed history, and derived

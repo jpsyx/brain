@@ -23,10 +23,6 @@ fn system_marker_protects_managed_rows_independently_of_the_visible_name() {
         Err(ManagedTaskError::ManagedTaskCannotDelete)
     ));
     assert!(matches!(
-        can_complete(managed, &enabled),
-        Err(ManagedTaskError::ManagedTaskCannotComplete)
-    ));
-    assert!(matches!(
         can_revive(managed, &enabled),
         Err(ManagedTaskError::ManagedTaskCannotRevive)
     ));

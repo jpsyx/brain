@@ -15,7 +15,7 @@ pub mod view;
 use chrono::Local;
 use serde_json::json;
 
-use crate::tasks::complete::{complete_in_root_protected_with_owner_and_today, normalize_id};
+use crate::tasks::complete::{complete_in_root_with_owner_and_today, normalize_id};
 
 /// The result of a `POST /habits/done`, ready to become an HTTP response.
 #[derive(Debug, PartialEq, Eq)]
@@ -88,17 +88,12 @@ pub fn done(workspace: &crate::workspace::WorkspaceContext, body: &str) -> DoneO
         Ok(owner) => owner,
         Err(error) => return DoneOutcome::Failed(error.to_string()),
     };
-    let enabled = match crate::config::Config::try_load_from_root(workspace.root()) {
-        Ok(config) => config.enable_triage_habits,
-        Err(error) => return DoneOutcome::Failed(error.to_string()),
-    };
-    match complete_in_root_protected_with_owner_and_today(
+    match complete_in_root_with_owner_and_today(
         workspace.root(),
         &lock_path,
         &owner,
         &id,
         Local::now().date_naive(),
-        enabled,
     ) {
         Ok(result) => DoneOutcome::Done {
             next_due: result.next_due,
@@ -168,8 +163,11 @@ mod tests {
         assert!(body.contains(r#""error":"boom""#));
     }
 
+    /// A managed triage row is protected from *deletion*, not from being
+    /// ticked off. Doing today's triage by hand and marking it done in the
+    /// browser is exactly what the page is for.
     #[test]
-    fn web_completion_rejects_managed_triage_rows() {
+    fn web_completion_completes_a_managed_triage_row() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("family");
         std::fs::create_dir_all(root.join("tasks")).unwrap();
@@ -179,10 +177,14 @@ mod tests {
             "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
         )
         .unwrap();
+        let today = Local::now().date_naive();
+        let habits_path = root.join("tasks/habits.csv");
         std::fs::write(
-            root.join("tasks/habits.csv"),
-            "task_uuid,task_id,task_name,status,due_date,assigned_to,recur_interval,recur_unit,system_key\n\
-             8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Morning Triage,not_started,2026-08-03,member,1,days,brain.triage.daily\n",
+            &habits_path,
+            format!(
+                "task_uuid,task_id,task_name,status,due_date,assigned_to,recur_interval,recur_unit,completed_date,system_key\n\
+                 8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Morning Triage,not_started,{today},member,1,days,,brain.triage.daily\n"
+            ),
         )
         .unwrap();
         std::fs::write(
@@ -202,14 +204,23 @@ mod tests {
 
         let outcome = done(&workspace, r#"{"task_id":"H1"}"#);
 
-        assert!(matches!(
+        assert_eq!(
             outcome,
-            DoneOutcome::Failed(message) if message.contains("cannot be completed outside triage")
-        ));
+            DoneOutcome::Done {
+                next_due: Some((today + chrono::Days::new(1)).to_string())
+            }
+        );
+        let rows = crate::tasks::complete::read_csv(&habits_path).unwrap().rows;
+        assert_eq!(rows[0].get("status").unwrap(), "done");
+        assert_eq!(
+            rows[1].get("system_key").unwrap(),
+            crate::tasks::triage_habits::DAILY_SYSTEM_KEY,
+            "the chain must stay managed"
+        );
     }
 
     #[test]
-    fn web_completion_reads_portable_config_after_acquiring_task_store_ownership() {
+    fn web_completion_mutates_only_after_acquiring_task_store_ownership() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("family");
         std::fs::create_dir_all(root.join("tasks")).unwrap();
@@ -219,14 +230,14 @@ mod tests {
             "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
         )
         .unwrap();
+        let habits_path = root.join("tasks/habits.csv");
         std::fs::write(
-            root.join("tasks/habits.csv"),
+            &habits_path,
             "task_uuid,task_id,task_name,status,due_date,assigned_to,recur_interval,recur_unit,system_key\n\
-             8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Morning Triage,not_started,2026-08-03,member,1,days,brain.triage.daily\n",
+             8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Floss,not_started,2026-08-03,member,1,days,\n",
         )
         .unwrap();
-        let config_path = root.join(".config/config.json");
-        std::fs::write(&config_path, "{\"enable_triage_habits\":true}\n").unwrap();
+        let before = std::fs::read(&habits_path).unwrap();
         let workspace = crate::workspace::WorkspaceContext::new(
             temporary.path(),
             crate::workspace::WorkspaceId::parse("d61501ea-48b6-4cd4-a472-b69bcac74f17").unwrap(),
@@ -251,7 +262,7 @@ mod tests {
                 .is_err(),
             "request should wait for task-store ownership"
         );
-        std::fs::write(&config_path, "{\"enable_triage_habits\":false}\n").unwrap();
+        assert_eq!(std::fs::read(&habits_path).unwrap(), before);
         drop(owner);
 
         let outcome = done_rx
@@ -325,11 +336,10 @@ mod tests {
     }
 
     #[test]
-    fn web_completion_rejects_malformed_portable_config_without_mutating_rows() {
+    fn web_completion_reports_an_unknown_id_without_mutating_rows() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("family");
         std::fs::create_dir_all(root.join("tasks")).unwrap();
-        std::fs::create_dir_all(root.join(".config")).unwrap();
         std::fs::write(
             root.join("tasks/tasks.csv"),
             "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
@@ -342,7 +352,6 @@ mod tests {
              8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,H1,Floss,not_started,2026-08-03,member,1,days,\n",
         )
         .unwrap();
-        std::fs::write(root.join(".config/config.json"), "not json\n").unwrap();
         let before = std::fs::read(&habits_path).unwrap();
         let workspace = crate::workspace::WorkspaceContext::new(
             temporary.path(),
@@ -354,7 +363,7 @@ mod tests {
         )
         .unwrap();
 
-        let outcome = done(&workspace, r#"{"task_id":"H1"}"#);
+        let outcome = done(&workspace, r#"{"task_id":"H404"}"#);
 
         assert!(matches!(outcome, DoneOutcome::Failed(_)));
         assert_eq!(std::fs::read(habits_path).unwrap(), before);

@@ -140,6 +140,36 @@ fn tui_registration_replaces_the_browser_only_background_lease() {
 }
 
 #[test]
+fn tui_takeover_keeps_honoring_the_superseded_background_capability() {
+    let now = Instant::now();
+    let mut table = LeaseTable::default();
+    let mut background = lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true);
+    background.tui_pid = 0;
+    background.job_socket = PathBuf::new();
+    background.expires_at = now + Duration::from_secs(100);
+    table.register(background, now).unwrap();
+
+    table
+        .register(
+            lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(2), now, true),
+            now,
+        )
+        .unwrap();
+
+    // The page the browser already has open still carries lease 1 in its URL.
+    assert!(table.honors_local_capability(family_id(), lease_id(1)));
+    assert!(!table.honors_local_capability(family_id(), lease_id(3)));
+    assert!(!table.honors_local_capability(personal_id(), lease_id(1)));
+
+    // Losing the workspace's live lease retires the inherited capability too.
+    assert_eq!(
+        table.unregister(lease_id(2), now),
+        ServerDecision::ShutdownNow
+    );
+    assert!(!table.honors_local_capability(family_id(), lease_id(1)));
+}
+
+#[test]
 fn live_tui_count_excludes_a_browser_only_background_lease() {
     let now = Instant::now();
     let mut table = LeaseTable::default();

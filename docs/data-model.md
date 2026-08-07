@@ -198,7 +198,11 @@ back to a known historical ingress or another workspace's lease.
 The public route identity is a typed portable `IngressId`, never a canonical
 name, root, default selection, or query parameter. Every accepted path has the
 provider shape `/w/<ingress>/{sms,email}` or local capability shape
-`/local/<lease>/w/<ingress>/{habits,habits/done,triage/done}`. Shared-process routing first consults
+`/local/<lease>/w/<ingress>/{habits,habits/done,triage/done}`. A local route
+accepts the live lease's own ID, plus the single capability that lease
+inherited when it superseded a browser-only background lease for the same
+workspace; the inherited capability is dropped with the lease that holds it.
+Shared-process routing first consults
 `LeaseTable::availability`. Only `Accepting` yields a live lease and a
 generation-bound `WorkspaceRouteTicket`. Registry, root, and manifest IO then
 occurs without the control-state mutex. The route revalidates that the same

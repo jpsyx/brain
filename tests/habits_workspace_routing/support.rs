@@ -198,7 +198,7 @@ impl Drop for ServerFixture {
     }
 }
 
-fn write_workspace(root: &std::path::Path, manifest_id: &str, habit_name: &str) -> IngressId {
+pub(super) fn write_workspace(root: &std::path::Path, manifest_id: &str, habit_name: &str) -> IngressId {
     let tasks = root.join("tasks");
     std::fs::create_dir_all(&tasks).expect("tasks directory");
     let manifest = WorkspaceManifest::new(workspace_id(manifest_id));
@@ -229,7 +229,7 @@ pub(super) fn workspace_id(raw: &str) -> WorkspaceId {
     WorkspaceId::parse(raw).expect("valid workspace UUID")
 }
 
-fn wait_for_registration(client: &ServerClient, registration: &LeaseRegistration) {
+pub(super) fn wait_for_registration(client: &ServerClient, registration: &LeaseRegistration) {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut last_error = None;
     while Instant::now() < deadline {
@@ -261,7 +261,7 @@ pub(super) fn workspace(
     )
 }
 
-fn registration(
+pub(super) fn registration(
     workspace: &WorkspaceContext,
     ingress_id: IngressId,
     lease_id: LeaseId,
@@ -279,7 +279,7 @@ fn registration(
     }
 }
 
-fn request(port: u16, method: &str, path: &str, body: &str) -> String {
+pub(super) fn request(port: u16, method: &str, path: &str, body: &str) -> String {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to brain server");
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))

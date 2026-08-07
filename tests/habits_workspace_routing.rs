@@ -8,3 +8,5 @@ mod cli_urls;
 mod routes;
 #[path = "habits_workspace_routing/support.rs"]
 mod support;
+#[path = "habits_workspace_routing/takeover.rs"]
+mod takeover;

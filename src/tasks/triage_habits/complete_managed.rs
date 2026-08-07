@@ -6,12 +6,13 @@
 //! `brain habits complete-managed-triage <daily|weekly>` both run this, so the
 //! action never has to round-trip through the brain panel / an agent.
 //!
-//! The managed daily/weekly habits are protected from the ordinary
-//! complete/skip CLIs (`protect_system_key`), so this is the one sanctioned
-//! path that mutates them while `enable_triage_habits` is on. When the feature
-//! is **off**, this is a pure no-op (`Disabled`): the day is acknowledged
-//! handled and no habit row is read or written, so a fork with the feature
-//! disabled behaves identically.
+//! This selects the occurrence by stable `system_key` rather than by id, so no
+//! caller has to know which id the current cycle carries. Completing the same
+//! row by id through the ordinary paths is equally allowed — being managed
+//! protects a chain from removal, revival, and manual skipping, not from being
+//! ticked off. When the feature is **off**, this is a pure no-op (`Disabled`):
+//! the day is acknowledged handled and no habit row is read or written, so a
+//! fork with the feature disabled behaves identically.
 
 use std::path::Path;
 

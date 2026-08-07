@@ -159,6 +159,31 @@ fn status_view_filters_expiry_without_mutating_any_lease_table_state() {
     );
 }
 
+#[test]
+fn expiring_the_superseding_lease_retires_the_inherited_capability() {
+    let now = Instant::now();
+    let mut table = LeaseTable::default();
+    let mut background = lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true);
+    background.tui_pid = 0;
+    background.job_socket = PathBuf::new();
+    background.expires_at = now + Duration::from_secs(100);
+    table.register(background, now).unwrap();
+    table
+        .register(
+            lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(2), now, true),
+            now,
+        )
+        .unwrap();
+    assert!(table.honors_local_capability(family_id(), lease_id(1)));
+
+    assert_eq!(
+        table.expire(now + Duration::from_secs(5)),
+        ServerDecision::ShutdownNow
+    );
+
+    assert!(!table.honors_local_capability(family_id(), lease_id(1)));
+}
+
 fn table_snapshot(table: &LeaseTable) -> String {
     format!("{table:#?}")
 }

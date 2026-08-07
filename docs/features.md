@@ -569,8 +569,14 @@ default. Brain identifies its daily and weekly chains with
 `brain.triage.daily` and `brain.triage.weekly`, independent of visible names.
 TUI startup, task reindex, and a successful explicit `brain sync repair`
 restore one open occurrence per enabled chain. Ordinary CLI, TUI, web, and
-skill mutation paths refuse to remove, complete, revive, or skip managed rows;
-the triage skill uses its narrow marker-aware completion helper. Every native
+skill mutation paths refuse to remove, revive, or skip managed rows.
+**Completing one is never refused**: being managed means Brain owns the chain's
+existence and cadence, not that you may not tick an occurrence off, so
+`brain tasks complete`, the TUI's mark-complete, and the habits page all treat a
+managed occurrence like any other habit (done today, next one spawned, still
+carrying its `system_key`). The triage skill additionally has a narrow
+marker-aware helper that completes the chain by `system_key` when it has no id
+in hand. Every native
 or bundled-script task, habit, and display-counter writer participates in one
 workspace UUID-scoped task-store lock. Python writers also verify the exact
 bytes they read before atomically replacing a CSV, and `/todo remove` uses the
@@ -1316,7 +1322,11 @@ download URLs are preserved for the agent.
 local
 `/local/<exact-live-lease>/w/<selected-ingress>/habits` URL
 before handing it to the system browser. A TUI reuses that process by replacing
-the browser-only lease. `brain habits kill` refuses while a TUI is open.
+the browser-only lease, and **inherits that lease's capability**, so a habits
+page already open in the browser keeps loading and marking habits done after
+the TUI starts instead of dying with a not-found local route. The inherited
+capability lives exactly as long as the TUI lease that took it over.
+`brain habits kill` refuses while a TUI is open.
 
 `brain habits revive <fuzzy name>` (alias `brain habits fix`) repairs a **lapsed
 habit** — a recurring habit whose every occurrence is `done` with none pending,
@@ -1350,10 +1360,13 @@ The rule:
 Like `brain tasks complete`, skip mutates the CSV natively and does not touch the
 agenda file; the next agenda build re-derives habit state from the CSV.
 
-`brain habits complete-managed-triage <daily|weekly>` completes Brain's
-**protected** managed triage occurrence (which the ordinary complete/skip CLIs
-refuse while `enable_triage_habits` is on): it marks today's occurrence done and
-spawns the next, keyed on the stable `system_key` rather than an id. This is the
+`brain habits complete-managed-triage <daily|weekly>` completes Brain's managed
+triage occurrence **without needing its id**: it marks today's occurrence done
+and spawns the next, keyed on the stable `system_key` (which survives
+recurrence and renames) rather than an id that changes every cycle. Completing
+the same row by id through `brain tasks complete` is equally allowed — only
+removing, reviving, and skipping a managed row are refused while
+`enable_triage_habits` is on. This is the
 deterministic mutation the daily-triage nudge's **Skip** button runs in-process,
 now exposed as a first-class CLI so an agent (or you) can do it non-interactively.
 It **respects `enable_triage_habits`**: with the feature off it is a pure no-op

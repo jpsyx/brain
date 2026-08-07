@@ -45,11 +45,12 @@ helpers and shell-outs live in the tasks modules:
   chunked-task MIT migration stay consistent without a Python completion script.
   Verbose runs log the resolved brain root, normalized id (when applicable),
   CSV files read/written, and completion result.
-  Managed triage rows are rejected at each of those user-facing entry points;
-  the sanctioned path that mutates them is
+  Managed triage rows complete like any other habit here; only removal,
+  revival, and skipping are refused. A caller with no id in hand instead uses
   `brain habits complete-managed-triage daily|weekly` (native) or the equivalent
   `apply_sync_rules.py --complete-managed-triage daily|weekly`, either of which
-  becomes a no-op when the portable feature is disabled.
+  selects the row by `system_key` and becomes a no-op when the portable feature
+  is disabled.
   All Rust task mutations and bundled Python CSV/counter writers acquire the
   same SQLite immediate transaction at
   `<workspace-cache>/tasks.transaction.lock`. Portable config read-modify-write
@@ -100,9 +101,9 @@ helpers and shell-outs live in the tasks modules:
   ids) and `spawn_next_occurrence`. Native port of the retired `skip_habit.py`.
   See [features.md](features.md).
 - **`brain habits complete-managed-triage <daily|weekly>`** — deterministically
-  complete Brain's *protected* managed triage occurrence (which the ordinary
-  complete/skip CLIs refuse while enabled): mark today's occurrence done + spawn
-  the next, keyed on the stable `system_key`. The logic lives in
+  complete Brain's managed triage occurrence without knowing its id: mark
+  today's occurrence done + spawn the next, keyed on the stable `system_key`
+  rather than an id that changes each cycle. The logic lives in
   `tasks::triage_habits::complete_managed` (reusing `tasks::complete`'s
   `read_csv`/`write_csv`/`spawn_next_occurrence`); the same
   `complete_managed_triage` entry point backs the daily-triage nudge's **Skip**

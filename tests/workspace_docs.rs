@@ -278,7 +278,7 @@ fn architecture_distinguishes_short_lived_and_tui_task_routes() {
 
     let architecture = read_doc_normalized("docs/architecture.md");
     for contract in [
-        "`brain tasks complete`, `brain tasks doctor`, and `brain tasks --no-tui` are short-lived",
+        "`brain tasks complete`, `brain tasks add`, `brain tasks set`, `brain tasks doctor`, and `brain tasks --no-tui` are short-lived",
         "`brain tasks search` opens the persistent TUI",
     ] {
         assert!(

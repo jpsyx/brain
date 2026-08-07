@@ -1258,7 +1258,10 @@ offline queue or launches an agent.
 - `server/routes/habits/` — the habits MVC route and embedded frontend. GET
   and completion POST handlers receive an already-resolved workspace context;
   the rendered page preserves that context's opaque ingress and exact live
-  lease capability in its POST URL. Unknown, no-live-TUI, unavailable-root, and identity-mismatched routes
+  lease capability in its POST URL. A lease that supersedes a browser-only
+  background lease for the same workspace inherits that one capability for its
+  own lifetime, so a page rendered before a TUI started keeps routing.
+  Unknown, no-live-TUI, unavailable-root, and identity-mismatched routes
   are rejected and never fall back to the machine default.
 - `server/routes/triage/` - the capability-protected local triage completion controller: the
   ephemeral daily-triage session's workspace-scoped completion signal (see

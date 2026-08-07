@@ -1,4 +1,39 @@
 
+/// Being "managed" protects a triage chain from deletion, not from the user
+/// actually doing their triage and ticking it off. Completing one behaves like
+/// any other habit: today's occurrence is done and the next one is spawned,
+/// still carrying the managed `system_key`.
+#[test]
+fn managed_triage_rows_can_be_completed_by_hand() {
+    let (_temporary, workspace) = empty_workspace();
+    apply_triage_habits_config(&workspace, true).unwrap();
+    let habits_path = workspace.root().join("tasks/habits.csv");
+    let daily = load_habits(&habits_path)
+        .unwrap()
+        .into_iter()
+        .find(|habit| habit.system_key == DAILY_SYSTEM_KEY)
+        .unwrap();
+    let actor = actor(&workspace);
+
+    brain::tasks::complete::run(&workspace, &daily.id, &actor).unwrap();
+
+    let managed: Vec<_> = load_habits(&habits_path)
+        .unwrap()
+        .into_iter()
+        .filter(|habit| habit.system_key == DAILY_SYSTEM_KEY)
+        .collect();
+    assert_eq!(managed.len(), 2, "the managed chain must continue");
+    assert!(
+        managed
+            .iter()
+            .any(|habit| habit.id == daily.id && habit.is_done())
+    );
+    assert_eq!(managed.iter().filter(|habit| !habit.is_done()).count(), 1);
+}
+
+/// Managed rows are protected from removal, revival, and manual skipping —
+/// but completing one is ordinary bookkeeping the user is allowed to do by
+/// hand, so `brain tasks complete` treats it like any other habit.
 #[test]
 fn public_habit_mutators_reject_managed_triage_rows_while_enabled() {
     let (_temporary, workspace) = empty_workspace();
@@ -11,10 +46,6 @@ fn public_habit_mutators_reject_managed_triage_rows_while_enabled() {
         .find(|habit| habit.system_key == DAILY_SYSTEM_KEY)
         .unwrap();
     let actor = actor(&workspace);
-
-    let complete = brain::tasks::complete::run(&workspace, &daily.id, &actor).unwrap_err();
-    assert!(format!("{complete:#}").contains("cannot be completed outside triage"));
-    assert_eq!(std::fs::read(&habits_path).unwrap(), before);
 
     let skip = brain::tasks::skip::run(&workspace, &daily.id, None, &actor).unwrap_err();
     assert!(format!("{skip:#}").contains("cannot be skipped manually"));

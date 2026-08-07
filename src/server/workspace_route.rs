@@ -243,7 +243,9 @@ impl WorkspaceRouteAuthority {
                 )?,
                 lease,
             };
-        if ticket.lease.lease_id != capability {
+        if ticket.lease.lease_id != capability
+            && !leases.honors_local_capability(ticket.lease.workspace_id, capability)
+        {
             return Err(WorkspaceRouteError::new(404, "local route not found"));
         }
         Ok(ticket)
@@ -431,3 +433,7 @@ impl Display for WorkspaceRouteError {
 }
 
 impl std::error::Error for WorkspaceRouteError {}
+
+#[cfg(test)]
+#[path = "workspace_route/local_capability_tests.rs"]
+mod local_capability_tests;

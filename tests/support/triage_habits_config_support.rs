@@ -1,8 +1,8 @@
 use brain::config::Config;
 use brain::tasks::task::load_habits;
 use brain::tasks::triage_habits::{
-    DAILY_SYSTEM_KEY, ManagedTaskError, WEEKLY_SYSTEM_KEY, apply_triage_habits_config,
-    can_complete, can_remove, can_revive, can_skip,
+    DAILY_SYSTEM_KEY, ManagedTaskError, WEEKLY_SYSTEM_KEY, apply_triage_habits_config, can_remove,
+    can_revive, can_skip,
 };
 
 fn workspace(root: &std::path::Path) -> brain::workspace::WorkspaceContext {
