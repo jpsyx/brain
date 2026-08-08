@@ -3,15 +3,17 @@
 //! into the shared `settings::Resolved` type. Nested JSON objects are exposed
 //! as dot-separated paths so the full env store remains inspectable.
 
+use std::path::Path;
+
 use anyhow::{Result, bail};
 use serde_json::{Map, Value};
 
-use super::schema::{VARS, is_known, known_names};
+use super::schema::{REDACTED, VARS, is_known, known_names};
 use super::store::{load_map, save_map};
 use crate::settings::Resolved;
 use crate::workspace::CommandContext;
 
-fn value_to_string(v: &Value) -> Option<String> {
+pub(super) fn value_to_string(v: &Value) -> Option<String> {
     match v {
         Value::Null => None,
         Value::String(s) => Some(s.clone()),
@@ -47,7 +49,7 @@ pub fn resolve_one(command: &CommandContext, name: &str) -> Option<String> {
     let spec = VARS.iter().find(|spec| spec.name == name)?;
     let value = get(command, name).or_else(|| {
         spec.legacy_config_fallback
-            .then(|| legacy_config_value(command.workspace.as_ref(), name))
+            .then(|| legacy_config_value(command.workspace.root(), name))
             .flatten()
     });
     match (value, spec.default) {
@@ -67,11 +69,8 @@ fn trim_or_default(cmd: &str, default: &str) -> String {
     }
 }
 
-fn legacy_config_value(
-    workspace: &crate::workspace::WorkspaceContext,
-    name: &str,
-) -> Option<String> {
-    crate::settings::load_map(workspace)
+fn legacy_config_value(root: &Path, name: &str) -> Option<String> {
+    crate::settings::load_map_at_root(root)
         .get(name)
         .and_then(value_to_string)
         .and_then(|cmd| {
@@ -172,15 +171,21 @@ pub fn set_raw(command: &CommandContext, name: &str, value: Value) -> Result<()>
 /// order followed by recursively flattened JSON paths.
 #[must_use]
 pub fn resolve_all(command: &CommandContext) -> Vec<Resolved> {
-    resolve_all_from(command, &load_map(command))
+    resolve_all_at(command.workspace.root(), &load_map(command))
 }
 
-fn resolve_all_from(command: &CommandContext, map: &Map<String, Value>) -> Vec<Resolved> {
+/// Every declared env row plus every nested raw value for the workspace rooted
+/// at `root`, resolved from its own registry `env` map.
+///
+/// Root-based rather than selected-context-based so `brain env` can render one
+/// block per registered workspace, not only the selected one.
+#[must_use]
+pub(crate) fn resolve_all_at(root: &Path, map: &Map<String, Value>) -> Vec<Resolved> {
     let mut rows: Vec<Resolved> = VARS
         .iter()
         .map(|v| Resolved {
             name: v.name.to_owned(),
-            value: resolve_one_from_map(command, map, v.name),
+            value: resolve_one_at(root, map, v.name),
             description: v.description.to_owned(),
         })
         .collect();
@@ -190,7 +195,7 @@ fn resolve_all_from(command: &CommandContext, map: &Map<String, Value>) -> Vec<R
             .filter(|(name, _)| !VARS.iter().any(|var| var.name == name))
             .map(|(name, value)| Resolved {
                 value: if super::schema::is_sensitive(&name) {
-                    Some("(set)".to_owned())
+                    Some(REDACTED.to_owned())
                 } else {
                     value_to_string(&value)
                 },
@@ -201,20 +206,16 @@ fn resolve_all_from(command: &CommandContext, map: &Map<String, Value>) -> Vec<R
     rows
 }
 
-fn resolve_one_from_map(
-    command: &CommandContext,
-    map: &Map<String, Value>,
-    name: &str,
-) -> Option<String> {
+fn resolve_one_at(root: &Path, map: &Map<String, Value>, name: &str) -> Option<String> {
     if name == "root" {
-        return Some(command.workspace.root().display().to_string());
+        return Some(root.display().to_string());
     }
     let spec = VARS.iter().find(|spec| spec.name == name)?;
     map.get(name)
         .and_then(value_to_string)
         .or_else(|| {
             spec.legacy_config_fallback
-                .then(|| legacy_config_value(command.workspace.as_ref(), name))
+                .then(|| legacy_config_value(root, name))
                 .flatten()
         })
         .map(|value| {
@@ -222,7 +223,7 @@ fn resolve_one_from_map(
                 .default
                 .map_or_else(|| value.clone(), |default| trim_or_default(&value, default));
             if super::schema::is_sensitive(name) && !value.trim().is_empty() {
-                "(set)".to_owned()
+                REDACTED.to_owned()
             } else {
                 value
             }
@@ -271,7 +272,7 @@ fn set_path(map: &mut Map<String, Value>, path: &str, value: Value) -> Result<()
     Ok(())
 }
 
-fn flatten_map(map: &Map<String, Value>) -> Vec<(String, Value)> {
+pub(super) fn flatten_map(map: &Map<String, Value>) -> Vec<(String, Value)> {
     let mut rows = Vec::new();
     for (name, value) in map {
         flatten_value(name, value, &mut rows);

@@ -2,6 +2,9 @@
 //! The virtual `root` row is structural and read-only; all other rows are
 //! writable machine env unless a caller applies tighter validation.
 
+/// What a sensitive value renders as: presence, never the secret itself.
+pub(super) const REDACTED: &str = "(set)";
+
 pub(super) struct VarSpec {
     pub(super) name: &'static str,
     pub(super) description: &'static str,
@@ -97,6 +100,11 @@ pub(super) const VARS: [VarSpec; 13] = [
     },
 ];
 
+/// Every declared per-workspace variable with its description, in schema order.
+pub(super) fn declared_docs() -> impl Iterator<Item = (&'static str, &'static str)> {
+    VARS.iter().map(|spec| (spec.name, spec.description))
+}
+
 pub(super) fn is_known(name: &str) -> bool {
     VARS.iter().any(|v| v.name == name) && !is_structural(name)
 }
@@ -122,11 +130,21 @@ pub(super) fn is_structural(name: &str) -> bool {
     )
 }
 
+/// Whether a name (or dotted path) holds a credential.
+///
+/// Env output reports a sensitive value only as present. Identifiers such as
+/// `twilio_account_sid` and `sync.b2_key_id` are deliberately visible: a user
+/// needs them to confirm which account and bucket a workspace points at.
 #[must_use]
 pub fn is_sensitive(name: &str) -> bool {
     matches!(
         name,
-        "twilio_auth_token" | "resend_api_key" | "resend_webhook_signing_secret"
+        "twilio_auth_token"
+            | "resend_api_key"
+            | "resend_webhook_signing_secret"
+            | "sync.b2_app_key"
+            | "sync.crypt_password"
+            | "sync.crypt_password2"
     ) || name == "agent_capabilities"
         || (name.starts_with("agent_capabilities.mcps.") && name.contains(".credentials."))
 }

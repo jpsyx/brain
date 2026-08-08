@@ -17,13 +17,28 @@ use serde_json::{Map, Value};
 /// which can't live inside the root (see [`crate::paths`]).
 #[must_use]
 pub fn config_dir(workspace: &crate::workspace::WorkspaceContext) -> PathBuf {
-    workspace.root().join(".config")
+    config_dir_at(workspace.root())
+}
+
+/// The brain config directory for an explicit workspace `root`, for callers that
+/// hold a registry record instead of the selected [`WorkspaceContext`].
+///
+/// [`WorkspaceContext`]: crate::workspace::WorkspaceContext
+#[must_use]
+pub(crate) fn config_dir_at(root: &Path) -> PathBuf {
+    root.join(".config")
 }
 
 /// Absolute path to the JSON config store.
 #[must_use]
 pub fn store_path(workspace: &crate::workspace::WorkspaceContext) -> PathBuf {
-    config_dir(workspace).join("config.json")
+    store_path_at(workspace.root())
+}
+
+/// Absolute path to the JSON config store under an explicit workspace `root`.
+#[must_use]
+pub(crate) fn store_path_at(root: &Path) -> PathBuf {
+    config_dir_at(root).join("config.json")
 }
 
 /// Read a JSON object at an explicit `path`. A missing, unreadable, or
@@ -48,7 +63,15 @@ pub(crate) fn load_map_at(path: &Path) -> Map<String, Value> {
 /// yields an empty map — a broken config never blocks startup.
 #[must_use]
 pub(crate) fn load_map(workspace: &crate::workspace::WorkspaceContext) -> Map<String, Value> {
-    load_map_at(&store_path(workspace))
+    load_map_at_root(workspace.root())
+}
+
+/// Read the config store belonging to an explicit workspace `root`. Lets the env
+/// breakdown resolve legacy config fallbacks for a workspace that is not the
+/// selected one.
+#[must_use]
+pub(crate) fn load_map_at_root(root: &Path) -> Map<String, Value> {
+    load_map_at(&store_path_at(root))
 }
 
 /// Write `map` as the JSON object at an explicit `path`, creating parent dirs

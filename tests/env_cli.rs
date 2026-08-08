@@ -94,6 +94,116 @@ fn env_list_get_and_set_support_recursive_dotted_paths() {
     assert_eq!(env["sync"]["remote"]["credentials"]["key_id"], "updated");
 }
 
+/// Attach a second workspace so the breakdown has more than one block to show.
+fn attach_second_workspace(home: &TempDir, config_home: &TempDir, name: &str) {
+    let root = home.path().join(name);
+    let output = brain_command(home, config_home)
+        .args([
+            "workspace",
+            "create",
+            "--name",
+            name,
+            "--root",
+            &root.display().to_string(),
+        ])
+        .output()
+        .expect("create second workspace");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let repaired = brain_command(home, config_home)
+        .args([
+            "-w",
+            name,
+            "workspace",
+            "repair",
+            "--manifest",
+            "--local-user-id",
+            "test-user",
+        ])
+        .output()
+        .expect("repair second workspace");
+    assert!(
+        repaired.status.success(),
+        "{}",
+        String::from_utf8_lossy(&repaired.stderr)
+    );
+}
+
+#[test]
+fn bare_env_breaks_down_machine_global_values_and_every_workspace() {
+    let home = tempfile::tempdir().expect("home tempdir");
+    let config_home = tempfile::tempdir().expect("config tempdir");
+    write_env(&config_home);
+    make_ready(&home, &config_home);
+    attach_second_workspace(&home, &config_home, "family");
+
+    for args in [vec!["env"], vec!["env", "list"]] {
+        let output = brain_command(&home, &config_home)
+            .args(&args)
+            .output()
+            .expect("env breakdown");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        // Machine-global values (everything outside the `workspaces` key).
+        assert!(stdout.contains("Global"), "{args:?}: {stdout}");
+        assert!(stdout.contains("schema_version"), "{args:?}: {stdout}");
+        assert!(stdout.contains("default_workspace"), "{args:?}: {stdout}");
+        // One block per registered workspace, not only the selected one.
+        assert!(stdout.contains("Workspaces"), "{args:?}: {stdout}");
+        assert!(stdout.contains("family"), "{args:?}: {stdout}");
+        // Nested per-workspace paths still list.
+        assert!(stdout.contains("sync.enabled"), "{args:?}: {stdout}");
+        assert!(
+            stdout.contains("sync.remote.credentials.key_id"),
+            "{args:?}: {stdout}"
+        );
+        // And the legend still explains what each name means.
+        assert!(stdout.contains("Variables"), "{args:?}: {stdout}");
+    }
+}
+
+#[test]
+fn the_breakdown_redacts_a_non_selected_workspaces_secret() {
+    let home = tempfile::tempdir().expect("home tempdir");
+    let config_home = tempfile::tempdir().expect("config tempdir");
+    write_env(&config_home);
+    make_ready(&home, &config_home);
+    attach_second_workspace(&home, &config_home, "family");
+    let secret = "whsec_other-workspace-must-stay-private";
+    let stored = brain_command(&home, &config_home)
+        .args([
+            "-w",
+            "family",
+            "env",
+            "set",
+            &format!("resend_webhook_signing_secret={secret}"),
+        ])
+        .output()
+        .expect("set secret on the non-selected workspace");
+    assert!(
+        stored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stored.stderr)
+    );
+
+    let output = brain_command(&home, &config_home)
+        .arg("env")
+        .output()
+        .expect("env breakdown");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains(secret), "{stdout}");
+    assert!(stdout.contains("(set)"), "{stdout}");
+}
+
 #[test]
 fn sensitive_env_assignment_never_echoes_the_raw_value() {
     let home = tempfile::tempdir().expect("home tempdir");

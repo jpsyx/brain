@@ -35,4 +35,4 @@ pub use schema::Resolved;
 pub use store::config_dir;
 pub use vars::{normalize_name, resolve_all, resolve_one, set};
 
-pub(crate) use store::{load_map, load_map_at, save_map_at};
+pub(crate) use store::{load_map_at, load_map_at_root, save_map_at};

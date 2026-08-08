@@ -247,7 +247,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
-| `brain env [list\|get\|set]` | Read or change your machine-local brain env. Use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
+| `brain env [list\|get\|set]` | Read or change your machine-local brain env. Bare `brain env` (and `env list`) breaks the whole machine down: machine-global values plus one block per registered workspace. `get`/`set` act on the selected workspace only; use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
 | `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present. |
 | `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair\|migrate}` | Manage the schema-v2 registry, portable manifest, and coordinated legacy rollout. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. |
 | `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
@@ -307,8 +307,18 @@ Backblaze `sync` block (written by `brain sync setup`, below — see
 [config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:
 
-- `brain env list` (or bare `brain env`) — aligned table of every env value,
-  recursively flattened into dot-separated paths.
+- `brain env list` (or bare `brain env`) — the **whole-machine env breakdown**,
+  the counterpart to `brain workspace list`: the registry path, a **Global**
+  block holding every top-level `env.json` key outside `workspaces`
+  (`schema_version`, `default_workspace`, and any future one), then **one block
+  per registered workspace** (headed like `workspace list`, with `*` on the
+  default and `(default)` / `(selected)` labels) listing every declared variable
+  — `(unset)` included — plus that workspace's own nested dot-separated paths,
+  and finally a **Variables** legend explaining each name once. Every row is
+  resolved against its own workspace's root, so no block shows a peer's value;
+  `(empty)` marks a value that is set to an empty string, and credentials show
+  as `(set)` in every block. See [config.md](config.md) for the layout and the
+  redaction rule.
 - `brain env get <name>` — the effective value of one variable or nested path,
   such as `sync.b2_bucket`.
 - `brain env set <name>=<value>` — set and persist a variable or nested path,

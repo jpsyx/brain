@@ -296,9 +296,47 @@ Mirrors `brain config` exactly, over the env store:
 
 | Command | Effect |
 | --- | --- |
-| `brain env list` | Print every env value, including recursively nested objects, using dot-separated paths such as `sync.b2_bucket`. Bare `brain env` also lists. |
+| `brain env list` | Print the whole-machine env breakdown (see below). Bare `brain env` is identical. |
 | `brain env get <name>` | Print the effective value of one variable or dotted nested path, such as `sync.b2_bucket`. |
 | `brain env set <name>=<value>` | Set a declared scalar variable or dotted nested env path in the selected record, preserving sibling values. Structural record fields such as `root`, UUID, aliases, local identity, receiver enablement, and access policy are rejected. |
+
+#### The env breakdown
+
+`brain env` shows the whole machine, the way `brain workspace list` does, rather
+than only the selected record. It has four parts:
+
+1. **`registry:`** — the absolute path of the `env.json` being read.
+2. **Global** — every top-level `env.json` key that is *not* under
+   `workspaces`, flattened to dotted paths. On a schema-v2 registry that is
+   `schema_version` and `default_workspace`; an undeclared top-level key still
+   lists, described generically, so nothing in the file is invisible.
+3. **Workspaces** — one block per registered workspace, in canonical-name order,
+   headed exactly like `workspace list` (`*` marks the default, and the labels
+   read `(default)`, `(selected)`, or `(default, selected)`). Each block lists
+   **every declared variable**, `(unset)` included, plus that workspace's own
+   nested dotted paths. Every row resolves against **that** workspace's root and
+   `env` map, so a block never shows a peer's value or a peer's legacy
+   `config.json` fallback.
+4. **Variables** — the legend: each name explained once, instead of repeating a
+   long description on every row of every block. Nested dotted rows are covered
+   by a single footnote rather than one legend line each.
+
+Values distinguish three states: `(unset)` (absent), `(empty)` (present but an
+empty string), and the value itself. Secrets render as `(set)` in every block,
+including workspaces that are not selected.
+
+**Redaction covers credentials, not identifiers.** `is_sensitive`
+(`src/env/schema.rs`) redacts `twilio_auth_token`, `resend_api_key`,
+`resend_webhook_signing_secret`, the `agent_capabilities` credential
+descendants, and the sync transport secrets `sync.b2_app_key`,
+`sync.crypt_password`, and `sync.crypt_password2`. Identifiers such as
+`twilio_account_sid`, `sync.b2_bucket`, and `sync.b2_key_id` stay visible on
+purpose: a user needs them to confirm which account and bucket a workspace
+points at.
+
+`brain env get` and `brain env set` are unchanged: both still act on the
+**selected** workspace only, so `-w <workspace>` picks which record a write
+lands in.
 
 ### The `brain sync` command
 

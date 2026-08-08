@@ -1,6 +1,10 @@
 use super::*;
 use crate::env::schema::{DEFAULT_CLAUDE_CMD, DEFAULT_CODEX_CMD, DEFAULT_OPENCODE_CMD, default_of};
 
+/// A workspace root that never exists on disk, so root-based resolution reads no
+/// real `config.json`.
+const TEST_ROOT: &str = "/home/tester/brain";
+
 fn command() -> CommandContext {
     CommandContext::for_test(
         std::sync::Arc::new(
@@ -134,13 +138,54 @@ fn receiver_secrets_are_known_but_redacted_from_env_output() {
     map.insert("resend_api_key".to_owned(), Value::from("resend-secret"));
 
     assert_eq!(
-        resolve_one_from_map(&command(), &map, "twilio_auth_token"),
+        resolve_one_at(std::path::Path::new(TEST_ROOT), &map, "twilio_auth_token"),
         Some("(set)".to_owned())
     );
     assert_eq!(
-        resolve_one_from_map(&command(), &map, "resend_api_key"),
+        resolve_one_at(std::path::Path::new(TEST_ROOT), &map, "resend_api_key"),
         Some("(set)".to_owned())
     );
+}
+
+#[test]
+fn sync_transport_secrets_are_redacted_but_its_identifiers_still_show() {
+    let map = serde_json::from_value(serde_json::json!({
+        "sync": {
+            "enabled": true,
+            "b2_bucket": "pablo-brain",
+            "b2_key_id": "0056682573a47420000000004",
+            "b2_app_key": "b2-application-secret",
+            "crypt_password": "obscured-pass",
+            "crypt_password2": "obscured-salt"
+        }
+    }))
+    .expect("env map");
+
+    let rows = resolve_all_at(std::path::Path::new(TEST_ROOT), &map);
+    let value_of = |name: &str| {
+        rows.iter()
+            .find(|row| row.name == name)
+            .and_then(|row| row.value.clone())
+    };
+
+    assert_eq!(value_of("sync.b2_app_key").as_deref(), Some("(set)"));
+    assert_eq!(value_of("sync.crypt_password").as_deref(), Some("(set)"));
+    assert_eq!(value_of("sync.crypt_password2").as_deref(), Some("(set)"));
+    // Identifiers are not credentials; they stay visible so a user can confirm
+    // which bucket and key a workspace points at.
+    assert_eq!(value_of("sync.b2_bucket").as_deref(), Some("pablo-brain"));
+    assert_eq!(
+        value_of("sync.b2_key_id").as_deref(),
+        Some("0056682573a47420000000004")
+    );
+    let rendered = rows
+        .iter()
+        .filter_map(|row| row.value.as_deref())
+        .collect::<Vec<_>>()
+        .join("\n");
+    for secret in ["b2-application-secret", "obscured-pass", "obscured-salt"] {
+        assert!(!rendered.contains(secret), "{secret} leaked:\n{rendered}");
+    }
 }
 
 #[test]
@@ -159,7 +204,7 @@ fn agent_capability_credentials_are_redacted_from_env_list_rows() {
     }))
     .expect("env map");
 
-    let rows = resolve_all_from(&command(), &map);
+    let rows = resolve_all_at(std::path::Path::new(TEST_ROOT), &map);
 
     assert!(rows.iter().any(|row| {
         row.name == "agent_capabilities.mcps.0.url"

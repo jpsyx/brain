@@ -49,13 +49,7 @@ pub fn run_env(args: &EnvArgs, context: &crate::workspace::CommandContext) -> Re
     match args.action.as_ref().unwrap_or(&EnvAction::List) {
         EnvAction::List => {
             crate::logging::log("env list");
-            println!(
-                "{}",
-                crate::settings::render_list(
-                    &crate::env::resolve_all(context),
-                    crate::theme::Theme::active(),
-                )
-            );
+            print!("{}", crate::env::render_breakdown(context));
         }
         EnvAction::Get { name } => {
             let name = crate::settings::normalize_name(name);

@@ -502,6 +502,21 @@ are thin. Split into `store` (JSON IO), `schema` (`VARS`/`Resolved`), `vars`
 (get/set/resolve), `render` (the `config list` table), and `markdown_pdf` (the
 prerequisite). See [config.md](config.md).
 
+### `env/`
+The machine-local env store (the schema-v2 workspace registry at
+`~/.config/brain/env.json`) and the `brain env` command. Same pure/impure split
+as `settings/`: `store` (registry-scoped read/write of the *selected* record's
+`env` map, rejecting structural keys at the save boundary), `schema` (the
+declared `VARS`, `is_structural`, and `is_sensitive`), `vars` (get/set/resolve,
+including the root-based `resolve_all_at` that resolves any workspace's rows from
+its own root), `migrate` (legacy pointer/flat-env → first v2 record),
+`breakdown` (assembling the whole-machine `brain env` view: machine-global rows
+plus one `WorkspaceEnv` block per registered workspace plus the `VarDoc` legend;
+`assemble` is pure, `collect` the registry-reading shell), and `render` (turning
+a `Breakdown` into themed text; pure given a `Theme`). `brain env get`/`set`
+stay scoped to the selected record while the list view spans the machine.
+See [config.md](config.md) and [data-model.md](data-model.md).
+
 ### `personalization/`
 The personalization store — content *about you* at
 `<brain-root>/.config/personalization.json` (beside the config store in

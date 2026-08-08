@@ -1015,10 +1015,22 @@ remains advisory because inherited global sources cannot be proven absent.
 
 All declared env variables and recursively flattened nested values render
 through the same `Resolved { name, value, description }` type `brain config`
-uses (re-exported from `settings::schema::Resolved`), so `brain env list`
-shares its table layout with `brain config list`. Nested paths use dot
+uses (re-exported from `settings::schema::Resolved`). Nested paths use dot
 notation, for example `sync.remote.key_id`; array elements use numeric path
 segments.
+
+`brain env` groups those rows into a `Breakdown` (`src/env/breakdown.rs`):
+a registry path, the machine-global rows (every top-level `env.json` key except
+`workspaces`, flattened the same way), one `WorkspaceEnv { name, is_default,
+is_selected, rows }` per registered workspace, and a `VarDoc { name,
+description }` legend. Per-workspace rows come from `vars::resolve_all_at(root,
+env)` — **root-based, not selected-context-based** — so a block resolves each
+value, each default, and each legacy `config.json` fallback against its own
+workspace and can never borrow a peer's. `assemble` is pure over
+`(raw_json, registry, selected_uuid)`; `collect` is the thin registry-reading
+shell, and an unreadable registry yields an empty view instead of an error.
+`src/env/render.rs` turns a `Breakdown` into text (pure given a `Theme`),
+padding one shared name column across all sections.
 
 The workspace root is not an env variable. It is a validated structural field
 on `WorkspaceRecord`; free-form env writes reject `root` and other structural
