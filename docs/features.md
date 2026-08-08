@@ -348,6 +348,13 @@ delegated task values.
   created, deepest first, for manual inspection and cleanup. An
   `AlreadyExists` path belongs to the competing actor and is preserved without
   being listed as invocation-created.
+- When the selected workspace contains only Brain setup metadata and empty
+  PARA directories, the first tasks launch completes initialization before
+  loading the task view. It creates the portable config, task and habit CSVs,
+  task counters, lookup CSVs, and `projects/`, `areas/`, `resources/`,
+  `archive/`, and `tasks/`. A configured workspace sync is completed before
+  this check, and a successful initialization is pushed afterward. Any user
+  file makes the workspace non-empty, so Brain leaves it untouched.
 - `workspace attach [<root>]` requires a strict, compatible manifest, adopts
   its stable workspace UUID, and otherwise leaves the directory unchanged.
   Invalid or colliding identities do not mutate registry bytes or root contents.

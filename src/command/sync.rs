@@ -73,6 +73,14 @@ pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandConte
     }
 }
 
+pub(crate) fn run_startup_sync(
+    command: &crate::workspace::CommandContext,
+    direction: crate::sync::args::Direction,
+) -> Result<bool> {
+    let config = crate::sync::config::SyncConfig::load(command);
+    run_once(command, &config, direction, false)
+}
+
 fn print_status(
     command: &crate::workspace::CommandContext,
     config: &crate::sync::config::SyncConfig,

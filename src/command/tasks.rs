@@ -16,6 +16,9 @@ pub fn launch(
     with_receiver: bool,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
+    if !matches!(cli.command, Some(TasksCommand::Doctor)) {
+        prepare_empty_workspace(context)?;
+    }
     let root = context.workspace.root();
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
@@ -118,6 +121,44 @@ pub fn launch(
         with_receiver,
         skip_daily_triage_check,
     )
+}
+
+fn prepare_empty_workspace(context: &crate::workspace::CommandContext) -> Result<()> {
+    if !crate::workspace::is_empty_workspace(context.workspace.root())? {
+        return Ok(());
+    }
+
+    let sync_config = crate::sync::config::SyncConfig::load(context);
+    if sync_config.is_configured() {
+        eprintln!(
+            "{}",
+            crate::theme::Theme::active().info(
+                "This workspace is empty; finishing its configured sync before initialization…",
+            )
+        );
+        if !crate::command::sync::run_startup_sync(context, crate::sync::args::Direction::Pull)? {
+            anyhow::bail!(
+                "workspace initialization stopped because the configured sync did not complete"
+            );
+        }
+    }
+
+    if !crate::workspace::initialize_if_empty(&context.workspace)? {
+        return Ok(());
+    }
+    eprintln!(
+        "{}",
+        crate::theme::Theme::active().success("Initialized the empty workspace")
+    );
+
+    if sync_config.is_configured()
+        && !crate::command::sync::run_startup_sync(context, crate::sync::args::Direction::Push)?
+    {
+        anyhow::bail!(
+            "workspace initialization completed locally, but the configured sync push did not complete"
+        );
+    }
+    Ok(())
 }
 
 fn format_add_result(result: &crate::tasks::add::CreateResult, json: bool) -> Result<String> {

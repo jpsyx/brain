@@ -100,6 +100,12 @@ argv
                                           search   → CustomSearch → tui::run_tui
                                           else     → tui::run_tui (MERGED SHELL)
 
+Empty-workspace startup is handled at `command::tasks::prepare_empty_workspace`.
+It waits for a configured pull when the selected root contains only setup
+metadata, initializes the portable config, task stores, lookup CSVs, counters,
+and PARA directories, then publishes the initialized tree with a configured
+push before the task CSVs are loaded.
+
 tui::run_tui(command_context, view, cli, …) (the persistent shell)
  ├─→ command_context.workspace.root()       (immutable selected root snapshot)
  ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)

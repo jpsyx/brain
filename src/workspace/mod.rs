@@ -5,6 +5,7 @@ mod bootstrap_policy;
 pub mod command;
 mod context;
 mod id;
+mod initialize;
 mod manifest;
 mod name;
 mod paths;
@@ -20,6 +21,7 @@ pub use bootstrap_policy::{
 pub(crate) use context::normalize_root;
 pub use context::{WorkspaceContext, WorkspaceContextError};
 pub use id::{WorkspaceId, WorkspaceIdError};
+pub(crate) use initialize::{initialize_if_empty, is_empty_workspace};
 pub use manifest::{MANIFEST_SCHEMA_VERSION, ManifestError, WorkspaceManifest};
 pub use name::{WorkspaceName, WorkspaceNameError};
 pub use paths::WorkspacePaths;
