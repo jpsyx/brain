@@ -111,7 +111,7 @@ pub fn migration_gate(input: MigrationGateInput) -> Result<MigrationGate> {
     }
     if !input.explicit_workspace || !input.acknowledged_all_machines_updated {
         bail!(
-            "headless migration of a synced workspace requires `brain workspace migrate --brain <WORKSPACE> --acknowledge-all-machines-updated`"
+            "headless migration of a synced workspace requires `brain workspace migrate --workspace <WORKSPACE> --acknowledge-all-machines-updated`"
         );
     }
     Ok(MigrationGate::Proceed)
@@ -156,13 +156,13 @@ pub fn headless_mapping_remediation(workspace: &str, issues: &[MappingIssue]) ->
         .iter()
         .map(|issue| match issue {
             MappingIssue::Phone(value) => {
-                format!("brain user update <USER_ID> -b {workspace} --add-phone {value}")
+                format!("brain user update <USER_ID> -w {workspace} --add-phone {value}")
             }
             MappingIssue::Email(value) => {
-                format!("brain user update <USER_ID> -b {workspace} --add-email {value}")
+                format!("brain user update <USER_ID> -w {workspace} --add-email {value}")
             }
             MappingIssue::Assignment(value) => format!(
-                "brain user add -b {workspace} --id {value} --name <DISPLAY_NAME>\nbrain user reassign {value} <EXISTING_USER_ID> -b {workspace}"
+                "brain user add -w {workspace} --id {value} --name <DISPLAY_NAME>\nbrain user reassign {value} <EXISTING_USER_ID> -w {workspace}"
             ),
         })
         .collect::<Vec<_>>()

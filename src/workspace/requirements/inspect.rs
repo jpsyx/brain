@@ -46,7 +46,7 @@ pub fn requirements(command: &CommandContext) -> Result<Vec<Requirement>> {
             RequirementScope::WorkspaceManifest,
             manifest_status,
             Vec::new(),
-            format!("brain workspace repair -b {name} --manifest"),
+            format!("brain workspace repair -w {name} --manifest"),
         ),
         Requirement::required(
             RequirementScope::PortableUsers,
@@ -55,38 +55,38 @@ pub fn requirements(command: &CommandContext) -> Result<Vec<Requirement>> {
                 PromptMetadata::plain("User ID"),
                 PromptMetadata::plain("Display name"),
             ],
-            format!("brain user add -b {name} --id <USER_ID> --name <DISPLAY_NAME>"),
+            format!("brain user add -w {name} --id <USER_ID> --name <DISPLAY_NAME>"),
         ),
         Requirement::required(
             RequirementScope::LocalUser,
             local_status,
             vec![PromptMetadata::plain("Local user ID")],
-            format!("brain user local <USER_ID> -b {name}"),
+            format!("brain user local <USER_ID> -w {name}"),
         ),
         Requirement::feature(
             RequirementScope::CloudSync,
             sync_status,
             super::sync::prompts(),
-            format!("brain sync setup -b {name}"),
+            format!("brain sync setup -w {name}"),
         ),
         Requirement::feature(
             RequirementScope::SyncWatcher,
             watcher_status,
             Vec::new(),
-            format!("brain env set -b {name} sync.watch=true"),
+            format!("brain env set -w {name} sync.watch=true"),
         ),
         Requirement::feature(
             RequirementScope::Receiver,
             receiver_status,
             Vec::new(),
-            format!("brain receiver start -b {name}"),
+            format!("brain receiver start -w {name}"),
         ),
         Requirement::feature(
             RequirementScope::Sms,
             sms_status,
             super::receiver::sms_prompts(),
             format!(
-                "brain receiver setup -b {name} --channels sms --public-url <HTTPS_URL> --twilio-account-sid <ACCOUNT_SID> --twilio-auth-token <AUTH_TOKEN> --twilio-from-number <E164> --user-id <USER_ID> --phone <E164> --phone-allowed true"
+                "brain receiver setup -w {name} --channels sms --public-url <HTTPS_URL> --twilio-account-sid <ACCOUNT_SID> --twilio-auth-token <AUTH_TOKEN> --twilio-from-number <E164> --user-id <USER_ID> --phone <E164> --phone-allowed true"
             ),
         ),
         Requirement::feature(
@@ -94,7 +94,7 @@ pub fn requirements(command: &CommandContext) -> Result<Vec<Requirement>> {
             email_status,
             super::receiver::email_prompts(),
             format!(
-                "brain receiver setup -b {name} --channels email --public-url <HTTPS_URL> --resend-api-key <API_KEY> --resend-from-email <FROM_EMAIL> --resend-webhook-signing-secret <SIGNING_SECRET> --user-id <USER_ID> --email <EMAIL> --email-allowed true"
+                "brain receiver setup -w {name} --channels email --public-url <HTTPS_URL> --resend-api-key <API_KEY> --resend-from-email <FROM_EMAIL> --resend-webhook-signing-secret <SIGNING_SECRET> --user-id <USER_ID> --email <EMAIL> --email-allowed true"
             ),
         ),
     ];

@@ -192,7 +192,7 @@ failure case in exchange for never deleting an ambiguously owned path.
 ## Why workspace readiness is one policy-driven bootstrap
 
 Workspace selection cannot be an optional convenience around individual
-handlers: a command that reads the wrong default before later honoring `-b`
+handlers: a command that reads the wrong default before later honoring `-w`
 has already crossed the silo boundary. Brain therefore classifies every parsed
 invocation first. Help/version and hidden internal execution receive no
 workspace and cannot prompt; create/attach/remove/repair receive only the
@@ -228,7 +228,7 @@ Selection is also a capability boundary, not a convenience lookup. Root-local
 stores accept `WorkspaceContext`; machine-env writes additionally require the
 exact registry store and revalidate canonical name plus UUID. The TUI and its
 background threads clone the same `Arc<WorkspaceContext>`. Detached Brain
-children repeat the canonical `--brain` selector, and Brain-owned integrations
+children repeat the canonical `--workspace` selector, and Brain-owned integrations
 receive exactly workspace ID, canonical name, root, and actor ID. Therefore a
 later default change cannot redirect an already-started operation.
 
@@ -254,7 +254,7 @@ startup PDF prerequisite remains a separate hard gate.
 ## Why changing the default never changes workspace policy
 
 The machine default is routing metadata, not workspace data. It names the
-canonical record selected when `--brain/-b` is absent. Keeping that field at
+canonical record selected when `--workspace/-w` is absent. Keeping that field at
 the registry top level means `set_default` can change one name without
 rewriting either workspace record or portable files. Consequently, changing
 the default workspace never changes access mode, UUID, root, local user,
@@ -1873,7 +1873,7 @@ field:
 
 The fix makes execution independent of the shell: every automatic trigger
 (startup, watcher, receiver freshness) spawns a detached
-`brain --brain <canonical-name> sync --if-idle` child (`process_group(0)` +
+`brain --workspace <canonical-name> sync --if-idle` child (`process_group(0)` +
 null stdio) with the selected UUID in `BRAIN_WORKSPACE_ID`. The canonical name
 keeps the selector stable across alias/default changes, while bootstrap's UUID
 comparison fails closed if that name is ever rebound to a different registry
@@ -2148,7 +2148,7 @@ the render stamp. The ordinary run logger also creates a private `/tmp` file.
 Those are correct for commands that will work with the workspace, but they
 make a status probe mutate the thing it is measuring.
 
-`brain server status` and `brain receiver status -b <workspace>` therefore pass
+`brain server status` and `brain receiver status -w <workspace>` therefore pass
 through a pure command classifier before logger initialization. Receiver status
 uses a read-only selected-workspace bootstrap that validates existing registry,
 manifest, and users bytes through non-recovering readers. It returns the same
@@ -2465,7 +2465,7 @@ same grouped mutation.
 
 Readiness once treated an empty machine-local `local_user_id` as a setup gap for
 every workspace: interactively it prompted for a user ID, and headlessly it
-failed with `brain user local <USER_ID> -b <name>`. That is right when the
+failed with `brain user local <USER_ID> -w <name>`. That is right when the
 choice is real, but it produced a bad experience in the common single-user case.
 A workspace that reached the users-present / `local_user_id`-empty state (for
 example the first portable person was written but the machine-local link was

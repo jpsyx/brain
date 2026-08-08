@@ -122,3 +122,13 @@ fn guided_clear_flows_into_the_shared_required_value_validation() {
     assert!(error.contains("--public-url"), "{error}");
     assert!(!error.contains("brain.example.test"), "{error}");
 }
+
+#[test]
+fn selected_channel_without_user_id_uses_guided_setup() {
+    let args = crate::cli::ReceiverSetupArgs {
+        channels: Some(ReceiverSetupChannels::Sms),
+        ..Default::default()
+    };
+
+    assert!(!uses_headless_setup(&args));
+}

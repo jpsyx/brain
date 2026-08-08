@@ -26,7 +26,7 @@ first move is a failing test that reproduces it, *then* the fix.
   `open_target::is_markdown` (strictly `.md`) and `pdf_output_path`
   (colocated same-stem `.pdf`).
 - **Workspace CLI decisions.** Clap and binary tests cover every placement of
-  the raw `--brain/-b` selector, including after delegated task positionals,
+  the raw `--workspace/-w` selector, including after delegated task positionals,
   the long equals form, the `--` terminator, and duplicate/missing-value errors,
   plus the complete optional-value management grammar.
   `workspace::command::mutate` tests tilde/relative root normalization and each

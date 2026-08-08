@@ -19,7 +19,7 @@ fn sender_mapping_pulled_by_final_sync_is_preflighted_before_rollout_mutation() 
 
     assert!(!output.status.success(), "migration unexpectedly succeeded");
     assert!(
-        stderr.contains("brain user update <USER_ID> -b family --add-email relative@example.test"),
+        stderr.contains("brain user update <USER_ID> -w family --add-email relative@example.test"),
         "{stderr}"
     );
     assert_eq!(

@@ -387,17 +387,17 @@ transaction owner.
 
 ### Workspace CLI decisions (`workspace/command/`)
 
-Clap retains `--brain/-b` as an unresolved `Option<String>`. At the registry
+Clap retains `--workspace/-w` as an unresolved `Option<String>`. At the registry
 boundary, `MachineRegistry::select` case-folds it and resolves a canonical name
 or alias. Before Clap delegates a trailing task argument list, one shared
-real/test normalization extracts `--brain value`, `-b value`, or
-`--brain=value` from any pre-`--` position and keeps the exact raw value.
+real/test normalization extracts `--workspace value`, `-w value`, or
+`--workspace=value` from any pre-`--` position and keeps the exact raw value.
 Selector-looking tokens after `--` remain delegated values. Bootstrap applies
 this selection once for every ordinary command and returns one immutable
 `CommandContext`. Every ordinary store and runtime path receives that context
 or an explicit path derived from it; no handler reselects the default.
 
-Detached Brain children carry the canonical `--brain` selector, never the
+Detached Brain children carry the canonical `--workspace` selector, never the
 alias the caller happened to use. Brain-owned integrations receive exactly the
 common identity boundary `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`,
 `BRAIN_ACTOR_ID`, and `BRAIN_CHANNEL`; agent-session variables are layered on

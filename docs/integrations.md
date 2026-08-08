@@ -83,7 +83,7 @@ helpers and shell-outs live in the tasks modules:
 - **Palette "Open habits in browser"**: uses the current TUI lease and does
   not start or stop the shared process.
   The process itself carries no
-  selected `--brain`; each habits request instead carries an opaque ingress ID.
+  selected `--workspace`; each habits request instead carries an opaque ingress ID.
   The process requires its live lease before reloading the exact registry record
   and matching portable manifest. Missing, malformed, unknown, no-live-TUI,
   unavailable, or identity-mismatched routes never fall back to the default.
@@ -424,7 +424,7 @@ publication; the process loop observes flags outside the handler and performs
 ordinary Rust cleanup.
 
 The status probe is stricter than ordinary command bootstrap. `brain server
-status` and `brain receiver status -b <workspace>` skip run-log creation and
+status` and `brain receiver status -w <workspace>` skip run-log creation and
 all workspace mutation seams, including registry migration, access-mode or user
 repair, users transaction recovery, installed-skill rendering, and render-stamp
 writes. They inspect only existing process/control state and existing selected
@@ -1277,10 +1277,10 @@ outside-world touchpoints:
 - **The detached sync spawn** (`trigger::spawn_detached_sync(workspace, dir)`) is the one
   entry point the startup, watcher, and receiver-freshness triggers use. It
   spawns the current exe as
-  `brain --brain <canonical-name> sync [--pull|--push] --if-idle` fully
+  `brain --workspace <canonical-name> sync [--pull|--push] --if-idle` fully
   detached, with `BRAIN_WORKSPACE_ID=<selected UUID>` as a defense-in-depth
   expectation. Bootstrap compares that environment value to the registry UUID
-  selected by `--brain` and refuses the command on malformed or mismatched
+  selected by `--workspace` and refuses the command on malformed or mismatched
   input. `detached_sync_request` is the pure argv/environment builder and
   `DetachedSyncRunner` is the injected launch boundary used by concurrency
   tests. The real runner uses `process_group(0)` (its own process group, so it outlives the

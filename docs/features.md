@@ -237,7 +237,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain` | Open the persistent shell on the tasks view (the startup default) with the default Claude brain panel. |
 | `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. Claude remains the default. |
 | `brain --open-code` / `brain -oc` | Select the OpenCode brain-panel adapter. Brain launches OpenCode in the selected workspace, passes the initial prompt separately, tracks the OpenCode session ID, and delivers completion through the shared controller lifecycle. `--codex --open-code` exits with `🔴 Choose one agent frontend: --codex or --open-code.` |
-| `brain --brain <workspace>` / `brain -b <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--brain=<workspace>` is equivalent; `--` ends option extraction. |
+| `brain --workspace <workspace>` / `brain -w <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--workspace=<workspace>` is equivalent; `--` ends option extraction. |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` or `--open-code` / `-oc` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
 | `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
@@ -329,7 +329,7 @@ structural `WorkspaceRecord.root`. See
 Manages the schema-v2 registry at the fixed machine path without going through
 the selected record. Canonical names and aliases are trimmed, ASCII
 lower-cased selectors that must match `[a-z0-9][a-z0-9_-]*`;
-`--brain/-b` is global and may be placed around nested
+`--workspace/-w` is global and may be placed around nested
 subcommands or after a delegated task positional. The long equals form is also
 accepted. A `--` option terminator leaves later selector-looking tokens in the
 delegated task values.
@@ -385,9 +385,9 @@ delegated task values.
   transaction, and the retained backup keeps the pre-rewrite values. A legacy
   assignment value that is not valid lower-case kebab case can only be adopted,
   never kept as a new ID. Synced headless use requires explicit
-  `--brain <workspace>` selection plus
+  `--workspace <workspace>` selection plus
   `--acknowledge-all-machines-updated`; incomplete mapping prints exact
-  `brain user ... -b <workspace>` remediation, offering both
+  `brain user ... -w <workspace>` remediation, offering both
   `brain user add` and `brain user reassign` for an unresolved assignment. A failed step reports the
   retained backup and the exact resume command. Every journaled failure is
   resume-only, including a failure before the remote-publication step is
@@ -752,7 +752,7 @@ a configured machine, sync is event-driven rather than periodic. There is no
 idle sync loop and no exit sync.
 
 Every trigger below spawns a **detached background `brain sync` process** (with
-the canonical `--brain <workspace>` plus `--if-idle`, so changing the machine
+the canonical `--workspace <workspace>` plus `--if-idle`, so changing the machine
 default cannot redirect it and an alias is never propagated). The child also
 carries the selected UUID in `BRAIN_WORKSPACE_ID`; bootstrap refuses to run if
 that expected UUID disagrees with the selected registry record. None runs a
@@ -1143,7 +1143,7 @@ provider-facing routes, not local capability-protected habits and triage pages.
 POST routing
 and live-lease checks happen before body IO, and local habits/triage action
 bodies larger than 16 KiB return 413. TUI links retain the ingress accepted at
-registration, while `brain habits -b <workspace>` asks the live shared process
+registration, while `brain habits -w <workspace>` asks the live shared process
 for the exact selected workspace's accepted ingress.
 
 The shared process exposes authenticated
@@ -1237,7 +1237,7 @@ Status requires both persisted intent and an enabled exact live lease before it
 reports `Accepting yes`; a live but disabled lease reports `TUI live` and
 `Accepting no`.
 
-`brain server status` and `brain receiver status -b <workspace>` are literal
+`brain server status` and `brain receiver status -w <workspace>` are literal
 read-only probes. They do not write a diagnostic run log, migrate or repair
 configuration, create a users transaction lock, refresh installed skills,
 write the skill render stamp, or elect/start/churn the shared process. Receiver
@@ -1304,7 +1304,11 @@ machine-registry record. Blank keeps an existing provider value. `/clear` is
 accepted as input, but setup rejects the resulting blank when that provider
 value is required by a selected channel. Guided and headless setup share the
 same HTTPS-origin, channel-requirement, sender-normalization, and redacted-error
-validation before writing. The setup output shows the exact
+validation before writing.
+Supplying `--channels` without `--user-id`, as in
+`brain receiver setup -w family --channels sms`, keeps the selected channel
+and interactively collects the missing portable-user mapping.
+The setup output shows the exact
 `/w/<selected-ingress>/sms` and/or `/w/<selected-ingress>/email` URL to enter in
 the provider portal. Setup and `receiver set` notify only the selected live
 lease to reload; they never start or restart a process. Provider,

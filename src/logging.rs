@@ -221,7 +221,7 @@ mod tests {
     fn argv_redaction_covers_receiver_set_assignments_without_hiding_safe_values() {
         let argv = [
             "brain",
-            "-b",
+            "-w",
             "family",
             "receiver",
             "set",
@@ -234,7 +234,7 @@ mod tests {
             redact_argv(&argv),
             [
                 "brain",
-                "-b",
+                "-w",
                 "family",
                 "receiver",
                 "set",

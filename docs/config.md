@@ -64,7 +64,7 @@ reports structural JSON and IO failures with the failed operation and path
 (plus the IO error kind and temporary path when applicable).
 
 Canonical names and aliases are trimmed and ASCII lower-cased, then must match
-`[a-z0-9][a-z0-9_-]*`. `--brain <selector>` and `-b <selector>` resolve either
+`[a-z0-9][a-z0-9_-]*`. `--workspace <selector>` and `-w <selector>` resolve either
 kind before or after a subcommand. An omitted selector uses only the canonical
 `default_workspace`. The first record becomes default; later create and attach
 operations preserve it. Rename preserves the UUID and updates the default name
@@ -81,7 +81,7 @@ Receiver intent uses this same transaction boundary. `brain receiver start`,
 mutate only the selected canonical record after rechecking its immutable UUID.
 The status command reads the persistent value independently from current TUI
 and shared-process availability.
-Its global `--brain/-b` selector resolves canonical names and aliases once at
+Its global `--workspace/-w` selector resolves canonical names and aliases once at
 the bootstrap boundary. Ordinary commands receive a ready selected context;
 env writes verify both canonical name and immutable UUID, while config,
 personalization, tasks, reindex, sync, receiver setup, and the TUI consume that
@@ -90,7 +90,7 @@ after bootstrap cannot redirect or reattribute a read or write already in
 progress.
 Without a portable user store, legacy compatibility accepts only an exact
 lower-case kebab `local_user_id`. A malformed nonblank legacy value is rejected
-with `brain workspace repair -b <workspace> --local-user-id <USER_ID>`; Brain
+with `brain workspace repair -w <workspace> --local-user-id <USER_ID>`; Brain
 does not create `users.json` as part of that repair path.
 
 ### The `brain workspace` command
@@ -105,7 +105,7 @@ does not create `users.json` as part of that repair path.
 | `brain workspace default [<workspace>]` | Set the canonical default through a canonical-name or alias selector. |
 | `brain workspace remove [<workspace>]` | Detach only the registry record; root and every local/remote runtime artifact remain untouched. |
 | `brain workspace repair [--manifest] [--local-user-id <id>]` | Recreate a missing manifest that matches the registry and/or set this machine's local identity. Omitting both flags uses the interactive prompt. |
-| `brain workspace migrate [--acknowledge-all-machines-updated]` | Run or resume the coordinated legacy task/user rollout. A synced headless workspace requires explicit `--brain <workspace>` selection and the acknowledgement flag. |
+| `brain workspace migrate [--acknowledge-all-machines-updated]` | Run or resume the coordinated legacy task/user rollout. A synced headless workspace requires explicit `--workspace <workspace>` selection and the acknowledgement flag. |
 
 Every optional grammar value has a `/dev/tty` prompt when omitted and a flag
 or positional noninteractive form. For create, attach, remove, and repair,
@@ -518,7 +518,9 @@ leading `+` restored.
 
 Headless setup accepts `--channels`, provider flags, `--user-id`, optional
 `--user-name` for creation, `--phone`/`--phone-allowed`, and
-`--email`/`--email-allowed`. A successful setup or `receiver set` asks only an
+`--email`/`--email-allowed`. Supplying `--channels` without `--user-id` keeps
+the selected channel but enters guided setup for the missing portable-user
+mapping. A successful setup or `receiver set` asks only an
 already-running shared process to reload the selected workspace UUID. No
 receiver configuration command elects, restarts, or keeps a process alive.
 Setup snapshots the selected record, portable users, and hook artifacts before
@@ -531,7 +533,7 @@ for both direct assignment and interactive entry.
 
 `receiver_enabled` is only persistent intent. Current acceptance is the
 conjunction of that selected-record value and an unexpired exact-workspace TUI
-lease. The four `brain receiver status -b <workspace>` rows keep those facts
+lease. The four `brain receiver status -w <workspace>` rows keep those facts
 separate: `Receiver`, `TUI`, `Server`, and `Accepting`. Reading them uses
 literal read-only bootstrap. It never fills in a missing access mode, migrates
 or repairs registry/users state, renders skills, writes a render stamp or run

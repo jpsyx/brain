@@ -154,11 +154,11 @@ mod tests {
 
     #[test]
     fn with_receiver_and_workspace_selector_parse_together() {
-        let cli = crate::cli::try_parse_from(["brain", "--with-receiver", "-b", "family"])
+        let cli = crate::cli::try_parse_from(["brain", "--with-receiver", "-w", "family"])
             .expect("parse startup receiver selection");
 
         assert!(cli.with_receiver);
-        assert_eq!(cli.brain.as_deref(), Some("family"));
+        assert_eq!(cli.workspace_selector.as_deref(), Some("family"));
     }
 
     #[test]

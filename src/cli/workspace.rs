@@ -37,7 +37,7 @@ pub enum WorkspaceAction {
     },
     /// Manage alternative workspace selectors.
     Alias(WorkspaceAliasArgs),
-    /// Choose the workspace selected when `--brain` is omitted.
+    /// Choose the workspace selected when `--workspace` is omitted.
     Default {
         /// Canonical name or alias.
         workspace: Option<String>,
@@ -92,22 +92,41 @@ pub enum WorkspaceAliasAction {
 mod tests {
     use clap::Parser;
 
-    use crate::cli::{Cli, Cmd, WorkspaceAction, try_parse_from};
+    use crate::cli::{Cli, Cmd, WorkspaceAction, WorkspaceAliasAction, try_parse_from};
 
     #[test]
     fn workspace_selector_is_global_and_retains_its_raw_value() {
         for (args, expected) in [
-            (vec!["brain", "-b", "family", "sync"], "family"),
-            (vec!["brain", "sync", "--brain", "fam"], "fam"),
+            (vec!["brain", "-w", "family", "sync"], "family"),
+            (vec!["brain", "sync", "--workspace", "fam"], "fam"),
             (
-                vec!["brain", "config", "get", "access-mode", "-b", "family"],
+                vec!["brain", "config", "get", "access-mode", "-w", "family"],
                 "family",
             ),
-            (vec!["brain", "--brain", "family"], "family"),
+            (vec!["brain", "--workspace", "family"], "family"),
         ] {
             let cli = Cli::try_parse_from(args).expect("global workspace selector should parse");
-            assert_eq!(cli.brain.as_deref(), Some(expected));
+            assert_eq!(cli.workspace_selector.as_deref(), Some(expected));
         }
+    }
+
+    #[test]
+    fn alias_workspace_argument_is_not_the_global_selector() {
+        let cli = try_parse_from(["brain", "workspace", "alias", "add", "work", "family"])
+            .expect("alias arguments should parse");
+
+        assert_eq!(cli.workspace_selector, None);
+        let Cmd::Workspace(args) = cli.command.expect("workspace command") else {
+            panic!("expected workspace command");
+        };
+        let WorkspaceAction::Alias(alias) = args.action else {
+            panic!("expected alias action");
+        };
+        let WorkspaceAliasAction::Add { workspace, alias } = alias.action else {
+            panic!("expected alias add action");
+        };
+        assert_eq!(workspace.as_deref(), Some("work"));
+        assert_eq!(alias.as_deref(), Some("family"));
     }
 
     #[test]
@@ -152,23 +171,23 @@ mod tests {
                     "brain",
                     "tasks",
                     "today",
-                    "--brain",
+                    "--workspace",
                     "Family_Raw",
                     "--no-tui",
                 ],
                 "Family_Raw",
             ),
             (
-                vec!["brain", "tasks", "today", "-b", "Fam", "--no-tui"],
+                vec!["brain", "tasks", "today", "-w", "Fam", "--no-tui"],
                 "Fam",
             ),
             (
-                vec!["brain", "tasks", "today", "--brain=FAMILY", "--no-tui"],
+                vec!["brain", "tasks", "today", "--workspace=FAMILY", "--no-tui"],
                 "FAMILY",
             ),
         ] {
             let cli = try_parse_from(args).expect("global selector after positional should parse");
-            assert_eq!(cli.brain.as_deref(), Some(expected));
+            assert_eq!(cli.workspace_selector.as_deref(), Some(expected));
             let Some(Cmd::Tasks(tasks)) = cli.command else {
                 panic!("expected delegated tasks command");
             };
@@ -178,31 +197,38 @@ mod tests {
 
     #[test]
     fn option_terminator_keeps_selector_looking_tokens_in_delegated_task_values() {
-        let cli = try_parse_from(["brain", "tasks", "today", "--", "--brain", "Family_Raw"])
+        let cli = try_parse_from(["brain", "tasks", "today", "--", "--workspace", "Family_Raw"])
             .expect("selector-looking delegated values should parse");
 
-        assert!(cli.brain.is_none());
+        assert!(cli.workspace_selector.is_none());
         let Some(Cmd::Tasks(tasks)) = cli.command else {
             panic!("expected delegated tasks command");
         };
-        assert_eq!(tasks.rest, vec!["today", "--", "--brain", "Family_Raw"]);
+        assert_eq!(tasks.rest, vec!["today", "--", "--workspace", "Family_Raw"]);
     }
 
     #[test]
     fn duplicate_and_missing_trailing_workspace_selectors_remain_clap_errors() {
-        let duplicate =
-            try_parse_from(["brain", "tasks", "today", "--brain", "family", "-b", "work"])
-                .expect_err("duplicate selectors must fail");
+        let duplicate = try_parse_from([
+            "brain",
+            "tasks",
+            "today",
+            "--workspace",
+            "family",
+            "-w",
+            "work",
+        ])
+        .expect_err("duplicate selectors must fail");
         assert!(
             duplicate
                 .to_string()
                 .contains("cannot be used multiple times")
         );
 
-        let missing = try_parse_from(["brain", "tasks", "today", "--brain"])
+        let missing = try_parse_from(["brain", "tasks", "today", "--workspace"])
             .expect_err("missing selector value must fail");
         let message = missing.to_string();
-        assert!(message.contains("--brain <WORKSPACE>"));
+        assert!(message.contains("--workspace <WORKSPACE>"));
         assert!(message.contains("value"));
     }
 
@@ -213,7 +239,7 @@ mod tests {
             "brain",
             "workspace",
             "migrate",
-            "--brain",
+            "--workspace",
             "family",
             "--acknowledge-all-machines-updated",
         ])

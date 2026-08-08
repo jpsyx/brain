@@ -121,7 +121,7 @@ fn bundled_skills_gate_only_managed_habit_mutation_when_feature_is_disabled() {
     let todo = std::fs::read_to_string(root.join("skills/todo/SKILL.md")).unwrap();
 
     for contract in [
-        "brain --brain \"$BRAIN_WORKSPACE\" config get enable_triage_habits",
+        "brain --workspace \"$BRAIN_WORKSPACE\" config get enable_triage_habits",
         "--complete-managed-triage daily",
         "--complete-managed-triage weekly",
         "still run the full manual triage workflow",

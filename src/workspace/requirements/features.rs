@@ -12,19 +12,19 @@ pub(super) fn requirements(command: &CommandContext, name: &str) -> Vec<Requirem
                 RequirementScope::TriageHabits,
                 triage.0,
                 Vec::new(),
-                format!("brain config set -b {name} enable_triage_habits=true"),
+                format!("brain config set -w {name} enable_triage_habits=true"),
             ));
             rows.push(Requirement::feature(
                 RequirementScope::TriageModal,
                 triage.1,
                 vec![PromptMetadata::plain("Daily triage name pattern")],
-                format!("brain config set -b {name} daily_triage_name_pattern=<REGEX>"),
+                format!("brain config set -w {name} daily_triage_name_pattern=<REGEX>"),
             ));
             rows.push(Requirement::feature(
                 RequirementScope::Linear,
                 linear_status(&config),
                 vec![PromptMetadata::plain("Linear workspace slug")],
-                format!("brain config set -b {name} linear_workspace=<SLUG>"),
+                format!("brain config set -w {name} linear_workspace=<SLUG>"),
             ));
         }
         Err(_) => {
@@ -38,7 +38,7 @@ pub(super) fn requirements(command: &CommandContext, name: &str) -> Vec<Requirem
                     scope,
                     FeatureStatus::Incomplete,
                     Vec::new(),
-                    format!("brain config list -b {name}"),
+                    format!("brain config list -w {name}"),
                 ));
             }
         }
@@ -49,13 +49,13 @@ pub(super) fn requirements(command: &CommandContext, name: &str) -> Vec<Requirem
         RequirementScope::BrowserViews,
         FeatureStatus::Ready,
         Vec::new(),
-        format!("brain -b {name}"),
+        format!("brain -w {name}"),
     ));
     rows.push(Requirement::feature(
         RequirementScope::WebViews,
         FeatureStatus::Ready,
         Vec::new(),
-        format!("brain server status -b {name}"),
+        format!("brain server status -w {name}"),
     ));
     rows
 }
@@ -105,7 +105,7 @@ fn pdf_requirement(command: &CommandContext, name: &str) -> Requirement {
             FeatureStatus::Incomplete
         },
         vec![PromptMetadata::plain("markdown-to-pdf executable")],
-        format!("brain env set -b {name} markdown_to_pdf_path=<EXECUTABLE_PATH>"),
+        format!("brain env set -w {name} markdown_to_pdf_path=<EXECUTABLE_PATH>"),
     )
 }
 
@@ -135,19 +135,19 @@ fn personalization_requirements(command: &CommandContext, name: &str) -> Vec<Req
             RequirementScope::PersonalizationRole,
             statuses[0],
             "Role",
-            format!("brain personalize set -b {name} role=<ROLE>"),
+            format!("brain personalize set -w {name} role=<ROLE>"),
         ),
         (
             RequirementScope::PersonalizationOrganization,
             statuses[1],
             "Organization",
-            format!("brain personalize set -b {name} works_for=<ORGANIZATION>"),
+            format!("brain personalize set -w {name} works_for=<ORGANIZATION>"),
         ),
         (
             RequirementScope::PersonalizationTagStyles,
             statuses[2],
             "Tag styles",
-            format!("brain config set -b {name} tags"),
+            format!("brain config set -w {name} tags"),
         ),
     ]
     .into_iter()

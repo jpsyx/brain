@@ -17,7 +17,7 @@ pub(super) fn bootstrap(
     current_dir: &Path,
 ) -> Result<BootstrapContext> {
     let registry = RegistryStore::load_from(store.path())?;
-    let selected = registry.select(cli.brain.as_deref())?;
+    let selected = registry.select(cli.workspace_selector.as_deref())?;
     super::bootstrap::validate_expected_workspace_id(
         std::env::var_os("BRAIN_WORKSPACE_ID").as_deref(),
         selected.record().workspace_id,

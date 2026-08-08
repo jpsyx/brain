@@ -85,7 +85,7 @@ brain tasks today --no-tui        # print today's tasks, no TUI
 brain tasks complete t123         # mark a task complete
 brain tasks doctor                # health check
 brain config          # read/change persistent config
-brain sync -b family  # run a command in another registered workspace
+brain sync -w family  # run a command in another registered workspace
 brain workspace list  # show registered workspaces, aliases, and the default
 ```
 
@@ -145,9 +145,9 @@ brain workspace create --name brain --root ~/brain
 brain workspace attach ~/family
 ```
 
-Run any workspace-scoped command with `--brain <name-or-alias>` or `-b`; omit
+Run any workspace-scoped command with `--workspace <name-or-alias>` or `-w`; omit
 the selector to use the default. The global selector works before or after a
-subcommand, so `brain -b family sync` and `brain sync -b family` select the same
+subcommand, so `brain -w family sync` and `brain sync -w family` select the same
 workspace. Names and aliases are trimmed and lower-cased, then must match
 `[a-z0-9][a-z0-9_-]*`.
 
@@ -155,6 +155,11 @@ The first workspace becomes the default. Later creates and attaches preserve
 that choice. `brain workspace default <name>` changes only where future
 commands with no selector route. Changing the default workspace never changes
 access mode, workspace identity, root, local user, receiver enablement, or env.
+
+Multiple workspaces can be open at the same time. Start each TUI with its
+workspace selector, for example `brain -w brain` and `brain -w family`. Brain
+shares one machine-wide receiver process, while each TUI lease, job socket,
+runtime cache, root, and receiver ingress remains scoped to its workspace UUID.
 
 The complete implemented management surface is:
 
@@ -167,9 +172,9 @@ brain workspace alias add household fam
 brain workspace alias remove household fam
 brain workspace default household
 brain workspace remove household
-brain workspace repair -b brain --manifest --local-user-id primary-user
-brain workspace migrate -b brain --acknowledge-all-machines-updated
-brain sync -b fam                  # aliases work for ordinary commands
+brain workspace repair -w brain --manifest --local-user-id primary-user
+brain workspace migrate -w brain --acknowledge-all-machines-updated
+brain sync -w fam                  # aliases work for ordinary commands
 ```
 
 Omit a management value to use the guided `/dev/tty` prompt. `attach` adopts
@@ -204,7 +209,7 @@ workspace UUID rather than a name or default.
 | Shared infrastructure | Machine server PID/control files and the current shared triage signal | Narrow process coordination only; habits payloads are selected by request UUID | No |
 
 Active run logs remain under `/tmp` through `logging.rs`. The literal read-only
-`brain server status` and `brain receiver status -b <workspace>` probes are the
+`brain server status` and `brain receiver status -w <workspace>` probes are the
 exception: they create no run log, skill render, render stamp, config repair,
 or server state. Receiver status obtains process and exact-workspace lease facts
 from one generation-bound control response. Both status requests use immutable
@@ -295,7 +300,7 @@ names, aliases, or the default:
 brain workspace create --name family --root ~/family
 brain workspace alias add family fam
 brain workspace default family
-brain sync -b fam
+brain sync -w fam
 ```
 
 A legacy `~/.config/brain-root` one-line pointer file is still read for
@@ -324,7 +329,7 @@ UUID-scoped runtime paths. Env, config, personalization, state, TUI, tasks,
 reindex, sync, and Brain-owned children all receive one immutable selected
 `CommandContext` / `WorkspaceContext`. Selection happens once. Ordinary runtime
 code does not reopen the registry or consult a global root. Detached Brain
-children carry the canonical `--brain` name, and child integrations receive
+children carry the canonical `--workspace` name, and child integrations receive
 `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, and `BRAIN_ACTOR_ID`.
 
 `workspace_only` is advisory prompt enforcement plus best-effort capability
@@ -412,7 +417,7 @@ brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf
 brain env set claude_cmd='claude --dangerously-skip-permissions'
 brain env set codex_cmd='codex --model gpt-5'
 brain env set opencode_cmd='opencode'
-brain env get root -b family
+brain env get root -w family
 ```
 
 | Variable | Default | Meaning |
@@ -570,7 +575,7 @@ On a new machine:
 
 1. get the workspace root onto the new machine (however you sync it),
 2. run `brain workspace attach ~/wherever` to register that existing root,
-3. run `brain` (or select it with `-b`) to install skills from its synced
+3. run `brain` (or select it with `-w`) to install skills from its synced
    extensions and plugins.
 
 The machine registry should remain local. Portable configuration travels inside

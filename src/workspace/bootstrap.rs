@@ -112,7 +112,10 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
                     invocation,
                     Invocation::WorkspaceCreate | Invocation::WorkspaceAttach
                 ) {
-                    ensure_selected_registry_access_mode(&access_store, prepared.brain.as_deref())?;
+                    ensure_selected_registry_access_mode(
+                        &access_store,
+                        prepared.workspace_selector.as_deref(),
+                    )?;
                 }
                 Ok(())
             },
@@ -267,7 +270,7 @@ fn bootstrap_with_io_and_hook(
     }
 
     let registry = RegistryStore::load_from(store.path())?;
-    let selected = registry.select(cli.brain.as_deref())?;
+    let selected = registry.select(cli.workspace_selector.as_deref())?;
     let canonical_name = selected.canonical_name().clone();
     let workspace_id = selected.record().workspace_id;
     let record = selected.record().clone();

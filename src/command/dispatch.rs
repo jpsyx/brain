@@ -55,10 +55,10 @@ pub fn run(
         crate::logging::log("dispatch workspace");
         return match capability {
             DispatchCapability::Registry(store) => {
-                super::workspace::run_registry_only(args, cli.brain.as_deref(), store)
+                super::workspace::run_registry_only(args, cli.workspace_selector.as_deref(), store)
             }
             DispatchCapability::Ready(context) => {
-                super::workspace::run_ready(args, context, cli.brain.is_some())
+                super::workspace::run_ready(args, context, cli.workspace_selector.is_some())
             }
             DispatchCapability::None => {
                 anyhow::bail!("internal workspace command dispatch expected a workspace capability")
@@ -69,7 +69,7 @@ pub fn run(
         crate::logging::log("dispatch user");
         return match capability {
             DispatchCapability::Registry(store) => {
-                super::users::run(args, cli.brain.as_deref(), store)
+                super::users::run(args, cli.workspace_selector.as_deref(), store)
             }
             DispatchCapability::None | DispatchCapability::Ready(_) => {
                 anyhow::bail!("internal user command dispatch expected a workspace registry")

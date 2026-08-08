@@ -67,7 +67,7 @@ pub(super) fn prepare(
             if name.trim().is_empty() {
                 let Some(terminal) = terminal.as_deref_mut() else {
                     bail!(
-                        "portable users are missing; run `brain user add -b {} --id {} --name <DISPLAY_NAME>` then `brain user local {} -b {}`",
+                        "portable users are missing; run `brain user add -w {} --id {} --name <DISPLAY_NAME>` then `brain user local {} -w {}`",
                         context.workspace.name().as_str(),
                         context.workspace.local_user_id(),
                         context.workspace.local_user_id(),

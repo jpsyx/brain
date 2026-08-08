@@ -61,8 +61,8 @@ fn first_env_list_creates_the_migrated_root_but_requires_a_portable_local_person
 
     assert!(!output.status.success(), "env list unexpectedly succeeded");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("brain user add -b brain --id <USER_ID> --name <DISPLAY_NAME>"));
-    assert!(stderr.contains("brain user local <USER_ID> -b brain"));
+    assert!(stderr.contains("brain user add -w brain --id <USER_ID> --name <DISPLAY_NAME>"));
+    assert!(stderr.contains("brain user local <USER_ID> -w brain"));
     assert!(
         root.is_dir(),
         "manifest migration must create the workspace root"

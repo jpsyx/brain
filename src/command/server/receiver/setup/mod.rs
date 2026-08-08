@@ -16,14 +16,14 @@ struct SetupPlan {
 }
 
 pub(super) fn run(args: &ReceiverSetupArgs, context: &CommandContext) -> Result<()> {
-    let mut plan = if let Some(channels) = args.channels {
+    let mut plan = if let Some(channels) = args.channels.filter(|_| args.user_id.is_some()) {
         SetupPlan {
             channels,
             providers: provider_values(args, context, channels)?,
             users: user::headless_plan(args, &context.workspace, channels)?,
         }
     } else {
-        interactive_plan(context)?
+        interactive_plan(context, args.channels)?
     };
     validate_plan(&mut plan)?;
     let ingress = selected_ingress(context)?;
@@ -36,15 +36,33 @@ pub(super) fn run(args: &ReceiverSetupArgs, context: &CommandContext) -> Result<
     Ok(())
 }
 
-fn interactive_plan(context: &CommandContext) -> Result<SetupPlan> {
+#[cfg(test)]
+fn uses_headless_setup(args: &ReceiverSetupArgs) -> bool {
+    args.channels.is_some() && args.user_id.is_some()
+}
+
+fn interactive_plan(
+    context: &CommandContext,
+    selected_channels: Option<ReceiverSetupChannels>,
+) -> Result<SetupPlan> {
     let theme = crate::theme::Theme::active();
     println!("{}", theme.heading("Set up the brain receiver"));
-    println!("{}", theme.muted("Choose which channels to configure:"));
-    println!("  {}", theme.accent("1) Email"));
-    println!("  {}", theme.accent("2) SMS"));
-    println!("  {}", theme.accent("3) Both"));
-    let choice = prompt_line(&format!("{} ", theme.prompt("Choose 1, 2, or 3:")))?;
-    let channels = parse_channels(&choice)?;
+    let channels = if let Some(channels) = selected_channels {
+        let channel_name = format!("{channels:?}").to_ascii_lowercase();
+        println!(
+            "{} {}",
+            theme.muted("Configuring selected channels:"),
+            theme.accent(&channel_name)
+        );
+        channels
+    } else {
+        println!("{}", theme.muted("Choose which channels to configure:"));
+        println!("  {}", theme.accent("1) Email"));
+        println!("  {}", theme.accent("2) SMS"));
+        println!("  {}", theme.accent("3) Both"));
+        let choice = prompt_line(&format!("{} ", theme.prompt("Choose 1, 2, or 3:")))?;
+        parse_channels(&choice)?
+    };
     println!(
         "{}",
         theme.muted("Press Enter to keep an existing value. Type /clear to erase it.")

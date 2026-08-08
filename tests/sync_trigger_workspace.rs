@@ -135,7 +135,7 @@ fn detached_request_keeps_canonical_argv_and_carries_the_expected_workspace_uuid
 
     assert_eq!(
         request.args,
-        ["--brain", "family", "sync", "--pull", "--if-idle"]
+        ["--workspace", "family", "sync", "--pull", "--if-idle"]
     );
     assert_eq!(
         request.env,
@@ -168,7 +168,7 @@ fn injected_child_runner_receives_the_immutable_workspace_request() {
         *runner.requests.lock().expect("recording lock"),
         [DetachedSyncRequest {
             args: vec![
-                "--brain".to_owned(),
+                "--workspace".to_owned(),
                 "family".to_owned(),
                 "sync".to_owned(),
                 "--push".to_owned(),

@@ -62,8 +62,16 @@ fn extract_workspace_selectors(args: Vec<String>) -> Vec<String> {
             delegated.extend_from_slice(&tail[index..]);
             break;
         }
-        if argument == "--brain" || argument == "-b" {
-            selectors.push(argument.clone());
+        if argument == "--workspace"
+            || argument == "-w"
+            || argument == "--brain"
+            || argument == "-b"
+        {
+            selectors.push(if argument == "--brain" || argument == "-b" {
+                "--workspace".to_owned()
+            } else {
+                argument.clone()
+            });
             let Some(value) = tail.get(index + 1) else {
                 return vec![program.clone(), argument.clone()];
             };
@@ -74,8 +82,8 @@ fn extract_workspace_selectors(args: Vec<String>) -> Vec<String> {
             index += 2;
             continue;
         }
-        if argument.starts_with("--brain=") {
-            selectors.push(argument.clone());
+        if argument.starts_with("--workspace=") || argument.starts_with("--brain=") {
+            selectors.push(argument.replacen("--brain=", "--workspace=", 1));
         } else {
             delegated.push(argument.clone());
         }
@@ -144,8 +152,13 @@ pub struct Cli {
     pub no_daily_triage_check: bool,
 
     /// Select a workspace by canonical name or alias.
-    #[arg(short = 'b', long = "brain", global = true, value_name = "WORKSPACE")]
-    pub brain: Option<String>,
+    #[arg(
+        short = 'w',
+        long = "workspace",
+        global = true,
+        value_name = "WORKSPACE"
+    )]
+    pub workspace_selector: Option<String>,
 
     #[command(subcommand)]
     pub command: Option<Cmd>,

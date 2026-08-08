@@ -205,14 +205,14 @@ impl Display for ReadinessError {
                 user_id,
             } => write!(
                 formatter,
-                "local user {user_id} is not a portable member\n  brain user local <USER_ID> -b {canonical_name}"
+                "local user {user_id} is not a portable member\n  brain user local <USER_ID> -w {canonical_name}"
             ),
             Self::InvalidLegacyLocalUser {
                 canonical_name,
                 user_id,
             } => write!(
                 formatter,
-                "legacy local user ID `{user_id}` is invalid\n  brain workspace repair -b {canonical_name} --local-user-id <USER_ID>"
+                "legacy local user ID `{user_id}` is invalid\n  brain workspace repair -w {canonical_name} --local-user-id <USER_ID>"
             ),
             Self::Incomplete {
                 canonical_name,
@@ -228,15 +228,15 @@ impl Display for ReadinessError {
                     match field {
                         ReadinessField::Manifest => write!(
                             formatter,
-                            "\n  brain workspace repair -b {canonical_name} --manifest"
+                            "\n  brain workspace repair -w {canonical_name} --manifest"
                         )?,
                         ReadinessField::PortableUsers => write!(
                             formatter,
-                            "\n  brain user add -b {canonical_name} --id <USER_ID> --name <DISPLAY_NAME>\n  brain user local <USER_ID> -b {canonical_name}"
+                            "\n  brain user add -w {canonical_name} --id <USER_ID> --name <DISPLAY_NAME>\n  brain user local <USER_ID> -w {canonical_name}"
                         )?,
                         ReadinessField::LocalUserId => write!(
                             formatter,
-                            "\n  brain user local <USER_ID> -b {canonical_name}"
+                            "\n  brain user local <USER_ID> -w {canonical_name}"
                         )?,
                     }
                 }

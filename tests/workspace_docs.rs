@@ -3,7 +3,7 @@ include!("support/workspace_docs_support.rs");
 #[test]
 fn documented_workspace_commands_and_selectors_exist_in_clap() {
     let root_help = brain_help(&["--help"]);
-    assert!(root_help.contains("-b, --brain <WORKSPACE>"));
+    assert!(root_help.contains("-w, --workspace <WORKSPACE>"));
     assert!(root_help.contains("workspace"));
 
     let workspace_help = brain_help(&["workspace", "--help"]);

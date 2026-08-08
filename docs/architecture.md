@@ -150,7 +150,7 @@ One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
 Env, config, personalization, state, TUI, tasks, reindex, sync, and child
 integrations consume that selection or a path derived from it. Ordinary
 runtime code does not reopen the registry or resolve a global root. Detached
-workspace-owned children carry `--brain <canonical-name>` plus the selected
+workspace-owned children carry `--workspace <canonical-name>` plus the selected
 UUID in `BRAIN_WORKSPACE_ID`; bootstrap refuses the child if that expected UUID
 does not match the selected registry record. Integrations receive
 `BRAIN_WORKSPACE_ID`, `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, and
@@ -206,7 +206,7 @@ The clap derive surface, split by command family. `mod.rs` keeps the parser
 entry, public re-exports, and the small top-level `Cmd`; `global`,
 `configuration`, `tasks`, `sync`, `server`, `workspace`, and `users` own their focused
 arguments. All former `crate::cli::*` type paths remain stable. `Cli` owns the
-global flags, including raw `--brain/-b <workspace>` selection, plus one
+global flags, including raw `--workspace/-w <workspace>` selection, plus one
 optional `Cmd`. The shared real/test parser normalization extracts that selector
 before Clap's delegated `tasks` tail can capture it, including after a task
 positional; `--` stops extraction. Clap retains the exact raw selector, and
@@ -271,10 +271,10 @@ take its exact `RegistryStore`, and the TUI retains the same `Arc` for watcher,
 receiver, session, rendering, state, response, and sync paths. Brain-owned
 children receive the typed workspace/actor integration environment.
 Detached workspace-owned sync children additionally carry
-`--brain <canonical-name>` and an expected `BRAIN_WORKSPACE_ID` that bootstrap
+`--workspace <canonical-name>` and an expected `BRAIN_WORKSPACE_ID` that bootstrap
 checks against the selected registry UUID. The detached shared-server child is the deliberate
 exception: it owns only machine-shared lifecycle/control state and resolves
-request payloads by workspace UUID, so it has no selected `--brain` argument.
+request payloads by workspace UUID, so it has no selected `--workspace` argument.
 
 `requirements/` is the centralized, read-only selected-workspace health
 inspector. It keeps required availability (root, compatible manifest, portable
@@ -465,7 +465,7 @@ overlapping roots fail without changing registry bytes or root contents. Rename,
 aliases, default changes, and removal use `RegistryStore` transactions. Adding
 an alias already present on the same record is a typed error rather than a
 successful no-op. Removal detaches only the record. Bootstrap resolves
-`--brain` once into `CommandContext`; env writes revalidate canonical name plus
+`--workspace` once into `CommandContext`; env writes revalidate canonical name plus
 UUID under the registry transaction, and all ordinary config, personalization,
 task, reindex, sync, receiver, and TUI paths consume that same selected context.
 Legacy root helpers remain only inside the tested one-time migration boundary.
@@ -801,10 +801,10 @@ the IO/threads/`Command`:
   pins the canonical selector and expected UUID; the injected
   `DetachedSyncRunner` boundary makes child launch observable in tests.
   `spawn_detached_sync(workspace, dir)` spawns the current exe as
-  `brain --brain <canonical-name> sync [--pull|--push] --if-idle`, fully
+  `brain --workspace <canonical-name> sync [--pull|--push] --if-idle`, fully
   detached (`process_group(0)` + null stdio), with `BRAIN_WORKSPACE_ID` set to
   the selected UUID. Bootstrap compares that expected UUID with the record
-  selected by `--brain` and refuses a mismatch. Automatic startup, watcher,
+  selected by `--workspace` and refuses a mismatch. Automatic startup, watcher,
   and receiver-freshness triggers go through it, for two reasons: a sync in a
   separate process can never write over the TUI, and a detached child in its own
   process group outlives the shell / terminal close. `--if-idle` makes a

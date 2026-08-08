@@ -74,7 +74,7 @@ always. (Mirror of /todo SKILL.md operating principle 5.)
 At the start of every invocation, after resolving today's date, run:
 
 ```
-brain --brain "$BRAIN_WORKSPACE" config get enable_triage_habits
+brain --workspace "$BRAIN_WORKSPACE" config get enable_triage_habits
 ```
 
 Keep that result for this invocation. When it is `false`, still run the full manual triage workflow. Only the managed habit routing and mutation steps are skipped. Task cleanup, in-basket processing, summaries, extension steps, and the optional background completion signal remain unchanged.

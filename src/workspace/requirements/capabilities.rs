@@ -23,7 +23,7 @@ pub(super) fn requirements(
             FeatureStatus::Incomplete
         },
         vec![PromptMetadata::plain("Access mode")],
-        format!("brain config set -b {name} access_mode=workspace_only"),
+        format!("brain config set -w {name} access_mode=workspace_only"),
     )];
     if config.access_mode == AccessMode::Unrestricted {
         return rows;
@@ -34,7 +34,7 @@ pub(super) fn requirements(
                 RequirementScope::Mcp(capability.clone()),
                 FeatureStatus::Incomplete,
                 vec![PromptMetadata::secret("MCP connection material")],
-                format!("brain env set -b {name} agent_capabilities=<CAPABILITY_JSON>"),
+                format!("brain env set -w {name} agent_capabilities=<CAPABILITY_JSON>"),
             )
         }));
         rows.extend(config.allowed_skills.iter().filter_map(|capability| {
@@ -45,7 +45,7 @@ pub(super) fn requirements(
                 RequirementScope::Skill(capability.clone()),
                 FeatureStatus::Incomplete,
                 vec![PromptMetadata::plain("Skill source")],
-                format!("brain env set -b {name} agent_capabilities=<CAPABILITY_JSON>"),
+                format!("brain env set -w {name} agent_capabilities=<CAPABILITY_JSON>"),
             ))
         }));
         return rows;
@@ -60,7 +60,7 @@ pub(super) fn requirements(
             RequirementScope::Mcp(capability.to_owned()),
             status,
             vec![PromptMetadata::secret("MCP connection material")],
-            format!("brain env set -b {name} agent_capabilities=<CAPABILITY_JSON>"),
+            format!("brain env set -w {name} agent_capabilities=<CAPABILITY_JSON>"),
         )
     }));
     rows.extend(plan.skills.names().into_iter().filter_map(|capability| {
@@ -76,7 +76,7 @@ pub(super) fn requirements(
             RequirementScope::Skill(capability.to_owned()),
             status,
             vec![PromptMetadata::plain("Skill source")],
-            format!("brain env set -b {name} agent_capabilities=<CAPABILITY_JSON>"),
+            format!("brain env set -w {name} agent_capabilities=<CAPABILITY_JSON>"),
         ))
     }));
     rows

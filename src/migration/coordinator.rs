@@ -300,7 +300,7 @@ fn recovery_instructions(
         "The backup path may be incomplete and is retained for forensic inspection. Fix the reported error and resume the journaled migration; never restore only this machine while the rollout journal exists."
     };
     format!(
-        "Backup path: {}\nResume: brain workspace migrate -b {}{acknowledgement}\n{recovery}",
+        "Backup path: {}\nResume: brain workspace migrate -w {}{acknowledgement}\n{recovery}",
         backup.display(),
         crate::session::shell_quote(workspace)
     )
@@ -324,7 +324,7 @@ mod tests {
             );
 
             assert!(instructions.contains(
-                "Resume: brain workspace migrate -b 'family space' --acknowledge-all-machines-updated"
+        "Resume: brain workspace migrate -w 'family space' --acknowledge-all-machines-updated"
             ));
             assert!(instructions.contains("forensic"), "{instructions}");
             assert!(!instructions.contains("cp -pR"), "{instructions}");
@@ -340,7 +340,7 @@ mod tests {
 
         assert!(instructions.contains("remote task schema transition completed"));
         assert!(instructions.contains(
-            "Resume: brain workspace migrate -b 'family' --acknowledge-all-machines-updated"
+            "Resume: brain workspace migrate -w 'family' --acknowledge-all-machines-updated"
         ));
         assert!(!instructions.contains("cp -pR"));
         assert!(!instructions.contains("rm -f"));

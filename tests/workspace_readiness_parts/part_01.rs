@@ -43,7 +43,7 @@ fn legacy_readiness_accepts_exactly_valid_user_ids() {
                 assert!(
                     error
                         .to_string()
-                        .contains("brain workspace repair -b family --local-user-id <USER_ID>")
+                        .contains("brain workspace repair -w family --local-user-id <USER_ID>")
                 );
             }
             Expected::Incomplete => assert!(matches!(

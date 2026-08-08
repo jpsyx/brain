@@ -35,8 +35,8 @@ fn readiness_prompts_interactively_and_errors_actionably_when_headless() {
     )
     .unwrap_err();
     let message = error.to_string();
-    assert!(message.contains("brain workspace repair -b family --manifest"));
-    assert!(message.contains("brain user local <USER_ID> -b family"));
+    assert!(message.contains("brain workspace repair -w family --manifest"));
+    assert!(message.contains("brain user local <USER_ID> -w family"));
 }
 
 #[test]
@@ -149,8 +149,8 @@ fn first_create_is_registry_only_and_the_next_headless_command_names_the_exact_r
         .unwrap();
     assert!(!blocked.status.success());
     let stderr = String::from_utf8(blocked.stderr).unwrap();
-    assert!(stderr.contains("brain user add -b family --id <USER_ID> --name <DISPLAY_NAME>"));
-    assert!(stderr.contains("brain user local <USER_ID> -b family"));
+    assert!(stderr.contains("brain user add -w family --id <USER_ID> --name <DISPLAY_NAME>"));
+    assert!(stderr.contains("brain user local <USER_ID> -w family"));
     assert!(
         !stderr.contains("--manifest"),
         "create already wrote the manifest: {stderr}"

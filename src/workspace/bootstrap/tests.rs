@@ -190,7 +190,7 @@ fn ordinary_workspace_dispatch_never_resolves_a_removed_global_alias_again() {
     };
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();
-    let cli = try_parse_from(["brain", "-b", "fam", "workspace", "list"]).unwrap();
+    let cli = try_parse_from(["brain", "-w", "fam", "workspace", "list"]).unwrap();
     let mut input = Cursor::new(Vec::<u8>::new());
     let mut output = Vec::new();
 

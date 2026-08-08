@@ -113,7 +113,7 @@ fn cli_start_stop_and_startup_flag_drive_exact_persistence_and_refresh() {
     let refresher = RecordingRefresh(Arc::clone(&calls));
 
     for (command, expected) in [("start", true), ("stop", false)] {
-        let cli = crate::cli::try_parse_from(["brain", "-b", "family", "receiver", command])
+        let cli = crate::cli::try_parse_from(["brain", "-w", "family", "receiver", command])
             .expect("parse receiver command");
         let Some(crate::cli::Cmd::Receiver(args)) = cli.command else {
             panic!("receiver command");
@@ -124,7 +124,7 @@ fn cli_start_stop_and_startup_flag_drive_exact_persistence_and_refresh() {
         assert!(!saved.workspaces[&personal_name].receiver_enabled);
     }
 
-    let cli = crate::cli::try_parse_from(["brain", "--with-receiver", "-b", "family"])
+    let cli = crate::cli::try_parse_from(["brain", "--with-receiver", "-w", "family"])
         .expect("parse startup flag");
     apply_startup_receiver_flag_with(cli.with_receiver, &context, &refresher).unwrap();
     let saved = RegistryStore::load_from(store.path()).unwrap();

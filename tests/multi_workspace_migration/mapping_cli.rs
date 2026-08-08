@@ -68,7 +68,7 @@ fn configured_sync_requires_confirmation_or_explicit_acknowledged_headless_selec
     ] {
         let error = brain::migration::migration_gate(input).unwrap_err();
         assert!(
-            error.to_string().contains("--brain <WORKSPACE>"),
+            error.to_string().contains("--workspace <WORKSPACE>"),
             "{error:#}"
         );
         assert!(
@@ -102,14 +102,14 @@ fn headless_mapping_failure_prints_only_shipped_user_command_forms() {
         ],
     );
 
-    assert!(commands.contains("brain user update <USER_ID> -b family --add-phone +12125550100"));
+    assert!(commands.contains("brain user update <USER_ID> -w family --add-phone +12125550100"));
     assert!(
         commands
-            .contains("brain user update <USER_ID> -b family --add-email relative@example.test")
+            .contains("brain user update <USER_ID> -w family --add-email relative@example.test")
     );
-    assert!(commands.contains("brain user add -b family --id relative --name <DISPLAY_NAME>"));
+    assert!(commands.contains("brain user add -w family --id relative --name <DISPLAY_NAME>"));
     assert!(
-        commands.contains("brain user reassign relative <EXISTING_USER_ID> -b family"),
+        commands.contains("brain user reassign relative <EXISTING_USER_ID> -w family"),
         "an unmapped assignment may belong to someone already in the registry: {commands}"
     );
     assert!(!commands.contains("workspace user"));
@@ -260,7 +260,7 @@ fn headless_local_migration_runs_every_step_and_is_byte_idempotent() {
 
     let run = || {
         Command::new(env!("CARGO_BIN_EXE_brain"))
-            .args(["workspace", "migrate", "-b", "family"])
+            .args(["workspace", "migrate", "-w", "family"])
             .env("HOME", &home)
             .env("XDG_CONFIG_HOME", &config_home)
             .env("NO_COLOR", "1")
@@ -273,7 +273,7 @@ fn headless_local_migration_runs_every_step_and_is_byte_idempotent() {
     assert!(!blocked.status.success());
     assert!(
         String::from_utf8_lossy(&blocked.stderr)
-            .contains("brain user add -b family --id alex --name <DISPLAY_NAME>")
+            .contains("brain user add -w family --id alex --name <DISPLAY_NAME>")
     );
     assert_eq!(
         std::fs::read(root.join("tasks/tasks.csv")).unwrap(),

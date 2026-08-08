@@ -116,5 +116,5 @@ fn ordinary_commands_reject_a_local_user_not_in_the_portable_registry() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("local user missing-user is not a portable member"));
-    assert!(stderr.contains("brain user local <USER_ID> -b family"));
+    assert!(stderr.contains("brain user local <USER_ID> -w family"));
 }

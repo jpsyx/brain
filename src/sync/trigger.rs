@@ -58,7 +58,7 @@ fn detached_sync_args(
     dir: Direction,
 ) -> Vec<String> {
     let mut args = vec![
-        "--brain".to_owned(),
+        "--workspace".to_owned(),
         workspace.name().as_str().to_owned(),
         "sync".to_owned(),
     ];
@@ -156,15 +156,15 @@ mod tests {
     fn detached_sync_arguments_pin_the_canonical_workspace() {
         assert_eq!(
             detached_sync_args(&workspace(), Direction::Pull),
-            ["--brain", "family", "sync", "--pull", "--if-idle"]
+            ["--workspace", "family", "sync", "--pull", "--if-idle"]
         );
         assert_eq!(
             detached_sync_args(&workspace(), Direction::Push),
-            ["--brain", "family", "sync", "--push", "--if-idle"]
+            ["--workspace", "family", "sync", "--push", "--if-idle"]
         );
         assert_eq!(
             detached_sync_args(&workspace(), Direction::Both),
-            ["--brain", "family", "sync", "--if-idle"]
+            ["--workspace", "family", "sync", "--if-idle"]
         );
     }
 
@@ -229,15 +229,15 @@ mod tests {
         for (direction, expected) in [
             (
                 Direction::Pull,
-                vec!["--brain", "family", "sync", "--pull", "--if-idle"],
+                vec!["--workspace", "family", "sync", "--pull", "--if-idle"],
             ),
             (
                 Direction::Push,
-                vec!["--brain", "family", "sync", "--push", "--if-idle"],
+                vec!["--workspace", "family", "sync", "--push", "--if-idle"],
             ),
             (
                 Direction::Both,
-                vec!["--brain", "family", "sync", "--if-idle"],
+                vec!["--workspace", "family", "sync", "--if-idle"],
             ),
         ] {
             assert_eq!(detached_sync_args(&selected_context, direction), expected);
