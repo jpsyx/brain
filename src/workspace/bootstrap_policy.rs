@@ -165,7 +165,12 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
             ServerAction::Logs => Invocation::Server,
         },
         Some(Cmd::Receiver(args)) => match args.action {
-            crate::cli::ReceiverServerAction::Status => Invocation::ReceiverStatus,
+            // `url` is informational: it reads the public base URL and the
+            // portable ingress and prints, so it stays on the read-only path
+            // and never depends on receiver intent or a live server.
+            crate::cli::ReceiverServerAction::Status | crate::cli::ReceiverServerAction::Url(_) => {
+                Invocation::ReceiverStatus
+            }
             _ => Invocation::Receiver,
         },
         Some(Cmd::Habits(_)) => Invocation::Habits,

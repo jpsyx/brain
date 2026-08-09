@@ -47,7 +47,7 @@ user types `brain …`
 
 the binary:
   ├─ ordinary run → writes a timestamped `/tmp` log; `--verbose` mirrors logs to stdout
-  ├─ server/receiver status → literal read-only probe with no run log or repair
+  ├─ server/receiver status, receiver url → literal read-only probe, no run log or repair
   ├─ help / version → print and exit without opening the TUI
   ├─ tasks complete / doctor / --no-tui → mutation, health check, or plain output
   ├─ tasks search → opens the persistent TUI with a custom task search
@@ -82,7 +82,7 @@ argv
       ├─→ workspace::bootstrap            (explicit per-invocation policy)
       │    ├─ context-free/internal → no registry, root, or prompt
       │    ├─ create/attach/remove/repair → registry capability only
-      │    ├─ receiver status → read-only selected context, no migration,
+      │    ├─ receiver status/url → read-only selected context, no migration,
       │    │    readiness repair, users transaction recovery, or skills render
       │    └─ ordinary command → migrate only without a valid v2 registry,
       │         select once, validate readiness, repair interactively,

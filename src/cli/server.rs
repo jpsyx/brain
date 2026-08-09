@@ -27,10 +27,26 @@ pub enum ReceiverServerAction {
     Start,
     /// Show persistent receiver intent and current availability.
     Status,
+    /// Print the exact webhook URLs to paste into the provider portals.
+    ///
+    /// Informational only: it reads this machine's public base URL and the
+    /// workspace's portable ingress UUID, so it works before receiver ingress
+    /// is ever enabled or running. Combine with `-w` for another workspace.
+    Url(ReceiverUrlArgs),
     /// Persistently disable receiver ingress for the selected workspace.
     Stop,
     /// Show recent receiver logs.
     Logs,
+}
+
+#[derive(Args, Debug, Default)]
+pub struct ReceiverUrlArgs {
+    /// Print only the Twilio SMS webhook URL.
+    #[arg(long)]
+    pub sms: bool,
+    /// Print only the Resend email webhook URL.
+    #[arg(long)]
+    pub email: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -135,8 +151,39 @@ mod tests {
     }
 
     #[test]
+    fn receiver_url_parses_bare_and_with_either_channel_flag() {
+        for arguments in [
+            vec!["brain", "receiver", "url"],
+            vec!["brain", "receiver", "url", "--sms"],
+            vec!["brain", "receiver", "url", "--email"],
+            // Naming both channels is redundant, not a conflict.
+            vec!["brain", "receiver", "url", "--sms", "--email"],
+            // The global workspace selector composes on either side.
+            vec!["brain", "receiver", "url", "-w", "family"],
+            vec!["brain", "-w", "family", "receiver", "url", "--sms"],
+        ] {
+            let cli = Cli::try_parse_from(&arguments)
+                .unwrap_or_else(|error| panic!("{arguments:?}: {error}"));
+            assert!(
+                matches!(cli.command, Some(Cmd::Receiver(args))
+                    if matches!(args.action, ReceiverServerAction::Url(_))),
+                "{arguments:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn receiver_url_is_classified_as_a_read_only_status_invocation() {
+        // Informational only: it must not take the ready-workspace path, which
+        // would make a purely-printing command depend on workspace mutations.
+        let cli = Cli::try_parse_from(["brain", "receiver", "url"]).expect("parse");
+
+        assert!(crate::workspace::is_read_only_status(&cli));
+    }
+
+    #[test]
     fn receiver_commands_expose_enablement_but_no_manual_lifecycle() {
-        for action in ["setup", "set", "start", "stop", "status", "logs"] {
+        for action in ["setup", "set", "start", "stop", "status", "logs", "url"] {
             assert!(
                 Cli::try_parse_from(["brain", "receiver", action]).is_ok(),
                 "receiver {action} should parse"

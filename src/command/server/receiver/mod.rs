@@ -5,6 +5,7 @@ use anyhow::Result;
 mod enablement;
 mod hooks;
 mod setup;
+mod url;
 
 pub(crate) use enablement::{
     ReceiverIntentRefresher, apply_receiver_action_with, apply_startup_receiver_flag,
@@ -64,6 +65,7 @@ pub(crate) fn run_receiver_with_refresher(
             Ok(())
         }
         ReceiverServerAction::Status => print_receiver_status(context),
+        ReceiverServerAction::Url(args) => url::run(args, context),
         ReceiverServerAction::Logs => crate::server::lifecycle::logs(),
     }
 }

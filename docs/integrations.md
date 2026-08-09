@@ -434,7 +434,8 @@ publication; the process loop observes flags outside the handler and performs
 ordinary Rust cleanup.
 
 The status probe is stricter than ordinary command bootstrap. `brain server
-status` and `brain receiver status -w <workspace>` skip run-log creation and
+status`, `brain receiver status -w <workspace>`, and `brain receiver url`
+skip run-log creation and
 all workspace mutation seams, including registry migration, access-mode or user
 repair, users transaction recovery, installed-skill rendering, and render-stamp
 writes. They inspect only existing process/control state and existing selected

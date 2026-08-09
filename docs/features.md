@@ -269,7 +269,8 @@ management and reporting commands stay outside the persistent shell.
 | `brain habits kill` | Stop a background habits server. It is rejected while any brain TUI is open. |
 | `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
 | `brain config set enable_daily_triage_check=false` | Open the TUI without ever showing the daily-triage startup nudge. Portable config, so every machine on the workspace agrees; the palette still toggles it per session. |
-| `brain receiver {setup\|set\|start\|stop\|status\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, or read shared-process logs. No receiver command starts or restarts a process. |
+| `brain receiver {setup\|set\|start\|stop\|status\|url\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, print the provider webhook URLs, or read shared-process logs. No receiver command starts or restarts a process. |
+| `brain receiver url [--sms\|--email]` | Print the exact webhook URLs to paste into the Twilio/Resend portals for the selected workspace (`-w` picks another). Informational: it reads this machine's `brain_receiver_public_url` and the workspace's portable ingress UUID, so it works before receiver ingress is ever enabled or running. Both channels by default. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
@@ -1295,7 +1296,8 @@ Status requires both persisted intent and an enabled exact live lease before it
 reports `Accepting yes`; a live but disabled lease reports `TUI live` and
 `Accepting no`.
 
-`brain server status` and `brain receiver status -w <workspace>` are literal
+`brain server status`, `brain receiver status -w <workspace>`, and
+`brain receiver url -w <workspace>` are literal
 read-only probes. They do not write a diagnostic run log, migrate or repair
 configuration, create a users transaction lock, refresh installed skills,
 write the skill render stamp, or elect/start/churn the shared process. Receiver

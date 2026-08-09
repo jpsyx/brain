@@ -114,6 +114,9 @@ fn print_receiver_refresh_warning(outcome: &ReceiverActionOutcome) {
 pub(super) fn print_receiver_status(context: &crate::workspace::CommandContext) -> Result<()> {
     let status = read_receiver_status(context)?;
     print_receiver_status_snapshot(status);
+    // The provider portals need these whether or not ingress is live, so status
+    // reports them alongside intent rather than only at the end of setup.
+    println!("{}", super::url::status_block(context));
     let requirements = crate::workspace::requirements(context)?
         .into_iter()
         .filter(|requirement| {

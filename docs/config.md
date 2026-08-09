@@ -578,7 +578,13 @@ environment, so a workspace cannot inherit another workspace's shell values.
 The setup prompt asks for one public base URL, such as
 `https://brain.example.com`, loads the stable ingress from the selected
 portable manifest, and derives exact webhook endpoints
-`/w/<ingress>/sms` and `/w/<ingress>/email`. Provider values are saved as
+`/w/<ingress>/sms` and `/w/<ingress>/email`. Setup prints them when it
+finishes, and `brain receiver url` (optionally narrowed with `--sms` /
+`--email`) and `brain receiver status` reprint them at any time from the same
+two inputs — deliberately without consulting receiver intent or a live server,
+since a provider portal is configured *before* ingress is ever enabled. Both
+report which variable to set when this machine has no public base URL for the
+workspace, rather than printing a URL with a missing origin. Provider values are saved as
 strings in one selected-record transaction, including values that look numeric.
 A shared validation step for guided and headless setup requires an HTTPS origin
 without a path, query, fragment, or credentials; normalizes the Twilio sender to
