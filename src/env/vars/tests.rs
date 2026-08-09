@@ -97,7 +97,7 @@ fn registry_backed_command() -> (tempfile::TempDir, CommandContext) {
     let name = crate::workspace::WorkspaceName::parse("brain").unwrap();
     let id = crate::workspace::WorkspaceId::parse("31e0f0f0-1c3b-4d7a-9f2e-8a5c6b7d8e90").unwrap();
     let registry = crate::workspace::MachineRegistry {
-        schema_version: 2,
+        schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
         default_workspace: name.clone(),
         workspaces: BTreeMap::from([(
             name.clone(),
@@ -110,6 +110,7 @@ fn registry_backed_command() -> (tempfile::TempDir, CommandContext) {
                 env: Map::new(),
             },
         )]),
+        env: serde_json::Map::new(),
     };
     let store =
         crate::workspace::RegistryStore::from_path(home.path().join("config/brain/env.json"));
@@ -130,6 +131,53 @@ fn registry_backed_command() -> (tempfile::TempDir, CommandContext) {
         "pablo",
     );
     (home, command)
+}
+
+#[test]
+fn the_markdown_to_pdf_path_is_stored_once_for_the_whole_machine() {
+    let (_home, command) = registry_backed_command();
+
+    set(&command, "markdown_to_pdf_path", "/opt/markdown-to-pdf").expect("set global");
+
+    // It reads back through the ordinary env surface…
+    assert_eq!(
+        resolve_one(&command, "markdown_to_pdf_path").as_deref(),
+        Some("/opt/markdown-to-pdf")
+    );
+    // …but lives in the registry's machine-global map, not in the workspace
+    // record, so a second workspace on this machine cannot disagree with it.
+    let registry = crate::workspace::RegistryStore::load_from(command.registry_store.path())
+        .expect("registry");
+    assert_eq!(
+        registry
+            .env
+            .get("markdown_to_pdf_path")
+            .and_then(Value::as_str),
+        Some("/opt/markdown-to-pdf")
+    );
+    assert!(
+        registry
+            .workspaces
+            .values()
+            .all(|record| !record.env.contains_key("markdown_to_pdf_path"))
+    );
+}
+
+#[test]
+fn a_workspace_scoped_variable_still_lands_in_its_own_record() {
+    let (_home, command) = registry_backed_command();
+
+    set(&command, "claude_cmd", "claude --resume").expect("set workspace value");
+
+    let registry = crate::workspace::RegistryStore::load_from(command.registry_store.path())
+        .expect("registry");
+    assert!(registry.env.get("claude_cmd").is_none());
+    assert!(
+        registry
+            .workspaces
+            .values()
+            .any(|record| record.env.contains_key("claude_cmd"))
+    );
 }
 
 #[test]

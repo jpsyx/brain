@@ -13,7 +13,11 @@ use crate::users::UserId;
 use crate::workspace::{WorkspaceId, WorkspaceName};
 
 /// The only registry schema this release accepts.
-pub const REGISTRY_SCHEMA_VERSION: u32 = 2;
+///
+/// v3 added the top-level `env` map for machine-global values. An older file is
+/// upgraded in place on the next `brain` invocation (see
+/// [`super::upgrade`]).
+pub const REGISTRY_SCHEMA_VERSION: u32 = 3;
 
 /// A user-facing surface that changes persistent receiver intent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +56,11 @@ pub struct MachineRegistry {
     /// Siloed records keyed by canonical workspace name.
     #[serde(deserialize_with = "deserialize_workspaces")]
     pub workspaces: BTreeMap<WorkspaceName, WorkspaceRecord>,
+    /// Machine-global environment: values that describe **this machine**, not
+    /// any one workspace, so every registered workspace reads the same answer.
+    /// Empty is the common case and is omitted from the file.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub env: Map<String, Value>,
 }
 
 #[derive(Deserialize)]
@@ -61,6 +70,8 @@ pub(super) struct RawMachineRegistry {
     default_workspace: WorkspaceName,
     #[serde(deserialize_with = "deserialize_workspaces")]
     workspaces: BTreeMap<WorkspaceName, WorkspaceRecord>,
+    #[serde(default)]
+    env: Map<String, Value>,
 }
 
 /// Machine-local configuration for one workspace.
@@ -147,6 +158,7 @@ impl TryFrom<RawMachineRegistry> for MachineRegistry {
             schema_version: raw.schema_version,
             default_workspace: raw.default_workspace,
             workspaces: raw.workspaces,
+            env: raw.env,
         };
         validate_registry(&registry)?;
         Ok(registry)

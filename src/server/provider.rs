@@ -220,12 +220,13 @@ mod tests {
             None,
         );
         let registry = MachineRegistry {
-            schema_version: 2,
+            schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
             default_workspace: personal_name.clone(),
             workspaces: BTreeMap::from([
                 (personal_name, personal.clone()),
                 (family_name, family.clone()),
             ]),
+            env: serde_json::Map::new(),
         };
         let store = RegistryStore::from_path(home.path().join("config/brain/env.json"));
         store.replace(&registry).expect("write registry");

@@ -47,12 +47,13 @@ fn registry_with_brain_and_family() -> MachineRegistry {
             ),
             (name("family"), family),
         ]),
+        env: serde_json::Map::new(),
     }
 }
 
 fn valid_registry_json() -> Value {
     json!({
-        "schema_version": 2,
+        "schema_version": 3,
         "default_workspace": "brain",
         "workspaces": {
             "brain": {

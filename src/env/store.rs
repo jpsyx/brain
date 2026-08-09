@@ -1,7 +1,36 @@
-//! Machine-local env access for one already-selected workspace.
+//! Machine-local env access: the selected workspace's siloed map, plus the
+//! registry's machine-global map that every workspace shares.
 
 use anyhow::Result;
 use serde_json::{Map, Value};
+
+/// Read the machine-global env (the registry's top-level `env`). A missing or
+/// unreadable registry yields an empty map — a broken env never blocks startup.
+#[must_use]
+pub(crate) fn load_global_map(command: &crate::workspace::CommandContext) -> Map<String, Value> {
+    crate::workspace::RegistryStore::load_from(command.registry_store.path())
+        .map(|registry| registry.env)
+        .unwrap_or_default()
+}
+
+/// Replace the machine-global env under the registry transaction.
+///
+/// Deliberately unconditioned on the selected workspace: the value describes the
+/// machine, so there is no workspace identity to re-verify here.
+pub(super) fn save_global_map(
+    command: &crate::workspace::CommandContext,
+    map: &Map<String, Value>,
+) -> Result<()> {
+    command
+        .registry_store
+        .transaction(|transaction| -> Result<()> {
+            let mut registry = transaction.load()?;
+            registry.env.clone_from(map);
+            crate::workspace::validate_registry(&registry)?;
+            transaction.save(&registry)?;
+            Ok(())
+        })
+}
 
 /// Read the store as a JSON object. A missing/unreadable/non-object file yields
 /// an empty map — a broken env never blocks startup.
@@ -70,7 +99,7 @@ mod tests {
         let name = WorkspaceName::parse("family").unwrap();
         let id = WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap();
         let registry = MachineRegistry {
-            schema_version: 2,
+            schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
             default_workspace: name.clone(),
             workspaces: BTreeMap::from([(
                 name.clone(),
@@ -83,6 +112,7 @@ mod tests {
                     env: Map::new(),
                 },
             )]),
+            env: serde_json::Map::new(),
         };
         let store = RegistryStore::from_path(home.path().join("config/brain/env.json"));
         store.replace(&registry).unwrap();

@@ -214,6 +214,7 @@ impl Fixture {
                         )]),
                     },
                 )]),
+                env: serde_json::Map::new(),
             })
             .unwrap();
         let command = CommandContext::new(workspace, store).unwrap();

@@ -18,6 +18,9 @@ use crate::workspace::{CommandContext, MachineRegistry, WorkspaceId};
 /// beside it is machine-global.
 const WORKSPACES_KEY: &str = "workspaces";
 
+/// The top-level object holding machine-global env values.
+const GLOBAL_ENV_KEY: &str = "env";
+
 /// Descriptions for the machine-global keys brain itself owns.
 const GLOBAL_VARS: [(&str, &str); 2] = [
     (
@@ -109,7 +112,15 @@ fn global_rows(raw: &Map<String, Value>) -> Vec<Resolved> {
     let global = raw
         .iter()
         .filter(|(name, _)| name.as_str() != WORKSPACES_KEY)
-        .map(|(name, value)| (name.clone(), value.clone()))
+        .flat_map(|(name, value)| {
+            // The machine-global `env` object is lifted to bare names: a user
+            // types `brain env set markdown_to_pdf_path=…`, so the row that
+            // reports it should read the same way rather than as `env.<name>`.
+            if name == GLOBAL_ENV_KEY {
+                return value.as_object().cloned().unwrap_or_default();
+            }
+            Map::from_iter([(name.clone(), value.clone())])
+        })
         .collect::<Map<String, Value>>();
     super::vars::flatten_map(&global)
         .into_iter()
@@ -122,8 +133,9 @@ fn global_rows(raw: &Map<String, Value>) -> Vec<Resolved> {
             description: GLOBAL_VARS
                 .iter()
                 .find(|(declared, _)| *declared == name)
-                .map_or(GLOBAL_FALLBACK_DESCRIPTION, |(_, description)| description)
-                .to_owned(),
+                .map(|(_, description)| (*description).to_owned())
+                .or_else(|| super::schema::declared_description(&name).map(str::to_owned))
+                .unwrap_or_else(|| GLOBAL_FALLBACK_DESCRIPTION.to_owned()),
             name,
         })
         .collect()

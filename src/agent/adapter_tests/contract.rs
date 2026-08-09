@@ -102,7 +102,7 @@ fn configured_command_context() -> (tempfile::TempDir, CommandContext) {
         ),
     ]);
     let registry = MachineRegistry {
-        schema_version: 2,
+        schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
         default_workspace: name.clone(),
         workspaces: BTreeMap::from([(
             name.clone(),
@@ -115,6 +115,7 @@ fn configured_command_context() -> (tempfile::TempDir, CommandContext) {
                 env,
             },
         )]),
+        env: serde_json::Map::new(),
     };
     let store = RegistryStore::from_path(temporary.path().join("env.json"));
     store.replace(&registry).expect("registry");

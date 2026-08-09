@@ -67,6 +67,7 @@ pub(super) fn test_app<'a>(
                     )]),
                 },
             )]),
+            env: serde_json::Map::new(),
         })
         .expect("write test registry");
     let context = CommandContext::for_test(Arc::new(workspace), registry_store, "pablo");

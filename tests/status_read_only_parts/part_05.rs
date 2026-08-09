@@ -58,7 +58,7 @@ fn seed_ready_workspace(home: &Path) {
     std::fs::write(
         home.join(".config/brain/env.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
-            "schema_version": 2,
+            "schema_version": 3,
             "default_workspace": "brain",
             "workspaces": {
                 "brain": {

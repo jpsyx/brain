@@ -34,7 +34,7 @@ impl Fixture {
         let personal_name = WorkspaceName::parse("personal").expect("personal name");
         let family_name = WorkspaceName::parse("family").expect("family name");
         let registry = MachineRegistry {
-            schema_version: 2,
+            schema_version: brain::workspace::REGISTRY_SCHEMA_VERSION,
             default_workspace: personal_name.clone(),
             workspaces: BTreeMap::from([
                 (
@@ -56,6 +56,7 @@ impl Fixture {
                     ),
                 ),
             ]),
+            env: serde_json::Map::new(),
         };
         let store = RegistryStore::from_path(home.path().join("config/brain/env.json"));
         store.replace(&registry).expect("registry fixture");

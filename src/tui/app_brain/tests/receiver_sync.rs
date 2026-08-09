@@ -96,6 +96,7 @@ fn configure_receiver_sync(app: &App<'_>) {
                     env: serde_json::Map::new(),
                 },
             )]),
+            env: serde_json::Map::new(),
         })
         .unwrap();
     let mut registry = RegistryStore::load_from(app.command_context.registry_store.path()).unwrap();

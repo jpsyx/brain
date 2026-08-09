@@ -106,6 +106,7 @@ fn read_only_workspace_list_skips_mutating_bootstrap_hooks() {
                 },
             ),
         ]),
+        env: serde_json::Map::new(),
     };
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();
@@ -187,6 +188,7 @@ fn ordinary_workspace_dispatch_never_resolves_a_removed_global_alias_again() {
                 },
             ),
         ]),
+        env: serde_json::Map::new(),
     };
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();

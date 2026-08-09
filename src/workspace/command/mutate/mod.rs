@@ -218,8 +218,14 @@ pub(super) fn execute(
     Ok(())
 }
 
+/// Read the registry for a workspace command's own inspection.
+///
+/// Tolerant of an older schema (upgraded in memory, never written here) so a
+/// read-only inventory still reports on a machine that has not run an ordinary
+/// command since the schema changed. Every mutation reloads strictly inside its
+/// transaction, so nothing is written from this value.
 pub(super) fn load_registry(store: &RegistryStore) -> anyhow::Result<MachineRegistry> {
-    RegistryStore::load_from(store.path()).map_err(Into::into)
+    RegistryStore::load_readable(store.path()).map_err(Into::into)
 }
 
 pub(super) fn home_dir() -> anyhow::Result<PathBuf> {

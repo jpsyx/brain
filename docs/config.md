@@ -7,7 +7,7 @@ they are never inherited or merged from the default or another record.
 
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
-| **brain env / workspace registry** | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`, outside every brain root) | `brain workspace …` manages records; `brain env …` reads and writes the already-selected record | **No**: machine-local, never rides any workspace sync | Schema-v2 canonical default plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
+| **brain env / workspace registry** | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`, outside every brain root) | `brain workspace …` manages records; `brain env …` reads and writes the already-selected record | **No**: machine-local, never rides any workspace sync | Schema-v3 canonical default, a machine-global `env` map, plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
 | **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes**: travels with the brain | Portable `access_mode`, logical `allowed_mcps`/`allowed_skills`, `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
@@ -37,6 +37,15 @@ Ask these two questions **in order**. The first one that answers settles it.
    env** (machine-level). If they must agree, it is **brain config** (one value
    for every machine on the workspace).
 
+Brain env then has two scopes, and one more question picks between them:
+
+2a. **Could two workspaces on the *same machine* sensibly hold different
+    values?** If yes, the value belongs in that machine's **workspace record**
+    (`workspaces.<name>.env`) — a receiver URL, a sync block, a per-workspace
+    credential. If no, it is **machine-global** (the registry's top-level `env`):
+    `markdown_to_pdf_path` names one binary on one machine, and answering it
+    differently per workspace was never meaningful.
+
 Note the unit in question 2: a **machine**, not a user. One person may connect
 several machines to the same workspace, and several people may connect their
 own; "machine-level" means per-installation either way. Content *about a person*
@@ -48,8 +57,9 @@ Worked examples:
 | Variable | Store | Why |
 | --- | --- | --- |
 | `root`, `sync.*` | env | Q1: needed before the workspace exists locally. |
-| `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, `opencode_cmd` | env | Q2: an absolute path/command that is only correct on the machine that has that binary. |
-| `default_agent_frontend` | env | Q2: which frontend you drive is a per-machine preference; a laptop with only Claude installed must not be forced onto Codex by another machine. |
+| `claude_cmd`, `codex_cmd`, `opencode_cmd` | env (workspace record) | Q2: an absolute path/command that is only correct on the machine that has that binary. Q2a: a workspace may legitimately launch its frontend differently. |
+| `markdown_to_pdf_path` | env (machine-global) | Q2: a machine-specific binary path. Q2a: one machine, one binary — every workspace on it must resolve the same one. |
+| `default_agent_frontend` | workspace record | env | Q2: which frontend you drive is a per-machine preference; a laptop with only Claude installed must not be forced onto Codex by another machine. |
 | `twilio_*`, `resend_*`, `brain_receiver_public_url` | env | Q2: exactly one machine serves receiver ingress for a workspace at a time, so the provider credentials and public URL belong to that machine, not to every machine. |
 | `linear_workspace`, `access_mode`, `allowed_skills`, `enable_triage_habits`, `enable_daily_triage_check` | config | Q2: a workspace-wide policy or slug that would be a bug to have disagree between machines. |
 
@@ -60,7 +70,7 @@ flag — see the CLI ↔ command-palette parity rule in `AGENTS.md`.
 ## Machine workspace registry (`~/.config/brain/env.json`)
 
 `~/.config/brain/env.json` is the sole machine-global workspace registry
-(`$XDG_CONFIG_HOME/brain/env.json` when XDG config is set). Schema version `2`
+(`$XDG_CONFIG_HOME/brain/env.json` when XDG config is set). Schema version `3`
 stores a canonical default and a sorted map of canonical workspace names to
 complete `WorkspaceRecord` values. Each record owns its own machine root,
 immutable UUID, aliases, `local_user_id`, `receiver_enabled` switch, and `env`
@@ -68,7 +78,7 @@ object. The `env` object is siloed: selecting a canonical name, an alias, or the
 default returns only that record, with no copying or merging from any other
 workspace. Portable access policy never lives in this machine-local file.
 
-Registry loads accept only exact schema version `2`, a non-empty record map, a
+Registry loads accept only exact schema version `3`, a non-empty record map, a
 default that names a canonical record, unique canonical/alias selectors under
 ASCII case folding, unique UUIDs, and non-overlapping absolute roots compared
 after lexical normalization. Every writer first acquires the adjacent
@@ -107,7 +117,7 @@ when needed. Changing the default workspace never changes access mode, root,
 local user, receiver enablement, aliases, identity, or env. Remove detaches
 only the machine record and never deletes the root.
 
-`brain workspace` explicitly loads this schema-v2 registry and applies every
+`brain workspace` explicitly loads this schema-v3 registry and applies every
 mutation through `RegistryStore`'s interprocess transaction and atomic-save
 boundaries. Startup migration and selected-record `brain env` writes use the
 same lock, so they cannot overwrite a workspace command.
@@ -150,7 +160,7 @@ pointer bytes, the root tree, manifests, backups, and registry bytes unchanged.
 Complete noninteractive forms skip terminal IO and then perform any required
 migration before executing the prepared request. Workspace commands run before
 the `markdown-to-pdf` gate; on a genuinely fresh machine, first
-`create`/`attach` can therefore establish the initial schema-v2 registry
+`create`/`attach` can therefore establish the initial schema-v3 registry
 without migration inventing a competing default.
 
 ### Portable manifest and readiness
@@ -222,7 +232,7 @@ their current values.
 `access_mode` belongs to portable workspace config, never the machine registry.
 The first migrated or created workspace is seeded as `unrestricted`; a later
 created or attached workspace is seeded as `workspace_only`. An already-present
-valid portable value wins. A selected schema-v2 record is checked before an
+valid portable value wins. A selected schema-v3 record is checked before an
 ordinary mutating or TUI command, and a missing mode is seeded according to
 current default/nondefault status. Read-only `workspace list` does not seed or
 repair any record. Changing the machine default changes routing only and never
@@ -276,20 +286,27 @@ owned by its adapter.
 
 ### Selected workspace env
 
-Machine-local env values live inside the selected workspace record at the
-fixed registry path. They do **not** depend on the workspace root and never
-ride whatever syncs that root (Backblaze, a cloud drive, etc.). Structural
+Machine-local env values live at the fixed registry path, most of them inside
+the selected workspace record. They do **not** depend on the workspace root and
+never ride whatever syncs that root (Backblaze, a cloud drive, etc.). Structural
 record fields are managed by `brain workspace`, not exposed as free-form env.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
-| `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
-| `codex_cmd` | `codex` | Command that launches the brain panel's Codex frontend on **this machine**. Current live panels start fresh because the adapter rejects resume candidates; the compatibility command builder retains `resume <id>` syntax for a validated future source. Fresh Codex panels launch without Claude-only `--session-id` / `--resume` flags. Blank falls back to `codex`. |
-| `opencode_cmd` | `opencode` | Command used to launch OpenCode on **this machine**. Blank falls back to `opencode`; Brain appends `--agent brain`, optional validated `--session <id>`, and optional `--prompt <text>`. The command must pass Brain's isolated supported-feature probes. |
-| `default_agent_frontend` | `claude` | Frontend the brain panel launches on **this machine** when no `--claude` / `--codex` / `--open-code` flag is passed. Exactly one of `claude`, `codex`, `opencode`; `brain env set` also accepts the flag's `open-code` spelling and stores it canonically, and rejects any other value. Machine-local because a machine that has only one frontend installed must not be dragged onto another by a peer machine. An unreadable stored value falls back to `claude` rather than failing the command. |
-| `agent_capabilities` | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
-| `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus the mandatory startup pull and change-triggered pushes; there is no periodic idle pull. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
+A few values are **machine-global** instead: they live in the registry's
+top-level `env` object, outside every record, because two workspaces on one
+machine could not sensibly disagree about them (see question 2a above).
+`brain env get/set` addresses them by the same bare name; `brain env` reports
+them once in the machine-global section rather than repeating them under every
+workspace.
+
+| Variable | Scope | Default | Meaning |
+| --- | --- | --- | --- |
+| `markdown_to_pdf_path` | machine-global | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**, shared by every workspace registered here. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
+| `claude_cmd` | workspace record | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
+| `codex_cmd` | workspace record | `codex` | Command that launches the brain panel's Codex frontend on **this machine**. Current live panels start fresh because the adapter rejects resume candidates; the compatibility command builder retains `resume <id>` syntax for a validated future source. Fresh Codex panels launch without Claude-only `--session-id` / `--resume` flags. Blank falls back to `codex`. |
+| `opencode_cmd` | workspace record | `opencode` | Command used to launch OpenCode on **this machine**. Blank falls back to `opencode`; Brain appends `--agent brain`, optional validated `--session <id>`, and optional `--prompt <text>`. The command must pass Brain's isolated supported-feature probes. |
+| `default_agent_frontend` | workspace record | `claude` | Frontend the brain panel launches on **this machine** when no `--claude` / `--codex` / `--open-code` flag is passed. Exactly one of `claude`, `codex`, `opencode`; `brain env set` also accepts the flag's `open-code` spelling and stores it canonically, and rejects any other value. Machine-local because a machine that has only one frontend installed must not be dragged onto another by a peer machine. An unreadable stored value falls back to `claude` rather than failing the command. |
+| `agent_capabilities` | workspace record | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
+| `sync` | workspace record | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus the mandatory startup pull and change-triggered pushes; there is no periodic idle pull. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
 
 OpenCode launch configuration is supplied through `OPENCODE_CONFIG_CONTENT`.
 If that variable already exists, it must contain a JSON object. Brain preserves
@@ -346,7 +363,7 @@ than only the selected record. It has four parts:
 
 1. **`registry:`** — the absolute path of the `env.json` being read.
 2. **Global** — every top-level `env.json` key that is *not* under
-   `workspaces`, flattened to dotted paths. On a schema-v2 registry that is
+   `workspaces`, flattened to dotted paths. On a schema-v3 registry that is
    `schema_version` and `default_workspace`; an undeclared top-level key still
    lists, described generically, so nothing in the file is invisible.
 3. **Workspaces** — one block per registered workspace, in canonical-name order,
@@ -455,7 +472,7 @@ rclone-less) sync is a normal, healthy state.
 
 ### Structural workspace root and legacy back-compat
 
-`root` is a required structural field on each schema-v2 `WorkspaceRecord`, not
+`root` is a required structural field on each schema-v3 `WorkspaceRecord`, not
 a free-form env key. Workspace create/attach and the one-time legacy migration
 establish it; ordinary commands use the immutable root snapshot in their
 selected `WorkspaceContext`. `brain env set root=...` is therefore rejected
@@ -466,9 +483,26 @@ compatibility seam for legacy migration only: pre-migration flat `root`, then
 the read-only `~/.config/brain-root` pointer, then `~/brain`. It is not an
 ordinary TUI, config, task, receiver-payload, or sync workspace selector.
 
-**Migration.** When bootstrap finds an invalid or non-v2 `env.json`, Brain
-passes it through `env::migrate`. A valid schema-v2 registry remains
-byte-for-byte unchanged. Ordinary selected-workspace startup and selected
+**Migration.** When bootstrap finds an `env.json` that is invalid or not at the
+current schema, Brain passes it through `env::migrate`. A valid current-schema
+registry remains byte-for-byte unchanged. There are two distinct paths:
+
+**Schema upgrade (v2 → v3), in place.** A registry at an older schema keeps
+every record — UUID, root, aliases, local user, receiver intent, and the rest of
+its env — and only moves machine-scoped values out of the records into the new
+top-level `env` map. Today that is `markdown_to_pdf_path`. If several records
+carried one, the first in **canonical workspace-name order** wins and the rest
+are dropped: they name a single binary on a single machine, so any is as good as
+another, and choosing deterministically means every retry and every command
+agrees. A blank value never displaces a real one. The exact previous bytes are
+written to `env.json.legacy-backup` first, and the whole rewrite happens inside
+the registry transaction, so an interrupted upgrade leaves the old file intact.
+It runs on the next **ordinary** command — no user has to ask for it. Read-only
+probes (`brain workspace list`, `brain sync status`, `brain receiver status`,
+`brain tasks doctor`) instead upgrade the value **in memory** and report
+normally, because a status command must neither fail on an old schema nor write.
+
+**Legacy flat env (pre-registry).** Ordinary selected-workspace startup and selected
 `brain workspace repair` validate or seed only the selected root's portable
 access mode; they do not inspect other registered roots. `brain workspace
 list` and the explicit whole-registry migration path validate or seed every

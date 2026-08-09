@@ -229,6 +229,7 @@ fn first_registry(canonical_name: WorkspaceName, record: WorkspaceRecord) -> Mac
         schema_version: REGISTRY_SCHEMA_VERSION,
         default_workspace: canonical_name.clone(),
         workspaces: BTreeMap::from([(canonical_name, record)]),
+        env: Map::new(),
     }
 }
 

@@ -430,7 +430,7 @@ brain env get root -w family
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `root` | selected workspace root | Registry-owned and read-only through `brain env`. |
-| `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on this machine. |
+| `markdown_to_pdf_path` | *(auto-discovered)* | Path to the `markdown-to-pdf` command on this machine. Machine-global: one value shared by every workspace registered here, so `-w` makes no difference to it. |
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command the Claude brain panel launches on this machine. |
 | `codex_cmd` | `codex` | Command the Codex brain panel launches on this machine. |
 | `opencode_cmd` | `opencode` | Command the OpenCode brain panel launches on this machine. |

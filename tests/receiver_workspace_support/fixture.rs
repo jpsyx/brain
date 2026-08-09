@@ -96,9 +96,10 @@ impl SharedReceiverFixture {
         )]);
         let anchor_workspace = with_anchor.then(|| make_anchor_workspace(&home, &mut workspaces));
         let registry = brain::workspace::MachineRegistry {
-            schema_version: 2,
+            schema_version: brain::workspace::REGISTRY_SCHEMA_VERSION,
             default_workspace: name,
             workspaces,
+            env: serde_json::Map::new(),
         };
         let store =
             brain::workspace::RegistryStore::from_path(home.path().join(".config/brain/env.json"));

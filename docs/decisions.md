@@ -2846,3 +2846,61 @@ with a transactional schema change.
 The command is `brain persona`, with `personalize` kept as a hidden alias:
 "personalize" describes an action on a singular *you*, which is exactly the
 assumption that broke.
+
+## `markdown_to_pdf_path` is machine-global, because a machine has one of them
+
+Brain env was per workspace: every value lived in the selected workspace's
+record, siloed so one workspace could never read another's. That is right for
+almost everything it holds — a receiver URL, a sync block, provider credentials,
+a frontend launch command are all things two workspaces on one laptop may
+legitimately answer differently.
+
+`markdown_to_pdf_path` was never one of those. It names where the
+`markdown-to-pdf` binary is installed on **this machine**. Two workspaces on the
+same machine pointing at different copies is not a configuration, it is a
+mistake waiting to be discovered. The per-workspace shape produced exactly that:
+auto-discovery ran per workspace, so the answer was stored once per workspace,
+`brain env` listed the same path under every block as if each owned its own, and
+a user who fixed the path in one workspace still had a stale one in the next.
+
+So schema v3 adds a top-level `env` map for values scoped to the machine, and
+the env layer routes reads and writes by scope
+(`env::schema::MACHINE_GLOBAL_VARS`). The question that decides scope is in
+[config.md](config.md#deciding-which-store-owns-a-new-variable) as 2a: *could
+two workspaces on the same machine sensibly hold different values?*
+
+**The upgrade runs on the next ordinary command, not on request.** A schema bump
+the user has to know about is a schema bump most users never perform. A v2 file
+fails the exact-version check, which already routes through `env::migrate`; the
+upgrade preserves every record untouched and moves only the hoisted keys. When
+several workspaces carried a path, the first in canonical-name order wins. Any
+of them would do — they name one binary — but picking *deterministically* means
+the result does not depend on which command happened to trigger it, and a retry
+after an interrupted run reaches the same answer. A blank value never displaces
+a real one, since an empty string resolves as "unset" and hoisting it would lose
+the only real path on the machine.
+
+**Read-only probes upgrade in memory and write nothing.** `brain workspace list`
+and the status commands are documented as literal read-only probes. Refusing to
+report on an old schema would be the worst of both: the user updated Brain and
+the first thing they typed failed, with no way forward that a status command is
+allowed to take. So `RegistryStore::load_readable` applies the same pure upgrade
+in memory, reports normally, and leaves the file for the next ordinary command
+to rewrite properly — with its backup and its transaction.
+
+## `brain workspace list` reports health for every workspace unless you name one
+
+The list rendered every registered workspace's identity rows but only the
+*selected* workspace's requirements, so on a two-workspace machine the second
+one's feature health was invisible — including the setup it was still missing.
+The header said "Workspaces" while the body answered a narrower question.
+
+The selector decides the scope, which is what `-w` means everywhere else in
+Brain: `brain workspace list` is a machine inventory and reports every
+workspace's health; `brain workspace list -w family` asks about one and reports
+one. A peer workspace gets its own read-only `CommandContext` built from its
+record for the inspection; a peer that cannot be inspected (still needs setup,
+unreadable root) renders a one-line note naming the repair command instead of
+failing the command. The inventory is exactly where a user looks to discover
+that a workspace needs setup, so a half-configured workspace must not be able to
+take the listing down with it.

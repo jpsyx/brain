@@ -188,7 +188,7 @@ fn selected_registry_record_is_the_only_machine_capability_source() {
     let family_name = WorkspaceName::parse("family").expect("family name");
     let store = RegistryStore::from_path(home.path().join(".config/brain/env.json"));
     let registry = MachineRegistry {
-        schema_version: 2,
+        schema_version: brain::workspace::REGISTRY_SCHEMA_VERSION,
         default_workspace: family_name.clone(),
         workspaces: BTreeMap::from([
             (
@@ -232,6 +232,7 @@ fn selected_registry_record_is_the_only_machine_capability_source() {
                 },
             ),
         ]),
+        env: serde_json::Map::new(),
     };
     store.replace(&registry).expect("write registry");
     let before = std::fs::read(store.path()).expect("registry bytes");

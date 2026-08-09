@@ -119,6 +119,7 @@ fn empty_registry_is_rejected_with_the_exact_variant() {
         schema_version: REGISTRY_SCHEMA_VERSION,
         default_workspace: name("brain"),
         workspaces: BTreeMap::new(),
+        env: serde_json::Map::new(),
     };
 
     assert_eq!(

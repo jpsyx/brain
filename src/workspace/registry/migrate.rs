@@ -103,6 +103,11 @@ fn migrate_locked(
             portable_setup_required,
         });
     }
+    // A previous schema is upgraded in place, keeping every workspace record and
+    // its identity. Only the flat pre-registry env below builds a new registry.
+    if let Some(outcome) = upgrade_previous_schema(transaction, config_dir, legacy_body)? {
+        return Ok(outcome);
+    }
 
     let mut legacy = parse_flat_env(legacy_body);
     for (name, value) in fallback_env {
@@ -118,6 +123,14 @@ fn migrate_locked(
     legacy.remove("root");
     legacy.remove("access_mode");
     legacy.remove("access_policy");
+    // Machine-scoped values skip the workspace record entirely: the legacy flat
+    // file described one machine, which is exactly what the global map is for.
+    let mut global = Map::new();
+    for key in crate::env::MACHINE_GLOBAL_VARS {
+        if let Some(value) = legacy.remove(key) {
+            global.insert(key.to_owned(), value);
+        }
+    }
 
     let env_path = config_dir.join("env.json");
     let backup_path = env_path
@@ -160,6 +173,7 @@ fn migrate_locked(
                 env: legacy,
             },
         )]),
+        env: global,
     };
     before_save()?;
     crate::access::ensure_registry_access_modes(&registry).map_err(|error| {
@@ -176,6 +190,43 @@ fn migrate_locked(
         backup_path,
         portable_setup_required: true,
     })
+}
+
+/// Upgrade an older registry schema in place, or `None` when `body` is not one.
+///
+/// The exact prior bytes are backed up first, so a machine can always be walked
+/// back to what it had. Every workspace record — identity, root, aliases, local
+/// user, receiver intent, and the rest of its env — is preserved; only
+/// machine-scoped values move (see [`super::upgrade`]).
+fn upgrade_previous_schema(
+    transaction: &super::store::RegistryTransaction<'_>,
+    config_dir: &Path,
+    body: &[u8],
+) -> Result<Option<MigrationOutcome>, RegistryError> {
+    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+        return Ok(None);
+    };
+    let Some(upgraded) = super::upgrade::upgrade_v2_to_v3(&value) else {
+        return Ok(None);
+    };
+    let registry: MachineRegistry =
+        serde_json::from_value(upgraded).map_err(|error| RegistryError::Json {
+            operation: RegistryOperation::ParseRegistry,
+            path: config_dir.join("env.json"),
+            message: error.to_string(),
+        })?;
+    let backup_path = Some(backup_legacy(&config_dir.join("env.json"), body)?);
+    transaction.save(&registry)?;
+    Ok(Some(MigrationOutcome {
+        registry,
+        created_registry: false,
+        backup_path,
+        // A schema bump touches the machine registry only. These workspaces
+        // already exist and already have their portable state; seeding portable
+        // access policy from here would write into a workspace root during what
+        // may still be another command's preflight.
+        portable_setup_required: false,
+    }))
 }
 
 fn backup_legacy(env_path: &Path, body: &[u8]) -> Result<PathBuf, RegistryError> {

@@ -43,7 +43,7 @@ pub(super) fn requirements(command: &CommandContext, name: &str) -> Vec<Requirem
             }
         }
     }
-    rows.push(pdf_requirement(command, name));
+    rows.push(pdf_requirement(command));
     rows.extend(personalization_requirements(command, name));
     rows.push(Requirement::feature(
         RequirementScope::BrowserViews,
@@ -96,7 +96,7 @@ fn triage_status(
     (habits_status, modal_status)
 }
 
-fn pdf_requirement(command: &CommandContext, name: &str) -> Requirement {
+fn pdf_requirement(command: &CommandContext) -> Requirement {
     Requirement::feature(
         RequirementScope::PdfConversion,
         if crate::settings::configured_markdown_to_pdf_ready(command) {
@@ -105,7 +105,7 @@ fn pdf_requirement(command: &CommandContext, name: &str) -> Requirement {
             FeatureStatus::Incomplete
         },
         vec![PromptMetadata::plain("markdown-to-pdf executable")],
-        format!("brain env set -w {name} markdown_to_pdf_path=<EXECUTABLE_PATH>"),
+        "brain env set markdown_to_pdf_path=<EXECUTABLE_PATH>".to_owned(),
     )
 }
 

@@ -2,8 +2,6 @@
 
 use std::fmt::Write;
 
-use anyhow::Result;
-
 use crate::access::AccessMode;
 use crate::theme::Theme;
 use crate::workspace::MachineRegistry;
@@ -21,21 +19,88 @@ struct WorkspaceListRow {
 pub(super) fn print(
     registry: &MachineRegistry,
     context: Option<&crate::workspace::CommandContext>,
+    explicit_workspace: bool,
     theme: Theme,
-) -> Result<()> {
+) {
     let rows = collect_rows(registry);
     print!("{}", format_rows(&rows, theme));
-    if let Some(context) = context {
-        print!(
-            "\n{}",
-            crate::workspace::format_requirements(
-                context.workspace.name(),
-                &crate::workspace::requirements(context)?,
-                theme,
-            )
-        );
+    let Some(context) = context else {
+        return;
+    };
+    // `-w` asks about one workspace; a bare list is a machine-wide inventory, so
+    // reporting only the selected workspace's health would quietly hide every
+    // peer's — including the ones a user is most likely to have forgotten.
+    if explicit_workspace {
+        print!("\n{}", requirements_block(context, theme));
+        return;
     }
-    Ok(())
+    for (name, record) in &registry.workspaces {
+        if record.workspace_id == context.workspace.id() {
+            print!("\n{}", requirements_block(context, theme));
+            continue;
+        }
+        print!("\n{}", peer_requirements_block(name, record, theme));
+    }
+}
+
+/// One workspace's requirements block, or a themed note when it cannot be read.
+///
+/// A half-configured peer must not take the whole inventory down with it: the
+/// list is exactly where a user looks to discover that a workspace still needs
+/// setup.
+fn requirements_block(context: &crate::workspace::CommandContext, theme: Theme) -> String {
+    crate::workspace::requirements(context).map_or_else(
+        |error| unavailable_block(context.workspace.name().as_str(), &error.to_string(), theme),
+        |requirements| {
+            crate::workspace::format_requirements(context.workspace.name(), &requirements, theme)
+        },
+    )
+}
+
+/// Build a read-only context for a registered workspace this command did not
+/// select, then report its requirements.
+fn peer_requirements_block(
+    name: &crate::workspace::WorkspaceName,
+    record: &crate::workspace::WorkspaceRecord,
+    theme: Theme,
+) -> String {
+    let Some(context) = peer_context(name, record) else {
+        return unavailable_block(name.as_str(), "workspace needs setup", theme);
+    };
+    requirements_block(&context, theme)
+}
+
+fn peer_context(
+    name: &crate::workspace::WorkspaceName,
+    record: &crate::workspace::WorkspaceRecord,
+) -> Option<crate::workspace::CommandContext> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
+    let current_dir = std::env::current_dir().ok()?;
+    let workspace = crate::workspace::WorkspaceContext::new(
+        &home,
+        record.workspace_id,
+        name.clone(),
+        &record.root,
+        record.local_user_id.clone(),
+        &current_dir,
+    )
+    .ok()?;
+    crate::workspace::CommandContext::new_read_only(
+        std::sync::Arc::new(workspace),
+        crate::workspace::RegistryStore::real(),
+    )
+    .ok()
+}
+
+fn unavailable_block(name: &str, reason: &str, theme: Theme) -> String {
+    format!(
+        "{} {}\n  {}\n",
+        theme.muted("Workspace"),
+        theme.accent(name),
+        theme.warning(&format!(
+            "status unavailable: {reason} (fix: brain workspace repair -w {name})"
+        )),
+    )
 }
 
 fn collect_rows(registry: &MachineRegistry) -> Vec<WorkspaceListRow> {

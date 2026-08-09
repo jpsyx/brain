@@ -5,6 +5,7 @@ mod migrate;
 mod model;
 mod select;
 mod store;
+mod upgrade;
 mod validate;
 
 pub(crate) use migrate::migrate_legacy_with;

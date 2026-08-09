@@ -45,12 +45,13 @@ impl DualWorkspaceReceiverFixture {
         let personal_name = personal.name().clone();
         let family_name = family.name().clone();
         let registry = brain::workspace::MachineRegistry {
-            schema_version: 2,
+            schema_version: brain::workspace::REGISTRY_SCHEMA_VERSION,
             default_workspace: personal_name.clone(),
             workspaces: BTreeMap::from([
                 (personal_name, personal_record),
                 (family_name, family_record),
             ]),
+            env: serde_json::Map::new(),
         };
         let store =
             brain::workspace::RegistryStore::from_path(home.path().join(".config/brain/env.json"));

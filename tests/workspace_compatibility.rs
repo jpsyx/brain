@@ -126,7 +126,7 @@ fn readiness_rejects_root_manifest_mismatch_and_internal_setup_stays_nonpromptin
 #[test]
 fn duplicate_local_workspace_uuids_are_rejected() {
     let registry = MachineRegistry {
-        schema_version: 2,
+        schema_version: brain::workspace::REGISTRY_SCHEMA_VERSION,
         default_workspace: workspace_name("personal"),
         workspaces: BTreeMap::from([
             (
@@ -138,6 +138,7 @@ fn duplicate_local_workspace_uuids_are_rejected() {
                 record(PERSONAL_ID, "/brains/family"),
             ),
         ]),
+        env: serde_json::Map::new(),
     };
 
     assert_eq!(

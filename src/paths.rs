@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn parse_root_key_reads_the_default_schema_v2_workspace() {
         let registry = r#"{
-            "schema_version": 2,
+            "schema_version": 3,
             "default_workspace": "family",
             "workspaces": {
                 "brain": {

@@ -75,6 +75,7 @@ fn ready_family_home() -> tempfile::TempDir {
                 env: serde_json::Map::new(),
             },
         )]),
+        env: serde_json::Map::new(),
     };
     RegistryStore::from_path(home.path().join(".config/brain/env.json"))
         .replace(&registry)

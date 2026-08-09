@@ -38,7 +38,7 @@ impl ControlFixture {
         let manifest = WorkspaceManifest::new(workspace_id());
         manifest.write_new(&root).expect("workspace manifest");
         let registry = serde_json::json!({
-            "schema_version": 2,
+            "schema_version": 3,
             "default_workspace": "personal",
             "workspaces": {
                 "personal": {

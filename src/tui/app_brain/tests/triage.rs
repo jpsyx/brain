@@ -179,7 +179,7 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
         app.command_context
             .registry_store
             .replace(&crate::workspace::MachineRegistry {
-                schema_version: 2,
+                schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
                 default_workspace: name.clone(),
                 workspaces: BTreeMap::from([(
                     name,
@@ -192,6 +192,7 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
                         env: environment,
                     },
                 )]),
+                env: serde_json::Map::new(),
             })
             .expect("malformed unused machine capabilities");
         let recording = LaunchRecording::default();

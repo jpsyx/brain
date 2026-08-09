@@ -1,5 +1,6 @@
-//! One-time, idempotent migration from flat brain env into the schema-v2
-//! workspace registry. The top-level wrapper remains nonfatal at startup.
+//! One-time, idempotent migration into the current workspace-registry schema:
+//! the pre-registry flat brain env, and any older registry schema (which is
+//! upgraded in place). The top-level wrapper remains nonfatal at startup.
 
 use anyhow::Context;
 
@@ -54,9 +55,11 @@ pub(crate) fn registry_setup_needs_migration() -> anyhow::Result<bool> {
     Ok(false)
 }
 
-/// Whether the fixed registry path already contains a valid schema-v2 registry.
-/// This check never resolves or reads a workspace root.
-pub(crate) fn registry_is_valid_v2() -> anyhow::Result<bool> {
+/// Whether the fixed registry path already contains a registry at the current
+/// schema version. An older schema reads as `false`, which is what routes the
+/// machine through the in-place upgrade. This check never resolves or reads a
+/// workspace root.
+pub(crate) fn registry_is_current() -> anyhow::Result<bool> {
     let registry_path = config_home().join("brain/env.json");
     if !registry_path
         .try_exists()
@@ -105,11 +108,9 @@ fn migrate_in_with_home(
         &legacy_body,
         &fallback_env,
     )?;
-    let markdown_was_persisted = outcome
-        .registry
-        .select(None)
-        .ok()
-        .is_some_and(|selected| selected.record().env.contains_key("markdown_to_pdf_path"));
+    // It lands in the machine-global map, not the selected record: one machine
+    // has one markdown-to-pdf binary however many workspaces it has.
+    let markdown_was_persisted = outcome.registry.env.contains_key("markdown_to_pdf_path");
     if markdown_was_persisted && config_map.remove("markdown_to_pdf_path").is_some() {
         crate::settings::save_map_at(&config_json_path, &config_map)?;
     }

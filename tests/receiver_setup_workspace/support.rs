@@ -58,6 +58,7 @@ impl Fixture {
                 (personal_name, record(personal_id, personal_root, "pablo")),
                 (family_name, record(family_id, family_root, "casey")),
             ]),
+            env: serde_json::Map::new(),
         };
         let registry_path = config_home.path().join("brain/env.json");
         RegistryStore::from_path(registry_path.clone())

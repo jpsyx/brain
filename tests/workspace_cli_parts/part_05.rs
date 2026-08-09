@@ -131,3 +131,64 @@ fn unknown_global_selector_reports_how_to_discover_valid_selectors() {
         ],
     );
 }
+
+#[test]
+fn a_bare_workspace_list_reports_health_for_every_registered_workspace() {
+    let fixture = Fixture::new();
+    for name in ["alpha", "zeta"] {
+        let root = fixture.home.path().join(name);
+        assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&root)]));
+        fixture.make_ready(name);
+    }
+
+    // No `-w`: the question is "what does this machine have", so every
+    // workspace's feature health is part of the answer.
+    let output = fixture.run(&["workspace", "list"]);
+
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 list output");
+    assert!(stdout.contains("Workspace alpha"), "{stdout}");
+    assert!(stdout.contains("Workspace zeta"), "{stdout}");
+    assert_eq!(stdout.matches("  Features").count(), 2, "{stdout}");
+}
+
+#[test]
+fn a_selected_workspace_list_reports_only_that_workspaces_health() {
+    let fixture = Fixture::new();
+    for name in ["alpha", "zeta"] {
+        let root = fixture.home.path().join(name);
+        assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&root)]));
+        fixture.make_ready(name);
+    }
+
+    let output = fixture.run(&["workspace", "list", "-w", "alpha"]);
+
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 list output");
+    // Both are still inventoried in the header rows…
+    assert!(stdout.contains("alpha (default)"), "{stdout}");
+    assert!(stdout.contains("  zeta\n"), "{stdout}");
+    // …but `-w` asked about one, so only its health is reported.
+    assert!(stdout.contains("Workspace alpha"), "{stdout}");
+    assert!(!stdout.contains("Workspace zeta"), "{stdout}");
+    assert_eq!(stdout.matches("  Features").count(), 1, "{stdout}");
+}
+
+#[test]
+fn a_workspace_that_still_needs_setup_never_takes_the_whole_inventory_down() {
+    let fixture = Fixture::new();
+    let ready = fixture.home.path().join("alpha");
+    let unready = fixture.home.path().join("zeta");
+    for root in [&ready, &unready] {
+        assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(root)]));
+    }
+    fixture.make_ready("alpha");
+
+    // `zeta` has no manifest or portable user yet; listing must still work.
+    let output = fixture.run(&["workspace", "list"]);
+
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 list output");
+    assert!(stdout.contains("Workspace alpha"), "{stdout}");
+    assert!(stdout.contains("Workspace zeta"), "{stdout}");
+}

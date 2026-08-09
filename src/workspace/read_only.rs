@@ -16,7 +16,10 @@ pub(super) fn bootstrap(
     home: &Path,
     current_dir: &Path,
 ) -> Result<BootstrapContext> {
-    let registry = RegistryStore::load_from(store.path())?;
+    // Read-only probes tolerate an older schema in memory: they must not write
+    // the upgrade, and refusing to report status until some other command runs
+    // would be a worse answer than reporting it.
+    let registry = RegistryStore::load_readable(store.path())?;
     let selected = registry.select(cli.workspace_selector.as_deref())?;
     super::bootstrap::validate_expected_workspace_id(
         std::env::var_os("BRAIN_WORKSPACE_ID").as_deref(),

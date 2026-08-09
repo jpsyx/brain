@@ -8,8 +8,8 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use serde_json::{Map, Value};
 
-use super::schema::{REDACTED, VARS, is_known, known_names};
-use super::store::{load_map, save_map};
+use super::schema::{REDACTED, VARS, is_known, is_machine_global, known_names};
+use super::store::{load_global_map, load_map, save_global_map, save_map};
 use crate::settings::Resolved;
 use crate::workspace::CommandContext;
 
@@ -22,9 +22,16 @@ pub(super) fn value_to_string(v: &Value) -> Option<String> {
 }
 
 /// The raw explicit value for `name` (no default fallback).
+///
+/// Machine-global variables are read from the registry's top-level `env`, so
+/// every workspace on this machine sees the same answer.
 #[must_use]
 pub fn get(command: &CommandContext, name: &str) -> Option<String> {
-    let map = load_map(command);
+    let map = if is_machine_global(name) {
+        load_global_map(command)
+    } else {
+        load_map(command)
+    };
     if !name.contains('.') {
         return map.get(name).and_then(value_to_string);
     }
@@ -86,10 +93,17 @@ pub fn set(command: &CommandContext, name: &str, value: &str) -> Result<()> {
     if super::schema::is_structural(name) {
         bail!("env variable `{name}` is structural and read-only");
     }
-    let mut map = load_map(command);
     if segments.len() == 1 && !is_known(name) {
         bail!("unknown env variable `{name}` (known: {})", known_names());
     }
+    // A machine-scoped value is written once, to the registry's global map,
+    // rather than into whichever workspace happened to be selected.
+    if is_machine_global(name) {
+        let mut global = load_global_map(command);
+        set_path(&mut global, name, declared_value(name, value)?)?;
+        return save_global_map(command, &global);
+    }
+    let mut map = load_map(command);
     if segments.len() > 1 {
         let top = segments[0];
         let top_value = map.get(top);
@@ -182,9 +196,40 @@ pub fn set_raw(command: &CommandContext, name: &str, value: Value) -> Result<()>
 
 /// Every declared env variable plus every nested raw env value, in schema
 /// order followed by recursively flattened JSON paths.
+///
+/// Machine-global rows are included with their effective value, so the
+/// interactive `brain env set` picker offers every variable a user can set —
+/// they just resolve from the registry's global map rather than this
+/// workspace's record.
 #[must_use]
 pub fn resolve_all(command: &CommandContext) -> Vec<Resolved> {
-    resolve_all_at(command.workspace.root(), &load_map(command))
+    let mut rows = machine_global_rows(command);
+    rows.extend(resolve_all_at(command.workspace.root(), &load_map(command)));
+    rows
+}
+
+/// The declared machine-global rows, resolved from the registry's global map.
+#[must_use]
+pub(crate) fn machine_global_rows(command: &CommandContext) -> Vec<Resolved> {
+    let global = load_global_map(command);
+    VARS.iter()
+        .filter(|spec| is_machine_global(spec.name))
+        .map(|spec| Resolved {
+            name: spec.name.to_owned(),
+            value: global
+                .get(spec.name)
+                .and_then(value_to_string)
+                .map(|value| {
+                    if super::schema::is_sensitive(spec.name) && !value.trim().is_empty() {
+                        REDACTED.to_owned()
+                    } else {
+                        value
+                    }
+                })
+                .or_else(|| spec.default.map(str::to_owned)),
+            description: spec.description.to_owned(),
+        })
+        .collect()
 }
 
 /// Every declared env row plus every nested raw value for the workspace rooted
@@ -194,8 +239,12 @@ pub fn resolve_all(command: &CommandContext) -> Vec<Resolved> {
 /// block per registered workspace, not only the selected one.
 #[must_use]
 pub(crate) fn resolve_all_at(root: &Path, map: &Map<String, Value>) -> Vec<Resolved> {
+    // Machine-global variables are not part of a workspace block: they would
+    // render the same value under every workspace and invite the reader to
+    // think each record holds its own.
     let mut rows: Vec<Resolved> = VARS
         .iter()
+        .filter(|v| !is_machine_global(v.name))
         .map(|v| Resolved {
             name: v.name.to_owned(),
             value: resolve_one_at(root, map, v.name),

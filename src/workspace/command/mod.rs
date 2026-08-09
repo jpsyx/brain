@@ -85,6 +85,7 @@ pub(crate) fn run_ready(
         },
         &context.registry_store,
         Some(context),
+        explicit_workspace,
     )
     .map_err(mutate::render_command_error)
 }
@@ -96,8 +97,14 @@ pub(crate) fn run_registry_only(
     selector: Option<&str>,
     store: &RegistryStore,
 ) -> Result<()> {
-    run_inner(args, CommandSelection::Raw(selector), store, None)
-        .map_err(mutate::render_command_error)
+    run_inner(
+        args,
+        CommandSelection::Raw(selector),
+        store,
+        None,
+        selector.is_some(),
+    )
+    .map_err(mutate::render_command_error)
 }
 
 #[must_use]
@@ -110,13 +117,15 @@ fn run_inner(
     selection: CommandSelection<'_>,
     store: &RegistryStore,
     context: Option<&CommandContext>,
+    explicit_workspace: bool,
 ) -> Result<()> {
     let answers = prompt::collect(&args.action)?;
     match &args.action {
         WorkspaceAction::List => {
             let registry = mutate::load_registry(store)?;
             selection.validate(&registry)?;
-            list::print(&registry, context, Theme::active())
+            list::print(&registry, context, explicit_workspace, Theme::active());
+            Ok(())
         }
         WorkspaceAction::Create { name, root } => {
             let prompted_root = answers.value(prompt::PromptField::Root).map(PathBuf::from);

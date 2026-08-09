@@ -179,7 +179,7 @@ mod tests {
         let family_name = WorkspaceName::parse("family").unwrap();
         let family_id = WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap();
         let registry = MachineRegistry {
-            schema_version: 2,
+            schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
             default_workspace: personal_name.clone(),
             workspaces: BTreeMap::from([
                 (
@@ -206,6 +206,7 @@ mod tests {
                     },
                 ),
             ]),
+            env: serde_json::Map::new(),
         };
         let store = RegistryStore::from_path(home.path().join("config/brain/env.json"));
         store.replace(&registry).unwrap();

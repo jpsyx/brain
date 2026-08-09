@@ -72,6 +72,7 @@ fn headless_command_self_heals_a_sole_user_workspace_and_continues() {
             canonical_name,
             record_without_local_user(root, workspace_id),
         )]),
+        env: serde_json::Map::new(),
     };
     let registry_path = config_home.path().join("brain/env.json");
     let store = RegistryStore::from_path(registry_path.clone());

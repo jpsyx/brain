@@ -98,6 +98,30 @@ impl RegistryStore {
         MachineRegistry::try_from(raw)
     }
 
+    /// Load a registry for **reading only**, tolerating an older schema by
+    /// upgrading it in memory.
+    ///
+    /// Literal read-only probes (`brain workspace list`, the status commands)
+    /// must neither fail nor write just because this machine has not run an
+    /// ordinary command since the schema changed. The upgraded value is never
+    /// persisted here; the next ordinary command performs the real, backed-up,
+    /// transactional upgrade.
+    pub fn load_readable(path: &Path) -> Result<MachineRegistry, RegistryError> {
+        match Self::load_from(path) {
+            Err(RegistryError::UnsupportedSchemaVersion { .. }) => {}
+            result => return result,
+        }
+        let bytes = fs::read(path)
+            .map_err(|error| io_error(RegistryOperation::ReadRegistry, path, None, &error))?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|error| json_error(RegistryOperation::ParseRegistry, path, &error))?;
+        let upgraded = super::upgrade::upgrade_v2_to_v3(&value)
+            .ok_or_else(|| Self::load_from(path).expect_err("schema was rejected above"))?;
+        serde_json::from_value::<RawMachineRegistry>(upgraded)
+            .map_err(|error| json_error(RegistryOperation::ParseRegistry, path, &error))
+            .and_then(MachineRegistry::try_from)
+    }
+
     /// Replace this store's registry inside an interprocess transaction.
     pub fn replace(&self, registry: &MachineRegistry) -> Result<(), RegistryError> {
         self.transaction(|transaction| transaction.save(registry))

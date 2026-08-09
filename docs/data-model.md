@@ -260,7 +260,7 @@ means zero server and no Brain response, while a live peer plus unavailable
 target means one unavailable response and no retained work.
 
 Status uses a separate `ReadOnlyWorkspace` bootstrap policy. It reads an
-already-valid schema-v2 selected record, manifest, portable users, persistent
+already-valid current-schema selected record, manifest, portable users, persistent
 intent, and any existing generation snapshot without invoking recovery or
 write-capable stores. This preserves the four-field receiver projection
 (`Receiver`, `TUI`, `Server`, `Accepting`) without changing bytes or process
@@ -306,7 +306,7 @@ argv values.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
 current diagnostic-log destination.
 
-### Machine registry schema v2 (`workspace/registry/`)
+### Machine registry schema v3 (`workspace/registry/`)
 
 The sole machine-global workspace registry is
 `$XDG_CONFIG_HOME/brain/env.json`, or `~/.config/brain/env.json` when XDG config
@@ -314,8 +314,9 @@ is unset. Deterministic ordered names and aliases make its JSON stable:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "default_workspace": "brain",
+  "env": { "markdown_to_pdf_path": "/Users/example/.local/bin/markdown-to-pdf" },
   "workspaces": {
     "brain": {
       "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
@@ -328,6 +329,22 @@ is unset. Deterministic ordered names and aliases make its JSON stable:
   }
 }
 ```
+
+The top-level `env` map is **machine-global**: values that describe this machine
+rather than any one workspace, so every registered workspace resolves the same
+answer. It is optional and omitted when empty. `crate::env` routes a declared
+variable to this map or to the selected record by
+`env::schema::MACHINE_GLOBAL_VARS`, which is the single source of truth for the
+scope; `brain env get/set` uses the same bare name either way.
+
+**Schema 1 → 2 → 3.** v2 introduced the record map; v3 added the machine-global
+`env`. A v2 file fails the exact-version check, which is what routes it into
+`workspace::registry::upgrade` on the next ordinary command: a pure JSON rewrite
+that moves every `MACHINE_GLOBAL_VARS` key out of the records (first canonical
+workspace name wins, blanks skipped) and stamps the new version, wrapped by the
+transaction, an exact-bytes backup, and a strict re-validation before saving.
+`RegistryStore::load_readable` applies the same pure upgrade **in memory** for
+read-only probes, which must not write.
 
 `WorkspaceId` is encoded as a UUID string. Canonical keys, aliases, and the
 default deserialize through `WorkspaceName` validation rather than bypassing
@@ -407,7 +424,7 @@ Collected management values first become a pure `Mutation` enum. `Create` and
 `Attach` carry a validated canonical name plus an absolute, tilde-expanded,
 lexically normalized root. Rename and alias decisions carry validated new
 names; default/removal carry only selectors. In particular, `Remove` has no
-filesystem path or deletion operation. The shell then loads schema v2 directly
+filesystem path or deletion operation. The shell then loads the current schema directly
 and persists via `RegistryStore`; it never flattens through legacy env helpers.
 
 Fresh create records receive a new UUID, empty local-user placeholder,
@@ -1062,7 +1079,7 @@ padding one shared name column across all sections.
 The workspace root is not an env variable. It is a validated structural field
 on `WorkspaceRecord`; free-form env writes reject `root` and other structural
 names. Legacy flat `root` and the old pointer are consumed only while building
-the first schema-v2 record.
+the first registry record.
 
 The `sync` field is not in `VARS`, but its nested values are still listable and
 addressable with dotted `brain env get` and `brain env set` paths. The sync

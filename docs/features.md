@@ -255,7 +255,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env. Bare `brain env` (and `env list`) breaks the whole machine down: machine-global values plus one block per registered workspace. `get`/`set` act on the selected workspace only; use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
-| `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present. |
+| `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present, **followed by each workspace's required/optional feature health**. Add `-w <name>` to report health for that one workspace only. A workspace that still needs setup renders a one-line note naming its repair command instead of failing the listing. |
 | `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair\|migrate}` | Manage the schema-v2 registry, portable manifest, and coordinated legacy rollout. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. |
 | `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
@@ -309,7 +309,7 @@ Reads and writes your **machine-local** brain env inside the selected workspace
 record in the schema-v2 registry (`$XDG_CONFIG_HOME/brain/env.json`, falling
 back to `~/.config/brain/env.json`). These are values that would be *wrong* if
 copied to another machine: `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
-self-healing), `claude_cmd`/`codex_cmd` (this machine's functional agent launch commands),
+self-healing, and **machine-global**: stored once for the machine rather than per workspace), `claude_cmd`/`codex_cmd` (this machine's functional agent launch commands),
 `opencode_cmd` (the machine-local OpenCode launch command),
 `default_agent_frontend` (which of the three this machine opens by default), and the
 Backblaze `sync` block (written by `brain sync setup`, below — see
@@ -319,8 +319,9 @@ config` exactly, over the env store instead:
 - `brain env list` (or bare `brain env`) — the **whole-machine env breakdown**,
   the counterpart to `brain workspace list`: the registry path, a **Global**
   block holding every top-level `env.json` key outside `workspaces`
-  (`schema_version`, `default_workspace`, and any future one), then **one block
-  per registered workspace** (headed like `workspace list`, with `*` on the
+  (`schema_version`, `default_workspace`, and the machine-global `env` values —
+  lifted to their bare names, so `markdown_to_pdf_path` reads the way you type
+  it), then **one block per registered workspace** (headed like `workspace list`, with `*` on the
   default and `(default)` / `(selected)` labels) listing every declared variable
   — `(unset)` included — plus that workspace's own nested dot-separated paths,
   and finally a **Variables** legend explaining each name once. Every row is

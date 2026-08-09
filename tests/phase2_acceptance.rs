@@ -161,6 +161,7 @@ fn authenticated_inbound_actor_drives_default_task_assignment() {
                     env: Map::new(),
                 },
             )]),
+            env: serde_json::Map::new(),
         })
         .unwrap();
     let requests = [

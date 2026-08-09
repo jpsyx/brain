@@ -89,6 +89,7 @@ impl Fixture {
                     env,
                 },
             )]),
+            env: serde_json::Map::new(),
         };
         let store = RegistryStore::from_path(temporary.path().join(".config/brain/env.json"));
         store.replace(&registry).expect("machine registry");

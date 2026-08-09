@@ -38,7 +38,7 @@ fn persisted_receiver_transition_changes_only_the_exact_selected_record() {
     let family_id = workspace_id("e806258e-491a-436d-9db4-a5ca9903e0d4");
     let store = RegistryStore::from_path(temporary.path().join("env.json"));
     let registry = MachineRegistry {
-        schema_version: 2,
+        schema_version: brain::workspace::REGISTRY_SCHEMA_VERSION,
         default_workspace: personal_name.clone(),
         workspaces: BTreeMap::from([
             (
@@ -50,6 +50,7 @@ fn persisted_receiver_transition_changes_only_the_exact_selected_record() {
                 record(&temporary.path().join("family"), family_id),
             ),
         ]),
+        env: serde_json::Map::new(),
     };
     store.replace(&registry).expect("seed registry");
 
@@ -71,12 +72,13 @@ fn stale_selected_identity_cannot_mutate_a_replacement_record() {
     let stale_id = workspace_id("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b");
     let store = RegistryStore::from_path(temporary.path().join("env.json"));
     let registry = MachineRegistry {
-        schema_version: 2,
+        schema_version: brain::workspace::REGISTRY_SCHEMA_VERSION,
         default_workspace: family_name.clone(),
         workspaces: BTreeMap::from([(
             family_name.clone(),
             record(&temporary.path().join("family"), current_id),
         )]),
+        env: serde_json::Map::new(),
     };
     store.replace(&registry).expect("seed registry");
     let before = std::fs::read(store.path()).expect("registry bytes");

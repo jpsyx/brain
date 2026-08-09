@@ -57,6 +57,7 @@ fn interactive_bootstrap_repairs_then_continues_the_original_command() {
                 env: Map::new(),
             },
         )]),
+        env: serde_json::Map::new(),
     };
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();
@@ -112,6 +113,7 @@ fn interactive_first_user_setup_uses_display_name_and_accepts_the_proposed_id() 
                 env: Map::new(),
             },
         )]),
+        env: serde_json::Map::new(),
     };
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();
@@ -177,6 +179,7 @@ fn first_user_setup_asks_for_contacts_only_for_configured_receiver_channels() {
                 env: Map::new(),
             },
         )]),
+        env: serde_json::Map::new(),
     };
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();

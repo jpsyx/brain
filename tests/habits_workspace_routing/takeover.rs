@@ -80,7 +80,7 @@ impl BackgroundFixture {
         let ingress = write_workspace(&root, FAMILY_ID, "Family habit");
         let name = WorkspaceName::parse("family").expect("family name");
         let registry = MachineRegistry {
-            schema_version: 2,
+            schema_version: brain::workspace::REGISTRY_SCHEMA_VERSION,
             default_workspace: name.clone(),
             workspaces: BTreeMap::from([(
                 name,
@@ -93,6 +93,7 @@ impl BackgroundFixture {
                     env: Map::new(),
                 },
             )]),
+            env: serde_json::Map::new(),
         };
         RegistryStore::from_path(home.path().join(".config/brain/env.json"))
             .replace(&registry)

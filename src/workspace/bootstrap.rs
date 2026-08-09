@@ -100,9 +100,9 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
                         crate::env::registry_setup_needs_migration()?
                     }
                     Invocation::WorkspaceRemove | Invocation::WorkspaceRepair => {
-                        !crate::env::registry_is_valid_v2()?
+                        !crate::env::registry_is_current()?
                     }
-                    Invocation::User => !crate::env::registry_is_valid_v2()?,
+                    Invocation::User => !crate::env::registry_is_current()?,
                     _ => false,
                 };
                 if should_migrate {
@@ -122,7 +122,7 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
         );
     }
 
-    if !crate::env::registry_is_valid_v2()? {
+    if !crate::env::registry_is_current()? {
         crate::env::migrate_checked()?;
     }
     let home = std::env::var_os("HOME")

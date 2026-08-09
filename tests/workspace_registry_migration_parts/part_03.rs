@@ -26,6 +26,7 @@ fn valid_schema_v2_registry_is_a_byte_for_byte_no_op() {
                 env: serde_json::Map::from_iter([("custom".to_owned(), json!("keep"))]),
             },
         )]),
+        env: serde_json::Map::new(),
     };
     RegistryStore::from_path(env_path.clone())
         .replace(&registry)
@@ -78,6 +79,7 @@ fn valid_schema_v2_registry_seeds_every_missing_portable_access_mode() {
                 },
             ),
         ]),
+        env: serde_json::Map::new(),
     };
     RegistryStore::from_path(env_path.clone())
         .replace(&registry)
@@ -140,8 +142,16 @@ fn startup_relocates_portable_markdown_path_only_after_registry_write() {
     let registry =
         RegistryStore::load_from(&machine_config.join("env.json")).expect("load migrated registry");
     assert_eq!(
-        registry.select(None).unwrap().record().env["markdown_to_pdf_path"],
+        registry.env["markdown_to_pdf_path"],
         "/portable/bin/markdown-to-pdf"
+    );
+    assert!(
+        !registry
+            .select(None)
+            .unwrap()
+            .record()
+            .env
+            .contains_key("markdown_to_pdf_path")
     );
     let portable: serde_json::Value =
         serde_json::from_slice(&fs::read(&portable_path).expect("read portable config"))

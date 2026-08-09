@@ -203,7 +203,7 @@ pub(super) fn prepare_workspace_registry(home: &std::path::Path) {
         .expect("workspace manifest");
     }
     let registry = serde_json::json!({
-        "schema_version": 2,
+        "schema_version": 3,
         "default_workspace": "personal",
         "workspaces": {
             "family": {

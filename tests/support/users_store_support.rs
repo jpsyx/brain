@@ -112,6 +112,7 @@ impl CliFixture {
                     env: Map::new(),
                 },
             )]),
+            env: serde_json::Map::new(),
         };
         let registry_path = config_home.path().join("brain/env.json");
         RegistryStore::from_path(registry_path.clone())

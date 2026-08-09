@@ -119,7 +119,7 @@ mod tests {
         let name = WorkspaceName::parse("brain").unwrap();
         let id = WorkspaceId::parse("6f1a0d2c-2f2e-4a8f-9d0e-0c3b2a1d4e5f").unwrap();
         let registry = MachineRegistry {
-            schema_version: 2,
+            schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
             default_workspace: name.clone(),
             workspaces: BTreeMap::from([(
                 name.clone(),
@@ -132,6 +132,7 @@ mod tests {
                     env,
                 },
             )]),
+            env: serde_json::Map::new(),
         };
         let store = RegistryStore::from_path(home.path().join("config/brain/env.json"));
         store.replace(&registry).unwrap();

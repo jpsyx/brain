@@ -44,5 +44,6 @@ pub(super) fn registry_with_receiver(receiver_enabled: bool) -> MachineRegistry 
                 env: serde_json::Map::new(),
             },
         )]),
+        env: serde_json::Map::new(),
     }
 }

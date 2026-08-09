@@ -240,7 +240,7 @@ command.
 ### `paths.rs`
 Legacy single-root resolution only. `brain_root()` / `brain_root_path()` retain
 the pre-migration flat-root, read-only pointer, and `~/brain` fallback boundary
-needed to construct the first schema-v2 record. Ordinary commands do not use
+needed to construct the first registry record. Ordinary commands do not use
 them to select a workspace; bootstrap supplies an immutable
 `WorkspaceContext::root()`. The IO-free compatibility pieces
 (`parse_brain_root_file`, `expand_tilde_with_home`) remain unit-testable without
@@ -265,7 +265,7 @@ routes cannot prompt. Create, attach, remove, and repair first run the
 `command::preflight` prompt-and-validation stage; only a complete request may
 trigger legacy migration and receive a registry capability. Ordinary commands
 inspect the fixed registry path and enter legacy migration only when it is not
-already valid schema v2; a valid registry avoids all legacy root/config lookup.
+already at the current schema; a valid registry avoids all legacy root/config lookup.
 They then require a ready selected workspace. `readiness` is
 the pure manifest/portable-membership/local-user decision,
 `manifest` owns strict portable identity parsing, and successful bootstrap
@@ -431,7 +431,7 @@ on normal close or process exit. A stable owner sidecar supplies the diagnostic
 PID. Atomic replacement remains a separate persistence guarantee.
 
 When bootstrap policy permits registry access, `registry::migrate` checks this
-fixed file before ordinary command dispatch. A valid schema-v2 registry is
+fixed file before ordinary command dispatch. A current-schema registry is
 returned without any write. Otherwise
 it converts the legacy flat object into exactly one default record, resolving
 the root from flat `root`, then the read-only legacy pointer, then
@@ -448,14 +448,14 @@ machine's local user ID is supplied.
 
 Before replacing an existing flat file, migration creates an adjacent
 exact-byte `env.json.legacy-backup` (or the first free numeric suffix), then
-uses the atomic registry store. Re-running sees schema v2 and preserves both the
+uses the atomic registry store. Re-running sees the current schema and preserves both the
 UUID and registry bytes without another backup. Registry-only create and attach
 collect and validate their complete request before classifying the machine or
 migrating. An existing
 `env.json`, legacy `$XDG_CONFIG_HOME/brain-root` pointer, or `<home>/brain`
 directory is legacy-install evidence and is migrated first. Only a genuinely
 fresh machine with none of those sources lets the requested create/attach
-become the first record. Workspace commands then load schema v2 explicitly and
+become the first record. Workspace commands then load the registry explicitly and
 never project through the compatibility view. `workspace create` creates only
 its requested root after validating the complete registry candidate. It
 tracks every missing root-directory component it creates. If later directory

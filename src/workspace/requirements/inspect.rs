@@ -5,7 +5,10 @@ use crate::workspace::CommandContext;
 
 /// Inspect one immutable selected workspace without consulting peer records.
 pub fn requirements(command: &CommandContext) -> Result<Vec<Requirement>> {
-    let registry = crate::workspace::RegistryStore::load_from(command.registry_store.path())?;
+    // Read-only status must still report on a machine whose registry predates
+    // the current schema; the upgrade itself belongs to the next ordinary
+    // command, not to an inspection.
+    let registry = crate::workspace::RegistryStore::load_readable(command.registry_store.path())?;
     let selected = registry.select(Some(command.workspace.name().as_str()))?;
     anyhow::ensure!(
         selected.record().workspace_id == command.workspace.id(),

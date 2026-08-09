@@ -27,7 +27,7 @@ fn fixture() -> (MachineRegistry, WorkspaceId, WorkspaceId) {
     let brain_id = WorkspaceId::new();
     let family_id = WorkspaceId::new();
     let registry = MachineRegistry {
-        schema_version: 2,
+        schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
         default_workspace: name("brain"),
         workspaces: BTreeMap::from([
             (
@@ -47,14 +47,16 @@ fn fixture() -> (MachineRegistry, WorkspaceId, WorkspaceId) {
                 ),
             ),
         ]),
+        env: serde_json::Map::new(),
     };
     (registry, brain_id, family_id)
 }
 
 fn raw_object() -> Map<String, Value> {
     serde_json::from_value(json!({
-        "schema_version": 2,
+        "schema_version": crate::workspace::REGISTRY_SCHEMA_VERSION,
         "default_workspace": "brain",
+        "env": {"markdown_to_pdf_path": "/opt/markdown-to-pdf"},
         "workspaces": {"brain": {"root": "/home/tester/brain"}},
     }))
     .expect("raw registry object")
@@ -85,14 +87,27 @@ fn global_rows_are_every_top_level_key_except_workspaces() {
         .iter()
         .map(|row| row.name.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(names, ["default_workspace", "schema_version"]);
+    // The machine-global `env` object is lifted to bare variable names, so a
+    // row reads the way `brain env set <name>=…` is typed.
+    assert_eq!(
+        names,
+        [
+            "default_workspace",
+            "markdown_to_pdf_path",
+            "schema_version"
+        ]
+    );
     assert!(
         !names.iter().any(|name| name.starts_with("workspaces")),
         "{names:?}"
     );
     assert_eq!(
         row(&breakdown.global, "schema_version").value.as_deref(),
-        Some("2")
+        Some(
+            crate::workspace::REGISTRY_SCHEMA_VERSION
+                .to_string()
+                .as_str()
+        )
     );
     assert_eq!(
         row(&breakdown.global, "default_workspace").value.as_deref(),
@@ -165,8 +180,40 @@ fn every_declared_variable_appears_in_every_block_even_when_unset() {
             "{} should list resend_api_key as unset",
             block.name
         );
-        assert!(row(&block.rows, "markdown_to_pdf_path").value.is_none());
     }
+}
+
+#[test]
+fn a_machine_global_variable_is_reported_once_and_never_per_workspace() {
+    let breakdown = breakdown();
+
+    // Repeating one machine-wide value under every workspace would suggest each
+    // record holds its own, which is exactly what schema v3 stopped doing.
+    assert_eq!(
+        row(&breakdown.global, "markdown_to_pdf_path")
+            .value
+            .as_deref(),
+        Some("/opt/markdown-to-pdf")
+    );
+    for block in &breakdown.workspaces {
+        assert!(
+            !block
+                .rows
+                .iter()
+                .any(|row| row.name == "markdown_to_pdf_path"),
+            "{} still lists a workspace-scoped markdown_to_pdf_path",
+            block.name
+        );
+    }
+}
+
+#[test]
+fn the_machine_global_row_keeps_its_declared_description() {
+    let breakdown = breakdown();
+
+    let description = &row(&breakdown.global, "markdown_to_pdf_path").description;
+    assert!(description.contains("markdown-to-pdf"), "{description}");
+    assert_ne!(description, super::GLOBAL_FALLBACK_DESCRIPTION);
 }
 
 #[test]

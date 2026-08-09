@@ -12,6 +12,21 @@ pub(super) struct VarSpec {
     pub(super) legacy_config_fallback: bool,
 }
 
+/// Env variables scoped to the **machine**, not to one workspace.
+///
+/// They live in the registry's top-level `env` map, so every registered
+/// workspace reads and writes the same value. The test is whether the value
+/// could sensibly differ between two workspaces on one machine: the path to a
+/// binary cannot, so it belongs here; a workspace's public receiver URL can, so
+/// it does not.
+pub(crate) const MACHINE_GLOBAL_VARS: [&str; 1] = ["markdown_to_pdf_path"];
+
+/// Whether `name` is stored once for the whole machine.
+#[must_use]
+pub(crate) fn is_machine_global(name: &str) -> bool {
+    MACHINE_GLOBAL_VARS.contains(&name)
+}
+
 pub(super) use crate::agent::{
     DEFAULT_CLAUDE_COMMAND as DEFAULT_CLAUDE_CMD, DEFAULT_CODEX_COMMAND as DEFAULT_CODEX_CMD,
     DEFAULT_OPENCODE_COMMAND as DEFAULT_OPENCODE_CMD,
@@ -28,7 +43,7 @@ pub(super) const VARS: [VarSpec; 14] = [
     },
     VarSpec {
         name: "markdown_to_pdf_path",
-        description: "Path to the markdown-to-pdf command on THIS machine. Auto-discovered on first run; required for the Create-PDF action.",
+        description: "Path to the markdown-to-pdf command on THIS machine. Machine-global: every registered workspace shares one value. Auto-discovered on first run; required for the Create-PDF action.",
         default: None,
         legacy_config_fallback: false,
     },
@@ -109,6 +124,13 @@ pub(super) const VARS: [VarSpec; 14] = [
 /// Every declared per-workspace variable with its description, in schema order.
 pub(super) fn declared_docs() -> impl Iterator<Item = (&'static str, &'static str)> {
     VARS.iter().map(|spec| (spec.name, spec.description))
+}
+
+/// The declared description for `name`, if brain declares one.
+pub(super) fn declared_description(name: &str) -> Option<&'static str> {
+    VARS.iter()
+        .find(|spec| spec.name == name)
+        .map(|spec| spec.description)
 }
 
 pub(super) fn is_known(name: &str) -> bool {

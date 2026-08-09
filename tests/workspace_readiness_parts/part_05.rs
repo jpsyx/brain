@@ -29,6 +29,7 @@ fn response_email_alone_does_not_enable_or_prompt_for_an_email_identity() {
                 env: Map::new(),
             },
         )]),
+        env: serde_json::Map::new(),
     };
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();

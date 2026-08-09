@@ -97,6 +97,7 @@ fn cli_start_stop_and_startup_flag_drive_exact_persistence_and_refresh() {
                     },
                 ),
             ]),
+            env: serde_json::Map::new(),
         })
         .unwrap();
     let workspace = WorkspaceContext::new(
@@ -156,6 +157,7 @@ fn committed_intent_survives_a_failed_live_refresh() {
                     env: serde_json::Map::new(),
                 },
             )]),
+            env: serde_json::Map::new(),
         })
         .expect("seed registry");
     let workspace = WorkspaceContext::new(
