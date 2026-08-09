@@ -49,26 +49,39 @@ pub enum EnvAction {
 }
 
 #[derive(Args, Debug)]
-pub struct PersonalizeArgs {
+pub struct PersonaArgs {
     #[command(subcommand)]
-    pub action: Option<PersonalizeAction>,
+    pub action: Option<PersonaAction>,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum PersonalizeAction {
-    /// Print your personalization as a stable, keyed block (the lookup skills read).
-    Show,
-    /// Print one field's value (`name`, `role`, `works_for`).
-    Get {
-        /// Field name.
-        field: String,
+pub enum PersonaAction {
+    /// Print one member's persona as a stable, keyed block (the lookup skills
+    /// read). Defaults to this machine's local person.
+    Show {
+        /// Portable user ID. Omit for this machine's local person.
+        #[arg(long)]
+        user: Option<String>,
     },
-    /// Set a field: `brain personalize set <field>=<value>`.
+    /// Print every workspace member's persona, the local one marked.
+    List,
+    /// Print everything brain knows about one member, or one field of theirs:
+    /// `brain persona get pablo`, `brain persona get pablo role`.
+    Get {
+        /// Portable user ID.
+        user: String,
+        /// Field name (`name`, `role`, `works_for`). Omit for the whole persona.
+        field: Option<String>,
+    },
+    /// Set a field: `brain persona set <field>=<value> [--user <id>]`.
     Set {
         /// A single `field=value` assignment.
         assignment: String,
+        /// Portable user ID. Omit for this machine's local person.
+        #[arg(long)]
+        user: Option<String>,
     },
-    /// Open the raw personalization JSON in `$EDITOR` (for editing `tag_styles`).
+    /// Open the raw personas JSON in `$EDITOR` (for editing `tag_styles`).
     Edit,
 }
 
@@ -120,6 +133,66 @@ mod tests {
             help.contains("Structural workspace fields are read-only"),
             "{help}"
         );
+    }
+
+    #[test]
+    fn every_persona_grammar_parses_and_addresses_a_user() {
+        use super::PersonaAction;
+
+        let action = |args: &[&str]| {
+            let cli = Cli::try_parse_from(args).unwrap_or_else(|error| panic!("{args:?}: {error}"));
+            let Some(Cmd::Persona(persona)) = cli.command else {
+                panic!("{args:?} is not a persona command");
+            };
+            persona.action
+        };
+
+        assert!(action(&["brain", "persona"]).is_none());
+        assert!(matches!(
+            action(&["brain", "persona", "show"]),
+            Some(PersonaAction::Show { user: None })
+        ));
+        assert!(matches!(
+            action(&["brain", "persona", "show", "--user", "sam"]),
+            Some(PersonaAction::Show { user: Some(user) }) if user == "sam"
+        ));
+        assert!(matches!(
+            action(&["brain", "persona", "list"]),
+            Some(PersonaAction::List)
+        ));
+        assert!(matches!(
+            action(&["brain", "persona", "get", "pablo"]),
+            Some(PersonaAction::Get { user, field: None }) if user == "pablo"
+        ));
+        assert!(matches!(
+            action(&["brain", "persona", "get", "pablo", "role"]),
+            Some(PersonaAction::Get { user, field: Some(field) })
+                if user == "pablo" && field == "role"
+        ));
+        assert!(matches!(
+            action(&["brain", "persona", "set", "role=CEO"]),
+            Some(PersonaAction::Set { assignment, user: None }) if assignment == "role=CEO"
+        ));
+        assert!(matches!(
+            action(&["brain", "persona", "set", "role=CEO", "--user", "sam"]),
+            Some(PersonaAction::Set { user: Some(user), .. }) if user == "sam"
+        ));
+        assert!(matches!(
+            action(&["brain", "persona", "edit"]),
+            Some(PersonaAction::Edit)
+        ));
+    }
+
+    #[test]
+    fn personalize_stays_a_hidden_alias_for_persona() {
+        // Muscle memory (and any script written before personas were per-user)
+        // keeps working, but only `persona` is advertised.
+        let cli = Cli::try_parse_from(["brain", "personalize", "list"]).expect("legacy alias");
+        assert!(matches!(cli.command, Some(Cmd::Persona(_))));
+
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("persona"), "{help}");
+        assert!(!help.contains("personalize"), "{help}");
     }
 
     #[test]

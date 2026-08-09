@@ -1,5 +1,5 @@
 //! Terminal color theme for brain's **non-TUI CLI** output (sync, setup, config,
-//! env, personalize, doctor).
+//! env, persona, doctor).
 //!
 //! Callers ask for MEANING, not color: semantic design tokens (`heading`,
 //! `accent`, `value`, `muted`, `success`, `warning`, `error`, `info`, `prompt`)

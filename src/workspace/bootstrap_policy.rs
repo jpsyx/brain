@@ -22,7 +22,7 @@ pub enum Invocation {
     Sync,
     SyncStatus,
     Check,
-    Personalize,
+    Persona,
     Skills,
     Server,
     ServerStatus,
@@ -74,7 +74,7 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::Sync
         | Invocation::SyncStatus
         | Invocation::Check
-        | Invocation::Personalize
+        | Invocation::Persona
         | Invocation::Skills
         | Invocation::Server
         | Invocation::ServerStatus
@@ -116,7 +116,7 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         | Invocation::Env
         | Invocation::Sync
         | Invocation::Check
-        | Invocation::Personalize
+        | Invocation::Persona
         | Invocation::Skills
         | Invocation::Receiver
         | Invocation::Habits
@@ -157,7 +157,7 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
         }
         Some(Cmd::Check) => Invocation::Check,
         Some(Cmd::Killall) => Invocation::Killall,
-        Some(Cmd::Personalize(_)) => Invocation::Personalize,
+        Some(Cmd::Persona(_)) => Invocation::Persona,
         Some(Cmd::Skills(_)) => Invocation::Skills,
         Some(Cmd::Server(args)) => match args.action {
             ServerAction::Run { .. } => Invocation::InternalServer,

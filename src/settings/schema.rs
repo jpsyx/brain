@@ -16,7 +16,7 @@ pub(super) struct VarSpec {
 /// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
 /// or the `~/brain` default and edited by hand, never via `brain config`
 /// (see [`crate::paths`]).
-pub(super) const VARS: [VarSpec; 13] = [
+pub(super) const VARS: [VarSpec; 14] = [
     VarSpec {
         name: "access_mode",
         description: "Portable workspace access policy: unrestricted or workspace_only (advisory, not a filesystem sandbox).",
@@ -61,6 +61,11 @@ pub(super) const VARS: [VarSpec; 13] = [
         name: "daily_triage_name_pattern",
         description: "Case-insensitive regex matched against habit names to gate the startup triage nudge. Empty disables it.",
         default: Some("Morning Triage"),
+    },
+    VarSpec {
+        name: "enable_daily_triage_check",
+        description: "When true, the shell may open the daily-triage startup nudge. Set false to never open it; the command palette still toggles it for one running session.",
+        default: Some("true"),
     },
     VarSpec {
         name: "day_rollover_hour",

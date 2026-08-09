@@ -75,11 +75,14 @@ means adding a palette row or a keybinding, not another command to memorize.
 ## Usage
 
 ```sh
-brain                 # persistent shell, tasks view (Claude brain panel)
+brain                 # persistent shell, tasks view (your default brain panel)
+brain --claude        # same shell, with Claude in the brain panel
+brain -cl             # short alias for --claude
 brain --codex         # same shell, with Codex in the brain panel
-brain -cx            # short alias for --codex
+brain -cx             # short alias for --codex
 brain --open-code     # same shell, with OpenCode in the brain panel
 brain -oc             # short alias for --open-code
+brain env set default_agent_frontend=codex   # this machine's default panel
 brain tasks           # same shell, launched on the tasks view explicitly
 brain tasks today --no-tui        # print today's tasks, no TUI
 brain tasks complete t123         # mark a task complete
@@ -126,7 +129,9 @@ work and how to make them yours without forking the repo.
   uses it to turn notes/agendas into PDFs. Auto-discovered on first run.
 - The `claude` CLI for the default brain panel, the `codex` CLI for
   `brain --codex` / `brain -cx`, or a compatible `opencode` CLI for
-  `brain --open-code` / `brain -oc`.
+  `brain --open-code` / `brain -oc`. Only need one? Point this machine at it
+  with `brain env set default_agent_frontend=<claude|codex|opencode>` and drop
+  the flag.
 
 OpenCode support includes fresh and resumable workspace sessions, semantic
 submit/queue/new-chat input, selected workspace capabilities, lifecycle and
@@ -396,10 +401,11 @@ brain env set claude_cmd='claude --dangerously-skip-permissions'
 | `enable_triage_habits` | `true` | Maintain protected daily and weekly triage chains. Setting `false` transactionally purges every managed occurrence and derived reference while leaving manual `/triage` available. |
 | `linear_workspace` | *(unset)* | Linear workspace slug; builds `https://linear.app/<slug>/issue/` for the task "open link" action. |
 | `daily_triage_name_pattern` | `Morning Triage` | Regex on habit names that gates the startup triage nudge. Empty disables it. |
+| `enable_daily_triage_check` | `true` | Whether any shell on this workspace may open the startup triage nudge. The command palette still toggles it for one session. |
 | `day_rollover_hour` | `6` | Hour (0–23) the "logical day" rolls over for the triage re-check. |
 | `agenda_dir` | `~/Downloads` | Where the generated daily-agenda PDF is written. |
 | `calendar_id` | *(empty)* | Calendar to pull busy blocks from when building the agenda. Empty = no calendar. |
-| `skills_auto_sync` | `true` | When true, every `config`/`personalize` change re-renders + reinstalls your skills. Set false to sync only via `brain skills sync`. |
+| `skills_auto_sync` | `true` | When true, every `config`/`persona` change re-renders + reinstalls your skills. Set false to sync only via `brain skills sync`. |
 
 Names normalize (`-`→`_`, lower-cased), so `Linear-Workspace` works. Workspace
 roots are registry-owned; agent launch commands are machine-local env values.
@@ -417,6 +423,7 @@ brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf
 brain env set claude_cmd='claude --dangerously-skip-permissions'
 brain env set codex_cmd='codex --model gpt-5'
 brain env set opencode_cmd='opencode'
+brain env set default_agent_frontend=codex
 brain env get root -w family
 ```
 
@@ -427,6 +434,7 @@ brain env get root -w family
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command the Claude brain panel launches on this machine. |
 | `codex_cmd` | `codex` | Command the Codex brain panel launches on this machine. |
 | `opencode_cmd` | `opencode` | Command the OpenCode brain panel launches on this machine. |
+| `default_agent_frontend` | `claude` | Which frontend the brain panel opens on this machine with no `--claude`/`--codex`/`--open-code` flag. One of `claude`, `codex`, `opencode`. |
 
 ### The `markdown-to-pdf` prerequisite
 
@@ -438,35 +446,47 @@ you set it up on another Mac), brain re-discovers automatically. Only if
 nothing is found does it print a red error; fix it with
 `brain env set markdown_to_pdf_path=/path/to/markdown-to-pdf`.
 
-## 4. Personalize brain
+## 4. Set up your persona
 
-Personalization is content *about you* that skills read to act as your assistant.
-Manage it with `brain personalize`:
+A **persona** is content *about a person* that skills read to act as their
+assistant. A workspace can have several members, so brain keeps one persona per
+portable user ID and addresses the person at this machine unless you name
+another. Manage them with `brain persona`:
 
 ```sh
-brain personalize                 # onboarding if unset, else shows your profile
-brain personalize show            # the stable block skills read at runtime
-brain personalize set role="CEO"
-brain personalize edit            # open personalization.json in $EDITOR
+brain persona                     # onboarding if unset, else shows your persona
+brain persona show                # the stable block skills read at runtime
+brain persona list                # every member of this workspace
+brain persona get sam             # everything brain knows about one member
+brain persona get sam role        # just one field of theirs
+brain persona set role="CEO"
+brain persona set role="designer" --user sam
+brain persona edit                # open personalization.json in $EDITOR
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `name` | your display name |
-| `role` | who you are ("CEO", "software engineer", "PhD student") |
-| `works_for` | your org, "myself", or empty |
-| `namespaces` | your project namespaces (e.g. `work`, `personal`) |
-| `tag_styles` | how task tags render (label + emoji) |
+| `name` | their display name |
+| `role` | who they are ("CEO", "software engineer", "PhD student") |
+| `works_for` | their org, "myself", or empty |
+| `namespaces` | their project namespaces (e.g. `work`, `personal`) |
+| `tag_styles` | how task tags render for them (label + emoji) |
 
-`namespaces` and `tags` are edited with an interactive checklist:
+`namespaces` and `tags` are edited with an interactive checklist (always for the
+person at this machine):
 
 ```sh
 brain config set namespaces       # toggle/add your project namespaces
 brain config set tags             # toggle/add your task tags + styles
 ```
 
-Skills don't bake in your identity — they call `brain personalize show` at
-runtime. So updating your profile updates every skill's behavior at once, and the
+If the person at this machine has no persona yet, the next `brain` command of
+any kind asks for one before doing its work — or, with no terminal, prints the
+command to fix it and carries on. Other members are never prompted for on your
+machine; `brain workspace status` reports who is still missing one.
+
+Skills don't bake in anyone's identity — they call `brain persona list` at
+runtime. So updating a persona updates every skill's behavior at once, and the
 brain repo itself stays 100% generic (no personal data committed anywhere).
 
 ## 5. Skills
@@ -483,7 +503,7 @@ brain skills sync --root /tmp/sbx # install into a sandbox dir (for trying thing
 ```
 
 With `skills_auto_sync` on (the default), this also runs automatically after any
-`brain config` / `brain personalize` change, so your installed skills never drift
+`brain config` / `brain persona` change, so your installed skills never drift
 from your settings.
 
 **Bundled skills** (all generic; your machine renders them with your personal

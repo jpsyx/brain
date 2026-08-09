@@ -2,9 +2,7 @@
 
 use anyhow::{Result, anyhow};
 
-use crate::cli::{
-    ConfigAction, ConfigArgs, EnvAction, EnvArgs, PersonalizeAction, PersonalizeArgs,
-};
+use crate::cli::{ConfigAction, ConfigArgs, EnvAction, EnvArgs, PersonaAction, PersonaArgs};
 
 pub fn run_config(args: &ConfigArgs, context: &crate::workspace::CommandContext) -> Result<()> {
     match args.action.as_ref().unwrap_or(&ConfigAction::List) {
@@ -68,7 +66,11 @@ pub fn run_env(args: &EnvArgs, context: &crate::workspace::CommandContext) -> Re
                 crate::env::set(context, &name, value)?;
                 println!(
                     "{}",
-                    env_set_confirmation(&name, value, crate::theme::Theme::active())
+                    env_set_confirmation(
+                        &name,
+                        &stored_value(context, &name, value),
+                        crate::theme::Theme::active()
+                    )
                 );
             } else {
                 crate::logging::log("env set interactive");
@@ -79,35 +81,41 @@ pub fn run_env(args: &EnvArgs, context: &crate::workspace::CommandContext) -> Re
     Ok(())
 }
 
-pub fn run_personalize(
-    args: &PersonalizeArgs,
-    context: &crate::workspace::CommandContext,
-) -> Result<()> {
+pub fn run_persona(args: &PersonaArgs, context: &crate::workspace::CommandContext) -> Result<()> {
     match args.action.as_ref() {
-        Some(PersonalizeAction::Show) => {
-            crate::logging::log("personalize show");
-            crate::personalization::command::run_show(&context.workspace);
+        Some(PersonaAction::Show { user }) => {
+            crate::logging::log(format!("persona show user={user:?}"));
+            crate::personalization::command::run_show(&context.workspace, user.as_deref())
+        }
+        Some(PersonaAction::List) => {
+            crate::logging::log("persona list");
+            crate::personalization::command::run_list(&context.workspace);
             Ok(())
         }
-        Some(PersonalizeAction::Get { field }) => {
-            crate::logging::log(format!("personalize get field={field}"));
-            crate::personalization::command::run_get(&context.workspace, field);
-            Ok(())
+        Some(PersonaAction::Get { user, field }) => {
+            crate::logging::log(format!("persona get user={user} field={field:?}"));
+            crate::personalization::command::run_get(&context.workspace, user, field.as_deref())
         }
-        Some(PersonalizeAction::Set { assignment }) => {
-            crate::logging::log(format!("personalize set assignment={assignment:?}"));
+        Some(PersonaAction::Set { assignment, user }) => {
+            crate::logging::log(format!(
+                "persona set assignment={assignment:?} user={user:?}"
+            ));
             if assignment.contains('=') {
-                crate::personalization::command::run_set(&context.workspace, assignment)
+                crate::personalization::command::run_set(
+                    &context.workspace,
+                    user.as_deref(),
+                    assignment,
+                )
             } else {
-                personalize_set_interactive(&context.workspace, assignment)
+                persona_set_interactive(&context.workspace, user.as_deref(), assignment)
             }
         }
-        Some(PersonalizeAction::Edit) => {
-            crate::logging::log("personalize edit");
+        Some(PersonaAction::Edit) => {
+            crate::logging::log("persona edit");
             crate::personalization::command::run_edit(&context.workspace)
         }
         None => {
-            crate::logging::log("personalize default");
+            crate::logging::log("persona default");
             crate::personalization::onboarding::run_or_show(&context.workspace)
         }
     }
@@ -196,10 +204,11 @@ fn env_set_interactive(
             .ok_or_else(|| anyhow!("choose a number from 1 to {}", rows.len()))?;
         rows[index - 1].name.clone()
     };
+    let prompt = env_value_prompt(&name);
     let Some(value) = (if crate::env::is_sensitive(&name) {
-        prompt_masked_line(&format!("Set {name} = "))?
+        prompt_masked_line(&prompt)?
     } else {
-        prompt_tty_line(&format!("Set {name} = "))?
+        prompt_tty_line(&prompt)?
     }) else {
         anyhow::bail!("no terminal for interactive set; use `brain env set {name}=<value>`");
     };
@@ -207,9 +216,34 @@ fn env_set_interactive(
     crate::env::set(context, &name, value)?;
     println!(
         "{}",
-        env_set_confirmation(&name, value, crate::theme::Theme::active())
+        env_set_confirmation(
+            &name,
+            &stored_value(context, &name, value),
+            crate::theme::Theme::active()
+        )
     );
     Ok(())
+}
+
+/// What the store actually holds for `name` after a write.
+///
+/// Enum-valued variables are canonicalized on the way in (`Open-Code` →
+/// `opencode`), so echoing the typed text back would confirm something that is
+/// not what a later read returns.
+fn stored_value(context: &crate::workspace::CommandContext, name: &str, written: &str) -> String {
+    crate::env::get(context, name).unwrap_or_else(|| written.to_owned())
+}
+
+/// The interactive prompt for one env variable, naming the accepted values when
+/// the variable is an enum. Pure.
+fn env_value_prompt(name: &str) -> String {
+    if name == crate::agent::default_frontend::ENV_VAR {
+        let values = crate::session::AgentKind::ALL
+            .map(crate::session::AgentKind::as_str)
+            .join(" | ");
+        return format!("Set {name} ({values}) = ");
+    }
+    format!("Set {name} = ")
 }
 
 fn env_set_confirmation(name: &str, value: &str, theme: crate::theme::Theme) -> String {
@@ -220,17 +254,16 @@ fn env_set_confirmation(name: &str, value: &str, theme: crate::theme::Theme) -> 
     }
 }
 
-fn personalize_set_interactive(
+fn persona_set_interactive(
     workspace: &crate::workspace::WorkspaceContext,
+    user: Option<&str>,
     field: &str,
 ) -> Result<()> {
     let field = crate::settings::normalize_name(field);
     let Some(value) = prompt_tty_line(&format!("Set {field} = "))? else {
-        anyhow::bail!(
-            "no terminal for interactive set; use `brain personalize set {field}=<value>`"
-        );
+        anyhow::bail!("no terminal for interactive set; use `brain persona set {field}=<value>`");
     };
-    crate::personalization::command::run_set(workspace, &format!("{field}={}", value.trim()))
+    crate::personalization::command::run_set(workspace, user, &format!("{field}={}", value.trim()))
 }
 
 pub(crate) fn prompt_tty_line(prompt: &str) -> Result<Option<String>> {
@@ -314,6 +347,17 @@ mod tests {
         assert_eq!(masked_echo("abc"), "***");
         assert_eq!(masked_echo("éx"), "**");
         assert_eq!(masked_echo(""), "");
+    }
+
+    #[test]
+    fn an_enum_env_prompt_lists_the_values_it_accepts() {
+        // Human-friendly fallback: never make someone read `--help` to learn
+        // what an enum variable takes.
+        assert_eq!(
+            super::env_value_prompt("default_agent_frontend"),
+            "Set default_agent_frontend (claude | codex | opencode) = "
+        );
+        assert_eq!(super::env_value_prompt("claude_cmd"), "Set claude_cmd = ");
     }
 
     #[test]

@@ -1,8 +1,9 @@
-//! The personalization schema: identity facts plus tag-style overrides.
+//! One person's persona: identity facts plus tag-style overrides.
 //!
 //! Every field is optional and defaults to empty, so a missing or broken store
 //! parses to a fully-default value rather than erroring — the app must run fine
-//! with no personalization at all.
+//! with no personalization at all. A workspace holds one of these per member,
+//! keyed by portable user ID (see [`super::personas`]).
 
 use std::collections::BTreeMap;
 
@@ -10,9 +11,10 @@ use serde::{Deserialize, Serialize};
 
 use super::tags::TagStyle;
 
-/// Content-about-you, stored at `~/.config/brain/personalization.json`.
+/// Content about one member, stored under their user ID in
+/// `<brain-root>/.config/personalization.json`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Personalization {
+pub struct Persona {
     /// Optional display name.
     #[serde(default)]
     pub name: String,
@@ -32,7 +34,7 @@ pub struct Personalization {
     pub tag_styles: BTreeMap<String, TagStyle>,
 }
 
-impl Personalization {
+impl Persona {
     /// Parse from a JSON body. Empty/blank/invalid input yields the default
     /// value — a broken store never blocks startup.
     #[must_use]
@@ -57,18 +59,18 @@ mod tests {
 
     #[test]
     fn empty_input_parses_to_default() {
-        assert!(Personalization::parse("").is_empty());
-        assert!(Personalization::parse("{}").is_empty());
+        assert!(Persona::parse("").is_empty());
+        assert!(Persona::parse("{}").is_empty());
     }
 
     #[test]
     fn invalid_json_parses_to_default() {
-        assert!(Personalization::parse("not json").is_empty());
+        assert!(Persona::parse("not json").is_empty());
     }
 
     #[test]
     fn full_object_parses_all_fields() {
-        let p = Personalization::parse(
+        let p = Persona::parse(
             r#"{
                 "name": "Pablo",
                 "role": "CEO",
@@ -86,7 +88,7 @@ mod tests {
     #[test]
     fn missing_fields_default_without_erroring() {
         // Only `role` present — the rest default, no error.
-        let p = Personalization::parse(r#"{"role": "student"}"#);
+        let p = Persona::parse(r#"{"role": "student"}"#);
         assert_eq!(p.role, "student");
         assert_eq!(p.name, "");
         assert!(p.namespaces.is_empty());
@@ -95,17 +97,17 @@ mod tests {
 
     #[test]
     fn namespaces_round_trip_and_count_toward_non_empty() {
-        let p = Personalization::parse(r#"{"namespaces": ["work", "personal", "pole"]}"#);
+        let p = Persona::parse(r#"{"namespaces": ["work", "personal", "pole"]}"#);
         assert_eq!(p.namespaces, ["work", "personal", "pole"]);
         assert!(!p.is_empty(), "namespaces alone make it non-empty");
         // Round-trips through JSON.
         let json = serde_json::to_string(&p).unwrap();
-        assert_eq!(Personalization::parse(&json).namespaces, p.namespaces);
+        assert_eq!(Persona::parse(&json).namespaces, p.namespaces);
     }
 
     #[test]
     fn round_trips_through_json() {
-        let mut p = Personalization {
+        let mut p = Persona {
             name: "A".to_owned(),
             role: "B".to_owned(),
             works_for: "C".to_owned(),
@@ -120,6 +122,6 @@ mod tests {
             },
         );
         let json = serde_json::to_string(&p).unwrap();
-        assert_eq!(Personalization::parse(&json), p);
+        assert_eq!(Persona::parse(&json), p);
     }
 }

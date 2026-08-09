@@ -138,7 +138,8 @@ pub(crate) enum PaletteAction {
     /// raise the picker. The label reflects which (see `label_for`).
     OpenLinks,
     /// Toggle the daily-triage startup nudge for the current session — the
-    /// runtime counterpart to the `--no-daily-triage-check` CLI flag. Flips
+    /// runtime counterpart to the portable `enable_daily_triage_check` config
+    /// variable that seeds it at startup. Flips
     /// `App::skip_daily_triage_check` (process-scoped, not persisted config) so
     /// a long-running TUI can suppress or restore the alert across day
     /// rollovers. Global; label swaps Disable/Enable (see `label_for`).

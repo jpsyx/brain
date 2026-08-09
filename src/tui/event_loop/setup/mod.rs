@@ -112,11 +112,6 @@ pub fn run_tui(
     )?;
     let job_socket = crate::tui::singleton::JobSocket::bind(&command_context.workspace)?;
     let mut server_lease = register_server_lease(command_context)?;
-    // First-run onboarding: seed personalization with a short skippable prompt
-    // on the normal terminal, *before* we take over the screen. No-op when
-    // already personalized or when there is no tty. Never blocks startup.
-    crate::personalization::onboarding::maybe_run_first_time(&command_context.workspace);
-
     let assignment = crate::tasks::task::assignment_context_for_workspace(
         &command_context.workspace,
         &command_context.actor,
@@ -220,7 +215,7 @@ pub fn run_tui(
     // Instead capture the journal baseline, kick the sync, and *arm the gate*;
     // `tick_triage_gate` runs the real check only once the sync completes. With
     // no startup sync, check right away.
-    // `--no-daily-triage-check` suppresses only the nudge. The gate still
+    // The opt-out suppresses only the nudge. The gate still
     // refreshes config and task state after a successful startup pull.
     let seen = if startup_plan.arm_refresh {
         let seen =

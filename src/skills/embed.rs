@@ -174,10 +174,15 @@ mod tests {
         );
         // The contacts book is its own sibling skill now.
         assert!(text.contains("/contacts"), "points at the /contacts skill");
-        // Namespaces are runtime config (onboarding checklist), not hardcoded.
+        // Namespaces are runtime config (onboarding checklist), not hardcoded,
+        // and a shared workspace has one persona per member.
         assert!(
-            text.contains("brain personalize show"),
+            text.contains("brain persona show"),
             "reads namespaces/identity at runtime"
+        );
+        assert!(
+            text.contains("brain persona list"),
+            "reads every member's persona, not just one"
         );
         for hook in [
             "second-brain:company-context",

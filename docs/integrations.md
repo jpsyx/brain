@@ -131,15 +131,25 @@ Finder/editor for files, `markdown-to-pdf` for conversions).
 ## The Brain Panel: Claude, Codex, Or OpenCode
 
 The persistent shell's brain panel spawns the selected agent frontend itself,
-inside a PTY (`pty_pane.rs`). Claude is the default; pass `brain --codex`,
-`brain -cx`, `brain tasks --codex`, or `brain tasks -cx` to run Codex instead.
-`brain --open-code` and `brain -oc` select the OpenCode adapter. The adapter
+inside a PTY (`pty_pane.rs`).
+
+**Which frontend runs.** A selector flag wins; with none, the selected
+workspace's machine-local `default_agent_frontend` env value decides; with that
+unset (or holding an unreadable value), Claude runs. The flags are
+`--claude` / `-cl`, `--codex` / `-cx`, and `--open-code` / `-oc`, and each may
+appear before or after `tasks` and its delegated positionals. So
+`brain env set default_agent_frontend=codex` makes Codex this machine's default,
+and `brain --claude` still opens Claude for one run. The flags parse in
+`Cli::selected_agent` (which returns `None` when nothing is selected, since env
+can only be read once a workspace is bootstrapped) and resolve in
+`agent::default_frontend`; `main.rs` resolves the pair right after bootstrap.
+The OpenCode adapter
 launches `opencode` with the named Brain agent, translates semantic input to
 OpenCode control sequences, and supplies the trusted Brain policy through
 `OPENCODE_CONFIG_CONTENT`. The installed `.opencode/plugins/brain.js` bridge
 maps OpenCode `session.created` and `session.idle` events into Brain's generic
-lifecycle bridges. Selecting both non-default frontends exits with
-`🔴 Choose one agent frontend: --codex or --open-code.`
+lifecycle bridges. Selecting more than one frontend exits with
+`🔴 Choose one agent frontend: --claude, --codex, or --open-code.`
 
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |

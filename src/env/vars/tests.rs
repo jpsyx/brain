@@ -47,6 +47,92 @@ fn set_rejects_unknown_env_variables() {
 }
 
 #[test]
+fn setting_an_unknown_default_agent_frontend_is_rejected_before_any_write() {
+    // `command()` points at a missing registry, so a value that reached the
+    // store would fail there instead; this must fail on validation, naming the
+    // whole valid set.
+    let error = set(&command(), "default_agent_frontend", "gemini")
+        .expect_err("unknown frontend")
+        .to_string();
+
+    assert!(error.contains("claude, codex, opencode"), "{error}");
+    assert!(error.contains("gemini"), "{error}");
+}
+
+#[test]
+fn a_hyphenated_open_code_default_is_stored_canonically() {
+    let (_home, command) = registry_backed_command();
+
+    set(&command, "default_agent_frontend", "Open-Code").expect("set frontend");
+
+    // Stored canonically, so every reader sees an `AgentKind::as_str` value.
+    assert_eq!(
+        get(&command, "default_agent_frontend").as_deref(),
+        Some("opencode")
+    );
+    assert_eq!(
+        resolve_one(&command, "default_agent_frontend").as_deref(),
+        Some("opencode")
+    );
+}
+
+#[test]
+fn an_unset_default_agent_frontend_resolves_to_claude() {
+    let (_home, command) = registry_backed_command();
+
+    assert_eq!(
+        resolve_one(&command, "default_agent_frontend").as_deref(),
+        Some("claude")
+    );
+}
+
+/// A command context backed by a real single-workspace registry file, so `set`
+/// round-trips through the store.
+fn registry_backed_command() -> (tempfile::TempDir, CommandContext) {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("brain");
+    std::fs::create_dir_all(&root).unwrap();
+    let name = crate::workspace::WorkspaceName::parse("brain").unwrap();
+    let id = crate::workspace::WorkspaceId::parse("31e0f0f0-1c3b-4d7a-9f2e-8a5c6b7d8e90").unwrap();
+    let registry = crate::workspace::MachineRegistry {
+        schema_version: 2,
+        default_workspace: name.clone(),
+        workspaces: BTreeMap::from([(
+            name.clone(),
+            crate::workspace::WorkspaceRecord {
+                workspace_id: id,
+                root: root.clone(),
+                aliases: BTreeSet::new(),
+                local_user_id: "pablo".to_owned(),
+                receiver_enabled: false,
+                env: Map::new(),
+            },
+        )]),
+    };
+    let store =
+        crate::workspace::RegistryStore::from_path(home.path().join("config/brain/env.json"));
+    store.replace(&registry).unwrap();
+    let command = CommandContext::for_test(
+        std::sync::Arc::new(
+            crate::workspace::WorkspaceContext::new(
+                home.path(),
+                id,
+                name,
+                &root,
+                "pablo",
+                home.path(),
+            )
+            .unwrap(),
+        ),
+        store,
+        "pablo",
+    );
+    (home, command)
+}
+
+#[test]
 fn set_raw_accepts_a_structured_object_value() {
     // set_raw must accept a nested object (unlike `set`, which coerces
     // scalars). We assert the value shape it will store; the store IO is

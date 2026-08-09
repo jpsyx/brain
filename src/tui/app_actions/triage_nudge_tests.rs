@@ -102,7 +102,7 @@ fn disabled_flag_suppresses_the_nudge() {
     // An open occurrence due today would normally fire the modal.
     let habits = vec![triage("H41", d(2026, 6, 24), None)];
     assert!(triage_modal_target(true, false, &habits, "Morning Triage", today).is_some());
-    // The process-scoped `--no-daily-triage-check` opt-out suppresses it.
+    // The process-scoped opt-out (config-seeded, palette-flipped) suppresses it.
     assert!(triage_modal_target(true, true, &habits, "Morning Triage", today).is_none());
     // The portable feature flag wins over every process preference.
     assert!(triage_modal_target(false, false, &habits, "Morning Triage", today).is_none());

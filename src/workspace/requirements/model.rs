@@ -22,6 +22,7 @@ pub enum RequirementScope {
     PersonalizationRole,
     PersonalizationOrganization,
     PersonalizationTagStyles,
+    MemberPersonas,
     BrowserViews,
     WebViews,
 }
@@ -46,9 +47,11 @@ impl RequirementScope {
             Self::TriageModal => "triage modal".to_owned(),
             Self::PdfConversion => "PDF conversion".to_owned(),
             Self::Linear => "Linear links".to_owned(),
-            Self::PersonalizationRole => "personalization role".to_owned(),
-            Self::PersonalizationOrganization => "personalization organization".to_owned(),
-            Self::PersonalizationTagStyles => "personalization tag styles".to_owned(),
+            Self::PersonalizationRole => "persona role".to_owned(),
+            Self::PersonalizationOrganization => "persona organization".to_owned(),
+            Self::PersonalizationTagStyles => "persona tag styles".to_owned(),
+            // The local person's own rows are above; this one is everyone else.
+            Self::MemberPersonas => "other members' personas".to_owned(),
             Self::BrowserViews => "browser views".to_owned(),
             Self::WebViews => "web views".to_owned(),
         }

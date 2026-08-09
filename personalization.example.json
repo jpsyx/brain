@@ -1,8 +1,19 @@
 {
-  "name": "Ada",
-  "role": "engineer",
-  "works_for": "myself",
-  "tag_styles": {
-    "urgent": { "emoji": "🔥", "label": "urgent" }
+  "schema_version": 2,
+  "personas": {
+    "ada": {
+      "name": "Ada",
+      "role": "engineer",
+      "works_for": "myself",
+      "namespaces": ["work", "personal"],
+      "tag_styles": {
+        "urgent": { "emoji": "🔥", "label": "urgent" }
+      }
+    },
+    "grace": {
+      "name": "Grace",
+      "role": "designer",
+      "works_for": "myself"
+    }
   }
 }

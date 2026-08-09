@@ -20,6 +20,9 @@ here to find the code. Keep this in sync when you rename a concept.
 | **remote workspace identity** | The strict portable manifest at the configured sync target. Its UUID and schema must match the selected workspace before any remote data lane runs; setup may publish it only to an empty remote or after exact UUID adoption. | `sync::identity::VerifiedRemote`; remote `.config/workspace.json` |
 | **migration journal** | UUID-scoped, machine-local progress for explicit legacy-to-multi-workspace cutover. It persists the original plan and backup across retries, then disappears after final verification. | `migration::MigrationJournal`; `<workspace-cache>/migrations/multi-workspace-v1.json` |
 | **workspace requirement** | One centralized readiness/feature-health row. Availability is required; optional features are independently `off`, `ready`, or `incomplete`, never inherited from another workspace. | `workspace::requirements::{Requirement, RequirementsReport}` |
+| **persona** | What Brain knows about **one person** — their name, role, who they work for, their project namespaces, and their tag styles. A workspace holds one per portable member, so "my persona" means the entry for this machine's local user. Managed with `brain persona` (`brain personalize` is a hidden alias). | `personalization::persona::Persona`; one entry in `<workspace-root>/.config/personalization.json` |
+| **the personas store** | The whole keyed file: `schema_version` plus user ID → persona. Version 1 was a single unowned persona and migrates onto whichever machine's local user reads it. | `personalization::personas::Personas`; `<workspace-root>/.config/personalization.json` |
+| **default agent frontend** | Which frontend the brain panel opens on **this machine** when no `--claude` / `--codex` / `--open-code` flag is passed. | `agent::default_frontend`; `default_agent_frontend` in the selected record's env |
 
 ## The two-axis layout model
 

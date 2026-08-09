@@ -21,8 +21,9 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
 - **Logs view:** a scrollable view of the current run log, opened from the
   palette or the main-view cycle.
 - **Brain panel** — a live, interactive agent session in an embedded PTY,
-  Claude by default, Codex with `--codex` / `-cx`, or OpenCode with
-  `--open-code` / `-oc`, open at startup and shared by all
+  running this machine's `default_agent_frontend` (Claude unless set), or the
+  frontend named by `--claude` / `-cl`, `--codex` / `-cx`, or `--open-code` /
+  `-oc` for one run, open at startup and shared by all
   main views. It does not belong to a view: switching views leaves it open;
   closing it (`Ctrl+X`, or the agent
   exiting) makes the active main view full-width.
@@ -120,9 +121,13 @@ candidate is stale, Brain starts a fresh chat and says so in the status line.
 See [integrations.md](integrations.md) and
 [data-model.md](data-model.md) for the lock-and-recency model.
 
-Codex is selected per run with `--codex` / `-cx`; OpenCode is selected with
-`--open-code` / `-oc`. The selectors may appear before or after `tasks` and
-its delegated positionals, stop at `--`, and reject mixed frontend selection.
+Claude is selected per run with `--claude` / `-cl`; Codex with `--codex` /
+`-cx`; OpenCode with `--open-code` / `-oc`. The selectors may appear before or
+after `tasks` and its delegated positionals, stop at `--`, and reject mixed
+frontend selection. With no selector, this machine's `default_agent_frontend`
+env value decides (`claude` when unset), so `brain env set
+default_agent_frontend=codex` makes Codex the default here without changing what
+any other machine on the workspace launches.
 The adapters use `codex_cmd`, `opencode_cmd`, and `claude_cmd` from brain env.
 Codex
 participates in the same frontend/workspace/actor/channel session store but
@@ -234,11 +239,13 @@ management and reporting commands stay outside the persistent shell.
 
 | Command | Behavior |
 | --- | --- |
-| `brain` | Open the persistent shell on the tasks view (the startup default) with the default Claude brain panel. |
-| `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. Claude remains the default. |
-| `brain --open-code` / `brain -oc` | Select the OpenCode brain-panel adapter. Brain launches OpenCode in the selected workspace, passes the initial prompt separately, tracks the OpenCode session ID, and delivers completion through the shared controller lifecycle. `--codex --open-code` exits with `🔴 Choose one agent frontend: --codex or --open-code.` |
+| `brain` | Open the persistent shell on the tasks view (the startup default) with the brain panel on this machine's `default_agent_frontend` (Claude unless set). |
+| `brain --claude` / `brain -cl` | Open the same shell with Claude in the brain panel, whatever this machine's `default_agent_frontend` says. |
+| `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. |
+| `brain --open-code` / `brain -oc` | Select the OpenCode brain-panel adapter. Brain launches OpenCode in the selected workspace, passes the initial prompt separately, tracks the OpenCode session ID, and delivers completion through the shared controller lifecycle. Selecting two frontends exits with `🔴 Choose one agent frontend: --claude, --codex, or --open-code.` |
+| `brain env set default_agent_frontend=<claude\|codex\|opencode>` | Choose which frontend the brain panel launches on **this machine** when no selector flag is passed. Machine-local, so each machine on a workspace can differ. |
 | `brain --workspace <workspace>` / `brain -w <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--workspace=<workspace>` is equivalent; `--` ends option extraction. |
-| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--codex` / `-cx` or `--open-code` / `-oc` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
+| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--claude` / `-cl`, `--codex` / `-cx`, or `--open-code` / `-oc` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
 | `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
 | `brain tasks add --name <name> --type <type> --priority <p0..p4> [OPTIONS]` | Create a task or habit through native Brain logic, preserving assignment, project/Linear metadata, chunking, validation, and CSV behavior. `--habit` (with `--interval`/`--unit`) creates a recurring habit and accepts `--ideal-time "6:45 AM"` to place it in the habits views' Morning/Afternoon/Evening grouping; `--ideal-time` is rejected for a plain task. Use `--json` for automation; plain output prints each created ID. |
@@ -253,7 +260,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
-| `brain personalize [show\|get\|set\|edit]` | Read or change your personalization (identity + tag styles). Bare `brain personalize` runs first-run onboarding if nothing is set, else shows current values (see below). |
+| `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
 | `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
 | `brain server {status\|logs}` | Inspect the shared process without starting, stopping, or repairing it (see below). |
@@ -261,7 +268,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain habits` | Start the shared habits server in the background when no TUI is open, then open today's habits page. A second start is rejected while the server or a TUI is already active. |
 | `brain habits kill` | Stop a background habits server. It is rejected while any brain TUI is open. |
 | `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
-| `brain --no-daily-triage-check` | Open the TUI without ever showing the daily-triage startup nudge. Process-scoped (this run only); not a persistent config change. Combines with any other flag/subcommand. |
+| `brain config set enable_daily_triage_check=false` | Open the TUI without ever showing the daily-triage startup nudge. Portable config, so every machine on the workspace agrees; the palette still toggles it per session. |
 | `brain receiver {setup\|set\|start\|stop\|status\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, or read shared-process logs. No receiver command starts or restarts a process. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
@@ -302,7 +309,8 @@ record in the schema-v2 registry (`$XDG_CONFIG_HOME/brain/env.json`, falling
 back to `~/.config/brain/env.json`). These are values that would be *wrong* if
 copied to another machine: `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
 self-healing), `claude_cmd`/`codex_cmd` (this machine's functional agent launch commands),
-`opencode_cmd` (the machine-local OpenCode launch command), and the
+`opencode_cmd` (the machine-local OpenCode launch command),
+`default_agent_frontend` (which of the three this machine opens by default), and the
 Backblaze `sync` block (written by `brain sync setup`, below — see
 [config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:
@@ -724,7 +732,7 @@ the UUID lock and directs the user to resume `brain workspace migrate`.
     conflict copy — `conflicts`/`resolve` would treat it as one. Don't hand-name
     files in that pattern.
 
-Like `config`/`env`/`personalize`/`skills`, `sync` is dispatched **before**
+Like `config`/`env`/`persona`/`skills`, `sync` is dispatched **before**
 the `markdown-to-pdf` prerequisite gate, so it always works even when that
 tool is missing.
 
@@ -818,15 +826,18 @@ modal — and only if triage is still not done for today. If another machine
 already handled it, no modal ever appears. With sync unconfigured, the check
 runs immediately at open as before.
 
-**Opting out for a run.** Passing `--no-daily-triage-check` (a process-scoped
-flag, valid for that invocation only, *not* a persistent config change)
-suppresses only the alert. Brain still arms the post-sync refresh gate, then
+**Opting out.** Setting `enable_daily_triage_check=false`
+(`brain config set enable_daily_triage_check=false`, portable config that rides
+the workspace to every machine) suppresses only the alert. Every shell launched
+against the workspace starts with the nudge disabled until the value is set back
+to `true`. Brain still arms the post-sync refresh gate, then
 strictly reloads portable config, reconciles managed triage policy, and reloads
 the task tables after a clean startup sync; it skips only the modal check. The
-modal cannot open while that process-scoped suppression remains enabled.
+modal cannot open while suppression remains enabled for the running process.
 Mid-session, the command palette's **Disable/Enable daily triage
-alert** toggle flips the same process-scoped state, so a long-running TUI that
-spans several days can suppress or restore the nudge without a restart. If the
+alert** toggle flips the same state for that session only, so a long-running TUI
+that spans several days can suppress or restore the nudge without a restart or a
+config change. If the
 palette restores the alert while startup sync is still pending, Brain defers
 the check until synced config, managed policy, and tasks have refreshed. To
 disable the nudge permanently instead, clear the `daily_triage_name_pattern`
@@ -1041,37 +1052,67 @@ doctor. Doctor opens an existing SQLite database read-only, probes rclone with
 an explicit no-config path, and never creates config, cache, lock, journal, or
 skill-render state. Hook repair names the exact installer and selected root.
 
-### `brain personalize`
+### `brain persona`
 
-Reads and writes your **personalization** — content *about you*, stored beside
-the config store at `<brain-root>/.config/personalization.json` (just another
-brain config, inside the brain root so it travels with the brain).
+Reads and writes **personas** — content *about the people using this
+workspace*, stored beside the config store at
+`<brain-root>/.config/personalization.json` (just another brain config, inside
+the brain root so it travels with the brain).
 
-- `brain personalize` (bare) — first-run onboarding if nothing is set yet:
-  a short, skippable prompt for your name, role, and who you work for, then two
-  toggle-checklists for your **project namespaces** and **task tags** (all items
-  pre-checked; space toggles, `a` adds comma/semicolon-separated new ones).
-  Otherwise prints your current values (same as `show`).
-- `brain personalize show` — a stable, keyed block (`name:` / `role:` /
-  `works_for:` / `namespaces:`) that brain skills read at runtime to learn who
-  they're assisting and which project namespaces exist. `namespaces:` shows the
-  effective set (your list, or the generic defaults when unset).
-- `brain personalize get <field>` — one field (`name`, `role`, `works_for`).
-- `brain personalize set <field>=<value>` — set and persist an identity field.
-- `brain personalize edit` — open the raw JSON in `$EDITOR` (edit tag-style
+A workspace can have several members, so the store holds **one persona per
+portable user ID**. Commands address the person at this machine
+(`local_user_id`) unless told otherwise. `brain personalize` remains a hidden
+alias of `brain persona` so older muscle memory and scripts keep working.
+
+- `brain persona` (bare) — onboarding when the person at this machine has
+  nothing set yet: a short, skippable prompt for their name, role, and who they
+  work for, then two toggle-checklists for their **project namespaces** and
+  **task tags** (all items pre-checked; space toggles, `a` adds
+  comma/semicolon-separated new ones). Otherwise prints their current values
+  (same as `show`).
+- `brain persona show [--user <id>]` — a stable, keyed block (`user:` / `name:`
+  / `role:` / `works_for:` / `namespaces:`) for one member. `namespaces:` shows
+  the effective set (their list, or the generic defaults when unset).
+- `brain persona list` — every member's block, blank-line separated, in user-ID
+  order, with the person at this machine marked `(this machine)`. This is what
+  the bundled skills read at runtime to learn who they are assisting and who
+  else shares the workspace. A member of `users.json` who has personalized
+  nothing still appears, with `(unset)` values.
+- `brain persona get <user> [<field>]` — everything brain knows about one
+  member, or just one field of theirs (`name`, `role`, `works_for`).
+- `brain persona set <field>=<value> [--user <id>]` — set and persist one
+  member's identity field, leaving every other member's entry untouched. A user
+  ID the workspace has never heard of is rejected, naming the members it knows.
+- `brain persona edit` — open the raw JSON in `$EDITOR` (edit tag-style
   emoji/labels here; the tag and namespace *sets* are edited with the checklist
-  via `brain config set tags|namespaces`).
+  via `brain config set tags|namespaces`, which always edit the local person's).
 
-**Tag styles.** The task renderer's tag → emoji+label mapping is personalization.
-The binary ships only a tiny universal default set (`mit`, `personal`, `work`);
-any other tag renders as its raw name until you add a style under `tag_styles`
-in the personalization JSON. So the public binary carries no personal taxonomy.
+**Missing personas are collected, not forgotten.** When the person at this
+machine has no persona, the *next* `brain` command of any kind runs the short
+onboarding prompt before doing its work. With no terminal (a pipe, a script, a
+cron run) it instead prints one line naming the command to fix it and continues
+— it never blocks or fails the command that triggered it. `brain persona …`
+itself and `brain workspace migrate` are the exceptions, since one is already
+collecting the answer and the other must not interleave prompts with a
+transactional schema change. Other members' missing personas are **never**
+prompted for on somebody else's machine; they surface as the `other members' personas` optional feature in `brain workspace status`.
 
-**Every mutation re-renders skills.** `personalize set`/`edit`, first-run
-onboarding, and `config set` all run the active deterministic render/install
-pipeline so the installed skills stay aligned with the selected workspace.
+**Legacy stores migrate on read.** The pre-multi-user file was a single unowned
+persona. Whichever machine reads it claims it for that machine's local user (the
+only person who can truthfully claim it) and the next write persists the keyed
+schema.
 
-Like `config`, `personalize` runs before the `markdown-to-pdf` prerequisite
+**Tag styles.** The task renderer's tag → emoji+label mapping is part of a
+persona, and the renderer uses the local person's. The binary ships only a tiny
+universal default set (`mit`, `personal`, `work`); any other tag renders as its
+raw name until a style is added under that persona's `tag_styles`. So the public
+binary carries no personal taxonomy.
+
+**Every mutation re-renders skills.** `persona set`/`edit`, onboarding, and
+`config set` all run the active deterministic render/install pipeline so the
+installed skills stay aligned with the selected workspace.
+
+Like `config`, `persona` runs before the `markdown-to-pdf` prerequisite
 gate, so it always works. See [config.md](config.md) and
 [data-model.md](data-model.md) for the store layout and schema.
 
@@ -1093,7 +1134,7 @@ Installing is also triggered automatically in two cases when `skills_auto_sync`
 is `true` (the default since the B4 cutover; set it `false` to sync only on
 demand):
 
-- after a `config`/`personalize` change, and
+- after a `config`/`persona` change, and
 - **the first time a new brain version runs.** Any command that opens a
   workspace (i.e. anything but `--help`/`--version`) checks the brain version
   that last rendered your skills; if the binary has since been updated, it
@@ -1111,7 +1152,7 @@ Before writing anything, `brain skills sync` prints the built-skill directory,
 the shared registry directory, the number of frontend skill directories it will
 fan out to, and the extension/plugin source directories it will read. That
 progress trace is default output; `--verbose` remains only for detailed run
-logs. Automatic skill refresh after `brain config set` / `brain personalize set`
+logs. Automatic skill refresh after `brain config set` / `brain persona set`
 uses the same principle: it prints that installed skills are being refreshed
 before writing built copies or registry links.
 
@@ -1397,7 +1438,7 @@ feature disabled behaves identically.
 ### Prerequisite: `markdown-to-pdf`
 
 Only TUI and task routes cross this prerequisite gate. Workspace, config, env,
-sync, personalize, skills, server, receiver, habits, check, reindex, version,
+sync, persona, skills, server, receiver, habits, check, reindex, version,
 help, and the internal server-run route dispatch before it. A gated route fails
 fast with a red `❌` error if the `markdown-to-pdf` command cannot be resolved
 (it is needed for "Create PDF"). Its path is auto-discovered on first run and
@@ -1436,7 +1477,8 @@ list.
   which reports whether a sync is active. It also includes a
   **Disable daily triage alert** / **Enable daily triage alert** toggle (the
   label swaps to name the action it will take) — the runtime counterpart to the
-  `--no-daily-triage-check` flag. Because a TUI can stay open across day
+  portable `enable_daily_triage_check` config variable that seeds it at startup.
+  Because a TUI can stay open across day
   rollovers, this flips the daily-triage nudge on or off for the current session
   without a persistent config change; enabling it re-checks immediately, so an
   outstanding triage surfaces the modal at once. None of these has a direct

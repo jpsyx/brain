@@ -121,7 +121,8 @@ Shared across the app; a captive modal consumes all input.
   also includes the selected workspace's dynamic **Enable receiver** or
   **Disable receiver** action, **Sync brain now**, **Show sync status**, and a
   **Disable/Enable daily triage alert** toggle (the session-scoped counterpart
-  to `--no-daily-triage-check`), all with no direct shortcut. In a shared
+  to the portable `enable_daily_triage_check` config variable), all with no
+  direct shortcut. In a shared
   workspace it also includes **Add task** and **Filter by assignee**; both are
   intentionally palette-only.
 - **Task actions** (`Enter` on a task): per-task command list. Shared

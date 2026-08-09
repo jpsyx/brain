@@ -19,7 +19,7 @@ pub(super) use crate::agent::{
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 13] = [
+pub(super) const VARS: [VarSpec; 14] = [
     VarSpec {
         name: "root",
         description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",
@@ -48,6 +48,12 @@ pub(super) const VARS: [VarSpec; 13] = [
         name: "opencode_cmd",
         description: "Command used to launch OpenCode for the brain panel on THIS machine. Defaults to opencode; Brain appends the Brain agent and session arguments.",
         default: Some(DEFAULT_OPENCODE_CMD),
+        legacy_config_fallback: false,
+    },
+    VarSpec {
+        name: "default_agent_frontend",
+        description: "Frontend the brain panel launches on THIS machine when no --claude/--codex/--open-code flag is passed. One of claude, codex, opencode. Defaults to claude.",
+        default: Some(crate::agent::default_frontend::DEFAULT),
         legacy_config_fallback: false,
     },
     VarSpec {

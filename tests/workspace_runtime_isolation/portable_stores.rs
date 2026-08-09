@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use brain::personalization::model::Personalization;
+use brain::personalization::persona::Persona;
 use brain::personalization::tags::TagStyle;
 use brain::workspace::{RegistryStore, WorkspaceName};
 use serde_json::Value;
@@ -33,7 +33,7 @@ fn selected_context_silos_env_config_and_personalization_after_default_changes()
         Some("8".to_owned())
     );
 
-    let personal = Personalization {
+    let personal = Persona {
         name: "Personal".to_owned(),
         tag_styles: BTreeMap::from([(
             "shared".to_owned(),
@@ -42,9 +42,9 @@ fn selected_context_silos_env_config_and_personalization_after_default_changes()
                 label: "personal".to_owned(),
             },
         )]),
-        ..Personalization::default()
+        ..Persona::default()
     };
-    let family = Personalization {
+    let family = Persona {
         name: "Family".to_owned(),
         tag_styles: BTreeMap::from([(
             "shared".to_owned(),
@@ -53,12 +53,20 @@ fn selected_context_silos_env_config_and_personalization_after_default_changes()
                 label: "family".to_owned(),
             },
         )]),
-        ..Personalization::default()
+        ..Persona::default()
     };
-    brain::personalization::store::save(&fixture.personal.workspace, &personal)
-        .expect("write personal personalization");
-    brain::personalization::store::save(&fixture.family.workspace, &family)
-        .expect("write family personalization");
+    brain::personalization::store::save_persona(
+        &fixture.personal.workspace,
+        fixture.personal.workspace.local_user_id(),
+        &personal,
+    )
+    .expect("write personal personalization");
+    brain::personalization::store::save_persona(
+        &fixture.family.workspace,
+        fixture.family.workspace.local_user_id(),
+        &family,
+    )
+    .expect("write family personalization");
     assert_eq!(
         brain::personalization::load_tag_styles(&fixture.personal.workspace).label("shared"),
         "P personal"

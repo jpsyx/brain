@@ -14,13 +14,48 @@ The rule of thumb: **brain env holds anything that would be *wrong* if copied to
 another machine** — absolute paths, machine-specific binaries, secrets, and
 machine-specific frontend launch commands.
 **brain config holds anything that's *right* on every machine** — slugs,
-preferences, behavior flags. [Personalization](#personalization) (below) is a
-third store, content *about you*, which also lives inside the brain root and
-syncs with it alongside `config.json`.
+preferences, behavior flags. [Personas](#personalization-personas) (below) are a
+third store, content *about the workspace's people* keyed by portable user ID,
+which also lives inside the brain root and syncs with it alongside
+`config.json`.
 
 Both CLIs run **before** the `markdown-to-pdf` prerequisite gate, so you can
 always repair a broken environment or config even when that tool is missing.
 Both normalize names the same way (lowercased, `-`→`_`).
+
+## Deciding which store owns a new variable
+
+Ask these two questions **in order**. The first one that answers settles it.
+
+1. **Does the value have to exist before a brain workspace does?** If a variable
+   is needed to *find*, *create*, or *restore* a workspace — the workspace root,
+   the registry itself, the `sync` block that pulls a workspace down for the
+   first time — it cannot live inside the workspace it bootstraps. It is **brain
+   env**. Otherwise ask question 2.
+2. **Must every machine connected to this workspace agree on the value, or may
+   each machine set its own?** If machines are free to differ, it is **brain
+   env** (machine-level). If they must agree, it is **brain config** (one value
+   for every machine on the workspace).
+
+Note the unit in question 2: a **machine**, not a user. One person may connect
+several machines to the same workspace, and several people may connect their
+own; "machine-level" means per-installation either way. Content *about a person*
+is neither store — it belongs in [personas](#personalization-personas), which is
+keyed by portable user ID.
+
+Worked examples:
+
+| Variable | Store | Why |
+| --- | --- | --- |
+| `root`, `sync.*` | env | Q1: needed before the workspace exists locally. |
+| `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, `opencode_cmd` | env | Q2: an absolute path/command that is only correct on the machine that has that binary. |
+| `default_agent_frontend` | env | Q2: which frontend you drive is a per-machine preference; a laptop with only Claude installed must not be forced onto Codex by another machine. |
+| `twilio_*`, `resend_*`, `brain_receiver_public_url` | env | Q2: exactly one machine serves receiver ingress for a workspace at a time, so the provider credentials and public URL belong to that machine, not to every machine. |
+| `linear_workspace`, `access_mode`, `allowed_skills`, `enable_triage_habits`, `enable_daily_triage_check` | config | Q2: a workspace-wide policy or slug that would be a bug to have disagree between machines. |
+
+A genuinely one-invocation choice (`--with-receiver`, `--verbose`) is neither
+store: it stays a CLI flag. A value that belongs in a store must not *also* be a
+flag — see the CLI ↔ command-palette parity rule in `AGENTS.md`.
 
 ## Machine workspace registry (`~/.config/brain/env.json`)
 
@@ -166,8 +201,11 @@ but malformed or partial.
 
 The optional matrix covers cloud sync and its watcher; receiver, SMS, and
 email; advisory access policy plus requested MCPs and non-core skills; managed
-triage habits and modal pattern; PDF conversion; Linear; personalization
-role/organization/tag styles; and browser/web views. `workspace_only` remains
+triage habits and modal pattern; PDF conversion; Linear; the local person's
+persona role/organization/tag styles; **other members' personas** (which portable
+members still have nothing filled in — reported here precisely because they are
+never prompted for on somebody else's machine, and `off` when the workspace has
+no portable roster); and browser/web views. `workspace_only` remains
 an advisory policy, not filesystem isolation. PDF conversion appears in the
 matrix but the established TUI startup prerequisite remains unchanged.
 
@@ -249,6 +287,7 @@ record fields are managed by `brain workspace`, not exposed as free-form env.
 | `claude_cmd` | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
 | `codex_cmd` | `codex` | Command that launches the brain panel's Codex frontend on **this machine**. Current live panels start fresh because the adapter rejects resume candidates; the compatibility command builder retains `resume <id>` syntax for a validated future source. Fresh Codex panels launch without Claude-only `--session-id` / `--resume` flags. Blank falls back to `codex`. |
 | `opencode_cmd` | `opencode` | Command used to launch OpenCode on **this machine**. Blank falls back to `opencode`; Brain appends `--agent brain`, optional validated `--session <id>`, and optional `--prompt <text>`. The command must pass Brain's isolated supported-feature probes. |
+| `default_agent_frontend` | `claude` | Frontend the brain panel launches on **this machine** when no `--claude` / `--codex` / `--open-code` flag is passed. Exactly one of `claude`, `codex`, `opencode`; `brain env set` also accepts the flag's `open-code` spelling and stores it canonically, and rejects any other value. Machine-local because a machine that has only one frontend installed must not be dragged onto another by a peer machine. An unreadable stored value falls back to `claude` rather than failing the command. |
 | `agent_capabilities` | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
 | `sync` | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus the mandatory startup pull and change-triggered pushes; there is no periodic idle pull. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
 
@@ -378,7 +417,7 @@ escrow the original passphrases in a password manager. brain stores only the
 obscured rclone values and cannot recover encrypted remote data if the original
 passphrases are lost.
 
-Like `config`/`env`/`personalize`/`skills`, `brain sync` is dispatched
+Like `config`/`env`/`persona`/`skills`, `brain sync` is dispatched
 **before** the `markdown-to-pdf` prerequisite gate (see below), so it works
 even when that tool is missing.
 
@@ -501,8 +540,7 @@ what does).
 
 This document is mostly about the **config store**
 (`<brain-root>/.config/config.json`). Manage it with `brain config` rather than
-editing it by hand (though hand-editing is fine). For personalization see the
-[Personalization](#personalization) section below and
+editing it by hand (though hand-editing is fine). For personas see the [Personas](#personalization-personas) section below and
 [data-model.md](data-model.md).
 
 Access-mode initialization and `brain config set access_mode=...` parse an
@@ -612,6 +650,7 @@ the `name=value` form.
 | `enable_triage_habits` | `true` | Portable managed-triage policy. `brain config set enable_triage_habits=true` reconciles one open daily and weekly chain. Setting `false` uses one durable grouped transaction to purge managed rows and derived references before committing config. Manual `/triage` remains available. |
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
+| `enable_daily_triage_check` | `true` | Portable startup-nudge policy. `false` means no shell launched against this workspace ever opens the daily-triage modal; the post-sync refresh gate still runs. Accepts exactly `true` or `false`. The command palette's Disable/Enable daily triage alert row flips the same state for one running session without writing config. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
 | `skills_auto_sync` | `true` | When `true`, the bundled skills are auto-rendered into the agent registry on two triggers: a `config`/`personalize` mutation (`skills::resync_skills`), and the first ready-workspace invocation after the brain binary's version changes (`skills::resync_on_version_change`, so a version bump ships its skill changes without a manual sync). Default `true` since the B4 cutover; set `false` to manage the registry only via explicit `brain skills sync`. Read by `src/skills/`. |
 
@@ -627,7 +666,8 @@ default above. The brain directory is the selected `WorkspaceContext::root()`;
 only one-time legacy migration consults `paths::brain_root_path()` and the old
 pointer/default precedence. The runtime knobs
 (`access_mode`, `allowed_mcps`, `allowed_skills`, `enable_triage_habits`,
-`daily_triage_name_pattern`, `linear_workspace`, `day_rollover_hour`) are read
+`enable_daily_triage_check`, `daily_triage_name_pattern`, `linear_workspace`,
+`day_rollover_hour`) are read
 by `config.rs::Config`; they all read the same `config.json` and ignore fields
 they don't use. Agent launch commands are resolved from the selected machine
 record by `agent::configured_command` instead.
@@ -682,20 +722,49 @@ The IO-touching wrappers are thin; the decisions worth testing are pure:
 
 See those modules' unit tests and `tests/root_resolution.rs`.
 
-## Personalization
+## Personalization (personas)
 
-Personalization is content *about you*, stored beside `config.json` in the brain
-config dir at `<brain-root>/.config/personalization.json`. It is just another
-brain config, inside the brain root — it lives inside the brain root and travels
-with the brain. Manage it with `brain personalize` (see [features.md](features.md));
+Personalization is content *about the people using a workspace*, stored beside
+`config.json` in the brain config dir at
+`<brain-root>/.config/personalization.json`. It is just another brain config,
+inside the brain root, so it travels with the brain and every machine sees the
+same people. Manage it with `brain persona` (see [features.md](features.md));
 the schema lives in [data-model.md](data-model.md).
+
+Neither of the two store questions above decides this file: a persona is not a
+setting a machine or a workspace holds *one* of, it is a fact about a **person**.
+So the file is keyed by portable user ID — the same IDs as `users.json` — with
+one persona object per member:
+
+```json
+{
+  "schema_version": 2,
+  "personas": {
+    "pablo": { "name": "Pablo", "role": "CEO", "works_for": "Avandar" },
+    "sam":   { "name": "Sam", "role": "designer", "works_for": "myself" }
+  }
+}
+```
+
+Each persona object holds:
 
 | Field | Meaning |
 | --- | --- |
 | `name` | Optional display name. |
 | `role` | Free-text role the assistant serves (e.g. `CEO`, `engineer`, `student`). The generic *rule* "act as a personal assistant" stays in the skill; only the *who* is personalized. |
-| `works_for` | Org you work for, `myself`, or empty. |
+| `works_for` | Org that person works for, `myself`, or empty. |
+| `namespaces` | Their project `<namespace>__<outcome>` life-buckets. Empty falls back to the generic defaults. |
 | `tag_styles` | Map of `tag → { emoji, label }` layered over the generic defaults (`mit`/`personal`/`work`). Unknown tags render as their raw name. |
+
+Reads that concern one person (the task renderer's tag styles, the namespace
+checklist, the skill-lookup block) use **this machine's local user** unless a
+command names another. `brain persona list` is the all-members view.
+
+**Schema 1 → 2.** The previous file was a single unowned persona object with the
+fields above at the top level. It is migrated on read, keyed onto the local user
+of whichever machine reads it first, and rewritten in the keyed schema on the
+next write. An empty legacy file migrates to *no* personas rather than handing
+the local user a blank record.
 
 Two sibling stores live under the same hidden `<root>/.config/` dir and also
 sync with the brain (see [features.md](features.md) for how they customize skills):
@@ -705,9 +774,12 @@ sync with the brain (see [features.md](features.md) for how they customize skill
 - `<root>/.config/plugins/<name>/` — whole user **plugins** installed alongside
   the bundled skills.
 
-A missing or broken personalization file parses to empty — the app runs fine
-with no personalization, and skills fall back to generic behavior. Any
-`personalize`/`config` mutation triggers the active deterministic skill
+A missing or broken personalization file parses to no personas — the app runs
+fine with none, and skills fall back to generic behavior. A member with no
+persona is prompted for one on their own machine's next `brain` command, and
+reported (never prompted for) as the `other members' personas` optional feature in
+`brain workspace status`. Any
+`persona`/`config` mutation triggers the active deterministic skill
 render-and-install pipeline (`skills::resync_skills`) so the installed skills
 stay in sync. The first ready-workspace invocation after a Brain version change
 also runs that pipeline when `skills_auto_sync` is enabled.

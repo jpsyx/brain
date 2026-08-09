@@ -114,34 +114,42 @@ fn personalization_requirements(command: &CommandContext, name: &str) -> Vec<Req
         .workspace
         .root()
         .join(".config/personalization.json");
-    let parsed = std::fs::read(&path).ok().map(|bytes| {
-        serde_json::from_slice::<crate::personalization::model::Personalization>(&bytes)
+    let local = command.workspace.local_user_id();
+    let parsed = std::fs::read_to_string(&path).ok().map(|text| {
+        // A store that is neither the keyed schema nor a legacy persona reads as
+        // no personas at all, which is indistinguishable from "unset" here; use
+        // the strict parse to tell a broken file from an absent one.
+        serde_json::from_str::<serde_json::Value>(&text)
+            .map(|_| crate::personalization::personas::Personas::parse(&text, local))
     });
-    let statuses = match parsed {
+    let statuses = match &parsed {
         None => [FeatureStatus::Off; 3],
-        Some(Ok(personalization)) => [
-            populated(&personalization.role),
-            populated(&personalization.works_for),
-            if personalization.tag_styles.is_empty() {
-                FeatureStatus::Off
-            } else {
-                FeatureStatus::Ready
-            },
-        ],
+        Some(Ok(personas)) => {
+            let persona = personas.persona_of(local);
+            [
+                populated(&persona.role),
+                populated(&persona.works_for),
+                if persona.tag_styles.is_empty() {
+                    FeatureStatus::Off
+                } else {
+                    FeatureStatus::Ready
+                },
+            ]
+        }
         Some(Err(_)) => [FeatureStatus::Incomplete; 3],
     };
-    [
+    let mut rows = [
         (
             RequirementScope::PersonalizationRole,
             statuses[0],
             "Role",
-            format!("brain personalize set -w {name} role=<ROLE>"),
+            format!("brain persona set -w {name} role=<ROLE>"),
         ),
         (
             RequirementScope::PersonalizationOrganization,
             statuses[1],
             "Organization",
-            format!("brain personalize set -w {name} works_for=<ORGANIZATION>"),
+            format!("brain persona set -w {name} works_for=<ORGANIZATION>"),
         ),
         (
             RequirementScope::PersonalizationTagStyles,
@@ -159,7 +167,60 @@ fn personalization_requirements(command: &CommandContext, name: &str) -> Vec<Req
             remediation,
         )
     })
-    .collect()
+    .collect::<Vec<_>>();
+    rows.push(member_personas_requirement(command, name, parsed.as_ref()));
+    rows
+}
+
+/// Other members' personas: reported, never prompted for.
+///
+/// Only the person at this machine is asked to fill one in (see
+/// `personalization::onboarding`), so a teammate who has not personalized yet
+/// surfaces here as an unmet optional feature rather than as a prompt on
+/// somebody else's terminal.
+fn member_personas_requirement(
+    command: &CommandContext,
+    name: &str,
+    parsed: Option<&serde_json::Result<crate::personalization::personas::Personas>>,
+) -> Requirement {
+    let Some(Ok(personas)) = parsed else {
+        return Requirement::feature(
+            RequirementScope::MemberPersonas,
+            if parsed.is_none() {
+                FeatureStatus::Off
+            } else {
+                FeatureStatus::Incomplete
+            },
+            Vec::new(),
+            format!("brain persona list -w {name}"),
+        );
+    };
+    let roster = crate::users::UsersStore::load(&command.workspace)
+        .map(|users| {
+            users
+                .users
+                .iter()
+                .map(|user| user.id.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let missing = personas.missing(&roster.iter().map(String::as_str).collect::<Vec<_>>());
+    let status = if roster.is_empty() {
+        FeatureStatus::Off
+    } else if missing.is_empty() {
+        FeatureStatus::Ready
+    } else {
+        FeatureStatus::Incomplete
+    };
+    Requirement::feature(
+        RequirementScope::MemberPersonas,
+        status,
+        missing
+            .iter()
+            .map(|id| PromptMetadata::plain(format!("Persona for {id}")))
+            .collect(),
+        format!("brain persona set -w {name} role=<ROLE> --user <USER_ID>"),
+    )
 }
 
 fn linear_status(config: &crate::config::Config) -> FeatureStatus {

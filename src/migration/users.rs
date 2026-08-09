@@ -63,7 +63,7 @@ pub(super) fn prepare(
     let mut users = match UsersStore::load(&context.workspace) {
         Ok(users) => users,
         Err(error) if error.is_missing_store() => {
-            let mut name = crate::personalization::store::load(&context.workspace).name;
+            let mut name = crate::personalization::store::local_persona(&context.workspace).name;
             if name.trim().is_empty() {
                 let Some(terminal) = terminal.as_deref_mut() else {
                     bail!(

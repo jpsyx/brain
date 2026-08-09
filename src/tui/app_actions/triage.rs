@@ -241,8 +241,9 @@ pub(super) fn should_check_daily_triage(
         }
 }
 
-/// Gate the daily-triage nudge on the process-scoped `--no-daily-triage-check`
-/// opt-out before consulting [`triage_nudge_target`]. When `disabled` is set the
+/// Gate the daily-triage nudge on the process-scoped opt-out (seeded from
+/// `enable_daily_triage_check`, flipped by the palette) before consulting
+/// [`triage_nudge_target`]. When `disabled` is set the
 /// modal never fires this run regardless of habit state; this is a per-process
 /// flag, not a persistent config change. Pure so the opt-out is unit-tested
 /// without constructing an `App`.

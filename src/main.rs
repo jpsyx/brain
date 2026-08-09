@@ -4,8 +4,8 @@ use anyhow::Result;
 
 fn main() -> Result<()> {
     let mut cli = brain::cli::parse();
-    let agent_kind = match cli.selected_agent() {
-        Ok(agent_kind) => agent_kind,
+    let selected_agent = match cli.selected_agent() {
+        Ok(selected_agent) => selected_agent,
         Err(error) => {
             eprintln!(
                 "{}",
@@ -20,7 +20,12 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    if let Err(error) = brain::command::dispatch::validate_agent_kind(agent_kind) {
+    // An explicitly selected frontend is validated before any workspace, TUI,
+    // hook, server, or PTY setup. A frontend that comes from workspace env can
+    // only be known after bootstrap, so it is validated inside dispatch.
+    if let Some(agent_kind) = selected_agent
+        && let Err(error) = brain::command::dispatch::validate_agent_kind(agent_kind)
+    {
         eprintln!(
             "{}",
             brain::theme::Theme::active().error_line("🔴", &error.to_string())
@@ -42,6 +47,7 @@ fn main() -> Result<()> {
         Err(error) => exit_with_error(&brain::workspace::command::render_error(error), log_guard),
     };
 
+    let agent_kind = brain::agent::resolved_frontend(selected_agent, &bootstrap);
     if let Err(error) = brain::command::dispatch::run(cli, agent_kind, &bootstrap) {
         exit_with_error(&error, log_guard);
     }

@@ -18,9 +18,10 @@ Bare `brain` (and `brain tasks …`) opens a **persistent shell** (`tui/`) with
 **three main views**: the **tasks view** (task management, agenda, triage; the
 startup default) and the **brain-directory search view** (fuzzy-pick over the
 selected root), plus the **logs view**, and one app-level **brain panel** (an
-interactive agent session in a PTY, Claude by default or Codex with `--codex` /
-`-cx`, open at startup and shared by all views). `--open-code` / `-oc` selects
-the functional OpenCode adapter. Switch views with
+interactive agent session in a PTY, running this machine's
+`default_agent_frontend` env value — Claude unless set — and overridden for one
+run by `--claude` / `-cl`, `--codex` / `-cx`, or `--open-code` / `-oc`, open at
+startup and shared by all views). Switch views with
 `Ctrl+L`/`Ctrl+H` (cycle) or
 `Ctrl+T`/`Ctrl+B` (jump). Read [docs/glossary.md](docs/glossary.md) first for
 the main-view / sub-view / brain-panel vocabulary.
@@ -70,7 +71,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | How the brain panel launches Claude, Codex, or OpenCode (`claude_cmd`, `codex_cmd`, `opencode_cmd`, frontend selectors), or the file-open / Finder path | `docs/integrations.md` (controller/adapters in `src/agent/`; compatibility builders in `src/session.rs`; agent commands in `src/env/`; openers in `src/open_target.rs`) |
 | The session-start/turn-complete bridges, frontend registry, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{agent_session_start_hook,agent_turn_complete_hook}.py`, `scripts/opencode_brain_plugin.js`, `src/agent/registry.rs`, `src/agent/registry/contract.rs`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
-| Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, the `sync` block's fields, or **root resolution** (`root` is structural workspace-registry data in `~/.config/brain/env.json`, never writable free-form env; the legacy `~/.config/brain-root` pointer is read-only migration input) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; legacy compatibility in `src/paths.rs`; selected roots in `src/workspace/`; the `sync` block schema in `src/sync/config.rs`) |
+| Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, `default_agent_frontend`, the `sync` block's fields, or **root resolution** (`root` is structural workspace-registry data in `~/.config/brain/env.json`, never writable free-form env; the legacy `~/.config/brain-root` pointer is read-only migration input) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; legacy compatibility in `src/paths.rs`; selected roots in `src/workspace/`; the `sync` block schema in `src/sync/config.rs`) |
 | `brain sync` itself (the `sync`/`--push`/`--pull`/`setup`/`repair`/`status`/`conflicts` surface), the rclone bisync transport, keep-both conflict naming, the `--max-delete` guard, or the sync journal | `docs/features.md` + `docs/integrations.md` + `docs/architecture.md` + `docs/data-model.md` (pipeline in `src/sync/`: `config`, `remote`, `args`, `run`, `conflicts`, `verify`, `journal`, `setup`, `command`; dispatched before the gate in `src/main.rs`) |
 | The `tasks.csv`/`habits.csv` schema-aware semantic merge (excluding them from bisync, the baseline cache, merge/reconciliation rules, or the journal's `csv:` note) | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (pure merge in `src/sync/csv_merge/`; baseline + rclone `copyto` transport + orchestration in `src/sync/csv_sync/`; wired into `src/sync/command/mod.rs::sync_once`; excludes in `src/sync/args.rs`) |
 | The auto-sync triggers (startup pull, change-triggered push, receiver freshness pull, the `notify` watcher + debounce, the sync lock) | `docs/features.md` + `docs/architecture.md` + `docs/integrations.md` + `docs/decisions.md` (modules `src/sync/{freshness,lock,trigger,watch}.rs`; `debounce_ms` in `src/sync/config.rs`; `format_triggers` in `src/sync/command/mod.rs`; seams in `src/tui/{app_sync,event_loop/setup}.rs`) |
@@ -78,7 +79,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | `brain workspace migrate`, its compatibility/readiness gates, journal, retained backup, task-schema activation, or recovery behavior | `docs/config.md` + `docs/features.md` + `docs/architecture.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (`src/migration/`; coordinator-owned task activation in `src/tasks/schema/`) |
 | Required workspace availability or optional per-workspace feature health (`off`/`ready`/`incomplete`) | `docs/config.md` + `docs/features.md` + `docs/data-model.md` + `docs/testing.md` (`src/workspace/requirements/`; selected inspectors reload only their UUID-pinned record) |
 | The second-brain sync skill rows (`cloud-sync`, `resolve-conflicts`), `brain sync conflicts --json`, and `brain sync resolve` | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/architecture.md` + `docs/decisions.md` (`parse_conflict_name`/`group_conflicts`/`copies_for_original` in `src/sync/conflicts.rs`; `conflicts_json` in `src/sync/command/mod.rs`; `resolve` in `src/sync/command/resolve.rs`; the bundled rows in `skills/second-brain/SKILL.md`) |
-| The personalization schema (identity, `namespaces`, tag styles), the `brain personalize` command, first-run onboarding, the namespace/tag checklist, tag-style defaults, or the brain config dir (`<brain-root>/.config/`) | `docs/config.md` + `docs/data-model.md` (schema/store in `src/personalization/`; namespaces in `src/personalization/namespaces.rs`; tag defaults in `src/personalization/tags.rs`; checklist in `src/personalization/checklist/`) |
+| The persona schema (per-user identity, `namespaces`, tag styles), its user-ID keying or schema migration, the `brain persona` command, the missing-persona prompt, the namespace/tag checklist, tag-style defaults, or the brain config dir (`<brain-root>/.config/`) | `docs/config.md` + `docs/data-model.md` (one persona in `src/personalization/persona.rs`; the keyed store + migration in `src/personalization/personas.rs`; store IO in `src/personalization/store.rs`; namespaces in `src/personalization/namespaces.rs`; tag defaults in `src/personalization/tags.rs`; checklist in `src/personalization/checklist/`; the prompt gate in `src/personalization/onboarding.rs`) |
 | The interactive `brain config set <var>` mode (checklist for `namespaces`/`tags`, value prompt for scalars) | `docs/config.md` (dispatch in `src/main.rs` `config_set_interactive`; personalization editors in `src/personalization/command.rs`) |
 | The skill pipeline (bundling, rendering, install/fan-out, `brain skills sync`, `resync_skills()`, the `skills_auto_sync` gate) | `docs/architecture.md` + `docs/features.md` + `docs/decisions.md` (pipeline in `src/skills/`; bundled skills under `skills/`) |
 | The brain HTTP server (`brain server {status\|logs}`, the elected shared process + `~/.cache/brain/server/` state, `brain habits`, the `/habits` route, or a **new server endpoint / web view**) | `docs/architecture.md` + `docs/features.md` + `docs/integrations.md` (server in `src/server/`: `router` for path dispatch, `lifecycle` for election and process ownership, `routes/<name>/` per-endpoint MVC; add a route module + one `routes/mod.rs` line, never a giant endpoints file; web views under `web/<name>/`, embedded via `include_str!`) |
@@ -263,7 +264,7 @@ users in `skills/`.)
   should never wonder whether brain is hung. Keep this deterministic and
   factual: it is a progress trace, not a debug dump or hidden reasoning.
 - **Aesthetics matter — theme every bit of CLI output.** brain's non-TUI CLI
-  output (`brain sync`, `sync setup`/`status`, `config`, `env`, `personalize`,
+  output (`brain sync`, `sync setup`/`status`, `config`, `env`, `persona`,
   `doctor`, gates, prompts) should look considered, not utilitarian. All color
   goes through the **`src/theme.rs` `Theme` semantic tokens** — `heading`,
   `accent`, `value`, `muted`, `success`, `warning`, `error`, `info`, `prompt` —
@@ -336,25 +337,37 @@ can stay open for days, so a setting a user picked at launch may need flipping
 mid-session, and a setting they flip mid-session is one they may want to launch
 straight into next time. Neither surface is complete on its own.
 
+The **startup half** is a CLI *surface*, not necessarily a `Cli` flag. It is
+either a global flag (`--with-receiver`) or a declared `brain config` / `brain
+env` variable set from the CLI (`brain config set
+enable_daily_triage_check=false`). Pick between them with the same test that
+decides every other variable — see "brain env vs. brain config" in
+[docs/config.md](docs/config.md): a value every machine on the workspace should
+agree on is portable config; a per-machine choice is env; a genuinely
+one-invocation choice is a flag. A value that belongs in a store must not also
+be a flag: two persistence stories for one setting is exactly the divergence
+this rule exists to prevent.
+
 Concretely, whenever you add either half, add the other in the same change:
 
-- **New CLI option that affects live TUI state** (a boolean or small mode that
-  the running app reads from an `App` field, e.g. `--no-daily-triage-check` →
-  `App::skip_daily_triage_check`) → add a **global command-palette command**
-  that toggles that same `App` field for the current session. If the state is
-  binary, the palette row's label is dynamic: it names the action that will
-  happen next (`Disable daily triage alert` when currently enabled,
-  `Enable daily triage alert` when currently disabled), mirroring the existing
-  Start/Stop-style toggle rows.
+- **New startup surface that affects live TUI state** (a boolean or small mode
+  that the running app reads from an `App` field, e.g.
+  `enable_daily_triage_check` → `App::skip_daily_triage_check`) → add a
+  **global command-palette command** that toggles that same `App` field for the
+  current session. If the state is binary, the palette row's label is dynamic:
+  it names the action that will happen next (`Disable daily triage alert` when
+  currently enabled, `Enable daily triage alert` when currently disabled),
+  mirroring the existing Start/Stop-style toggle rows.
 - **New command-palette command that mutates the TUI's internal configuration
-  state** → add an equivalent **CLI option** so the brain can *start* in that
-  state on launch, threaded through `main.rs` → `run_tui` → `App::new` the same
-  way the existing flags are.
+  state** → add an equivalent **startup surface** (a declared config/env
+  variable, or a flag when it really is per-invocation) so the brain can *start*
+  in that state on launch, threaded through `main.rs` → `run_tui` → `App::new`
+  the same way the existing state is.
 
-The startup flag and the palette toggle must write the *same* `App` field
-through the *same* pure decision, so the two paths can never diverge. Keep the
-palette label registered in both palette surfaces (`src/tui/palette/` and, for
-global rows, `src/menu/model.rs`) and the docs (`docs/features.md`,
-`docs/keybindings.md`) in sync, per the docs contract. Process-scoped runtime
-state (not persisted config) is the default for these toggles unless the value
-clearly belongs in `brain config`.
+The startup surface and the palette toggle must write the *same* `App` field
+through the *same* pure decision, so the two paths can never diverge. A
+config-seeded toggle keeps its palette flip **process-scoped**: the palette
+changes the running session, never the stored value. Keep the palette label
+registered in both palette surfaces (`src/tui/palette/` and, for global rows,
+`src/menu/model.rs`) and the docs (`docs/features.md`, `docs/keybindings.md`) in
+sync, per the docs contract.

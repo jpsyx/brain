@@ -30,18 +30,25 @@ impl Fixture {
 fn first_tasks_command_initializes_an_empty_workspace() {
     let fixture = Fixture::new();
     let family = fixture.home.path().join("family");
-    assert!(fixture.run(&["workspace", "create", "--root", family.to_str().unwrap()]).status.success());
-    assert!(fixture
-        .run(&[
-            "workspace",
-            "repair",
-            "--local-user-id",
-            "pablo",
-            "-w",
-            "family",
-        ])
-        .status
-        .success());
+    assert!(
+        fixture
+            .run(&["workspace", "create", "--root", family.to_str().unwrap()])
+            .status
+            .success()
+    );
+    assert!(
+        fixture
+            .run(&[
+                "workspace",
+                "repair",
+                "--local-user-id",
+                "pablo",
+                "-w",
+                "family",
+            ])
+            .status
+            .success()
+    );
 
     let output = fixture.run(&["tasks", "today", "--no-tui", "-w", "family"]);
 

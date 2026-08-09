@@ -30,6 +30,7 @@ fn extract_agent_selectors(args: Vec<String>) -> Vec<String> {
                 terminated = true;
                 delegated.push(argument.clone());
             }
+            "--claude" | "-cl" => push_unique(&mut selectors, "--claude"),
             "--codex" | "-cx" => push_unique(&mut selectors, "--codex"),
             "--open-code" | "-oc" => push_unique(&mut selectors, "--open-code"),
             _ => delegated.push(argument.clone()),
@@ -135,21 +136,24 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
 
-    /// Use Codex instead of Claude for the brain panel. Alias: -cx.
+    /// Use Claude for the brain panel. Alias: -cl. Overrides the workspace's
+    /// `default_agent_frontend` env value for this run.
+    #[arg(long, global = true)]
+    pub claude: bool,
+
+    /// Use Codex for the brain panel. Alias: -cx. Overrides the workspace's
+    /// `default_agent_frontend` env value for this run.
     #[arg(long, global = true)]
     pub codex: bool,
 
-    /// Use OpenCode for the brain panel. Alias: -oc.
+    /// Use OpenCode for the brain panel. Alias: -oc. Overrides the workspace's
+    /// `default_agent_frontend` env value for this run.
     #[arg(long = "open-code", global = true)]
     pub open_code: bool,
 
     /// Persistently enable receiver ingress before the selected TUI registers.
     #[arg(long, global = true)]
     pub with_receiver: bool,
-
-    /// Never open the daily-triage startup nudge for this run.
-    #[arg(long, global = true)]
-    pub no_daily_triage_check: bool,
 
     /// Select a workspace by canonical name or alias.
     #[arg(
@@ -165,18 +169,25 @@ pub struct Cli {
 }
 
 impl Cli {
-    /// Selected brain-panel agent frontend.
+    /// Explicitly selected brain-panel agent frontend, if any.
+    ///
+    /// `None` means no selector flag was passed, so the workspace's
+    /// `default_agent_frontend` env value decides once bootstrap has resolved a
+    /// workspace (see [`crate::agent::default_frontend::resolve`]).
     ///
     /// # Errors
     ///
-    /// Returns [`AgentSelectionError::ConflictingFrontends`] when both
-    /// non-default frontend flags are present.
-    pub const fn selected_agent(&self) -> Result<crate::session::AgentKind, AgentSelectionError> {
-        match (self.codex, self.open_code) {
-            (true, true) => Err(AgentSelectionError::ConflictingFrontends),
-            (true, false) => Ok(crate::session::AgentKind::Codex),
-            (false, true) => Ok(crate::session::AgentKind::OpenCode),
-            (false, false) => Ok(crate::session::AgentKind::Claude),
+    /// Returns [`AgentSelectionError::ConflictingFrontends`] when more than one
+    /// frontend flag is present.
+    pub const fn selected_agent(
+        &self,
+    ) -> Result<Option<crate::session::AgentKind>, AgentSelectionError> {
+        match (self.claude, self.codex, self.open_code) {
+            (true, false, false) => Ok(Some(crate::session::AgentKind::Claude)),
+            (false, true, false) => Ok(Some(crate::session::AgentKind::Codex)),
+            (false, false, true) => Ok(Some(crate::session::AgentKind::OpenCode)),
+            (false, false, false) => Ok(None),
+            _ => Err(AgentSelectionError::ConflictingFrontends),
         }
     }
 }
@@ -192,7 +203,7 @@ impl std::fmt::Display for AgentSelectionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ConflictingFrontends => {
-                formatter.write_str("Choose one agent frontend: --codex or --open-code.")
+                formatter.write_str("Choose one agent frontend: --claude, --codex, or --open-code.")
             }
         }
     }
@@ -226,20 +237,31 @@ mod tests {
     fn codex_flag_selects_codex_frontend() {
         let cli = Cli::try_parse_from(["brain", "--codex"]).expect("parse");
         assert!(cli.codex);
-        assert_eq!(cli.selected_agent(), Ok(AgentKind::Codex));
+        assert_eq!(cli.selected_agent(), Ok(Some(AgentKind::Codex)));
     }
 
     #[test]
     fn cx_alias_selects_codex_frontend() {
         let cli = try_parse_from(["brain", "-cx"]).expect("parse");
         assert!(cli.codex);
-        assert_eq!(cli.selected_agent(), Ok(AgentKind::Codex));
+        assert_eq!(cli.selected_agent(), Ok(Some(AgentKind::Codex)));
     }
 
     #[test]
-    fn claude_is_the_default_frontend() {
+    fn claude_flag_and_its_alias_select_claude_explicitly() {
+        for arguments in [vec!["brain", "--claude"], vec!["brain", "-cl"]] {
+            let cli = try_parse_from(arguments.clone()).expect("parse");
+            assert!(cli.claude, "{arguments:?}");
+            assert_eq!(cli.selected_agent(), Ok(Some(AgentKind::Claude)));
+        }
+    }
+
+    #[test]
+    fn no_frontend_flag_defers_to_the_configured_default() {
+        // With no selector the CLI expresses "unset", not Claude: the workspace
+        // env's `default_agent_frontend` decides after bootstrap.
         let cli = Cli::try_parse_from(["brain"]).expect("parse");
-        assert_eq!(cli.selected_agent(), Ok(AgentKind::Claude));
+        assert_eq!(cli.selected_agent(), Ok(None));
     }
 
     #[test]
@@ -253,17 +275,10 @@ mod tests {
     }
 
     #[test]
-    fn no_daily_triage_check_is_opt_in() {
-        assert!(
-            !Cli::try_parse_from(["brain"])
-                .expect("parse")
-                .no_daily_triage_check
-        );
-        assert!(
-            Cli::try_parse_from(["brain", "--no-daily-triage-check"])
-                .expect("parse")
-                .no_daily_triage_check
-        );
+    fn the_daily_triage_check_is_no_longer_a_cli_flag() {
+        // It lives in portable config (`enable_daily_triage_check`) so every
+        // machine on the workspace agrees on the startup nudge.
+        assert!(Cli::try_parse_from(["brain", "--no-daily-triage-check"]).is_err());
     }
 
     #[test]
@@ -273,6 +288,8 @@ mod tests {
             (vec!["brain", "-cx"], AgentKind::Codex),
             (vec!["brain", "--open-code"], AgentKind::OpenCode),
             (vec!["brain", "-oc"], AgentKind::OpenCode),
+            (vec!["brain", "--claude"], AgentKind::Claude),
+            (vec!["brain", "-cl"], AgentKind::Claude),
             (vec!["brain", "tasks", "--open-code"], AgentKind::OpenCode),
             (
                 vec!["brain", "tasks", "--open-code", "today"],
@@ -286,14 +303,18 @@ mod tests {
                 vec!["brain", "tasks", "today", "-oc", "--no-tui"],
                 AgentKind::OpenCode,
             ),
+            (
+                vec!["brain", "tasks", "today", "-cl", "--no-tui"],
+                AgentKind::Claude,
+            ),
         ] {
             let cli = try_parse_from(arguments.clone()).expect("selector parse");
-            assert_eq!(cli.selected_agent(), Ok(expected), "{arguments:?}");
+            assert_eq!(cli.selected_agent(), Ok(Some(expected)), "{arguments:?}");
             if let Some(crate::cli::Cmd::Tasks(tasks)) = cli.command {
                 assert!(
                     tasks.rest.iter().all(|argument| !matches!(
                         argument.as_str(),
-                        "--codex" | "-cx" | "--open-code" | "-oc"
+                        "--codex" | "-cx" | "--open-code" | "-oc" | "--claude" | "-cl"
                     )),
                     "selector leaked into delegated tasks arguments: {arguments:?}"
                 );
@@ -306,9 +327,13 @@ mod tests {
         for arguments in [
             vec!["brain", "--codex", "--open-code"],
             vec!["brain", "-cx", "-oc"],
+            vec!["brain", "--claude", "--codex"],
+            vec!["brain", "-cl", "-oc"],
+            vec!["brain", "--claude", "--codex", "--open-code"],
             vec!["brain", "--codex", "tasks", "today", "-oc"],
             vec!["brain", "tasks", "--open-code", "today", "--codex"],
             vec!["brain", "tasks", "today", "-cx", "--open-code"],
+            vec!["brain", "tasks", "today", "-cl", "--codex"],
             vec!["brain", "--codex", "-cx", "tasks", "today", "-oc"],
         ] {
             let cli = try_parse_from(arguments.clone()).expect("selectors parse before validation");
@@ -324,25 +349,34 @@ mod tests {
     fn duplicate_same_frontend_selectors_are_idempotent() {
         for (arguments, expected) in [
             (vec!["brain", "--codex", "-cx"], AgentKind::Codex),
+            (vec!["brain", "--claude", "-cl"], AgentKind::Claude),
             (
                 vec!["brain", "tasks", "--open-code", "today", "-oc"],
                 AgentKind::OpenCode,
             ),
         ] {
             let cli = try_parse_from(arguments.clone()).expect("duplicate selector");
-            assert_eq!(cli.selected_agent(), Ok(expected), "{arguments:?}");
+            assert_eq!(cli.selected_agent(), Ok(Some(expected)), "{arguments:?}");
         }
     }
 
     #[test]
     fn option_terminator_preserves_selector_looking_task_values() {
-        let cli = try_parse_from(["brain", "tasks", "search", "--", "--open-code", "-cx"])
-            .expect("terminated task values");
+        let cli = try_parse_from([
+            "brain",
+            "tasks",
+            "search",
+            "--",
+            "--open-code",
+            "-cx",
+            "-cl",
+        ])
+        .expect("terminated task values");
 
-        assert_eq!(cli.selected_agent(), Ok(AgentKind::Claude));
+        assert_eq!(cli.selected_agent(), Ok(None));
         let Some(crate::cli::Cmd::Tasks(tasks)) = cli.command else {
             panic!("tasks command");
         };
-        assert_eq!(tasks.rest, ["search", "--", "--open-code", "-cx"]);
+        assert_eq!(tasks.rest, ["search", "--", "--open-code", "-cx", "-cl"]);
     }
 }

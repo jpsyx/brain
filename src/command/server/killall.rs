@@ -135,6 +135,7 @@ fn is_tui_process(command: &str) -> bool {
             | "config"
             | "env"
             | "sync"
+            | "persona"
             | "personalize"
             | "skills"
             | "server"

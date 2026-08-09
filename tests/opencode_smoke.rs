@@ -20,14 +20,14 @@ use brain::{
 fn open_code_flag_selects_only_opencode() {
     let cli = try_parse_from(["brain", "--open-code"]).expect("parse --open-code");
 
-    assert_eq!(cli.selected_agent(), Ok(AgentKind::OpenCode));
+    assert_eq!(cli.selected_agent(), Ok(Some(AgentKind::OpenCode)));
 }
 
 #[test]
 fn oc_alias_is_normalized_through_the_real_parser() {
     let cli = try_parse_from(["brain", "-oc"]).expect("parse -oc");
 
-    assert_eq!(cli.selected_agent(), Ok(AgentKind::OpenCode));
+    assert_eq!(cli.selected_agent(), Ok(Some(AgentKind::OpenCode)));
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn conflicting_frontend_flags_return_a_typed_exactly_rendered_error() {
     assert_eq!(error, AgentSelectionError::ConflictingFrontends);
     assert_eq!(
         Theme::dark(false).error_line("🔴", &error.to_string()),
-        "🔴 Choose one agent frontend: --codex or --open-code."
+        "🔴 Choose one agent frontend: --claude, --codex, or --open-code."
     );
 }
 
@@ -48,6 +48,9 @@ fn conflicting_frontend_flags_exit_before_startup_side_effects() {
     for arguments in [
         vec!["--codex", "--open-code"],
         vec!["-cx", "-oc"],
+        vec!["--claude", "--codex"],
+        vec!["-cl", "-oc"],
+        vec!["--claude", "tasks", "today", "-cx"],
         vec!["--codex", "tasks", "today", "-oc"],
         vec!["tasks", "--open-code", "today", "--codex"],
         vec!["tasks", "today", "-cx", "--open-code"],
@@ -70,7 +73,7 @@ fn conflicting_frontend_flags_exit_before_startup_side_effects() {
         );
         assert_eq!(
             String::from_utf8(output.stderr).expect("UTF-8 stderr"),
-            "🔴 Choose one agent frontend: --codex or --open-code.\n",
+            "🔴 Choose one agent frontend: --claude, --codex, or --open-code.\n",
             "{arguments:?}"
         );
         assert_eq!(

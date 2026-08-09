@@ -308,5 +308,4 @@ mod tests {
 
         assert_eq!(view.tasks.len(), 1);
     }
-
 }

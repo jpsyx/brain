@@ -55,7 +55,10 @@ fn mirrors_a_due_date_priority_and_title_change_without_touching_defer_count() {
 
     assert_eq!(plan.changes.len(), 3);
     let row = task_row(root.path());
-    assert_eq!(field(&row, "task_name"), "Fix the billing-side rounding bug");
+    assert_eq!(
+        field(&row, "task_name"),
+        "Fix the billing-side rounding bug"
+    );
     assert_eq!(field(&row, "due_date"), "2026-08-20");
     assert_eq!(field(&row, "priority"), "p1");
     // A tracker-driven reschedule is not the user's slip.
@@ -205,7 +208,10 @@ fn editing_a_habit_requires_the_explicit_habit_opt_in() {
         today(),
     )
     .unwrap();
-    let row = read_csv(&root.path().join("tasks/habits.csv")).unwrap().rows[0].clone();
+    let row = read_csv(&root.path().join("tasks/habits.csv"))
+        .unwrap()
+        .rows[0]
+        .clone();
     assert_eq!(field(&row, "due_date"), "2026-08-09");
     assert_eq!(field(&row, "ideal_time"), "7:15 AM");
 }

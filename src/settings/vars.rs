@@ -92,6 +92,9 @@ pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> 
             known_names()
         );
     }
+    if name == "enable_daily_triage_check" && !matches!(value.trim(), "true" | "false") {
+        bail!("enable_daily_triage_check must be true or false");
+    }
     if name == "enable_triage_habits" {
         let enabled = match value.trim() {
             "true" => true,
@@ -265,6 +268,18 @@ mod tests {
                 .all(|r| r.name != "claude_cmd")
         );
         assert!(set(&workspace(), "claude_cmd", "claude").is_err());
+    }
+
+    #[test]
+    fn daily_triage_check_is_a_declared_config_variable_defaulting_on() {
+        // It moved off the CLI (`--no-daily-triage-check`) into portable config,
+        // so `brain config` owns the startup value.
+        let rows = resolve_all_from(&Map::new());
+        let flag = rows
+            .iter()
+            .find(|r| r.name == "enable_daily_triage_check")
+            .expect("declared config variable");
+        assert_eq!(flag.value.as_deref(), Some("true"));
     }
 
     #[test]

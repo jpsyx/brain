@@ -26,6 +26,11 @@ pub struct Config {
     pub allowed_skills: Vec<String>,
     /// Whether Brain maintains its daily and weekly triage habit chains.
     pub enable_triage_habits: bool,
+    /// Whether the shell may open the daily-triage startup nudge. Portable, so
+    /// every machine on the workspace starts with the same answer; the command
+    /// palette still flips it for one running session.
+    #[serde(default = "enabled")]
+    pub enable_daily_triage_check: bool,
     /// Legacy migration input for a portable user's response address.
     pub response_email: String,
     /// Legacy migration input for portable inbound phone mappings.
@@ -80,6 +85,7 @@ impl Default for Config {
             allowed_mcps: Vec::new(),
             allowed_skills: default_allowed_skills(),
             enable_triage_habits: true,
+            enable_daily_triage_check: true,
             response_email: String::new(),
             allowed_sms_senders: String::new(),
             allowed_email_senders: String::new(),
@@ -88,6 +94,10 @@ impl Default for Config {
             day_rollover_hour: 6,
         }
     }
+}
+
+const fn enabled() -> bool {
+    true
 }
 
 fn default_allowed_skills() -> Vec<String> {
@@ -186,6 +196,15 @@ impl Config {
                     .is_some_and(|byte| byte.is_ascii_alphanumeric())
     }
 
+    /// Whether the startup daily-triage nudge is suppressed for this workspace.
+    ///
+    /// The shell's live state is phrased as "skip", so invert once here rather
+    /// than at every call site.
+    #[must_use]
+    pub const fn skip_daily_triage_check(&self) -> bool {
+        !self.enable_daily_triage_check
+    }
+
     #[must_use]
     pub fn allowed_sms(&self) -> Vec<String> {
         split_allowlist(&self.allowed_sms_senders)
@@ -270,6 +289,19 @@ mod tests {
     #[test]
     fn default_day_rollover_hour_is_six_am() {
         assert_eq!(Config::default().day_rollover_hour, 6);
+    }
+
+    #[test]
+    fn daily_triage_check_is_enabled_by_default() {
+        assert!(Config::default().enable_daily_triage_check);
+    }
+
+    #[test]
+    fn disabling_the_daily_triage_check_is_persistent_config_not_a_cli_flag() {
+        let cfg: Config = serde_json::from_str(r#"{"enable_daily_triage_check": false}"#).unwrap();
+
+        assert!(!cfg.enable_daily_triage_check);
+        assert!(cfg.skip_daily_triage_check());
     }
 
     #[test]

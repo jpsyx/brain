@@ -1,17 +1,19 @@
-//! First-run onboarding: a short, skippable prompt that seeds personalization.
+//! First-run onboarding: a short, skippable prompt that seeds one persona.
 //!
-//! Runs on the first `brain` startup when nothing is set, and on bare
-//! `brain personalize`. The pure assembly (`from_answers`) is unit-tested; the
-//! `/dev/tty` interaction is a thin shell that silently no-ops without a real
-//! terminal (CI, pipes) so it never blocks startup.
+//! Runs on **any** `brain` command when this machine's local person has no
+//! persona yet, and on bare `brain persona`. The pure decisions
+//! (`from_answers`, `prompts_for_missing_persona`, `missing_persona_notice`) are
+//! unit-tested; the `/dev/tty` interaction is a thin shell that never fails a
+//! command — with no terminal it prints one actionable line instead of blocking.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 
 use anyhow::Result;
 
-use super::model::Personalization;
+use super::persona::Persona;
 use super::{command, store};
+use crate::workspace::Invocation;
 
 /// The onboarding questions, in order: (field, prompt).
 const QUESTIONS: [(&str, &str); 3] = [
@@ -20,33 +22,81 @@ const QUESTIONS: [(&str, &str); 3] = [
     ("works_for", "Who you work for (org, \"myself\", or blank)"),
 ];
 
-/// Assemble a `Personalization` from raw answers; blank answers stay empty
+/// Assemble a `Persona` from raw answers; blank answers stay empty
 /// (skipped). Pure.
 #[must_use]
-pub fn from_answers(name: &str, role: &str, works_for: &str) -> Personalization {
-    Personalization {
+pub fn from_answers(name: &str, role: &str, works_for: &str) -> Persona {
+    Persona {
         name: name.trim().to_owned(),
         role: role.trim().to_owned(),
         works_for: works_for.trim().to_owned(),
-        ..Personalization::default()
+        ..Persona::default()
     }
 }
 
-/// Bare `brain personalize`: run onboarding if nothing is set, else `show`.
+/// Bare `brain persona`: run onboarding if the local person has nothing set,
+/// else `show` them.
 pub fn run_or_show(workspace: &crate::workspace::WorkspaceContext) -> Result<()> {
-    if store::load(workspace).is_empty() {
+    if store::local_persona(workspace).is_empty() {
         run_interactive(workspace)
     } else {
-        command::run_show(workspace);
-        Ok(())
+        command::run_show(workspace, None)
     }
 }
 
-/// Startup hook: run onboarding only when nothing is set. Never fails a startup
-/// — any error (including no terminal) is swallowed.
-pub fn maybe_run_first_time(workspace: &crate::workspace::WorkspaceContext) {
-    if store::load(workspace).is_empty() {
-        let _ = run_interactive(workspace);
+/// Whether an invocation may stop to collect a missing persona.
+///
+/// Every ordinary command does: a workspace member with no persona is something
+/// brain should fix the next time it sees them, not something they must
+/// remember to do. The exceptions are the commands already editing personas
+/// (`brain persona …`, which would prompt for what it is about to be told) and
+/// `brain workspace migrate`, which must not interleave prompts with a
+/// transactional schema change. Pure.
+#[must_use]
+pub const fn prompts_for_missing_persona(invocation: Invocation) -> bool {
+    !matches!(
+        invocation,
+        Invocation::Persona | Invocation::WorkspaceMigrate
+    )
+}
+
+/// The one-line nudge printed when there is no terminal to prompt on.
+///
+/// Names the exact command to run, so a scripted or piped invocation still
+/// tells the user how to finish setup. Pure.
+#[must_use]
+pub fn missing_persona_notice(
+    user_id: &str,
+    workspace: &str,
+    theme: crate::theme::Theme,
+) -> String {
+    theme.warning(&format!(
+        "{user_id} has no persona yet — run `brain persona set role=<ROLE> -w {workspace}` (or `brain persona`) so brain knows who it is assisting."
+    ))
+}
+
+/// Command hook: collect this machine's person's persona when it is missing.
+///
+/// Never fails the command that triggered it. With a terminal it runs the same
+/// short onboarding as `brain persona`; without one it prints
+/// [`missing_persona_notice`] to stderr and continues.
+pub fn prompt_for_missing_local_persona(workspace: &crate::workspace::WorkspaceContext) {
+    if !store::local_persona(workspace).is_empty() {
+        return;
+    }
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        eprintln!(
+            "{}",
+            missing_persona_notice(
+                workspace.local_user_id(),
+                workspace.name().as_str(),
+                crate::theme::Theme::active(),
+            )
+        );
+        return;
+    }
+    if let Err(error) = run_interactive(workspace) {
+        crate::logging::log(format!("persona onboarding skipped: {error:#}"));
     }
 }
 
@@ -65,7 +115,8 @@ fn run_interactive(workspace: &crate::workspace::WorkspaceContext) -> Result<()>
 
     writeln!(
         out,
-        "\nLet's personalize brain (press Enter to skip any).\n"
+        "\nLet's set up {}'s persona (press Enter to skip any).\n",
+        workspace.local_user_id()
     )?;
     let mut answers = [String::new(), String::new(), String::new()];
     for (i, (_, prompt)) in QUESTIONS.iter().enumerate() {
@@ -104,15 +155,12 @@ fn run_interactive(workspace: &crate::workspace::WorkspaceContext) -> Result<()>
     }
 
     if p.is_empty() {
-        writeln!(out, "\nSkipped — run `brain personalize` anytime.\n")?;
+        writeln!(out, "\nSkipped — run `brain persona` anytime.\n")?;
         return Ok(());
     }
-    store::save(workspace, &p)?;
+    store::save_persona(workspace, workspace.local_user_id(), &p)?;
     crate::skills::resync_skills(workspace);
-    writeln!(
-        out,
-        "\nSaved. Change it anytime with `brain personalize`.\n"
-    )?;
+    writeln!(out, "\nSaved. Change it anytime with `brain persona`.\n")?;
     Ok(())
 }
 
@@ -129,8 +177,40 @@ mod tests {
     }
 
     #[test]
-    fn all_blank_answers_are_empty_personalization() {
+    fn all_blank_answers_are_an_empty_persona() {
         assert!(from_answers("", "  ", "\t").is_empty());
+    }
+
+    #[test]
+    fn ordinary_commands_stop_to_collect_a_missing_persona() {
+        for invocation in [
+            Invocation::Tui,
+            Invocation::Tasks,
+            Invocation::Config,
+            Invocation::Sync,
+            Invocation::Habits,
+        ] {
+            assert!(prompts_for_missing_persona(invocation), "{invocation:?}");
+        }
+    }
+
+    #[test]
+    fn persona_and_migration_commands_never_prompt_first() {
+        // `brain persona …` is already collecting it, and a migration must not
+        // interleave prompts with a transactional schema change.
+        assert!(!prompts_for_missing_persona(Invocation::Persona));
+        assert!(!prompts_for_missing_persona(Invocation::WorkspaceMigrate));
+    }
+
+    #[test]
+    fn the_headless_notice_names_the_person_and_the_exact_command() {
+        let notice = missing_persona_notice("pablo", "family", crate::theme::Theme::dark(false));
+
+        assert!(notice.contains("pablo has no persona yet"), "{notice}");
+        assert!(
+            notice.contains("brain persona set role=<ROLE> -w family"),
+            "{notice}"
+        );
     }
 
     #[test]

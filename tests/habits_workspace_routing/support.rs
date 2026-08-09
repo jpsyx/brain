@@ -198,7 +198,11 @@ impl Drop for ServerFixture {
     }
 }
 
-pub(super) fn write_workspace(root: &std::path::Path, manifest_id: &str, habit_name: &str) -> IngressId {
+pub(super) fn write_workspace(
+    root: &std::path::Path,
+    manifest_id: &str,
+    habit_name: &str,
+) -> IngressId {
     let tasks = root.join("tasks");
     std::fs::create_dir_all(&tasks).expect("tasks directory");
     let manifest = WorkspaceManifest::new(workspace_id(manifest_id));

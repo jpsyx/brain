@@ -98,8 +98,21 @@ pub fn set(command: &CommandContext, name: &str, value: &str) -> Result<()> {
             bail!("unknown env object `{top}` (known: {})", known_names());
         }
     }
-    set_path(&mut map, name, parse_value(value))?;
+    set_path(&mut map, name, declared_value(name, value)?)?;
     save_map(command, &map)
+}
+
+/// Validate and canonicalize a declared scalar before it reaches the store.
+///
+/// Enum-valued variables are normalized here so every reader sees one spelling
+/// and a typo fails at the CLI rather than silently degrading a later launch.
+fn declared_value(name: &str, value: &str) -> Result<Value> {
+    if name == crate::agent::default_frontend::ENV_VAR {
+        return Ok(Value::from(crate::agent::default_frontend::canonicalize(
+            value,
+        )?));
+    }
+    Ok(parse_value(value))
 }
 
 /// Persist several declared scalar values to one selected workspace record.

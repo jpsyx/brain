@@ -130,7 +130,7 @@ fn every_invocation_has_an_explicit_bootstrap_policy() {
         (Invocation::Sync, BootstrapPolicy::ReadyWorkspace),
         (Invocation::SyncStatus, BootstrapPolicy::ReadOnlyWorkspace),
         (Invocation::Check, BootstrapPolicy::ReadyWorkspace),
-        (Invocation::Personalize, BootstrapPolicy::ReadyWorkspace),
+        (Invocation::Persona, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Skills, BootstrapPolicy::ReadyWorkspace),
         (Invocation::Server, BootstrapPolicy::None),
         (Invocation::ServerStatus, BootstrapPolicy::None),

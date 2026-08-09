@@ -10,8 +10,9 @@ generic "how to summarize" skill; other skills (e.g. second-brain when filing
 into resources, or a personal reference-manager plugin) call it rather than
 re-deriving the method.
 
-Before you begin, load the user's personalization so framing fits them: run
-`brain personalize show` and note their `role`/`works_for` (they may be unset —
+Before you begin, load the reader's persona so framing fits them: run
+`brain persona show` (the person at this machine; `brain persona list` shows
+every member of a shared workspace) and note their `role`/`works_for` (they may be unset —
 then keep the framing neutral). The generic rule is simply to summarize
 carefully and faithfully; who it's for is personalization, not a hardcoded
 identity.

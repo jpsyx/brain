@@ -505,7 +505,8 @@ workspace migration command performs the reviewed conversion.
 Required rows cover the selected root, compatible matching manifest, nonempty
 schema-1 portable user registry, and a local user ID that names a portable
 person. Optional rows cover sync/watcher, receiver/SMS/email,
-access/MCPs/skills, triage habits/modal, PDF, Linear, personalization, and
+access/MCPs/skills, triage habits/modal, PDF, Linear, the local person's
+persona, other members' personas, and
 browser/web views. A disabled feature has no setup error. A present malformed
 sync block or provider field fails closed as incomplete. Receiver channel
 activation comes from receiver intent plus current provider-field presence or
@@ -948,12 +949,17 @@ is a thin shell around them.
 
 ## Personalization (`personalization/`, `<brain-root>/.config/personalization.json`)
 
-Content *about you*, stored beside `config.json` in the brain config dir
-(`settings::config_dir()`) — just another brain config, inside the brain root so
-it travels with the brain. A missing/broken file parses to the default (empty)
-value — the app never requires personalization.
+Content *about the people using a workspace*, stored beside `config.json` in the
+brain config dir (`settings::config_dir()`) — just another brain config, inside
+the brain root so it travels with the brain. A missing/broken file parses to no
+personas — the app never requires personalization.
 
-`Personalization` (`personalization/model.rs`):
+`Personas` (`personalization/personas.rs`) is the whole store: a
+`schema_version` (`2`) plus `personas`, a `BTreeMap<String, Persona>` keyed by
+the same portable user IDs as `users.json`. Ordering is by ID, so the file has
+one canonical serialization no matter which machine wrote it.
+
+`Persona` (`personalization/persona.rs`) is one member's entry:
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -963,6 +969,22 @@ value — the app never requires personalization.
 | `namespaces` | `Vec<String>` | `[]` | Project `<namespace>__<outcome>` life-buckets. Empty falls back to the generic defaults (`work`, `personal`); edited via the onboarding / `brain config set namespaces` checklist (`personalization/namespaces.rs`). |
 | `tag_styles` | `Map<String, TagStyle>` | `{}` | Per-tag display overrides. The tag *set* (its keys) is chosen via the same checklist (`brain config set tags`). |
 
+**Schema 1 → 2 migrates on read.** Version 1 was one unowned `Persona` at the
+top level. `Personas::parse` takes the reading machine's `local_user_id` and
+keys a legacy object onto it, because that is the only person who can truthfully
+claim an unowned record; the next write persists the keyed schema. A legacy
+object with nothing set migrates to *no* personas, so nobody inherits a blank
+record they would then be nudged to fill in. A file that already has a
+`personas` key is never reinterpreted as a legacy persona.
+
+Reads are per person: `store::load_persona(workspace, id)` and
+`store::local_persona(workspace)`; a user with no entry reads as an empty
+`Persona` rather than an error. `store::save_persona` is read-modify-write over
+the whole map, so writing one member never disturbs another's entry.
+`Personas::missing(roster)` reports which of the workspace's members still have
+nothing filled in (an entry that exists but is empty counts as missing) and
+drives the `other members' personas` optional-feature row in workspace status.
+
 `TagStyle` (`personalization/tags.rs`) is `{ emoji: String, label: String }`,
 rendered as `"{emoji} {label}"`. Resolution (`TagStyles`) layers the user's
 overrides over the generic defaults (`mit` → `❗ MIT`, `personal` → `✌ personal`,
@@ -971,12 +993,17 @@ loads the selected workspace's styles explicitly and retains them in its
 `App`; there is no process-global personalization cache that another workspace
 can inherit.
 
-The `brain personalize show` block is the **skill-lookup contract**: a stable,
-keyed `name:`/`role:`/`works_for:`/`namespaces:` text block that
+The `brain persona show` block is the **skill-lookup contract**: a stable,
+keyed `user:`/`name:`/`role:`/`works_for:`/`namespaces:` text block that
 identity-dependent skills read at runtime to learn who they serve. The
 `namespaces:` line always shows the *effective* set (the configured list, or the
 generic defaults when unset), so a skill like `second-brain` always sees a usable
-namespace list.
+namespace list. `brain persona list` emits one such block per member,
+blank-line separated, marking the local person `(this machine)`; a member of
+`users.json` with no entry still gets a block of `(unset)` values, and a stored
+persona whose user has left the roster is still listed, so nothing a skill
+depends on silently disappears. Both are built by pure functions
+(`command::persona_block`, `command::roster_block`).
 
 The **interactive checklist** (`personalization/checklist/`) is the shared UI for
 choosing a set (namespaces, tags): a pure state machine (`Checklist` +

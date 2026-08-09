@@ -157,7 +157,9 @@ fn parsed_routes_map_to_their_explicit_invocations() {
         (vec!["brain", "sync"], Invocation::Sync),
         (vec!["brain", "sync", "status"], Invocation::SyncStatus),
         (vec!["brain", "check"], Invocation::Check),
-        (vec!["brain", "personalize"], Invocation::Personalize),
+        (vec!["brain", "persona"], Invocation::Persona),
+        // The pre-multi-persona name stays a hidden alias for muscle memory.
+        (vec!["brain", "personalize"], Invocation::Persona),
         (vec!["brain", "skills"], Invocation::Skills),
         (vec!["brain", "server", "status"], Invocation::ServerStatus),
         (vec!["brain", "server", "logs"], Invocation::Server),

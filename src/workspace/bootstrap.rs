@@ -175,6 +175,15 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
         if should_resync_skills(invocation_for(cli)) {
             crate::skills::resync_on_version_change(&command_context.workspace);
         }
+        // A member brain knows nothing about is a gap it should close the next
+        // time it sees them, on whatever command they happened to run. Only the
+        // person at *this* machine is asked; other members' gaps are reported by
+        // `brain workspace status`, never prompted for here.
+        if crate::personalization::onboarding::prompts_for_missing_persona(invocation_for(cli)) {
+            crate::personalization::onboarding::prompt_for_missing_local_persona(
+                &command_context.workspace,
+            );
+        }
     }
     Ok(context)
 }

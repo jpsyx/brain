@@ -565,5 +565,4 @@ mod tests {
 
         assert!(error.contains("--ideal-time"), "{error}");
     }
-
 }

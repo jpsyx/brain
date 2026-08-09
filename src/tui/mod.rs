@@ -179,9 +179,10 @@ pub(crate) struct App<'a> {
     /// "waiting for that sync to land". Alert evaluation reads the live
     /// process-scoped toggle only after the refresh succeeds.
     triage_gate: Option<TriageGate>,
-    /// Process-scoped opt-out (via `--no-daily-triage-check`): when true the
-    /// daily-triage startup nudge is never evaluated for this run, so the modal
-    /// can't appear. Not a persistent config change.
+    /// Process-scoped opt-out: when true the daily-triage startup nudge is
+    /// never evaluated for this run, so the modal can't appear. Seeded from the
+    /// portable `enable_daily_triage_check` config and flipped for the session
+    /// by the palette; flipping it is not a persistent config change.
     skip_daily_triage_check: bool,
     /// When set (via the `--full-notes` flag), every task starts with its
     /// notes expanded. The per-task `l` toggle still layers on top.

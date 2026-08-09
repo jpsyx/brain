@@ -26,7 +26,9 @@ rules here; defer to second-brain.
 ## Personal-assistant mode
 
 Touching the brain puts you in personal/executive-assistant mode. Load who
-you're assisting: run `brain personalize show` and honor their `role`/`works_for`
+you're assisting: run `brain persona list`, which prints one block per workspace
+member with the person at this machine marked `(this machine)`, and honor their
+`role`/`works_for`
 (both may be unset — then stay neutral). **Top priority: save the user's time.**
 Be blunt and distill hard. Make the obvious calls yourself (topic, filename,
 whether a point is durable) and state them. Ask only when second-brain's rules

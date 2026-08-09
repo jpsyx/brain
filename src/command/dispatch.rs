@@ -97,9 +97,9 @@ pub fn run(
         crate::logging::log("dispatch sync");
         return super::sync::run(args, context);
     }
-    if let Some(Cmd::Personalize(args)) = &cli.command {
-        crate::logging::log("dispatch personalize");
-        return super::configuration::run_personalize(args, context);
+    if let Some(Cmd::Persona(args)) = &cli.command {
+        crate::logging::log("dispatch persona");
+        return super::configuration::run_persona(args, context);
     }
     if let Some(Cmd::Skills(args)) = &cli.command {
         crate::logging::log("dispatch skills");
@@ -148,13 +148,17 @@ pub fn run(
     if invocation_for(&cli) != Invocation::TasksDoctor {
         crate::settings::ensure_markdown_to_pdf(context);
     }
+    // Portable config, not a flag: every machine on the workspace starts the
+    // shell with the same answer, and the palette still flips it per session.
+    let skip_daily_triage_check =
+        crate::config::Config::load(&context.workspace).skip_daily_triage_check();
     match cli.command {
         None => super::tasks::launch(
             TasksCli::parse_from(["brain"]),
             context,
             agent_kind,
             cli.with_receiver,
-            cli.no_daily_triage_check,
+            skip_daily_triage_check,
         ),
         Some(Cmd::Tasks(ref mut args)) => {
             crate::logging::log("dispatch tasks");
@@ -168,7 +172,7 @@ pub fn run(
                 context,
                 agent_kind,
                 cli.with_receiver,
-                cli.no_daily_triage_check,
+                skip_daily_triage_check,
             )
         }
         Some(Cmd::Version) => unreachable!("version exits before bootstrap"),
@@ -176,7 +180,7 @@ pub fn run(
             Cmd::Config(_)
             | Cmd::Env(_)
             | Cmd::Sync(_)
-            | Cmd::Personalize(_)
+            | Cmd::Persona(_)
             | Cmd::Skills(_)
             | Cmd::Server(_)
             | Cmd::Receiver(_)

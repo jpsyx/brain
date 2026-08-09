@@ -1,4 +1,4 @@
-use brain::personalization::model::Personalization;
+use brain::personalization::persona::Persona;
 use brain::state::PanelSide;
 use brain::workspace::{RegistryStore, WorkspaceName};
 
@@ -102,11 +102,12 @@ fn uuid_scoped_state_locks_responses_and_sync_artifacts_do_not_collide() {
         .expect("post-default env write");
     brain::settings::set(&fixture.personal.workspace, "day_rollover_hour", "6")
         .expect("post-default config write");
-    brain::personalization::store::save(
+    brain::personalization::store::save_persona(
         &fixture.personal.workspace,
-        &Personalization {
+        fixture.personal.workspace.local_user_id(),
+        &Persona {
             name: "Personal after default".to_owned(),
-            ..Personalization::default()
+            ..Persona::default()
         },
     )
     .expect("post-default personalization write");

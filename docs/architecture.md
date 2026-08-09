@@ -227,7 +227,7 @@ exit. Before the persistent shell takes over `/dev/tty`, `main.rs` disables the
 stdout mirror; the TUI keeps the log path in `App` and offers receiver and brain
 log actions in the command palette that switch the main panel to a log view.
 the tasks command palette. Command handlers and thin IO shells call
-`logging::log` at phase boundaries: dispatch, config/env/personalize actions,
+`logging::log` at phase boundaries: dispatch, config/env/persona actions,
 task CSV loads and writes, sync/rclone work, server lifecycle probes, doctor
 checks, and skill installation. `main.rs` passes argv through the pure central
 redactor before either file logging or verbose mirroring, so receiver provider
@@ -518,17 +518,20 @@ stay scoped to the selected record while the list view spans the machine.
 See [config.md](config.md) and [data-model.md](data-model.md).
 
 ### `personalization/`
-The personalization store — content *about you* at
+The personalization store — content *about the workspace's people*, one persona
+per portable user ID, at
 `<brain-root>/.config/personalization.json` (beside the config store in
 `settings::config_dir()`; it is just another brain config, inside the brain root
-so it travels with the brain). Split into `model` (the `Personalization` schema +
+so it travels with the brain). Split into `persona` (one member's schema +
 parse), `store` (path resolution in the brain config dir + load/save), `tags`
 (the `TagStyle`/`TagStyles` model, the
 generic defaults `mit`/`personal`/`work`, and pure label resolution with
 raw-name fallback), `runtime` (explicit selected-workspace style loading for
-the TUI's retained `App` state), `command` (the
-`brain personalize` show/get/set/edit logic — pure helpers + thin IO), and
-`onboarding` (the skippable first-run prompt). The task renderer's
+the TUI's retained `App` state, from the local person's persona), `command` (the
+`brain persona` show/list/get/set/edit logic — pure helpers + thin IO),
+`personas` (the user-ID-keyed store plus its schema-1 migration), and
+`onboarding` (the skippable prompt, plus the pure decisions behind the
+missing-persona gate every command runs at bootstrap). The task renderer's
 `type_label` delegates here, so the public binary carries no personal taxonomy.
 See [config.md](config.md) and [data-model.md](data-model.md).
 
@@ -697,7 +700,7 @@ in the separate `env.json`) are ignored here.
 private Backblaze B2 bucket via `rclone bisync`, dispatched in
 `src/command/sync.rs`
 **before** the `markdown-to-pdf` prerequisite gate (like `config`/`env`/
-`personalize`/`skills`). The data flow per run is **lock → refuse an active
+`persona`/`skills`). The data flow per run is **lock → refuse an active
 rollout → build → prove remote identity → materialize runtime state → run →
 post-pass → verify → journal**: `config` (`SyncConfig`, parsed from the brain-env `sync`
 block) feeds `remote::build_remote` (the B2 remote as `RCLONE_CONFIG_*` env
@@ -1068,7 +1071,7 @@ re-enable while this gate is armed defers its check to that refreshed state;
 the gate does not cache the launch-time alert value. Reload or
 reconciliation errors are logged and shown in the TUI rather than discarded,
 so the modal reflects post-sync completion state (pure `triage_gate_resolved`
-decides resolution). `--no-daily-triage-check` disables only the final alert;
+decides resolution). `enable_daily_triage_check=false` disables only the final alert;
 the same gate still performs the strict config, managed-policy, and task-table
 refresh. With no startup sync, the check runs immediately as before. The
 brain
@@ -1106,7 +1109,9 @@ complete `LaunchRequest` values: the adapter supplies common workspace identity
 and `BRAIN_AGENT_KIND`; the main panel's `HookMetadata` adds instance, PID,
 state DB, and response attribution, while the triage panel adds only
 `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. `claude_cmd`, `codex_cmd`,
-and `opencode_cmd` are machine-local brain env values. The three functional
+`opencode_cmd`, and `default_agent_frontend` (which frontend this machine opens
+with no selector flag; resolved in `agent::default_frontend` right after
+bootstrap, since env needs a workspace) are machine-local brain env values. The three functional
 configured commands are spliced in
 verbatim so they may carry their own flags, and brain never depends on a shell
 alias.

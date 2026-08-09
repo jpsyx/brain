@@ -68,11 +68,13 @@ pub enum Cmd {
     /// Sync your brain across machines via Backblaze B2 (`brain sync setup` first).
     Sync(SyncArgs),
 
-    /// Read or change your personalization (identity + tag styles), stored at
-    /// `<brain-root>/.config/personalization.json`. Bare `brain personalize` runs
-    /// first-run onboarding if nothing is set yet, otherwise it shows your
-    /// current values.
-    Personalize(PersonalizeArgs),
+    /// Read or change a workspace member's persona (identity + tag styles),
+    /// stored per portable user ID in
+    /// `<brain-root>/.config/personalization.json`. Bare `brain persona` runs
+    /// first-run onboarding when this machine's person has nothing set yet,
+    /// otherwise it shows their current values.
+    #[command(alias = "personalize")]
+    Persona(PersonaArgs),
 
     /// Manage the bundled brain skills (render + install into the agent registry).
     Skills(SkillsArgs),

@@ -226,3 +226,65 @@ fn sensitive_env_assignment_never_echoes_the_raw_value() {
     assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
     assert!(String::from_utf8_lossy(&output.stdout).contains("saved"));
 }
+
+#[test]
+fn the_default_agent_frontend_is_claude_until_this_machine_says_otherwise() {
+    let home = tempfile::tempdir().expect("home tempdir");
+    let config_home = tempfile::tempdir().expect("config tempdir");
+    write_env(&config_home);
+    make_ready(&home, &config_home);
+
+    let unset = brain_command(&home, &config_home)
+        .args(["env", "get", "default_agent_frontend"])
+        .output()
+        .expect("read the unset default");
+    assert_eq!(
+        String::from_utf8_lossy(&unset.stdout).trim(),
+        "claude",
+        "{}",
+        String::from_utf8_lossy(&unset.stderr)
+    );
+
+    // The flag spells it `--open-code`; the store keeps one canonical spelling.
+    let set = brain_command(&home, &config_home)
+        .args(["env", "set", "default_agent_frontend=Open-Code"])
+        .output()
+        .expect("set the default frontend");
+    assert!(
+        set.status.success(),
+        "{}",
+        String::from_utf8_lossy(&set.stderr)
+    );
+    // The confirmation must report what was stored, not what was typed.
+    let confirmation = String::from_utf8_lossy(&set.stdout);
+    assert!(confirmation.contains("opencode"), "{confirmation}");
+    assert!(!confirmation.contains("Open-Code"), "{confirmation}");
+    let stored = brain_command(&home, &config_home)
+        .args(["env", "get", "default_agent_frontend"])
+        .output()
+        .expect("read the stored default");
+    assert_eq!(String::from_utf8_lossy(&stored.stdout).trim(), "opencode");
+}
+
+#[test]
+fn an_unknown_default_agent_frontend_is_rejected_with_the_valid_set() {
+    let home = tempfile::tempdir().expect("home tempdir");
+    let config_home = tempfile::tempdir().expect("config tempdir");
+    write_env(&config_home);
+    make_ready(&home, &config_home);
+
+    let output = brain_command(&home, &config_home)
+        .args(["env", "set", "default_agent_frontend=gemini"])
+        .output()
+        .expect("reject an unknown frontend");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("claude, codex, opencode"), "{stderr}");
+    // The store keeps the previous (unset → default) value.
+    let stored = brain_command(&home, &config_home)
+        .args(["env", "get", "default_agent_frontend"])
+        .output()
+        .expect("read the default after rejection");
+    assert_eq!(String::from_utf8_lossy(&stored.stdout).trim(), "claude");
+}

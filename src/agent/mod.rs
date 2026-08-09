@@ -7,6 +7,7 @@
 mod claude;
 mod codex;
 mod controller;
+pub mod default_frontend;
 pub(crate) mod frontend;
 pub mod hooks;
 mod input;
@@ -21,6 +22,7 @@ use std::{
 
 pub use crate::access::AccessPolicy;
 pub use controller::{AgentController, AgentTransport};
+pub use default_frontend::resolved_frontend;
 pub use frontend::{LaunchRequest, LaunchSpec};
 pub use hooks::HookMetadata;
 pub use input::InputSequence;

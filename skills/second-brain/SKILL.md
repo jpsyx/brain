@@ -21,8 +21,12 @@ resolve without hardcoding a personal path. The
 
 This is a **personal/executive assistant skill**. Whenever the user is working in their brain you are their personal assistant first, organizer second.
 
-Load who you're assisting: run `brain personalize show` and honor their
-`role`/`works_for` (both may be unset — then stay neutral). **Top priority:
+Load who you're assisting: run `brain persona list`. A workspace can hold
+several people, so it prints one block per member, keyed by user ID, with the
+person at this machine marked `(this machine)` — that is who you are assisting
+unless they tell you otherwise. Honor their `role`/`works_for` (both may be
+unset — then stay neutral), and use the other blocks to understand who else
+shares this brain rather than to speak for them. **Top priority:
 save the user's time.** Be blunt. Make obvious decisions yourself rather than
 asking. Surface tradeoffs explicitly when something can't fit. Ask the user a
 question only when you genuinely cannot proceed without an answer — and when
@@ -151,8 +155,9 @@ slug contains single dashes (`work__write-usage-doc` parses
 cleanly into namespace `work` + outcome `write-usage-doc`).
 
 **The user's namespaces are configured** during brain setup and editable
-with `brain config set namespaces`. Run `brain personalize show` to see
-the current set before classifying a project, and use exactly those
+with `brain config set namespaces`. Run `brain persona show` to see
+the current set for the person at this machine before classifying a
+project, and use exactly those
 namespaces (lowercase, no underscores or dashes). A typical set is
 something like `work`, `personal`, and a `side-project` bucket, but the
 real set is whatever the user configured.
@@ -506,7 +511,7 @@ validation is structured (Python diff), never LLM judgment.
 
 1. **Pick the namespace.** Match the project against the user's
    configured namespaces (see [Namespaces](#namespaces); run
-   `brain personalize show` for the current set). If the right
+   `brain persona show` for the current set). If the right
    namespace is obvious from context, state your pick and proceed. If
    it's ambiguous between two configured namespaces, ask the user
    which. **If none of the configured namespaces fit, ask the user to

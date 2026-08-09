@@ -2760,3 +2760,89 @@ legitimate but must never be something a cleanup pass reaches by accident.
 The pure/impure split is `set::plan` (every validation and the exact
 before/after list) versus the thin read-modify-write in `set::set_in_root_with_today`,
 so all the rejections are unit-testable without a filesystem.
+
+## Env vs. config is a two-question test, and the daily-triage opt-out failed it
+
+Two stores can hold a setting, and "it feels machine-ish" is not a criterion.
+[docs/config.md](config.md#deciding-which-store-owns-a-new-variable) now states
+the test explicitly, in order:
+
+1. Does the value have to exist *before* a workspace does? Then it cannot live
+   inside the workspace it bootstraps — it is **env** (`root`, `sync.*`).
+2. Otherwise: must every machine connected to the workspace agree on it? If
+   machines may differ, **env**; if they must agree, **config**.
+
+The unit in question 2 is a machine, not a user: one person's laptop and desktop
+are two machines on the same workspace, and so are two people's. That phrasing
+matters because it explains results that "personal vs. shared" gets wrong. The
+receiver credentials (`twilio_*`, `resend_*`, `brain_receiver_public_url`) look
+shared — one workspace, one phone number — but exactly one machine serves
+ingress for a workspace at a time, and the credentials belong to whichever
+machine that is. They stay in env. `default_agent_frontend` is the same shape: a
+machine that has only Claude installed must not be dragged onto Codex because
+another machine prefers it.
+
+The opt-out for the daily-triage nudge was a CLI flag (`--no-daily-triage-check`)
+and failed the test in the other direction. Which shells may nag you about
+today's triage is a property of the *workspace*, not of one invocation: if a user
+does not want that modal, they do not want it on their laptop this morning and
+their desktop tonight. It is now `enable_daily_triage_check` in portable config.
+
+The flag did have one property worth keeping: a TUI that stays open for days
+needs to silence the nudge *now* without editing a synced file every other
+machine reads. That is the palette toggle's job, and the split is the general
+rule for config-seeded live state: **config seeds the process at startup, the
+palette flips the process, and flipping never writes back**. `App::skip_daily_triage_check`
+stays the single field both paths reach, so they cannot drift.
+
+Nothing is both a flag and a stored variable. A setting with two persistence
+stories has two answers when they disagree, which is the exact failure the
+CLI ↔ palette parity rule in `AGENTS.md` exists to prevent.
+
+## Personas are keyed by person, and only your own is ever prompted for
+
+`personalization.json` held one unowned object: a name, a role, an org, a
+namespace list, tag styles. That schema quietly assumed a workspace has one
+user, which stopped being true when workspaces gained portable members. Two
+people sharing a family brain had one role and one org between them, and
+whichever machine wrote last won.
+
+So the store is now keyed by portable user ID — the same IDs as `users.json` —
+with one `Persona` per member. Note that this is not the env-vs-config question
+(see the entry above): a persona is not a setting a machine or a workspace holds
+one of, it is a fact about a *person*, so the right key is the person. It lives
+in portable config because everyone on the workspace should see the same people,
+and identity, not location, decides whose values apply.
+
+**Migration keys the legacy object onto its reader.** A version-1 file names no
+owner, and the only person who can truthfully claim it is the local user of the
+machine reading it: whoever wrote it was sitting at a machine, and on a
+single-user brain that is the same person. Migration happens on read (so no
+command has to run first) and persists on the next write. An *empty* legacy file
+migrates to no personas at all rather than to one blank record — otherwise every
+migrated workspace would immediately start nagging its user to fill in a persona
+that was never there.
+
+**Reads pick one person; the roster view shows everyone.** Tag styling and the
+namespace checklist use the local person's persona, because those are how the
+human at this terminal wants their own board and their own project buckets to
+read. `brain persona list` is the all-members view, and it is what the bundled
+skills call: an agent assisting in a shared workspace needs to know both who it
+is serving (marked `(this machine)`) and who else's name might appear on a task.
+The roster block deliberately includes members with no persona (as `(unset)`)
+and personas whose user has left `users.json`, because a skill silently not
+seeing a person is worse than seeing an empty one.
+
+**Only the local person is prompted.** A missing persona is collected by
+whatever `brain` command runs next, which is the only moment brain reliably has
+the person's attention. Prompting for *another* member's persona on your machine
+would be asking you to invent facts about someone else, so those surface instead
+as the `other members' personas` optional feature in workspace status. The prompt never
+fails the command that triggered it: with no terminal it degrades to one line
+naming the fix. `brain persona …` and `brain workspace migrate` skip the gate —
+one is already collecting the answer, and the other must not interleave prompts
+with a transactional schema change.
+
+The command is `brain persona`, with `personalize` kept as a hidden alias:
+"personalize" describes an action on a singular *you*, which is exactly the
+assumption that broke.
