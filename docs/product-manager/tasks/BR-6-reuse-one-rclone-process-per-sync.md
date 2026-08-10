@@ -56,14 +56,27 @@ which an equivalent `rclone bisync --dry-run` (both listings, no transfers) is
 **17.0 s**. Brain's own remaining overhead is therefore only ~2.4 s, and this
 task can recover at most that.
 
-**So this is no longer the main lever, and BR-7 is not either.** The cost is
-inside bisync: it lists both sides, compares each against its `-old` baseline,
-and applies every `--exclude` filter per object across 6,769 objects. Before
-investing here, measure that: whether the filter count matters, whether
-`--resilient`/`--recover` add passes, and whether excluding the large media
-library (`--max-size`, or a `sync.exclude` entry for
-`resources/pole/**`) is what actually moves the number. A cheap, honest
-experiment beats implementing a daemon that buys 2 s.
+That measurement was then chased down and the cause found: rclone's default
+march lists **per directory**, so on a bucket backend every one of the ~1,000
+directories was its own API round trip. `--fast-list` replaces that with one
+recursive listing per side and has landed. Measured on the same workspace:
+
+| | Time |
+| --- | --- |
+| Dry-run bisync, per-directory march | 15.6 s |
+| Dry-run bisync, `--fast-list` | **6.9 s** |
+| Whole no-change `brain sync`, before | 19.4 s |
+| Whole no-change `brain sync`, after | **7.2 s** |
+
+Two levers were measured and rejected: `--checkers 32` made no difference
+(7.7 s), and excluding the large media library was *slower* (9.5 s), so object
+count is not the constraint — round trips were.
+
+**What remains for this task is the ~2 s of per-process authentication**, now a
+much larger share of a 7 s sync than it was of a 19 s one. Worth doing, but
+measure again first: with `--fast-list` in place the bisync step is ~5 s of the
+7 s, so a daemon that only removes brain's own process spawns still leaves most
+of it.
 
 ## Acceptance criteria
 
