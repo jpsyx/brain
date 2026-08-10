@@ -12,3 +12,5 @@ mod required;
 mod support;
 #[path = "workspace_requirements/sync.rs"]
 mod sync;
+#[path = "workspace_requirements/task_schema.rs"]
+mod task_schema;

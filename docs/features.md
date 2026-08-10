@@ -435,7 +435,13 @@ delegated task values.
   optional `off`, `ready`, and `incomplete` feature state. The list path does
   not seed missing modes, repair setup, render skills, create locks, or inspect
   a peer workspace as a fallback. Malformed selected config is reported as
-  incomplete rather than guessed as unrestricted.
+  incomplete rather than guessed as unrestricted. The **task schema** row
+  reports whether the workspace declares `tasks/SCHEMA.json`; a workspace
+  without it cannot sync, so it renders `incomplete` instead of `ready`.
+- Every workspace is seeded with the canonical `tasks/SCHEMA.json` when it has
+  none, on both the empty-workspace and ordinary root-initialization paths, so a
+  workspace created before Brain shipped the document repairs itself on the next
+  command. An existing document is never overwritten.
 
 For create, attach, remove, and repair, brain collects and validates all missing
 values from `/dev/tty` before legacy classification, migration, or mutation.

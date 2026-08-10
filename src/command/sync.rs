@@ -31,6 +31,11 @@ pub fn run_with_workspace_lock<T>(
 pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandContext) -> Result<()> {
     use crate::cli::SyncAction;
     let root = command.workspace.root();
+    // Sync dispatches before the workspace gate, so it never passes through root
+    // initialization. `sync setup` cannot run at all without the task schema
+    // document, so seed it here too rather than leaving every sync subcommand
+    // dependent on some other command having run first.
+    crate::tasks::schema::ensure_schema_document(root)?;
     let cfg = crate::sync::config::SyncConfig::load(command);
     match &args.action {
         Some(SyncAction::Setup { adopt_workspace_id }) => {

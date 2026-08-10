@@ -43,6 +43,7 @@ pub(super) fn requirements(command: &CommandContext, name: &str) -> Vec<Requirem
             }
         }
     }
+    rows.push(task_schema_requirement(command, name));
     rows.push(pdf_requirement(command));
     rows.extend(personalization_requirements(command, name));
     rows.push(Requirement::feature(
@@ -94,6 +95,22 @@ fn triage_status(
         FeatureStatus::Incomplete
     };
     (habits_status, modal_status)
+}
+
+/// Without `tasks/SCHEMA.json` every schema decision fails, so a workspace
+/// missing it cannot sync. Reporting it keeps `sync status` from calling such a
+/// workspace ready.
+fn task_schema_requirement(command: &CommandContext, name: &str) -> Requirement {
+    Requirement::feature(
+        RequirementScope::TaskSchema,
+        if crate::tasks::schema::document_present(command.workspace.root()) {
+            FeatureStatus::Ready
+        } else {
+            FeatureStatus::Incomplete
+        },
+        Vec::new(),
+        format!("brain -w {name}"),
+    )
 }
 
 fn pdf_requirement(command: &CommandContext) -> Requirement {

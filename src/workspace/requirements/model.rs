@@ -15,6 +15,7 @@ pub enum RequirementScope {
     AccessPolicy,
     Mcp(String),
     Skill(String),
+    TaskSchema,
     TriageHabits,
     TriageModal,
     PdfConversion,
@@ -33,6 +34,7 @@ impl RequirementScope {
         match self {
             Self::WorkspaceRoot => "workspace root".to_owned(),
             Self::WorkspaceManifest => "workspace manifest".to_owned(),
+            Self::TaskSchema => "task schema".to_owned(),
             Self::PortableUsers => "portable users".to_owned(),
             Self::LocalUser => "local user".to_owned(),
             Self::CloudSync => "cloud sync".to_owned(),

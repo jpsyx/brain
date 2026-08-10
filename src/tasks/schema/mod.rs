@@ -16,10 +16,12 @@ use crate::workspace::WorkspaceId;
 
 mod columns;
 mod path;
+mod seed;
 mod transaction;
 mod transform;
 
 pub(crate) use columns::{canonical_current_header, is_known_current_column};
+pub(crate) use seed::{document_present, ensure_schema_document};
 use path::validate_backup_destination;
 #[cfg(test)]
 use transaction::journal_path as transaction_journal_path;

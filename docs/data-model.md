@@ -1377,6 +1377,17 @@ struct Table {
 }
 ```
 
+`tasks/SCHEMA.json` is required input for every schema decision, so Brain
+carries the canonical current document (`src/tasks/schema/task_schema.json`,
+embedded with `include_str!`) and seeds it into any workspace that has none.
+Seeding is write-only-when-absent, exactly like the portable manifest: a
+document that arrived over sync is authoritative and never replaced. It runs
+both when an empty workspace is initialized and, for a workspace created before
+Brain shipped the document, on the ordinary root-initialization path, so an
+existing workspace repairs itself. `src/tasks/schema/seed.rs` owns it, and
+`RequirementScope::TaskSchema` reports a workspace that still lacks it as
+`incomplete`.
+
 `merge(base, ours, theirs) -> (Table, Report)` uses `task_uuid` only when
 `tasks/SCHEMA.json` activates the current task schema, and otherwise preserves
 the inactive-migration compatibility path keyed by legacy `task_id`. Merely

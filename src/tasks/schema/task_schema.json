@@ -1,0 +1,288 @@
+{
+  "$comment": "Canonical task schema for a Brain workspace's tasks/{tasks,habits}.csv. Brain seeds this file when a workspace has none and never overwrites an existing one. The CSVs always store lowercase machine values; display_labels below are for the UI tier only.",
+  "task_schema_version": 2,
+  "merge_key": "task_uuid",
+  "identity": {
+    "task_uuid": "immutable UUID merge identity; the key sync merges on",
+    "task_id": "mutable human-facing display identity; may be renumbered"
+  },
+  "display_identity": {
+    "field": "task_id",
+    "mutable": true
+  },
+  "forward_compatible_columns": true,
+  "tasks_csv": {
+    "key": "task_id",
+    "multi_value_separator": "|",
+    "columns": [
+      {
+        "name": "task_uuid",
+        "type": "uuid",
+        "required": true,
+        "description": "Immutable identity. Never edited, never reused; sync merges rows on this."
+      },
+      {
+        "name": "task_id",
+        "type": "short_id",
+        "pattern": "^[Tt][0-9]+$",
+        "required": true,
+        "description": "Display identifier of the form T<n>. Disjoint from the habits H<n> namespace."
+      },
+      {
+        "name": "task_name",
+        "type": "string",
+        "required": true,
+        "description": "Short title."
+      },
+      {
+        "name": "task_type",
+        "type": "enum-set",
+        "description": "Pipe-separated workspace-defined categories; one row may carry several. Values are yours to choose. Brain itself only recognizes 'mit' (most important task), which it strips and tracks separately."
+      },
+      {
+        "name": "status",
+        "type": "enum",
+        "required": true,
+        "allowed_values": ["not_started", "in_progress", "waiting", "done", "backlog"],
+        "description": "'waiting' means paused on an external party you do not control, which is distinct from an internal dependency recorded in blocked_by. 'backlog' means parked indefinitely and hidden from active views."
+      },
+      {
+        "name": "waiting_since",
+        "type": "date | empty",
+        "description": "Date the row entered status='waiting'; cleared when it leaves. Drives the follow-up prompt for a wait that has run long."
+      },
+      {
+        "name": "priority",
+        "type": "enum",
+        "required": true,
+        "allowed_values": ["p0", "p1", "p2", "p3", "p4"]
+      },
+      {
+        "name": "due_date",
+        "type": "date | datetime | empty",
+        "description": "ISO 8601: YYYY-MM-DD, or YYYY-MM-DDTHH:MM when the time matters."
+      },
+      {
+        "name": "hard_deadline",
+        "type": "bool",
+        "allowed_values": ["true", "false"],
+        "description": "When true, never defer without explicit confirmation."
+      },
+      {
+        "name": "start_date",
+        "type": "date | empty",
+        "description": "Defer date. A row starting later than today is hidden from default views."
+      },
+      {
+        "name": "assigned_to",
+        "type": "portable_user_id | empty",
+        "description": "The workspace member this row belongs to, by portable user ID."
+      },
+      {
+        "name": "see_also",
+        "type": "string",
+        "description": "Free-form reference: a URL, a document title, brief context."
+      },
+      {
+        "name": "notes",
+        "type": "string",
+        "description": "Free-form body."
+      },
+      {
+        "name": "project",
+        "type": "kebab slug | empty",
+        "description": "Project slug; matches a directory under the workspace's projects/."
+      },
+      {
+        "name": "energy_level",
+        "type": "enum | empty",
+        "allowed_values": ["high", "medium", "low"]
+      },
+      {
+        "name": "context",
+        "type": "enum | empty",
+        "allowed_values": ["home", "office", "computer", "calls", "errand"],
+        "description": "GTD-style context. Empty by default."
+      },
+      {
+        "name": "estimated_duration",
+        "type": "int (minutes) | empty"
+      },
+      {
+        "name": "blocked_by",
+        "type": "task_id list | empty",
+        "description": "Pipe-separated task_ids this row depends on, for a dependency you own. For a pause on an external party use status='waiting'."
+      },
+      {
+        "name": "defer_count",
+        "type": "int",
+        "description": "Increments on each due-date push, except a no-penalty defer: status='waiting', a non-empty blocked_by, or an explicitly uncounted defer. A high count is the 'are we avoiding this?' signal."
+      },
+      {
+        "name": "created_date",
+        "type": "date",
+        "required": true,
+        "description": "Set on insert."
+      },
+      {
+        "name": "completed_date",
+        "type": "date | empty",
+        "description": "Set when status becomes 'done'."
+      },
+      {
+        "name": "last_touched",
+        "type": "date",
+        "description": "ISO date the row was last meaningfully edited. Managed by Brain, not by hand; drives staleness detection."
+      },
+      {
+        "name": "linear_issue",
+        "type": "string | empty",
+        "description": "Issue identifier when this row is mirrored into an external tracker. The issue URL, if kept, belongs in see_also."
+      },
+      {
+        "name": "system_key",
+        "type": "string | empty",
+        "description": "Stable key for a row Brain manages itself. Empty for rows a person created."
+      }
+    ]
+  },
+  "habits_csv": {
+    "key": "task_id",
+    "multi_value_separator": "|",
+    "columns": [
+      {
+        "name": "task_uuid",
+        "type": "uuid",
+        "required": true,
+        "description": "Immutable identity of this occurrence."
+      },
+      {
+        "name": "task_id",
+        "type": "short_id",
+        "pattern": "^[Hh][0-9]+$",
+        "required": true,
+        "description": "Display identifier of the form H<n>. Completing a habit spawns the next occurrence with a fresh id."
+      },
+      {
+        "name": "task_name",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "status",
+        "type": "enum",
+        "required": true,
+        "allowed_values": ["not_started", "in_progress", "done"]
+      },
+      {
+        "name": "priority",
+        "type": "enum",
+        "required": true,
+        "allowed_values": ["p0", "p1", "p2", "p3", "p4"]
+      },
+      {
+        "name": "due_date",
+        "type": "date | datetime | empty"
+      },
+      {
+        "name": "hard_deadline",
+        "type": "bool",
+        "allowed_values": ["true", "false"]
+      },
+      {
+        "name": "assigned_to",
+        "type": "portable_user_id | empty",
+        "description": "The workspace member this occurrence belongs to, by portable user ID."
+      },
+      {
+        "name": "see_also",
+        "type": "string"
+      },
+      {
+        "name": "notes",
+        "type": "string"
+      },
+      {
+        "name": "project",
+        "type": "kebab slug | empty"
+      },
+      {
+        "name": "energy_level",
+        "type": "enum | empty",
+        "allowed_values": ["high", "medium", "low"]
+      },
+      {
+        "name": "context",
+        "type": "enum | empty",
+        "allowed_values": ["home", "office", "computer", "calls", "errand"]
+      },
+      {
+        "name": "estimated_duration",
+        "type": "int (minutes) | empty"
+      },
+      {
+        "name": "ideal_time",
+        "type": "time (H:MM AM/PM) | empty",
+        "description": "Preferred time of day. Empty means no preference; used to group and order the day's habits."
+      },
+      {
+        "name": "recur_interval",
+        "type": "int",
+        "required": true,
+        "description": "Number of recur_units between occurrences."
+      },
+      {
+        "name": "recur_unit",
+        "type": "enum",
+        "required": true,
+        "allowed_values": ["days", "weeks", "months"]
+      },
+      {
+        "name": "created_date",
+        "type": "date",
+        "required": true
+      },
+      {
+        "name": "completed_date",
+        "type": "date | empty",
+        "description": "When set, the next occurrence is appended with due_date advanced by recur_interval x recur_unit, anchored to the previous due date."
+      },
+      {
+        "name": "last_touched",
+        "type": "date"
+      },
+      {
+        "name": "system_key",
+        "type": "string | empty",
+        "description": "Stable key for an occurrence Brain manages itself."
+      }
+    ]
+  },
+  "derived_columns": {
+    "$comment": "Computed on read, never stored.",
+    "is_done": "status == 'done'",
+    "is_mit": "'mit' in task_type",
+    "past_due": "due_date < today AND status != 'done'",
+    "is_visible_today": "(start_date == '' OR start_date <= today) AND status != 'done'",
+    "is_stale": "(today - last_touched) >= 21 AND status != 'done'",
+    "is_stuck_in_progress": "status == 'in_progress' AND (today - last_touched) >= 14",
+    "is_waiting_stale": "status == 'waiting' AND waiting_since != '' AND (today - waiting_since) > 7"
+  },
+  "enum_display_labels": {
+    "$comment": "Presentation only. Categories a workspace defines for itself, such as task_type, are deliberately absent.",
+    "status": {
+      "not_started": "Not started",
+      "in_progress": "In progress",
+      "waiting": "Waiting",
+      "done": "Done",
+      "backlog": "Backlog"
+    },
+    "priority": {
+      "p0": "P0 (urgent + critical)",
+      "p1": "P1 (high)",
+      "p2": "P2 (medium)",
+      "p3": "P3 (low)",
+      "p4": "P4 (someday)"
+    }
+  }
+}

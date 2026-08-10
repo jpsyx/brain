@@ -188,6 +188,14 @@ pub(crate) fn initialize_workspace_directory(
             })?;
     }
 
+    // Every schema decision reads `tasks/SCHEMA.json`, so a workspace without
+    // one cannot sync at all. Seeded here rather than only in
+    // `initialize_if_empty` because a workspace created before Brain shipped the
+    // document is no longer empty and would never get it. Write-only-when-absent
+    // like the manifest above: a document that arrived over sync is the
+    // authoritative one.
+    crate::tasks::schema::ensure_schema_document(root)?;
+
     // Whatever the sync did or did not bring down, an empty root still needs
     // its PARA skeleton. A workspace that just pulled content is no longer
     // empty, so this is a no-op there.
@@ -250,6 +258,7 @@ pub(crate) fn initialize_if_empty(workspace: &WorkspaceContext) -> Result<bool> 
     )?;
     write_if_missing(&workspace.root().join("tasks/.tasks_next_id"), b"1\n")?;
     write_if_missing(&workspace.root().join("tasks/.habits_next_id"), b"1\n")?;
+    crate::tasks::schema::ensure_schema_document(workspace.root())?;
     // Honor an existing answer instead of forcing the default on: a workspace
     // can carry portable config (a synced or freshly configured one does)
     // before it has any content, and seeding must not overwrite a deliberate

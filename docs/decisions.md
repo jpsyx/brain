@@ -2980,6 +2980,49 @@ models a missing object as an error hides exactly this class of bug, which is
 why the identity test doubles now return exit 0 with empty output for a missing
 object, matching B2.
 
+## Nothing created the file every schema decision requires
+
+`initialize_if_empty` seeded a new workspace's PARA tree, both task CSVs, both
+id counters, and two lookup CSVs. It never seeded `tasks/SCHEMA.json`, and no
+template for one existed anywhere in the repo. Every schema decision reads that
+document through `read_required`, so `brain sync setup` died in its baseline
+stage on a bare `fs::read` error naming a path, with no hint that the file was
+supposed to exist or what should be in it. **Any workspace Brain created itself
+could not complete sync setup.** The original workspace was unaffected only
+because it predates the workspace system and carries a hand-written document.
+
+Two details made this worth writing down:
+
+- **The workspace was already schema-current; it just could not say so.** The
+  seeded CSV headers carry `task_uuid` first plus `task_id`, `assigned_to`, and
+  `system_key`, which is exactly what `csv_has_current_identity` wants. Only the
+  declaration was missing, so the fix is a document, not a data migration.
+- **The one existing document had silently drifted.** It declared `assignee`
+  long after the CSVs moved to `assigned_to` — a column
+  `csv_has_current_identity` explicitly *rejects* — omitted `task_uuid` and
+  `system_key`, and documented a `backlogged_date` that no header has. Its
+  version metadata was migrated; its column documentation was not. So the
+  canonical document is generated from the same headers Brain writes, and a test
+  asserts the documented columns equal those headers and are all known columns.
+  Schema documentation that drifts from the columns Brain actually writes is
+  worse than none, because it is read as authoritative.
+
+Brain now embeds the canonical document and seeds it write-only-when-absent, the
+rule the portable manifest already follows, on both the empty-workspace path and
+the ordinary root-initialization path so an existing workspace repairs itself.
+**Sync needed its own seed call.** Sync dispatches before the workspace gate, so
+it never passes through root initialization: seeding only there fixed every
+command except the one that was broken. `command::sync::run` seeds too, which
+covers `setup`, `repair`, `status`, and a plain run from one place. A self-heal
+that misses the command that needs healing is not one.
+`RequirementScope::TaskSchema` reports a workspace still missing it, because
+`sync status` had been printing `✓ cloud sync: ready` for a workspace whose next
+sync could not possibly succeed. A health check that can say `ready` about a
+guaranteed failure is not a health check.
+
+The bundled document stays generic per the house rule: no personal categories,
+no names, no absolute paths, no external tracker keys. A guard test enforces it.
+
 ## A suggestion without the selector is a suggestion to the wrong workspace
 
 `workspace::suggest` exists so a message composed while `family` is selected says
