@@ -37,7 +37,12 @@ fn startup_sync_plan(sync_configured: bool, suppress_alert: bool) -> StartupSync
     StartupSyncPlan {
         launch_sync: sync_configured,
         arm_refresh: sync_configured,
-        check_now: !sync_configured && !suppress_alert,
+        // Always check now. Waiting for the startup sync meant the nudge could
+        // take a slow pull's worth of seconds to appear — long enough to start
+        // working and be interrupted by it. The armed refresh still reconciles:
+        // if the sync shows triage was already done elsewhere, an open nudge is
+        // withdrawn (see `App::reconcile_daily_triage_alert`).
+        check_now: !suppress_alert,
     }
 }
 

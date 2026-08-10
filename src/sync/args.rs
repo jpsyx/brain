@@ -80,6 +80,11 @@ pub fn bisync_args(
     a.push("--stats-one-line".into());
     a.push("--resilient".into());
     a.push("--recover".into());
+    // One recursive listing per side instead of rclone's default per-directory
+    // march: on a bucket backend every directory level is otherwise its own API
+    // round trip. Measured on a real B2 workspace (6.7k objects, ~1k
+    // directories): a dry-run bisync went from 15.6s to 6.9s.
+    a.push("--fast-list".into());
     for ex in EXCLUDES {
         a.extend(["--exclude".into(), ex.into()]);
     }
@@ -106,6 +111,7 @@ pub fn push_args(cfg: &SyncConfig, local: &str, remote_arg: &str) -> Vec<String>
         local.to_owned(),
         remote_arg.to_owned(),
         "--update".to_owned(),
+        "--fast-list".to_owned(),
         "-v".to_owned(),
         "--stats".to_owned(),
         "10s".to_owned(),
@@ -125,6 +131,31 @@ pub fn push_args(cfg: &SyncConfig, local: &str, remote_arg: &str) -> Vec<String>
 
 #[cfg(test)]
 mod tests {
+    use super::{SyncConfig, bisync_args, push_args};
+
+    #[test]
+    fn every_remote_walk_asks_for_one_recursive_listing() {
+        // rclone's default march lists **per directory**, which on a bucket
+        // backend is one API round trip per directory. Measured against a real
+        // B2 workspace (6.7k objects, ~1k directories), `--fast-list` took a
+        // dry-run bisync from 15.6s to 6.9s.
+        let config = SyncConfig::default();
+        for argv in [
+            bisync_args(
+                &config,
+                "/local",
+                "REMOTE:bucket",
+                "/workdir",
+                super::Direction::Both,
+            ),
+            push_args(&config, "/local", "REMOTE:bucket"),
+        ] {
+            assert!(
+                argv.iter().any(|argument| argument == "--fast-list"),
+                "{argv:?}"
+            );
+        }
+    }
     use super::*;
 
     fn cfg() -> SyncConfig {

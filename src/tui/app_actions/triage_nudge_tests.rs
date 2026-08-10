@@ -120,3 +120,43 @@ fn surfaces_due_today_over_other_matches() {
     let target = triage_nudge_target(&habits, "Morning Triage", today);
     assert_eq!(target.map(|h| h.id.as_str()), Some("H41"));
 }
+
+#[test]
+fn an_outstanding_triage_with_no_nudge_up_raises_one() {
+    use super::{TriageAlertResolution, resolve_triage_alert};
+
+    assert_eq!(
+        resolve_triage_alert(true, false),
+        TriageAlertResolution::Open
+    );
+}
+
+#[test]
+fn a_nudge_the_sync_proved_stale_is_withdrawn() {
+    use super::{TriageAlertResolution, resolve_triage_alert};
+
+    // Triage was completed on another machine while the modal was on screen.
+    // Leaving it up invites the user to answer a question already answered — and
+    // re-run a pass that already ran.
+    assert_eq!(
+        resolve_triage_alert(false, true),
+        TriageAlertResolution::Dismiss
+    );
+}
+
+#[test]
+fn an_already_correct_screen_is_left_alone() {
+    use super::{TriageAlertResolution, resolve_triage_alert};
+
+    // Outstanding and already asking: leave the user's modal untouched rather
+    // than rebuilding it under them.
+    assert_eq!(
+        resolve_triage_alert(true, true),
+        TriageAlertResolution::Leave
+    );
+    // Nothing outstanding and nothing showing.
+    assert_eq!(
+        resolve_triage_alert(false, false),
+        TriageAlertResolution::Leave
+    );
+}

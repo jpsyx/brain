@@ -3097,3 +3097,56 @@ catch a Brain-built command line that forgot `-w`, so it looks at what the comma
 line actually said — not at what discovery could have recovered. A forgetful code
 path that happened to run inside the right directory would otherwise pass and stay
 broken.
+
+## rclone marches per directory, which is why sync was slow
+
+A no-change `brain sync` took 19.4 s, of which an equivalent dry-run bisync was
+17 s. The first guess — that per-process rclone authentication dominated — was
+wrong, and an early measurement made it look like `--fast-list` did not help:
+`rclone lsf --recursive` is the same speed with and without it, because that
+command already lists recursively.
+
+bisync does not. Its `march` walks both sides **directory by directory**, and on
+a bucket backend each directory level is its own list API call. With ~1,000
+directories in the workspace, that is ~1,000 round trips to enumerate 6,769
+objects that a single recursive listing returns in 2 s.
+
+`--fast-list` is now passed to both remote walks (`bisync_args` and the
+change-triggered `push_args`):
+
+| | Time |
+| --- | --- |
+| Dry-run bisync, default march | 15.6 s |
+| Dry-run bisync, `--fast-list` | 6.9 s |
+| No-change `brain sync`, before | 19.4 s |
+| No-change `brain sync`, after | **7.2 s** |
+
+Its documented cost is memory — the whole listing is held at once — which for
+thousands of objects is nothing. Two other candidates were measured and rejected:
+`--checkers 32` changed nothing, and excluding the large media library was
+*slower*, which confirms the constraint was round trips rather than object count.
+
+The lesson worth keeping: a listing benchmark is only evidence about the command
+benchmarked. `lsf` and `bisync` enumerate differently, and testing the cheap one
+answered a question nobody had asked.
+
+## The daily-triage nudge shows immediately and is withdrawn if the sync disproves it
+
+The nudge used to wait for the startup sync, so on a sync-configured workspace it
+appeared some seconds into the session — after the point where you have started
+reading or typing, which is exactly when an interrupting modal is worst. It waited
+for a good reason: another machine may have completed today's triage, and the
+local `habits.csv` will not know until the pull lands.
+
+Both properties are now available by separating the question from the answer. The
+nudge is raised at startup from local state, and the post-sync refresh
+*reconciles* it: `resolve_triage_alert` compares whether triage is still
+outstanding against whether a nudge is on screen, and opens, withdraws, or leaves
+it. A withdrawn nudge flashes why, so the modal disappearing is explained rather
+than mysterious.
+
+Withdrawing is the important half. Leaving a stale nudge up invites the user to
+answer a question that has already been answered — and answering "yes" re-runs a
+triage pass that already ran on another machine. The dismissal only fires for a
+`ConfirmKind::RunTriage` modal, so an unrelated confirmation the user opened in
+the meantime is never closed under them.

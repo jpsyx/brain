@@ -829,6 +829,15 @@ modal — and only if triage is still not done for today. If another machine
 already handled it, no modal ever appears. With sync unconfigured, the check
 runs immediately at open as before.
 
+**The nudge never waits for the sync.** It is evaluated as soon as the shell
+opens, so on a sync-configured workspace it appears immediately rather than after
+a pull completes. The post-sync refresh then *reconciles* it: if the synced habits
+show today's triage was already completed (on another machine, or by someone else
+on a shared workspace) while the nudge is still on screen, Brain withdraws it and
+flashes "daily triage was already done on another machine" instead of leaving a
+question that has already been answered. If the sync instead reveals outstanding
+triage and no nudge is up, it raises one.
+
 **Opting out.** Setting `enable_daily_triage_check=false`
 (`brain config set enable_daily_triage_check=false`, portable config that rides
 the workspace to every machine) suppresses only the alert. Every shell launched

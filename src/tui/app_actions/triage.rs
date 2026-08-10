@@ -92,6 +92,44 @@ impl App<'_> {
         }
     }
 
+    /// Bring the on-screen daily-triage nudge in line with post-sync state.
+    ///
+    /// Counterpart to [`Self::check_daily_triage`] for the moment *after* a
+    /// startup sync lands: the nudge may already be up (raised before the sync
+    /// finished), and the synced habits may now show that triage was completed on
+    /// another machine.
+    pub(crate) fn reconcile_daily_triage_alert(&mut self) {
+        let target = triage_modal_target(
+            self.config.enable_triage_habits,
+            self.skip_daily_triage_check,
+            &self.all_habits,
+            &self.config.daily_triage_name_pattern,
+            self.today,
+        );
+        let nudge_is_open = self
+            .confirm
+            .as_ref()
+            .is_some_and(|confirm| confirm.kind == ConfirmKind::RunTriage);
+        match resolve_triage_alert(target.is_some(), nudge_is_open) {
+            TriageAlertResolution::Open => {
+                if let Some(habit) = target {
+                    self.confirm = Some(ConfirmState::run_triage(
+                        habit.id.clone(),
+                        habit.name.clone(),
+                    ));
+                }
+            }
+            TriageAlertResolution::Dismiss => {
+                crate::logging::log("daily triage nudge withdrawn: sync showed it already done");
+                self.confirm = None;
+                self.flash = Some(FlashKind::Info(
+                    "daily triage was already done on another machine".to_owned(),
+                ));
+            }
+            TriageAlertResolution::Leave => {}
+        }
+    }
+
     /// Record the logical day the startup triage check ran for. Called once
     /// by `run_tui` after the startup check so [`Self::advance_triage_day`]
     /// only re-fires the nudge on a genuine day rollover, not on the first
@@ -164,12 +202,16 @@ impl App<'_> {
                         crate::tasks::render::header_lines(&spec, self.cli, self.active_view);
                     self.base_tasks = spec.tasks;
                     self.rebuild_body();
+                    // The nudge was already raised at startup, so this is a
+                    // reconciliation, not a first look: open it if the synced
+                    // state now says triage is outstanding, and withdraw a stale
+                    // one if the sync proved it was already done elsewhere.
                     if should_check_daily_triage(
                         TriageAlertEvent::RefreshSucceeded,
                         false,
                         self.skip_daily_triage_check,
                     ) {
-                        self.check_daily_triage();
+                        self.reconcile_daily_triage_alert();
                     }
                 }
                 Err(error) => {
@@ -261,6 +303,37 @@ impl App<'_> {
                 "true"
             },
         )
+    }
+}
+
+/// What the post-sync refresh should do about the daily-triage nudge. Pure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TriageAlertResolution {
+    /// Triage is still outstanding and no nudge is up: raise it.
+    Open,
+    /// The sync proved triage is already done (another machine, or a peer) while
+    /// the nudge was on screen: take it away.
+    Dismiss,
+    /// Nothing to change.
+    Leave,
+}
+
+/// Reconcile the on-screen nudge with what the completed sync actually showed.
+///
+/// The nudge is raised immediately at startup rather than waiting for the sync,
+/// so the shell is usable at once — which means it can be showing a question the
+/// sync is about to answer. When the refreshed habits say triage was already
+/// completed today, an open nudge is stale and is withdrawn rather than left for
+/// the user to dismiss (and possibly answer, re-running a pass that already ran).
+#[must_use]
+pub(crate) const fn resolve_triage_alert(
+    triage_outstanding: bool,
+    nudge_is_open: bool,
+) -> TriageAlertResolution {
+    match (triage_outstanding, nudge_is_open) {
+        (true, false) => TriageAlertResolution::Open,
+        (false, true) => TriageAlertResolution::Dismiss,
+        _ => TriageAlertResolution::Leave,
     }
 }
 

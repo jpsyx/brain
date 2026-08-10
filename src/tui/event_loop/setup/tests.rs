@@ -18,6 +18,29 @@ fn suppressed_startup_alert_still_waits_to_refresh_synced_state() {
 }
 
 #[test]
+fn a_configured_sync_no_longer_delays_the_daily_triage_nudge() {
+    // The nudge used to wait for the startup pull, so on a slow sync it appeared
+    // seconds into a session the user had already started working in.
+    let plan = startup_sync_plan(true, false);
+
+    assert!(plan.check_now, "the nudge must not wait for the sync");
+    assert!(
+        plan.arm_refresh,
+        "the refresh still has to run so a stale nudge can be withdrawn"
+    );
+    assert!(plan.launch_sync);
+}
+
+#[test]
+fn an_unsynced_workspace_still_checks_immediately() {
+    let plan = startup_sync_plan(false, false);
+
+    assert!(plan.check_now);
+    assert!(!plan.launch_sync);
+    assert!(!plan.arm_refresh);
+}
+
+#[test]
 fn held_workspace_singleton_prevents_hook_refresh() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("brain");
