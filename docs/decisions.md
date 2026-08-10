@@ -2980,6 +2980,35 @@ models a missing object as an error hides exactly this class of bug, which is
 why the identity test doubles now return exit 0 with empty output for a missing
 object, matching B2.
 
+## A suggestion without the selector is a suggestion to the wrong workspace
+
+`workspace::suggest` exists so a message composed while `family` is selected says
+`brain sync setup -w family`. The rollout was partial, and the gap showed up in
+the worst place: the staged-claim message a first-time `brain sync setup -w family`
+prints told the user to "run `brain sync setup` again", which on their machine
+targets the default workspace. The refusal one step earlier had it right, so a
+single screen contained both spellings.
+
+Nineteen literals across sync, tasks, persona, and config bypassed the helper.
+They now route through it, and `tests/workspace_suggestion_selector.rs` scans
+production source so the next one fails the build instead of a user's afternoon.
+The guard needs three judgment calls encoded rather than guessed:
+
+- **Which families are workspace-scoped.** `sync`, `config`, `persona`, `tasks`,
+  `habits`, `todo`, `reindex`, and `user` resolve one workspace. `env`, `skills`,
+  `server`, and `workspace` are machine-local or registry-level, where a selector
+  would be noise, so they are excluded rather than allowlisted case by case.
+- **Naming a command is not suggesting one.** "`brain sync init` was renamed to
+  `brain sync repair`" must stay bare, so those two literals are listed
+  explicitly with that reason attached.
+- **Where the source ends.** Cutting each file at the first `#[cfg(test)]`
+  looked right and silently skipped everything after an early
+  `#[cfg(test)]` helper — including the offending line in
+  `src/sync/identity/mod.rs`, so the guard's own first run passed over the bug
+  that prompted it. It now cuts only at the trailing `#[cfg(test)] mod tests`.
+  A source-scanning guard that quietly reads less than it claims is worse than
+  no guard, because its green is load-bearing.
+
 ## Brain was pushing its own hook scripts to the cloud on every launch
 
 Every TUI startup reinstalls the lifecycle artifacts (`.claude/brain-hooks/*.py`,

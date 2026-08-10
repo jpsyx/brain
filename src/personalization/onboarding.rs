@@ -71,7 +71,7 @@ pub fn missing_persona_notice(
     theme: crate::theme::Theme,
 ) -> String {
     theme.warning(&format!(
-        "{user_id} has no persona yet — run `brain persona set role=<ROLE> -w {workspace}` (or `brain persona`) so brain knows who it is assisting."
+        "{user_id} has no persona yet — run `brain persona set role=<ROLE> -w {workspace}` (or `brain persona -w {workspace}`) so brain knows who it is assisting."
     ))
 }
 
@@ -155,12 +155,20 @@ fn run_interactive(workspace: &crate::workspace::WorkspaceContext) -> Result<()>
     }
 
     if p.is_empty() {
-        writeln!(out, "\nSkipped — run `brain persona` anytime.\n")?;
+        writeln!(
+            out,
+            "\nSkipped — run `{}` anytime.\n",
+            crate::workspace::suggest("persona")
+        )?;
         return Ok(());
     }
     store::save_persona(workspace, workspace.local_user_id(), &p)?;
     crate::skills::resync_skills(workspace);
-    writeln!(out, "\nSaved. Change it anytime with `brain persona`.\n")?;
+    writeln!(
+        out,
+        "\nSaved. Change it anytime with `{}`.\n",
+        crate::workspace::suggest("persona")
+    )?;
     Ok(())
 }
 

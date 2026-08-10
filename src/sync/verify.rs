@@ -34,37 +34,41 @@ impl Outcome {
 #[must_use]
 pub fn classify(run: &RunOutcome, conflicts: usize, leftover_markers: usize) -> Outcome {
     if let Some(kind) = &run.abort {
+        let repair = crate::workspace::suggest("sync repair");
         let msg = match kind {
-            AbortKind::MaxDelete => &format!(
-                "sync aborted: would delete more than the --max-delete threshold. If intentional, run `{}`.",
-                crate::workspace::suggest("sync repair")
+            AbortKind::MaxDelete => format!(
+                "sync aborted: would delete more than the --max-delete threshold. If intentional, run `{repair}`."
             ),
-            AbortKind::CheckAccess => {
-                "sync aborted: check-access marker missing. Run `brain sync repair` to recreate the RCLONE_TEST marker and re-establish the baseline."
-            }
-            AbortKind::PriorListingMissing => {
-                "sync aborted: baseline listings missing. Run `brain sync repair` to re-establish the baseline."
-            }
-            AbortKind::Other => {
-                "sync aborted: rclone exited with an error. See `brain sync status`."
-            }
+            AbortKind::CheckAccess => format!(
+                "sync aborted: check-access marker missing. Run `{repair}` to recreate the RCLONE_TEST marker and re-establish the baseline."
+            ),
+            AbortKind::PriorListingMissing => format!(
+                "sync aborted: baseline listings missing. Run `{repair}` to re-establish the baseline."
+            ),
+            AbortKind::Other => format!(
+                "sync aborted: rclone exited with an error. See `{}`.",
+                crate::workspace::suggest("sync status")
+            ),
         };
-        return Outcome::Aborted(msg.to_owned());
+        return Outcome::Aborted(msg);
     }
     if run.errors > 0 {
         return Outcome::NeedsAttention(format!(
-            "{} transfer error(s); re-run `brain sync`.",
-            run.errors
+            "{} transfer error(s); re-run `{}`.",
+            run.errors,
+            crate::workspace::suggest("sync")
         ));
     }
     if leftover_markers > 0 {
         return Outcome::NeedsAttention(format!(
-            "{leftover_markers} conflict copy(ies) could not be renamed; see `brain sync conflicts`."
+            "{leftover_markers} conflict copy(ies) could not be renamed; see `{}`.",
+            crate::workspace::suggest("sync conflicts")
         ));
     }
     if conflicts > 0 {
         return Outcome::NeedsAttention(format!(
-            "{conflicts} conflict copy(ies) created; review with `brain sync conflicts`."
+            "{conflicts} conflict copy(ies) created; review with `{}`.",
+            crate::workspace::suggest("sync conflicts")
         ));
     }
     Outcome::Clean

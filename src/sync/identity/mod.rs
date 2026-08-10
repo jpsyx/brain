@@ -263,8 +263,9 @@ fn ensure_remote_identity_for_setup_with<'remote>(
         claim::register_and_elect(&local_path, manifest.workspace_id(), remote, &mut run)?
     else {
         bail!(
-            "remote workspace ownership claim staged for UUID {}; no canonical owner or credentials were changed; run `brain sync setup` again after any competing setup attempt has finished",
-            manifest.workspace_id()
+            "remote workspace ownership claim staged for UUID {}; no canonical owner or credentials were changed; run `{}` again after any competing setup attempt has finished",
+            manifest.workspace_id(),
+            crate::workspace::suggest("sync setup")
         );
     };
     if winner != manifest.workspace_id() {

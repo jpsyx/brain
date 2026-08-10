@@ -160,7 +160,7 @@ pub fn format_in_progress(state: &crate::sync::current::CurrentState, theme: The
 #[must_use]
 pub fn format_last_run(run: Option<&SyncRun>, theme: Theme) -> String {
     run.map_or_else(
-        || "no syncs yet — run `brain sync`.".to_owned(),
+        || format!("no syncs yet — run `{}`.", crate::workspace::suggest("sync")),
         |r| {
             let outcome = match r.outcome.as_str() {
                 "clean" => theme.success(&r.outcome),

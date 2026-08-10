@@ -96,7 +96,8 @@ pub fn plan(row: &Row, edit: &Edit, is_habit: bool, today: NaiveDate) -> Result<
     if is_habit && !edit.habit {
         bail!(
             "{task_id} is a habit; pass --habit to edit it. Rescheduling a habit is never part \
-             of task cleanup — prefer `brain habits skip` to move one occurrence"
+             of task cleanup — prefer `{}` to move one occurrence",
+            crate::workspace::suggest("habits skip")
         );
     }
     if edit.habit && !is_habit {

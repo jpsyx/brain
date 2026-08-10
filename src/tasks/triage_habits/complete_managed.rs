@@ -136,7 +136,8 @@ fn locate_pending(habits: &CsvFile, system_key: &str) -> Result<usize> {
             if found.is_some() {
                 bail!(
                     "expected exactly one pending managed triage habit for {system_key}; \
-                     run `brain reindex --tasks` to reconcile definitions"
+                     run `{}` to reconcile definitions",
+                    crate::workspace::suggest("reindex --tasks")
                 );
             }
             found = Some(idx);
@@ -145,7 +146,8 @@ fn locate_pending(habits: &CsvFile, system_key: &str) -> Result<usize> {
     found.ok_or_else(|| {
         anyhow!(
             "no pending managed triage habit for {system_key}; \
-             run `brain reindex --tasks` to reconcile definitions"
+             run `{}` to reconcile definitions",
+            crate::workspace::suggest("reindex --tasks")
         )
     })
 }

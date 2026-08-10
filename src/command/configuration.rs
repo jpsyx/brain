@@ -157,7 +157,8 @@ fn config_set_interactive(context: &crate::workspace::CommandContext, name: &str
     }
     let Some(value) = prompt_tty_line(&format!("Set {name} = "))? else {
         return Err(anyhow!(
-            "no terminal for interactive set; use `brain config set {name}=<value>`"
+            "no terminal for interactive set; use `{}`",
+            crate::workspace::suggest(&format!("config set {name}=<value>"))
         ));
     };
     let value = value.trim();
@@ -261,7 +262,10 @@ fn persona_set_interactive(
 ) -> Result<()> {
     let field = crate::settings::normalize_name(field);
     let Some(value) = prompt_tty_line(&format!("Set {field} = "))? else {
-        anyhow::bail!("no terminal for interactive set; use `brain persona set {field}=<value>`");
+        anyhow::bail!(
+            "no terminal for interactive set; use `{}`",
+            crate::workspace::suggest(&format!("persona set {field}=<value>"))
+        );
     };
     crate::personalization::command::run_set(workspace, user, &format!("{field}={}", value.trim()))
 }

@@ -105,7 +105,8 @@ pub(crate) fn skip_in_root_with_today(
         Located::Habit(idx) => idx,
         Located::Task(_) => bail!(
             "skip only operates on habits; '{raw_id}' is a task. \
-             Use `brain tasks complete {raw_id}` to finish a task."
+             Use `{}` to finish a task.",
+            crate::workspace::suggest(&format!("tasks complete {raw_id}"))
         ),
     };
 

@@ -167,9 +167,10 @@ fn sync_once_with_task_state(
     };
     let auto_repaired = if should_auto_repair_check_access(dir, run.abort.as_ref()) {
         crate::logging::log("sync auto-repair check-access marker");
-        reporter.line(&theme.warning(
-            "The check-access marker is missing; running `brain sync repair` automatically to recreate it and re-establish the baseline…",
-        ));
+        reporter.line(&theme.warning(&format!(
+            "The check-access marker is missing; running `{}` automatically to recreate it and re-establish the baseline…",
+            crate::workspace::suggest("sync repair")
+        )));
         reporter.line(&theme.info("Recreating the local and remote RCLONE_TEST markers…"));
         crate::sync::check_access::ensure_markers(root, &verified)?;
         reporter.line(&theme.info("Rebuilding the rclone baseline; live file progress follows…"));

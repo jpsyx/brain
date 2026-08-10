@@ -95,7 +95,10 @@ pub fn set_field(p: &mut Persona, field: &str, value: &str) -> Result<()> {
         "name" => value.clone_into(&mut p.name),
         "role" => value.clone_into(&mut p.role),
         "works_for" => value.clone_into(&mut p.works_for),
-        "tag_styles" => bail!("tag_styles is structured — edit it with `brain persona edit`"),
+        "tag_styles" => bail!(
+            "tag_styles is structured — edit it with `{}`",
+            crate::workspace::suggest("persona edit")
+        ),
         other => bail!(
             "unknown persona field `{other}` (known: {})",
             FIELDS.join(", ")
