@@ -140,6 +140,18 @@ impl Drop for Reporter {
     }
 }
 
+/// The live sync log a viewer should show, or `None` when no sync is running.
+///
+/// Only a *running* sync's log is offered: an older run's transcript answers a
+/// question nobody asked ("what happened last time?") while looking like the
+/// answer to the one they did ask ("what is happening now?").
+#[must_use]
+pub fn live_log(paths: &crate::workspace::WorkspacePaths) -> Option<String> {
+    let state = read_state(paths).filter(|state| crate::server::lifecycle::pid_alive(state.pid))?;
+    let body = std::fs::read_to_string(paths.sync_current_log()).unwrap_or_default();
+    Some(format!("syncing now ({})\n\n{body}", state.direction))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -79,7 +79,12 @@ pub fn detached_sync_request(
 ) -> DetachedSyncRequest {
     DetachedSyncRequest {
         args: detached_sync_args(workspace, dir),
-        env: vec![("BRAIN_WORKSPACE_ID".to_owned(), workspace.id().to_string())],
+        env: vec![
+            ("BRAIN_WORKSPACE_ID".to_owned(), workspace.id().to_string()),
+            // Strict: this child was built by Brain, so a missing `-w` is a bug
+            // in Brain rather than a user choosing the default workspace.
+            (crate::workspace::STRICT_ENV.to_owned(), "1".to_owned()),
+        ],
     }
 }
 

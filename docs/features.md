@@ -1480,6 +1480,12 @@ list.
   back to the picker. The tasks-view palette includes **Sync brain now**, which
   kicks off a nonblocking background `brain sync`, plus **Show sync status**,
   which reports whether a sync is active. It also includes a
+  **Show sync status**, which opens a modal tailing the running sync's live
+  transcript — the same lines `brain sync` prints to your terminal — and says
+  "No sync is running right now." when there is none (an earlier run's log is
+  deliberately not offered, since it looks like an answer to "what is happening
+  now?"). `j`/`k` scroll, `G` returns to following the tail, `Esc` closes. It
+  also includes a
   **Disable daily triage alert** / **Enable daily triage alert** toggle (the
   label swaps to name the action it will take) — the runtime counterpart to the
   portable `enable_daily_triage_check` config variable, which it **writes** as
@@ -1594,3 +1600,67 @@ Two command families opt out of everything past step 1. A **sync** command
 **registry-management** command (`workspace rename`/`alias`/`default`/`list`/`migrate`)
 is not a request to use a workspace, so neither writes portable config as a side
 effect.
+
+### What `brain sync` reports
+
+Sync output names the step, **what it found**, and **what it decided** — a step
+name alone leaves a long pause ambiguous between "working" and "nothing to do":
+
+```
+Probing the remote workspace identity…
+  found: remote belongs to this workspace (dfbc1768-…) → proceeding
+Starting rclone sync; live file progress follows…
+  found: no files differed between this machine and the remote
+Merging task and habit CSVs by row id…
+  found: no task or habit rows differed
+```
+
+A run that moved files reports the counts (`found: 3 file(s) transferred`); a
+failed one names the error count and the verdict (`→ the run is not clean`); a
+phase that is skipped says why (`decision: skipping the task/habit merge — the
+file sync aborted, so its result cannot be trusted`). The same lines are what the
+palette's **Show sync status** modal tails.
+
+### Which workspace a command acts on
+
+In precedence order:
+
+1. **`-w` / `--workspace`** — always wins.
+2. **`BRAIN_WORKSPACE`** — every process Brain launches (agent panels, lifecycle
+   hooks, `reindex` children) receives it, so anything run from inside a
+   workspace's session acts on that workspace with no flag. This is what makes
+   the bundled skills correct: they call `brain …` without a selector, and inside
+   a `family` panel those calls reach `family`. It is inherited by subshells, so
+   a subagent in its own shell gets the same answer.
+3. **The current directory** — Brain walks up from where you are, the way git
+   finds its repository, and selects the workspace whose registered root contains
+   it. `cd ~/family && brain sync` syncs `family`; so does running it from
+   `~/family/projects/work__thing/notes`. Roots and the working directory are
+   compared after resolving symlinks.
+4. **The machine default** — a person typing `brain` from somewhere that is not
+   inside any workspace.
+
+`BRAIN_WORKSPACE_ID` still validates the outcome: if the resolved workspace's
+UUID disagrees with the launching one, the command fails instead of acting on the
+wrong brain.
+
+The launching workspace deliberately outranks the current directory. An agent
+panel opened for `family` stays on `family` even while it reads files under
+another root — otherwise a `cd` inside a session would silently retarget every
+command it ran afterwards, and would disagree with the `BRAIN_WORKSPACE_ID` the
+panel was launched with.
+
+### Strict workspace selection for Brain's own children
+
+Every child process Brain spawns for its own work carries
+`BRAIN_REQUIRE_WORKSPACE=1`, and a process that sees it **refuses to run without
+an explicit `-w`/`--workspace`**. A code path that builds a `brain …` command and
+forgets the selector then fails loudly instead of quietly operating on whichever
+workspace happens to be the default — which, in a two-workspace setup, silently
+syncs or mutates the wrong brain.
+
+It applies only to Brain-spawned children. Typing `brain sync` yourself still
+uses the default workspace, which is the whole point of having one. The agent
+panel is covered by a stronger mechanism already: it receives `BRAIN_WORKSPACE_ID`,
+so an agent-issued command that resolves a different workspace fails on identity
+rather than on a missing flag.

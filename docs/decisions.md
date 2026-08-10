@@ -2959,3 +2959,141 @@ listing, which classifies the remote as empty or manifestless exactly as before.
 Bytes that are *present but malformed* still fail closed: those could be a
 damaged ownership claim, and refusing is the safe reading. No bytes claim
 nothing.
+
+## Brain was pushing its own hook scripts to the cloud on every launch
+
+Every TUI startup reinstalls the lifecycle artifacts (`.claude/brain-hooks/*.py`,
+`.claude/settings.json`, `.opencode/plugins/brain.js`) by writing a temp file and
+renaming it over the destination. That is correct for atomicity and wrong for
+idempotence: renaming gives the file a fresh mtime even when the bytes are
+identical. Those files live inside the workspace root, so the change-triggered
+watcher saw a change, debounced, and pushed — every launch, forever.
+
+The B2 version history showed it plainly: three launches in one afternoon, three
+uploads of byte-identical hook scripts. It also explained a confusing symptom —
+"why does the TUI push before it pulls?" The startup pull and the watcher's push
+are two independent one-way syncs racing for the workspace sync lock, and the
+push kept winning because it was triggered by writes Brain itself had just made
+while the pull was still listing a 6,700-object remote.
+
+Installation now compares first and writes only on a difference, so
+reinstallation is idempotent on disk as well as in content. The general rule for
+anything Brain writes inside a workspace root: **a rewrite is a change to
+everything watching the tree, so write only when the content actually changed.**
+
+## Sync output names findings and decisions, not just steps
+
+"Starting rclone sync; live file progress follows…" followed by a long silence is
+indistinguishable from a hang, and identical whether the run moved 400 files or
+none. Each phase now reports what it *found* and, where it branches, what it
+*decided*: the identity probe says the remote belongs to this workspace, the file
+sync says how many files differed (or that none did), the merge says how many
+rows differed, and a skipped phase says why it was skipped. The counts come from
+the same `RunOutcome` the journal records, so the narration cannot drift from
+what was persisted.
+
+This is also what makes a live log worth reading, which is what the palette's
+**Show sync status** modal tails.
+
+## The sync-log modal shows only a running sync
+
+`Show sync status` used to set a one-line flash ("syncing now (pull)"), which
+answered whether a sync was running but not what it was doing. It is now a modal
+over the running sync's `current.log`, re-read every frame so it tails rather
+than snapshots.
+
+It deliberately refuses to show an *older* run's transcript. A finished run's log
+answers "what happened last time?" while looking exactly like the answer to the
+question the user asked by opening it — "what is happening now?" — and a stale
+transcript that looks live is worse than no transcript. With nothing running the
+modal says so in one line. The status line stays a one-liner; the modal is the
+place for detail.
+
+## Brain's own children must name their workspace
+
+A two-workspace machine makes a missing `-w` dangerous rather than merely
+imprecise: a command that means `family` and omits the selector silently syncs,
+reindexes, or mutates `brain`. Reviewing call sites catches that once; it does
+not keep catching it.
+
+So Brain sets `BRAIN_REQUIRE_WORKSPACE` on every child it spawns for its own
+work, and a process that sees it refuses to run without an explicit
+`-w`/`--workspace`. Any code path that builds a `brain …` command and forgets the
+selector now fails loudly the first time it runs, in development, with a message
+naming the cause.
+
+It is deliberately scoped to Brain-spawned children. A person typing `brain sync`
+should get the default workspace — that is what a default is for — and forcing
+`-w` on agent- and skill-issued commands would break every bundled skill. The
+agent panel already has a stronger guarantee anyway: it receives
+`BRAIN_WORKSPACE_ID`, so a command that resolves a different workspace fails on
+identity rather than on a missing flag.
+
+## `BRAIN_WORKSPACE` selects, not just describes
+
+Every process Brain launches already received `BRAIN_WORKSPACE` (the canonical
+name) and `BRAIN_WORKSPACE_ID` (the UUID). Only the UUID was *used*, and only to
+validate: bootstrap selected a workspace from `-w` or the machine default, then
+refused if the result disagreed with the launching UUID.
+
+That made the common case fail rather than work. A bundled skill that runs
+`brain config get …` inside a `family` panel passes no selector — 97 of the 98
+`brain` invocations across the bundled skills don't — so bootstrap selected the
+default workspace and then aborted on the identity mismatch. Safe, in that it
+never operated on the wrong brain, and useless, in that the skill just broke.
+
+`BRAIN_WORKSPACE` is now an implicit selector: explicit `-w` wins, otherwise a
+Brain-launched process inherits the workspace it was launched for, otherwise the
+machine default. It is resolved once in `bootstrap` by filling the parsed
+`Cli::workspace_selector`, so selection, readiness, scope checks (`is_some()`),
+and suggested commands all read one answer instead of each deciding again. The
+UUID check keeps its job: it validates the resolution rather than substituting
+for it.
+
+An environment variable is the right carrier precisely because of subagents. They
+run in their own shells, and a shell inherits its parent's environment, so any
+descendant of an agent panel gets the same workspace without cooperating. The
+alternative — teaching 98 skill invocations to pass `-w "$BRAIN_WORKSPACE"` —
+would have to be re-taught to every skill anyone ever writes, including the ones
+in a user's own `~/brain/.config/plugins/`.
+
+The remaining case — a skill running in a shell Brain never launched — is covered
+by current-directory discovery, in the entry below.
+
+## The current directory selects a workspace, the way git finds a repository
+
+`BRAIN_WORKSPACE` covers every process Brain launches. It does not cover the case
+where someone starts an agent themselves in `~/family`, or simply types a command
+there: with no variable set, `brain sync` acted on the machine default, which on a
+two-workspace machine is the wrong brain.
+
+So with neither a flag nor an inherited workspace, Brain walks up from the current
+directory and selects the workspace whose registered root contains it. This is
+git's rule, and it is chosen for the same reason: the directory you are standing
+in is the most reliable available statement of what you are working on, and it
+needs no flag, no variable, and no cooperation from the tool being run.
+
+**Nearest ancestor, not first match.** The registry already forbids overlapping
+roots, so at most one can be an ancestor today — but the rule is written as
+nearest-ancestor anyway, because a rule that only happens to be unambiguous is a
+rule that breaks quietly when the constraint changes.
+
+**Symlinks are resolved before comparing.** On macOS a root registered as `/tmp/x`
+and a working directory reported as `/private/tmp/x` are the same directory, and a
+lexical comparison silently fails to discover it. Both sides are canonicalized,
+falling back to the literal path when canonicalization fails (a root on an
+unmounted volume, say), which discovers nothing rather than guessing.
+
+**The launching workspace outranks the current directory.** An agent panel opened
+for `family` that reads a file under `~/brain` must stay on `family`: otherwise a
+`cd` mid-session silently retargets every later command, and the resolution would
+contradict the `BRAIN_WORKSPACE_ID` the panel carries — turning a working command
+into an identity failure. Precedence is therefore flag, then launching workspace,
+then current directory, then machine default: each step is a more specific
+statement of intent than the one below it.
+
+**Strict mode is unaffected**, and is checked before any of this. Its job is to
+catch a Brain-built command line that forgot `-w`, so it looks at what the command
+line actually said — not at what discovery could have recovered. A forgetful code
+path that happened to run inside the right directory would otherwise pass and stay
+broken.

@@ -9,6 +9,7 @@ use crate::tui::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ModalInput {
     Help,
+    SyncLog,
     Palette,
     BrainInput,
     Confirm,
@@ -22,6 +23,7 @@ pub(crate) enum ModalInput {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ActiveModals {
     pub(crate) help: bool,
+    pub(crate) sync_log: bool,
     pub(crate) palette: bool,
     pub(crate) brain_input: bool,
     pub(crate) confirm: bool,
@@ -34,6 +36,8 @@ pub(crate) struct ActiveModals {
 pub(crate) const fn modal_input_target(m: ActiveModals) -> ModalInput {
     if m.help {
         ModalInput::Help
+    } else if m.sync_log {
+        ModalInput::SyncLog
     } else if m.palette {
         ModalInput::Palette
     } else if m.brain_input {
@@ -58,6 +62,7 @@ pub(crate) fn route_modal_key(
 ) -> bool {
     let target = modal_input_target(ActiveModals {
         help: app.help.is_some(),
+        sync_log: app.sync_log.is_some(),
         palette: app.palette.is_some(),
         brain_input: app.brain_input.is_some(),
         confirm: app.confirm.is_some(),
@@ -66,6 +71,7 @@ pub(crate) fn route_modal_key(
     });
     match target {
         ModalInput::Help => handle_help_key(app, k, ctrl),
+        ModalInput::SyncLog => handle_sync_log_key(app, k),
         ModalInput::Palette => handle_palette_key(app, k, ctrl),
         ModalInput::BrainInput => handle_brain_input_key(app, k, ctrl),
         ModalInput::Confirm => handle_confirm_key(app, k, ctrl),

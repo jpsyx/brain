@@ -261,15 +261,9 @@ impl App<'_> {
             }
             PaletteAction::ShowSyncStatus => {
                 crate::logging::log("palette request sync status");
-                let workspace_paths = self.command_context.workspace.paths();
-                self.flash = Some(FlashKind::Info(
-                    crate::sync::current::read_state(workspace_paths)
-                        .filter(|state| crate::server::lifecycle::pid_alive(state.pid))
-                        .map_or_else(
-                            || "no sync is currently running".to_owned(),
-                            |state| format!("syncing now ({})", state.direction),
-                        ),
-                ));
+                // A modal, not a flash: the interesting thing about a running
+                // sync is the transcript, and the status line stays a one-liner.
+                self.sync_log = Some(SyncLogState { scroll: u16::MAX });
             }
             PaletteAction::OpenAgenda => {
                 self.run_open_agenda();

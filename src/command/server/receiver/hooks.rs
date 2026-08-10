@@ -114,19 +114,29 @@ fn update_json_file_with_temporary_and_lock(
             .execute_batch("PRAGMA journal_mode = OFF; BEGIN IMMEDIATE")
             .with_context(|| format!("acquire hook settings lock {}", lock_path.display()))?;
 
-        let mut settings = match std::fs::read(path) {
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .with_context(|| format!("parse hook settings {}", path.display()))?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        let existing = match std::fs::read(path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => {
                 return Err(error)
                     .with_context(|| format!("read hook settings {}", path.display()));
             }
         };
+        let mut settings = match existing.as_deref() {
+            Some(bytes) => serde_json::from_slice(bytes)
+                .with_context(|| format!("parse hook settings {}", path.display()))?,
+            None => serde_json::json!({}),
+        };
         mutation(&mut settings);
         let mut bytes = serde_json::to_vec_pretty(&settings)
             .with_context(|| format!("serialize hook settings {}", path.display()))?;
         bytes.push(b'\n');
+        // Reinstallation is idempotent on disk: settings that already say what
+        // this Brain would write keep their mtime, so the workspace watcher has
+        // nothing to push. See `needs_rewrite`.
+        if existing.as_deref() == Some(bytes.as_slice()) {
+            return Ok(());
+        }
 
         write_and_replace_json(temporary, path, &bytes)
     })();
@@ -183,12 +193,26 @@ fn write_and_replace_json(temporary: &Path, destination: &Path, bytes: &[u8]) ->
     result
 }
 
+/// Whether a lifecycle artifact has to be replaced at all. Pure.
+///
+/// Every TUI launch reinstalls these artifacts, and replacing a byte-identical
+/// file still gives it a new mtime — which trips Brain's own filesystem watcher
+/// and uploads an unchanged hook script on every single startup. Comparing first
+/// makes reinstallation genuinely idempotent on disk.
+#[must_use]
+pub(super) fn needs_rewrite(existing: Option<&[u8]>, contents: &str) -> bool {
+    existing != Some(contents.as_bytes())
+}
+
 fn write_static_file(
     destination: &Path,
     write_destination: &Path,
     contents: &str,
     mode: u32,
 ) -> Result<()> {
+    if !needs_rewrite(std::fs::read(write_destination).ok().as_deref(), contents) {
+        return Ok(());
+    }
     let parent = write_destination.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent)
         .with_context(|| format!("create lifecycle directory {}", parent.display()))?;

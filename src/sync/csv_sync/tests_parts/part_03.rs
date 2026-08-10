@@ -6,7 +6,8 @@ fn listed_remote_schema_read_failure_is_not_treated_as_legacy_absence() {
 
     let error = fetch_remote_task_schema_with("BRAIN:shared/brain", directory.path(), |args| {
         let response = match step {
-            0 => (true, "tasks/SCHEMA.json\n".to_owned()),
+            // A `tasks/`-scoped listing returns bare names.
+            0 => (true, "SCHEMA.json\n".to_owned()),
             1 => (false, "remote read failed".to_owned()),
             _ => panic!("unexpected remote schema command: {args:?}"),
         };

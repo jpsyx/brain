@@ -71,11 +71,11 @@ case "$command" in
     shift
     exec "$REAL_RCLONE" "$command" "$target" "$@"
     ;;
-  copyto)
+  copyto|copy)
     source="$(map_remote "$1")"
     destination="$(map_remote "$2")"
     shift 2
-    exec "$REAL_RCLONE" copyto "$source" "$destination" "$@"
+    exec "$REAL_RCLONE" "$command" "$source" "$destination" "$@"
     ;;
   bisync)
     left="$(map_remote "$1")"

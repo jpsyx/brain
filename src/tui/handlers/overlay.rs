@@ -254,3 +254,24 @@ pub(crate) fn handle_help_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent,
         _ => {}
     }
 }
+
+/// Keys for the live sync-log modal.
+///
+/// The modal follows the tail by default (`scroll: u16::MAX` is clamped to the
+/// last page when drawn), so `k` steps back through history and `G` returns to
+/// following.
+pub(crate) fn handle_sync_log_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent) {
+    let Some(log) = app.sync_log.as_mut() else {
+        return;
+    };
+    match k.code {
+        KeyCode::Char('q' | 'Q') | KeyCode::Esc => app.sync_log = None,
+        KeyCode::Char('j') | KeyCode::Down => log.scroll = log.scroll.saturating_add(1),
+        KeyCode::Char('k') | KeyCode::Up => log.scroll = log.scroll.saturating_sub(1),
+        KeyCode::Char('g') | KeyCode::Home => log.scroll = 0,
+        KeyCode::Char('G') | KeyCode::End => log.scroll = u16::MAX,
+        KeyCode::PageDown => log.scroll = log.scroll.saturating_add(10),
+        KeyCode::PageUp => log.scroll = log.scroll.saturating_sub(10),
+        _ => {}
+    }
+}

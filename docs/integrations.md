@@ -611,6 +611,20 @@ Which session to run is decided by the **lock + recency** model in
    adapter combines them with trusted workspace identity. `session::env_for`
    remains a compatibility helper for pure callers and tests. Local work uses
    the resolved `local_user_id`.
+   **`BRAIN_WORKSPACE` is also an implicit workspace selector.** A `brain`
+   invocation with no `-w`/`--workspace` adopts it, so a bundled skill,
+   an agent, a hook, or a `reindex` child that runs `brain config get …` inside a
+   `family` panel operates on `family` instead of the machine default. An
+   explicit `-w` always wins, and a plain shell with the variable unset still
+   uses the default — which is what a person typing `brain` wants. Because it is
+   an environment variable it survives subshells, so a subagent running in its
+   own shell inherits the same workspace. With neither a flag nor the variable,
+   Brain discovers the workspace from the current directory (nearest ancestor
+   whose registered root contains it, like git); the launching workspace
+   outranks that, so a `cd` inside a session never retargets it.
+   `BRAIN_WORKSPACE_ID` continues to *validate* the resolution: a selector that
+   resolves to a different UUID fails rather than acting on the wrong workspace.
+
    Receiver work first authenticates the provider request, then resolves an
    enabled portable sender; the queued workspace UUID and actor override the
    machine default for that complete request lineage. The accepting pipeline

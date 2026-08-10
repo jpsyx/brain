@@ -119,6 +119,9 @@ fn sync_once_with_task_state(
     reporter.line(&theme.info("Probing the remote workspace identity…"));
     let verified = crate::sync::identity::require_remote_identity(root, workspace_id, &remote)?;
     let remote = verified.remote();
+    reporter.line(&theme.muted(&format!(
+        "  found: remote belongs to this workspace ({workspace_id}) → proceeding"
+    )));
     let workdir = crate::sync::run::bisync_workdir(paths);
     let _ = std::fs::create_dir_all(&workdir);
     let workdir_arg = workdir.to_string_lossy().into_owned();
@@ -145,6 +148,7 @@ fn sync_once_with_task_state(
         "sync rclone done exit_ok={} transferred={} deleted={} errors={} abort={:?}",
         run.exit_ok, run.transferred, run.deleted, run.errors, run.abort
     ));
+    reporter.line(&theme.muted(&format_file_findings(&run)));
     let resumed = if should_auto_resync(dir, run.abort.as_ref()) {
         crate::logging::log("sync auto-resync start");
         reporter.line(&theme.warning(
@@ -197,9 +201,15 @@ fn sync_once_with_task_state(
     // dependent counters from advancing.
     let csv_note = if matches!(outcome, Outcome::Aborted(_)) {
         crate::logging::log("sync csv merge skipped after abort");
+        reporter.line(&theme.warning(
+            "  decision: skipping the task/habit merge — the file sync aborted, so its result cannot be trusted",
+        ));
         String::new()
     } else if !reconcile_task_state {
         crate::logging::log("sync csv merge deferred to migration join");
+        reporter.line(&theme.muted(
+            "  decision: deferring the task/habit merge to the migration join that owns it",
+        ));
         String::new()
     } else {
         crate::logging::log("sync csv merge start");
@@ -216,6 +226,14 @@ fn sync_once_with_task_state(
         )?;
         let note = format_csv_note(&csv.outcomes);
         crate::logging::log(format!("sync csv merge note={note:?}"));
+        reporter.line(&theme.muted(&format!(
+            "  found: {}",
+            if note.is_empty() {
+                "no task or habit rows differed"
+            } else {
+                note.as_str()
+            }
+        )));
         note
     };
 
@@ -311,7 +329,7 @@ mod reporting;
 pub(crate) use reporting::copy_meta_from_fs;
 pub use reporting::{
     CopyMeta, conflict_display_paths, conflicts_json, direction_from_flags, direction_label,
-    format_csv_note, format_in_progress, format_last_run, format_sync_plan,
+    format_csv_note, format_file_findings, format_in_progress, format_last_run, format_sync_plan,
     format_sync_plan_for_remote, format_triggers, format_unconfigured_sync_guidance, join_notes,
     journal_progress, print_conflicts, print_status, should_auto_repair_check_access,
     should_auto_resync, should_bootstrap_check_access, sync_progress,

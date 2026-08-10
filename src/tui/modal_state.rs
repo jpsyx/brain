@@ -161,6 +161,16 @@ pub(crate) struct HelpState {
     pub(crate) scroll: u16,
 }
 
+/// State for the live sync-log modal (palette: "Show sync status").
+///
+/// Holds only the scroll position; the body is re-read from the running sync's
+/// `current.log` on every frame, so the modal tails a sync in progress instead
+/// of showing a snapshot. When no sync is running it says exactly that — an
+/// earlier run's transcript is deliberately not offered.
+pub(crate) struct SyncLogState {
+    pub(crate) scroll: u16,
+}
+
 /// State for the link-picker modal. Opened by the Ctrl+O "open" action (or
 /// the "open link" palette command) when an entry resolves to more than
 /// one openable link — the Linear issue plus one or more URLs in its notes.

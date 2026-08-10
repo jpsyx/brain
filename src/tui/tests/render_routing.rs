@@ -45,6 +45,7 @@ fn visual_range_clamps_out_of_bounds_indices() {
 fn modals(help: bool, palette: bool, brain_input: bool, confirm: bool) -> ActiveModals {
     ActiveModals {
         help,
+        sync_log: false,
         palette,
         brain_input,
         confirm,
@@ -56,6 +57,7 @@ fn modals(help: bool, palette: bool, brain_input: bool, confirm: bool) -> Active
 fn modals_with_picker(link_picker: bool) -> ActiveModals {
     ActiveModals {
         help: false,
+        sync_log: false,
         palette: false,
         brain_input: false,
         confirm: false,
@@ -67,6 +69,7 @@ fn modals_with_picker(link_picker: bool) -> ActiveModals {
 fn modals_with_assignee_filter(assignee_filter: bool) -> ActiveModals {
     ActiveModals {
         help: false,
+        sync_log: false,
         palette: false,
         brain_input: false,
         confirm: false,
@@ -131,5 +134,29 @@ fn assignee_filter_picker_is_a_captive_modal() {
     assert_eq!(
         modal_input_target(modals_with_assignee_filter(true)),
         ModalInput::AssigneeFilter
+    );
+}
+
+#[test]
+fn the_sync_log_modal_is_captive_over_everything_but_help() {
+    // It is a reading surface: while it is up, j/k must scroll the log rather
+    // than the task list underneath.
+    let with_sync_log = |help: bool, palette: bool| ActiveModals {
+        help,
+        sync_log: true,
+        palette,
+        brain_input: false,
+        confirm: false,
+        link_picker: false,
+        assignee_filter: false,
+    };
+
+    assert_eq!(
+        modal_input_target(with_sync_log(false, true)),
+        ModalInput::SyncLog
+    );
+    assert_eq!(
+        modal_input_target(with_sync_log(true, false)),
+        ModalInput::Help
     );
 }

@@ -58,6 +58,10 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App<'_>) {
     // brain-search view's own palette / confirm overlays trail the chain.
     if let Some(help) = app.help.as_ref() {
         draw_help(f, help, area);
+    } else if let Some(state) = app.sync_log.as_ref() {
+        // Re-read every frame so the modal tails a running sync.
+        let live = crate::sync::current::live_log(app.command_context.workspace.paths());
+        draw_sync_log(f, state, live.as_deref(), area);
     } else if let Some(state) = app.palette.as_ref() {
         draw_palette(f, state, area);
     } else if let Some(brain_state) = app.brain_input.as_ref() {

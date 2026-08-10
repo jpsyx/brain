@@ -140,6 +140,7 @@ impl<'a> App<'a> {
             link_picker: None,
             assignee_filter: None,
             help: None,
+            sync_log: None,
             flash: None,
             persistent_warning,
             agenda_runner,

@@ -1116,6 +1116,16 @@ configured commands are spliced in
 verbatim so they may carry their own flags, and brain never depends on a shell
 alias.
 
+### `workspace/selector.rs`
+The selector every suggested command echoes back, plus strict-selector
+enforcement. Bootstrap records the resolved canonical name once; message builders
+read it through `suggest("sync setup")` so a remediation reads
+`brain sync setup -w family` rather than sending someone to the default
+workspace. The same module owns `BRAIN_REQUIRE_WORKSPACE`: Brain sets it on the
+children it spawns, and `bootstrap` refuses such a child that names no workspace,
+so a code path that forgets `-w` fails instead of silently targeting the default.
+Both decisions are pure (`with_selector`, `violates_strict_selector`).
+
 ### `triage_signal.rs`
 The on-disk bridge for the daily-triage tab's completion signal. Pure
 `parse_signal` + `ready_to_close` (the close gate: every path the run declared

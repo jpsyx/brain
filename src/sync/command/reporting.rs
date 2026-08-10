@@ -366,3 +366,76 @@ pub fn print_conflicts(root: &Path, json: bool) -> Result<()> {
     Ok(())
 }
 use super::*;
+
+/// What the file sync actually moved, as one plain-language line. Pure.
+///
+/// A step name alone ("Starting rclone sync…") leaves a user watching a long
+/// pause with no idea whether anything is happening or whether there was simply
+/// nothing to do. Naming the finding distinguishes the two.
+#[must_use]
+pub fn format_file_findings(run: &crate::sync::run::RunOutcome) -> String {
+    if !run.exit_ok {
+        return format!(
+            "  found: rclone reported {} error(s) → the run is not clean",
+            run.errors
+        );
+    }
+    if run.transferred == 0 && run.deleted == 0 {
+        return "  found: no files differed between this machine and the remote".to_owned();
+    }
+    let mut parts = Vec::new();
+    if run.transferred > 0 {
+        parts.push(format!("{} file(s) transferred", run.transferred));
+    }
+    if run.deleted > 0 {
+        parts.push(format!("{} file(s) deleted", run.deleted));
+    }
+    format!("  found: {}", parts.join(", "))
+}
+
+#[cfg(test)]
+mod findings_tests {
+    use super::format_file_findings;
+    use crate::sync::run::RunOutcome;
+
+    fn outcome(exit_ok: bool, transferred: u64, deleted: u64, errors: u64) -> RunOutcome {
+        RunOutcome {
+            exit_ok,
+            transferred,
+            deleted,
+            errors,
+            abort: None,
+        }
+    }
+
+    #[test]
+    fn a_quiet_run_says_so_instead_of_saying_nothing() {
+        assert_eq!(
+            format_file_findings(&outcome(true, 0, 0, 0)),
+            "  found: no files differed between this machine and the remote"
+        );
+    }
+
+    #[test]
+    fn movement_is_reported_with_its_counts() {
+        assert_eq!(
+            format_file_findings(&outcome(true, 3, 0, 0)),
+            "  found: 3 file(s) transferred"
+        );
+        assert_eq!(
+            format_file_findings(&outcome(true, 3, 2, 0)),
+            "  found: 3 file(s) transferred, 2 file(s) deleted"
+        );
+        assert_eq!(
+            format_file_findings(&outcome(true, 0, 2, 0)),
+            "  found: 2 file(s) deleted"
+        );
+    }
+
+    #[test]
+    fn a_failed_run_names_the_error_count_and_the_verdict() {
+        let line = format_file_findings(&outcome(false, 0, 0, 4));
+        assert!(line.contains("4 error(s)"), "{line}");
+        assert!(line.contains("not clean"), "{line}");
+    }
+}

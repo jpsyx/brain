@@ -45,6 +45,7 @@ mod draw_assignee;
 mod draw_help;
 mod draw_modals;
 mod draw_palette;
+mod draw_sync_log;
 mod event_loop;
 mod filter_tasks;
 mod handlers;
@@ -81,6 +82,7 @@ pub(crate) use draw_assignee::*;
 pub(crate) use draw_help::*;
 pub(crate) use draw_modals::*;
 pub(crate) use draw_palette::*;
+pub(crate) use draw_sync_log::*;
 #[cfg(test)]
 pub(crate) use event_loop::{ActiveModals, ModalInput, modal_input_target};
 pub(crate) use handlers::*;
@@ -181,8 +183,8 @@ pub(crate) struct App<'a> {
     triage_gate: Option<TriageGate>,
     /// Process-scoped opt-out: when true the daily-triage startup nudge is
     /// never evaluated for this run, so the modal can't appear. Seeded from the
-    /// portable `enable_daily_triage_check` config and flipped for the session
-    /// by the palette; flipping it is not a persistent config change.
+    /// portable `enable_daily_triage_check` config; the palette flips it and
+    /// writes the config, so the choice outlives the session.
     skip_daily_triage_check: bool,
     /// When set (via the `--full-notes` flag), every task starts with its
     /// notes expanded. The per-task `l` toggle still layers on top.
@@ -336,6 +338,8 @@ pub(crate) struct App<'a> {
     assignee_filter: Option<AssigneeFilterState>,
     /// Keyboard-shortcuts help modal (opened with `?`).
     help: Option<HelpState>,
+    /// The live sync-log modal, when open.
+    sync_log: Option<SyncLogState>,
 
     /// Transient status line (success / error) shown until the next key
     /// press. Set by palette actions; cleared at the top of the event

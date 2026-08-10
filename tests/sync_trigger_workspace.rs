@@ -140,7 +140,11 @@ fn detached_request_keeps_canonical_argv_and_carries_the_expected_workspace_uuid
     );
     assert_eq!(
         request.env,
-        [("BRAIN_WORKSPACE_ID".to_owned(), FAMILY_ID.to_owned())]
+        [
+            ("BRAIN_WORKSPACE_ID".to_owned(), FAMILY_ID.to_owned()),
+            // Brain built this child, so it must name its workspace explicitly.
+            ("BRAIN_REQUIRE_WORKSPACE".to_owned(), "1".to_owned()),
+        ]
     );
 }
 
@@ -175,7 +179,10 @@ fn injected_child_runner_receives_the_immutable_workspace_request() {
                 "--push".to_owned(),
                 "--if-idle".to_owned(),
             ],
-            env: vec![("BRAIN_WORKSPACE_ID".to_owned(), FAMILY_ID.to_owned())],
+            env: vec![
+                ("BRAIN_WORKSPACE_ID".to_owned(), FAMILY_ID.to_owned()),
+                ("BRAIN_REQUIRE_WORKSPACE".to_owned(), "1".to_owned()),
+            ],
         }]
     );
 }

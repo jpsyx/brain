@@ -39,7 +39,7 @@ pub use requirements::{
     FeatureStatus, PromptMetadata, RequiredStatus, Requirement, RequirementScope,
     RequirementStatus, format_requirements, requirements,
 };
-pub use selector::suggest;
+pub use selector::{STRICT_ENV, WORKSPACE_ENV, suggest};
 
 #[cfg(test)]
 mod tests {

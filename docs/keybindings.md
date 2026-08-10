@@ -14,8 +14,8 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
    view: `Ctrl+Q` quit, `Alt+S` help, `Alt+H/L` panel focus, `Alt+U/D` scroll,
    `Ctrl+X` close brain, `Ctrl+N` new session, and (main-panel-focused only)
    the view-switch chords `Ctrl+H/L`, `Ctrl+T`, `Ctrl+B`.
-2. **Modal overlays** — a captive modal (help / palette / confirm / brain-input
-   / link-picker / assignee-filter picker) consumes the key.
+2. **Modal overlays** — a captive modal (help / sync-log / palette / confirm /
+   brain-input / link-picker / assignee-filter picker) consumes the key.
 3. **The brain panel** — when focused, keys forward to the selected agent as bytes.
 4. **The active main view** — the tasks handlers, or the brain-search picker.
 
@@ -115,11 +115,16 @@ query.
 Shared across the app; a captive modal consumes all input.
 
 - **Help** (`Alt+S`) — the `shortcuts::ALL` reference, grouped. `j/k`, `PgUp/PgDn`, `g`, `?`/`q`/`Esc` close.
+- **Sync log** (palette: **Show sync status**) — tails the running sync's live
+  transcript, re-read every frame. Says "No sync is running right now." when
+  there is none; an earlier run's log is not shown. `j`/`k` scroll, `g` jumps to
+  the start, `G` returns to following the tail, `PgUp`/`PgDn` page, `q`/`Esc`
+  close. Captive over every modal except help.
 - **Command palette** (`Ctrl+P`, tasks view) — filterable; numbered rows;
   `Enter` runs, `Esc` closes. In `--verbose` TUI runs it includes **Show
   logs**, which asks whether to reveal the timestamped `/tmp` log file. It
   also includes the selected workspace's dynamic **Enable receiver** or
-  **Disable receiver** action, **Sync brain now**, **Show sync status**, and a
+  **Disable receiver** action, **Sync brain now**, **Show sync status** (opens a modal tailing the live sync log; `j`/`k` scroll, `G` follows the tail, `Esc` closes), and a
   **Disable/Enable daily triage alert** toggle (the session-scoped counterpart
   to the portable `enable_daily_triage_check` config variable), all with no
   direct shortcut. In a shared
