@@ -65,7 +65,13 @@ fn personal_and_family_workspaces_complete_the_multitenant_lifecycle() {
     let family_config = brain::config::Config::load(&scenario.family);
     assert!(!family_config.enable_triage_habits);
     let habits_path = scenario.family.root().join("tasks/habits.csv");
-    assert!(!habits_path.exists(), "disabled triage has no history file");
+    // First-run setup seeds the habits store for every workspace, so what
+    // "disabled" means here is that it holds no managed rows — not that the
+    // table is missing.
+    assert!(
+        managed_rows(&habits_path).is_empty(),
+        "disabled triage has no managed history"
+    );
     assert_eq!(
         complete_managed_triage(
             &scenario.family,
@@ -77,7 +83,7 @@ fn personal_and_family_workspaces_complete_the_multitenant_lifecycle() {
         ManagedTriageCompletion::Disabled
     );
     assert!(
-        !habits_path.exists(),
+        managed_rows(&habits_path).is_empty(),
         "disabled triage must not create managed history"
     );
     let readiness = requirements(&setup::command_context(&scenario)).expect("family readiness");
@@ -118,4 +124,21 @@ fn personal_and_family_workspaces_complete_the_multitenant_lifecycle() {
     fixture.wait_for_server_exit();
     assert!(!fixture.server_is_running());
     assert!(!fixture.server_state_exists());
+}
+
+/// Every non-header row of a habits table that carries a managed `system_key`.
+fn managed_rows(habits: &std::path::Path) -> Vec<String> {
+    let Ok(body) = std::fs::read_to_string(habits) else {
+        return Vec::new();
+    };
+    body.lines()
+        .skip(1)
+        .filter(|line| !line.trim().is_empty())
+        .filter(|line| {
+            line.rsplit(',')
+                .next()
+                .is_some_and(|system_key| !system_key.trim().is_empty())
+        })
+        .map(str::to_owned)
+        .collect()
 }

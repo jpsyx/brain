@@ -255,6 +255,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
 | `brain env [list\|get\|set]` | Read or change your machine-local brain env. Bare `brain env` (and `env list`) breaks the whole machine down: machine-global values plus one block per registered workspace. `get`/`set` act on the selected workspace only; use `brain env set name=value` for direct or dotted updates, or omit the assignment to choose a variable interactively. |
+| *(any ordinary command)* | Before running, Brain makes the selected workspace usable: it **creates the root directory** when this machine has never had it (`env.json` rides between machines, so registering a workspace on one registers it on all), writes the portable manifest from the UUID the registry already holds, pulls from the configured sync, and seeds PARA + the task/habit CSVs + ID counters when there is nothing to pull. See [Workspace setup on first use](#workspace-setup-on-first-use). |
 | `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present, **followed by each workspace's required/optional feature health**. Add `-w <name>` to report health for that one workspace only. A workspace that still needs setup renders a one-line note naming its repair command instead of failing the listing. |
 | `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair\|migrate}` | Manage the schema-v2 registry, portable manifest, and coordinated legacy rollout. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. |
 | `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
@@ -1556,3 +1557,38 @@ The crate version in `Cargo.toml` is the single source of truth. Every committed
 change bumps it according to SemVer: before v1, additive user-visible features
 bump the minor version and compatible fixes/internal changes bump the patch
 version. The user will explicitly decide when `brain` is ready for `1.0.0`.
+
+### Workspace setup on first use
+
+`brain -w family` on a machine that has never had `~/family` sets it up instead
+of reporting what is missing. `workspace::initialize::initialize_workspace_directory`
+runs before readiness for every ordinary command and is idempotent:
+
+1. **The root directory.** Created when missing. If its *parent* is missing too,
+   Brain refuses instead: an unmounted volume looks exactly like a missing root,
+   and quietly creating an empty workspace over one would read as data loss.
+2. **The portable manifest.** Written from the workspace UUID the registry
+   record already carries, so joining a machine needs no
+   `brain workspace repair --manifest`. Never written over one that already
+   exists, so a manifest that just arrived over sync stays authoritative.
+3. **The configured sync**, when there is one. The direction is decided once:
+   - **This machine has never synced this workspace** → a full **both-ways**
+     establish. Content created before sync was configured has never been
+     uploaded, and a pull-only run would strand it locally forever.
+   - **Already established, but the root is empty** → **pull**; the remote is
+     the source of truth.
+   - **Otherwise** → nothing extra. The ordinary startup pull and the
+     change-triggered push own the steady state, so this costs two filesystem
+     checks per command once a workspace is established.
+4. **PARA and the task tables**, when the root is still empty afterwards:
+   `projects/`, `areas/`, `resources/`, `archive/`, `tasks/`, `tasks.csv` and
+   `habits.csv` with their headers, both ID counters at `1`, and the two lookup
+   CSVs. Existing files are never overwritten, and an explicit
+   `enable_triage_habits: false` in portable config is honored rather than
+   reset. If sync is configured, the freshly seeded workspace is then pushed.
+
+Two command families opt out of everything past step 1. A **sync** command
+(`brain sync`, `sync status`, `check`) owns the network for its own run, and a
+**registry-management** command (`workspace rename`/`alias`/`default`/`list`/`migrate`)
+is not a request to use a workspace, so neither writes portable config as a side
+effect.

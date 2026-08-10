@@ -283,23 +283,6 @@ fn bootstrap_with_io_and_hook(
     let canonical_name = selected.canonical_name().clone();
     let workspace_id = selected.record().workspace_id;
     let record = selected.record().clone();
-    if !selected.record().root.is_dir() {
-        anyhow::bail!(
-            "workspace root {} is unavailable; restore it or detach the workspace",
-            selected.record().root.display()
-        );
-    }
-    if invocation_for(cli) == Invocation::WorkspaceMigrate {
-        after_readiness()?;
-        return context_from_record(&store, canonical_name, &record, home, current_dir);
-    }
-    let access_mode = if selected.canonical_name() == &registry.default_workspace {
-        crate::access::AccessMode::Unrestricted
-    } else {
-        crate::access::AccessMode::WorkspaceOnly
-    };
-    crate::access::ensure_portable_access_mode(&selected.record().root, access_mode)
-        .map_err(|error| anyhow!("validate portable workspace access mode: {error:#}"))?;
     let provisional = WorkspaceContext::new(
         home,
         record.workspace_id,
@@ -308,6 +291,31 @@ fn bootstrap_with_io_and_hook(
         record.local_user_id.clone(),
         current_dir,
     )?;
+    if invocation_for(cli) == Invocation::WorkspaceMigrate {
+        anyhow::ensure!(
+            selected.record().root.is_dir(),
+            "workspace root {} is unavailable; restore it or detach the workspace",
+            selected.record().root.display()
+        );
+        after_readiness()?;
+        return context_from_record(&store, canonical_name, &record, home, current_dir);
+    }
+    // Set the machine up rather than reporting what it lacks: create the root
+    // when this machine has never had it, fill it from the configured sync, and
+    // seed PARA when there is nothing to pull. Migration is excluded above —
+    // it is a transactional rewrite of an existing workspace, not a setup path.
+    super::initialize::initialize_workspace_directory(
+        &provisional,
+        &store,
+        super::initialize::performs_setup_sync(invocation_for(cli)),
+    )?;
+    let access_mode = if selected.canonical_name() == &registry.default_workspace {
+        crate::access::AccessMode::Unrestricted
+    } else {
+        crate::access::AccessMode::WorkspaceOnly
+    };
+    crate::access::ensure_portable_access_mode(&selected.record().root, access_mode)
+        .map_err(|error| anyhow!("validate portable workspace access mode: {error:#}"))?;
     let manifest = WorkspaceManifest::load(&selected.record().root, env!("CARGO_PKG_VERSION"));
     let users = crate::users::UsersStore::load(&provisional);
     let action = readiness_action_with_users(

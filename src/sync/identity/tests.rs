@@ -347,3 +347,65 @@ fn local_validation_refuses_record_manifest_mismatch_without_rewriting_bytes() {
         bytes
     );
 }
+
+#[test]
+fn a_cat_that_succeeds_with_no_bytes_is_an_absent_manifest_not_a_broken_one() {
+    // rclone `cat` of a missing object in an empty bucket exits 0 and prints
+    // nothing. Parsing that as a manifest reported the remote as corrupt and
+    // refused every sync, so a brand-new bucket could never be initialized.
+    let mut calls = Vec::new();
+    let observation = super::probe_remote_identity_with(&remote(), &mut |_env, args| {
+        calls.push(args.to_vec());
+        match args.first().map(String::as_str) {
+            // Both an absent object and an empty listing read as no bytes.
+            Some("cat" | "lsf") => output(true, b"", ""),
+            other => panic!("unexpected remote command {other:?}"),
+        }
+    })
+    .expect("probe an empty remote");
+
+    assert_eq!(observation, RemoteIdentityObservation::Empty);
+    // It must still consult the listing rather than trusting the empty read.
+    assert!(
+        calls
+            .iter()
+            .any(|args| args.first().map(String::as_str) == Some("lsf")),
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn a_blank_manifest_object_is_also_treated_as_absent() {
+    // Whitespace carries no ownership claim either; the listing decides.
+    let observation = super::probe_remote_identity_with(&remote(), &mut |_env, args| match args
+        .first()
+        .map(String::as_str)
+    {
+        Some("cat") => output(true, b"\n  \n", ""),
+        Some("lsf") => output(true, b"notes/plan.md\n", ""),
+        other => panic!("unexpected remote command {other:?}"),
+    })
+    .expect("probe a remote with data");
+
+    // Data but no manifest: adoption stays explicit, exactly as before.
+    assert_eq!(observation, RemoteIdentityObservation::ManifestlessNonempty);
+}
+
+#[test]
+fn a_nonempty_but_malformed_manifest_is_still_refused() {
+    // Real bytes that do not parse could be a corrupted ownership claim, so
+    // this must keep failing closed.
+    let observation = super::probe_remote_identity_with(&remote(), &mut |_env, args| match args
+        .first()
+        .map(String::as_str)
+    {
+        Some("cat") => output(true, b"{ not json", ""),
+        other => panic!("unexpected remote command {other:?}"),
+    })
+    .expect("probe a remote with a malformed manifest");
+
+    assert!(matches!(
+        observation,
+        RemoteIdentityObservation::InvalidManifest { .. }
+    ));
+}

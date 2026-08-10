@@ -68,3 +68,147 @@ fn first_env_list_creates_the_migrated_root_but_requires_a_portable_local_person
         "manifest migration must create the workspace root"
     );
 }
+
+/// A machine whose synced `env.json` registers a workspace it has never had.
+fn joined_machine(workspace: &str, extra_env: &str) -> (TempDir, TempDir, std::path::PathBuf) {
+    let home = tempfile::tempdir().expect("home tempdir");
+    let config_home = tempfile::tempdir().expect("config tempdir");
+    let root = home.path().join(workspace);
+    let env_dir = config_home.path().join("brain");
+    std::fs::create_dir_all(&env_dir).expect("env dir");
+    std::fs::write(
+        env_dir.join("env.json"),
+        format!(
+            r#"{{
+              "schema_version": 3,
+              "default_workspace": "{workspace}",
+              "workspaces": {{
+                "{workspace}": {{
+                  "workspace_id": "8d7d67d6-63fc-4d99-8ff9-ebe31ac93fed",
+                  "root": "{}",
+                  "aliases": [],
+                  "local_user_id": "pablo",
+                  "receiver_enabled": false,
+                  "env": {{{extra_env}}}
+                }}
+              }}
+            }}"#,
+            root.display()
+        ),
+    )
+    .expect("write registry");
+    (home, config_home, root)
+}
+
+#[test]
+fn a_workspace_registered_on_another_machine_is_created_and_seeded_here() {
+    // The exact multi-machine case: `env.json` rides between machines, so this
+    // machine knows about `family` but has never had the directory.
+    let (home, config_home, root) = joined_machine("family", "");
+    assert!(!root.exists());
+
+    let output = brain_command(&home, &config_home)
+        .args(["config", "get", "day_rollover_hour"])
+        .output()
+        .expect("run an ordinary command");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(root.is_dir(), "the workspace root was not created");
+    // With no sync configured, setup falls back to seeding PARA and the CSVs.
+    for expected in [
+        "projects",
+        "areas",
+        "resources",
+        "archive",
+        "tasks",
+        "tasks/tasks.csv",
+        "tasks/habits.csv",
+        "tasks/.tasks_next_id",
+        "tasks/.habits_next_id",
+        "projects/projects-lookup.csv",
+        "resources/zotero-lookup.csv",
+    ] {
+        assert!(root.join(expected).exists(), "missing {expected}");
+    }
+    // The counters start at 1 and the tables carry their headers, so the very
+    // next `brain tasks add` works without any further setup.
+    assert_eq!(
+        std::fs::read_to_string(root.join("tasks/.tasks_next_id")).expect("counter"),
+        "1\n"
+    );
+    assert!(
+        std::fs::read_to_string(root.join("tasks/tasks.csv"))
+            .expect("tasks table")
+            .starts_with("task_uuid,task_id,task_name"),
+    );
+}
+
+#[test]
+fn a_root_whose_parent_is_missing_is_reported_rather_than_invented() {
+    // An unmounted volume looks exactly like a missing root. Creating an empty
+    // workspace over it would read as data loss.
+    let home = tempfile::tempdir().expect("home tempdir");
+    let config_home = tempfile::tempdir().expect("config tempdir");
+    let root = home.path().join("unmounted-volume").join("family");
+    let env_dir = config_home.path().join("brain");
+    std::fs::create_dir_all(&env_dir).expect("env dir");
+    std::fs::write(
+        env_dir.join("env.json"),
+        format!(
+            r#"{{"schema_version":3,"default_workspace":"family","workspaces":{{"family":{{"workspace_id":"8d7d67d6-63fc-4d99-8ff9-ebe31ac93fed","root":"{}","aliases":[],"local_user_id":"pablo","receiver_enabled":false,"env":{{}}}}}}}}"#,
+            root.display()
+        ),
+    )
+    .expect("write registry");
+
+    let output = brain_command(&home, &config_home)
+        .args(["config", "get", "day_rollover_hour"])
+        .output()
+        .expect("run an ordinary command");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("parent directory does not exist"),
+        "{stderr}"
+    );
+    assert!(
+        !root.exists(),
+        "nothing may be created over a missing volume"
+    );
+}
+
+#[test]
+fn setting_up_a_workspace_is_idempotent_and_leaves_content_alone() {
+    let (home, config_home, root) = joined_machine("family", "");
+    let run = || {
+        let output = brain_command(&home, &config_home)
+            .args(["config", "get", "day_rollover_hour"])
+            .output()
+            .expect("run an ordinary command");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run();
+    std::fs::write(root.join("areas/notes.md"), b"user content").expect("write user content");
+    let tasks_before = std::fs::read(root.join("tasks/tasks.csv")).expect("tasks table");
+
+    run();
+
+    assert_eq!(
+        std::fs::read(root.join("tasks/tasks.csv")).expect("tasks table after"),
+        tasks_before,
+        "re-running setup must not rewrite an existing table"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("areas/notes.md")).expect("user content after"),
+        "user content"
+    );
+}

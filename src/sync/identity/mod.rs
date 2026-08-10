@@ -321,7 +321,13 @@ fn probe_remote_identity_with(
     let manifest_path = remote_manifest_arg(&remote.arg);
     let cat_args = vec!["cat".to_owned(), manifest_path];
     let manifest = run(&remote.env, &cat_args);
-    if manifest.success {
+    // A successful read of *nothing* is not a manifest. Some backends exit 0
+    // with empty output when the object does not exist, and treating that as a
+    // manifest reports a pristine bucket as corrupt and refuses every sync,
+    // including the first one that would have created it. Bytes that are
+    // present but malformed still fail closed below: those could be a damaged
+    // ownership claim, while no bytes claim nothing.
+    if manifest.success && !manifest.stdout.iter().all(u8::is_ascii_whitespace) {
         return Ok(observe_remote_manifest(
             Some(&manifest.stdout),
             false,

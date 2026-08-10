@@ -2904,3 +2904,53 @@ unreadable root) renders a one-line note naming the repair command instead of
 failing the command. The inventory is exactly where a user looks to discover
 that a workspace needs setup, so a half-configured workspace must not be able to
 take the listing down with it.
+
+## A registered workspace is set up on first use, not reported as missing
+
+`env.json` rides between a user's machines, so registering a workspace on one
+registers it on all of them. The second machine then knew about `family` and
+refused to do anything with it: "workspace root ~/family is unavailable; restore
+it or detach the workspace". Every fact needed to fix that was already in hand —
+the root path, the workspace UUID, and the sync credentials — so the message was
+asking the user to perform a setup Brain could perform itself.
+
+`initialize_workspace_directory` now runs before readiness on every ordinary
+command: create the root, write the manifest from the UUID the record already
+carries, sync, and seed PARA when there is nothing to pull. It is idempotent, so
+the steady state costs two filesystem checks.
+
+**The one thing it will not do is invent a root over a missing parent.** An
+unmounted volume and a never-created workspace are indistinguishable from the
+path alone, and creating an empty workspace over a detached drive would look
+exactly like losing the data on it. A missing parent keeps the old error.
+
+**The first sync from a machine is bidirectional.** Startup sync had always been
+a pull, which is right for joining an established workspace and wrong for the
+machine that *is* the workspace: content created before sync was configured had
+never been uploaded, and no pull would ever upload it. The `family` workspace on
+the author's laptop sat with an empty sync journal and an empty bucket for
+exactly this reason. So the direction is chosen from whether this machine's
+journal has any completed run: none means establish (both ways), otherwise pull
+only when the root is empty, otherwise leave it to the ordinary startup pull and
+the change-triggered push.
+
+**Sync and registry commands opt out.** `brain sync` doing a different sync
+first would sync twice and seed CSVs for its own pull to reconcile;
+`brain workspace default` writing portable config as a side effect of a registry
+edit surprised an acceptance test that (correctly) asserted the opposite.
+
+## An empty read is not a corrupt manifest
+
+`rclone cat` of a missing object exits 0 with no output on some backends. The
+remote-identity probe took `success` as "a manifest was read" and parsed the
+empty bytes, so a pristine bucket reported
+`remote workspace manifest is invalid or incompatible: EOF while parsing a value
+at line 1 column 0` and refused every sync — including the first one, which was
+the one that would have created the manifest. A brand-new bucket could never be
+initialized, and the failure named a data-integrity problem that did not exist.
+
+A successful read of zero (or whitespace-only) bytes now falls through to the
+listing, which classifies the remote as empty or manifestless exactly as before.
+Bytes that are *present but malformed* still fail closed: those could be a
+damaged ownership claim, and refusing is the safe reading. No bytes claim
+nothing.
