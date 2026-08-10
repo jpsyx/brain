@@ -235,7 +235,13 @@ pub fn remote_schema_status(manifest: Option<&str>) -> Result<SchemaStatus> {
     };
     let metadata: serde_json::Value =
         serde_json::from_str(manifest).context("parsing remote tasks/SCHEMA.json")?;
-    if is_known_legacy_manifest(&metadata) {
+    // The shape heuristic exists for manifests written before the schema
+    // carried a version at all. A manifest that declares one has already
+    // answered the question, and the real v2 manifest keeps per-table
+    // `key: task_id` — the mutable *display* identity — next to
+    // `merge_key: task_uuid`, so reading the shape first classified a fully
+    // current remote as legacy and refused to sync with it.
+    if metadata.get("task_schema_version").is_none() && is_known_legacy_manifest(&metadata) {
         return Ok(SchemaStatus::Legacy);
     }
     let version = metadata

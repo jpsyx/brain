@@ -96,3 +96,38 @@ fn malformed_csv_record_is_rejected_with_its_row() {
     assert!(error.to_string().contains("malformed CSV record"));
     assert!(error.to_string().contains("row 3"));
 }
+
+#[test]
+fn a_declared_version_wins_over_the_legacy_shape_heuristic() {
+    // The real manifest brain ships keeps per-table `key: task_id` (the mutable
+    // display identity) alongside `merge_key: task_uuid`. Reading the per-table
+    // key first classified a fully current remote as legacy, which made
+    // `brain sync setup` refuse to establish a baseline against it.
+    let current_with_legacy_shaped_sections = r#"{
+            "task_schema_version": 2,
+            "merge_key": "task_uuid",
+            "display_identity": {"field": "task_id", "mutable": true},
+            "tasks_csv": {"key": "task_id", "columns": []},
+            "habits_csv": {"key": "task_id", "columns": []}
+        }"#;
+
+    assert_eq!(
+        remote_schema_status(Some(current_with_legacy_shaped_sections)).unwrap(),
+        SchemaStatus::Current
+    );
+}
+
+#[test]
+fn the_legacy_heuristic_still_catches_a_manifest_with_no_declared_version() {
+    // A pre-version manifest is exactly what the shape heuristic is for.
+    let legacy = r#"{
+            "merge_key": "task_uuid",
+            "tasks_csv": {"key": "task_id", "columns": []},
+            "habits_csv": {"key": "task_id", "columns": []}
+        }"#;
+
+    assert_eq!(
+        remote_schema_status(Some(legacy)).unwrap(),
+        SchemaStatus::Legacy
+    );
+}
