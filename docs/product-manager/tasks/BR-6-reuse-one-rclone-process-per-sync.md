@@ -49,6 +49,22 @@ authenticated process. Brain already owns a shared-server lifecycle with
 election, generations, and orderly shutdown, so the daemon should very likely be
 owned by that machinery rather than a second, parallel process manager.
 
+## Measured after the first three reductions landed
+
+A no-change `brain sync` on the author's `brain` workspace is **19.4 s**, of
+which an equivalent `rclone bisync --dry-run` (both listings, no transfers) is
+**17.0 s**. Brain's own remaining overhead is therefore only ~2.4 s, and this
+task can recover at most that.
+
+**So this is no longer the main lever, and BR-7 is not either.** The cost is
+inside bisync: it lists both sides, compares each against its `-old` baseline,
+and applies every `--exclude` filter per object across 6,769 objects. Before
+investing here, measure that: whether the filter count matters, whether
+`--resilient`/`--recover` add passes, and whether excluding the large media
+library (`--max-size`, or a `sync.exclude` entry for
+`resources/pole/**`) is what actually moves the number. A cheap, honest
+experiment beats implementing a daemon that buys 2 s.
+
 ## Acceptance criteria
 
 - [ ] A decision is recorded in `docs/decisions.md` on whether the rclone daemon is owned by the existing shared server, by the sync lock holder, or spawned per sync run.
