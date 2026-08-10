@@ -239,7 +239,10 @@ pub fn run(
         crate::logging::log("check missing baseline");
         println!(
             "{}",
-            theme.warning("No sync baseline yet — run `brain sync` to establish it.")
+            theme.warning(&format!(
+                "No sync baseline yet — run `{}` to establish it.",
+                crate::workspace::suggest("sync")
+            ))
         );
         return Ok(());
     }

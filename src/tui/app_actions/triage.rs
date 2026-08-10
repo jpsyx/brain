@@ -241,6 +241,29 @@ pub(super) fn should_check_daily_triage(
         }
 }
 
+impl App<'_> {
+    /// Write the live daily-triage-alert state to portable config.
+    ///
+    /// The palette row is the same decision as `brain config set
+    /// enable_daily_triage_check=…`, so it is stored the same way: a user who
+    /// silences the nudge means it, and would not expect it back at the next
+    /// launch or on their other machine. A write failure never fails the toggle
+    /// — the running session still honors it — but it is surfaced, because
+    /// silently degrading a persistent choice to a session one is the surprise
+    /// this exists to avoid.
+    pub(crate) fn persist_daily_triage_check(&self) -> anyhow::Result<()> {
+        crate::settings::set(
+            &self.command_context.workspace,
+            "enable_daily_triage_check",
+            if self.skip_daily_triage_check {
+                "false"
+            } else {
+                "true"
+            },
+        )
+    }
+}
+
 /// Gate the daily-triage nudge on the process-scoped opt-out (seeded from
 /// `enable_daily_triage_check`, flipped by the palette) before consulting
 /// [`triage_nudge_target`]. When `disabled` is set the

@@ -283,6 +283,8 @@ fn bootstrap_with_io_and_hook(
     let canonical_name = selected.canonical_name().clone();
     let workspace_id = selected.record().workspace_id;
     let record = selected.record().clone();
+    // Every command Brain suggests from here on names this workspace.
+    super::selector::remember_selected(&canonical_name);
     let provisional = WorkspaceContext::new(
         home,
         record.workspace_id,

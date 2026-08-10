@@ -366,8 +366,12 @@ Concretely, whenever you add either half, add the other in the same change:
 
 The startup surface and the palette toggle must write the *same* `App` field
 through the *same* pure decision, so the two paths can never diverge. A
-config-seeded toggle keeps its palette flip **process-scoped**: the palette
-changes the running session, never the stored value. Keep the palette label
+config-seeded toggle also **persists** the flip: silencing something from the
+palette is the same decision as `brain config set …`, so it survives a restart
+and reaches the workspace's other machines. Write the store *and* the live field
+in one action, and if the write fails, keep honoring it for the running session
+while saying so — silently degrading a persistent choice to a session-only one is
+the surprise this rule exists to prevent. Keep the palette label
 registered in both palette surfaces (`src/tui/palette/` and, for global rows,
 `src/menu/model.rs`) and the docs (`docs/features.md`, `docs/keybindings.md`) in
 sync, per the docs contract.

@@ -21,6 +21,7 @@ pub(super) fn bootstrap(
     // would be a worse answer than reporting it.
     let registry = RegistryStore::load_readable(store.path())?;
     let selected = registry.select(cli.workspace_selector.as_deref())?;
+    super::selector::remember_selected(selected.canonical_name());
     super::bootstrap::validate_expected_workspace_id(
         std::env::var_os("BRAIN_WORKSPACE_ID").as_deref(),
         selected.record().workspace_id,

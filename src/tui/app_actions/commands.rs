@@ -284,15 +284,25 @@ impl App<'_> {
             }
             PaletteAction::ToggleDailyTriageAlert => {
                 self.skip_daily_triage_check = !self.skip_daily_triage_check;
+                // Persist it: turning the nudge off is a decision about the
+                // workspace, not about this session, so it must survive a
+                // restart and reach the other machines on the workspace.
+                let persisted = self.persist_daily_triage_check();
                 if self.skip_daily_triage_check {
-                    crate::logging::log("palette disabled daily triage alert for session");
+                    crate::logging::log("palette disabled daily triage alert");
                     self.flash = Some(FlashKind::Info(
-                        "daily triage alert disabled for this session".to_owned(),
+                        persisted.map_or_else(
+                            |error| format!("daily triage alert disabled for this session only; saving it failed: {error:#}"),
+                            |()| "daily triage alert disabled (saved to config)".to_owned(),
+                        ),
                     ));
                 } else {
-                    crate::logging::log("palette enabled daily triage alert for session");
+                    crate::logging::log("palette enabled daily triage alert");
                     self.flash = Some(FlashKind::Info(
-                        "daily triage alert enabled for this session".to_owned(),
+                        persisted.map_or_else(
+                            |error| format!("daily triage alert enabled for this session only; saving it failed: {error:#}"),
+                            |()| "daily triage alert enabled (saved to config)".to_owned(),
+                        ),
                     ));
                     // Re-enabling re-arms the nudge. While startup refresh is
                     // pending, wait for synced config and habits instead of

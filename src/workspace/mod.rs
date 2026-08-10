@@ -13,6 +13,7 @@ mod read_only;
 mod readiness;
 pub mod registry;
 mod requirements;
+mod selector;
 
 pub use bootstrap::{BootstrapContext, CommandContext, bootstrap, bootstrap_with_io};
 pub use bootstrap_policy::{
@@ -38,6 +39,7 @@ pub use requirements::{
     FeatureStatus, PromptMetadata, RequiredStatus, Requirement, RequirementScope,
     RequirementStatus, format_requirements, requirements,
 };
+pub use selector::suggest;
 
 #[cfg(test)]
 mod tests {

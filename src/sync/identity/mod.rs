@@ -186,7 +186,10 @@ fn require_remote_identity_with<'remote>(
     match decision_from_observation(manifest.workspace_id(), &observed) {
         RemoteIdentityDecision::Proceed => Ok(VerifiedRemote { remote }),
         RemoteIdentityDecision::Initialize => {
-            bail!("remote workspace is not initialized; run `brain sync setup`")
+            bail!(
+                "remote workspace is not initialized; run `{}`",
+                crate::workspace::suggest("sync setup")
+            )
         }
         refusal => refuse(refusal),
     }

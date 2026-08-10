@@ -38,11 +38,21 @@ fn habits_cli_uses_the_selected_workspaces_accepted_ingress_after_manifest_misma
         .env("BRAIN_TEST_OPENED_URL", &opened_url)
         .output()
         .expect("run habits command");
-    assert!(!output.status.success());
+    // A running TUI is not a reason to refuse: `brain habits` reuses whatever is
+    // already serving and opens the selected workspace's own accepted ingress.
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("brain TUI is already running"),
+        output.status.success(),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(!opened_url.exists());
+    let opened = std::fs::read_to_string(&opened_url).expect("habits URL was opened");
+    assert!(
+        opened.contains(&server.family_ingress.to_string()),
+        "opened {opened} for family ingress {}",
+        server.family_ingress
+    );
+    assert!(
+        !opened.contains(&server.personal_ingress.to_string()),
+        "the manifest mismatch must not route through the peer ingress: {opened}"
+    );
 }

@@ -2788,12 +2788,17 @@ today's triage is a property of the *workspace*, not of one invocation: if a use
 does not want that modal, they do not want it on their laptop this morning and
 their desktop tonight. It is now `enable_daily_triage_check` in portable config.
 
-The flag did have one property worth keeping: a TUI that stays open for days
-needs to silence the nudge *now* without editing a synced file every other
-machine reads. That is the palette toggle's job, and the split is the general
-rule for config-seeded live state: **config seeds the process at startup, the
-palette flips the process, and flipping never writes back**. `App::skip_daily_triage_check`
-stays the single field both paths reach, so they cannot drift.
+The palette toggle remains, because a TUI that stays open for days needs to
+silence the nudge *now* without quitting. It **writes the config value** as well
+as the live field: flipping it is the same decision as
+`brain config set enable_daily_triage_check=false`, and a user who silences a
+recurring nudge does not expect it back at the next launch or on their other
+machine. (An earlier revision of this entry made the palette flip
+process-scoped; that was wrong for exactly that reason.) A failed write does not
+fail the toggle — the running session still honors it — but it is reported,
+because quietly turning a persistent choice into a session-only one is worse than
+either outcome. `App::skip_daily_triage_check` stays the single field both paths
+reach, so they cannot drift.
 
 Nothing is both a flag and a stored variable. A setting with two persistence
 stories has two answers when they disagree, which is the exact failure the

@@ -266,7 +266,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
 | `brain server {status\|logs}` | Inspect the shared process without starting, stopping, or repairing it (see below). |
 | `brain killall` | Stop every running Brain shared server and TUI process on this machine, including receiver-serving server processes. |
-| `brain habits` | Start the shared habits server in the background when no TUI is open, then open today's habits page. A second start is rejected while the server or a TUI is already active. |
+| `brain habits` | Open today's habits page. Always available: it reuses whatever is already serving (an open TUI's shared server, or an earlier background one) and elects a background server only when nothing is running. A workspace with no route yet registers a background lease of its own, so `brain habits -w family` works while a `brain` TUI is open. |
 | `brain habits kill` | Stop a background habits server. It is rejected while any brain TUI is open. |
 | `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
 | `brain config set enable_daily_triage_check=false` | Open the TUI without ever showing the daily-triage startup nudge. Portable config, so every machine on the workspace agrees; the palette still toggles it per session. |
@@ -838,9 +838,10 @@ strictly reloads portable config, reconciles managed triage policy, and reloads
 the task tables after a clean startup sync; it skips only the modal check. The
 modal cannot open while suppression remains enabled for the running process.
 Mid-session, the command palette's **Disable/Enable daily triage
-alert** toggle flips the same state for that session only, so a long-running TUI
-that spans several days can suppress or restore the nudge without a restart or a
-config change. If the
+alert** toggle flips the same state *and saves it*, so a long-running TUI that
+spans several days can suppress or restore the nudge without a restart, and the
+answer sticks. A failed config write is reported and the running session still
+honors the flip. If the
 palette restores the alert while startup sync is still pending, Brain defers
 the check until synced config, managed policy, and tasks have refreshed. To
 disable the nudge permanently instead, clear the `daily_triage_name_pattern`
@@ -1481,8 +1482,9 @@ list.
   which reports whether a sync is active. It also includes a
   **Disable daily triage alert** / **Enable daily triage alert** toggle (the
   label swaps to name the action it will take) — the runtime counterpart to the
-  portable `enable_daily_triage_check` config variable that seeds it at startup.
-  Because a TUI can stay open across day
+  portable `enable_daily_triage_check` config variable, which it **writes** as
+  well as flipping live, so the choice survives a restart and reaches the
+  workspace's other machines. Because a TUI can stay open across day
   rollovers, this flips the daily-triage nudge on or off for the current session
   without a persistent config change; enabling it re-checks immediately, so an
   outstanding triage surfaces the modal at once. None of these has a direct

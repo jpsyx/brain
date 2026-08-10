@@ -80,7 +80,10 @@ fn sync_once_with_task_state(
     reconcile_task_state: bool,
 ) -> Result<Outcome> {
     if !cfg.is_configured() {
-        bail!("sync is not configured — run `brain sync setup`");
+        bail!(
+            "sync is not configured — run `{}`",
+            crate::workspace::suggest("sync setup")
+        );
     }
     let (started_at, finished_at, date) = now;
     let remote = build_remote(cfg);

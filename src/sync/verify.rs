@@ -35,9 +35,10 @@ impl Outcome {
 pub fn classify(run: &RunOutcome, conflicts: usize, leftover_markers: usize) -> Outcome {
     if let Some(kind) = &run.abort {
         let msg = match kind {
-            AbortKind::MaxDelete => {
-                "sync aborted: would delete more than the --max-delete threshold. If intentional, run `brain sync repair`."
-            }
+            AbortKind::MaxDelete => &format!(
+                "sync aborted: would delete more than the --max-delete threshold. If intentional, run `{}`.",
+                crate::workspace::suggest("sync repair")
+            ),
             AbortKind::CheckAccess => {
                 "sync aborted: check-access marker missing. Run `brain sync repair` to recreate the RCLONE_TEST marker and re-establish the baseline."
             }
