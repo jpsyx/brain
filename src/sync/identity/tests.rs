@@ -1,4 +1,5 @@
 include!("tests_support.rs");
+include!("tests_parts/blank_remote_reads.rs");
 
 #[test]
 fn setup_publishes_the_existing_local_manifest_first_and_verifies_readback() {

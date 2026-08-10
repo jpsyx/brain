@@ -2960,6 +2960,26 @@ Bytes that are *present but malformed* still fail closed: those could be a
 damaged ownership claim, and refusing is the safe reading. No bytes claim
 nothing.
 
+**The setup ownership claim needed the same reading, and did not get it.** The
+claim election (`src/sync/identity/claim.rs`) reads
+`.config/workspace-claims/<uuid>.json` before publishing, and took `success`
+alone as "a claim is already there". On B2 that read succeeds with no bytes, so
+the empty stdout was compared against the local manifest, disagreed, and setup
+died on `remote workspace ownership claim does not match the local manifest` —
+against a bucket holding nothing to disagree with. Every workspace initialized
+after the election shipped in 0.35.1 was unable to run `brain sync setup` at all;
+older remotes were unaffected only because they already carry a canonical
+manifest and never reach the election. Both readers now share one rule, so a
+blank claim read means *absent* and the publication proceeds. The post-publish
+readback distinguishes the two failures too: a blank readback is a verification
+failure that reports rclone's own stderr, not a phantom ownership conflict.
+
+The generalization worth keeping: **whenever Brain decides something from a
+remote read, the exit status is not the answer — the bytes are.** A fake that
+models a missing object as an error hides exactly this class of bug, which is
+why the identity test doubles now return exit 0 with empty output for a missing
+object, matching B2.
+
 ## Brain was pushing its own hook scripts to the cloud on every launch
 
 Every TUI startup reinstalls the lifecycle artifacts (`.claude/brain-hooks/*.py`,

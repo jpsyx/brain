@@ -64,17 +64,20 @@ impl RaceRemote {
             Some("cat") => {
                 let target = args.get(1).expect("cat target");
                 let state = self.state.lock().unwrap();
+                // B2 exits 0 with no output when the object is missing, so the
+                // concurrency guarantees are proven against the backend Brain
+                // actually talks to, not a friendlier one that fails loudly.
                 if target.ends_with(REMOTE_MANIFEST) {
-                    state.manifest.as_ref().map_or_else(
-                        || output(false, b"", "object not found"),
-                        |bytes| output(true, bytes, ""),
-                    )
+                    state
+                        .manifest
+                        .as_ref()
+                        .map_or_else(|| output(true, b"", ""), |bytes| output(true, bytes, ""))
                 } else {
                     let name = target.rsplit('/').next().unwrap_or_default();
-                    state.claims.get(name).map_or_else(
-                        || output(false, b"", "object not found"),
-                        |bytes| output(true, bytes, ""),
-                    )
+                    state
+                        .claims
+                        .get(name)
+                        .map_or_else(|| output(true, b"", ""), |bytes| output(true, bytes, ""))
                 }
             }
             Some("lsf") => {
