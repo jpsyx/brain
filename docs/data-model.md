@@ -882,8 +882,13 @@ without a manual `brain skills sync`.
   and accepts only a live root session whose reported directory resolves to
   that exact workspace; archived, deleted, child, malformed, and cross-root
   rows are rejected. A stale DB candidate therefore falls through to the next
-  row or a fresh launch. Codex participates in the same store but currently
-  rejects resume candidates and starts fresh.
+  row or a fresh launch. Codex resolves the same question against its own rollout
+  store: a stored id is resumable when
+  `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<id>.jsonl` exists, which
+  is the only evidence available since Codex exposes no machine-readable session
+  listing. The id must occupy the whole trailing filename segment, so no session
+  can be resumed by prefix collision, and the search descends only to the day
+  level so one check cannot become a full-disk walk.
 - `SessionStore::claim` → lock a free session in the exact composite scope to this
   shell's PID (loses cleanly if another shell grabbed that scoped row first).
 - `SessionStore::register` inserts a fresh placeholder for any registered frontend with

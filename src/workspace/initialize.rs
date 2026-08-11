@@ -350,6 +350,11 @@ fn seed_empty_workspace(workspace: &WorkspaceContext) -> Result<()> {
         std::fs::create_dir_all(workspace.root().join(directory))?;
     }
     write_if_missing(&workspace.root().join(".config/config.json"), b"{}\n")?;
+    // What this directory is, for an agent and for a person. Seeded only for a
+    // workspace Brain is creating: a root that already has content has its own
+    // conventions, and dropping instructions into it would presume to describe
+    // material Brain has never seen.
+    super::templates::seed_documents(workspace.root())?;
     write_if_missing(
         &workspace.root().join("tasks/tasks.csv"),
         TASKS_HEADER.as_bytes(),
