@@ -56,10 +56,10 @@ fn palette_rows_are_numbered_from_one_in_canonical_order() {
         false,
         false,
     );
-    let cmds = state.scoped();
-    assert_eq!(state.number_for(cmds[0]), 1);
-    assert_eq!(state.number_for(cmds[1]), 2);
-    assert_eq!(state.number_for(cmds.last().unwrap()), cmds.len());
+    let rows = state.rows();
+    assert_eq!(rows[0].number, 1);
+    assert_eq!(rows[1].number, 2);
+    assert_eq!(rows.last().unwrap().number, rows.len());
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn typing_a_row_number_filters_to_that_numbered_row() {
         false,
         false,
     );
-    let second = state.scoped()[1];
+    let second = state.rows()[1].clone();
     state.append('2');
     let hits = state.visible();
     assert!(

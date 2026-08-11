@@ -131,15 +131,15 @@ fn agent_exit_closes_only_the_panel_and_returns_to_the_live_tui() {
     app.brain_transport_override = Some(main_recording.transport());
     assert!(app.open_or_focus_brain(None));
     let triage_recording = TransportRecording::default();
-    app.triage_done_url_override = Some("http://127.0.0.1:4773/triage/done".to_owned());
-    app.triage_transport_override = Some(triage_recording.transport());
+    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
+    app.session_transport_override = Some(triage_recording.transport());
     app.open_triage_tab();
     assert_eq!(
         app.brain.as_ref().map(AgentController::kind),
         Some(AgentKind::OpenCode)
     );
     assert_eq!(
-        app.triage_brain.as_ref().map(AgentController::kind),
+        app.active_brain_controller().map(AgentController::kind),
         Some(AgentKind::OpenCode)
     );
     main_recording.set_alive(false);
@@ -148,7 +148,7 @@ fn agent_exit_closes_only_the_panel_and_returns_to_the_live_tui() {
     assert!(app.close_exited_brain_panel());
 
     assert!(app.brain.is_none());
-    assert!(app.triage_brain.is_some());
+    assert!(app.has_skill_session(crate::skill_session::SkillSessionKey::DailyTriage));
     assert_eq!(app.focus, Panel::Tasks);
     assert_eq!(main_recording.shutdowns(), 1);
     assert_eq!(triage_recording.shutdowns(), 0);
@@ -218,15 +218,19 @@ fn close_brain_releases_each_frontend_session_for_the_next_shell() {
 }
 
 #[test]
-fn half_page_scroll_targets_the_visible_triage_controller() {
+fn half_page_scroll_targets_the_visible_skill_session_controller() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let (main, main_recording) = recording_controller(&app, true, "main");
     let (triage, triage_recording) = recording_controller(&app, true, "triage");
     app.brain = Some(main);
-    app.triage_brain = Some(triage);
-    app.active_brain_tab = BrainTab::Triage;
+    app.insert_test_skill_session(
+        crate::skill_session::SkillSessionKey::DailyTriage,
+        "Daily triage",
+        "token-scroll-test",
+        triage,
+    );
     app.focus = Panel::Brain;
 
     app.scroll_focused_half_page(true);
@@ -251,15 +255,15 @@ fn whole_shell_shutdown_explicitly_stops_every_agent_controller_once() {
     app.brain_transport_override = Some(main_recording.transport());
     assert!(app.open_or_focus_brain(None));
     let triage_recording = TransportRecording::default();
-    app.triage_done_url_override = Some("http://127.0.0.1:4773/triage/done".to_owned());
-    app.triage_transport_override = Some(triage_recording.transport());
+    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
+    app.session_transport_override = Some(triage_recording.transport());
     app.open_triage_tab();
     assert_eq!(
         app.brain.as_ref().map(AgentController::kind),
         Some(AgentKind::OpenCode)
     );
     assert_eq!(
-        app.triage_brain.as_ref().map(AgentController::kind),
+        app.active_brain_controller().map(AgentController::kind),
         Some(AgentKind::OpenCode)
     );
 

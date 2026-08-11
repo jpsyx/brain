@@ -70,29 +70,62 @@ from either panel while the panel is open (no need to focus the brain panel
 first). When the panel is closed, `Ctrl+N` keeps its search meaning (move the
 selection down).
 
-**The daily-triage tab.** Saying **Yes** to the startup "Today's triage isn't
-done. Run it now?" nudge no longer types `/triage` into your main session and
-tie it up for the whole pass. Instead the brain panel grows a **second tab**,
-**Daily triage**, holding a *separate* agent session seeded with `/triage` and
-auto-submitted. Daily triage runs there as a background task while your main
-session (tab 1) stays free. Cycle tabs with **`Alt+[`** / **`Alt+]`** (previous
-/ next) from either panel; the panel shows a `1 Brain` · `2 Daily triage` strip
-while both are live. The **command palette** (`Ctrl+P`) also carries **Show main
-brain session** / **Show daily triage session** rows whenever the triage tab is
-open — the works-anywhere alternative. (`Alt+1` / `Alt+2` select a tab directly
-too, but terminal `Alt+digit` handling is unreliable, so the bracket cycle and
-palette rows are the dependable paths.)
+**Skill sessions: one tab per single-prompt run.** A **skill session** is a
+dedicated, ephemeral agent session for *one* prompt — typically a slash command
+for a single skill, hence the name, though the prompt can be anything. It runs in
+its **own brain-panel tab** so a long run doesn't tie up your main session, and it
+**closes itself** when the run finishes.
 
-This triage session is **ephemeral**: it is never recorded in the session DB
-and is never resumed. Because a triage pass can involve back-and-forth with you,
-"the agent stopped talking" is not a reliable done signal — instead the
-`/triage` skill POSTs a completion signal (with a one-time token) to the local
-brain server once the pass truly finishes (PDF written, Morning Triage habit
-marked), and brain **auto-closes the tab**, dropping you back to tab 1. Closing
-the tab yourself is `Ctrl+X` while on it (it ends only that session). If you
-quit `brain` mid-triage the ephemeral session is simply lost and the nudge fires
-again next launch — nothing to resume. See [integrations.md](integrations.md)
-for the completion-signal wiring.
+Daily triage is the **builtin** one. Saying **Yes** to the startup "Today's
+triage isn't done. Run it now?" nudge no longer types `/triage` into your main
+session and blocks it for the whole pass; the panel grows a **Daily triage** tab
+holding a separate session seeded with `/triage`, and the pass runs there while
+tab 1 stays free. The builtin is offered only while the workspace's daily-triage
+check is enabled (`brain config set enable_daily_triage_check=…`, or the
+palette's *Disable/Enable daily triage alert* row), and it is not editable or
+removable — unlike the ones you declare yourself.
+
+**Declare your own.** Any prompt you run often and want out of your main session
+goes in the machine-local `skill_sessions` env array:
+
+```sh
+brain env set skill_sessions '[
+  {"title": "Email triage", "prompt": "/email-triage", "command_label": "Run email triage"}
+]'
+```
+
+Or, with no value, `brain env set skill_sessions` walks you through
+add / edit / delete. Each entry contributes:
+
+- **`prompt`** — what the session is seeded with (the only required field);
+- **`title`** — its brain-panel tab title (defaults to the prompt);
+- **`command_label`** — its **command-palette row**, verbatim (defaults to
+  `Run <title>`).
+
+Pick that row in the palette (`Ctrl+P`) and the session starts in a new tab.
+**While it runs, its row disappears**, so the same session can't be started
+twice. Several *different* skill sessions can run at once, each in its own tab.
+
+**Switching tabs.** Cycle with **`Alt+[`** / **`Alt+]`** (previous / next) from
+either panel; the panel shows a `1 Brain` · `2 Daily triage` · `3 Email triage` …
+strip while any session is live, in the order they were opened. The **command
+palette** also carries **Show main brain session** and one **Show <title>
+session** row per open tab — the works-anywhere alternative. (`Alt+1` selects the
+main session and `Alt+<n>` the nth skill session directly too, but terminal
+`Alt+digit` handling is unreliable, so the bracket cycle and palette rows are the
+dependable paths.)
+
+Every skill session is **ephemeral**: never recorded in the session DB, never
+resumed. Because a run can involve back-and-forth with you, "the agent stopped
+talking" is not a reliable done signal — instead brain appends a short completion
+protocol to the prompt it sends, and the run POSTs a one-time token to the local
+brain server once it truly finishes. brain then **auto-closes that tab**,
+dropping you back to tab 1 with a `✓ <title> complete` flash. The run may also
+declare output files that must exist first, and brain holds the tab open until
+they do. Closing a tab yourself is `Ctrl+X` while on it (it ends only that
+session). If you quit `brain` mid-run the session is simply lost — nothing to
+resume, so start it again (and the daily-triage nudge fires again next launch).
+See [integrations.md](integrations.md) for the completion-signal wiring.
 
 **Saying Skip is deterministic — no agent.** The nudge's third button, **Skip**,
 means "not today." Skipping is pure bookkeeping (mark today's Morning Triage
@@ -1214,7 +1247,7 @@ brain (synced, never committed to the repo):
   9) and fold its output into the run's output. The tab-close is then gated
   generically: the completion signal carries a `require` list of output paths the
   run declared (an extension supplies them at `triage:daily-required-outputs`;
-  core supplies none), and the daily-triage tab will not close until every one
+  core supplies none), and the skill-session tab will not close until every one
   exists, so a premature "done" can't kill the session before an extension's
   printable is written. An empty list closes immediately, keeping the generic
   core and any fork identical to the old behavior.
@@ -1529,7 +1562,10 @@ list.
   workspace's other machines. Because a TUI can stay open across day
   rollovers, this flips the daily-triage nudge on or off for the current session
   without a persistent config change; enabling it re-checks immediately, so an
-  outstanding triage surfaces the modal at once. None of these has a direct
+  outstanding triage surfaces the modal at once. The tasks-view palette also
+  carries one **Run \<label\>** row per skill session the workspace offers (see
+  "Skill sessions" above) and, while any is running, **Show main brain session**
+  plus a **Show \<title\> session** row per open tab. None of these has a direct
   shortcut.
 - **Cancel**: `Esc` / `Ctrl-c` exits with no action.
 

@@ -344,47 +344,57 @@ event reaches the generic completion bridge, and the ordinary response worker
 delivers the authorized artifact. OpenCode receives no special delivery bypass
 and cannot broaden recipients.
 
-### The daily-triage tab and its completion signal
+### Skill-session tabs and their completion signal
 
-Answering **Yes** to the startup daily-triage nudge spawns a *second*,
-ephemeral agent session as a brain-panel tab (`App::triage_brain`,
-`app_triage_tab.rs`) rather than typing `/triage` into the main session. It is
-launched through an `AgentController` and a fresh `LaunchRequest` seeded with
-`/triage`, but with two deliberate differences from the main panel:
+A **skill session** runs one prompt in its own ephemeral brain-panel tab
+(`App::skill_sessions`, `app_skill_session.rs`) rather than typing that prompt
+into the main session. Daily triage is the builtin definition (the nudge's **Yes**
+path); the rest come from the machine-local `skill_sessions` env array. Each is
+launched through an `AgentController` and a fresh `LaunchRequest`, with three
+deliberate differences from the main panel:
 
 - **It is never tracked.** Its `HookMetadata` contains only
-  `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. The selected adapter adds
+  `BRAIN_SESSION_DONE_URL` and `BRAIN_SESSION_TOKEN`. The selected adapter adds
   the common workspace identity and `BRAIN_AGENT_KIND`, while
-  `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, and `BRAIN_RESPONSE_ID` remain absent.
-  The session-start bridge requires those tracking variables in addition to
-  workspace identity, so the triage session is never written to
-  `brain_sessions` and is never a resume candidate.
-- **Completion is signalled, not inferred.** A triage pass can involve
-  back-and-forth with the user, so "the agent went idle" is not a reliable done
-  signal. brain connects to the shared process already attached to the TUI and
-  passes its capability-protected local triage-completion URL plus a one-time
-  token into the session. When the `/triage` skill finishes (the habit marked
-  and every output the run declared it must produce on disk) it POSTs
+  `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, and `BRAIN_RESPONSE_ID` remain absent
+  (`session::env_for_skill_session`). The session-start bridge requires those
+  tracking variables in addition to workspace identity, so a skill session is
+  never written to `brain_sessions` and is never a resume candidate.
+- **The protocol travels with the prompt.** brain cannot assume the skill it
+  launches knows anything about brain, so
+  `skill_session::prompt::launch_prompt` appends the completion protocol —
+  "POST the token in `$BRAIN_SESSION_TOKEN` to `$BRAIN_SESSION_DONE_URL` as your
+  very last action, with the paths of any outputs you were told to produce in
+  `require`" — to whatever prompt the workspace configured. A user's own skill
+  therefore needs no edits to participate.
+- **Completion is signalled, not inferred.** A run can involve back-and-forth
+  with the user, so "the agent went idle" is not a reliable done signal. brain
+  connects to the shared process already attached to the TUI and passes its
+  capability-protected local session-completion URL plus a one-time token into
+  the session. When the run finishes it POSTs
   `{"token": "<token>", "require": ["<path>", …]}` to that URL. The process and
   the TUI are separate processes, so the signal crosses on disk: the
-  `routes::triage` handler records it to
-  `<workspace-cache>/triage-done.json` via
-  `crate::triage_signal::record_done`, and the TUI's per-tick
-  `App::tick_triage_done` reads it (`triage_signal::read_signal`) and auto-closes
-  the tab only when the token matches the tab it opened **and** every path in
-  `require` exists (`triage_signal::ready_to_close`). The token guard means a
-  stale signal from an earlier run can't close a freshly-opened tab; the
-  `require` gate means a *premature* signal can't close the tab before the run's
-  declared outputs are written (the signal is held, re-checked each tick, until
-  they exist). **Core knows nothing about what those outputs are** — `require`
-  is empty unless an extension rendered into the skill declared a path at the
-  `triage:daily-required-outputs` hook, and an empty list closes immediately, so
-  the generic core (and any fork) behaves exactly as before. If the triage child
-  exits on its own, the same tick closes the tab regardless.
+  `routes::session` handler records it to
+  `<workspace-cache>/skill-sessions/<token>.json` via
+  `crate::skill_session::signal::record_done`, and the TUI's per-tick
+  `App::tick_skill_sessions` reads each open tab's own token
+  (`signal::read_signal`) and auto-closes that tab only when its token arrives
+  **and** every path in `require` exists (`signal::ready_to_close`). One file per
+  token is what lets several sessions run at once without one's completion
+  closing another's tab; the token also means a stale signal from an earlier run
+  can't close a freshly-opened tab, and the shell clears every pending signal at
+  startup (`signal::clear_all`). The `require` gate means a *premature* signal
+  can't close the tab before the run's declared outputs are written (the signal is
+  held, re-checked each tick, until they exist). **Core knows nothing about what
+  those outputs are** — `require` is empty unless the run declared a path (for
+  daily triage, an extension rendered in at the
+  `triage:daily-required-outputs` hook), and an empty list closes immediately, so
+  the generic core (and any fork) behaves exactly as before. If a session's child
+  exits on its own, the same tick closes its tab regardless.
 
 `brain server`'s route table therefore includes
-`POST /local/<lease>/w/<ingress>/triage/done` (see `server/router.rs` plus
-`server/routes/triage/`), an unauthenticated localhost-only endpoint consistent
+`POST /local/<lease>/w/<ingress>/session/done` (see `server/router.rs` plus
+`server/routes/session/`), an unauthenticated localhost-only endpoint consistent
 with the ingress-scoped habits completion route.
 
 ## Shared-server process lifecycle
@@ -578,7 +588,7 @@ tab/token/`require` machinery above.
 These triage rules are identical for Claude, Codex, and OpenCode. OpenCode's
 plugin may observe the ephemeral root session, but the generic session-start
 and turn-complete bridges no-op without the tracking attribution intentionally
-omitted from the triage request; only the one-time triage-done signal closes
+omitted from a skill-session request; only the one-time session-done signal closes
 the tab.
 
 ## Agent sessions: lifecycle bridges and state DB

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use brain::actor::{RequestIdentity, resolve_actor};
-use brain::session::{AgentKind, env_for_triage};
+use brain::session::{AgentKind, env_for_skill_session};
 use brain::state::Db;
 use brain::users::{USERS_SCHEMA_VERSION, User, UserId, Users};
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
@@ -102,23 +102,26 @@ fn register_hook_session(db_path: &Path, agent_kind: &str, session_id: &str) {
 }
 
 #[test]
-fn triage_launch_environment_is_untracked_for_every_frontend() {
+fn skill_session_launch_environment_is_untracked_for_every_frontend() {
     for (agent, expected_kind) in [
         (AgentKind::Claude, "claude"),
         (AgentKind::Codex, "codex"),
         (AgentKind::OpenCode, "opencode"),
     ] {
-        let env = env_for_triage(
+        let env = env_for_skill_session(
             &workspace(),
             &actor(),
             agent,
-            "http://127.0.0.1:8787/triage/done",
-            "triage-token",
+            "http://127.0.0.1:8787/session/done",
+            "session-token",
         );
         let keys: Vec<&str> = env.iter().map(|(key, _)| key).map(String::as_str).collect();
 
         assert!(env.contains(&("BRAIN_AGENT_KIND".to_owned(), expected_kind.to_owned())));
-        assert!(env.contains(&("BRAIN_TRIAGE_TOKEN".to_owned(), "triage-token".to_owned())));
+        assert!(env.contains(&(
+            brain::skill_session::prompt::TOKEN_ENV.to_owned(),
+            "session-token".to_owned()
+        )));
         assert!(!keys.contains(&"BRAIN_INSTANCE_ID"));
         assert!(!keys.contains(&"BRAIN_STATE_DB"));
     }

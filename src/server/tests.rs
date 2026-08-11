@@ -1,6 +1,6 @@
 use super::{
     ReceiverFailureLog, habits_done_path, habits_url, provider_http_status, receiver_failure_log,
-    triage_done_path, url,
+    session_done_path, url,
 };
 
 const FAMILY_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
@@ -40,12 +40,12 @@ fn workspace_urls_carry_the_stable_opaque_ingress() {
         format!("/local/57b162df-983a-45c3-ac7e-bad94eb27a99/w/{FAMILY_ID}/habits/done")
     );
     assert_eq!(
-        triage_done_path(
+        session_done_path(
             ingress,
             crate::server::lifecycle::LeaseId::parse("57b162df-983a-45c3-ac7e-bad94eb27a99")
                 .unwrap()
         ),
-        format!("/local/57b162df-983a-45c3-ac7e-bad94eb27a99/w/{FAMILY_ID}/triage/done")
+        format!("/local/57b162df-983a-45c3-ac7e-bad94eb27a99/w/{FAMILY_ID}/session/done")
     );
 }
 

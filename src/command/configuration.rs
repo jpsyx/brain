@@ -176,7 +176,14 @@ fn env_set_interactive(
     requested: Option<&str>,
 ) -> Result<()> {
     let name = if let Some(name) = requested {
-        crate::settings::normalize_name(name)
+        let name = crate::settings::normalize_name(name);
+        // A JSON array is not something to type at a `Set x = ` prompt, so this
+        // variable has its own add/edit/delete walkthrough. Every field stays
+        // settable with a plain `brain env set skill_sessions '[…]'`.
+        if name == crate::skill_session::ENV_VAR {
+            return crate::skill_session::editor::run(context);
+        }
+        name
     } else {
         let rows = crate::env::resolve_all(context);
         println!(
@@ -205,6 +212,9 @@ fn env_set_interactive(
             .ok_or_else(|| anyhow!("choose a number from 1 to {}", rows.len()))?;
         rows[index - 1].name.clone()
     };
+    if name == crate::skill_session::ENV_VAR {
+        return crate::skill_session::editor::run(context);
+    }
     let prompt = env_value_prompt(&name);
     let Some(value) = (if crate::env::is_sensitive(&name) {
         prompt_masked_line(&prompt)?

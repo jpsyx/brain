@@ -288,3 +288,55 @@ fn an_unknown_default_agent_frontend_is_rejected_with_the_valid_set() {
         .expect("read the default after rejection");
     assert_eq!(String::from_utf8_lossy(&stored.stdout).trim(), "claude");
 }
+
+#[test]
+fn skill_sessions_round_trip_as_an_array_and_per_field_path() {
+    // The CLI half of skill sessions: a human (or an agent) must be able to write
+    // the whole array and then amend one field, and `brain env` must show it.
+    let home = tempfile::tempdir().expect("home tempdir");
+    let config_home = tempfile::tempdir().expect("config tempdir");
+    let env_path = write_env(&config_home);
+    make_ready(&home, &config_home);
+
+    let set = brain_command(&home, &config_home)
+        .args([
+            "env",
+            "set",
+            r#"skill_sessions=[{"title":"Email triage","prompt":"/email-triage","command_label":"Run email triage"}]"#,
+        ])
+        .output()
+        .expect("env set skill_sessions");
+    assert!(
+        set.status.success(),
+        "{}",
+        String::from_utf8_lossy(&set.stderr)
+    );
+
+    let amended = brain_command(&home, &config_home)
+        .args(["env", "set", "skill_sessions.0.prompt=/email-triage --fast"])
+        .output()
+        .expect("env set nested skill session field");
+    assert!(
+        amended.status.success(),
+        "{}",
+        String::from_utf8_lossy(&amended.stderr)
+    );
+
+    let saved: brain::workspace::MachineRegistry =
+        serde_json::from_str(&std::fs::read_to_string(env_path).expect("read env"))
+            .expect("parse registry");
+    let env = &saved.select(None).expect("default workspace").record().env;
+    assert_eq!(env["skill_sessions"][0]["title"], "Email triage");
+    assert_eq!(env["skill_sessions"][0]["prompt"], "/email-triage --fast");
+    assert_eq!(
+        brain::skill_session::available(false, env.get("skill_sessions"))[0].command_label,
+        "Run email triage"
+    );
+
+    let listed = brain_command(&home, &config_home)
+        .args(["env", "list"])
+        .output()
+        .expect("env list");
+    let stdout = String::from_utf8_lossy(&listed.stdout);
+    assert!(stdout.contains("skill_sessions"), "{stdout}");
+}

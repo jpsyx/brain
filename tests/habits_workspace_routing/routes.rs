@@ -55,20 +55,18 @@ fn habits_post_mutates_only_the_workspace_named_by_ingress() {
 }
 
 #[test]
-fn triage_completion_is_recorded_only_for_the_ingress_workspace() {
+fn skill_session_completion_is_recorded_only_for_the_ingress_workspace() {
     let server = ServerFixture::new(FAMILY_ID);
-    let personal_signal =
-        brain::workspace::WorkspacePaths::new(server.home.path(), workspace_id(PERSONAL_ID))
+    let signal_file = |id: &str| {
+        brain::workspace::WorkspacePaths::new(server.home.path(), workspace_id(id))
             .cache_dir()
-            .join("triage-done.json");
-    let family_signal =
-        brain::workspace::WorkspacePaths::new(server.home.path(), workspace_id(FAMILY_ID))
-            .cache_dir()
-            .join("triage-done.json");
+            .join("skill-sessions")
+            .join("family-triage.json")
+    };
 
     let response = server.post(
         &format!(
-            "/local/{}/w/{}/triage/done",
+            "/local/{}/w/{}/session/done",
             server.family_lease, server.family_ingress
         ),
         r#"{"token":"family-triage"}"#,
@@ -76,18 +74,21 @@ fn triage_completion_is_recorded_only_for_the_ingress_workspace() {
 
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     assert_eq!(
-        brain::triage_signal::read_signal(&workspace(
-            server.home.path(),
-            "family",
-            FAMILY_ID,
-            &server.family_root,
-        ))
+        brain::skill_session::signal::read_signal(
+            &workspace(
+                server.home.path(),
+                "family",
+                FAMILY_ID,
+                &server.family_root,
+            ),
+            "family-triage"
+        )
         .expect("family completion signal")
         .token,
         "family-triage"
     );
-    assert!(family_signal.is_file());
-    assert!(!personal_signal.exists());
+    assert!(signal_file(FAMILY_ID).is_file());
+    assert!(!signal_file(PERSONAL_ID).exists());
 }
 
 #[test]
@@ -214,9 +215,9 @@ fn receiver_disabled_live_ingress_still_allows_local_habits_actions() {
         "/local/{}/w/{}/habits",
         server.family_lease, server.family_ingress
     ));
-    let family_triage = server.post(
+    let family_session = server.post(
         &format!(
-            "/local/{}/w/{}/triage/done",
+            "/local/{}/w/{}/session/done",
             server.family_lease, server.family_ingress
         ),
         r#"{"token":"must-not-land"}"#,
@@ -227,7 +228,10 @@ fn receiver_disabled_live_ingress_still_allows_local_habits_actions() {
     ));
 
     assert!(family.starts_with("HTTP/1.1 200"), "{family}");
-    assert!(family_triage.starts_with("HTTP/1.1 200"), "{family_triage}");
+    assert!(
+        family_session.starts_with("HTTP/1.1 200"),
+        "{family_session}"
+    );
     assert!(personal.starts_with("HTTP/1.1 200"), "{personal}");
     assert!(personal.contains("Personal habit"), "{personal}");
 }

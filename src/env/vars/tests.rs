@@ -356,3 +356,47 @@ fn agent_capability_credentials_are_redacted_from_env_list_rows() {
     assert!(!rendered.contains("machine-secret"));
     assert!(!rendered.contains("header-secret"));
 }
+
+#[test]
+fn set_path_addresses_one_element_of_an_env_array() {
+    // `skill_sessions` is an array of objects, so amending one session's prompt
+    // must be a dotted write like any nested object field — and must leave its
+    // siblings, and the entry's other fields, alone.
+    let mut map: Map<String, Value> = serde_json::from_value(serde_json::json!({
+        "skill_sessions": [
+            {"title": "Email triage", "prompt": "/email-triage"},
+            {"title": "Weekly review", "prompt": "/triage weekly"},
+        ]
+    }))
+    .unwrap();
+
+    set_path(
+        &mut map,
+        "skill_sessions.0.prompt",
+        Value::from("/email-triage --fast"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        map["skill_sessions"][0]["prompt"],
+        Value::from("/email-triage --fast")
+    );
+    assert_eq!(map["skill_sessions"][0]["title"], Value::from("Email triage"));
+    assert_eq!(map["skill_sessions"][1]["prompt"], Value::from("/triage weekly"));
+}
+
+#[test]
+fn set_path_refuses_an_array_index_that_does_not_exist() {
+    // Growing a list by writing past its end would silently invent an entry with
+    // no prompt, so an out-of-range index is an error the user can read.
+    let mut map: Map<String, Value> = serde_json::from_value(serde_json::json!({
+        "skill_sessions": [{"prompt": "/email-triage"}]
+    }))
+    .unwrap();
+
+    let error = set_path(&mut map, "skill_sessions.4.prompt", Value::from("/x"))
+        .expect_err("out-of-range index");
+
+    assert!(error.to_string().contains("skill_sessions.4"), "{error}");
+    assert_eq!(map["skill_sessions"].as_array().map(Vec::len), Some(1));
+}

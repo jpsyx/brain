@@ -51,5 +51,5 @@ fn daily_triage_label(state: &PaletteState) -> Option<String> {
         .visible()
         .iter()
         .find(|c| matches!(c.action, PaletteAction::ToggleDailyTriageAlert))
-        .map(|c| state.label_for(c))
+        .map(|row| row.label.clone())
 }

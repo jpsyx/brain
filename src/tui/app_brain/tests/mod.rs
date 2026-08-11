@@ -34,6 +34,6 @@ mod opencode_launch;
 mod opencode_receiver;
 mod receiver;
 mod receiver_sync;
-mod triage;
+mod skill_session;
 
 use fixtures::*;

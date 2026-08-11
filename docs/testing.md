@@ -265,15 +265,30 @@ first move is a failing test that reproduces it, *then* the fix.
   `AgentController` and its App consumers: failed fresh registration prevents
   launch, Enter calls semantic submit and reactivates the scoped store row,
   injected work uses the selected adapter's semantic busy-turn sequence,
-  `Ctrl-N` targets the effective main or triage tab, shutdown fires once, and
+  `Ctrl-N` targets the effective main or skill-session tab, shutdown fires once, and
   agent exit closes only the panel. It also proves half-page scroll targets the
-  visible triage controller and whole-shell teardown explicitly shuts down both
-  controllers. The actual `App::open_triage_tab` path uses
+  visible skill-session controller and whole-shell teardown explicitly shuts down
+  every controller. The actual `App::open_skill_session` path uses
   the selected adapter, includes only ephemeral hook metadata, and creates no
   session row. Prelaunch validation tests prove capability and response
   identity errors happen before a resumable claim and clear the attempted
   response identity. Fallback completion captures the transport snapshot with
   the controller's initiating actor/channel before teardown.
+- **Skill sessions** (`skill_session/`, `tui/app_skill_session.rs`,
+  `tui/app_brain/tests/skill_session.rs`). The pure half is unit-tested directly:
+  what the workspace offers (`available`: the builtin daily triage only while the
+  check is enabled, then the parsed `skill_sessions` entries), what a running
+  session withdraws (`runnable`), how a malformed definition degrades without
+  renumbering its siblings' keys, the tab-strip / `Alt+<digit>` slot resolution
+  (`resolve_active_tab`, `tab_order`, `tab_for_slot`), the interactive editor's
+  routing and list arithmetic, and the signal's parse + close gate (including
+  rejecting a token that isn't safe as a file name, since it arrives in a request
+  body). Recording-transport App tests then prove the wiring: a configured session
+  launches its own prompt (plus the appended completion protocol) under its own
+  tab title, two sessions run as separate tabs and complete independently (only
+  the tab whose token arrives closes, and its start row returns), a declared
+  required output holds a tab open until it exists, and neither a stale signal from
+  a dead shell nor a signal for another tab closes a freshly-opened one.
 - **Receiver dispatch state.** `tui/receiver_state.rs` proves that an idle
   open panel switches to queued receiver work, an active submitted turn waits,
   a same-channel warm panel is reused, a different channel replaces it, and a
@@ -383,14 +398,14 @@ first move is a failing test that reproduces it, *then* the fix.
   The no-first-registration decision uses the same injected-clock boundary.
 - **Opaque-ingress workspace routing.** `server/router.rs` exhaustively proves
   the exact method/component grammar for provider SMS/email and
-  lease-capability local habits/triage endpoints, including query stripping
+  lease-capability local habits/session endpoints, including query stripping
   and rejection of global, malformed, or
   extra-component paths. `tests/server_workspace_routing.rs` injects lease
   instants to prove only a live enabled lease resolves to its revalidated
   workspace context, while disabled, unknown, and known-without-live-TUI routes
   remain distinct. `tests/habits_workspace_routing.rs` drives the
   compiled shared process with two fake live TUIs and distinct manifests. It
-  proves each ingress renders and mutates only its own habits, triage completion
+  proves each ingress renders and mutates only its own habits, skill-session completion
   lands only in the selected UUID cache, unknown routes never fall back or emit
   provider acknowledgements, and disabling or removing one live lease leaves
   its peer routable. Focused sibling modules cover route isolation, body

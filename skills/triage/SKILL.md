@@ -443,12 +443,13 @@ habit done is what tells the tasks view (and the agenda) that daily triage
 is handled for the day, so the modal stops nagging. If you don't mark it,
 the user gets nagged even though triage ran.
 
-3. **If this pass is running as a background triage tab, signal completion.**
-   When the tasks view launches daily triage in its own ephemeral tab it sets
-   two environment variables in this session: `BRAIN_TRIAGE_DONE_URL` (a local
-   brain-server URL) and `BRAIN_TRIAGE_TOKEN` (a one-time token). **Only when
-   both are set**, after the habit is marked done, POST the completion signal so
-   the tasks view auto-closes this triage tab.
+3. **If this pass is running as a background skill-session tab, signal completion.**
+   When the tasks view launches daily triage in its own ephemeral tab it sets two
+   environment variables in this session: `BRAIN_SESSION_DONE_URL` (a local
+   brain-server URL) and `BRAIN_SESSION_TOKEN` (a one-time token), and the prompt
+   you were launched with already spells out the POST. **Only when both variables
+   are set**, after the habit is marked done, send that completion signal so the
+   tasks view auto-closes this tab.
 
    **The signal carries a `require` list — the paths of every output this run
    committed to producing that must exist before the tab may close.** Core
@@ -470,9 +471,9 @@ the user gets nagged even though triage ran.
    Then POST, substituting the required-output paths as a JSON string array (use
    `[]` when there are none):
    ```
-   [ -n "$BRAIN_TRIAGE_DONE_URL" ] && curl -fsS -X POST "$BRAIN_TRIAGE_DONE_URL" \
+   [ -n "$BRAIN_SESSION_DONE_URL" ] && curl -fsS -X POST "$BRAIN_SESSION_DONE_URL" \
      -H 'Content-Type: application/json' \
-     -d "{\"token\": \"$BRAIN_TRIAGE_TOKEN\", \"require\": [<required-output paths, or empty>]}" \
+     -d "{\"token\": \"$BRAIN_SESSION_TOKEN\", \"require\": [<required-output paths, or empty>]}" \
      >/dev/null || true
    ```
    Do this as the very last action of the pass: once every required output

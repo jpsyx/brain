@@ -254,30 +254,30 @@ fn env_carries_instance_pid_and_db_path() {
 }
 
 #[test]
-fn triage_env_carries_done_url_and_token() {
-    let env = env_for_triage(
+fn skill_session_env_carries_done_url_and_token() {
+    let env = env_for_skill_session(
         &workspace(),
         &actor(),
         AgentKind::Claude,
-        "http://127.0.0.1:8787/triage/done",
+        "http://127.0.0.1:8787/session/done",
         "tok-9",
     );
     assert!(env.contains(&(
-        "BRAIN_TRIAGE_DONE_URL".to_owned(),
-        "http://127.0.0.1:8787/triage/done".to_owned()
+        "BRAIN_SESSION_DONE_URL".to_owned(),
+        "http://127.0.0.1:8787/session/done".to_owned()
     )));
-    assert!(env.contains(&("BRAIN_TRIAGE_TOKEN".to_owned(), "tok-9".to_owned())));
+    assert!(env.contains(&("BRAIN_SESSION_TOKEN".to_owned(), "tok-9".to_owned())));
 }
 
 #[test]
-fn triage_env_omits_the_tracking_vars_so_the_session_stays_ephemeral() {
+fn skill_session_env_omits_the_tracking_vars_so_the_session_stays_ephemeral() {
     // The SessionStart hook keys off BRAIN_INSTANCE_ID / BRAIN_STATE_DB;
-    // their absence is exactly what keeps the triage session out of the DB.
-    let env = env_for_triage(
+    // their absence is exactly what keeps a skill session out of the DB.
+    let env = env_for_skill_session(
         &workspace(),
         &actor(),
         AgentKind::Claude,
-        "http://127.0.0.1:8787/triage/done",
+        "http://127.0.0.1:8787/session/done",
         "tok-9",
     );
     let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
@@ -286,19 +286,19 @@ fn triage_env_omits_the_tracking_vars_so_the_session_stays_ephemeral() {
 }
 
 #[test]
-fn triage_env_stays_ephemeral_for_each_frontend() {
+fn skill_session_env_stays_ephemeral_for_each_frontend() {
     for (agent, expected_kind) in [(AgentKind::Claude, "claude"), (AgentKind::Codex, "codex")] {
-        let env = env_for_triage(
+        let env = env_for_skill_session(
             &workspace(),
             &actor(),
             agent,
-            "http://127.0.0.1:8787/triage/done",
+            "http://127.0.0.1:8787/session/done",
             "tok-9",
         );
         let keys: Vec<&str> = env.iter().map(|(key, _)| key.as_str()).collect();
 
         assert!(env.contains(&("BRAIN_AGENT_KIND".to_owned(), expected_kind.to_owned())));
-        assert!(env.contains(&("BRAIN_TRIAGE_TOKEN".to_owned(), "tok-9".to_owned())));
+        assert!(env.contains(&("BRAIN_SESSION_TOKEN".to_owned(), "tok-9".to_owned())));
         assert!(!keys.contains(&"BRAIN_INSTANCE_ID"));
         assert!(!keys.contains(&"BRAIN_STATE_DB"));
     }

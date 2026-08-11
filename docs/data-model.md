@@ -198,7 +198,7 @@ back to a known historical ingress or another workspace's lease.
 The public route identity is a typed portable `IngressId`, never a canonical
 name, root, default selection, or query parameter. Every accepted path has the
 provider shape `/w/<ingress>/{sms,email}` or local capability shape
-`/local/<lease>/w/<ingress>/{habits,habits/done,triage/done}`. A local route
+`/local/<lease>/w/<ingress>/{habits,habits/done,session/done}`. A local route
 accepts the live lease's own ID, plus the single capability that lease
 inherited when it superseded a browser-only background lease for the same
 workspace; the inherited capability is dropped with the lease that holds it.
@@ -922,47 +922,73 @@ bridge frees the instance's others on every start, handling `/new`). The
 `PanelSide` enum (`Left` / `Right`, default `Right`) lives in `state.rs`
 because it's the persisted layout value.
 
-**The daily-triage tab is deliberately *absent* from this table.** The
-ephemeral triage session (`App.triage_brain`) is launched by an
-`AgentController` from a fresh `LaunchRequest`. Its hook metadata carries the
-triage done URL and token but no `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, or
-`BRAIN_RESPONSE_ID`. The session-start bridge no-ops without the tracking values,
-so no `brain_sessions` row is ever written and it is never a resume candidate.
-It lives only in process memory (`App.triage_brain` /
-`App.active_brain_tab: BrainTab` / `App.triage_token`) and is torn down when
-triage completes or the shell exits.
+**Skill-session tabs are deliberately *absent* from this table.** Each ephemeral
+skill session (`App.skill_sessions`) is launched by an `AgentController` from a
+fresh `LaunchRequest`. Its hook metadata carries the session-done URL and token
+but no `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, or `BRAIN_RESPONSE_ID`. The
+session-start bridge no-ops without the tracking values, so no `brain_sessions`
+row is ever written and it is never a resume candidate. A tab lives only in
+process memory (`App.skill_sessions: Vec<SkillSessionTab>` — its `SessionTabId`,
+`SkillSessionKey`, tab title, completion token, and controller — plus
+`App.active_brain_tab: BrainTab`) and is torn down when its run completes or the
+shell exits.
 
-Both main and triage values are `AgentController` instances, not raw PTYs.
+Both main and skill-session values are `AgentController` instances, not raw PTYs.
 Their shared semantic API owns launch, input, session, completion, terminal,
 and shutdown behavior; only frontend adapters translate those operations.
-Whole-shell teardown explicitly shuts down both controllers before releasing
+Whole-shell teardown explicitly shuts down every controller before releasing
 the session-store lock.
 
-## Daily-triage completion signal (`triage_signal.rs`, `<workspace-cache>/triage-done.json`)
+## Skill sessions (`skill_session/`, `skill_sessions` env)
 
-The cross-process signal that closes the daily-triage tab. When the `/triage`
-skill finishes a background pass it POSTs
-`{"token": "<one-time-token>", "require": ["<path>", …]}` to the brain server's
-`POST /local/<exact-live-lease>/w/<selected-ingress>/triage/done`; after live-lease and manifest
-resolution, the handler writes to only that workspace's UUID-scoped cache:
+A workspace's own skill sessions live in its machine-local env record as
+`skill_sessions`, a JSON array of objects:
+
+```json
+"skill_sessions": [
+  { "title": "Email triage", "prompt": "/email-triage", "command_label": "Run email triage" }
+]
+```
+
+`prompt` is the only required field — an entry without one is not a session and is
+dropped. `title` defaults to the prompt; `command_label` defaults to
+`Run <title>`. A dropped entry does **not** renumber its siblings: a session's
+identity is `SkillSessionKey::Custom(<index in the raw array>)`, so fixing a
+malformed neighbor can never silently repoint a palette row at a different
+session. The builtin daily triage is `SkillSessionKey::DailyTriage`, is not stored
+here, and is offered only while the workspace's daily-triage check is enabled.
+Parsing (`skill_session::parse_configured`) and offering
+(`available` / `runnable`) are pure.
+
+## Skill-session completion signal (`skill_session/signal.rs`, `<workspace-cache>/skill-sessions/<token>.json`)
+
+The cross-process signal that closes a skill-session tab. When a run finishes it
+POSTs `{"token": "<one-time-token>", "require": ["<path>", …]}` to the brain
+server's `POST /local/<exact-live-lease>/w/<selected-ingress>/session/done`; after
+live-lease and manifest resolution, the handler writes to only that workspace's
+UUID-scoped cache, one file per token:
 
 ```json
 { "token": "<one-time-token>", "require": ["/abs/path/one", "/abs/path/two"], "at": 1730000000 }
 ```
 
-`token` is the value brain handed the session in `BRAIN_TRIAGE_TOKEN`; `at` is
-an epoch-seconds diagnostic. `require` is the set of **output paths this run
-declared must exist before the tab may close** — the fix for a premature signal
-closing the tab before the run's outputs were written. **Core declares none**,
-so `require` is empty unless an extension rendered into the skill contributed a
-path (at the `triage:daily-required-outputs` hook); `triage_signal.rs` and the
-TUI stay completely ignorant of *what* the paths are. The TUI polls this file
-each tick and closes the triage tab only when `token` equals the token of the
-tab it opened **and** every path in `require` exists on disk (an empty list
-closes immediately, so a fork with no extensions behaves as before); a stale
-signal from an earlier run cannot close a fresh tab. `parse_signal` and
-`ready_to_close` are pure; the file IO (`record_done` / `read_signal` / `clear`)
-is a thin shell around them.
+`token` is the value brain handed the session in `BRAIN_SESSION_TOKEN`; it must be
+safe as a file name (alphanumerics, `-`, `_`; brain issues UUIDs) or the POST is a
+400, since the value arrives in a request body. `at` is an epoch-seconds
+diagnostic. `require` is the set of **output paths this run declared must exist
+before its tab may close** — the fix for a premature signal closing a tab before
+the run's outputs were written. **Core declares none**, so `require` is empty
+unless the run was told otherwise (for daily triage, by an extension rendered in
+at the `triage:daily-required-outputs` hook); `signal.rs` and the TUI stay
+completely ignorant of *what* the paths are. The TUI polls each open tab's own
+token each tick and closes that tab only when its signal arrives **and** every
+path in `require` exists on disk (an empty list closes immediately, so a fork with
+no extensions behaves as before). One file per token is what lets several sessions
+run concurrently without one's completion closing another's tab; a stale signal
+from an earlier run cannot close a fresh tab, and the shell clears every pending
+signal at startup. `parse_signal` and `ready_to_close` are pure; the file IO
+(`record_done` / `read_signal` / `clear` / `clear_all`) is a thin shell around
+them.
 
 ## Personalization (`personalization/`, `<brain-root>/.config/personalization.json`)
 

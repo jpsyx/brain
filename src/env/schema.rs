@@ -34,7 +34,7 @@ pub(super) use crate::agent::{
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 14] = [
+pub(super) const VARS: [VarSpec; 15] = [
     VarSpec {
         name: "root",
         description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",
@@ -74,6 +74,12 @@ pub(super) const VARS: [VarSpec; 14] = [
     VarSpec {
         name: "agent_capabilities",
         description: "Selected workspace's machine-local MCP connections, executable paths, skill paths, and credentials. Portable config stores only logical allowlists.",
+        default: None,
+        legacy_config_fallback: false,
+    },
+    VarSpec {
+        name: "skill_sessions",
+        description: "Skill sessions this machine offers in the tasks-view command palette: a JSON array of {title, prompt, command_label}. Each runs its prompt in its own brain-panel tab and closes when the run signals completion. Daily triage is builtin and is not listed here.",
         default: None,
         legacy_config_fallback: false,
     },

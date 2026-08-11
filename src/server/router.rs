@@ -23,9 +23,9 @@ pub enum Route {
     Sms { ingress: IngressId },
     /// `POST /w/<ingress>/email`: receive an authenticated Resend webhook.
     Email { ingress: IngressId },
-    /// `POST /local/<lease>/w/<ingress>/triage/done`: report a workspace's
-    /// ephemeral daily-triage session complete.
-    TriageDone {
+    /// `POST /local/<lease>/w/<ingress>/session/done`: report one of a
+    /// workspace's ephemeral skill sessions complete.
+    SkillSessionDone {
         ingress: IngressId,
         capability: crate::server::lifecycle::LeaseId,
     },
@@ -91,7 +91,7 @@ fn local_route(method: &str, path: &str) -> Option<Route> {
             ingress,
             capability,
         }),
-        ("POST", "triage", ["done"]) => Some(Route::TriageDone {
+        ("POST", "session", ["done"]) => Some(Route::SkillSessionDone {
             ingress,
             capability,
         }),
@@ -153,8 +153,8 @@ mod tests {
             ),
             (
                 "POST",
-                "triage/done",
-                Route::TriageDone {
+                "session/done",
+                Route::SkillSessionDone {
                     ingress: ingress(),
                     capability,
                 },
@@ -167,7 +167,7 @@ mod tests {
         for (method, path) in [
             ("GET", format!("/w/{INGRESS}/habits")),
             ("POST", format!("/w/{INGRESS}/habits/done")),
-            ("POST", format!("/w/{INGRESS}/triage/done")),
+            ("POST", format!("/w/{INGRESS}/session/done")),
         ] {
             assert_eq!(route(method, &path), Route::NotFound, "{method} {path}");
         }
@@ -186,7 +186,7 @@ mod tests {
         for (method, path) in [
             ("GET", "/habits"),
             ("POST", "/habits/done"),
-            ("POST", "/triage/done"),
+            ("POST", "/session/done"),
             ("POST", "/sms"),
             ("POST", "/email"),
             ("GET", "/w/habits"),
