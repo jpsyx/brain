@@ -179,6 +179,9 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
             std::env::var_os("BRAIN_WORKSPACE_ID").as_deref(),
             command_context.workspace.id(),
         )?;
+        if should_migrate_global_skills(invocation_for(cli)) {
+            crate::skills::migrate_global_skills_for_all_workspaces(None);
+        }
         if should_resync_skills(invocation_for(cli)) {
             crate::skills::resync_on_version_change(&command_context.workspace);
         }
@@ -268,7 +271,11 @@ fn enforce_strict_selector(cli: &crate::cli::Cli) -> Result<()> {
 }
 
 const fn should_resync_skills(invocation: Invocation) -> bool {
-    !matches!(invocation, Invocation::WorkspaceMigrate)
+    !matches!(invocation, Invocation::WorkspaceMigrate | Invocation::Tui)
+}
+
+pub(crate) const fn should_migrate_global_skills(invocation: Invocation) -> bool {
+    !matches!(invocation, Invocation::WorkspaceMigrate | Invocation::Tui)
 }
 
 pub(super) fn validate_expected_workspace_id(

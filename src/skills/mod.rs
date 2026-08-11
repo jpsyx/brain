@@ -77,6 +77,124 @@ pub fn resync_skills(workspace: &crate::workspace::WorkspaceContext) {
     }
 }
 
+/// Synchronize workspace skills once before the interactive TUI can launch an
+/// agent panel. This is deliberately best-effort so a malformed user skill
+/// cannot prevent the shell from opening.
+pub fn sync_for_startup(workspace: &crate::workspace::WorkspaceContext) {
+    let layout = layout::Layout::real(workspace.root());
+    let sources = real_sources(workspace);
+    eprintln!(
+        "{}",
+        command::format_sync_plan(&layout, &sources, crate::theme::Theme::active())
+    );
+    crate::logging::log("skills startup sync start");
+    match install::sync(&layout, &sources) {
+        Ok(report) => {
+            record_synced_version(workspace, current_version());
+            crate::logging::log(format!(
+                "skills startup sync complete: {} skill(s)",
+                report.installed.len()
+            ));
+        }
+        Err(error) => crate::logging::log(format!("skills startup sync failed: {error:#}")),
+    }
+}
+
+/// Migrate the project-scoped core skills for every registered workspace.
+///
+/// Older Brain releases rendered these skills into machine-global locations.
+/// The migration deliberately renders the embedded core set rather than copying
+/// global symlinks, then lets the normal installer discover each workspace's
+/// user-authored skills. `skip_root` is used by startup callers because the
+/// selected workspace is synced immediately afterward (and receives its normal
+/// per-workspace version stamp).
+pub fn migrate_global_skills_for_all_workspaces(
+    skip_root: Option<&std::path::Path>,
+) {
+    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+        crate::logging::log("skills global migration skipped: HOME is not set");
+        return;
+    };
+    let marker = home.join(".cache/brain/skills-migration-version");
+    let stamped = std::fs::read_to_string(&marker).ok();
+    if !needs_global_migration(stamped.as_deref().map(str::trim), current_version()) {
+        return;
+    }
+    let store = crate::workspace::RegistryStore::real();
+    let registry = match crate::workspace::registry::RegistryStore::load_readable(store.path()) {
+        Ok(registry) => registry,
+        Err(error) => {
+            crate::logging::log(format!("skills global migration skipped: {error}"));
+            return;
+        }
+    };
+    let legacy_count = embed::bundled_skills()
+        .iter()
+        .filter(|skill| legacy_global_skill_exists(&home, &skill.name))
+        .count();
+    crate::logging::log(format!(
+        "skills global migration start: {} legacy core skill(s), {} workspace(s)",
+        legacy_count,
+        registry.workspaces.len()
+    ));
+
+    let mut failed = false;
+    for record in registry.workspaces.values() {
+        if skip_root.is_some_and(|root| same_path(root, &record.root)) {
+            continue;
+        }
+        let layout = layout::Layout::real(&record.root);
+        let sources = install::Sources {
+            extensions_dir: Some(record.root.join(".config/extensions")),
+            plugins_dir: Some(record.root.join(".config/plugins")),
+        };
+        if let Err(error) = install::sync(&layout, &sources) {
+            failed = true;
+            crate::logging::log(format!(
+                "skills global migration failed for {}: {error:#}",
+                record.root.display()
+            ));
+        }
+    }
+    if failed {
+        return;
+    }
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(error) = std::fs::write(&marker, current_version()) {
+        crate::logging::log(format!("skills global migration marker failed: {error}"));
+    } else {
+        crate::logging::log("skills global migration complete");
+    }
+}
+
+#[must_use]
+pub fn needs_global_migration(stamped: Option<&str>, current: &str) -> bool {
+    stamped != Some(current)
+}
+
+fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    let canonical_left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
+    let canonical_right = right
+        .canonicalize()
+        .unwrap_or_else(|_| right.to_path_buf());
+    canonical_left == canonical_right
+}
+
+fn legacy_global_skill_exists(home: &std::path::Path, name: &str) -> bool {
+    [
+        home.join(".agents/skills"),
+        home.join(".local/share/brain/skills"),
+        home.join(".claude/skills"),
+        home.join(".codex/skills"),
+        home.join(".config/opencode/skills"),
+    ]
+    .iter()
+    .map(|root| root.join(name).join("SKILL.md"))
+    .any(|skill| skill.is_file())
+}
+
 /// Re-render + install the bundled skills once, the first time a *new* brain
 /// binary runs against this workspace.
 ///
@@ -84,7 +202,7 @@ pub fn resync_skills(workspace: &crate::workspace::WorkspaceContext) {
 /// per-workspace render stamp and, when they differ, runs the same pipeline
 /// `brain skills sync` does, then re-stamps.
 ///
-/// Called from bootstrap for every ready-workspace invocation (i.e. any command
+/// Called from bootstrap for every ready non-TUI invocation (i.e. any command
 /// that resolves a workspace — not `--help` / `--version`, not the internal
 /// hook/server, not skills-only maintenance). Gated by `skills_auto_sync`
 /// (default true) so a user can opt out and manage workspace skills only via
@@ -235,5 +353,12 @@ mod tests {
         let plan =
             super::format_version_resync_plan(None, "0.18.0", crate::theme::Theme::dark(false));
         assert!(plan.contains("0.18.0"), "{plan}");
+    }
+
+    #[test]
+    fn global_migration_runs_only_when_the_version_marker_is_stale() {
+        assert!(super::needs_global_migration(None, "0.58.0"));
+        assert!(super::needs_global_migration(Some("0.57.0"), "0.58.0"));
+        assert!(!super::needs_global_migration(Some("0.58.0"), "0.58.0"));
     }
 }

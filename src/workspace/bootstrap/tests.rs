@@ -6,13 +6,18 @@ use serde_json::Map;
 
 use super::{
     BootstrapContext, InteractionMode, RegistryOnlyPromptOrder, bootstrap_with_io_and_hook,
-    registry_only_bootstrap_with, registry_only_prompt_order, should_resync_skills,
+    registry_only_bootstrap_with, registry_only_prompt_order, should_migrate_global_skills,
+    should_resync_skills,
 };
 
 #[test]
 fn migration_bootstrap_defers_skill_writes_until_after_rollout_preflight() {
     assert!(!should_resync_skills(Invocation::WorkspaceMigrate));
+    assert!(!should_resync_skills(Invocation::Tui));
     assert!(should_resync_skills(Invocation::Tasks));
+    assert!(!should_migrate_global_skills(Invocation::WorkspaceMigrate));
+    assert!(!should_migrate_global_skills(Invocation::Tui));
+    assert!(should_migrate_global_skills(Invocation::Tasks));
 }
 use crate::cli::try_parse_from;
 use crate::workspace::{

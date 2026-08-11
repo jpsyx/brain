@@ -297,6 +297,11 @@ management and reporting commands stay outside the persistent shell.
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
 | `brain skills sync [--root <dir>]` | Render + install bundled skills into the selected brain root's `.agents/skills`, then link them into that root's `.claude/skills`, `.codex/skills`, and `.opencode/skills`. `--root` selects a sandbox workspace (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
+
+After a Brain version update, the first ordinary invocation migrates the core
+skills into every registered workspace, even when legacy global skill copies
+still exist. Old global files are retained; TUI startup syncs the selected root
+before opening the brain panel.
 | `brain server {status\|logs}` | Inspect the shared process without starting, stopping, or repairing it (see below). |
 | `brain killall` | Stop every running Brain shared server and TUI process on this machine, including receiver-serving server processes. |
 | `brain habits` | Open today's habits page. Always available: it reuses whatever is already serving (an open TUI's shared server, or an earlier background one) and elects a background server only when nothing is running. A workspace with no route yet registers a background lease of its own, so `brain habits -w family` works while a `brain` TUI is open. |

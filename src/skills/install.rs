@@ -66,6 +66,15 @@ pub fn sync(layout: &Layout, sources: &Sources) -> Result<Report> {
         }
         installed.push(skill.name.clone());
     }
+    let mut workspace_skills = plugin::discover_names(&layout.agents_dir);
+    workspace_skills.retain(|name| !installed.iter().any(|installed| installed == name));
+    for name in workspace_skills {
+        crate::logging::log(format!("skills link workspace skill {name}"));
+        for link in link_ops(&name, layout) {
+            create_symlink(&link)?;
+        }
+        installed.push(name);
+    }
     Ok(Report { installed })
 }
 
@@ -239,6 +248,28 @@ mod tests {
             .join("my-plugin")
             .join("SKILL.md")
             .is_file());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sync_preserves_and_links_user_skills_already_in_agents_directory() {
+        let root = sandbox();
+        let user_skill = root.join(".agents/skills/my-skill");
+        fs::create_dir_all(&user_skill).unwrap();
+        fs::write(user_skill.join("SKILL.md"), "# user skill").unwrap();
+
+        let layout = Layout::under_root(&root);
+        let report = sync(&layout, &Sources::default()).unwrap();
+
+        assert!(report.installed.iter().any(|name| name == "my-skill"));
+        assert_eq!(
+            fs::read_link(root.join(".claude/skills/my-skill")).unwrap(),
+            user_skill
+        );
+        assert_eq!(
+            fs::read_to_string(user_skill.join("SKILL.md")).unwrap(),
+            "# user skill"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 

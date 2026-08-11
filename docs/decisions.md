@@ -1510,6 +1510,12 @@ or any other machine-global frontend registry. This keeps skills aligned with
 the selected workspace and prevents one brain workspace from changing another
 project's agent behavior. The link targets are a pure function
 (`layout::link_ops`), unit-tested; the filesystem shell (`install`) stays thin.
+The sync also discovers valid user-authored skill directories already under
+`.agents/skills` and links them without rewriting their contents. A new-version
+migration pass renders the embedded core set into every registered workspace,
+detecting legacy global locations for observability while leaving those old
+files untouched. TUI startup excludes its selected root from that pass because
+the normal startup sync handles it immediately afterward.
 
 ## Why skill auto-sync had a rollout gate (historical; default now on)
 

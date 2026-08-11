@@ -115,6 +115,12 @@ pub fn run_tui(
         &command_context.workspace,
         crate::command::server::refresh_agent_hooks,
     )?;
+    crate::skills::migrate_global_skills_for_all_workspaces(Some(
+        command_context.workspace.root(),
+    ));
+    // Reconcile embedded and user-authored project skills once, before any
+    // app action can launch the brain panel's agent frontend.
+    crate::skills::sync_for_startup(&command_context.workspace);
     let job_socket = crate::tui::singleton::JobSocket::bind(&command_context.workspace)?;
     let mut server_lease = register_server_lease(command_context)?;
     let assignment = crate::tasks::task::assignment_context_for_workspace(

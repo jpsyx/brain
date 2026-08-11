@@ -566,6 +566,13 @@ explicit `brain skills sync`. The pipeline never writes the user's global agent
 registry or global frontend skill directories. See
 the B spec under `docs/superpowers/specs/`.
 
+On the first ordinary invocation of a new Brain version, bootstrap also checks
+legacy global core-skill locations and renders the embedded core set into every
+registered workspace. The pass is version-marked in the machine cache,
+continues past individual workspace failures, and does not delete old global
+files. TUI startup excludes the selected root because its normal startup sync
+handles that root immediately before the brain panel launches.
+
 **Version-stamped auto-resync.** So a version bump ships its *skill* changes the
 way it ships *code* changes (immediately, no manual step), `bootstrap` calls
 `skills::resync_on_version_change()` for every ready-workspace invocation. It
