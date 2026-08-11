@@ -156,6 +156,14 @@ pub(crate) fn initialize_workspace_directory(
         has_synced_before(workspace),
         local_is_empty,
     );
+    // Portable identity has to exist before the first sync, because the sync's
+    // identity gate reads it. Adopt the remote's manifest rather than minting
+    // one: `WorkspaceManifest::new` issues a fresh `receiver_ingress_id`, and the
+    // manifest is excluded from bisync, so a locally minted one would fork
+    // portable identity permanently. Only a remote with no manifest of its own
+    // falls back to the registry UUID.
+    resolve_portable_identity(workspace, &config)?;
+
     if let (Some(direction), Some(command)) = (direction, command.as_ref()) {
         eprintln!(
             "{}",
@@ -171,21 +179,6 @@ pub(crate) fn initialize_workspace_directory(
                 workspace.name().as_str()
             );
         }
-    }
-
-    // The portable manifest is pure identity Brain already knows: the record
-    // carries the workspace UUID, so a machine joining an unsynced workspace
-    // does not need to be sent to `brain workspace repair --manifest` for it.
-    // Written only when absent, so a manifest that just arrived over sync — the
-    // authoritative one — is never replaced.
-    let manifest_path = super::WorkspaceManifest::path(root);
-    if !manifest_path.exists() {
-        std::fs::create_dir_all(root.join(".config"))?;
-        super::WorkspaceManifest::new(workspace.id())
-            .write_new(root)
-            .with_context(|| {
-                format!("write the portable manifest at {}", manifest_path.display())
-            })?;
     }
 
     // Every schema decision reads `tasks/SCHEMA.json`, so a workspace without
@@ -214,6 +207,43 @@ pub(crate) fn initialize_workspace_directory(
             "workspace initialization completed locally, but the configured sync push did not complete"
         );
     }
+    Ok(())
+}
+
+/// Give this machine the workspace's portable manifest before anything reads it.
+///
+/// A configured remote that already carries one is the authority: adopting it
+/// keeps `receiver_ingress_id` identical across machines, which minting cannot
+/// do and which bisync will never repair, since the manifest is excluded from
+/// it. The registry UUID is the fallback only when no remote manifest exists.
+fn resolve_portable_identity(
+    workspace: &WorkspaceContext,
+    config: &crate::sync::config::SyncConfig,
+) -> Result<()> {
+    let root = workspace.root();
+    let manifest_path = super::WorkspaceManifest::path(root);
+    if manifest_path.exists() {
+        return Ok(());
+    }
+    if config.is_configured() {
+        let remote = crate::sync::remote::build_remote(config);
+        let adoption =
+            crate::sync::identity::adopt_remote_manifest(root, workspace.id(), &remote)?;
+        if adoption == crate::sync::identity::ManifestAdoption::Adopted {
+            eprintln!(
+                "{}",
+                crate::theme::Theme::active().success(&format!(
+                    "Adopted {}'s portable identity from the remote",
+                    workspace.name().as_str()
+                ))
+            );
+            return Ok(());
+        }
+    }
+    std::fs::create_dir_all(root.join(".config"))?;
+    super::WorkspaceManifest::new(workspace.id())
+        .write_new(root)
+        .with_context(|| format!("write the portable manifest at {}", manifest_path.display()))?;
     Ok(())
 }
 

@@ -438,6 +438,12 @@ delegated task values.
   incomplete rather than guessed as unrestricted. The **task schema** row
   reports whether the workspace declares `tasks/SCHEMA.json`; a workspace
   without it cannot sync, so it renders `incomplete` instead of `ready`.
+- A machine opening a workspace it has never had, whose remote is already synced,
+  **adopts that workspace's portable identity from the remote** and says so
+  (`Adopted <name>'s portable identity from the remote`) before its first sync. A
+  remote owned by a different workspace UUID is refused without writing anything.
+  A remote with no manifest falls back to minting from the registry UUID, which
+  is the genuinely-new-workspace case.
 - Every workspace is seeded with the canonical `tasks/SCHEMA.json` when it has
   none, on both the empty-workspace and ordinary root-initialization paths, so a
   workspace created before Brain shipped the document repairs itself on the next

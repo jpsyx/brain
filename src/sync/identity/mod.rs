@@ -6,9 +6,12 @@ use std::path::Path;
 use crate::sync::remote::Remote;
 use crate::workspace::{ManifestError, WorkspaceId, WorkspaceManifest};
 
+mod adopt;
 mod claim;
+mod read;
 mod remote_command;
 
+pub use adopt::{ManifestAdoption, adopt_remote_manifest};
 use remote_command::run_remote_command;
 
 const REMOTE_MANIFEST: &str = ".config/workspace.json";
@@ -155,8 +158,15 @@ pub(crate) fn validate_local_manifest(
     root: &Path,
     expected_id: WorkspaceId,
 ) -> Result<WorkspaceManifest> {
-    let manifest = WorkspaceManifest::load(root, env!("CARGO_PKG_VERSION"))
-        .context("validate local workspace manifest")?;
+    // Fold the cause into the message rather than leaving it in the chain: the
+    // renderer prints only the outermost Display, so a bare "validate local
+    // workspace manifest" told the user nothing — not that a file was missing,
+    // not which one, not that the Brain version was too old. The typed error
+    // stays attached as the source.
+    let manifest = WorkspaceManifest::load(root, env!("CARGO_PKG_VERSION")).map_err(|error| {
+        let message = format!("validate local workspace manifest: {error}");
+        anyhow::Error::new(error).context(message)
+    })?;
     if manifest.workspace_id() != expected_id {
         bail!(
             "selected workspace UUID {expected_id} does not match local manifest UUID {}",

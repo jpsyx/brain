@@ -5,6 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 
 use super::RemoteCommandOutput;
+use super::read::{RemoteRead, read_remote_file};
 use crate::sync::remote::Remote;
 use crate::workspace::{WorkspaceId, WorkspaceManifest};
 
@@ -65,7 +66,7 @@ fn ensure_claim(
     expected: &[u8],
     run: &mut impl FnMut(&[(String, String)], &[String]) -> RemoteCommandOutput,
 ) -> Result<bool> {
-    if let ClaimRead::Present(existing) = read_claim(env, remote_claim, run) {
+    if let RemoteRead::Present(existing) = read_remote_file(env, remote_claim, run) {
         exact_claim(expected, &existing)?;
         return Ok(true);
     }
@@ -79,9 +80,9 @@ fn ensure_claim(
             "--immutable".to_owned(),
         ],
     );
-    let readback = match read_claim(env, remote_claim, run) {
-        ClaimRead::Present(bytes) => bytes,
-        ClaimRead::Absent { stderr } => {
+    let readback = match read_remote_file(env, remote_claim, run) {
+        RemoteRead::Present(bytes) => bytes,
+        RemoteRead::Absent { stderr } => {
             let publication = published.stderr.trim();
             let verification = stderr.trim();
             bail!(
@@ -91,32 +92,6 @@ fn ensure_claim(
     };
     exact_claim(expected, &readback)?;
     Ok(false)
-}
-
-enum ClaimRead {
-    Present(Vec<u8>),
-    Absent { stderr: String },
-}
-
-/// A successful read of *nothing* is not a claim. `rclone cat` of a missing
-/// object exits 0 with empty output on some backends (B2 among them), so
-/// trusting the exit status alone made a pristine remote look like it already
-/// carried somebody else's claim, and setup refused the very first run that
-/// would have created one. Only real bytes claim anything — the same reading
-/// `probe_remote_identity_with` applies to the canonical manifest.
-fn read_claim(
-    env: &[(String, String)],
-    remote_claim: &str,
-    run: &mut impl FnMut(&[(String, String)], &[String]) -> RemoteCommandOutput,
-) -> ClaimRead {
-    let output = run(env, &["cat".to_owned(), remote_claim.to_owned()]);
-    if output.success && !output.stdout.iter().all(u8::is_ascii_whitespace) {
-        ClaimRead::Present(output.stdout)
-    } else {
-        ClaimRead::Absent {
-            stderr: output.stderr,
-        }
-    }
 }
 
 fn exact_claim(expected: &[u8], observed: &[u8]) -> Result<()> {

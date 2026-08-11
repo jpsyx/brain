@@ -2980,6 +2980,49 @@ models a missing object as an error hides exactly this class of bug, which is
 why the identity test doubles now return exit 0 with empty output for a missing
 object, matching B2.
 
+## A joining machine must adopt portable identity, never mint it
+
+A second machine with the same registry could not open a synced workspace at all.
+It created the root, ran the startup sync, and died on `validate local workspace
+manifest`, because the sync's identity gate reads `<root>/.config/workspace.json`
+and root initialization wrote that file *after* the sync. The step that creates
+the identity ran after the step that refuses to run without it.
+
+Reordering alone would have been wrong, and quietly so. `WorkspaceManifest::new`
+issues a **fresh `receiver_ingress_id`**, and `.config/workspace.json` is the
+first entry in the bisync exclude list — "the separately identity-gated portable
+workspace manifest". So a locally minted manifest carries a different receiver
+ingress identity from its peers for the same workspace, and the one file that
+could correct it is the one file bisync never touches. It would have looked like
+success and forked portable identity permanently.
+
+Every other identity write publishes local → remote; nothing ever brought the
+manifest *down*. `src/sync/identity/adopt.rs` adds that missing direction:
+when the root has no manifest and sync is configured, Brain reads the remote's
+manifest, refuses it unless its `workspace_id` matches the registry's, and writes
+it locally, preserving `receiver_ingress_id`. Minting from the registry UUID
+survives only as the fallback for a remote that has no manifest either, which is
+a genuinely new workspace. Identity is now resolved *before* the first sync.
+
+`tests/root_creation.rs` had covered a machine joining a workspace registered
+elsewhere, but its own comment scoped it: "With no sync configured, setup falls
+back to seeding PARA and the CSVs." The unsynced case, the one that never needed
+to adopt anything, was the only one tested.
+
+**Reading a remote file has one rule, in one place.** This was the third lane to
+re-derive "success plus no bytes means absent" (`src/sync/identity/read.rs` now
+owns it, and the claim lane delegates). The manifest probe learned it, the
+ownership claim learned it separately and got it wrong, and adoption would have
+been next.
+
+**The failure also has to say what failed.** `validate_local_manifest` wrapped a
+perfectly descriptive `ManifestError` in a `context` string, and the workspace
+renderer prints only the outermost `Display`, so the user saw four words. Folding
+the cause into the message — rather than switching the renderer to `{:#}` — was
+the right fix: the renderer's curated top-level messages are deliberate, and a
+blanket `{:#}` appended internal cause text to authored messages like the
+manual-cleanup warning, which a test correctly caught.
+
 ## Nothing created the file every schema decision requires
 
 `initialize_if_empty` seeded a new workspace's PARA tree, both task CSVs, both

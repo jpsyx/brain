@@ -1011,6 +1011,16 @@ brain-root lookup.
   Existing local manifest bytes are validation input, never rewritten by setup
   or transfer, and cross-workspace adoption is not implicit. Bisync workdir
   creation and stale-lock reaping happen only after this identity gate.
+  Because that gate *reads* the local manifest, a machine that has never had the
+  workspace obtains one first: `src/sync/identity/adopt.rs` reads the remote
+  manifest, refuses any whose UUID differs from the registry record, and writes
+  it locally so `receiver_ingress_id` matches its peers. This is the only lane
+  that copies the manifest remote → local; every other identity write publishes
+  local → remote, and bisync excludes the manifest entirely, so minting locally
+  on a joining machine would fork portable identity irreparably. All three
+  identity lanes share one remote-read rule in `src/sync/identity/read.rs`: a
+  successful read with no bytes means absent, because `rclone cat` of a missing
+  object exits 0 on B2.
 - **Progress streams live instead of blocking silently.** `run_rclone`
   inherits its own stdout for the child (`Stdio::inherit()`) and pipes only
   stderr (`Stdio::piped()`) — rclone writes its logs/stats to stderr. That

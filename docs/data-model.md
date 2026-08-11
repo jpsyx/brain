@@ -1377,6 +1377,16 @@ struct Table {
 }
 ```
 
+**Portable identity is adopted, not minted, when a machine joins.** A root with
+no `.config/workspace.json` and a configured remote takes the remote's manifest
+(`src/sync/identity/adopt.rs`): Brain reads it, refuses it unless its
+`workspace_id` matches the registry record, and writes it locally, so
+`receiver_ingress_id` stays identical across machines. Minting from the registry
+UUID is the fallback only when the remote carries no manifest either. This runs
+*before* the first sync, because the sync's identity gate reads the manifest. It
+matters because the manifest is excluded from bisync, so a locally minted one
+would fork portable identity with nothing able to reconcile it.
+
 `tasks/SCHEMA.json` is required input for every schema decision, so Brain
 carries the canonical current document (`src/tasks/schema/task_schema.json`,
 embedded with `include_str!`) and seeds it into any workspace that has none.

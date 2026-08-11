@@ -1,5 +1,33 @@
 // Setup against a backend whose `rclone cat` of a missing object succeeds.
 
+/// The mac-mini failure reported only "validate local workspace manifest",
+/// which named neither the missing file nor the reason. The renderer prints just
+/// the outermost Display, so the cause has to be in that message.
+#[test]
+fn a_missing_local_manifest_names_the_file_and_the_reason() {
+    let root = tempfile::tempdir().unwrap();
+
+    let error = validate_local_manifest(root.path(), workspace_id(PERSONAL_ID)).unwrap_err();
+
+    let message = error.to_string();
+    assert!(
+        message.contains("validate local workspace manifest"),
+        "{message}"
+    );
+    assert!(
+        message.contains(
+            WorkspaceManifest::path(root.path())
+                .to_string_lossy()
+                .as_ref()
+        ),
+        "the message must name the file it could not read: {message}"
+    );
+    assert!(
+        message.to_lowercase().contains("no such file"),
+        "the message must say why: {message}"
+    );
+}
+
 /// An object store with B2's real `rclone cat` semantics: reading a missing
 /// object exits 0 with no output instead of failing. `copyto --immutable`
 /// refuses to change bytes that are already there.

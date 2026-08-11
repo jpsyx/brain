@@ -9,6 +9,8 @@ mod conflicts;
 mod coordinator_join;
 #[path = "sync_local/csv_merge.rs"]
 mod csv_merge;
+#[path = "sync_local/manifest_adoption.rs"]
+mod manifest_adoption;
 #[path = "sync_local/multi_workspace.rs"]
 mod multi_workspace;
 #[path = "sync_local/schema_transition.rs"]
