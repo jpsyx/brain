@@ -6,32 +6,44 @@ use brain::server::control::{ControlRequest, ControlResponse};
 use super::support::*;
 
 #[test]
-fn unavailable_posts_reject_before_body_io_and_leave_control_responsive() {
+fn an_unknown_local_post_rejects_before_body_io_and_leaves_control_responsive() {
     let server = ServerFixture::new(FAMILY_ID);
     server.disable_family_receiver();
 
-    for (path, expected_status) in [
-        (format!("/w/{UNKNOWN_ID}/habits/done"), "404"),
-        (format!("/w/{}/sms", server.family_ingress), "200"),
-    ] {
-        let mut partial = partial_post(server.port, &path, 1_000_000);
-        let mut response = String::new();
-        partial
-            .read_to_string(&mut response)
-            .expect("unavailable route must respond without waiting for its body");
-        assert!(
-            response.starts_with(&format!("HTTP/1.1 {expected_status}")),
-            "{path}: {response}"
-        );
+    let path = format!("/w/{UNKNOWN_ID}/habits/done");
+    let mut partial = partial_post(server.port, &path, 1_000_000);
+    let mut response = String::new();
+    partial
+        .read_to_string(&mut response)
+        .expect("unknown route must respond without waiting for its body");
+    assert!(response.starts_with("HTTP/1.1 404"), "{path}: {response}");
 
-        assert!(matches!(
-            server
-                .client
-                .request_with_timeout(&ControlRequest::Snapshot, Duration::from_millis(500))
-                .expect("rejected body must not occupy the control loop"),
-            ControlResponse::Snapshot(_)
-        ));
-    }
+    assert!(matches!(
+        server
+            .client
+            .request_with_timeout(&ControlRequest::Snapshot, Duration::from_millis(500))
+            .expect("rejected body must not occupy the control loop"),
+        ControlResponse::Snapshot(_)
+    ));
+}
+
+#[test]
+fn a_provider_body_that_never_arrives_never_occupies_the_control_loop() {
+    // One machine-wide `/sms` URL means the destination that selects a workspace
+    // lives inside the body, so the boundary must read it before it can route or
+    // decline. A body that never finishes must still leave control answering.
+    let server = ServerFixture::new(FAMILY_ID);
+    server.disable_family_receiver();
+
+    let _outstanding = partial_post(server.port, "/sms", 1_000_000);
+
+    assert!(matches!(
+        server
+            .client
+            .request_with_timeout(&ControlRequest::Snapshot, Duration::from_millis(500))
+            .expect("an outstanding provider body must not occupy the control loop"),
+        ControlResponse::Snapshot(_)
+    ));
 }
 
 #[test]
@@ -51,7 +63,7 @@ fn accepted_local_post_rejects_an_oversized_body() {
 }
 
 #[test]
-fn unknown_receiver_ingress_returns_plain_not_found_without_provider_acknowledgement() {
+fn a_retired_ingress_path_returns_plain_not_found_without_provider_acknowledgement() {
     let server = ServerFixture::new(FAMILY_ID);
 
     for channel in ["sms", "email"] {
@@ -60,4 +72,16 @@ fn unknown_receiver_ingress_returns_plain_not_found_without_provider_acknowledge
         assert!(!response.contains("Received"), "{response}");
         assert!(!response.contains("queued"), "{response}");
     }
+}
+
+#[test]
+fn an_address_no_workspace_publishes_returns_plain_not_found() {
+    // The URL exists for every workspace on the machine, so "not found" is now a
+    // statement about the destination inside the payload.
+    let server = ServerFixture::new(FAMILY_ID);
+
+    let response = server.post("/sms", "Body=hello&From=%2B12125550100&To=%2B19995550000");
+
+    assert!(response.starts_with("HTTP/1.1 404"), "{response}");
+    assert!(!response.contains("Received"), "{response}");
 }

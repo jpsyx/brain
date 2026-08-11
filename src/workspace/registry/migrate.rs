@@ -206,7 +206,7 @@ fn upgrade_previous_schema(
     let Ok(value) = serde_json::from_slice::<Value>(body) else {
         return Ok(None);
     };
-    let Some(upgraded) = super::upgrade::upgrade_v2_to_v3(&value) else {
+    let Some(upgraded) = super::upgrade::upgrade_to_current(&value) else {
         return Ok(None);
     };
     let registry: MachineRegistry =

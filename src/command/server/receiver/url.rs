@@ -1,19 +1,25 @@
 //! `brain receiver url`: the exact webhook URLs a provider portal needs.
 //!
-//! Purely informational, so it reads the selected workspace's public base URL
-//! and its portable ingress UUID and prints; it never consults receiver intent
-//! or a running server. You configure a provider portal *before* ingress is
-//! live, so requiring either would make the command useless exactly when it is
-//! needed.
+//! There is one URL per channel for the whole machine. Nothing in it identifies
+//! a workspace: brain selects the workspace from the phone number or email
+//! address a message arrived at, so every workspace's Twilio and Resend portals
+//! are pointed at the same two URLs.
+//!
+//! Purely informational, so it reads this machine's public base URL and prints;
+//! it never consults receiver intent or a running server. You configure a
+//! provider portal *before* ingress is live, so requiring either would make the
+//! command useless exactly when it is needed.
 
 use anyhow::Result;
 
-use crate::server::IngressId;
 use crate::server::receiver::Channel;
 use crate::theme::Theme;
 use crate::workspace::CommandContext;
 
 /// The brain-env value that supplies the public origin of the webhook URLs.
+///
+/// Machine-global: one machine serves one origin, and the URL a provider signs
+/// must be identical for every workspace registered here.
 const PUBLIC_URL_VAR: &str = "brain_receiver_public_url";
 
 /// Every channel a provider portal can be pointed at.
@@ -40,19 +46,37 @@ const fn provider_label(channel: Channel) -> &'static str {
     }
 }
 
-/// The webhook rows for one workspace, one line per channel. Pure.
+/// How brain picks the workspace now that no URL names one.
+pub(super) const ROUTING_RULE: &str = "One URL per channel for this whole machine: brain routes each message by the number or address it arrived at, so every workspace's portal gets the same URL.";
+
+/// The one non-obvious rule about pasting a webhook URL into a portal.
+const PASTE_RULE: &str = "Paste exactly: providers sign the literal URL, so a trailing slash or a different host breaks verification.";
+
+/// The label column width the provider rows need. Pure.
 #[must_use]
-pub(crate) fn webhook_rows(
-    public_base_url: &str,
-    ingress: IngressId,
-    channels: &[Channel],
-    theme: Theme,
-) -> String {
-    let width = channels
+pub(super) fn label_width(channels: &[Channel]) -> usize {
+    channels
         .iter()
         .map(|channel| provider_label(*channel).len())
         .max()
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// The webhook rows for this machine, one line per channel. Pure.
+#[must_use]
+pub(crate) fn webhook_rows(public_base_url: &str, channels: &[Channel], theme: Theme) -> String {
+    webhook_rows_at(public_base_url, channels, label_width(channels), theme)
+}
+
+/// The webhook rows in a label column of a caller's chosen width, so a listing
+/// can align them with rows of its own. Pure.
+#[must_use]
+pub(super) fn webhook_rows_at(
+    public_base_url: &str,
+    channels: &[Channel],
+    width: usize,
+    theme: Theme,
+) -> String {
     channels
         .iter()
         .map(|channel| {
@@ -64,7 +88,6 @@ pub(crate) fn webhook_rows(
                 theme.muted(&label),
                 theme.value(&crate::server::receiver::http::receiver_webhook_url(
                     public_base_url,
-                    ingress,
                     *channel,
                 )),
             )
@@ -73,40 +96,33 @@ pub(crate) fn webhook_rows(
         .join("\n")
 }
 
-/// The full `brain receiver url` block: a heading, the rows, and the one
-/// non-obvious rule about pasting them. Pure.
+/// The full `brain receiver url` block: a heading, the rows, how routing picks a
+/// workspace, and the one non-obvious rule about pasting them. Pure.
 #[must_use]
-pub(crate) fn webhook_block(
-    workspace: &str,
-    public_base_url: &str,
-    ingress: IngressId,
-    channels: &[Channel],
-    theme: Theme,
-) -> String {
+pub(crate) fn webhook_block(public_base_url: &str, channels: &[Channel], theme: Theme) -> String {
     format!(
-        "{}\n{}\n  {}",
-        theme.heading(&format!("Receiver webhook URLs  {workspace}")),
-        webhook_rows(public_base_url, ingress, channels, theme),
-        theme.muted(
-            "Paste exactly: providers sign the literal URL, so a trailing slash or a different host breaks verification."
-        ),
+        "{}\n{}\n  {}\n  {}",
+        theme.heading("Receiver webhook URLs"),
+        webhook_rows(public_base_url, channels, theme),
+        theme.muted(ROUTING_RULE),
+        theme.muted(PASTE_RULE),
     )
 }
 
-/// What to say when this machine has no public base URL for the workspace.
+/// What to say when this machine has no public base URL.
 ///
 /// Names the variable and both ways to set it, since the value is machine-local
 /// and a peer machine having it does not help here. Pure.
 #[must_use]
-pub(crate) fn missing_public_url(workspace: &str) -> String {
+pub(crate) fn missing_public_url() -> String {
     format!(
-        "{PUBLIC_URL_VAR} is unset for workspace {workspace}, so its webhook URLs have no origin yet.\n  \
-         fix: brain receiver setup -w {workspace}\n  \
-         or:  brain env set -w {workspace} {PUBLIC_URL_VAR}=https://<public-host>"
+        "{PUBLIC_URL_VAR} is unset on this machine, so its webhook URLs have no origin yet.\n  \
+         fix: brain receiver setup\n  \
+         or:  brain env set {PUBLIC_URL_VAR}=https://<public-host>"
     )
 }
 
-/// This machine's public base URL for a workspace, if set.
+/// This machine's public base URL, if set.
 pub(super) fn public_base_url(context: &CommandContext) -> Option<String> {
     crate::env::get(context, PUBLIC_URL_VAR).and_then(|value| {
         let trimmed = value.trim();
@@ -116,16 +132,13 @@ pub(super) fn public_base_url(context: &CommandContext) -> Option<String> {
 
 /// `brain receiver url [--sms] [--email]`.
 pub(super) fn run(args: &crate::cli::ReceiverUrlArgs, context: &CommandContext) -> Result<()> {
-    let workspace = context.workspace.name().as_str().to_owned();
     let Some(public) = public_base_url(context) else {
-        anyhow::bail!(missing_public_url(&workspace));
+        anyhow::bail!(missing_public_url());
     };
     println!(
         "{}",
         webhook_block(
-            &workspace,
             &public,
-            crate::server::workspace_ingress(&context.workspace)?,
             &selected_channels(args.sms, args.email),
             Theme::active(),
         )
@@ -134,32 +147,24 @@ pub(super) fn run(args: &crate::cli::ReceiverUrlArgs, context: &CommandContext) 
 }
 
 /// The webhook rows appended to `brain receiver status`, or a muted pointer at
-/// setup when this machine has no public URL for the workspace.
+/// setup when this machine has no public URL.
 pub(super) fn status_block(context: &CommandContext) -> String {
     let theme = Theme::active();
-    let workspace = context.workspace.name().as_str().to_owned();
     let Some(public) = public_base_url(context) else {
         return theme.muted(&format!(
-            "Webhook URLs  unset ({PUBLIC_URL_VAR} is not set on this machine; run `brain receiver setup -w {workspace}`)"
+            "Webhook URLs  unset ({PUBLIC_URL_VAR} is not set on this machine; run `brain receiver setup`)"
         ));
-    };
-    let Ok(ingress) = crate::server::workspace_ingress(&context.workspace) else {
-        return theme.muted("Webhook URLs  unavailable (workspace manifest is unreadable)");
     };
     format!(
         "{}\n{}",
         theme.muted("Webhook URLs"),
-        webhook_rows(&public, ingress, &ALL_CHANNELS, theme),
+        webhook_rows(&public, &ALL_CHANNELS, theme),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn ingress() -> IngressId {
-        IngressId::parse("8f670650-0c97-4cf2-aade-1b5bb51aa1b3").expect("ingress id")
-    }
 
     #[test]
     fn no_channel_flag_prints_every_channel() {
@@ -185,24 +190,17 @@ mod tests {
     }
 
     #[test]
-    fn each_row_pairs_a_provider_with_its_exact_ingress_scoped_url() {
+    fn each_row_pairs_a_provider_with_its_one_machine_wide_url() {
         let rows = webhook_rows(
             "https://brain.example.test",
-            ingress(),
             &[Channel::Sms, Channel::Email],
             Theme::dark(false),
         );
 
-        assert!(
-            rows.contains("https://brain.example.test/w/8f670650-0c97-4cf2-aade-1b5bb51aa1b3/sms"),
-            "{rows}"
-        );
-        assert!(
-            rows.contains(
-                "https://brain.example.test/w/8f670650-0c97-4cf2-aade-1b5bb51aa1b3/email"
-            ),
-            "{rows}"
-        );
+        assert!(rows.contains("https://brain.example.test/sms"), "{rows}");
+        assert!(rows.contains("https://brain.example.test/email"), "{rows}");
+        // Nothing in a webhook URL identifies a workspace any more.
+        assert!(!rows.contains("/w/"), "{rows}");
         assert!(rows.contains("Twilio (SMS)"), "{rows}");
         assert!(rows.contains("Resend (email)"), "{rows}");
         assert_eq!(rows.lines().count(), 2, "{rows}");
@@ -210,30 +208,29 @@ mod tests {
 
     #[test]
     fn a_trailing_slash_on_the_public_url_never_doubles_in_the_webhook() {
-        // Providers sign the literal URL, so `//w/` would be a different string.
+        // Providers sign the literal URL, so `//sms` would be a different string.
         let rows = webhook_rows(
             "https://brain.example.test/",
-            ingress(),
             &[Channel::Sms],
             Theme::dark(false),
         );
 
-        assert!(rows.contains("https://brain.example.test/w/"), "{rows}");
-        assert!(!rows.contains("//w/"), "{rows}");
+        assert!(rows.contains("https://brain.example.test/sms"), "{rows}");
+        assert!(!rows.contains("//sms"), "{rows}");
     }
 
     #[test]
-    fn the_block_names_the_workspace_and_the_paste_exactly_rule() {
+    fn the_block_explains_both_the_routing_rule_and_the_paste_rule() {
         let block = webhook_block(
-            "family",
             "https://brain.example.test",
-            ingress(),
             &[Channel::Sms],
             Theme::dark(false),
         );
 
+        assert!(block.starts_with("Receiver webhook URLs"), "{block}");
+        // A user pasting one URL into two portals needs to know why that works.
         assert!(
-            block.starts_with("Receiver webhook URLs  family"),
+            block.contains("routes each message by the number"),
             "{block}"
         );
         assert!(block.contains("Paste exactly"), "{block}");
@@ -241,19 +238,18 @@ mod tests {
 
     #[test]
     fn a_missing_public_url_names_the_variable_and_both_ways_to_set_it() {
-        let message = missing_public_url("family");
+        let message = missing_public_url();
 
         assert!(
-            message.contains("brain_receiver_public_url is unset"),
+            message.contains("brain_receiver_public_url is unset on this machine"),
             "{message}"
         );
+        assert!(message.contains("brain receiver setup"), "{message}");
         assert!(
-            message.contains("brain receiver setup -w family"),
+            message.contains("brain env set brain_receiver_public_url="),
             "{message}"
         );
-        assert!(
-            message.contains("brain env set -w family brain_receiver_public_url="),
-            "{message}"
-        );
+        // The value is machine-wide, so no workspace selector belongs in the fix.
+        assert!(!message.contains("-w "), "{message}");
     }
 }

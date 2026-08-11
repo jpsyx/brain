@@ -270,7 +270,7 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
             std::fs::write(
                 app.command_context.registry_store.path(),
                 serde_json::to_vec(&serde_json::json!({
-                    "schema_version": 3,
+                    "schema_version": crate::workspace::REGISTRY_SCHEMA_VERSION,
                     "default_workspace": "family",
                     "workspaces": {
                         "family": {

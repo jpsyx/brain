@@ -19,10 +19,12 @@ pub enum Route {
         ingress: IngressId,
         capability: crate::server::lifecycle::LeaseId,
     },
-    /// `POST /w/<ingress>/sms`: receive an authenticated Twilio webhook.
-    Sms { ingress: IngressId },
-    /// `POST /w/<ingress>/email`: receive an authenticated Resend webhook.
-    Email { ingress: IngressId },
+    /// `POST /sms`: receive a Twilio webhook. The workspace is selected by the
+    /// number the message arrived at, never by the URL.
+    Sms,
+    /// `POST /email`: receive a Resend webhook. The workspace is selected by the
+    /// address the message arrived at, never by the URL.
+    Email,
     /// `POST /local/<lease>/w/<ingress>/session/done`: report one of a
     /// workspace's ephemeral skill sessions complete.
     SkillSessionDone {
@@ -35,33 +37,18 @@ pub enum Route {
 
 /// Map an HTTP method + URL path to a brain-server route. Pure.
 ///
-/// Any query string is stripped before matching. Provider routes have an exact
-/// `/w/<opaque ingress>/...` shape; local actions also require a lease capability.
+/// Any query string is stripped before matching. Provider routes are the two
+/// machine-wide `/sms` and `/email` paths, carrying no workspace identity at
+/// all; local actions require an ingress plus a lease capability.
 #[must_use]
 pub fn route(method: &str, path: &str) -> Route {
     let path = path.split('?').next().unwrap_or(path);
     if let Some(route) = local_route(method, path) {
         return route;
     }
-    let mut components = path.split('/');
-    match (
-        components.next(),
-        components.next(),
-        components.next(),
-        components.next(),
-        components.next(),
-        components.next(),
-    ) {
-        (Some(""), Some("w"), Some(raw_ingress), Some(first), second, None) => {
-            let Ok(ingress) = IngressId::parse(raw_ingress) else {
-                return Route::NotFound;
-            };
-            match (method, first, second) {
-                ("POST", "sms", None) => Route::Sms { ingress },
-                ("POST", "email", None) => Route::Email { ingress },
-                _ => Route::NotFound,
-            }
-        }
+    match (method, path) {
+        ("POST", "/sms") => Route::Sms,
+        ("POST", "/email") => Route::Email,
         _ => Route::NotFound,
     }
 }
@@ -110,22 +97,29 @@ mod tests {
     }
 
     #[test]
-    fn ingress_routes_every_supported_endpoint() {
-        let cases = [
-            (
-                "POST",
-                format!("/w/{INGRESS}/sms"),
-                Route::Sms { ingress: ingress() },
-            ),
-            (
-                "POST",
-                format!("/w/{INGRESS}/email"),
-                Route::Email { ingress: ingress() },
-            ),
-        ];
+    fn one_machine_wide_path_serves_each_provider_channel() {
+        // Every workspace's provider portal is pointed at the same URL; the
+        // destination number or address inside the payload selects the
+        // workspace, so the path carries no identity to leak or to get wrong.
+        assert_eq!(route("POST", "/sms"), Route::Sms);
+        assert_eq!(route("POST", "/email"), Route::Email);
+    }
 
-        for (method, path, expected) in cases {
-            assert_eq!(route(method, &path), expected, "{method} {path}");
+    #[test]
+    fn a_provider_channel_answers_only_a_post() {
+        for method in ["GET", "PUT", "DELETE", "HEAD"] {
+            assert_eq!(route(method, "/sms"), Route::NotFound, "{method} /sms");
+            assert_eq!(route(method, "/email"), Route::NotFound, "{method} /email");
+        }
+    }
+
+    #[test]
+    fn the_retired_ingress_scoped_provider_paths_are_gone() {
+        // A stale portal entry must fail loudly rather than reach a workspace
+        // the new address routing never agreed to.
+        for suffix in ["sms", "email"] {
+            let path = format!("/w/{INGRESS}/{suffix}");
+            assert_eq!(route("POST", &path), Route::NotFound, "POST {path}");
         }
     }
 
@@ -174,11 +168,14 @@ mod tests {
     }
 
     #[test]
-    fn query_is_stripped_after_the_ingress_route_is_parsed() {
+    fn query_is_stripped_before_the_route_is_parsed() {
         assert_eq!(
             route("GET", &format!("/w/{INGRESS}/habits?view=today")),
             Route::NotFound
         );
+        // Twilio must never append one, but stripping it here keeps the exact
+        // rejection where the signature is checked against the literal URL.
+        assert_eq!(route("POST", "/sms?unexpected=1"), Route::Sms);
     }
 
     #[test]
@@ -187,8 +184,9 @@ mod tests {
             ("GET", "/habits"),
             ("POST", "/habits/done"),
             ("POST", "/session/done"),
-            ("POST", "/sms"),
-            ("POST", "/email"),
+            ("POST", "/sms/"),
+            ("POST", "/email/extra"),
+            ("POST", "/"),
             ("GET", "/w/habits"),
             ("GET", "/w/not-a-uuid/habits"),
             ("GET", "/w//habits"),

@@ -1,8 +1,14 @@
 use super::{FeatureStatus, PromptMetadata};
 
+/// Receiver, SMS, and email health for one workspace.
+///
+/// `machine_env` is the registry's machine-global map: the public receiver
+/// origin lives there, because one machine serves one URL per channel for every
+/// workspace registered on it.
 pub(super) fn statuses(
     enabled: bool,
     env: &serde_json::Map<String, serde_json::Value>,
+    machine_env: &serde_json::Map<String, serde_json::Value>,
     users: Option<&crate::users::Users>,
 ) -> (FeatureStatus, FeatureStatus, FeatureStatus) {
     if !enabled {
@@ -38,13 +44,14 @@ pub(super) fn statuses(
                 "resend_webhook_signing_secret",
             ],
         );
+    let has_public_url = field_present(machine_env, "brain_receiver_public_url");
     let sms = channel_status(
         sms_active,
         has_phone_mapping
+            && has_public_url
             && all_present(
                 env,
                 &[
-                    "brain_receiver_public_url",
                     "twilio_account_sid",
                     "twilio_auth_token",
                     "twilio_from_number",
@@ -54,10 +61,10 @@ pub(super) fn statuses(
     let email = channel_status(
         email_active,
         has_email_mapping
+            && has_public_url
             && all_present(
                 env,
                 &[
-                    "brain_receiver_public_url",
                     "resend_api_key",
                     "resend_from_email",
                     "resend_webhook_signing_secret",

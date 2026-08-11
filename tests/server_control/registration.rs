@@ -43,7 +43,7 @@ fn registration_rejects_a_root_changed_after_tui_resolution() {
         .write_new(&replacement_root)
         .expect("replacement manifest");
     let registry = serde_json::json!({
-        "schema_version": 3,
+        "schema_version": brain::workspace::REGISTRY_SCHEMA_VERSION,
         "default_workspace": "personal",
         "workspaces": {
             "personal": {

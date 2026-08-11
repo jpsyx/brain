@@ -80,7 +80,7 @@ fn joined_machine(workspace: &str, extra_env: &str) -> (TempDir, TempDir, std::p
         env_dir.join("env.json"),
         format!(
             r#"{{
-              "schema_version": 3,
+              "schema_version": {schema},
               "default_workspace": "{workspace}",
               "workspaces": {{
                 "{workspace}": {{
@@ -93,7 +93,8 @@ fn joined_machine(workspace: &str, extra_env: &str) -> (TempDir, TempDir, std::p
                 }}
               }}
             }}"#,
-            root.display()
+            root.display(),
+            schema = brain::workspace::REGISTRY_SCHEMA_VERSION,
         ),
     )
     .expect("write registry");
@@ -159,8 +160,9 @@ fn a_root_whose_parent_is_missing_is_reported_rather_than_invented() {
     std::fs::write(
         env_dir.join("env.json"),
         format!(
-            r#"{{"schema_version":3,"default_workspace":"family","workspaces":{{"family":{{"workspace_id":"8d7d67d6-63fc-4d99-8ff9-ebe31ac93fed","root":"{}","aliases":[],"local_user_id":"pablo","receiver_enabled":false,"env":{{}}}}}}}}"#,
-            root.display()
+            r#"{{"schema_version":{schema},"default_workspace":"family","workspaces":{{"family":{{"workspace_id":"8d7d67d6-63fc-4d99-8ff9-ebe31ac93fed","root":"{}","aliases":[],"local_user_id":"pablo","receiver_enabled":false,"env":{{}}}}}}}}"#,
+            root.display(),
+            schema = brain::workspace::REGISTRY_SCHEMA_VERSION,
         ),
     )
     .expect("write registry");
@@ -375,7 +377,7 @@ fn two_workspaces(home: &TempDir, config_home: &TempDir) {
     std::fs::write(
         env_dir.join("env.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
-            "schema_version": 3,
+            "schema_version": brain::workspace::REGISTRY_SCHEMA_VERSION,
             "default_workspace": "brain",
             "workspaces": workspaces,
         }))

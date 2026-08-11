@@ -1203,12 +1203,20 @@ registration replaces that lease. If a peer TUI keeps the
 process alive but the selected target is unavailable, the handler sends one
 unavailable response and discards the message. No process component stores an
 offline queue or launches an agent.
-- `server/router.rs` — pure exact-component mapping for
-  provider `/w/<ingress>/{sms,email}` and capability-protected local
+- `server/router.rs` — pure exact-component mapping for the two machine-wide
+  provider paths `/sms` and `/email`, which name no workspace, and for
+  capability-protected local
   `/local/<lease>/w/<ingress>/{habits,habits/done,session/done}` paths. Global,
-  malformed, missing, and extra-component routes are rejected.
+  malformed, missing, and extra-component routes are rejected, including the
+  retired ingress-scoped provider paths.
+- `server/receiver/routing.rs` — pure selection of one workspace from the
+  destination a provider payload names (Twilio's `To`, a Resend payload's
+  `to`/`cc`) matched against each registered workspace's own
+  `twilio_from_number` / `resend_from_email`. Returns the workspace, `Ambiguous`
+  when two publish one address, or `Unknown`; never a guess.
 - `server/workspace_route.rs` — resolves the typed ingress through the live
-  lease table first. Shared-process routing captures a generation-bound lease
+  lease table first; a provider route reaches it through the ingress this
+  process remembers for the addressed workspace. Shared-process routing captures a generation-bound lease
   ticket under the control-state mutex, reloads and verifies the registry,
   root, and portable manifest without that mutex, then revalidates the exact
   live authority revision before returning a `WorkspaceContext`. Heartbeats

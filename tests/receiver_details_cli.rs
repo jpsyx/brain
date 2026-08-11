@@ -8,30 +8,19 @@ mod support;
 
 use support::Machine;
 
-/// A machine whose two workspaces each have their own provider configuration.
+/// A machine with one public origin and two workspaces, each answering on its
+/// own number and address — which is what routes a message to one of them.
 fn configured() -> Machine {
     let machine = Machine::new();
-    for (workspace, url, phone, email) in [
-        (
-            "brain",
-            "https://brain.example.test",
-            "+12125550100",
-            "brain@example.test",
-        ),
-        (
-            "family",
-            "https://family.example.test",
-            "+12125550199",
-            "family@example.test",
-        ),
+    machine.ok(&[
+        "env",
+        "set",
+        "brain_receiver_public_url=https://brain.example.test",
+    ]);
+    for (workspace, phone, email) in [
+        ("brain", "+12125550100", "brain@example.test"),
+        ("family", "+12125550199", "family@example.test"),
     ] {
-        machine.ok(&[
-            "env",
-            "set",
-            "-w",
-            workspace,
-            &format!("brain_receiver_public_url={url}"),
-        ]);
         machine.ok(&[
             "env",
             "set",
@@ -51,7 +40,7 @@ fn configured() -> Machine {
 }
 
 #[test]
-fn bare_receiver_reports_every_registered_workspace() {
+fn bare_receiver_reports_one_url_pair_and_every_registered_workspace() {
     let machine = configured();
 
     let listing = machine.ok(&["receiver"]);
@@ -62,16 +51,25 @@ fn bare_receiver_reports_every_registered_workspace() {
             "{listing}"
         );
     }
+    // The routing keys: which address belongs to which workspace.
     assert!(listing.contains("brain@example.test"), "{listing}");
     assert!(listing.contains("family@example.test"), "{listing}");
     assert!(listing.contains("+12125550100"), "{listing}");
     assert!(listing.contains("+12125550199"), "{listing}");
+    // And the one URL pair they all share, printed once, naming no workspace.
     assert!(
-        listing.contains(&format!(
-            "https://family.example.test/w/{}/sms",
-            machine.ingress("family")
-        )),
+        listing.contains("https://brain.example.test/sms"),
         "{listing}"
+    );
+    assert!(
+        listing.contains("https://brain.example.test/email"),
+        "{listing}"
+    );
+    assert_eq!(listing.matches("/sms").count(), 1, "{listing}");
+    assert!(!listing.contains("/w/"), "{listing}");
+    assert!(
+        !listing.contains(&machine.ingress("family")),
+        "no webhook URL names a workspace any more: {listing}"
     );
 }
 
@@ -135,7 +133,8 @@ fn an_unconfigured_workspace_reads_as_not_set_rather_than_failing_the_listing() 
     assert!(listing.contains("Receiver details  family"), "{listing}");
     assert!(listing.contains("not set"), "{listing}");
     // Without an origin there is no webhook URL, so none is invented.
-    assert!(!listing.contains("/w/"), "{listing}");
+    assert!(!listing.contains("/sms"), "{listing}");
+    assert!(!listing.contains("/email"), "{listing}");
 }
 
 #[test]

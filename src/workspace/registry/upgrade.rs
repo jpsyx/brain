@@ -1,20 +1,23 @@
-//! Schema v2 → v3: hoisting machine-global env out of the workspace records.
+//! Hoisting machine-global env out of the workspace records.
 //!
 //! Schema v2 gave every workspace record its own `env` map, which was right for
-//! roots, launch commands, and provider credentials but wrong for
-//! `markdown_to_pdf_path`: that is the location of one binary on one machine,
-//! and a machine has exactly one answer for it no matter how many workspaces it
-//! has registered. v3 adds a top-level `env` object for values scoped to the
-//! machine rather than to a workspace, and this upgrade moves the existing key
-//! into it.
+//! roots, launch commands, and provider credentials but wrong for values that
+//! describe the machine: `markdown_to_pdf_path` is the location of one binary,
+//! and `brain_receiver_public_url` is the one public origin whose `/sms` and
+//! `/email` URLs every workspace's provider portal is pointed at. A machine has
+//! exactly one answer for each no matter how many workspaces it has registered.
+//! v3 added the top-level `env` object for machine-scoped values and hoisted the
+//! first; v4 hoists the receiver origin the same way, once brain began routing
+//! by the number or address a message arrived at rather than by the URL.
 //!
 //! Pure: it rewrites JSON only. The transaction, backup, and save live in
 //! [`super::migrate`].
 
 use serde_json::{Map, Value};
 
-/// The schema this upgrade reads.
-const PREVIOUS_SCHEMA_VERSION: u64 = 2;
+/// Every schema this upgrade can read, all of which differ from the current one
+/// only in which env values had been hoisted yet.
+const UPGRADABLE_SCHEMA_VERSIONS: [u64; 2] = [2, 3];
 
 /// Keys that move from every workspace record into the machine-global map.
 ///
@@ -22,17 +25,19 @@ const PREVIOUS_SCHEMA_VERSION: u64 = 2;
 /// machine-scoped, so adding one there is all a future hoist needs.
 use crate::env::MACHINE_GLOBAL_VARS as HOISTED_KEYS;
 
-/// Rewrite a schema-v2 registry as schema v3, or `None` when `value` is not a
-/// v2 registry (already current, a legacy flat env, or not an object at all).
+/// Rewrite an older registry at the current schema, or `None` when `value` is
+/// not an upgradable registry (already current, a legacy flat env, or not an
+/// object at all).
 ///
 /// A machine that somehow holds several values for a hoisted key keeps the
-/// first in canonical workspace-name order and drops the rest: they name one
-/// binary on one machine, so any of them is as good as another, and picking
-/// deterministically means every machine and every retry agrees.
+/// first in canonical workspace-name order and drops the rest: they describe one
+/// machine, so any of them is as good as another, and picking deterministically
+/// means every machine and every retry agrees.
 #[must_use]
-pub(super) fn upgrade_v2_to_v3(value: &Value) -> Option<Value> {
+pub(super) fn upgrade_to_current(value: &Value) -> Option<Value> {
     let object = value.as_object()?;
-    if object.get("schema_version").and_then(Value::as_u64) != Some(PREVIOUS_SCHEMA_VERSION) {
+    let found = object.get("schema_version").and_then(Value::as_u64)?;
+    if !UPGRADABLE_SCHEMA_VERSIONS.contains(&found) {
         return None;
     }
     let mut upgraded = object.clone();
@@ -113,12 +118,12 @@ mod tests {
 
     #[test]
     fn the_only_configured_path_becomes_the_machine_global_one() {
-        let upgraded = upgrade_v2_to_v3(&v2(&json!({
+        let upgraded = upgrade_to_current(&v2(&json!({
             "brain": record(&json!({"markdown_to_pdf_path": "/opt/markdown-to-pdf"})),
         })))
-        .expect("v2 registry upgrades");
+        .expect("older registry upgrades");
 
-        assert_eq!(upgraded["schema_version"], json!(3));
+        assert_eq!(upgraded["schema_version"], json!(4));
         assert_eq!(
             upgraded["env"]["markdown_to_pdf_path"],
             "/opt/markdown-to-pdf"
@@ -133,12 +138,12 @@ mod tests {
 
     #[test]
     fn several_configured_paths_collapse_to_the_first_canonical_workspace() {
-        let upgraded = upgrade_v2_to_v3(&v2(&json!({
+        let upgraded = upgrade_to_current(&v2(&json!({
             "personal": record(&json!({"markdown_to_pdf_path": "/personal/bin"})),
             "family": record(&json!({"markdown_to_pdf_path": "/family/bin"})),
             "brain": record(&json!({"markdown_to_pdf_path": "/brain/bin"})),
         })))
-        .expect("v2 registry upgrades");
+        .expect("older registry upgrades");
 
         // Canonical-name order, so the answer never depends on file layout.
         assert_eq!(upgraded["env"]["markdown_to_pdf_path"], "/brain/bin");
@@ -156,23 +161,23 @@ mod tests {
     fn a_blank_value_never_wins_over_a_real_one() {
         // An empty string resolves to "unset"; hoisting it would lose the only
         // real path on the machine.
-        let upgraded = upgrade_v2_to_v3(&v2(&json!({
+        let upgraded = upgrade_to_current(&v2(&json!({
             "brain": record(&json!({"markdown_to_pdf_path": "   "})),
             "family": record(&json!({"markdown_to_pdf_path": "/family/bin"})),
         })))
-        .expect("v2 registry upgrades");
+        .expect("older registry upgrades");
 
         assert_eq!(upgraded["env"]["markdown_to_pdf_path"], "/family/bin");
     }
 
     #[test]
     fn a_machine_that_never_configured_one_gains_no_global_env() {
-        let upgraded = upgrade_v2_to_v3(&v2(&json!({
+        let upgraded = upgrade_to_current(&v2(&json!({
             "brain": record(&json!({"claude_cmd": "claude"})),
         })))
-        .expect("v2 registry upgrades");
+        .expect("older registry upgrades");
 
-        assert_eq!(upgraded["schema_version"], json!(3));
+        assert_eq!(upgraded["schema_version"], json!(4));
         assert!(upgraded.get("env").is_none());
     }
 
@@ -186,7 +191,7 @@ mod tests {
             })),
         }));
 
-        let upgraded = upgrade_v2_to_v3(&original).expect("v2 registry upgrades");
+        let upgraded = upgrade_to_current(&original).expect("older registry upgrades");
 
         assert_eq!(upgraded["default_workspace"], "brain");
         let record = &upgraded["workspaces"]["brain"];
@@ -211,7 +216,7 @@ mod tests {
         }));
         registry["env"] = json!({"markdown_to_pdf_path": "/global/bin"});
 
-        let upgraded = upgrade_v2_to_v3(&registry).expect("v2 registry upgrades");
+        let upgraded = upgrade_to_current(&registry).expect("older registry upgrades");
 
         assert_eq!(upgraded["env"]["markdown_to_pdf_path"], "/global/bin");
         assert!(
@@ -222,13 +227,70 @@ mod tests {
     }
 
     #[test]
-    fn anything_that_is_not_a_v2_registry_is_left_alone() {
+    fn anything_that_is_not_an_older_registry_is_left_alone() {
         // Already current: the caller parses it directly.
         let mut current = v2(&json!({"brain": record(&json!({}))}));
         current["schema_version"] = json!(super::super::REGISTRY_SCHEMA_VERSION);
-        assert!(upgrade_v2_to_v3(&current).is_none());
+        assert!(upgrade_to_current(&current).is_none());
         // A legacy flat env has no schema version at all.
-        assert!(upgrade_v2_to_v3(&json!({"root": "~/brain"})).is_none());
-        assert!(upgrade_v2_to_v3(&json!("not an object")).is_none());
+        assert!(upgrade_to_current(&json!({"root": "~/brain"})).is_none());
+        assert!(upgrade_to_current(&json!("not an object")).is_none());
+    }
+
+    /// A schema-v3 registry: the machine-global map exists, but the receiver
+    /// origin is still filed under each workspace.
+    fn v3(workspaces: &Value) -> Value {
+        let mut registry = v2(workspaces);
+        registry["schema_version"] = json!(3);
+        registry
+    }
+
+    #[test]
+    fn v3_hoists_the_one_public_receiver_origin_out_of_the_records() {
+        // There is one URL per channel for the machine, so a per-workspace copy
+        // would be a second answer to a question with only one.
+        let upgraded = upgrade_to_current(&v3(&json!({
+            "brain": record(&json!({
+                "brain_receiver_public_url": "https://brain.example.test",
+                "twilio_auth_token": "keep-me",
+            })),
+            "family": record(&json!({
+                "brain_receiver_public_url": "https://brain.example.test",
+            })),
+        })))
+        .expect("older registry upgrades");
+
+        assert_eq!(upgraded["schema_version"], json!(4));
+        assert_eq!(
+            upgraded["env"]["brain_receiver_public_url"],
+            "https://brain.example.test"
+        );
+        for workspace in ["brain", "family"] {
+            assert!(
+                upgraded["workspaces"][workspace]["env"]
+                    .get("brain_receiver_public_url")
+                    .is_none(),
+                "{workspace} kept a workspace-scoped origin"
+            );
+        }
+        // Credentials stay where they belong: one workspace, one Twilio token.
+        assert_eq!(
+            upgraded["workspaces"]["brain"]["env"]["twilio_auth_token"],
+            "keep-me"
+        );
+    }
+
+    #[test]
+    fn v3_leaves_an_already_hoisted_machine_value_alone() {
+        let mut registry = v3(&json!({"brain": record(&json!({}))}));
+        registry["env"] = json!({"markdown_to_pdf_path": "/global/bin"});
+
+        let upgraded = upgrade_to_current(&registry).expect("older registry upgrades");
+
+        assert_eq!(upgraded["env"]["markdown_to_pdf_path"], "/global/bin");
+        assert!(
+            upgraded["env"].get("brain_receiver_public_url").is_none(),
+            "a machine that never set an origin gains no empty one"
+        );
     }
 }

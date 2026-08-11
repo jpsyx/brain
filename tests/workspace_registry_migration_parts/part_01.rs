@@ -68,19 +68,23 @@ fn flat_bytes_are_backed_up_exactly_and_machine_keys_are_siloed_losslessly() {
     assert!(selected.record().receiver_enabled);
     assert_eq!(selected.record().env["claude_cmd"], "claude --legacy");
     assert_eq!(selected.record().env["codex_cmd"], "codex --legacy");
-    assert_eq!(
-        selected.record().env["brain_receiver_public_url"],
-        "https://brain.example.test"
-    );
-    // Machine-scoped: it lands in the registry's global map, never in a record.
+    // Machine-scoped: these land in the registry's global map, never in a
+    // record. The receiver origin is one of them, because one machine serves one
+    // `/sms` and one `/email` URL for every workspace on it.
     assert_eq!(
         outcome.registry.env["markdown_to_pdf_path"],
         "/opt/bin/markdown-to-pdf"
     );
-    assert!(
-        !selected.record().env.contains_key("markdown_to_pdf_path"),
-        "a machine-global value must not be siloed into a workspace record"
+    assert_eq!(
+        outcome.registry.env["brain_receiver_public_url"],
+        "https://brain.example.test"
     );
+    for machine_key in ["markdown_to_pdf_path", "brain_receiver_public_url"] {
+        assert!(
+            !selected.record().env.contains_key(machine_key),
+            "a machine-global value must not be siloed into a workspace record"
+        );
+    }
     assert_eq!(
         selected.record().env["custom_machine_key"],
         json!(["keep", {"nested": true}])
@@ -93,9 +97,9 @@ fn flat_bytes_are_backed_up_exactly_and_machine_keys_are_siloed_losslessly() {
     assert!(!selected.record().env.contains_key("receiver_enabled"));
     assert!(!selected.record().env.contains_key("access_mode"));
     assert!(!selected.record().env.contains_key("access_policy"));
-    // Five workspace-scoped keys; `markdown_to_pdf_path` left for the global map.
-    assert_eq!(selected.record().env.len(), 5);
-    assert_eq!(outcome.registry.env.len(), 1);
+    // Four workspace-scoped keys; the two machine-scoped ones went global.
+    assert_eq!(selected.record().env.len(), 4);
+    assert_eq!(outcome.registry.env.len(), 2);
     assert!(outcome.created_registry);
     assert!(outcome.portable_setup_required);
     let backup = outcome.backup_path.expect("legacy backup");

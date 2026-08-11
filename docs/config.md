@@ -7,7 +7,7 @@ they are never inherited or merged from the default or another record.
 
 | Store | Path | CLI | Synced? | Holds |
 | --- | --- | --- | --- | --- |
-| **brain env / workspace registry** | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`, outside every brain root) | `brain workspace …` manages records; `brain env …` reads and writes the already-selected record | **No**: machine-local, never rides any workspace sync | Schema-v3 canonical default, a machine-global `env` map, plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
+| **brain env / workspace registry** | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`, outside every brain root) | `brain workspace …` manages records; `brain env …` reads and writes the already-selected record | **No**: machine-local, never rides any workspace sync | Schema-v4 canonical default, a machine-global `env` map, plus siloed workspace records (`workspace_id`, `root`, aliases, local user, receiver switch, and per-workspace machine env) |
 | **brain config** | `<brain-root>/.config/config.json` (e.g. `~/brain/.config/config.json`) | `brain config {list\|get\|set}` | **Yes**: travels with the brain | Portable `access_mode`, logical `allowed_mcps`/`allowed_skills`, `linear_workspace`, triage settings, `response_email`, and SMS/email sender allowlists |
 
 The rule of thumb: **brain env holds anything that would be *wrong* if copied to
@@ -60,7 +60,8 @@ Worked examples:
 | `claude_cmd`, `codex_cmd`, `opencode_cmd` | env (workspace record) | Q2: an absolute path/command that is only correct on the machine that has that binary. Q2a: a workspace may legitimately launch its frontend differently. |
 | `markdown_to_pdf_path` | env (machine-global) | Q2: a machine-specific binary path. Q2a: one machine, one binary — every workspace on it must resolve the same one. |
 | `default_agent_frontend` | workspace record | env | Q2: which frontend you drive is a per-machine preference; a laptop with only Claude installed must not be forced onto Codex by another machine. |
-| `twilio_*`, `resend_*`, `brain_receiver_public_url` | env | Q2: exactly one machine serves receiver ingress for a workspace at a time, so the provider credentials and public URL belong to that machine, not to every machine. |
+| `twilio_*`, `resend_*` | env (workspace record) | Q2: exactly one machine serves receiver ingress for a workspace at a time, so the provider credentials belong to that machine, not to every machine. Q2a: each workspace answers on its own number and address, which is also what routes an inbound message to it. |
+| `brain_receiver_public_url` | env (machine-global) | Q2: the public origin is a property of this machine's tunnel or host. Q2a: one machine serves **one** `/sms` and one `/email` URL for every workspace on it, and providers sign the literal URL, so two answers would be a bug rather than a preference. |
 | `skill_sessions` | env (workspace record) | Q2: a definition names a prompt whose skill must be installed on *this* machine, so a row that travelled to a machine without it would fail. Q2a: two workspaces on one machine may reasonably offer different sessions. |
 | `linear_workspace`, `access_mode`, `allowed_skills`, `enable_triage_habits`, `enable_daily_triage_check` | config | Q2: a workspace-wide policy or slug that would be a bug to have disagree between machines. |
 
@@ -118,7 +119,7 @@ when needed. Changing the default workspace never changes access mode, root,
 local user, receiver enablement, aliases, identity, or env. Remove detaches
 only the machine record and never deletes the root.
 
-`brain workspace` explicitly loads this schema-v3 registry and applies every
+`brain workspace` explicitly loads this schema-v4 registry and applies every
 mutation through `RegistryStore`'s interprocess transaction and atomic-save
 boundaries. Startup migration and selected-record `brain env` writes use the
 same lock, so they cannot overwrite a workspace command.
@@ -161,7 +162,7 @@ pointer bytes, the root tree, manifests, backups, and registry bytes unchanged.
 Complete noninteractive forms skip terminal IO and then perform any required
 migration before executing the prepared request. Workspace commands run before
 the `markdown-to-pdf` gate; on a genuinely fresh machine, first
-`create`/`attach` can therefore establish the initial schema-v3 registry
+`create`/`attach` can therefore establish the initial schema-v4 registry
 without migration inventing a competing default.
 
 ### Portable manifest and readiness
@@ -236,7 +237,7 @@ their current values.
 `access_mode` belongs to portable workspace config, never the machine registry.
 The first migrated or created workspace is seeded as `unrestricted`; a later
 created or attached workspace is seeded as `workspace_only`. An already-present
-valid portable value wins. A selected schema-v3 record is checked before an
+valid portable value wins. A selected schema-v4 record is checked before an
 ordinary mutating or TUI command, and a missing mode is seeded according to
 current default/nondefault status. Read-only `workspace list` does not seed or
 repair any record. Changing the machine default changes routing only and never
@@ -370,7 +371,7 @@ than only the selected record. It has four parts:
 
 1. **`registry:`** — the absolute path of the `env.json` being read.
 2. **Global** — every top-level `env.json` key that is *not* under
-   `workspaces`, flattened to dotted paths. On a schema-v3 registry that is
+   `workspaces`, flattened to dotted paths. On a schema-v4 registry that is
    `schema_version` and `default_workspace`; an undeclared top-level key still
    lists, described generically, so nothing in the file is invisible.
 3. **Workspaces** — one block per registered workspace, in canonical-name order,
@@ -479,7 +480,7 @@ rclone-less) sync is a normal, healthy state.
 
 ### Structural workspace root and legacy back-compat
 
-`root` is a required structural field on each schema-v3 `WorkspaceRecord`, not
+`root` is a required structural field on each schema-v4 `WorkspaceRecord`, not
 a free-form env key. Workspace create/attach and the one-time legacy migration
 establish it; ordinary commands use the immutable root snapshot in their
 selected `WorkspaceContext`. `brain env set root=...` is therefore rejected
@@ -494,12 +495,15 @@ ordinary TUI, config, task, receiver-payload, or sync workspace selector.
 current schema, Brain passes it through `env::migrate`. A valid current-schema
 registry remains byte-for-byte unchanged. There are two distinct paths:
 
-**Schema upgrade (v2 → v3), in place.** A registry at an older schema keeps
+**Schema upgrade (v2 → v3 → v4), in place.** A registry at an older schema keeps
 every record — UUID, root, aliases, local user, receiver intent, and the rest of
-its env — and only moves machine-scoped values out of the records into the new
-top-level `env` map. Today that is `markdown_to_pdf_path`. If several records
+its env — and only moves machine-scoped values out of the records into the
+top-level `env` map. v3 hoisted `markdown_to_pdf_path`; v4 hoists
+`brain_receiver_public_url`, once one machine-wide webhook URL replaced the
+per-workspace ingress path. Both hoists are the same rewrite, driven by
+`env::MACHINE_GLOBAL_VARS`. If several records
 carried one, the first in **canonical workspace-name order** wins and the rest
-are dropped: they name a single binary on a single machine, so any is as good as
+are dropped: they describe a single machine, so any is as good as
 another, and choosing deterministically means every retry and every command
 agrees. A blank value never displaces a real one. The exact previous bytes are
 written to `env.json.legacy-backup` first, and the whole rewrite happens inside
@@ -618,15 +622,17 @@ environment, so a workspace cannot inherit another workspace's shell values.
 `brain env list` and `brain env get` redact secret values.
 
 The setup prompt asks for one public base URL, such as
-`https://brain.example.com`, loads the stable ingress from the selected
-portable manifest, and derives exact webhook endpoints
-`/w/<ingress>/sms` and `/w/<ingress>/email`. Setup prints them when it
-finishes, and `brain receiver url` (optionally narrowed with `--sms` /
-`--email`) and `brain receiver status` reprint them at any time from the same
-two inputs — deliberately without consulting receiver intent or a live server,
-since a provider portal is configured *before* ingress is ever enabled. Both
-report which variable to set when this machine has no public base URL for the
-workspace, rather than printing a URL with a missing origin. Provider values are saved as
+`https://brain.example.com`, and derives the machine's two webhook endpoints
+`/sms` and `/email` from it. That origin is stored machine-global, so setting it
+under any `-w` sets it for every registered workspace, and the confirmation says
+so. Setup prints both URLs when it finishes, and `brain receiver url`
+(optionally narrowed with `--sms` / `--email`) and `brain receiver status`
+reprint them at any time from that one input — deliberately without consulting
+receiver intent or a live server, since a provider portal is configured *before*
+ingress is ever enabled. No URL names a workspace: brain routes each inbound
+message by the number or address it arrived at, so `-w` cannot change what
+`receiver url` prints. Both report which variable to set when this machine has
+no public base URL, rather than printing a URL with a missing origin. Provider values are saved as
 strings in one selected-record transaction, including values that look numeric.
 A shared validation step for guided and headless setup requires an HTTPS origin
 without a path, query, fragment, or credentials; normalizes the Twilio sender to
@@ -660,9 +666,11 @@ conjunction of that selected-record value and an unexpired exact-workspace TUI
 lease. The four `brain receiver status -w <workspace>` rows keep those facts
 separate: `Receiver`, `TUI`, `Server`, and `Accepting`. Bare `brain receiver`
 repeats those four rows per registered workspace and adds the configured
-`resend_from_email`, `twilio_from_number`, and `brain_receiver_public_url`
-values plus the derived webhook URLs; `brain receiver email` and `brain
-receiver phone` print one of those addresses alone.
+`resend_from_email` and `twilio_from_number` — the addresses that route a
+message to that workspace — above which it prints the machine's own
+`brain_receiver_public_url` and the one webhook URL per channel derived from it;
+`brain receiver email` and `brain receiver phone` print one of those addresses
+alone.
 Reading any of them uses
 literal read-only bootstrap. It never fills in a missing access mode, migrates
 or repairs registry/users state, renders skills, writes a render stamp or run

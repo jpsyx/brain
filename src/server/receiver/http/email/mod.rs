@@ -48,6 +48,24 @@ impl VerifiedEmail {
     }
 }
 
+/// Every address a Resend webhook says the message reached, from the unverified
+/// payload.
+///
+/// `to` and `cc` both count: brain answers on the workspace's own address
+/// wherever the sender put it.
+pub(super) fn destinations(body: &[u8]) -> Vec<String> {
+    let Ok(payload) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let Some(data) = payload.get("data") else {
+        return Vec::new();
+    };
+    ["to", "cc"]
+        .into_iter()
+        .flat_map(|field| addresses(data, field))
+        .collect()
+}
+
 pub(super) fn verify(
     request: &crate::server::http::Request,
     body: &[u8],
@@ -163,18 +181,22 @@ fn email_participants(data: &serde_json::Value) -> Vec<String> {
         participants.push(from.to_owned());
     }
     for field in ["to", "cc", "reply_to"] {
-        match data.get(field) {
-            Some(serde_json::Value::String(value)) => participants.push(value.clone()),
-            Some(serde_json::Value::Array(values)) => participants.extend(
-                values
-                    .iter()
-                    .filter_map(serde_json::Value::as_str)
-                    .map(str::to_owned),
-            ),
-            _ => {}
-        }
+        participants.extend(addresses(data, field));
     }
     participants
+}
+
+/// One address field of a Resend payload, which is a string or a list.
+fn addresses(data: &serde_json::Value, field: &str) -> Vec<String> {
+    match data.get(field) {
+        Some(serde_json::Value::String(value)) => vec![value.clone()],
+        Some(serde_json::Value::Array(values)) => values
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 fn fetch_resend_email(email_id: &str, key: &str) -> Result<FetchedEmail, ProviderError> {

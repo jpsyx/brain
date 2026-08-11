@@ -21,7 +21,7 @@ fn write_tasks(root: &Path, text: &str) {
 fn write_registry(config_home: &Path, root: &Path) {
     std::fs::create_dir_all(config_home.join("brain")).unwrap();
     let registry = serde_json::json!({
-        "schema_version": 3,
+        "schema_version": brain::workspace::REGISTRY_SCHEMA_VERSION,
         "default_workspace": "family",
         "workspaces": {
             "family": {

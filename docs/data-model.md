@@ -195,15 +195,19 @@ generation-bound workspace-ingress query exposes only an optional ingress for
 the exact requested live workspace UUID. It prunes expiry first and never falls
 back to a known historical ingress or another workspace's lease.
 
-The public route identity is a typed portable `IngressId`, never a canonical
-name, root, default selection, or query parameter. Every accepted path has the
-provider shape `/w/<ingress>/{sms,email}` or local capability shape
+Provider routes carry no identity at all: `/sms` and `/email` are machine-wide,
+and the workspace is selected from the destination address inside the payload
+(see **Receiver address routing** below). For local routes the identity is a
+typed portable `IngressId`, never a canonical name, root, default selection, or
+query parameter, in the capability shape
 `/local/<lease>/w/<ingress>/{habits,habits/done,session/done}`. A local route
 accepts the live lease's own ID, plus the single capability that lease
 inherited when it superseded a browser-only background lease for the same
 workspace; the inherited capability is dropped with the lease that holds it.
 Shared-process routing first consults
-`LeaseTable::availability`. Only `Accepting` yields a live lease and a
+`LeaseTable::availability` — for a provider route, at the ingress this process
+remembers for the addressed workspace (`LeaseTable::known_workspace_ingress`).
+Only `Accepting` yields a live lease and a
 generation-bound `WorkspaceRouteTicket`. Registry, root, and manifest IO then
 occurs without the control-state mutex. The route revalidates that the same
 generation and exact authority revision are still accepting before
@@ -213,9 +217,10 @@ workspace's remembered revision. Removal or expiry leaves no accepting
 authority, and any later registration advances that remembered revision, so
 even a later lease that reuses the same ID, workspace, ingress, TUI PID, and
 job socket cannot match a ticket from before revocation. An unregister,
-disable, replacement, or expiry makes the ticket stale. Unknown
-ingress maps to 404; a known ingress with receiver disabled or no live TUI maps
-to 503. The returned context and lease remain paired with the original ticket
+disable, replacement, or expiry makes the ticket stale. An address no workspace
+publishes, or a workspace this process has never leased, maps to 404; a known
+workspace with receiver disabled or no live TUI maps to 503; one address
+published by two workspaces maps to 503 as ambiguous. The returned context and lease remain paired with the original ticket
 for later forwarding without reopening another selector. Receiver dispatch
 reloads the exact canonical registry record after actor/job construction,
 requires the same workspace UUID and persisted `receiver_enabled = true`, and
@@ -306,7 +311,42 @@ argv values.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
 current diagnostic-log destination.
 
-### Machine registry schema v3 (`workspace/registry/`)
+### Receiver address routing (`server/receiver/routing.rs`)
+
+One machine serves one webhook URL per channel, `<public-url>/sms` and
+`<public-url>/email`, so nothing in a provider request's path selects a
+workspace. The **destination the provider names** does:
+
+| Channel | Destination in the payload | Matched against the record's |
+| --- | --- | --- |
+| SMS | Twilio's `To` form field | `twilio_from_number` |
+| Email | a Resend payload's `data.to` and `data.cc` | `resend_from_email` |
+
+Both sides are normalized before comparing (`users::normalize_phone` for a
+number, `users::normalize_mailbox` for a mailbox), so an E.164 number matches
+however a human typed it into setup, and `Display Name <ADDR>` matches `addr`.
+`select_workspace` is pure over the machine registry and returns one of three
+answers, never a guess:
+
+- **`Workspace(id)`** — exactly one registered workspace publishes a named
+  destination. Receiver intent is deliberately *not* consulted here, so a
+  disabled workspace is still found and answers with its own unavailable reply
+  rather than looking like a URL nobody serves.
+- **`Ambiguous`** — two workspaces publish the same address. Refused (503):
+  delivering to either would hand one workspace another's private message.
+- **`Unknown`** — no workspace publishes any named destination. A plain 404 that
+  confirms nothing to whoever probed it.
+
+Routing reads the payload *before* any signature is verified, which is safe
+because the destination only decides **whose** signing credential the request is
+then checked against; a request that fails that workspace's own credential is
+rejected exactly as an ingress-scoped one was. After verification, the
+now-authenticated destination is re-checked against the routed workspace's own
+published address (`confirm_destination`), which closes the remaining gap for
+workspaces that share one provider account — and therefore one signing
+credential — and for a registry that changed under a live route.
+
+### Machine registry schema v4 (`workspace/registry/`)
 
 The sole machine-global workspace registry is
 `$XDG_CONFIG_HOME/brain/env.json`, or `~/.config/brain/env.json` when XDG config
@@ -314,9 +354,12 @@ is unset. Deterministic ordered names and aliases make its JSON stable:
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "default_workspace": "brain",
-  "env": { "markdown_to_pdf_path": "/Users/example/.local/bin/markdown-to-pdf" },
+  "env": {
+    "markdown_to_pdf_path": "/Users/example/.local/bin/markdown-to-pdf",
+    "brain_receiver_public_url": "https://brain.example.com"
+  },
   "workspaces": {
     "brain": {
       "workspace_id": "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b",
@@ -337,8 +380,11 @@ variable to this map or to the selected record by
 `env::schema::MACHINE_GLOBAL_VARS`, which is the single source of truth for the
 scope; `brain env get/set` uses the same bare name either way.
 
-**Schema 1 → 2 → 3.** v2 introduced the record map; v3 added the machine-global
-`env`. A v2 file fails the exact-version check, which is what routes it into
+**Schema 1 → 2 → 3 → 4.** v2 introduced the record map; v3 added the
+machine-global `env` and hoisted `markdown_to_pdf_path` into it; v4 hoists
+`brain_receiver_public_url` the same way, once one machine-wide webhook URL
+replaced the per-workspace ingress path. An older file fails the exact-version
+check, which is what routes it into
 `workspace::registry::upgrade` on the next ordinary command: a pure JSON rewrite
 that moves every `MACHINE_GLOBAL_VARS` key out of the records (first canonical
 workspace name wins, blanks skipped) and stamps the new version, wrapped by the

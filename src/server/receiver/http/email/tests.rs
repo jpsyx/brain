@@ -26,11 +26,11 @@ fn authenticated_email_uses_injected_fetch_without_external_io() {
     let config = super::ProviderConfig {
         workspace_id: crate::workspace::WorkspaceId::new(),
         twilio_auth_token: String::new(),
+        twilio_from_number: String::new(),
         public_base_url: String::new(),
         resend_signing_secret: format!("whsec_{}", STANDARD.encode(key)),
         resend_api_key: "selected-api-key".to_owned(),
         resend_from_email: "brain@example.test".to_owned(),
-        ingress_id: crate::server::IngressId::new(),
     };
     let inbound = authenticate_payload(&headers, body, &config, |email_id, api_key| {
         assert_eq!(email_id, "email-1");
@@ -258,11 +258,11 @@ fn a_real_from_header_with_a_display_name_still_authenticates() {
     let config = super::ProviderConfig {
         workspace_id: crate::workspace::WorkspaceId::new(),
         twilio_auth_token: String::new(),
+        twilio_from_number: String::new(),
         public_base_url: String::new(),
         resend_signing_secret: format!("whsec_{}", STANDARD.encode(key)),
         resend_api_key: "selected-api-key".to_owned(),
         resend_from_email: "brain@example.test".to_owned(),
-        ingress_id: crate::server::IngressId::new(),
     };
 
     let inbound = authenticate_payload(&headers, body, &config, |_, _| {

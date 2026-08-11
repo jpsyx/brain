@@ -1,9 +1,9 @@
 use super::*;
 
 #[test]
-fn schema_v3_json_parses_validated_string_types_and_defaults() {
+fn current_schema_json_parses_validated_string_types_and_defaults() {
     let registry: MachineRegistry = serde_json::from_value(json!({
-        "schema_version": 3,
+        "schema_version": REGISTRY_SCHEMA_VERSION,
         "default_workspace": "brain",
         "workspaces": {
             "brain": {
@@ -13,7 +13,7 @@ fn schema_v3_json_parses_validated_string_types_and_defaults() {
             }
         }
     }))
-    .expect("schema-v3 JSON");
+    .expect("current-schema JSON");
 
     let record = registry.workspaces.get(&name("brain")).unwrap();
     assert_eq!(registry.schema_version, REGISTRY_SCHEMA_VERSION);
@@ -27,11 +27,12 @@ fn schema_v3_json_parses_validated_string_types_and_defaults() {
 }
 
 #[test]
-fn the_previous_schema_is_rejected_so_startup_migrates_it() {
-    // v2 is not readable as v3: that rejection is exactly what routes an older
-    // machine through the upgrade on its next command.
+fn a_previous_schema_is_rejected_so_startup_migrates_it() {
+    // An older schema is not readable as the current one: that rejection is
+    // exactly what routes an older machine through the upgrade on its next
+    // command.
     let error = serde_json::from_value::<MachineRegistry>(json!({
-        "schema_version": 2,
+        "schema_version": 3,
         "default_workspace": "brain",
         "workspaces": {
             "brain": {
@@ -41,9 +42,9 @@ fn the_previous_schema_is_rejected_so_startup_migrates_it() {
             }
         }
     }))
-    .expect_err("schema v2 must not load as current");
+    .expect_err("an older schema must not load as current");
 
-    assert!(error.to_string().contains("schema 2"), "{error}");
+    assert!(error.to_string().contains("schema 3"), "{error}");
 }
 
 #[test]
@@ -144,7 +145,7 @@ fn workspace_id_deserialization_cannot_bypass_validation() {
 fn canonical_equivalent_duplicate_json_keys_are_rejected() {
     let raw = format!(
         r#"{{
-                "schema_version": 3,
+                "schema_version": {REGISTRY_SCHEMA_VERSION},
                 "default_workspace": "brain",
                 "workspaces": {{
                     "brain": {{
@@ -168,7 +169,7 @@ fn canonical_equivalent_duplicate_json_keys_are_rejected() {
 fn canonical_equivalent_duplicate_aliases_in_json_are_rejected() {
     let raw = format!(
         r#"{{
-                "schema_version": 3,
+                "schema_version": {REGISTRY_SCHEMA_VERSION},
                 "default_workspace": "brain",
                 "workspaces": {{
                     "brain": {{
