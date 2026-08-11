@@ -539,21 +539,21 @@ missing-persona gate every command runs at bootstrap). The task renderer's
 See [config.md](config.md) and [data-model.md](data-model.md).
 
 ### `skills/`
-The brain skill pipeline (sub-project B): render the bundled skills and install
-them into the shared agent registry (`~/.agents/skills`), fanning out to each
-frontend (Claude, **Codex**, OpenCode, Cursor). Split into `model` (the shared `Skill`/`SkillFile` type), `embed` (the
+The brain skill pipeline (sub-project B): render the bundled skills into the
+selected workspace's `.agents/skills` directory and fan them out to project
+frontends (Claude, **Codex**, and OpenCode). Split into `model` (the shared `Skill`/`SkillFile` type), `embed` (the
 `include_dir!`-embedded `skills/` dir → bundled `Skill`s), `plugin` (whole user
 skills discovered from `<root>/.config/plugins/<name>/`), `extension` (parse a
 `<root>/.config/extensions/<skill>.md` into named `[hook]` sections + catch-all,
 and `apply` it to a base `SKILL.md` at `<!-- brain:ext hook -->` markers,
-producing a *new built copy* only — never the repo/plugin source; unmatched
+producing a *new workspace copy* only — never the repo/plugin source; unmatched
 content lands in a trailing "Personal extensions" section), `render` (base skill
 → installable files, injecting the extension into `SKILL.md`), `layout` (the
-built dir + registry + frontend dirs, and the pure `link_ops` target
-computation), `install` (collect bundled + plugins, write built + create the
-two-hop symlinks; thin FS shell over `link_ops`), and `command`
-(`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the built
-dir, registry, frontend count, and extension/plugin sources before the FS shell
+workspace `.agents/skills` dir + frontend dirs, and the pure `link_ops` target
+computation), `install` (collect bundled + plugins, write workspace skills +
+create frontend symlinks; thin FS shell over `link_ops`), and `command`
+(`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the workspace
+skills dir, frontend count, and extension/plugin sources before the FS shell
 runs; `brain skills status` reports capability selection and enforcement).
 For workspace-only launches, `layout` and `install` also render selected skills
 under the workspace UUID and actor cache without creating registry or frontend
@@ -561,10 +561,9 @@ links. A machine skill is read only from its exact configured absolute
 directory; the source directory, `SKILL.md`, and every descendant must be real
 files or directories rather than symlinks. `resync_skills()` (the A seam) runs the pipeline, gated by
 `skills_auto_sync` (**default `true`** since the B4 cutover) so a mutation
-re-renders the live registry; set the flag `false` to manage skills only via
-explicit `brain skills sync`. A symlink-based dotfiles manager can coexist with
-this by delegating to `brain skills sync` and never pruning brain-owned links
-(they resolve into brain's built dir, outside the manager's own sources). See
+re-renders workspace skills; set the flag `false` to manage skills only via
+explicit `brain skills sync`. The pipeline never writes the user's global agent
+registry or global frontend skill directories. See
 the B spec under `docs/superpowers/specs/`.
 
 **Version-stamped auto-resync.** So a version bump ships its *skill* changes the

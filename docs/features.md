@@ -295,7 +295,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
-| `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
+| `brain skills sync [--root <dir>]` | Render + install bundled skills into the selected brain root's `.agents/skills`, then link them into that root's `.claude/skills`, `.codex/skills`, and `.opencode/skills`. `--root` selects a sandbox workspace (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
 | `brain server {status\|logs}` | Inspect the shared process without starting, stopping, or repairing it (see below). |
 | `brain killall` | Stop every running Brain shared server and TUI process on this machine, including receiver-serving server processes. |
@@ -1204,16 +1204,15 @@ gate, so it always works. See [config.md](config.md) and
 
 ### `brain skills`
 
-Manages the **bundled brain skills** — the skills that ship with brain and
-install into the shared agent registry so they work in *any* Claude (or Codex,
-OpenCode, Cursor) session, not just inside brain.
+Manages the **bundled brain skills**: the skills that ship with brain and are
+scoped to the selected brain root.
 
-- `brain skills sync` — render each bundled skill and install it: write a built
-  copy, link `~/.agents/skills/<name>` at it, then link each frontend's skills
-  dir at the registry entry. Idempotent; re-run any time.
-- `brain skills sync --root <dir>` — install everything under a **sandbox** dir
-  instead of your real `~/.agents`/frontend dirs. Used for testing so a run
-  never disturbs your live setup.
+- `brain skills sync` — render each bundled skill into
+  `<brain-root>/.agents/skills/<name>`, then link the project-local Claude,
+  Codex, and OpenCode skill directories to it. Idempotent; re-run any time.
+- `brain skills sync --root <dir>` — install everything under the selected
+  **sandbox** root. Used for testing so a run never disturbs another workspace
+  or any global frontend registry.
 
 The skills are embedded in the binary, so a fresh clone needs no extra files.
 Installing is also triggered automatically in two cases when `skills_auto_sync`

@@ -1,17 +1,16 @@
 //! The brain skill pipeline.
 //!
 //! Renders the bundled (embedded) skills and the user's plugins, injecting each
-//! skill's extension, and installs them into the shared agent registry
-//! (`~/.agents/skills`), fanning out to each frontend (Claude, Codex, OpenCode,
-//! Cursor).
+//! skill's extension, and installs them into the selected workspace's
+//! `.agents/skills` directory, fanning out to project-local Claude, Codex, and
+//! OpenCode skill directories.
 //!
 //! Sub-project A shipped `resync_skills()` as a no-op seam. B1 filled in the
 //! render/install/fan-out pipeline and the `brain skills sync` command; B2 adds
 //! extensions (inject into a built copy at named hooks) and plugins (whole user
 //! skills). `resync_skills()` runs the pipeline but is **gated OFF by default**
-//! (`skills_auto_sync`) so a `config`/`personalize` mutation never touches the
-//! live registry while the pipeline is rolled out (B1–B3); the B4 cutover flips
-//! the gate.
+//! (`skills_auto_sync`) so a `config`/`personalize` mutation can opt out of
+//! workspace skill writes.
 
 pub mod command;
 pub mod embed;
@@ -21,8 +20,6 @@ pub mod layout;
 pub mod model;
 pub mod plugin;
 pub mod render;
-
-use std::path::PathBuf;
 
 pub use install::WorkspaceCapabilityReport;
 
@@ -38,8 +35,8 @@ pub fn render_workspace_capabilities(
     install::render_workspace_capabilities(&layout, &real_sources(workspace), plan)
 }
 
-/// The brain version currently running — the authority for a rendered
-/// registry. When the installed skills were rendered by a different version,
+/// The brain version currently running, the authority for rendered workspace
+/// skills. When the installed skills were rendered by a different version,
 /// they are stale (see [`needs_resync`]).
 #[must_use]
 pub fn current_version() -> &'static str {
@@ -51,7 +48,7 @@ pub fn current_version() -> &'static str {
 /// True when the running binary's version differs from the version that last
 /// rendered them for this workspace; a missing stamp (never rendered by a
 /// version-aware binary) also means yes. Any difference (including a downgrade)
-/// re-renders, so the registry always matches the running binary. Pure.
+/// re-renders, so workspace skills always match the running binary. Pure.
 #[must_use]
 pub fn needs_resync(stamped: Option<&str>, current: &str) -> bool {
     stamped != Some(current)
@@ -66,14 +63,13 @@ pub fn resync_skills(workspace: &crate::workspace::WorkspaceContext) {
         crate::logging::log("skills auto-sync skipped");
         return;
     }
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        crate::logging::log("skills auto-sync skipped: HOME is not set");
-        return;
-    };
     let theme = crate::theme::Theme::active();
     eprintln!("{}", format_resync_plan(theme));
     crate::logging::log("skills auto-sync start");
-    if let Err(err) = install::sync(&layout::Layout::real(&home), &real_sources(workspace)) {
+    if let Err(err) = install::sync(
+        &layout::Layout::real(workspace.root()),
+        &real_sources(workspace),
+    ) {
         crate::logging::log(format!("skills auto-sync failed: {err:#}"));
     } else {
         record_synced_version(workspace, current_version());
@@ -90,8 +86,8 @@ pub fn resync_skills(workspace: &crate::workspace::WorkspaceContext) {
 ///
 /// Called from bootstrap for every ready-workspace invocation (i.e. any command
 /// that resolves a workspace — not `--help` / `--version`, not the internal
-/// hook/server, not registry-only maintenance). Gated by `skills_auto_sync`
-/// (default true) so a user can opt out and manage the registry only via
+/// hook/server, not skills-only maintenance). Gated by `skills_auto_sync`
+/// (default true) so a user can opt out and manage workspace skills only via
 /// explicit `brain skills sync`. Never fails the invocation that triggered it.
 pub fn resync_on_version_change(workspace: &crate::workspace::WorkspaceContext) {
     if !auto_sync_enabled(workspace) {
@@ -102,10 +98,6 @@ pub fn resync_on_version_change(workspace: &crate::workspace::WorkspaceContext) 
     if !needs_resync(stamped.as_deref(), current) {
         return;
     }
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        crate::logging::log("skills version-resync skipped: HOME is not set");
-        return;
-    };
     let theme = crate::theme::Theme::active();
     eprintln!(
         "{}",
@@ -115,7 +107,10 @@ pub fn resync_on_version_change(workspace: &crate::workspace::WorkspaceContext) 
         "skills version-resync start: {} -> {current}",
         stamped.as_deref().unwrap_or("(none)")
     ));
-    match install::sync(&layout::Layout::real(&home), &real_sources(workspace)) {
+    match install::sync(
+        &layout::Layout::real(workspace.root()),
+        &real_sources(workspace),
+    ) {
         Ok(report) => {
             record_synced_version(workspace, current);
             crate::logging::log(format!(
@@ -164,7 +159,7 @@ pub fn format_version_resync_plan(
         theme.muted("version:"),
         theme.value(&format!("{} -> {current}", previous.unwrap_or("(none)"))),
         theme.muted("plan:"),
-        "render bundled skills, apply extensions/plugins, and refresh registry links",
+        "render bundled skills, apply extensions/plugins, and refresh project links",
     )
 }
 
@@ -176,7 +171,7 @@ pub fn format_resync_plan(theme: crate::theme::Theme) -> String {
         theme.muted("reason:"),
         "config changed",
         theme.muted("plan:"),
-        "render bundled skills, apply extensions/plugins, and refresh registry links",
+        "render bundled skills, apply extensions/plugins, and refresh project links",
     )
 }
 
@@ -200,7 +195,7 @@ fn auto_sync_enabled(workspace: &crate::workspace::WorkspaceContext) -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn resync_plan_names_the_skill_registry_refresh() {
+    fn resync_plan_names_the_workspace_skill_refresh() {
         let plan = super::format_resync_plan(crate::theme::Theme::dark(false));
 
         assert!(plan.contains("Refreshing installed brain skills"), "{plan}");
@@ -210,7 +205,7 @@ mod tests {
 
     #[test]
     fn needs_resync_when_no_version_has_been_stamped() {
-        // A registry never rendered by a version-aware binary must re-render.
+        // Workspace skills never rendered by a version-aware binary must re-render.
         assert!(super::needs_resync(None, "0.18.0"));
     }
 
@@ -236,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn version_resync_plan_handles_a_never_stamped_registry() {
+    fn version_resync_plan_handles_never_stamped_workspace_skills() {
         let plan =
             super::format_version_resync_plan(None, "0.18.0", crate::theme::Theme::dark(false));
         assert!(plan.contains("0.18.0"), "{plan}");

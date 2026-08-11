@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
 use crate::skills::layout::Layout;
 use crate::theme::Theme;
@@ -23,8 +23,8 @@ pub enum TaskOutcome {
 
 /// Decide whether we can run the todo scripts, and where they live. Errors carry
 /// the outcome to report. Kept separate from the run so the decision is clear.
-fn plan(home: &Path) -> Result<PathBuf, TaskOutcome> {
-    let scripts = Layout::real(home).built_dir.join("todo").join("scripts");
+fn plan(root: &Path) -> Result<PathBuf, TaskOutcome> {
+    let scripts = Layout::real(root).built_dir.join("todo").join("scripts");
     if scripts.join("apply_sync_rules.py").exists() {
         Ok(scripts)
     } else {
@@ -42,10 +42,10 @@ fn reconcile_triage_before_reindex(workspace: &crate::workspace::WorkspaceContex
 pub fn reindex_tasks(
     workspace: &crate::workspace::WorkspaceContext,
     actor: &crate::actor::ActorContext,
-    home: &Path,
+    _home: &Path,
 ) -> Result<TaskOutcome> {
     reconcile_triage_before_reindex(workspace)?;
-    match plan(home) {
+    match plan(workspace.root()) {
         Ok(scripts) => {
             run_py(
                 workspace,
