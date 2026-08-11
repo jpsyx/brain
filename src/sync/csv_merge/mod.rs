@@ -3,9 +3,11 @@
 mod merge;
 mod reconcile;
 mod relationships;
+mod remote_csvs;
 mod table;
 
 pub use merge::{Report, merge};
+pub use remote_csvs::{RemoteCsvState, classify_remote_csvs};
 pub use relationships::{project_task_lists, rewrite_project_metadata};
 pub use table::{
     SchemaStatus, Table, TableParseError, parse, remote_schema_status, schema_status, serialize,

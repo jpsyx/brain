@@ -264,7 +264,7 @@ pub fn prepare_current_schema_for_setup_with_transport(
     paths: &crate::workspace::WorkspacePaths,
     root: &std::path::Path,
     remote_schema: Option<&str>,
-    remote_has_csvs: bool,
+    remote_csvs: crate::sync::csv_merge::RemoteCsvState,
     publish: impl FnMut(&str, &[u8]) -> bool,
 ) -> Result<bool> {
     let local = crate::tasks::schema::inspect_inactive(root)?;
@@ -275,9 +275,13 @@ pub fn prepare_current_schema_for_setup_with_transport(
     if remote == crate::sync::csv_merge::SchemaStatus::Current {
         return Ok(false);
     }
-    if remote_has_csvs {
+    // Whether the remote holds legacy *rows*, not whether CSV files exist. Mere
+    // existence had blocked initialization of a remote whose CSVs were already
+    // current, leaving neither `brain sync` nor `brain sync setup` able to run.
+    if remote_csvs == crate::sync::csv_merge::RemoteCsvState::Legacy {
         bail!(
-            "current local task schema cannot overwrite legacy remote task CSVs; migrate and reconcile the remote workspace first"
+            "current local task schema cannot overwrite legacy remote task rows; run `{}` to reconcile the remote workspace first",
+            crate::workspace::suggest("workspace migrate")
         );
     }
     crate::migration::publish_task_schema_transition_with_transport(
@@ -311,9 +315,15 @@ fn prepare_current_schema_for_setup(
     if remote_status == crate::sync::csv_merge::SchemaStatus::Current {
         return Ok(());
     }
-    if state.has_csvs {
+    let remote_csvs = crate::sync::csv_sync::classify_remote_csvs_for_setup(
+        command.workspace.paths(),
+        verified.remote(),
+        state.has_csvs,
+    )?;
+    if remote_csvs == crate::sync::csv_merge::RemoteCsvState::Legacy {
         bail!(
-            "current local task schema cannot overwrite legacy remote task CSVs; migrate and reconcile the remote workspace first"
+            "current local task schema cannot overwrite legacy remote task rows; run `{}` to reconcile the remote workspace first",
+            crate::workspace::suggest("workspace migrate")
         );
     }
     crate::migration::publish_task_schema_transition(command, config)

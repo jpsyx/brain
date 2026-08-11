@@ -126,7 +126,7 @@ fn current_unconfigured_workspace_setup_transitions_an_empty_remote_for_a_second
         &first_paths,
         &first,
         None,
-        false,
+        brain::sync::csv_merge::RemoteCsvState::Absent,
         |relative, _bytes| rclone_copy(&first.join(relative), &remote.join(relative)),
     )
     .unwrap();

@@ -33,7 +33,7 @@ pub(super) fn schema_version(schema: &[u8]) -> Result<Option<u64>> {
     Ok(schema.get("task_schema_version").and_then(Value::as_u64))
 }
 
-fn csv_has_current_identity(bytes: &[u8]) -> Result<bool> {
+pub(crate) fn csv_has_current_identity(bytes: &[u8]) -> Result<bool> {
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
     let headers = reader.headers()?.clone();
     if headers.get(0) != Some("task_uuid")

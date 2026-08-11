@@ -4,6 +4,7 @@ include!("tests_parts/part_02.rs");
 include!("tests_parts/part_03.rs");
 include!("tests_parts/part_04.rs");
 include!("tests_parts/part_05.rs");
+include!("tests_parts/part_06.rs");
 
 #[test]
 fn the_task_state_probe_lists_only_the_tasks_directory() {

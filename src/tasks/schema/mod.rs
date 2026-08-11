@@ -21,11 +21,14 @@ mod transaction;
 mod transform;
 
 pub(crate) use columns::{canonical_current_header, is_known_current_column};
+#[cfg(test)]
+pub(crate) use seed::CANONICAL_DOCUMENT;
 pub(crate) use seed::{document_present, ensure_schema_document};
 use path::validate_backup_destination;
 #[cfg(test)]
 use transaction::journal_path as transaction_journal_path;
 use transaction::{FileChange, MigrationStep, recover_pending, replace_group};
+pub(crate) use transform::csv_has_current_identity;
 use transform::{
     is_current, migrate_csv, migrate_schema_metadata, repair_duplicate_uuids, schema_version,
 };

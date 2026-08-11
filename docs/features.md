@@ -438,6 +438,11 @@ delegated task values.
   incomplete rather than guessed as unrestricted. The **task schema** row
   reports whether the workspace declares `tasks/SCHEMA.json`; a workspace
   without it cannot sync, so it renders `incomplete` instead of `ready`.
+- A sync whose remote is missing `tasks/SCHEMA.json` **publishes it** rather than
+  refusing, provided the remote's task CSVs hold no legacy rows. Remote CSVs that
+  genuinely predate the current schema still refuse, naming
+  `brain workspace migrate` as the remedy. Whether the remote is legacy is
+  decided by what its CSVs contain, never by whether CSV files exist.
 - A machine opening a workspace it has never had, whose remote is already synced,
   **adopts that workspace's portable identity from the remote** and says so
   (`Adopted <name>'s portable identity from the remote`) before its first sync. A

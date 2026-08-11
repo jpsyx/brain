@@ -190,6 +190,43 @@ pub(crate) fn inspect_remote_task_state(
     })
 }
 
+/// Classify the remote's task CSVs by content for setup's initialization guard.
+///
+/// The cheap probe only learns whether CSV *files* exist, which says nothing
+/// about whether they hold legacy rows. Downloading them costs two rclone runs,
+/// so it happens only here, on the setup path, and only when files are present.
+pub(crate) fn classify_remote_csvs_for_setup(
+    paths: &crate::workspace::WorkspacePaths,
+    remote: &crate::sync::remote::Remote,
+    has_csvs: bool,
+) -> Result<crate::sync::csv_merge::RemoteCsvState, CsvSyncError> {
+    if !has_csvs {
+        return Ok(crate::sync::csv_merge::RemoteCsvState::Absent);
+    }
+    let staging = paths
+        .sync_dir()
+        .join("tmp")
+        .join(format!("csv-classify-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&staging).map_err(|error| {
+        CsvSyncError::LocalWrite(format!(
+            "creating remote task CSV staging directory {}: {error}",
+            staging.display()
+        ))
+    })?;
+    let downloaded = batch_download(remote, &staging, &CSVS.map(basename_of));
+    let read = |relative: &str| {
+        downloaded
+            .then(|| std::fs::read_to_string(staging.join(basename_of(relative))).ok())
+            .flatten()
+    };
+    let tasks = read(CSVS[0]);
+    let habits = read(CSVS[1]);
+    let _ = std::fs::remove_dir_all(&staging);
+    crate::sync::csv_merge::classify_remote_csvs(tasks.as_deref(), habits.as_deref())
+        .map_err(|error| CsvSyncError::Preflight(format!("remote task CSVs: {error:#}")))
+}
+
 pub(crate) fn fetch_remote_task_schema(
     paths: &crate::workspace::WorkspacePaths,
     remote: &crate::sync::remote::Remote,

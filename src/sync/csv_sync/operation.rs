@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use crate::sync::args::Direction;
 use crate::sync::csv_merge::{
-    Table, merge, parse, remote_schema_status, schema_status, serialize, validate_for_merge,
+    RemoteCsvState, SchemaStatus, Table, classify_remote_csvs, merge, parse, remote_schema_status,
+    schema_status, serialize, validate_for_merge,
 };
 
 use super::metadata::{MetadataPublishError, prepare_project_metadata, publish_project_metadata};
@@ -52,6 +53,58 @@ fn write_checked(path: &Path, text: &str) -> Result<(), CsvSyncError> {
         .map_err(|error| CsvSyncError::LocalWrite(format!("writing {}: {error}", path.display())))
 }
 
+/// Reconcile a schema-status mismatch by publishing the document, or refuse.
+///
+/// One asymmetry is safe to heal and was previously a dead end: this machine
+/// declares the current schema, the remote has **no** document at all, and the
+/// remote's CSVs hold no legacy rows. The document is excluded from bisync and
+/// was published only by `sync setup`, whose own guard then refused because CSV
+/// files merely *existed* — so neither `brain sync` nor `brain sync setup`
+/// worked. Publishing it here is exactly what setup would have done.
+///
+/// Everything else still refuses: a remote carrying a real pre-v2 document, or
+/// legacy rows, means data that a current document would misdescribe.
+fn heal_or_refuse(
+    local: SchemaStatus,
+    remote: SchemaStatus,
+    remote_manifest: Option<&str>,
+    remote_texts: &[Option<String>; CSVS.len()],
+    local_manifest: Option<&str>,
+    push: &mut impl FnMut(&str, &str) -> bool,
+) -> Result<(), CsvSyncError> {
+    let refuse = |detail: &str| {
+        CsvSyncError::Preflight(format!(
+            "remote task schema is {remote:?}, but local task schema is {local:?}; {detail}"
+        ))
+    };
+    if local != SchemaStatus::Current || remote_manifest.is_some() {
+        return Err(refuse(&format!(
+            "run `{}` so both sides share one task schema",
+            crate::workspace::suggest("workspace migrate")
+        )));
+    }
+    let Some(document) = local_manifest else {
+        return Err(refuse("this machine has no task schema document to publish"));
+    };
+    let state = classify_remote_csvs(
+        remote_texts[0].as_deref(),
+        remote_texts[1].as_deref(),
+    )
+    .map_err(|error| CsvSyncError::Preflight(format!("remote task CSVs: {error:#}")))?;
+    if state == RemoteCsvState::Legacy {
+        return Err(refuse(&format!(
+            "the remote holds legacy task rows; run `{}` to reconcile them first",
+            crate::workspace::suggest("workspace migrate")
+        )));
+    }
+    if !push(crate::sync::csv_sync::TASK_SCHEMA, document) {
+        return Err(CsvSyncError::Preflight(
+            "could not publish the task schema document the remote is missing".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn sync_csvs_with_transport(
     paths: &crate::workspace::WorkspacePaths,
     root: &Path,
@@ -62,16 +115,24 @@ pub fn sync_csvs_with_transport(
     let manifest = std::fs::read_to_string(root.join("tasks/SCHEMA.json")).ok();
     let local_schema_status = schema_status(manifest.as_deref())
         .map_err(|error| CsvSyncError::Preflight(format!("{error:#}")))?;
-    let remote_manifest = fetch("tasks/SCHEMA.json");
+    let remote_manifest = fetch(crate::sync::csv_sync::TASK_SCHEMA);
     let remote_schema_status = remote_schema_status(remote_manifest.as_deref())
         .map_err(|error| CsvSyncError::Preflight(format!("remote {error:#}")))?;
+    // Fetched once here and reused below: the merge needs them anyway, and the
+    // heal decision must read what the remote CSVs actually contain.
+    let remote_texts = CSVS.map(fetch);
     if remote_schema_status != local_schema_status {
-        return Err(CsvSyncError::Preflight(format!(
-            "remote task schema is {remote_schema_status:?}, but local task schema is {local_schema_status:?}"
-        )));
+        heal_or_refuse(
+            local_schema_status,
+            remote_schema_status,
+            remote_manifest.as_deref(),
+            &remote_texts,
+            manifest.as_deref(),
+            &mut push,
+        )?;
     }
     let mut generations = Vec::with_capacity(CSVS.len());
-    for relative in CSVS {
+    for (index, relative) in CSVS.into_iter().enumerate() {
         let local = root.join(relative);
         let name = Path::new(relative)
             .file_name()
@@ -80,7 +141,7 @@ pub fn sync_csvs_with_transport(
         let baseline = baseline_path(paths, name);
         let baseline_text = std::fs::read_to_string(&baseline).unwrap_or_default();
         let local_text = std::fs::read_to_string(&local).unwrap_or_default();
-        let remote_text = fetch(relative).unwrap_or_default();
+        let remote_text = remote_texts[index].clone().unwrap_or_default();
         let parse_generation = |generation: &str, text: &str| {
             parse(text, local_schema_status).map_err(|error| {
                 CsvSyncError::Preflight(format!("{generation} {relative}: {error}"))

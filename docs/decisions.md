@@ -2980,6 +2980,39 @@ models a missing object as an error hides exactly this class of bug, which is
 why the identity test doubles now return exit 0 with empty output for a missing
 object, matching B2.
 
+## Existence is not legacy-ness, and a dead end is never an acceptable state
+
+Seeding the canonical `tasks/SCHEMA.json` flipped every local workspace to
+schema `Current`. A remote that had never received the document still read
+`Legacy`, because `remote_schema_status(None)` treats *no document* the same as
+*pre-v2 document*. The CSV preflight compared the two and refused. The document
+is excluded from bisync and was published only by `brain sync setup`, and
+setup's own guard then refused too, because it keyed on `state.has_csvs` —
+whether CSV files **exist** — as a proxy for whether the remote holds legacy
+rows. The remote's CSVs were header-only with the current header: zero rows,
+nothing legacy about them. So `brain sync` refused, `brain sync setup` refused,
+and the message claimed the data was legacy when it was not. **No command the
+user could run would fix it.**
+
+Two rules came out of this:
+
+- **Classify by content, not by existence.** `classify_remote_csvs`
+  (`src/sync/csv_merge/remote_csvs.rs`) returns `Absent`, `Current`, or `Legacy`
+  from what the CSVs contain. Empty or whitespace-only content proves nothing
+  and must not veto initialization. Both the sync preflight and setup's guard now
+  refuse only on `Legacy`. Setup pays two extra rclone runs to download the CSVs,
+  and only when files are present, so the per-sync fast path is untouched.
+- **Brain heals the remote, not just the local side.** When this machine declares
+  the current schema, the remote has no document at all, and the remote's CSVs
+  hold no legacy rows, the sync **publishes the document** — exactly what setup
+  would have done. Requiring a separate command to repair a state Brain itself
+  created is the failure, not the missing command. Genuine legacy rows and a real
+  pre-v2 document still refuse, and now name `brain workspace migrate` as the
+  remedy instead of asserting something false about the data.
+
+The general principle: a state Brain can reach must have a path out that Brain
+takes on its own. Auto-heal on sync and on TUI launch; ask the user for nothing.
+
 ## A joining machine must adopt portable identity, never mint it
 
 A second machine with the same registry could not open a synced workspace at all.

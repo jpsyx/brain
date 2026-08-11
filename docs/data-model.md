@@ -1387,6 +1387,12 @@ UUID is the fallback only when the remote carries no manifest either. This runs
 matters because the manifest is excluded from bisync, so a locally minted one
 would fork portable identity with nothing able to reconcile it.
 
+Whether a remote is *legacy* is decided by what its task CSVs contain, not by
+whether CSV files exist: `classify_remote_csvs`
+(`src/sync/csv_merge/remote_csvs.rs`) returns `Absent`, `Current`, or `Legacy`,
+and empty content proves nothing. A remote missing only its schema document has
+it published during the sync, so no separate command is needed.
+
 `tasks/SCHEMA.json` is required input for every schema decision, so Brain
 carries the canonical current document (`src/tasks/schema/task_schema.json`,
 embedded with `include_str!`) and seeds it into any workspace that has none.
