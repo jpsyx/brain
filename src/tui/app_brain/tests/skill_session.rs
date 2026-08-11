@@ -462,3 +462,23 @@ fn a_failed_start_leaves_you_on_the_tab_you_were_reading() {
     assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
     assert!(matches!(app.flash, Some(crate::tui::FlashKind::Error(_))));
 }
+
+#[test]
+fn an_unoccupied_tab_slot_selects_nothing_so_its_keystroke_stays_ordinary_input() {
+    // The macOS Option glyphs that address tabs 3..9 (`£`, `•`, …) are also
+    // typeable characters. `select_brain_tab_slot` reporting false is what lets
+    // the event loop forward such a keystroke instead of swallowing it.
+    let cli = Cli::parse_from(["tasks"]);
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let recording = TransportRecording::default();
+    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
+    app.session_transport_override = Some(recording.transport());
+    app.open_triage_tab();
+
+    assert!(app.select_brain_tab_slot(1), "the open session tab selects");
+    assert!(!app.select_brain_tab_slot(2), "no third tab is open");
+    assert!(!app.select_brain_tab_slot(8));
+    // The selection did not move off the tab that is open.
+    assert_eq!(app.active_brain_tab_index(), 1);
+}

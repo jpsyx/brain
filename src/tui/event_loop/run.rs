@@ -183,9 +183,14 @@ pub(crate) fn event_loop<B: Backend>(
         // (where a bare digit types into the agent). A digit with no tab behind
         // it is a no-op. Some macOS layouts surface the Option glyph instead of
         // an Alt-modified digit, which the classifier accepts.
+        // A deliberate Alt chord is consumed either way (a tab request that
+        // missed is still a tab request). A bare Option-produced glyph is also a
+        // typeable character, so when it selects nothing it must fall through to
+        // the panel rather than vanish.
         if let Some(slot) = alt_selects_brain_tab_slot(k.code, k.modifiers) {
-            app.select_brain_tab_slot(slot);
-            continue;
+            if app.select_brain_tab_slot(slot.index) || slot.from_chord {
+                continue;
+            }
         }
         // Alt+[ / Alt+] cycle the brain-panel tab (previous / next). The
         // reliable switch — terminal Alt+digit handling above is flaky, while

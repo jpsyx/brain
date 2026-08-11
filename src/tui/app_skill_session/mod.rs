@@ -152,12 +152,18 @@ impl App<'_> {
     }
 
     /// Select a tab by its `Alt+<digit>` slot: slot 0 is the main session, slot
-    /// `n` the nth open skill session. Out-of-range slots are ignored.
-    pub(crate) fn select_brain_tab_slot(&mut self, slot: usize) {
+    /// `n` the nth open skill session. Returns whether a tab was actually
+    /// selected, so the caller can let an unclaimed keystroke carry on being
+    /// ordinary input instead of swallowing it.
+    pub(crate) fn select_brain_tab_slot(&mut self, slot: usize) -> bool {
         let ids = self.skill_session_tab_ids();
-        if let Some(tab) = tab_for_slot(slot, &ids) {
-            self.select_brain_tab(tab);
-        }
+        let Some(tab) = tab_for_slot(slot, &ids) else {
+            return false;
+        };
+        let before = self.effective_brain_tab();
+        self.select_brain_tab(tab);
+        // `select_brain_tab` no-ops with the panel closed; report that honestly.
+        self.effective_brain_tab() == tab && (self.any_brain_panel_visible() || before == tab)
     }
 
     /// Focus a running skill session by definition (the palette's counterpart to

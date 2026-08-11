@@ -223,23 +223,47 @@ pub(crate) fn alt_scroll_direction(code: KeyCode, modifiers: KeyModifiers) -> Op
     }
 }
 
+/// A brain-panel tab a keystroke asks for: which slot, and whether it arrived as
+/// a deliberate `Alt`-modified chord.
+///
+/// The distinction decides what happens when the slot holds no tab. A chord is a
+/// tab request that simply missed, so the shell swallows it. A bare
+/// Option-produced glyph is *also* ordinary text (`£50`), so it must reach the
+/// panel rather than vanish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BrainTabSlot {
+    pub(crate) index: usize,
+    pub(crate) from_chord: bool,
+}
+
 /// Which brain-panel tab *slot* a keystroke selects, if any: `0` for `Alt+1` (the
 /// main session) and `n` for `Alt+<n+1>` (the nth open skill session). The caller
-/// resolves a slot against the tabs actually open, so an unoccupied digit is a
-/// no-op. We use `Alt+digit` rather than `Ctrl+digit` because most terminals
+/// resolves a slot against the tabs actually open, so an unoccupied digit selects
+/// nothing. We use `Alt+digit` rather than `Ctrl+digit` because most terminals
 /// don't distinguish `Ctrl+1` from a bare `1` (only the kitty keyboard protocol
 /// does), whereas `Alt+digit` arrives as a distinct Meta sequence everywhere. On
 /// macOS layouts where Option surfaces the produced glyph instead of an
-/// Alt-modified ASCII digit, accept the `Option+<digit>` glyphs too.
+/// Alt-modified ASCII digit, accept the `Option+<digit>` glyphs too — flagged as
+/// not-a-chord, since those glyphs are typeable characters in their own right.
 #[must_use]
-pub(crate) fn alt_selects_brain_tab_slot(code: KeyCode, modifiers: KeyModifiers) -> Option<usize> {
+pub(crate) fn alt_selects_brain_tab_slot(
+    code: KeyCode,
+    modifiers: KeyModifiers,
+) -> Option<BrainTabSlot> {
     let modified = modifiers.intersects(KeyModifiers::ALT | KeyModifiers::META);
     match code {
-        KeyCode::Char(digit @ '1'..='9') if modified => Some(digit.to_digit(10)? as usize - 1),
+        KeyCode::Char(digit @ '1'..='9') if modified => Some(BrainTabSlot {
+            index: digit.to_digit(10)? as usize - 1,
+            from_chord: true,
+        }),
         // macOS US-layout Option+1..Option+9 glyphs, in digit order.
         KeyCode::Char(glyph) => MAC_OPTION_DIGIT_GLYPHS
             .iter()
-            .position(|&candidate| candidate == glyph),
+            .position(|&candidate| candidate == glyph)
+            .map(|index| BrainTabSlot {
+                index,
+                from_chord: false,
+            }),
         _ => None,
     }
 }
