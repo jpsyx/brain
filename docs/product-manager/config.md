@@ -3,7 +3,7 @@ prefix: BR
 cadence_weeks: 2
 current_cycle:
 counters:
-  task: 5
+  task: 8
   project: 0
   initiative: 0
   milestone: 0
