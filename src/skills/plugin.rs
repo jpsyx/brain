@@ -35,6 +35,36 @@ pub fn discover(dir: &Path) -> Vec<Skill> {
     plugins
 }
 
+/// Discover user-authored skills already living in a workspace skill directory.
+///
+/// Only real directories with a regular `SKILL.md` are eligible; malformed
+/// entries are left untouched for the user to repair.
+#[must_use]
+pub fn discover_names(dir: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut names = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path).ok()?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                return None;
+            }
+            let skill = path.join("SKILL.md");
+            let skill_metadata = fs::symlink_metadata(skill).ok()?;
+            if skill_metadata.is_file() && !skill_metadata.file_type().is_symlink() {
+                entry.file_name().into_string().ok()
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
 /// Validate one exact machine skill directory and return its stable canonical path.
 pub(crate) fn validate_exact_path(path: &Path) -> Result<PathBuf> {
     let canonical = canonical_path_below_trusted_root(path)?;
@@ -243,5 +273,21 @@ mod tests {
     #[test]
     fn missing_dir_yields_no_plugins() {
         assert!(discover(Path::new("/no/such/plugins/dir")).is_empty());
+    }
+
+    #[test]
+    fn discovers_workspace_skill_names_without_following_symlinks() {
+        let root = tmp();
+        let skill = root.join("mine");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(skill.join("SKILL.md"), "# mine").unwrap();
+        let malformed = root.join("malformed");
+        fs::create_dir_all(&malformed).unwrap();
+        let target = root.join("target.md");
+        fs::write(&target, "# target").unwrap();
+        std::os::unix::fs::symlink(&target, malformed.join("SKILL.md")).unwrap();
+
+        assert_eq!(discover_names(&root), vec!["mine"]);
+        let _ = fs::remove_dir_all(&root);
     }
 }

@@ -1,15 +1,14 @@
 //! `brain skills sync [--root <dir>]` — render + install the bundled skills
 //! (plus the user's extensions/plugins).
 //!
-//! With `--root`, everything installs under a sandbox dir and reads
-//! extensions/plugins from `<root>/{extensions,plugins}` (dev/tests, no touch to
-//! the live registry). Without it, the real per-user layout + brain-root sources
-//! are used.
+//! With `--root`, everything installs under that workspace dir and reads
+//! extensions/plugins from `<root>/{extensions,plugins}`. Without it, the
+//! selected brain workspace owns the `.agents` and frontend skill directories.
 
 use std::fmt::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 use super::install::{self, Sources};
 use super::layout::Layout;
@@ -194,26 +193,29 @@ fn themed_enforcement(
     }
 }
 
-/// Run `brain skills sync`. `root` (from `--root`) selects a sandbox.
+/// Run `brain skills sync`. `root` (from `--root`) selects a workspace sandbox.
 pub fn run_sync(workspace: &crate::workspace::WorkspaceContext, root: Option<&Path>) -> Result<()> {
-    let (layout, sources) = if let Some(r) = root {
-        (
-            Layout::under_root(r),
-            Sources {
-                extensions_dir: Some(r.join("extensions")),
-                plugins_dir: Some(r.join("plugins")),
-            },
-        )
-    } else {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .ok_or_else(|| anyhow!("$HOME is not set"))?;
-        (Layout::real(&home), super::real_sources(workspace))
-    };
+    let (layout, sources) = root.map_or_else(
+        || {
+            (
+                Layout::real(workspace.root()),
+                super::real_sources(workspace),
+            )
+        },
+        |r| {
+            (
+                Layout::under_root(r),
+                Sources {
+                    extensions_dir: Some(r.join("extensions")),
+                    plugins_dir: Some(r.join("plugins")),
+                },
+            )
+        },
+    );
     let theme = crate::theme::Theme::active();
     eprintln!("{}", format_sync_plan(&layout, &sources, theme));
     crate::logging::log(format!(
-        "skills sync built={} registry={} frontends={}",
+        "skills sync built={} workspace_skills={} frontends={}",
         layout.built_dir.display(),
         layout.agents_dir.display(),
         layout.frontends.len()
@@ -222,7 +224,7 @@ pub fn run_sync(workspace: &crate::workspace::WorkspaceContext, root: Option<&Pa
     crate::logging::log(format!("skills sync installed={}", report.installed.len()));
     // A real (non-sandbox) sync is an authoritative render, so record the brain
     // version that produced it — this is what the startup auto-resync checks.
-    // A `--root` sandbox run touches no live registry, so it leaves no stamp.
+    // A `--root` sandbox run is not the selected workspace, so it leaves no stamp.
     if root.is_none() {
         super::record_synced_version(workspace, super::current_version());
     }
@@ -249,7 +251,7 @@ pub fn format_sync_plan(layout: &Layout, sources: &Sources, theme: crate::theme:
         theme.heading("Rendering and installing brain skills"),
         theme.muted("built:"),
         theme.value(&layout.built_dir.display().to_string()),
-        theme.muted("registry:"),
+        theme.muted("workspace skills:"),
         theme.value(&layout.agents_dir.display().to_string()),
         theme.muted("frontends:"),
         theme.value(&layout.frontends.len().to_string()),
@@ -263,6 +265,7 @@ pub fn format_sync_plan(layout: &Layout, sources: &Sources, theme: crate::theme:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn sync_plan_names_skill_install_destinations() {
@@ -278,12 +281,15 @@ mod tests {
             plan.contains("Rendering and installing brain skills"),
             "{plan}"
         );
-        assert!(plan.contains("built: /tmp/brain-skills/built"), "{plan}");
         assert!(
-            plan.contains("registry: /tmp/brain-skills/agents/skills"),
+            plan.contains("built: /tmp/brain-skills/.agents/skills"),
             "{plan}"
         );
-        assert!(plan.contains("frontends: 4"), "{plan}");
+        assert!(
+            plan.contains("workspace skills: /tmp/brain-skills/.agents/skills"),
+            "{plan}"
+        );
+        assert!(plan.contains("frontends: 3"), "{plan}");
         assert!(
             plan.contains("extensions: /tmp/brain-skills/extensions"),
             "{plan}"

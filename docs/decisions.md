@@ -1492,22 +1492,36 @@ startup; changing personalization takes effect on the next launch.
 
 ## Why bundled skills are embedded in the binary (`include_dir`)
 
-brain is meant to be cloned and used by anyone, and its skills must work in *any*
-agent session, not just inside the repo. Embedding the `skills/` dir into the
+brain is meant to be cloned and used by anyone, and its skills must be available
+to every supported agent frontend opened in the selected brain root. Embedding
+the `skills/` dir into the
 binary with `include_dir` makes it self-contained: `brain skills sync` writes the
 skills out wherever they're needed, so a user who `cargo install`s brain (or
 moves the binary) still gets them. `include_str!` can't carry a skill's multiple
 files (SKILL.md + scripts), which is why the one dependency is justified.
 
-## Why the skill install is a two-hop link (registry → built)
+## Why bundled skills are project-scoped
 
-`brain skills sync` writes a built copy, links `~/.agents/skills/<name>` at it,
-then links each frontend's skills dir at that registry entry. This mirrors the
-fan-out shape a dotfiles manager already uses for its own skills, so brain-owned
-skills sit in the same shared registry every frontend reads — and so brain and a
-dotfiles manager can coexist on one machine once the dotfiles manager stops
-pruning brain-owned entries (the B4 bridge). The link *targets* are a pure
-function (`layout::link_ops`), unit-tested; the FS shell (`install`) stays thin.
+`brain skills sync` writes rendered skills directly to
+`<brain-root>/.agents/skills/<name>`, then links each project frontend's
+`.claude/skills`, `.codex/skills`, and `.opencode/skills` entry to that copy.
+Brain no longer writes `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`,
+or any other machine-global frontend registry. This keeps skills aligned with
+the selected workspace and prevents one brain workspace from changing another
+project's agent behavior. The link targets are a pure function
+(`layout::link_ops`), unit-tested; the filesystem shell (`install`) stays thin.
+The sync also scans `.agents/skills` for valid user-authored skill directories
+and links them without rewriting their contents. The TUI performs this complete
+sync once before opening the brain panel; non-TUI version resync remains a
+separate path.
+
+The first run of a new version also performs a one-time migration pass over
+every workspace in the machine registry. It detects legacy global core-skill
+locations for observability, renders the embedded canonical skills into each
+workspace, and leaves the old global files untouched so rollback remains safe.
+TUI startup excludes the selected workspace because its normal startup sync runs
+immediately afterward; ordinary commands include it in the migration pass.
+All registered workspaces are handled before the command continues.
 
 ## Why skill auto-sync had a rollout gate (historical; default now on)
 
@@ -1517,34 +1531,36 @@ ready. The B4 cutover completed that ownership transition and activated the
 same seam.
 
 `skills_auto_sync` now defaults to `true`: config/personalize mutations and the
-first ready-workspace invocation after a version change render the live
-registry. Setting it `false` leaves only explicit `brain skills sync`.
+first ready non-TUI invocation after a version change render the selected
+workspace's `.agents/skills` directory. The TUI performs one startup sync even
+when this opt-out is set, because it must link user-authored skills before its
+panel starts. Setting it `false` leaves non-TUI automatic resyncs disabled.
 
 ## Why a version-stamped auto-resync (a brain update must ship skill changes)
 
-A bundled-skill change is worthless until it is *rendered* into the registry the
+A bundled-skill change is worthless until it is *rendered* into the workspace
+skills the
 LLM reads. Before this, the only triggers were an explicit `brain skills sync`
 or an incidental config/personalize mutation, so after a plain `git pull` +
 rebuild the installed flattened skills silently lagged the binary: the code half
 of a change went live, the skill half did not (this is exactly what stranded the
 daily-triage completion-signal fix on an old render). We close the gap by making
-a **version change** a render trigger, entirely in code (no LLM): `bootstrap`
+a **version change** a render trigger for non-TUI commands, entirely in code
+(no LLM): `bootstrap`
 stamps `env!("CARGO_PKG_VERSION")` per workspace (`state` DB
-`meta('skills_synced_version')`) and, on the first ready-workspace invocation
+`meta('skills_synced_version')`) and, on the first ready non-TUI invocation
 after the stamp differs, runs the same pipeline once and re-stamps
 (`needs_resync` is the pure decision). Key choices:
 
-- **On any workspace-opening command, not just the TUI or an explicit sync.**
-  The trigger the user wants is "a new brain version ran," which is every real
-  command; `--help`/`--version` (no workspace), the internal hook/server, and
-  registry-only maintenance structurally have no ready workspace, so they are
-  the natural exclusions — no special-casing needed.
+- **On any non-TUI workspace-opening command.** The TUI has its own one-time
+  startup sync immediately before the brain panel opens, so it does not run the
+  version path twice.
 - **Per-workspace stamp in the state DB.** The flattened render depends on the
   *selected* workspace's extensions/plugins, and the state DB is already
   UUID-scoped, so the stamp belongs there (a generic `meta` key, no migration).
-- **Reuse `skills_auto_sync` as the opt-out.** Both auto-render triggers are
-  "auto-sync skills"; one knob keeps the mental model simple. `false` ⇒ manage
-  the registry only via explicit `brain skills sync`.
+- **Reuse `skills_auto_sync` as the non-TUI opt-out.** `false` disables mutation
+  and version resyncs; explicit sync and the TUI's pre-panel reconciliation still
+  ensure project links exist.
 - **Extension-agnostic, per [AGENTS.md](../AGENTS.md).** The mechanism knows
   nothing about what any extension renders; an empty extension set renders
   identically, so the bundled core and any fork behave the same. Every
@@ -1627,11 +1643,10 @@ Keeping personal tokens out of a bundled skill is a **review step, not an
 automated test** — see "Why there is no automated personal-data guard test"
 below.
 
-Cross-skill script calls (todo's `find_chronic_ignored.py`, …)
-standardized on the install-registry path `~/.agents/skills/todo/scripts/<name>.py`
-rather than the old `~/global-skills/...` (dotfiles-manager-owned) or
-`~/.claude/skills/...` (one-frontend) forms: that path is frontend-agnostic and is exactly where
-`brain skills sync` installs the `todo` skill, so it resolves for any cloner.
+Cross-skill script calls (todo's `find_chronic_ignored.py`, …) use the selected
+workspace path `$BRAIN_ROOT/.agents/skills/todo/scripts/<name>.py`. This keeps
+the bundled skills frontend-agnostic while ensuring each brain root carries its
+own complete skill set.
 
 ## Why second-brain split into a lean core + a `/contacts` skill + a `zotero-sync` plugin
 
@@ -1718,21 +1733,21 @@ non-obvious; the function name + these docs carry the *what*. This repo is
 not under git, so there's no PR review, no `.difit/` log, and no changelog
 file — `docs/` is the durable record.
 
-## B4 — the dotfiles-manager bridge + live cutover (ownership boundary, prune-safety, rollback)
+## B4 — historical shared-registry cutover (superseded)
 
-The B1–B3 pipeline was proven only in a sandbox; B4 is the one phase allowed to
-touch the live agent registry. The cutover flips the six migrated skills
+The B1–B3 pipeline was proven only in a sandbox; B4 was the phase that was
+allowed to touch the live agent registry. The cutover flipped the six migrated skills
 (`article-summarizer`, `brain-knowledge-capture`, `contacts`, `second-brain`,
 `todo`, `triage`) plus two plugins (`zotero-sync`, `linear-sync`) from
 dotfiles-manager-owned to brain-owned, and makes the dotfiles manager delegate to
 `brain skills sync` without ever pruning what brain owns.
 
-This section describes the general shape of the cutover for anyone whose skills
+This section describes the historical shape of the cutover for anyone whose skills
 are currently owned by a symlink-based dotfiles manager. Brain itself knows
 nothing about any such tool; all the coordination is on the dotfiles-manager
 side.
 
-**The ownership boundary is the link target, not a manifest file.** A registry
+**Historical ownership boundary.** A registry
 or frontend skill link is *brain-owned* iff it (transitively) resolves under
 brain's built dir (`$XDG_DATA_HOME/brain/skills` or `~/.local/share/brain/skills`).
 Dotfiles-manager-owned links resolve into its own sources (typically a
@@ -3425,3 +3440,53 @@ answer a question that has already been answered — and answering "yes" re-runs
 triage pass that already ran on another machine. The dismissal only fires for a
 `ConfirmKind::RunTriage` modal, so an unrelated confirmation the user opened in
 the meantime is never closed under them.
+
+## Why inbound email identities are parsed as mailboxes, not addresses
+
+`normalize_email` deliberately refuses to guess: it rejects any value with
+whitespace, so `pablo@example.com` normalizes and anything else fails. That is
+right for a *configured* identity, where a person typed the value and an
+ambiguous one should be a validation error. It is wrong for a value lifted out
+of a mail header, because `From`, `To`, and `Cc` carry RFC 5322 mailboxes —
+`Pablo Sarmiento <pablo@example.com>` — far more often than bare addresses.
+
+Applying the configuration rule at the provider boundary produced two failures
+that both look like "email is broken" and neither of which logs a cause. The
+sender was rejected as not-allowed, so a normal email from a normal mail client
+got HTTP 403 and never reached an agent. And every thread participant failed
+the allowlist intersection, so on the paths that did run, the reply had no
+recipients and was discarded.
+
+`normalize_mailbox` reduces a mailbox to its addr-spec and then delegates to
+`normalize_email`, so exactly one rule decides what a valid address is. The
+boundary applies it (`fetch_verified` for the sender and participants,
+`allowed_thread_recipients` for both sides of the intersection and the
+receiving address); configuration still uses `normalize_email` and still
+refuses to guess. This is the email analogue of the E.164 work on the SMS side:
+accept the shape the provider really sends, normalize once, compare normalized.
+
+The receiving address matters for the same reason. It is the self-echo guard,
+and it comes from free-form env, so a perfectly reasonable
+`resend_from_email` of `Brain <brain@example.com>` would have compared unequal
+to the address it names and let brain answer its own mail.
+
+## Why an inbound email is converted to text and bounded
+
+The prompt is typed into the brain panel's PTY. Two properties of email make
+that unsafe without shaping. Mail from a rich client is often HTML-only, and
+the raw markup buries the actual message; and the receiving API's cap is 1 MiB,
+which a newsletter reaches easily, so an unbounded prompt is an unbounded PTY
+write. `body.rs` therefore drops `script`/`style` bodies, keeps element text
+with block boundaries as line breaks, and caps the result at 16 KiB with an
+explicit truncation notice — the agent is told the message was cut rather than
+answering a silently shortened one as if it were complete. A plain-text part,
+when present, is still preferred and passed through verbatim.
+
+## Why every outbound email reply goes through one seam
+
+Three sites delivered email (the processing notice, the final response, and the
+post-teardown fallback), and all three guarded on a non-empty recipient list
+with no `else`. An empty list is the worst outcome this channel has: the user
+gets nothing, which is indistinguishable from the agent never finishing, and
+nothing in the log says why. `App::send_email_reply` is now the only path, and
+it logs the drop with the two configuration fixes that resolve it.

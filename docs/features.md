@@ -262,8 +262,13 @@ management and reporting commands stay outside the persistent shell.
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
-| `brain skills sync [--root <dir>]` | Render + install the bundled skills into the agent registry (`~/.agents/skills`) and fan out to the frontends (Claude, Codex, OpenCode, Cursor). `--root` installs under a sandbox dir instead of your real setup (see below). |
+| `brain skills sync [--root <dir>]` | Render bundled skills into the selected brain root's `.agents/skills`, preserve and link user-authored skills already there, then link everything into that root's `.claude/skills`, `.codex/skills`, and `.opencode/skills`. `--root` selects a sandbox workspace (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
+
+When a new Brain version is first run, it migrates the embedded core skills
+from any legacy global installation into every registered workspace's
+`.agents/skills` directory. The selected workspace follows the normal startup
+sync path; the migration never deletes the old global files.
 | `brain server {status\|logs}` | Inspect the shared process without starting, stopping, or repairing it (see below). |
 | `brain killall` | Stop every running Brain shared server and TUI process on this machine, including receiver-serving server processes. |
 | `brain habits` | Open today's habits page. Always available: it reuses whatever is already serving (an open TUI's shared server, or an earlier background one) and elects a background server only when nothing is running. A workspace with no route yet registers a background lease of its own, so `brain habits -w family` works while a `brain` TUI is open. |
@@ -1171,24 +1176,28 @@ gate, so it always works. See [config.md](config.md) and
 
 ### `brain skills`
 
-Manages the **bundled brain skills** — the skills that ship with brain and
-install into the shared agent registry so they work in *any* Claude (or Codex,
-OpenCode, Cursor) session, not just inside brain.
+Manages the **bundled brain skills**: the skills that ship with brain and are
+scoped to the selected brain root.
 
-- `brain skills sync` — render each bundled skill and install it: write a built
-  copy, link `~/.agents/skills/<name>` at it, then link each frontend's skills
-  dir at the registry entry. Idempotent; re-run any time.
-- `brain skills sync --root <dir>` — install everything under a **sandbox** dir
-  instead of your real `~/.agents`/frontend dirs. Used for testing so a run
-  never disturbs your live setup.
+- `brain skills sync` — render each bundled skill into
+  `<brain-root>/.agents/skills/<name>`, discover user-authored skill
+  directories already there, then link every skill into the project-local
+  Claude, Codex, and OpenCode skill directories. Idempotent; re-run any time.
+- `brain skills sync --root <dir>` — install everything under the selected
+  **sandbox** root. Used for testing so a run never disturbs another workspace
+  or any global frontend registry.
 
 The skills are embedded in the binary, so a fresh clone needs no extra files.
+The bundled `brain-skills` guide explains how to create a new skill under
+`<brain-root>/.agents/skills/<name>/` and refresh its frontend links.
 Installing is also triggered automatically in two cases when `skills_auto_sync`
 is `true` (the default since the B4 cutover; set it `false` to sync only on
 demand):
 
 - after a `config`/`persona` change, and
-- **the first time a new brain version runs.** Any command that opens a
+- **the first time a new brain version runs for non-TUI commands.** The TUI
+  performs one complete `brain skills sync` during startup, before launching
+  its brain panel. Any command that opens a
   workspace (i.e. anything but `--help`/`--version`) checks the brain version
   that last rendered your skills; if the binary has since been updated, it
   re-renders them once (printing a short `Brain updated: refreshing installed
@@ -1198,16 +1207,17 @@ demand):
   recorded, and skips cleanly when the workspace still needs setup.
 
 Bundled today: `article-summarizer`, `triage`, `brain-knowledge-capture`,
-`second-brain`, `contacts`, and `todo`. See [config.md](config.md) and the
+`second-brain`, `contacts`, `todo`, and `brain-skills`. See [config.md](config.md) and the
 sub-project B spec.
 
-Before writing anything, `brain skills sync` prints the built-skill directory,
-the shared registry directory, the number of frontend skill directories it will
-fan out to, and the extension/plugin source directories it will read. That
-progress trace is default output; `--verbose` remains only for detailed run
-logs. Automatic skill refresh after `brain config set` / `brain persona set`
-uses the same principle: it prints that installed skills are being refreshed
-before writing built copies or registry links.
+Before writing anything, `brain skills sync` prints the workspace `.agents/skills`
+directory, the number of project frontend skill directories it will fan out to,
+and the extension/plugin source directories it will read. It also discovers
+valid user-authored skill directories already in `.agents/skills`. That progress
+trace is default output; `--verbose` remains only for detailed run logs.
+Automatic skill refresh after `brain config set` / `brain persona set` uses the
+same principle: it prints that installed skills are being refreshed before
+writing bundled copies or project links.
 
 **Customizing skills without forking.** Two mechanisms, both stored with your
 brain (synced, never committed to the repo):
@@ -1234,9 +1244,11 @@ brain (synced, never committed to the repo):
   The bundled `todo` skill similarly exposes `todo:agenda-after-build` as a
   generic no-op seam. Any installed extension supplies its own runtime content
   and paths explicitly; core does not discover or name extension artifacts.
-- **Plugins** — whole skills you own, in `<root>/.config/plugins/<name>/`. The
-  sync installs them alongside the bundled cores, into the same registry and
-  frontends.
+- **Plugins** — whole legacy-config skills you own, in
+  `<root>/.config/plugins/<name>/`. The sync renders them into the workspace's
+  `.agents/skills` directory alongside bundled cores. New user-authored skills
+  should be created directly under `<root>/.agents/skills/<name>/`, as described
+  by the bundled `brain-skills` guide.
 
 ### Habits and receiver servers
 
@@ -1271,6 +1283,11 @@ Each Resend received-email or attachment-metadata response is also capped at
 1 MiB and ten seconds. Unavailable, ignored, and permanent discarded Resend
 events receive HTTP success; invalid signatures remain authentication errors.
 Receiving API failures return 502.
+Email addresses are matched as bare addresses, so the usual
+`Display Name <someone@example.com>` header form authenticates normally and
+still reaches the reply thread. An email with no plain-text part is reduced
+from HTML to readable text, and any inbound message is capped at 16 KiB with
+an explicit truncation notice before it is typed into the brain panel.
 Accepted provider IDs are deduplicated in a bounded cache scoped by workspace
 and channel; failed handoffs retain no retry state. SMS numbers use exact E.164
 matching, including the leading `+` and country code. A malformed configured

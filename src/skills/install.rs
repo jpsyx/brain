@@ -1,7 +1,7 @@
 //! Applying a render to disk.
 //!
 //! Collects the bundled skills plus the user's plugins, injects each skill's
-//! extension, writes the built copies, and creates the registry + frontend
+//! extension, writes the workspace-local copies, and creates frontend
 //! symlinks. Link *targets* come from the pure `layout::link_ops`; this module
 //! is the thin FS shell.
 
@@ -65,6 +65,15 @@ pub fn sync(layout: &Layout, sources: &Sources) -> Result<Report> {
             create_symlink(&link)?;
         }
         installed.push(skill.name.clone());
+    }
+    let mut workspace_skills = plugin::discover_names(&layout.agents_dir);
+    workspace_skills.retain(|name| !installed.iter().any(|installed| installed == name));
+    for name in workspace_skills {
+        crate::logging::log(format!("skills link workspace skill {name}"));
+        for link in link_ops(&name, layout) {
+            create_symlink(&link)?;
+        }
+        installed.push(name);
     }
     Ok(Report { installed })
 }
@@ -196,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_writes_built_skill_and_registry_and_frontend_links() {
+    fn sync_writes_workspace_skill_and_frontend_links() {
         let root = sandbox();
         let layout = Layout::under_root(&root);
         let report = sync(&layout, &Sources::default()).unwrap();
@@ -210,14 +219,12 @@ mod tests {
                 .contains("article-summarizer")
         );
 
-        let registry = layout.agents_dir.join("article-summarizer");
-        assert_eq!(
-            fs::read_link(&registry).unwrap(),
-            layout.built_dir.join("article-summarizer")
-        );
         for f in &layout.frontends {
             let fe = f.join("article-summarizer");
-            assert_eq!(fs::read_link(&fe).unwrap(), registry);
+            assert_eq!(
+                fs::read_link(&fe).unwrap(),
+                layout.agents_dir.join("article-summarizer")
+            );
             assert!(fe.join("SKILL.md").is_file());
         }
         let _ = fs::remove_dir_all(&root);
@@ -244,6 +251,28 @@ mod tests {
                 .join("my-plugin")
                 .join("SKILL.md")
                 .is_file()
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sync_preserves_and_links_user_skills_already_in_agents_directory() {
+        let root = sandbox();
+        let user_skill = root.join(".agents/skills/my-skill");
+        fs::create_dir_all(&user_skill).unwrap();
+        fs::write(user_skill.join("SKILL.md"), "# user skill").unwrap();
+
+        let layout = Layout::under_root(&root);
+        let report = sync(&layout, &Sources::default()).unwrap();
+
+        assert!(report.installed.iter().any(|name| name == "my-skill"));
+        assert_eq!(
+            fs::read_link(root.join(".claude/skills/my-skill")).unwrap(),
+            user_skill
+        );
+        assert_eq!(
+            fs::read_to_string(user_skill.join("SKILL.md")).unwrap(),
+            "# user skill"
         );
         let _ = fs::remove_dir_all(&root);
     }

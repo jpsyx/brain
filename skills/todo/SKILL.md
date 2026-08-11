@@ -12,7 +12,7 @@ The user's canonical task system lives at `<brain>/tasks/`:
 - `SCHEMA.json` — machine-readable schema.
 
 Throughout, `<brain>` is the selected workspace root from `BRAIN_ROOT`;
-`~/.agents/skills/todo/scripts/` is where `brain skills sync` installs this
+`<brain-root>/.agents/skills/todo/scripts/` is where `brain skills sync` installs this
 skill's helper scripts; `$AGENDA_DIR` is `brain config get
 agenda_dir` (the folder the agenda PDF is written to, default your Downloads
 folder); and `markdown-to-pdf` is the configured PDF command
@@ -1649,7 +1649,7 @@ Offer the user help proactively when:
   Don't silently recommend it as the next action — a stale top
   candidate is itself a signal worth pausing on.
 - **5+ chronic-ignore hits at once** (run
-  `python3 ~/.agents/skills/todo/scripts/find_chronic_ignored.py --count`
+  `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/find_chronic_ignored.py" --count`
   to check) → suggest `/triage daily`; the chronic-ignore sweep
   (Step 7) is the right pass for clearing a backlog of deadwood.
 

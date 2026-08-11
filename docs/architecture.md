@@ -539,21 +539,24 @@ missing-persona gate every command runs at bootstrap). The task renderer's
 See [config.md](config.md) and [data-model.md](data-model.md).
 
 ### `skills/`
-The brain skill pipeline (sub-project B): render the bundled skills and install
-them into the shared agent registry (`~/.agents/skills`), fanning out to each
-frontend (Claude, **Codex**, OpenCode, Cursor). Split into `model` (the shared `Skill`/`SkillFile` type), `embed` (the
+The brain skill pipeline (sub-project B): render the bundled skills into the
+selected workspace's `.agents/skills` directory, preserving user-authored skill
+directories there, and fan them out to project frontends (Claude, **Codex**, and
+OpenCode). Split into `model` (the shared `Skill`/`SkillFile` type), `embed` (the
 `include_dir!`-embedded `skills/` dir → bundled `Skill`s), `plugin` (whole user
 skills discovered from `<root>/.config/plugins/<name>/`), `extension` (parse a
 `<root>/.config/extensions/<skill>.md` into named `[hook]` sections + catch-all,
 and `apply` it to a base `SKILL.md` at `<!-- brain:ext hook -->` markers,
-producing a *new built copy* only — never the repo/plugin source; unmatched
+producing a *new workspace copy* only — never the repo/plugin source; unmatched
 content lands in a trailing "Personal extensions" section), `render` (base skill
 → installable files, injecting the extension into `SKILL.md`), `layout` (the
-built dir + registry + frontend dirs, and the pure `link_ops` target
-computation), `install` (collect bundled + plugins, write built + create the
-two-hop symlinks; thin FS shell over `link_ops`), and `command`
-(`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the built
-dir, registry, frontend count, and extension/plugin sources before the FS shell
+workspace `.agents/skills` dir + frontend dirs, and the pure `link_ops` target
+computation), `install` (collect bundled + legacy config plugins, write
+workspace skills, discover existing user skills under `.agents/skills`, and
+create frontend symlinks; thin FS shell over
+`link_ops`), and `command`
+(`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the workspace
+skills dir, frontend count, and extension/plugin sources before the FS shell
 runs; `brain skills status` reports capability selection and enforcement).
 For workspace-only launches, `layout` and `install` also render selected skills
 under the workspace UUID and actor cache without creating registry or frontend
@@ -561,21 +564,29 @@ links. A machine skill is read only from its exact configured absolute
 directory; the source directory, `SKILL.md`, and every descendant must be real
 files or directories rather than symlinks. `resync_skills()` (the A seam) runs the pipeline, gated by
 `skills_auto_sync` (**default `true`** since the B4 cutover) so a mutation
-re-renders the live registry; set the flag `false` to manage skills only via
-explicit `brain skills sync`. A symlink-based dotfiles manager can coexist with
-this by delegating to `brain skills sync` and never pruning brain-owned links
-(they resolve into brain's built dir, outside the manager's own sources). See
+re-renders workspace skills; set the flag `false` to manage skills only via
+explicit `brain skills sync`. The TUI invokes one best-effort workspace sync
+before opening its brain panel. The pipeline never writes the user's global
+agent registry or global frontend skill directories. See
 the B spec under `docs/superpowers/specs/`.
+
+**Global-skill migration.** On the first ordinary invocation of a new Brain
+version, bootstrap checks the legacy machine-global skill locations and renders
+the embedded core set into every registered workspace. The migration is
+version-marked under the machine cache, continues past an individual workspace
+failure, and never removes old global files. TUI startup excludes its selected
+root because the normal startup sync handles it immediately afterward, before
+the brain panel can launch.
 
 **Version-stamped auto-resync.** So a version bump ships its *skill* changes the
 way it ships *code* changes (immediately, no manual step), `bootstrap` calls
-`skills::resync_on_version_change()` for every ready-workspace invocation. It
+`skills::resync_on_version_change()` for every ready non-TUI invocation. It
 compares `env!("CARGO_PKG_VERSION")` to a per-workspace render stamp
 (`state` DB `meta('skills_synced_version')`) and, when they differ, runs the
 same pipeline once, then re-stamps (`needs_resync` is the pure decision). It is
 LLM-free, gated by the same `skills_auto_sync` flag, never fails the invocation,
 and is a no-op once stamped, so `--help`/`--version` (no workspace), the
-internal hook/server, and registry-only maintenance never trigger it, and a
+internal hook/server, the TUI startup path, and registry-only maintenance never trigger it, and a
 fork with no extensions renders identically. Every authoritative render path
 (the version-resync, the mutation `resync_skills`, and a real `brain skills
 sync`) writes the stamp so none re-fires redundantly; a `--root` sandbox sync
@@ -1209,9 +1220,12 @@ offline queue or launches an agent.
   during final-TUI shutdown.
 - `server/receiver/` owns the ordered inbound pipeline. `http/` loads only the
   selected workspace's provider configuration after ingress resolution;
-  `http/sms.rs` and `http/email.rs` return typed provider outcomes while they
+  `http/sms.rs` and `http/email/` return typed provider outcomes while they
   verify and normalize provider input; Resend retrieval is capped at 1 MiB per
-  response and ten seconds per request;
+  response and ten seconds per request; `http/email/body.rs` is the pure
+  prompt-shaping half — HTML-only mail becomes readable text and the result is
+  bounded at 16 KiB with an explicit truncation notice, since the prompt is
+  typed into the panel's PTY;
   `dispatch.rs` resolves the selected workspace's portable actor, while
   `dispatch/deliveries.rs` owns transactional, workspace-scoped provider-ID
   deduplication, `dispatch/final_authority.rs` owns the repeated persisted

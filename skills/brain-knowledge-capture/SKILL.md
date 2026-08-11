@@ -11,7 +11,7 @@ reusable note in the user's brain. This is the "harvest what I just
 learned" skill.
 
 Throughout, `<brain>` is the user's brain root — the directory `brain config
-get root` returns (default `~/brain`) — and `~/.agents/skills/second-brain/`
+get root` returns (default `~/brain`) — and `<brain-root>/.agents/skills/second-brain/`
 is where `brain skills sync` installs the `/second-brain` skill (with its
 `cleanup.sh`); the lookup rebuild is the native `brain reindex` command.
 These resolve without hardcoding a personal path.
@@ -135,7 +135,7 @@ written down?"** If no, don't capture it.
    lookup CSVs track reference-manager items, not every note). Always
    finish with the byproduct cleanup:
    ```
-   bash ~/.agents/skills/second-brain/cleanup.sh
+   bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"
    ```
 
 8. **Reply** with a one-line summary of what you captured and a relative
@@ -221,4 +221,4 @@ issue tracker, a PR, a doc), name or link it.
 | Skipping the neighbour search, so real cross-links get missed | Always `fd`/`rg` for related material; add `See also` when you find genuinely relevant notes/files/dirs. |
 | Padding `See also` with tenuous links to look connected       | Relevance is the gate. Link only what truly relates; if nothing does, omit the section. |
 | Creating a new subdirectory without confirming                | New *files* are fine to place; new *subdirs* need confirmation.     |
-| Forgetting cleanup after touching the brain                   | End every run with `bash ~/.agents/skills/second-brain/cleanup.sh`. |
+| Forgetting cleanup after touching the brain                   | End every run with `bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"`. |

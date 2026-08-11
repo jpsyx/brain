@@ -11,7 +11,7 @@ This skill is the playbook for deciding **where things go** and **what
 they're named**.
 
 Throughout, `<brain>` is the user's brain root (`brain config get root`,
-default `~/brain`), and `~/.agents/skills/second-brain/` is where
+default `~/brain`), and `<brain-root>/.agents/skills/second-brain/` is where
 `brain skills sync` installs this skill (with its `cleanup.sh`); the
 lookup/metadata rebuild is the native `brain reindex` command. These
 resolve without hardcoding a personal path. The
@@ -474,7 +474,7 @@ this skill's commands, reindex runs, and ad-hoc edits — run the cleanup
 script before handing control back to the user:**
 
 ```
-bash ~/.agents/skills/second-brain/cleanup.sh
+bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"
 ```
 
 - Safe to run repeatedly; it's a no-op when the brain is already
@@ -627,7 +627,7 @@ status; don't skip them silently.
    rules; see [tasks/SCHEMA.json](~/brain/tasks/SCHEMA.json)
    `derived_columns.is_chronic_ignore`). Quick check:
    ```
-   python3 ~/.agents/skills/todo/scripts/find_chronic_ignored.py \
+   python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/find_chronic_ignored.py" \
      | jq -c --arg slug "<project-slug>" 'select(.project == $slug)'
    ```
    If every open task hits, surface this to the user **before**
@@ -1022,4 +1022,4 @@ top-level directories alongside `projects/`, `areas/`, `resources/`,
 | Updating `.METADATA.json` but forgetting to run reindex | After any `.METADATA.json` edit, run [reindex](#reindex-the-second-brain--second-brain-reindex) so the lookup CSV mirrors the change. |
 | Using non-canonical summary/notes headings (`## AI summary`, `## Executive summary`, `## My take`) | Reindex only recognizes `## Summary` and `## Notes`. Use those exact headings; put any sub-flavoring in H3 sub-sections. |
 | Reaching for `awk`/`sed` to mutate a lookup CSV | Edit `.METADATA.json` and run reindex. For read-only multi-column queries, see [CSV tooling](#csv-tooling--keep-it-simple). |
-| Leaving tool byproducts (`pipeline.json`/`pipeline.sh`, `*.stats.csv*` caches, `.DS_Store`, `__pycache__/`) in the brain after a session | Run `bash ~/.agents/skills/second-brain/cleanup.sh` at the end of any task that touched `~/brain`. See [End of session: clean up tool byproducts](#end-of-session-clean-up-tool-byproducts). |
+| Leaving tool byproducts (`pipeline.json`/`pipeline.sh`, `*.stats.csv*` caches, `.DS_Store`, `__pycache__/`) in the brain after a session | Run `bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"` at the end of any task that touched the brain root. See [End of session: clean up tool byproducts](#end-of-session-clean-up-tool-byproducts). |

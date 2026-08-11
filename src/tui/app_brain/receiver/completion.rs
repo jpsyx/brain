@@ -70,22 +70,7 @@ impl App<'_> {
                 );
             }
             crate::server::receiver::Channel::Email => {
-                let recipients = crate::server::delivery::trusted_response_recipients(
-                    self.receiver_response_email.as_deref(),
-                    &self.receiver_recipients,
-                );
-                if !recipients.is_empty() {
-                    let html = crate::server::reply::email_html(&notice.text);
-                    crate::server::delivery::send_email_background(
-                        self.command_context.clone(),
-                        "delayed email notice",
-                        recipients,
-                        crate::server::delivery::reply_subject(self.receiver_email_reply.as_ref()),
-                        notice.text,
-                        html,
-                        self.receiver_email_reply.clone(),
-                    );
-                }
+                self.send_email_reply("delayed email notice", &notice.text);
             }
         }
         self.receiver_delay_sent = true;
@@ -139,23 +124,7 @@ impl App<'_> {
                 );
             }
             crate::server::receiver::Channel::Email => {
-                let recipients = crate::server::delivery::trusted_response_recipients(
-                    self.receiver_response_email.as_deref(),
-                    &self.receiver_recipients,
-                );
-                if !recipients.is_empty() {
-                    let reply = crate::server::reply::email(message);
-                    let html = crate::server::reply::email_html(&reply.text);
-                    crate::server::delivery::send_email_background(
-                        self.command_context.clone(),
-                        "final email response",
-                        recipients,
-                        crate::server::delivery::reply_subject(self.receiver_email_reply.as_ref()),
-                        reply.text,
-                        html,
-                        self.receiver_email_reply.clone(),
-                    );
-                }
+                self.send_email_reply("final email response", message);
             }
         }
         self.brain_turn_active = false;

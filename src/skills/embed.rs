@@ -143,6 +143,18 @@ mod tests {
     }
 
     #[test]
+    fn bundles_the_brain_skill_authoring_guide() {
+        let skills = bundled_skills();
+        let guide = skills
+            .iter()
+            .find(|skill| skill.name == "brain-skills")
+            .expect("brain-skills guide should be embedded");
+        let text = skill_md_text(guide);
+        assert!(text.contains("<brain-root>/.agents/skills/<skill-name>/"));
+        assert!(text.contains("brain skills sync"));
+    }
+
+    #[test]
     fn bundles_the_generic_brain_knowledge_capture_skill() {
         let skills = bundled_skills();
         let capture = skills

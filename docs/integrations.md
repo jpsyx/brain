@@ -116,7 +116,10 @@ helpers and shell-outs live in the tasks modules:
   lease. Ingress resolution precedes all workspace provider and user reads.
   Twilio requests must pass the exact URL/form HMAC and SMS sender allowlist.
   Resend requests must pass the official `v1,<signature>` Svix verification, a
-  five-minute timestamp window, and the email sender allowlist. Successful
+  five-minute timestamp window, and the email sender allowlist. Inbound
+  addresses arrive as RFC 5322 mailboxes, so the sender and every thread
+  participant are reduced to a bare address (`crate::users::normalize_mailbox`)
+  before either is compared with a configured identity. Successful
   Resend deliveries receive HTTP 200, and the Receiving Email plus Receiving
   Attachments APIs supply the full body and signed download URLs. The process
   stops when its final live TUI lease is removed or expires.
@@ -629,7 +632,13 @@ Which session to run is decided by the **lock + recency** model in
    enabled portable sender; the queued workspace UUID and actor override the
    machine default for that complete request lineage. The accepting pipeline
    also captures the initiating user's normalized `response_email` and only
-   allowlisted participants from that authenticated thread. Claude, Codex, and OpenCode
+   allowlisted participants from that authenticated thread. Both sides of that
+   intersection, and the configured receiving address that is excluded from it,
+   are reduced to bare addresses first, so a display-name `from`, `to`, or
+   `resend_from_email` can neither strip the thread of recipients nor defeat
+   the self-echo guard. Every outbound email reply passes through one seam
+   (`App::send_email_reply`), which logs an empty recipient set instead of
+   dropping the reply silently. Claude, Codex, and OpenCode
    receive the same immutable actor/channel through `AgentController`, and
    later registry or `users.json` changes cannot substitute another response
    identity while the turn is running.

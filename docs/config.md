@@ -692,7 +692,7 @@ the `name=value` form.
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
 | `enable_daily_triage_check` | `true` | Portable startup-nudge policy. `false` means no shell launched against this workspace ever opens the daily-triage modal; the post-sync refresh gate still runs. Accepts exactly `true` or `false`. The command palette's Disable/Enable daily triage alert row flips the same state for one running session without writing config. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
-| `skills_auto_sync` | `true` | When `true`, the bundled skills are auto-rendered into the agent registry on two triggers: a `config`/`personalize` mutation (`skills::resync_skills`), and the first ready-workspace invocation after the brain binary's version changes (`skills::resync_on_version_change`, so a version bump ships its skill changes without a manual sync). Default `true` since the B4 cutover; set `false` to manage the registry only via explicit `brain skills sync`. Read by `src/skills/`. |
+| `skills_auto_sync` | `true` | When `true`, bundled skills are auto-rendered into the selected workspace's `.agents/skills` directory after `config`/`personalize` mutations and on the first ready non-TUI invocation after a binary version change. The TUI always performs one startup sync before launching its brain panel so user-authored skills are linked too. Default `true`; set `false` to opt out of mutation/version resyncs, while explicit `brain skills sync` and the TUI startup reconciliation remain available. Read by `src/skills/`. |
 
 `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, and `opencode_cmd` are **not** in this table
 — they live in [brain env](#brain-env-configbrainenvjson)
@@ -821,8 +821,9 @@ reported (never prompted for) as the `other members' personas` optional feature 
 `brain workspace status`. Any
 `persona`/`config` mutation triggers the active deterministic skill
 render-and-install pipeline (`skills::resync_skills`) so the installed skills
-stay in sync. The first ready-workspace invocation after a Brain version change
-also runs that pipeline when `skills_auto_sync` is enabled.
+stay in sync. The first ready non-TUI invocation after a Brain version change
+also runs that pipeline when `skills_auto_sync` is enabled; the TUI performs its
+own one-time sync before launching the brain panel.
 
 ## Persistent state (`~/.cache/brain/workspaces/<workspace-id>/state.db`)
 
