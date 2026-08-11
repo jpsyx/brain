@@ -222,7 +222,24 @@ pub(crate) fn repair_current_duplicate_uuids(
 }
 
 fn read_required(path: &Path) -> Result<Vec<u8>> {
-    fs::read(path).with_context(|| format!("reading required task schema input {}", path.display()))
+    // The renderer prints only the outermost message, so a bare "reading
+    // required task schema input <path>" told the user nothing: not that the
+    // file was missing, and not that an uninitialized task store was the real
+    // problem. Name the cause and the way out.
+    fs::read(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            anyhow!(
+                "the task store is not initialized: {} does not exist. Run `{}` to set this workspace up first",
+                path.display(),
+                crate::workspace::suggest("tasks today")
+            )
+        } else {
+            anyhow!(
+                "reading required task schema input {}: {error}",
+                path.display()
+            )
+        }
+    })
 }
 
 fn back_up_portable_files(

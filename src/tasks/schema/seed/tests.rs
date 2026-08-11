@@ -133,6 +133,19 @@ fn seeding_is_idempotent() {
     );
 }
 
+/// `brain workspace migrate` on an uninitialized store reported only a path.
+#[test]
+fn an_uninitialized_task_store_says_so_instead_of_naming_a_path() {
+    let root = tempfile::tempdir().unwrap();
+
+    let error = crate::tasks::schema::inspect_inactive(root.path()).unwrap_err();
+
+    let message = error.to_string();
+    assert!(message.contains("not initialized"), "{message}");
+    assert!(message.contains("tasks.csv"), "{message}");
+    assert!(message.contains("brain tasks today"), "{message}");
+}
+
 #[test]
 fn a_workspace_with_no_tasks_directory_is_left_alone() {
     let root = tempfile::tempdir().unwrap();

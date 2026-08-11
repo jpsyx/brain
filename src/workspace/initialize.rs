@@ -164,6 +164,19 @@ pub(crate) fn initialize_workspace_directory(
     // falls back to the registry UUID.
     resolve_portable_identity(workspace, &config)?;
 
+    // The task store must exist before the first sync, not after it. The sync's
+    // CSV lane reads `tasks/SCHEMA.json` to decide how to merge, and both CSVs
+    // plus the document are excluded from bisync, so no sync can bring them
+    // down. Seeding them afterwards left a joining machine syncing as `Legacy`
+    // against a `Current` remote: it refused, and `tasks/` stayed empty, so even
+    // the migration it suggested had nothing to read.
+    // Unconditional: a workspace can be non-empty and still have no task store
+    // (a machine that pulled content before this was fixed looks exactly like
+    // that), and seeding only empty roots would leave those permanently stuck.
+    // Every write is write-only-when-absent, so existing content is untouched.
+    seed_task_store(root)?;
+    resolve_task_schema_document(workspace, &config)?;
+
     if let (Some(direction), Some(command)) = (direction, command.as_ref()) {
         eprintln!(
             "{}",
@@ -181,20 +194,14 @@ pub(crate) fn initialize_workspace_directory(
         }
     }
 
-    // Every schema decision reads `tasks/SCHEMA.json`, so a workspace without
-    // one cannot sync at all. Seeded here rather than only in
-    // `initialize_if_empty` because a workspace created before Brain shipped the
-    // document is no longer empty and would never get it. Write-only-when-absent
-    // like the manifest above: a document that arrived over sync is the
-    // authoritative one.
-    crate::tasks::schema::ensure_schema_document(root)?;
-
-    // Whatever the sync did or did not bring down, an empty root still needs
-    // its PARA skeleton. A workspace that just pulled content is no longer
-    // empty, so this is a no-op there.
-    if !initialize_if_empty(workspace)? {
+    // Whatever the sync did or did not bring down, a root that was empty when
+    // Brain found it still needs its PARA skeleton. The decision uses the
+    // emptiness captured *before* the task store was seeded above; re-checking
+    // here would see Brain's own files and skip the rest of the scaffolding.
+    if !local_is_empty {
         return Ok(());
     }
+    seed_empty_workspace(workspace)?;
     eprintln!(
         "{}",
         crate::theme::Theme::active().success("Initialized the empty workspace")
@@ -265,7 +272,80 @@ pub(crate) fn initialize_if_empty(workspace: &WorkspaceContext) -> Result<bool> 
     if !is_empty_workspace(workspace.root())? {
         return Ok(false);
     }
+    seed_empty_workspace(workspace)?;
+    Ok(true)
+}
 
+/// The task store the sync's CSV lane requires, written before the first sync.
+///
+/// Only the files that lane reads: both CSVs, both id counters, and (through
+/// [`resolve_task_schema_document`]) the schema document. The rest of the
+/// skeleton can wait until after the sync.
+fn seed_task_store(root: &Path) -> Result<()> {
+    std::fs::create_dir_all(root.join("tasks"))?;
+    write_if_missing(&root.join("tasks/tasks.csv"), TASKS_HEADER.as_bytes())?;
+    write_if_missing(&root.join("tasks/habits.csv"), HABITS_HEADER.as_bytes())?;
+    write_if_missing(&root.join("tasks/.tasks_next_id"), b"1\n")?;
+    write_if_missing(&root.join("tasks/.habits_next_id"), b"1\n")?;
+    Ok(())
+}
+
+/// Give this machine the workspace's task schema document before anything reads it.
+///
+/// The remote's document is the authority when there is one: a workspace may
+/// carry a customized schema, and the document is excluded from bisync, so
+/// seeding Brain's canonical copy over a customized remote would fork the two
+/// with nothing able to reconcile them. Brain's canonical document is the
+/// fallback for a remote that has none.
+fn resolve_task_schema_document(
+    workspace: &WorkspaceContext,
+    config: &crate::sync::config::SyncConfig,
+) -> Result<()> {
+    let root = workspace.root();
+    if crate::tasks::schema::document_present(root) {
+        return Ok(());
+    }
+    if config.is_configured()
+        && let Some(document) = adopted_remote_schema_document(workspace, config)
+    {
+        std::fs::create_dir_all(root.join("tasks"))?;
+        write_if_missing(&root.join("tasks/SCHEMA.json"), document.as_bytes())?;
+        eprintln!(
+            "{}",
+            crate::theme::Theme::active().success(&format!(
+                "Adopted {}'s task schema from the remote",
+                workspace.name().as_str()
+            ))
+        );
+        return Ok(());
+    }
+    crate::tasks::schema::ensure_schema_document(root)?;
+    Ok(())
+}
+
+/// The remote's task schema document, or `None` for any reason at all.
+///
+/// An unreachable or uninitialized remote is not an error here: the sync that
+/// follows reports it with its own message, and the canonical document is a
+/// correct local answer meanwhile.
+fn adopted_remote_schema_document(
+    workspace: &WorkspaceContext,
+    config: &crate::sync::config::SyncConfig,
+) -> Option<String> {
+    let remote = crate::sync::remote::build_remote(config);
+    let verified = crate::sync::identity::require_remote_identity(
+        workspace.root(),
+        workspace.id(),
+        &remote,
+    )
+    .ok()?;
+    crate::sync::csv_sync::fetch_remote_task_schema(workspace.paths(), verified.remote())
+        .ok()
+        .flatten()
+        .filter(|document| !document.trim().is_empty())
+}
+
+fn seed_empty_workspace(workspace: &WorkspaceContext) -> Result<()> {
     for directory in PARA_DIRECTORIES {
         std::fs::create_dir_all(workspace.root().join(directory))?;
     }
@@ -296,7 +376,7 @@ pub(crate) fn initialize_if_empty(workspace: &WorkspaceContext) -> Result<bool> 
     // gets the default, which is on.
     let enable_triage_habits = crate::config::Config::load(workspace).enable_triage_habits;
     crate::tasks::triage_habits::apply_triage_habits_config(workspace, enable_triage_habits)?;
-    Ok(true)
+    Ok(())
 }
 
 pub(crate) fn is_empty_workspace(root: &Path) -> Result<bool> {

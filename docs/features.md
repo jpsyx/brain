@@ -443,6 +443,11 @@ delegated task values.
   genuinely predate the current schema still refuse, naming
   `brain workspace migrate` as the remedy. Whether the remote is legacy is
   decided by what its CSVs contain, never by whether CSV files exist.
+- A machine opening a workspace it has never had gets its **task store seeded
+  before the first sync** (both CSVs, both id counters, and the schema document),
+  because the sync's CSV lane reads them and bisync excludes them. The schema
+  document is taken from the remote when it has one, so a customized workspace
+  schema reaches every machine; Brain's canonical document is the fallback.
 - A machine opening a workspace it has never had, whose remote is already synced,
   **adopts that workspace's portable identity from the remote** and says so
   (`Adopted <name>'s portable identity from the remote`) before its first sync. A

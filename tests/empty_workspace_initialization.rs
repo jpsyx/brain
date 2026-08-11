@@ -26,6 +26,122 @@ impl Fixture {
     }
 }
 
+/// A workspace can be non-empty and still have no task store: a joining machine
+/// that pulled content before this was fixed looks exactly like that. Seeding
+/// only empty workspaces would leave those stuck, so the task store is ensured
+/// unconditionally.
+#[test]
+fn a_nonempty_workspace_missing_its_task_store_still_gets_one() {
+    let fixture = Fixture::new();
+    let family = fixture.home.path().join("family");
+    assert!(
+        fixture
+            .run(&["workspace", "create", "--root", family.to_str().unwrap()])
+            .status
+            .success()
+    );
+    assert!(
+        fixture
+            .run(&[
+                "workspace",
+                "repair",
+                "--local-user-id",
+                "pablo",
+                "-w",
+                "family",
+            ])
+            .status
+            .success()
+    );
+    assert!(
+        fixture
+            .run(&["tasks", "today", "--no-tui", "-w", "family"])
+            .status
+            .success()
+    );
+    // Content elsewhere makes the root non-empty; the task store is gone.
+    std::fs::write(family.join("areas/note.md"), b"kept").unwrap();
+    std::fs::remove_dir_all(family.join("tasks")).unwrap();
+
+    assert!(
+        fixture
+            .run(&["tasks", "today", "--no-tui", "-w", "family"])
+            .status
+            .success()
+    );
+
+    for path in [
+        "tasks/SCHEMA.json",
+        "tasks/tasks.csv",
+        "tasks/habits.csv",
+        "tasks/.tasks_next_id",
+        "tasks/.habits_next_id",
+    ] {
+        assert!(family.join(path).is_file(), "missing {path}");
+    }
+    assert_eq!(std::fs::read(family.join("areas/note.md")).unwrap(), b"kept");
+}
+
+/// A machine joining a workspace must have its local task store before the
+/// first sync, because the sync's CSV lane reads `tasks/SCHEMA.json` to decide
+/// how to merge. Seeding it afterwards meant a fresh machine synced as `Legacy`
+/// against a `Current` remote and refused, leaving `tasks/` entirely empty — so
+/// even the suggested `brain workspace migrate` had nothing to read.
+#[test]
+fn the_local_task_store_exists_even_when_the_first_sync_fails() {
+    let fixture = Fixture::new();
+    let family = fixture.home.path().join("family");
+    assert!(
+        fixture
+            .run(&["workspace", "create", "--root", family.to_str().unwrap()])
+            .status
+            .success()
+    );
+    assert!(
+        fixture
+            .run(&[
+                "workspace",
+                "repair",
+                "--local-user-id",
+                "pablo",
+                "-w",
+                "family",
+            ])
+            .status
+            .success()
+    );
+    // Configured sync that cannot possibly succeed, written directly because
+    // `brain env set` deliberately refuses to persist credentials it cannot
+    // reach. The startup sync then fails exactly where the real one refused.
+    let env_path = fixture.config_home.path().join("brain/env.json");
+    let mut env: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&env_path).unwrap()).unwrap();
+    env["workspaces"]["family"]["env"]["sync"] = serde_json::json!({
+        "enabled": true,
+        "b2_bucket": "brain-test-unreachable-bucket",
+        "b2_key_id": "0000000000000000000000000",
+        "b2_app_key": "unusable-application-key",
+        "b2_path": "",
+    });
+    std::fs::write(&env_path, serde_json::to_vec_pretty(&env).unwrap()).unwrap();
+    std::fs::remove_dir_all(family.join("tasks")).ok();
+
+    let _ = fixture.run(&["tasks", "today", "--no-tui", "-w", "family"]);
+
+    for path in [
+        "tasks/SCHEMA.json",
+        "tasks/tasks.csv",
+        "tasks/habits.csv",
+        "tasks/.tasks_next_id",
+        "tasks/.habits_next_id",
+    ] {
+        assert!(
+            family.join(path).is_file(),
+            "a failed first sync must still leave {path} in place"
+        );
+    }
+}
+
 /// Sync subcommands dispatch *before* the workspace gate, so they never reach
 /// root initialization. `brain sync setup` is precisely the command that cannot
 /// run without the task schema document, so the sync entry point has to seed it

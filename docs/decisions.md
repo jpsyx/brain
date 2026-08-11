@@ -2980,6 +2980,36 @@ models a missing object as an error hides exactly this class of bug, which is
 why the identity test doubles now return exit 0 with empty output for a missing
 object, matching B2.
 
+## The task store must exist before the first sync, not after it
+
+Root initialization seeded the PARA skeleton and both task CSVs *after* the
+startup sync, on the reasoning that a sync which pulls content makes seeding
+unnecessary. That reasoning does not hold for the task store: `tasks/tasks.csv`,
+`tasks/habits.csv`, and `tasks/SCHEMA.json` are all **excluded from bisync**, so
+no sync can ever bring them down. The CSV lane creates the CSVs, and it reads the
+schema document to decide how to merge.
+
+So a machine joining an established workspace ran its first sync with no local
+document at all: local read `Legacy`, the remote read `Current`, and the merge
+refused. `tasks/` was then still completely empty, which made the suggested
+`brain workspace migrate` fail too, on `reading required task schema input
+.../tasks/tasks.csv`. A fresh machine had no way in.
+
+The task store is now seeded before the sync, and the rest of the skeleton after
+it. That split needs one care: emptiness is decided **once**, before Brain writes
+anything, and that captured answer drives the later seeding. Re-checking
+afterwards would see Brain's own `tasks/` files and skip the PARA directories,
+lookup CSVs, and portable config.
+
+**The remote's document wins when there is one.** `resolve_task_schema_document`
+fetches it and only falls back to Brain's canonical copy when the remote has
+none. A workspace may carry a customized schema, and the document is excluded
+from bisync, so seeding the canonical copy over a customized remote would fork
+the two with nothing able to reconcile them — the same trap as minting a
+`receiver_ingress_id`. Verified against a live remote: a simulated joining
+machine ended up with a byte-identical document and the same
+`receiver_ingress_id` as its peer.
+
 ## Existence is not legacy-ness, and a dead end is never an acceptable state
 
 Seeding the canonical `tasks/SCHEMA.json` flipped every local workspace to
