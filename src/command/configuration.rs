@@ -8,12 +8,21 @@ pub fn run_config(args: &ConfigArgs, context: &crate::workspace::CommandContext)
     match args.action.as_ref().unwrap_or(&ConfigAction::List) {
         ConfigAction::List => {
             crate::logging::log("config list");
+            let theme = crate::theme::Theme::active();
             print!(
                 "{}",
                 crate::settings::render_list(
                     &crate::settings::resolve_all(&context.workspace),
-                    crate::theme::Theme::active(),
+                    theme,
                 )
+            );
+            // Three of those rows are answered by a different store. Saying so
+            // is what keeps a configured receiver from reading as unconfigured.
+            println!(
+                "\n{}",
+                theme.muted(&crate::settings::source_note(
+                    context.workspace.name().as_str()
+                ))
             );
         }
         ConfigAction::Get { name } => {

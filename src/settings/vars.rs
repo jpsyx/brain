@@ -7,6 +7,7 @@ use serde_json::{Map, Value};
 
 use super::schema::{Resolved, VARS, default_of, is_known, known_names};
 use super::store::{load_map, save_map};
+use crate::users::Users;
 use crate::workspace::WorkspaceContext;
 
 /// Canonicalize a variable name: lowercase, trimmed, dashes to underscores.
@@ -33,21 +34,42 @@ fn value_to_string(name: &str, value: &Value) -> Option<String> {
     }
 }
 
-/// The raw explicit value for `name` (no default fallback).
-#[must_use]
-pub fn get(workspace: &WorkspaceContext, name: &str) -> Option<String> {
-    load_map(workspace)
-        .get(name)
-        .and_then(|value| value_to_string(name, value))
-}
-
-/// The effective value for a known variable: explicit override else default.
+/// The effective value for a known variable: live portable roster for the
+/// variables it superseded, else explicit override, else default.
 #[must_use]
 pub fn resolve_one(workspace: &WorkspaceContext, name: &str) -> Option<String> {
+    resolve_one_with(
+        &load_map(workspace),
+        portable_users(workspace).as_ref(),
+        name,
+    )
+}
+
+/// Pure core of [`resolve_one`].
+pub(super) fn resolve_one_with(
+    map: &Map<String, Value>,
+    users: Option<&Users>,
+    name: &str,
+) -> Option<String> {
     if !is_known(name) {
         return None;
     }
-    get(workspace, name).or_else(|| default_of(name).map(str::to_owned))
+    live_value(name, users)
+        .or_else(|| map.get(name).and_then(|value| value_to_string(name, value)))
+        .or_else(|| default_of(name).map(str::to_owned))
+}
+
+/// The portable roster's answer for a superseded variable, if it has one. Pure.
+fn live_value(name: &str, users: Option<&Users>) -> Option<String> {
+    users.and_then(|users| super::portable::active_value(name, users))
+}
+
+/// The workspace's portable roster, or `None` when it cannot be read.
+///
+/// An unreadable roster must never take the table down: `brain config` is
+/// exactly where a user looks when a workspace is half-configured.
+fn portable_users(workspace: &WorkspaceContext) -> Option<Users> {
+    crate::users::UsersStore::load_from(&crate::users::UsersStore::path(workspace)).ok()
 }
 
 /// Coerce a raw CLI string into the tightest JSON type so typed readers keep
@@ -92,6 +114,11 @@ pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> 
             known_names()
         );
     }
+    // Writing here would persist a value nothing enforces, which is the same
+    // silent no-op that made a configured receiver look unconfigured.
+    if super::portable::is_superseded(name) {
+        bail!(super::portable::refusal(name, workspace.name().as_str()));
+    }
     if name == "enable_daily_triage_check" && !matches!(value.trim(), "true" | "false") {
         bail!("enable_daily_triage_check must be true or false");
     }
@@ -121,18 +148,27 @@ pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> 
 /// Every declared variable with its resolved value, in schema order.
 #[must_use]
 pub fn resolve_all(workspace: &WorkspaceContext) -> Vec<Resolved> {
-    resolve_all_from(&load_map(workspace))
+    resolve_all_with(&load_map(workspace), portable_users(workspace).as_ref())
 }
 
 /// Pure core of [`resolve_all`]: resolve against an explicit map so the schema
 /// and default logic are testable without touching the real store.
+#[cfg(test)]
 pub(super) fn resolve_all_from(map: &Map<String, Value>) -> Vec<Resolved> {
+    resolve_all_with(map, None)
+}
+
+/// Pure core of [`resolve_all`], with the portable roster that outranks the
+/// config store for the variables it superseded.
+pub(super) fn resolve_all_with(map: &Map<String, Value>, users: Option<&Users>) -> Vec<Resolved> {
     VARS.iter()
         .map(|v| Resolved {
             name: v.name.to_owned(),
-            value: map
-                .get(v.name)
-                .and_then(|value| value_to_string(v.name, value))
+            value: live_value(v.name, users)
+                .or_else(|| {
+                    map.get(v.name)
+                        .and_then(|value| value_to_string(v.name, value))
+                })
                 .or_else(|| v.default.map(str::to_owned)),
             description: v.description.to_owned(),
         })
@@ -169,6 +205,107 @@ mod tests {
             std::path::Path::new("/home/tester"),
         )
         .expect("context")
+    }
+
+    fn roster(phone: &str, inbound_allowed: bool) -> crate::users::Users {
+        crate::users::Users {
+            schema_version: crate::users::USERS_SCHEMA_VERSION,
+            users: vec![crate::users::User {
+                id: crate::users::UserId::parse("pablo").expect("user id"),
+                name: "Pablo".to_owned(),
+                phones: vec![crate::users::PhoneIdentity {
+                    value: phone.to_owned(),
+                    inbound_allowed,
+                }],
+                emails: Vec::new(),
+                response_email: None,
+            }],
+        }
+    }
+
+    fn value_of(rows: &[Resolved], name: &str) -> Option<String> {
+        rows.iter()
+            .find(|row| row.name == name)
+            .and_then(|row| row.value.clone())
+    }
+
+    #[test]
+    fn a_superseded_variable_resolves_to_the_live_portable_roster() {
+        // The regression: a receiver configured through `brain receiver setup`
+        // writes users.json and never config.json, so resolving the config
+        // store alone reported `(unset)` for a fully working receiver.
+        let users = roster("+16072809118", true);
+
+        let rows = resolve_all_with(&Map::new(), Some(&users));
+
+        assert_eq!(
+            value_of(&rows, "allowed_sms_senders").as_deref(),
+            Some("+16072809118")
+        );
+        assert_eq!(
+            resolve_one_with(&Map::new(), Some(&users), "allowed_sms_senders").as_deref(),
+            Some("+16072809118")
+        );
+    }
+
+    #[test]
+    fn the_live_roster_outranks_a_stale_legacy_value_in_the_config_store() {
+        let mut map = Map::new();
+        map.insert(
+            "allowed_sms_senders".to_owned(),
+            Value::from("+12125550100"),
+        );
+        let users = roster("+16072809118", true);
+
+        let rows = resolve_all_with(&map, Some(&users));
+
+        assert_eq!(
+            value_of(&rows, "allowed_sms_senders").as_deref(),
+            Some("+16072809118")
+        );
+    }
+
+    #[test]
+    fn a_roster_that_authorizes_nobody_falls_back_to_the_legacy_value() {
+        // Pre-migration workspaces still answer from config.json, which is the
+        // only reason that key is read at all.
+        let mut map = Map::new();
+        map.insert(
+            "allowed_sms_senders".to_owned(),
+            Value::from("+12125550100"),
+        );
+        let users = roster("+16072809118", false);
+
+        let rows = resolve_all_with(&map, Some(&users));
+
+        assert_eq!(
+            value_of(&rows, "allowed_sms_senders").as_deref(),
+            Some("+12125550100")
+        );
+    }
+
+    #[test]
+    fn an_unreadable_roster_never_hides_the_rest_of_the_table() {
+        let rows = resolve_all_with(&Map::new(), None);
+
+        assert_eq!(rows.len(), VARS.len());
+        assert_eq!(value_of(&rows, "allowed_sms_senders"), None);
+        assert_eq!(
+            value_of(&rows, "access_mode").as_deref(),
+            Some("unrestricted")
+        );
+    }
+
+    #[test]
+    fn setting_a_superseded_variable_is_refused_before_any_write() {
+        let (_temporary, workspace) = temporary_workspace();
+
+        let error = set(&workspace, "allowed_sms_senders", "+16072809118")
+            .expect_err("a portable variable must not be written to the config store");
+
+        assert!(error.to_string().contains("users.json"), "{error}");
+        assert!(error.to_string().contains("brain user"), "{error}");
+        assert!(!workspace.root().join(".config/config.json").exists());
     }
 
     #[test]

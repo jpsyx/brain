@@ -69,6 +69,31 @@ pub(super) fn ensure_selected_registry_access_mode(
     }
 }
 
+/// Ask which portable member this machine is.
+///
+/// A roster that cannot be read, or one with nobody in it, falls back to the
+/// plain ID prompt: readiness repair is the last thing that should fail, and
+/// the transaction still rejects an ID that is not a member.
+fn prompt_local_user(
+    root: &Path,
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
+) -> Result<String> {
+    let theme = crate::theme::Theme::active();
+    let choices = crate::users::UsersStore::load_from(&root.join(".config/users.json"))
+        .map(|users| crate::users::local_user_choices(&users))
+        .unwrap_or_default();
+    if choices.is_empty() {
+        return crate::workspace::command::prompt::read_required(
+            writer,
+            reader,
+            crate::workspace::command::prompt::PromptField::LocalUserId,
+            theme,
+        );
+    }
+    crate::workspace::command::prompt::read_local_user(writer, reader, &choices, theme)
+}
+
 pub(super) fn repair_interactively(
     store: &RegistryStore,
     selector: &str,
@@ -94,11 +119,10 @@ pub(super) fn repair_interactively(
     let local_user_id = if let Some(user) = new_user.as_ref() {
         Some(user.id.to_string())
     } else if fields.contains(&ReadinessField::LocalUserId) {
-        Some(crate::workspace::command::prompt::read_required(
-            writer,
+        Some(prompt_local_user(
+            &prompt_selected.record().root,
             reader,
-            crate::workspace::command::prompt::PromptField::LocalUserId,
-            crate::theme::Theme::active(),
+            writer,
         )?)
     } else {
         None

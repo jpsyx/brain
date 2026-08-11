@@ -23,6 +23,7 @@
 //!   - `markdown_pdf` — the `markdown-to-pdf` discovery/validation/gate
 
 mod markdown_pdf;
+mod portable;
 mod render;
 mod schema;
 mod store;
@@ -30,6 +31,7 @@ mod vars;
 
 pub(crate) use markdown_pdf::configured_markdown_to_pdf_ready;
 pub use markdown_pdf::{ensure_markdown_to_pdf, markdown_to_pdf_command};
+pub(crate) use portable::source_note;
 pub use render::{render_list, set_confirmation};
 pub use schema::Resolved;
 pub use store::config_dir;

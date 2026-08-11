@@ -16,10 +16,9 @@ use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceManifest};
 
 mod reassign;
 mod removal;
-mod select;
 
+use crate::users::{Choice, interpret_row, numbered_rows};
 use removal::remove_user;
-use select::{Choice, interpret_row, numbered_rows};
 
 pub fn run(args: &UserArgs, selector: Option<&str>, store: &RegistryStore) -> Result<()> {
     if std::io::stdin().is_terminal() && needs_prompt(&args.action) {

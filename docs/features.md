@@ -335,10 +335,21 @@ machine (Linear workspace, triage settings, the calendar id, …). Rides whateve
 syncs the brain directory.
 
 - `brain config list` (or bare `brain config`) — aligned table of every
-  variable, its effective value, and its description.
+  variable, its effective value, and its description, followed by a muted note
+  naming the variables another store answers.
 - `brain config get <name>` — the effective value of one variable.
 - `brain config set <name>=<value>` — set and persist a variable (unknown
   names rejected).
+
+Three variables — `response_email`, `allowed_sms_senders`, and
+`allowed_email_senders` — name facts the portable `users.json` roster owns.
+`list` and `get` resolve them from that roster first and fall back to
+`config.json` only when no portable user answers, so a receiver configured
+through `brain receiver setup` reports the addresses it actually accepts
+instead of `(unset)`. Only `inbound_allowed` identities count. `set` refuses
+all three and names `brain user list`, `brain user add`, and
+`brain receiver setup` instead, because writing them to `config.json` would
+persist a value nothing enforces.
 
 `config` runs before the `markdown-to-pdf` prerequisite gate, so it always
 works even when that tool is missing. See [config.md](config.md) for the schema
@@ -534,6 +545,12 @@ and continues. When exactly one person already exists and no local user is set,
 any command (interactive **or** headless) silently adopts that sole person as
 this machine's local actor and continues, printing a one-line note; a user is
 never told to run `brain user local` when there is only one possible choice.
+When two or more people exist and none is this machine's, the interactive
+prompt **offers the roster** — `Who is this machine?` followed by
+`<n>) <id> (<name>)` per member — and takes a row number; an exact ID still
+works, and an answer matching neither re-asks instead of ending the command the
+user actually ran. So `brain receiver setup` on a shared workspace asks who you
+are and carries on rather than sending you off to run `brain user local`.
 Headless invocations with a genuinely ambiguous gap never open `/dev/tty`; they
 stop with exact `brain user add` and `brain user local` commands. Create and attach remain
 registry-only setup operations. For compatibility, an existing workspace with

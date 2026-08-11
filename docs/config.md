@@ -599,15 +599,35 @@ lists strictly and fails closed when either is malformed.
 
 ### Receiver response configuration
 
-These portable values remain only as legacy migration inputs. Active receiver
-identity, authorization, and response routing live in portable
-`.config/users.json` mappings:
+Active receiver identity, authorization, and response routing live in portable
+`.config/users.json` mappings. These three declared config variables name the
+same three facts, so `brain config` resolves them **from the portable roster
+first** and falls back to a value in `config.json` only when no portable user
+answers — which is exactly the pre-migration case that key exists for:
 
-| Variable | Meaning |
-| --- | --- |
-| `response_email` | Legacy migration input for a portable user's response address. |
-| `allowed_sms_senders` | Legacy migration input for portable inbound phone mappings. |
-| `allowed_email_senders` | Legacy migration input for portable inbound email mappings. |
+| Variable | Live value | `config.json` value |
+| --- | --- | --- |
+| `response_email` | every portable user's `response_email`, comma-joined | legacy migration input |
+| `allowed_sms_senders` | every inbound-allowed phone in the roster, comma-joined | legacy migration input |
+| `allowed_email_senders` | every inbound-allowed email in the roster, comma-joined | legacy migration input |
+
+Identities the roster lists but does **not** mark `inbound_allowed` are not
+reported: that flag is the whole authorization decision, so listing a
+disallowed number as allowed would misreport security state. One identity
+shared by two people is listed once, in roster order.
+
+`brain config list` prints a muted note under the table naming `users.json` as
+the owning store and `brain user` as the command that edits it, and
+`brain config set` **refuses** all three, because writing them to `config.json`
+persists a value nothing enforces. The refusal names `brain user list`,
+`brain user add`, and `brain receiver setup`. `brain config get` returns the
+live value, so an agent reading one of these gets the answer brain actually
+enforces rather than a stale legacy string.
+
+Reporting these from `config.json` alone is what made a receiver configured
+through `brain receiver setup` — which writes `users.json` and never
+`config.json` — read as `(unset)`. See
+[decisions.md](decisions.md#a-config-variable-that-another-store-answers-must-say-so).
 
 Provider credentials are machine-local values in the selected workspace's
 record in `~/.config/brain/env.json`. `brain receiver setup` prompts for the

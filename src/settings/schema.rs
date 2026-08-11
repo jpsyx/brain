@@ -39,17 +39,17 @@ pub(super) const VARS: [VarSpec; 14] = [
     },
     VarSpec {
         name: "response_email",
-        description: "Legacy migration input for a response address. Active receiver identity and authorization live in portable users.json.",
+        description: "Address long replies are sent to. Portable: the live value comes from users.json — change it with `brain user`. A value in this store is legacy migration input only.",
         default: None,
     },
     VarSpec {
         name: "allowed_sms_senders",
-        description: "Legacy migration input for SMS senders. Active inbound authorization lives in portable users.json phone mappings.",
+        description: "Phone numbers allowed to initiate inbound work. Portable: the live value comes from users.json — change it with `brain user`. A value in this store is legacy migration input only.",
         default: None,
     },
     VarSpec {
         name: "allowed_email_senders",
-        description: "Legacy migration input for email senders. Active inbound authorization lives in portable users.json email mappings.",
+        description: "Email addresses allowed to initiate inbound work. Portable: the live value comes from users.json — change it with `brain user`. A value in this store is legacy migration input only.",
         default: None,
     },
     VarSpec {

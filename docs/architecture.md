@@ -401,7 +401,10 @@ portable recovery journal plus a workspace UUID-scoped machine lock; and
 `command` owns pure add/update/remove mutations plus the inactive legacy
 conversion proposal; and `assignment` holds the pure map from raw `assigned_to`
 values to the members that replace them, shared by the migration cutover and
-`brain user reassign`. A pending grouped transaction restores the old generation
+`brain user reassign`; and `select` holds the pure numbered-option helpers
+(`local_user_choices`, `numbered_rows`, `interpret_row`) shared by the
+`brain user` prompts and by readiness repair's "Who is this machine?" roster
+picker, so both offer the same rows and read the same answers. A pending grouped transaction restores the old generation
 before the next portable-user load. The selected machine record's
 `local_user_id` must name one member when this portable file exists. It
 identifies a person, not a device, owner, creator, or authorization principal.
@@ -510,8 +513,12 @@ dirs → login-shell resolution of a function wrapper), validation, and the
 fail-fast red-`❌` startup gate. Pure decision helpers (schema resolution, table
 layout, message wording, shell-output parsing) are unit-tested; the IO shells
 are thin. Split into `store` (JSON IO), `schema` (`VARS`/`Resolved`), `vars`
-(get/set/resolve), `render` (the `config list` table), and `markdown_pdf` (the
-prerequisite). See [config.md](config.md).
+(get/set/resolve), `portable` (the three receiver-identity variables the
+portable users roster superseded, plus the note and the `config set` refusal
+they need), `render` (the `config list` table), and `markdown_pdf` (the
+prerequisite). `vars` resolves a superseded variable from the roster before the
+config store, so `brain config` reports the value brain enforces. See
+[config.md](config.md).
 
 ### `env/`
 The machine-local env store (the schema-v2 workspace registry at

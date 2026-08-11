@@ -3564,3 +3564,61 @@ principle in the other direction. When the shared process cannot be asked, the
 block says `live state unavailable` instead of printing `Server not running`,
 because inventing a fact about a process nobody reached is worse than admitting
 the gap — the user would go looking for a stopped server that is running fine.
+
+## A config variable that another store answers must say so
+
+`brain receiver setup` writes portable `users.json` and never touches
+`config.json`. `brain config` resolved `response_email`,
+`allowed_sms_senders`, and `allowed_email_senders` from `config.json` alone, so
+a receiver that had just been configured end to end — provider credentials,
+webhook URLs, an inbound-allowed phone and email — reported all three as
+`(unset)`. That output is indistinguishable from a workspace nobody ever set
+up, and it is the output a user checks first when they want to confirm setup
+worked. The setup had worked; the report was wrong.
+
+Marking the rows "legacy migration input" in the description column did not
+save it. A value column that says `(unset)` is read as the answer, and no
+amount of explanatory prose next to it competes with a wrong value.
+
+So `brain config` resolves these three from the live roster first and falls
+back to `config.json` only when no portable user answers, which is precisely
+the pre-migration case that key exists to serve. Three consequences follow.
+`brain config get` returns the enforced value, so an agent querying one of
+these is not told a stale legacy string. `config list` prints a muted note
+naming `users.json` and `brain user`, because a value whose store you cannot
+guess is only half an answer. And `brain config set` now **refuses** all three:
+writing them to `config.json` persists something nothing enforces, which is the
+same silent no-op in the opposite direction — the user would have every reason
+to believe they had just set an allow list.
+
+Only `inbound_allowed` identities are reported. That flag is the entire
+authorization decision, so rendering a listed-but-disallowed number as an
+allowed sender would misreport security state, which is worse than the
+`(unset)` this replaced.
+
+## A machine picking its person should be offered the roster, not quizzed
+
+Readiness repair only asks for a local user when the workspace already has
+members and none of them is this machine's — a two-person `family` root on a
+second laptop, or any workspace whose `local_user_id` was cleared. It asked
+`Local user ID (for example, pablo):` and accepted free text, so the one thing
+brain knew and the human might not — who is actually in this roster — was the
+one thing it did not say. A wrong answer was not rejected at the prompt either;
+it travelled into the repair transaction and came back as `local user 2 is not
+a portable member`.
+
+So the prompt lists them: `Who is this machine?` with `<n>) <id> (<name>)` per
+member, answered by row number. An exact ID still works for anyone who knows
+it, and an answer matching neither re-asks rather than ending the command the
+user actually ran — being unable to name yourself is not a reason to abandon a
+`brain receiver setup`.
+
+The numbering and answer-interpretation are the helpers `brain user` already
+used, moved from `command::users::select` down into `users::select` so both
+callers share one behavior. A prompt that numbers rows differently from the one
+next to it is its own small betrayal.
+
+The fallbacks stay narrow and unchanged. A sole member is still adopted with no
+prompt at all, headless still errors with the exact repair commands, and a
+roster that cannot be read falls back to the plain ID prompt — readiness repair
+is the last thing that should fail.

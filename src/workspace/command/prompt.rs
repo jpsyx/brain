@@ -123,7 +123,7 @@ fn read_answer(
         PromptField::Name => "New workspace name:",
         PromptField::Workspace => "Workspace name or alias:",
         PromptField::Alias => "Workspace alias:",
-        PromptField::LocalUserId => "Local user ID (for example, pablo):",
+        PromptField::LocalUserId => "Pick a number, or type a user ID:",
     };
     loop {
         write!(writer, "{} ", theme.prompt(label)).context("write workspace prompt")?;
@@ -147,6 +147,37 @@ fn read_answer(
         }
         writeln!(writer, "{}", theme.warning("A value is required."))
             .context("write workspace prompt validation")?;
+    }
+}
+
+/// Ask which portable member this machine is, offering the roster by number.
+///
+/// A machine cannot be expected to recall an ID nobody typed here, so the
+/// members are listed and a row number is the expected answer. An exact ID
+/// still works, and an answer that matches neither re-asks rather than ending
+/// the command the user actually ran.
+pub(in crate::workspace) fn read_local_user(
+    writer: &mut impl Write,
+    reader: &mut impl BufRead,
+    choices: &[crate::users::Choice],
+    theme: Theme,
+) -> Result<String> {
+    writeln!(writer, "{}", theme.heading("Who is this machine?"))
+        .context("write local user heading")?;
+    for row in crate::users::numbered_rows(choices) {
+        writeln!(writer, "  {}", theme.accent(&row)).context("write local user option")?;
+    }
+    loop {
+        let answer = read_required(writer, reader, PromptField::LocalUserId, theme)?;
+        if let Some(value) = crate::users::interpret_row(choices, &answer) {
+            return Ok(value);
+        }
+        writeln!(
+            writer,
+            "{}",
+            theme.warning(&format!("Choose a number from 1 to {}.", choices.len()))
+        )
+        .context("write local user validation")?;
     }
 }
 

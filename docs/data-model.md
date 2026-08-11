@@ -499,6 +499,18 @@ run `brain user local`. Adoption is deliberately narrow: a nonblank but unknown
 choice that still prompts (interactive) or errors with the exact repair command
 (headless).
 
+That interactive prompt **offers the roster** rather than asking for an ID.
+Reaching it means the workspace has members and none of them is this machine's,
+so `Who is this machine?` lists every portable person as
+`<n>) <id> (<name>)` and takes a row number; an exact ID still works, and an
+answer matching neither re-asks instead of ending the command the user actually
+ran. Nobody can be expected to recall an ID they never typed, and the previous
+free-text prompt validated only after the fact, inside the repair transaction.
+The choices come from `users::local_user_choices`, and the numbering and
+answer-interpretation are the same `users::select` helpers the `brain user`
+commands use. An unreadable or empty roster falls back to the plain ID prompt,
+because readiness repair is the last thing that should fail.
+
 The first create deliberately leaves `local_user_id` empty. Its next ordinary
 interactive command creates the first portable person, selects it locally, and
 continues the requested command. Headless setup uses `brain user add` followed

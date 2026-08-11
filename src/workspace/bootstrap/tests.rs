@@ -219,3 +219,114 @@ fn ordinary_workspace_dispatch_never_resolves_a_removed_global_alias_again() {
 
     crate::command::dispatch::run(cli, crate::session::AgentKind::Claude, &bootstrap).unwrap();
 }
+
+/// One workspace with two portable members and no local user chosen yet.
+fn two_member_workspace_without_a_local_user(
+    home: &std::path::Path,
+    config_home: &std::path::Path,
+) -> RegistryStore {
+    let root = home.join("family");
+    std::fs::create_dir_all(root.join(".config")).unwrap();
+    let workspace_id = WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    WorkspaceManifest::new(workspace_id)
+        .write_new(&root)
+        .unwrap();
+    std::fs::write(
+        root.join(".config/users.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "users": [
+                {"id": "pablo", "name": "Pablo", "phones": [], "emails": [], "response_email": null},
+                {"id": "sun", "name": "Sun", "phones": [], "emails": [], "response_email": null}
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let store = RegistryStore::from_path(config_home.join("brain/env.json"));
+    store
+        .replace(&MachineRegistry {
+            schema_version: REGISTRY_SCHEMA_VERSION,
+            default_workspace: WorkspaceName::parse("family").unwrap(),
+            workspaces: BTreeMap::from([(
+                WorkspaceName::parse("family").unwrap(),
+                WorkspaceRecord {
+                    workspace_id,
+                    root,
+                    aliases: BTreeSet::new(),
+                    // The whole point: nobody has been chosen on this machine.
+                    local_user_id: String::new(),
+                    receiver_enabled: false,
+                    env: Map::new(),
+                },
+            )]),
+            env: Map::new(),
+        })
+        .unwrap();
+    store
+}
+
+#[test]
+fn a_command_needing_a_local_user_offers_the_roster_instead_of_asking_for_an_id() {
+    let home = tempfile::tempdir().unwrap();
+    let config_home = tempfile::tempdir().unwrap();
+    let store = two_member_workspace_without_a_local_user(home.path(), config_home.path());
+    let cli = try_parse_from(["brain", "receiver", "setup"]).unwrap();
+    let mut input = Cursor::new(b"2\n".to_vec());
+    let mut output = Vec::new();
+
+    let outcome = bootstrap_with_io_and_hook(
+        &cli,
+        store.clone(),
+        (home.path(), home.path()),
+        InteractionMode::Interactive,
+        &mut input,
+        &mut output,
+        || Ok(()),
+    )
+    .expect("a workspace with members must be repairable by picking one");
+
+    let prompt = String::from_utf8(output).expect("UTF-8 prompt");
+    // Nobody can be expected to know an ID they never typed: show who exists.
+    assert!(prompt.contains("pablo"), "{prompt}");
+    assert!(prompt.contains("Pablo"), "{prompt}");
+    assert!(prompt.contains("sun"), "{prompt}");
+    assert!(prompt.contains("1)"), "{prompt}");
+    assert!(prompt.contains("2)"), "{prompt}");
+    let BootstrapContext::Ready(context) = &outcome else {
+        panic!("readiness repair must yield a ready context");
+    };
+    assert_eq!(context.actor.user_id().as_str(), "sun");
+    let persisted = RegistryStore::load_from(store.path()).unwrap();
+    assert_eq!(
+        persisted.workspaces[&WorkspaceName::parse("family").unwrap()].local_user_id,
+        "sun"
+    );
+}
+
+#[test]
+fn a_row_number_nobody_offered_reasks_instead_of_failing_the_command() {
+    let home = tempfile::tempdir().unwrap();
+    let config_home = tempfile::tempdir().unwrap();
+    let store = two_member_workspace_without_a_local_user(home.path(), config_home.path());
+    let cli = try_parse_from(["brain", "receiver", "setup"]).unwrap();
+    let mut input = Cursor::new(b"9\n1\n".to_vec());
+    let mut output = Vec::new();
+
+    bootstrap_with_io_and_hook(
+        &cli,
+        store.clone(),
+        (home.path(), home.path()),
+        InteractionMode::Interactive,
+        &mut input,
+        &mut output,
+        || Ok(()),
+    )
+    .expect("a mistyped row must not end the command");
+
+    let persisted = RegistryStore::load_from(store.path()).unwrap();
+    assert_eq!(
+        persisted.workspaces[&WorkspaceName::parse("family").unwrap()].local_user_id,
+        "pablo"
+    );
+}
