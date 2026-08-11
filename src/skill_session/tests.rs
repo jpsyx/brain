@@ -98,5 +98,11 @@ fn a_running_session_is_no_longer_runnable_but_its_siblings_still_are() {
         .collect();
 
     assert_eq!(offered, vec![SkillSessionKey::Custom(0)]);
-    assert!(runnable(&specs, &[SkillSessionKey::DailyTriage, SkillSessionKey::Custom(0)]).is_empty());
+    assert!(
+        runnable(
+            &specs,
+            &[SkillSessionKey::DailyTriage, SkillSessionKey::Custom(0)]
+        )
+        .is_empty()
+    );
 }

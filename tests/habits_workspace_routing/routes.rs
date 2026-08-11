@@ -75,12 +75,7 @@ fn skill_session_completion_is_recorded_only_for_the_ingress_workspace() {
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     assert_eq!(
         brain::skill_session::signal::read_signal(
-            &workspace(
-                server.home.path(),
-                "family",
-                FAMILY_ID,
-                &server.family_root,
-            ),
+            &workspace(server.home.path(), "family", FAMILY_ID, &server.family_root,),
             "family-triage"
         )
         .expect("family completion signal")

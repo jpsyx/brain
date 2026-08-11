@@ -1,4 +1,3 @@
-
 #[test]
 fn daily_triage_toggle_reads_enable_when_alert_disabled() {
     // Seeded from `App::skip_daily_triage_check` at open time; when disabled
@@ -33,7 +32,10 @@ fn tab_switch_commands_appear_once_a_skill_session_is_open() {
     // one set, the main-session row and that session's focus row show. The
     // palette remains the reliable alternative to the terminal-flaky Alt+digit.
     let mut state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
-    state.open_skill_sessions = vec![(crate::skill_session::SkillSessionKey::DailyTriage, "Daily triage".to_owned())];
+    state.open_skill_sessions = vec![(
+        crate::skill_session::SkillSessionKey::DailyTriage,
+        "Daily triage".to_owned(),
+    )];
     let actions = action_order(&state);
     assert!(actions.contains(&PaletteAction::ShowMainBrainSession));
     assert!(actions.contains(&PaletteAction::ShowSkillSession(
@@ -53,8 +55,14 @@ fn tab_switch_commands_appear_once_a_skill_session_is_open() {
 fn each_offered_skill_session_gets_its_configured_palette_label() {
     let mut state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
     state.runnable_skill_sessions = vec![
-        (crate::skill_session::SkillSessionKey::DailyTriage, "Run daily triage".to_owned()),
-        (crate::skill_session::SkillSessionKey::Custom(0), "Run email triage".to_owned()),
+        (
+            crate::skill_session::SkillSessionKey::DailyTriage,
+            "Run daily triage".to_owned(),
+        ),
+        (
+            crate::skill_session::SkillSessionKey::Custom(0),
+            "Run email triage".to_owned(),
+        ),
     ];
     let labels: Vec<String> = state
         .numbered_entries()
@@ -63,16 +71,22 @@ fn each_offered_skill_session_gets_its_configured_palette_label() {
         .collect();
 
     assert!(
-        labels.iter().any(|label| label.contains("Run daily triage")),
+        labels
+            .iter()
+            .any(|label| label.contains("Run daily triage")),
         "{labels:?}"
     );
     assert!(
-        labels.iter().any(|label| label.contains("Run email triage")),
+        labels
+            .iter()
+            .any(|label| label.contains("Run email triage")),
         "{labels:?}"
     );
-    assert!(action_order(&state).contains(&PaletteAction::RunSkillSession(
-        crate::skill_session::SkillSessionKey::Custom(0)
-    )));
+    assert!(
+        action_order(&state).contains(&PaletteAction::RunSkillSession(
+            crate::skill_session::SkillSessionKey::Custom(0)
+        ))
+    );
 }
 
 #[test]
@@ -81,8 +95,14 @@ fn a_running_skill_session_offers_no_start_row() {
     // (that decision is `skill_session::runnable`), so a session showing a
     // focus row must show no start row — a user can't launch it twice.
     let mut state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
-    state.runnable_skill_sessions = vec![(crate::skill_session::SkillSessionKey::Custom(0), "Run email triage".to_owned())];
-    state.open_skill_sessions = vec![(crate::skill_session::SkillSessionKey::DailyTriage, "Daily triage".to_owned())];
+    state.runnable_skill_sessions = vec![(
+        crate::skill_session::SkillSessionKey::Custom(0),
+        "Run email triage".to_owned(),
+    )];
+    state.open_skill_sessions = vec![(
+        crate::skill_session::SkillSessionKey::DailyTriage,
+        "Daily triage".to_owned(),
+    )];
     let actions = action_order(&state);
 
     assert!(!actions.contains(&PaletteAction::RunSkillSession(

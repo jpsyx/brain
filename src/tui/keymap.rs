@@ -235,9 +235,7 @@ pub(crate) fn alt_scroll_direction(code: KeyCode, modifiers: KeyModifiers) -> Op
 pub(crate) fn alt_selects_brain_tab_slot(code: KeyCode, modifiers: KeyModifiers) -> Option<usize> {
     let modified = modifiers.intersects(KeyModifiers::ALT | KeyModifiers::META);
     match code {
-        KeyCode::Char(digit @ '1'..='9') if modified => {
-            Some(digit.to_digit(10)? as usize - 1)
-        }
+        KeyCode::Char(digit @ '1'..='9') if modified => Some(digit.to_digit(10)? as usize - 1),
         // macOS US-layout Option+1..Option+9 glyphs, in digit order.
         KeyCode::Char(glyph) => MAC_OPTION_DIGIT_GLYPHS
             .iter()

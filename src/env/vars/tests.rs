@@ -381,8 +381,14 @@ fn set_path_addresses_one_element_of_an_env_array() {
         map["skill_sessions"][0]["prompt"],
         Value::from("/email-triage --fast")
     );
-    assert_eq!(map["skill_sessions"][0]["title"], Value::from("Email triage"));
-    assert_eq!(map["skill_sessions"][1]["prompt"], Value::from("/triage weekly"));
+    assert_eq!(
+        map["skill_sessions"][0]["title"],
+        Value::from("Email triage")
+    );
+    assert_eq!(
+        map["skill_sessions"][1]["prompt"],
+        Value::from("/triage weekly")
+    );
 }
 
 #[test]

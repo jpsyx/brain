@@ -228,6 +228,8 @@ fn first_tasks_command_initializes_an_empty_workspace() {
     );
     for path in [
         ".config/config.json",
+        "AGENTS.md",
+        "README.md",
         "tasks/tasks.csv",
         "tasks/habits.csv",
         "tasks/.tasks_next_id",

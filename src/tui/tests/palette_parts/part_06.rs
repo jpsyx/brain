@@ -1,4 +1,3 @@
-
 fn receiver_label(state: &PaletteState) -> Option<String> {
     state
         .visible()

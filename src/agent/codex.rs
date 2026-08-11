@@ -1,16 +1,23 @@
 //! OpenAI Codex translation behind the frontend-neutral agent facade.
 
+use std::path::PathBuf;
+
 use crate::agent::{
     AgentError, AgentFrontend, AgentKind, AgentSession, CompletionStrategy, HookMetadata,
     InputSequence, LaunchRequest, LaunchSpec, SessionPlan,
     frontend::{launch_environment, shell_quote},
 };
 
+mod sessions;
+
 pub(crate) const DEFAULT_COMMAND: &str = "codex";
 
 /// Codex command, input, completion, and transcript conventions.
 pub(crate) struct CodexFrontend {
     command: String,
+    /// Where Codex records its rollouts, or `None` when this machine has no home
+    /// directory to resolve — in which case no session is treated as resumable.
+    sessions_dir: Option<PathBuf>,
 }
 
 impl CodexFrontend {
@@ -25,7 +32,23 @@ impl CodexFrontend {
             } else {
                 command.to_owned()
             },
+            sessions_dir: default_sessions_dir(),
         }
+    }
+
+    /// Point the resume check at a specific rollout tree, for tests.
+    #[cfg(test)]
+    pub(super) fn with_sessions_dir(mut self, sessions_dir: Option<PathBuf>) -> Self {
+        self.sessions_dir = sessions_dir;
+        self
+    }
+
+    /// Whether Codex still holds a rollout for this session.
+    fn rollout_exists(&self, session: &AgentSession) -> bool {
+        self.sessions_dir
+            .as_deref()
+            .and_then(|root| sessions::find_rollout(root, session.as_str()))
+            .is_some()
     }
 
     pub(super) fn command_for(command: &str, plan: &SessionPlan, prompt: Option<&str>) -> String {
@@ -142,8 +165,8 @@ impl AgentFrontend for CodexFrontend {
         Ok(CompletionStrategy::Hook)
     }
 
-    fn resume_candidate_exists(&self, _session: &AgentSession) -> Result<bool, AgentError> {
-        Ok(false)
+    fn resume_candidate_exists(&self, session: &AgentSession) -> Result<bool, AgentError> {
+        Ok(self.rollout_exists(session))
     }
 
     fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {
@@ -151,7 +174,87 @@ impl AgentFrontend for CodexFrontend {
         Ok(uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, identity.as_bytes()).to_string())
     }
 
-    fn can_resume_response_session(&self, _session: &AgentSession) -> Result<bool, AgentError> {
-        Ok(false)
+    // An SMS or email follow-up resumes exactly as an interactive one does: the
+    // rollout is the same evidence either way, so the two channels cannot drift.
+    fn can_resume_response_session(&self, session: &AgentSession) -> Result<bool, AgentError> {
+        Ok(self.rollout_exists(session))
+    }
+}
+
+/// `~/.codex/sessions`, Codex's own rollout location.
+fn default_sessions_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join(".codex").join("sessions"))
+}
+
+#[cfg(test)]
+mod frontend_tests {
+    use super::{CodexFrontend, sessions};
+    use crate::agent::{AgentFrontend, AgentSession, SessionPlan};
+
+    const ID: &str = "019feb9e-edc0-7252-945a-5e06a30e0eec";
+
+    fn session() -> AgentSession {
+        AgentSession::new(ID).expect("a nonempty session id")
+    }
+
+    fn tree_with_rollout() -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        let day = root.path().join("2026/08/11");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::write(
+            day.join(format!("rollout-2026-08-11T09-49-49-{ID}.jsonl")),
+            b"{}\n",
+        )
+        .unwrap();
+        root
+    }
+
+    /// Both channels read the same evidence, so SMS and email can never disagree
+    /// with the interactive panel about whether a session can be picked back up.
+    #[test]
+    fn a_recorded_session_is_resumable_for_every_channel() {
+        let root = tree_with_rollout();
+        let frontend =
+            CodexFrontend::new("codex").with_sessions_dir(Some(root.path().to_path_buf()));
+
+        assert!(frontend.resume_candidate_exists(&session()).unwrap());
+        assert!(frontend.can_resume_response_session(&session()).unwrap());
+    }
+
+    #[test]
+    fn a_session_codex_no_longer_holds_is_resumable_for_no_channel() {
+        let root = tempfile::tempdir().unwrap();
+        let frontend =
+            CodexFrontend::new("codex").with_sessions_dir(Some(root.path().to_path_buf()));
+
+        assert!(!frontend.resume_candidate_exists(&session()).unwrap());
+        assert!(!frontend.can_resume_response_session(&session()).unwrap());
+    }
+
+    /// Without a resolvable home there is no evidence either way, and guessing
+    /// would resume into a session that may not exist.
+    #[test]
+    fn no_sessions_directory_means_nothing_is_resumable() {
+        let frontend = CodexFrontend::new("codex").with_sessions_dir(None);
+
+        assert!(!frontend.resume_candidate_exists(&session()).unwrap());
+        assert!(!frontend.can_resume_response_session(&session()).unwrap());
+    }
+
+    /// The command brain builds for a validated session is Codex's own resume
+    /// verb, so the id we validated is the id Codex reopens.
+    #[test]
+    fn resuming_builds_codex_resume_with_the_validated_id() {
+        let plan = SessionPlan::Resume(session());
+        let command = CodexFrontend::command_for("codex", &plan, None);
+
+        // The id is shell-quoted, as every interpolated value is.
+        assert_eq!(command, format!("codex resume '{ID}'"));
+        assert!(sessions::rollout_matches(
+            &format!("rollout-2026-08-11T09-49-49-{ID}.jsonl"),
+            ID
+        ));
     }
 }

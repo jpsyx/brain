@@ -239,7 +239,10 @@ mod tests {
             resolve_active_tab(BrainTab::Session(FIRST), &[SECOND]),
             BrainTab::Main
         );
-        assert_eq!(resolve_active_tab(BrainTab::Session(FIRST), &[]), BrainTab::Main);
+        assert_eq!(
+            resolve_active_tab(BrainTab::Session(FIRST), &[]),
+            BrainTab::Main
+        );
     }
 
     #[test]

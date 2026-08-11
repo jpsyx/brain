@@ -45,7 +45,11 @@ pub fn choose(input: &str, count: usize) -> EditorChoice {
             match (verb, row.and_then(|row| row.checked_sub(1))) {
                 ("d", Some(index)) if index < count => EditorChoice::Delete(index),
                 ("e", Some(index)) if index < count => EditorChoice::Edit(index),
-                _ => match other.parse::<usize>().ok().and_then(|row| row.checked_sub(1)) {
+                _ => match other
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|row| row.checked_sub(1))
+                {
                     Some(index) if index < count => EditorChoice::Edit(index),
                     _ => EditorChoice::Quit,
                 },
@@ -89,7 +93,10 @@ pub fn entry_value(title: &str, prompt: &str, command_label: &str) -> Value {
         object.insert("title".to_owned(), Value::from(title.trim()));
     }
     if !command_label.trim().is_empty() {
-        object.insert("command_label".to_owned(), Value::from(command_label.trim()));
+        object.insert(
+            "command_label".to_owned(),
+            Value::from(command_label.trim()),
+        );
     }
     entry
 }
@@ -198,7 +205,10 @@ fn prompt_entry(theme: Theme, existing: Option<&SkillSessionSpec>) -> Result<Opt
             }
         }))
     };
-    let Some(prompt_text) = ask("Prompt (e.g. /email-triage)", existing.map(|s| s.prompt.as_str()))?
+    let Some(prompt_text) = ask(
+        "Prompt (e.g. /email-triage)",
+        existing.map(|s| s.prompt.as_str()),
+    )?
     else {
         return Ok(None);
     };

@@ -254,9 +254,10 @@ impl App<'_> {
                 exited.push((tab.id, tab.title.clone()));
                 continue;
             }
-            let Some(signal) =
-                crate::skill_session::signal::read_signal(&self.command_context.workspace, &tab.token)
-            else {
+            let Some(signal) = crate::skill_session::signal::read_signal(
+                &self.command_context.workspace,
+                &tab.token,
+            ) else {
                 continue;
             };
             // The token matches, but the run declared output artifacts (a
@@ -279,7 +280,10 @@ impl App<'_> {
                 "skill session {title}: completion signal received; closing"
             ));
             self.close_skill_session(id);
-            self.flash = Some(FlashKind::Info(format!("✓ {} complete", title.to_lowercase())));
+            self.flash = Some(FlashKind::Info(format!(
+                "✓ {} complete",
+                title.to_lowercase()
+            )));
         }
     }
 }

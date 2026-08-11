@@ -37,9 +37,9 @@
 
 mod app_actions;
 mod app_brain;
+mod app_skill_session;
 mod app_state;
 mod app_sync;
-mod app_skill_session;
 mod draw;
 mod draw_assignee;
 mod draw_help;

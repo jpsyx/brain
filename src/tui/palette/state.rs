@@ -219,7 +219,11 @@ impl PaletteState {
             match command.action {
                 PaletteAction::SendBrainMessage => {
                     for (key, label) in &self.runnable_skill_sessions {
-                        push_row(&mut rows, label.clone(), PaletteAction::RunSkillSession(*key));
+                        push_row(
+                            &mut rows,
+                            label.clone(),
+                            PaletteAction::RunSkillSession(*key),
+                        );
                     }
                 }
                 PaletteAction::ShowMainBrainSession => {

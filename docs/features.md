@@ -143,8 +143,8 @@ workspace transcript exists. OpenCode asks the configured command for
 `session list --format json` in the selected root and resumes only a live,
 non-archived, non-deleted root session whose reported directory is that exact
 root. If a stale DB row no longer has matching frontend evidence, Brain skips
-it and starts a fresh chat with a status-line explanation. Codex currently
-starts fresh. If you type `/new` (or `/clear`) inside an agent, or press
+it and starts a fresh chat with a status-line explanation. Codex resumes when it
+still holds the session's rollout on disk, and starts fresh when it does not. If you type `/new` (or `/clear`) inside an agent, or press
 `Ctrl+N`, the generic lifecycle bridge records the new root-session ID when
 the frontend emits its start event. Brain permits one live TUI per workspace UUID:
 a second TUI for the same UUID receives a clear
@@ -471,6 +471,19 @@ delegated task values.
   incomplete rather than guessed as unrestricted. The **task schema** row
   reports whether the workspace declares `tasks/SCHEMA.json`; a workspace
   without it cannot sync, so it renders `incomplete` instead of `ready`.
+- The brain panel's title names **the workspace**, not the product:
+  `family · Claude`, or `family · Daily triage · Claude` on the triage tab, with
+  ` exited` appended when the frontend has stopped. With more than one workspace
+  open, the title was the one place that could tell them apart and said `Brain`
+  for all of them.
+- A workspace Brain creates is seeded with **`AGENTS.md`** (how an agent should
+  behave in this workspace: PARA rules, the `second-brain` skill, media/note
+  coupling, link repair on rename, which files Brain owns, and what not to put in
+  a synced root) and **`README.md`** (the same orientation for a person). Both
+  are written only when absent — from the moment they exist they are the user's
+  documents — and only for a workspace Brain is initializing, never dropped into
+  a root that already holds content. Templates live in `templates/workspace/`,
+  embedded into the binary.
 - Dependency trees an agent frontend installs inside a workspace
   (`node_modules/**` at any depth, plus `.opencode/{package.json,package-lock.json,bun.lock,.gitignore}`)
   are excluded from sync and never trigger the change-watcher. Every machine

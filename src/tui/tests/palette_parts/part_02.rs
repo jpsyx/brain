@@ -1,4 +1,3 @@
-
 #[test]
 fn notes_toggle_in_global_palette_names_the_task() {
     // In the global command palette the toggle follows the task-ID convention

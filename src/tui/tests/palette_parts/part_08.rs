@@ -1,4 +1,3 @@
-
 #[test]
 fn sync_brain_palette_command_has_no_shortcut() {
     use crate::tui::palette::shortcut_for;

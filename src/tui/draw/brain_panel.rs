@@ -29,15 +29,12 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App<'_>, area: Rect) {
         Color::Rgb(78, 92, 122) // very dim
     };
     let agent = app.agent_kind.label();
-    let base_title = app.active_brain_tab_title().map_or_else(
-        || format!("Brain · {agent}"),
-        |title| format!("{title} · {agent}"),
+    let title_status = panel_title(
+        app.command_context.workspace.name().as_str(),
+        app.active_brain_tab_title(),
+        agent,
+        alive,
     );
-    let title_status = if alive {
-        base_title
-    } else {
-        format!("{base_title} exited")
-    };
     let title = Line::from(vec![
         Span::raw(" "),
         Span::styled(
@@ -197,4 +194,59 @@ fn footer_hint(active: BrainTab, has_tabs: bool, key: Style, dim: Style) -> Line
         dim,
     ));
     Line::from(spans)
+}
+
+/// The panel's title: which brain you are in, which sub-view, which frontend.
+///
+/// The workspace name leads because a machine can have several workspaces and a
+/// literal "Brain" named none of them — with `family` and `brain` both open, the
+/// title was the one place that could tell them apart and didn't.
+pub(crate) fn panel_title(
+    workspace: &str,
+    session_title: Option<&str>,
+    agent: &str,
+    alive: bool,
+) -> String {
+    let base = session_title.map_or_else(
+        || format!("{workspace} · {agent}"),
+        |title| format!("{workspace} · {title} · {agent}"),
+    );
+    if alive {
+        base
+    } else {
+        format!("{base} exited")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::panel_title;
+
+    #[test]
+    fn the_main_tab_names_the_workspace_instead_of_the_product() {
+        let title = panel_title("family", None, "Claude", true);
+
+        assert_eq!(title, "family · Claude");
+        assert!(!title.contains("Brain"));
+    }
+
+    #[test]
+    fn a_skill_session_tab_names_its_session_and_still_names_the_workspace() {
+        assert_eq!(
+            panel_title("brain", Some("Daily triage"), "Codex", true),
+            "brain · Daily triage · Codex"
+        );
+    }
+
+    #[test]
+    fn an_exited_frontend_is_still_reported_after_the_workspace() {
+        assert_eq!(
+            panel_title("family", None, "OpenCode", false),
+            "family · OpenCode exited"
+        );
+        assert_eq!(
+            panel_title("family", Some("Daily triage"), "Claude", false),
+            "family · Daily triage · Claude exited"
+        );
+    }
 }

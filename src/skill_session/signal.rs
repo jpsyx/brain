@@ -48,10 +48,7 @@ pub fn done_dir(workspace: &crate::workspace::WorkspaceContext) -> PathBuf {
 /// safe file name — the token arrives in an HTTP body, so it never becomes a
 /// path before [`is_token_safe`] has vouched for it.
 #[must_use]
-pub fn done_path(
-    workspace: &crate::workspace::WorkspaceContext,
-    token: &str,
-) -> Option<PathBuf> {
+pub fn done_path(workspace: &crate::workspace::WorkspaceContext, token: &str) -> Option<PathBuf> {
     is_token_safe(token).then(|| done_dir(workspace).join(format!("{token}.json")))
 }
 
@@ -160,10 +157,7 @@ pub fn record_done(
 /// somehow differs from the one asked for. Impure (the disk read); the parse is
 /// [`parse_signal`].
 #[must_use]
-pub fn read_signal(
-    workspace: &crate::workspace::WorkspaceContext,
-    token: &str,
-) -> Option<Signal> {
+pub fn read_signal(workspace: &crate::workspace::WorkspaceContext, token: &str) -> Option<Signal> {
     let raw = std::fs::read_to_string(done_path(workspace, token)?).ok()?;
     parse_signal(&raw).filter(|signal| signal.token == token)
 }
