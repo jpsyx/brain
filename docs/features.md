@@ -1390,6 +1390,21 @@ the receiver retries after a short backoff instead of leaving a phantom
 "processing" job. Twilio and Resend reply delivery runs on a bounded background
 worker so provider latency never blocks TUI input or `Ctrl+Q`.
 
+Every outbound SMS is shaped for a medium with no renderer. Brain converts the
+agent's answer to plain text before it is posted: headings, emphasis,
+strikethrough, code spans and fences, link and image syntax, blockquotes,
+horizontal rules, and markdown escapes lose their markers, bullets of any
+flavour or depth flatten to one `- ` line each, table rows become
+comma-separated cells, and repeated blank lines collapse. A link keeps its label
+and, when the target is actually reachable from a phone, the bare URL after it
+(`the invoice (https://…)`); a local or relative target is dropped as noise.
+Code-span and fenced content is delivered verbatim, and anything that only
+looks like markup (`2 * 3`, `snake_case_name`, an unclosed `**`) is left exactly
+as written. Stripping happens *before* the 480-character measurement, so
+markers never spend the SMS budget or trigger a needless "ask for a longer
+reply" truncation. The same response shown in the TUI, and every email reply,
+keeps its markdown.
+
 When cloud sync is configured, receiver dispatch also applies the two-hour
 freshness gate described above. The HTTP acknowledgement remains immediate,
 but stale local state is pulled before the queued message reaches the selected

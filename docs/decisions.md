@@ -3565,6 +3565,44 @@ block says `live state unavailable` instead of printing `Server not running`,
 because inventing a fact about a process nobody reached is worse than admitting
 the gap — the user would go looking for a stopped server that is running fine.
 
+## SMS markdown is stripped in code, not merely asked for in the skill
+
+The bundled skill now tells the assistant to write SMS as plain text, and that
+guidance is worth having: text written for a phone is shorter and clearer than
+markdown with its markers deleted. But a prompt is a request, not a guarantee.
+Models trained to format helpfully will occasionally emit `## Today` and
+`**Rent**` anyway, and on SMS the reader sees the punctuation literally. So the
+guarantee lives in `server/reply/plain_text/`, a pure pass every outbound SMS
+goes through, and the skill's instruction is the optimization on top of it.
+
+Placing it inside `reply::sms` rather than at the three delivery call sites is
+what makes it total: the final response, the fallback PTY-scrape response, and
+any future SMS body all shape through one function, so no path can be added
+that quietly posts raw markdown. Stripping precedes the length check for the
+same reason it exists — four asterisks that render as nothing must not be what
+pushes a 480-character answer into a truncated one.
+
+The pass is deliberately not a markdown parser. It is line-oriented, cannot
+fail, and never drops text it did not recognize: an unpaired `**`, `2 * 3`, and
+`snake_case_name` survive verbatim, because mangling a user's arithmetic or an
+identifier is a worse outcome than leaving one stray marker. Code-span and
+fenced content is passed through untouched for the same reason — inside code the
+markers are data. Where the medium genuinely cannot carry structure, the pass
+converts rather than deletes: bullets flatten to one `- ` line (indentation a
+phone cannot show is pure character cost) and table rows become comma-separated
+cells.
+
+Links are the one place the pass deliberately spends characters instead of
+saving them. `[the invoice](https://…)` reduced to `the invoice` is shorter, but
+a phone reader cannot click a label, so the answer becomes unactionable — the
+opposite of the goal. The URL is therefore kept after the label, and only a
+target that is genuinely reachable from a phone qualifies: a relative or local
+path (`../areas/money/a.md`) is unreachable there, so it is dropped as noise.
+
+Email is untouched. It has a renderer, `reply::email_html` already builds the
+HTML part, and the plain-text alternative there wants the full answer, not a
+de-marked one.
+
 ## A config variable that another store answers must say so
 
 `brain receiver setup` writes portable `users.json` and never touches

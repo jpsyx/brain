@@ -297,7 +297,12 @@ first move is a failing test that reproduces it, *then* the fix.
   `sync/freshness.rs` tests the strict two-hour message threshold;
   `sync/journal.rs` proves push-only/aborted rows do not refresh it.
   `server/delivery.rs` verifies that provider delivery is dispatched off the
-  TUI thread. The app receiver tests mutate `users.json` and the machine
+  TUI thread. `server/reply/` proves that an SMS body loses every markdown
+  marker before its length is measured, that near-markup (`2 * 3`,
+  `snake_case_name`, an unpaired `**`, a non-address `<…>`) survives verbatim,
+  and that code content is delivered as written; the `plain_text/block.rs` and
+  `plain_text/inline.rs` suites cover their own edge cases (fence verbatimness,
+  a `#` with no space, a dash rule versus a dash bullet, unpaired spans). The app receiver tests mutate `users.json` and the machine
   registry after queue acceptance, then prove Claude, Codex, and OpenCode launch
   through `AgentController` with the captured actor, channel, response email,
   and allowed participant recipients.
