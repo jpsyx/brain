@@ -109,22 +109,28 @@ pub fn send_email_background(
 
 /// Keep only addresses that appear in the inbound thread and are explicitly
 /// allowlisted. The receiving address itself is never echoed back.
+///
+/// Every side is reduced to a bare address first. The receiving address comes
+/// from free-form env (`resend_from_email`), so a perfectly valid
+/// `Brain <brain@example.com>` there must not defeat the self-echo guard and
+/// let brain answer its own mail. A value that is not an address at all — an
+/// SMS sender, a malformed header — matches nothing and is dropped.
 #[must_use]
 pub fn allowed_thread_recipients(
     participants: &[String],
     allowed: &[String],
     receiving_address: &str,
 ) -> Vec<String> {
-    let receiving = receiving_address.trim().to_ascii_lowercase();
+    let receiving = crate::users::normalize_mailbox(receiving_address).unwrap_or_default();
+    let allowed = allowed
+        .iter()
+        .filter_map(|item| crate::users::normalize_mailbox(item).ok())
+        .collect::<Vec<_>>();
     participants
         .iter()
-        .map(|participant| participant.trim().to_ascii_lowercase())
-        .filter(|participant| !participant.is_empty() && *participant != receiving)
-        .filter(|participant| {
-            allowed
-                .iter()
-                .any(|item| item.trim().eq_ignore_ascii_case(participant))
-        })
+        .filter_map(|participant| crate::users::normalize_mailbox(participant).ok())
+        .filter(|participant| *participant != receiving)
+        .filter(|participant| allowed.contains(participant))
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect()
@@ -160,7 +166,7 @@ pub fn trusted_response_recipients(
     response_email
         .into_iter()
         .chain(allowed_thread_participants.iter().map(String::as_str))
-        .filter_map(|address| crate::users::normalize_email(address).ok())
+        .filter_map(|address| crate::users::normalize_mailbox(address).ok())
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect()
@@ -341,6 +347,41 @@ mod tests {
             "me@example.com",
         );
         assert_eq!(recipients, vec!["other@example.com"]);
+    }
+
+    #[test]
+    fn trusted_recipients_apply_the_same_address_rule_as_the_thread_intersection() {
+        let recipients = trusted_response_recipients(
+            Some("Member <Member@Example.test>"),
+            &["thread@example.test".to_owned()],
+        );
+
+        assert_eq!(
+            recipients,
+            vec!["member@example.test", "thread@example.test"],
+            "one address rule must decide the reply, not two"
+        );
+    }
+
+    #[test]
+    fn a_configured_from_address_with_a_display_name_is_still_never_echoed_back() {
+        let recipients = allowed_thread_recipients(
+            &[
+                "other@example.com".to_owned(),
+                "brain@example.com".to_owned(),
+            ],
+            &[
+                "other@example.com".to_owned(),
+                "brain@example.com".to_owned(),
+            ],
+            "Brain <Brain@Example.com>",
+        );
+
+        assert_eq!(
+            recipients,
+            vec!["other@example.com"],
+            "the receiving address must be excluded however it is configured"
+        );
     }
 
     #[test]

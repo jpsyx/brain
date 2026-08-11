@@ -2,4 +2,5 @@
 
 mod completion;
 mod dispatch;
+mod email_reply;
 mod state;

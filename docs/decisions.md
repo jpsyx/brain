@@ -3385,3 +3385,53 @@ answer a question that has already been answered — and answering "yes" re-runs
 triage pass that already ran on another machine. The dismissal only fires for a
 `ConfirmKind::RunTriage` modal, so an unrelated confirmation the user opened in
 the meantime is never closed under them.
+
+## Why inbound email identities are parsed as mailboxes, not addresses
+
+`normalize_email` deliberately refuses to guess: it rejects any value with
+whitespace, so `pablo@example.com` normalizes and anything else fails. That is
+right for a *configured* identity, where a person typed the value and an
+ambiguous one should be a validation error. It is wrong for a value lifted out
+of a mail header, because `From`, `To`, and `Cc` carry RFC 5322 mailboxes —
+`Pablo Sarmiento <pablo@example.com>` — far more often than bare addresses.
+
+Applying the configuration rule at the provider boundary produced two failures
+that both look like "email is broken" and neither of which logs a cause. The
+sender was rejected as not-allowed, so a normal email from a normal mail client
+got HTTP 403 and never reached an agent. And every thread participant failed
+the allowlist intersection, so on the paths that did run, the reply had no
+recipients and was discarded.
+
+`normalize_mailbox` reduces a mailbox to its addr-spec and then delegates to
+`normalize_email`, so exactly one rule decides what a valid address is. The
+boundary applies it (`fetch_verified` for the sender and participants,
+`allowed_thread_recipients` for both sides of the intersection and the
+receiving address); configuration still uses `normalize_email` and still
+refuses to guess. This is the email analogue of the E.164 work on the SMS side:
+accept the shape the provider really sends, normalize once, compare normalized.
+
+The receiving address matters for the same reason. It is the self-echo guard,
+and it comes from free-form env, so a perfectly reasonable
+`resend_from_email` of `Brain <brain@example.com>` would have compared unequal
+to the address it names and let brain answer its own mail.
+
+## Why an inbound email is converted to text and bounded
+
+The prompt is typed into the brain panel's PTY. Two properties of email make
+that unsafe without shaping. Mail from a rich client is often HTML-only, and
+the raw markup buries the actual message; and the receiving API's cap is 1 MiB,
+which a newsletter reaches easily, so an unbounded prompt is an unbounded PTY
+write. `body.rs` therefore drops `script`/`style` bodies, keeps element text
+with block boundaries as line breaks, and caps the result at 16 KiB with an
+explicit truncation notice — the agent is told the message was cut rather than
+answering a silently shortened one as if it were complete. A plain-text part,
+when present, is still preferred and passed through verbatim.
+
+## Why every outbound email reply goes through one seam
+
+Three sites delivered email (the processing notice, the final response, and the
+post-teardown fallback), and all three guarded on a non-empty recipient list
+with no `else`. An empty list is the worst outcome this channel has: the user
+gets nothing, which is indistinguishable from the agent never finishing, and
+nothing in the log says why. `App::send_email_reply` is now the only path, and
+it logs the drop with the two configuration fixes that resolve it.

@@ -1,3 +1,5 @@
+mod body;
+
 use serde::Deserialize;
 
 use super::{AuthenticatedInbound, ProviderConfig, ProviderError};
@@ -127,13 +129,23 @@ fn fetch_verified(
             "received email has no text body or attachment",
         ));
     }
-    let sender = crate::users::normalize_email(&fetched.sender)
+    let sender = crate::users::normalize_mailbox(&fetched.sender)
         .map_err(|_| ProviderError::SenderNotAllowed("email sender is not allowed"))?;
+    // Mail headers carry RFC 5322 mailboxes, not bare addresses. Everything
+    // downstream — actor resolution and the reply allowlist — compares these
+    // against configured identities, so an unreduced `Display Name <addr>`
+    // would reject the sender and silently strip the thread of every
+    // recipient. Unparseable participants are dropped, never carried forward.
+    let participants = fetched
+        .participants
+        .iter()
+        .filter_map(|value| crate::users::normalize_mailbox(value).ok())
+        .collect();
     Ok(AuthenticatedInbound {
         channel: Channel::Email,
         sender,
         prompt: fetched.body,
-        participants: fetched.participants,
+        participants,
         attachments: fetched.attachments,
         receiving_address: config.resend_from_email.clone(),
         provider_id: Some(verified.webhook_id),
@@ -319,13 +331,22 @@ fn parse_attachment_list(attachments: &[u8]) -> Result<Vec<AttachmentRef>, Provi
 fn parse_received_email(email: &[u8], attachments: &[u8]) -> Result<FetchedEmail, ProviderError> {
     let email: serde_json::Value = serde_json::from_slice(email)
         .map_err(|_| ProviderError::Upstream("Resend returned invalid received email content"))?;
-    let body = email
+    let text = email
         .get("text")
         .and_then(serde_json::Value::as_str)
-        .filter(|text| !text.trim().is_empty())
-        .or_else(|| email.get("html").and_then(serde_json::Value::as_str))
-        .unwrap_or_default()
-        .to_owned();
+        .filter(|text| !text.trim().is_empty());
+    let body = text.map_or_else(
+        || {
+            body::html_to_text(
+                email
+                    .get("html")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default(),
+            )
+        },
+        str::to_owned,
+    );
+    let body = body::bounded_prompt(&body, body::MAX_PROMPT_BYTES);
     let sender = email
         .get("from")
         .and_then(serde_json::Value::as_str)

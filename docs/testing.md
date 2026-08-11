@@ -313,7 +313,21 @@ first move is a failing test that reproduces it, *then* the fix.
   any socket handoff. Typed provider tests preserve ignored-event 202 and
   upstream 502 outcomes. Injected Resend fetch tests cap both provider
   responses, and a counting reader proves only one proof byte beyond the limit
-  is consumed.
+  is consumed. Inbound email identity is pinned at the boundary that produces
+  `AuthenticatedInbound`: a realistic `Display Name <addr>` `From` header
+  authenticates, thread participants reduce to bare addresses so the reply
+  allowlist can match them, and an unparseable participant is dropped rather
+  than carried forward. `users::normalize_mailbox` is tested directly for
+  display names, quoted display names containing a comma, non-ASCII display
+  names (which must not be split mid-character), and values with no usable
+  address; a companion test pins that `normalize_email` still refuses to guess,
+  so configuration validation is unchanged. `delivery::allowed_thread_recipients`
+  proves a display-name `resend_from_email` is still excluded from its own
+  reply. `server/receiver/http/email/body/tests.rs` covers prompt shaping as
+  pure functions: HTML becomes readable text with `script`/`style` bodies
+  dropped, `<br>` and entities preserved, an in-budget message passed through
+  untouched, and an oversized one truncated on a character boundary with a
+  notice the agent can see.
 - **Workspace-specific receiver setup.**
   `tests/receiver_setup_workspace.rs` runs provider-free, local CLI fixtures
   against two selected workspaces. It proves distinct Twilio and Resend secrets

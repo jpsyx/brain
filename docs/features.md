@@ -1258,6 +1258,11 @@ Each Resend received-email or attachment-metadata response is also capped at
 1 MiB and ten seconds. Unavailable, ignored, and permanent discarded Resend
 events receive HTTP success; invalid signatures remain authentication errors.
 Receiving API failures return 502.
+Email addresses are matched as bare addresses, so the usual
+`Display Name <someone@example.com>` header form authenticates normally and
+still reaches the reply thread. An email with no plain-text part is reduced
+from HTML to readable text, and any inbound message is capped at 16 KiB with
+an explicit truncation notice before it is typed into the brain panel.
 Accepted provider IDs are deduplicated in a bounded cache scoped by workspace
 and channel; failed handoffs retain no retry state. SMS numbers use exact E.164
 matching, including the leading `+` and country code. A malformed configured

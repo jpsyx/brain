@@ -1206,9 +1206,12 @@ offline queue or launches an agent.
   during final-TUI shutdown.
 - `server/receiver/` owns the ordered inbound pipeline. `http/` loads only the
   selected workspace's provider configuration after ingress resolution;
-  `http/sms.rs` and `http/email.rs` return typed provider outcomes while they
+  `http/sms.rs` and `http/email/` return typed provider outcomes while they
   verify and normalize provider input; Resend retrieval is capped at 1 MiB per
-  response and ten seconds per request;
+  response and ten seconds per request; `http/email/body.rs` is the pure
+  prompt-shaping half — HTML-only mail becomes readable text and the result is
+  bounded at 16 KiB with an explicit truncation notice, since the prompt is
+  typed into the panel's PTY;
   `dispatch.rs` resolves the selected workspace's portable actor, while
   `dispatch/deliveries.rs` owns transactional, workspace-scoped provider-ID
   deduplication, `dispatch/final_authority.rs` owns the repeated persisted

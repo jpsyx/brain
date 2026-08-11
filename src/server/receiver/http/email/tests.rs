@@ -106,7 +106,7 @@ fn received_email_uses_html_fallback_participants_and_attachment_downloads() {
 
     let fetched = parse_received_email(email, attachments).unwrap();
 
-    assert_eq!(fetched.body, "<p>Hello from email</p>");
+    assert_eq!(fetched.body, "Hello from email");
     assert_eq!(fetched.sender, "sender@example.com");
     assert_eq!(fetched.subject, "Original topic");
     assert_eq!(
@@ -238,6 +238,88 @@ fn oversized_attachment_metadata_is_rejected_at_the_same_fetch_boundary() {
             (received_attachments_url("email-attachment"), 1024 * 1024)
         ]
     );
+}
+
+#[test]
+fn a_real_from_header_with_a_display_name_still_authenticates() {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+    let body = br#"{"type":"email.received","data":{"from":"Pablo Sarmiento <member@example.test>","email_id":"email-1"}}"#;
+    let key = b"email-test-secret";
+    let signature = resend_signature(key, "webhook-1", &timestamp, body);
+    let headers = EmailHeaders {
+        webhook_id: "webhook-1",
+        timestamp: &timestamp,
+        signature: &signature,
+    };
+    let config = super::ProviderConfig {
+        workspace_id: crate::workspace::WorkspaceId::new(),
+        twilio_auth_token: String::new(),
+        public_base_url: String::new(),
+        resend_signing_secret: format!("whsec_{}", STANDARD.encode(key)),
+        resend_api_key: "selected-api-key".to_owned(),
+        resend_from_email: "brain@example.test".to_owned(),
+        ingress_id: crate::server::IngressId::new(),
+    };
+
+    let inbound = authenticate_payload(&headers, body, &config, |_, _| {
+        Ok(FetchedEmail {
+            body: "private prompt".to_owned(),
+            sender: "Pablo Sarmiento <Member@Example.TEST>".to_owned(),
+            participants: vec![
+                "Pablo Sarmiento <Member@Example.TEST>".to_owned(),
+                "\"Copy, A.\" <copy@example.test>".to_owned(),
+                "not-an-address".to_owned(),
+            ],
+            attachments: Vec::new(),
+            subject: "Original topic".to_owned(),
+            message_id: None,
+        })
+    })
+    .unwrap();
+
+    assert_eq!(inbound.sender, "member@example.test");
+    assert_eq!(
+        inbound.participants,
+        ["member@example.test", "copy@example.test"],
+        "thread participants must reduce to bare addresses so the reply \
+         allowlist can match them, dropping anything unparseable"
+    );
+}
+
+#[test]
+fn an_html_only_email_reaches_the_agent_as_text_within_the_prompt_budget() {
+    let huge = "<p>Paragraph.</p>".repeat(4000);
+    let email = format!(
+        r#"{{"text":null,"html":{},"from":"sender@example.com","subject":"HTML only"}}"#,
+        serde_json::Value::String(huge)
+    );
+
+    let fetched = parse_received_email(email.as_bytes(), br#"{"data":[]}"#).unwrap();
+
+    assert!(
+        fetched.body.starts_with("Paragraph."),
+        "markup must not reach the agent: {}",
+        &fetched.body[..40.min(fetched.body.len())]
+    );
+    assert!(!fetched.body.contains("<p>"));
+    assert!(
+        fetched.body.len() <= super::body::MAX_PROMPT_BYTES + 120,
+        "an oversized email must be bounded before it is typed into the panel"
+    );
+    assert!(fetched.body.contains("truncated"));
+}
+
+#[test]
+fn a_plain_text_email_is_still_delivered_verbatim() {
+    let email = br#"{"text":"Ship the report by Friday.","html":"<p>ignored</p>","from":"sender@example.com"}"#;
+
+    let fetched = parse_received_email(email, br#"{"data":[]}"#).unwrap();
+
+    assert_eq!(fetched.body, "Ship the report by Friday.");
 }
 
 fn resend_signature(key: &[u8], id: &str, timestamp: &str, body: &[u8]) -> String {
