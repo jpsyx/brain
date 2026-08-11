@@ -14,6 +14,7 @@ mod readiness;
 pub mod registry;
 mod requirements;
 mod selector;
+mod templates;
 
 pub use bootstrap::{BootstrapContext, CommandContext, bootstrap, bootstrap_with_io};
 pub use bootstrap_policy::{

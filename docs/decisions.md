@@ -2980,6 +2980,46 @@ models a missing object as an error hides exactly this class of bug, which is
 why the identity test doubles now return exit 0 with empty output for a missing
 object, matching B2.
 
+## Codex could always resume; Brain just never asked
+
+`CodexFrontend::command_for` had built `codex resume <id>` from the start, and the
+session store recorded Codex ids like any other frontend. But
+`resume_candidate_exists` and `can_resume_response_session` both returned a flat
+`Ok(false)`, so no Codex session was ever *selected* for resume. The visible
+symptom was an SMS or email conversation that could not continue once the panel
+closed: each message began a new session with no memory of the last.
+
+The missing piece was evidence. Claude resumes when a transcript file exists;
+OpenCode asks its own API for live root sessions; Codex offers no
+machine-readable session listing at all (`codex --help` has `resume` but nothing
+like `session list`), so there was nothing obvious to validate against and the
+safe answer was "never".
+
+Codex does record every session on disk, as
+`~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<uuid>.jsonl`, which makes
+the check the same shape as Claude's: the session is resumable when its rollout
+is there. Two details had to be settled empirically before trusting it, because
+guessing either would have shipped a check that silently never matches:
+
+- **Which id the filename carries.** A rollout's `session_meta` payload has both
+  `id` and `session_id`, and they are *not* always equal — on subagent threads
+  `session_id` is the parent. Across 400 real rollouts the filename UUID equalled
+  `id` every time, and for top-level sessions `id` equalled `session_id` too.
+  Since the session-start bridge ignores payloads carrying a parent, every session
+  Brain registers is top-level, so matching the filename resolves the stored id
+  whichever field Codex reported it under.
+- **That matching must be exact.** The id has to occupy the whole trailing
+  segment after a `-`. A prefix match would let one id claim another's rollout and
+  resume a stranger's conversation, which is worse than not resuming at all.
+
+The walk descends only to the day level and visits day directories newest-first,
+so a live session is found in the first directory examined and an unexpected deep
+directory cannot turn one resume check into a full-disk scan.
+
+**Both channels read the same evidence.** `can_resume_response_session` delegates
+to the same predicate as the interactive path, so SMS, email, and the panel cannot
+drift apart about whether a session can be picked back up.
+
 ## An agent frontend's dependency tree is not workspace content
 
 Running the brain panel on OpenCode made it install `@opencode-ai/plugin`'s
