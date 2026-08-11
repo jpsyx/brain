@@ -152,9 +152,10 @@ impl App<'_> {
                 ));
             }
             Err(error) => {
+                // The tab was never added, so whatever is showing stays showing;
+                // only the flash reports the failure.
                 crate::logging::log(format!("skill session start failed: {error}"));
                 crate::skill_session::signal::clear(&self.command_context.workspace, &token);
-                self.active_brain_tab = BrainTab::Main;
                 self.flash = Some(FlashKind::Error(format!(
                     "{} could not start: {error}",
                     spec.title

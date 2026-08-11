@@ -436,3 +436,29 @@ fn closing_one_session_leaves_another_tab_selected_rather_than_jumping_to_main()
     );
     assert_eq!(app.focus, Panel::Brain);
 }
+
+#[test]
+fn a_failed_start_leaves_you_on_the_tab_you_were_reading() {
+    // A session that never launched was never selected, so the failure must not
+    // move the panel off whatever tab is showing.
+    let cli = Cli::parse_from(["tasks"]);
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.set_test_configured_skill_sessions(serde_json::json!([
+        {"title": "Email triage", "prompt": "/email-triage"},
+    ]));
+    let triage_recording = TransportRecording::default();
+    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
+    app.session_transport_override = Some(triage_recording.transport());
+    app.open_triage_tab();
+    let watched = app.active_brain_tab;
+
+    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
+    app.session_transport_override = Some(Box::new(FailingSpawnTransport));
+    app.run_skill_session(SkillSessionKey::Custom(0));
+
+    assert!(!app.has_skill_session(SkillSessionKey::Custom(0)));
+    assert_eq!(app.active_brain_tab, watched);
+    assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
+    assert!(matches!(app.flash, Some(crate::tui::FlashKind::Error(_))));
+}
