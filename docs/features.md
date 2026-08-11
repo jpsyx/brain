@@ -308,7 +308,9 @@ before opening the brain panel.
 | `brain habits kill` | Stop a background habits server. It is rejected while any brain TUI is open. |
 | `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
 | `brain config set enable_daily_triage_check=false` | Open the TUI without ever showing the daily-triage startup nudge. Portable config, so every machine on the workspace agrees; the palette still toggles it per session. |
-| `brain receiver {setup\|set\|start\|stop\|status\|url\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, print the provider webhook URLs, or read shared-process logs. No receiver command starts or restarts a process. |
+| `brain receiver {setup\|set\|start\|stop\|status\|url\|email\|phone\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, print the provider webhook URLs or configured addresses, or read shared-process logs. No receiver command starts or restarts a process. |
+| `brain receiver` | Report every registered workspace's receiver details: intent, live TUI/server/accepting state, the configured email and phone, the public base URL, and the provider webhook URLs. `-w` narrows it to one workspace. Informational and read-only: an unconfigured value reads `not set` and an unreadable workspace names its repair command rather than failing the whole listing. Provider secrets are never printed. |
+| `brain receiver {email\|phone}` | Print the bare address the selected workspace's receiver answers on (`resend_from_email` / `twilio_from_number`), on stdout with no styling, so a script or an agent can read it without parsing a status block. `-w` picks another workspace. An unset address names the variable and both ways to set it, and exits non-zero. |
 | `brain receiver url [--sms\|--email]` | Print the exact webhook URLs to paste into the Twilio/Resend portals for the selected workspace (`-w` picks another). Informational: it reads this machine's `brain_receiver_public_url` and the workspace's portable ingress UUID, so it works before receiver ingress is ever enabled or running. Both channels by default. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
@@ -1390,8 +1392,29 @@ Status requires both persisted intent and an enabled exact live lease before it
 reports `Accepting yes`; a live but disabled lease reports `TUI live` and
 `Accepting no`.
 
-`brain server status`, `brain receiver status -w <workspace>`, and
-`brain receiver url -w <workspace>` are literal
+Bare `brain receiver` answers the machine-wide version of that question. One
+machine hosts several workspaces and each configures its receiver separately,
+so with no `-w` it prints one block per registered workspace, in registry
+order, and `-w` narrows it to the one workspace that was asked about. Each
+block reports the same four intent-and-liveness rows as `receiver status`, then
+the configured email and phone, the public base URL, and the webhook URLs
+derived from that URL and the workspace's portable ingress. An unconfigured
+value reads `not set`; a workspace with no public base URL prints no webhook
+row, because there is no origin to derive one from. A workspace whose record
+cannot be read reports `unavailable` with its repair command instead of taking
+the whole listing down, and a shared process that cannot be asked reports
+`live state unavailable` rather than claiming the server is stopped. The
+listing prints the receiver's own published addresses; it never prints a
+provider credential.
+
+`brain receiver email` and `brain receiver phone` print just that address, on
+stdout with no styling, so a script or an agent can consume it directly. An
+unset address names the variable and both ways to set it, exactly as
+`receiver url` does for a missing public base URL, and exits non-zero.
+
+`brain server status`, `brain receiver status -w <workspace>`,
+`brain receiver url -w <workspace>`, bare `brain receiver`, and
+`brain receiver email` / `brain receiver phone` are literal
 read-only probes. They do not write a diagnostic run log, migrate or repair
 configuration, create a users transaction lock, refresh installed skills,
 write the skill render stamp, or elect/start/churn the shared process. Receiver

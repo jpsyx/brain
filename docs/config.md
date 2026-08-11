@@ -224,7 +224,10 @@ matrix but the established TUI startup prerequisite remains unchanged.
 `brain tasks doctor` read only the pinned selected workspace when they render
 this matrix. They do not inherit fields from the default or any peer workspace,
 and they never reveal sync credentials, provider secrets, phone numbers, or
-email addresses. Every incomplete row supplies noninteractive repair syntax;
+email addresses. Bare `brain receiver` and `brain receiver {email|phone}` are
+the deliberate exception, and only for the receiver's own published addresses:
+asking what address the receiver answers on is a request to see it. They still
+never print a provider credential. Every incomplete row supplies noninteractive repair syntax;
 interactive prompt metadata records which inputs are secret without carrying
 their current values.
 
@@ -503,6 +506,7 @@ written to `env.json.legacy-backup` first, and the whole rewrite happens inside
 the registry transaction, so an interrupted upgrade leaves the old file intact.
 It runs on the next **ordinary** command — no user has to ask for it. Read-only
 probes (`brain workspace list`, `brain sync status`, `brain receiver status`,
+bare `brain receiver`, `brain receiver {email|phone}`,
 `brain tasks doctor`) instead upgrade the value **in memory** and report
 normally, because a status command must neither fail on an old schema nor write.
 
@@ -654,7 +658,12 @@ for both direct assignment and interactive entry.
 `receiver_enabled` is only persistent intent. Current acceptance is the
 conjunction of that selected-record value and an unexpired exact-workspace TUI
 lease. The four `brain receiver status -w <workspace>` rows keep those facts
-separate: `Receiver`, `TUI`, `Server`, and `Accepting`. Reading them uses
+separate: `Receiver`, `TUI`, `Server`, and `Accepting`. Bare `brain receiver`
+repeats those four rows per registered workspace and adds the configured
+`resend_from_email`, `twilio_from_number`, and `brain_receiver_public_url`
+values plus the derived webhook URLs; `brain receiver email` and `brain
+receiver phone` print one of those addresses alone.
+Reading any of them uses
 literal read-only bootstrap. It never fills in a missing access mode, migrates
 or repairs registry/users state, renders skills, writes a render stamp or run
 log, or starts a process. A live process is inspected through one

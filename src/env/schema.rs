@@ -103,7 +103,7 @@ pub(super) const VARS: [VarSpec; 15] = [
     },
     VarSpec {
         name: "twilio_from_number",
-        description: "Machine-local Twilio number used as the sender for outbound SMS; status output never prints the address.",
+        description: "Machine-local Twilio number used as the sender for outbound SMS. Requirement status reports presence only; `brain receiver phone` and `brain receiver` print it on request.",
         default: None,
         legacy_config_fallback: false,
     },
@@ -115,7 +115,7 @@ pub(super) const VARS: [VarSpec; 15] = [
     },
     VarSpec {
         name: "resend_from_email",
-        description: "Machine-local verified Resend sender address; status output never prints the address.",
+        description: "Machine-local verified Resend sender address. Requirement status reports presence only; `brain receiver email` and `brain receiver` print it on request.",
         default: None,
         legacy_config_fallback: false,
     },

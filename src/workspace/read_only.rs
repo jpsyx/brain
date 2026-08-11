@@ -58,3 +58,28 @@ pub(super) fn bootstrap(
         store.clone(),
     )?))
 }
+
+/// A read-only context for a registered workspace this command did not select.
+///
+/// Machine-wide inventories report on every registered workspace, not just the
+/// selected one, so they need a context per record. `None` means that record is
+/// unreadable on this machine; a half-configured peer must not take the whole
+/// inventory down with it.
+#[must_use]
+pub(crate) fn peer_context(
+    name: &super::WorkspaceName,
+    record: &super::WorkspaceRecord,
+) -> Option<CommandContext> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
+    let current_dir = std::env::current_dir().ok()?;
+    let workspace = WorkspaceContext::new(
+        &home,
+        record.workspace_id,
+        name.clone(),
+        &record.root,
+        record.local_user_id.clone(),
+        &current_dir,
+    )
+    .ok()?;
+    CommandContext::new_read_only(Arc::new(workspace), RegistryStore::real()).ok()
+}

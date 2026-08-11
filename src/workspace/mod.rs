@@ -27,6 +27,7 @@ pub(crate) use initialize::{initialize_if_empty, is_empty_workspace};
 pub use manifest::{MANIFEST_SCHEMA_VERSION, ManifestError, WorkspaceManifest};
 pub use name::{WorkspaceName, WorkspaceNameError};
 pub use paths::WorkspacePaths;
+pub(crate) use read_only::peer_context;
 pub use readiness::{
     InteractionMode, ReadinessAction, ReadinessError, ReadinessField, readiness_action,
     readiness_action_with_users,

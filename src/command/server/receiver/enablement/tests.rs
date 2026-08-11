@@ -119,7 +119,7 @@ fn cli_start_stop_and_startup_flag_drive_exact_persistence_and_refresh() {
         let Some(crate::cli::Cmd::Receiver(args)) = cli.command else {
             panic!("receiver command");
         };
-        super::super::run_receiver_with_refresher(&args, &context, &refresher).unwrap();
+        super::super::run_receiver_with_refresher(&args, &context, true, &refresher).unwrap();
         let saved = RegistryStore::load_from(store.path()).unwrap();
         assert_eq!(saved.workspaces[&family_name].receiver_enabled, expected);
         assert!(!saved.workspaces[&personal_name].receiver_enabled);

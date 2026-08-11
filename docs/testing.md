@@ -501,7 +501,9 @@ first move is a failing test that reproduces it, *then* the fix.
   injects an extra cross-routed job into a copy of the history and proves its
   exact-route assertion rejects that mutation. It contains no fixed sleep.
 - **Literal read-only status.** `tests/status_read_only.rs` runs the compiled
-  `brain server status`, selected `brain receiver status`, `brain sync status`,
+  `brain server status`, selected `brain receiver status`, bare
+  `brain receiver`, `brain receiver email` / `brain receiver phone`,
+  `brain sync status`,
   `brain workspace list`, and `brain tasks doctor` commands. It
   snapshots every file type, Unix mode, regular-file byte sequence and SHA-256,
   symlink target, and recursively traversed referent before and after. Referent

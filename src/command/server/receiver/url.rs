@@ -17,7 +17,7 @@ use crate::workspace::CommandContext;
 const PUBLIC_URL_VAR: &str = "brain_receiver_public_url";
 
 /// Every channel a provider portal can be pointed at.
-const ALL_CHANNELS: [Channel; 2] = [Channel::Sms, Channel::Email];
+pub(super) const ALL_CHANNELS: [Channel; 2] = [Channel::Sms, Channel::Email];
 
 /// Which channels a request names; no flag means every channel. Pure.
 #[must_use]
@@ -106,8 +106,8 @@ pub(crate) fn missing_public_url(workspace: &str) -> String {
     )
 }
 
-/// This machine's public base URL for the selected workspace, if set.
-fn public_base_url(context: &CommandContext) -> Option<String> {
+/// This machine's public base URL for a workspace, if set.
+pub(super) fn public_base_url(context: &CommandContext) -> Option<String> {
     crate::env::get(context, PUBLIC_URL_VAR).and_then(|value| {
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_owned())

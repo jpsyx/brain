@@ -82,7 +82,7 @@ pub enum Cmd {
     /// Inspect the TUI-lifetime shared HTTP server (`status`, `logs`).
     Server(ServerArgs),
 
-    /// Configure and enable receiver ingress for the selected workspace.
+    /// Report every workspace's receiver details, or configure and enable one.
     #[command(name = "receiver")]
     Receiver(ReceiverArgs),
 

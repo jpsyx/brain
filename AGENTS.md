@@ -208,9 +208,10 @@ users in `skills/`.)
 - **Keep clippy clean.** `pedantic` + `nursery` are on at `warn`; don't
   add new warnings.
 - **The binary's stdout is only intentional machine-readable/plain CLI output:**
-  `config/env/version`, `workspace list`, explicit plain-task output, help, and
-  non-TUI logs mirrored by `--verbose`. Clap errors and diagnostics go to
-  stderr. The TUI renders to `/dev/tty`. Never `println!` diagnostics from
+  `config/env/version`, `workspace list`, the `receiver` details listing and the
+  `receiver email` / `receiver phone` addresses, explicit plain-task output,
+  help, and non-TUI logs mirrored by `--verbose`. Clap errors and diagnostics go
+  to stderr. The TUI renders to `/dev/tty`. Never `println!` diagnostics from
   other paths.
 - **Don't add dependencies casually.** The set is small on purpose. If you
   need one, justify it in `docs/architecture.md`.

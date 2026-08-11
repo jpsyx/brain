@@ -3526,3 +3526,41 @@ with no `else`. An empty list is the worst outcome this channel has: the user
 gets nothing, which is indistinguishable from the agent never finishing, and
 nothing in the log says why. `App::send_email_reply` is now the only path, and
 it logs the drop with the two configuration fixes that resolve it.
+
+## The receiver's own address is not a secret it should hide from its owner
+
+Requirement status deliberately reports provider values as present or absent
+and never prints them, and that rule is right for a credential. It was also
+being applied to `twilio_from_number` and `resend_from_email`, which are not
+credentials: they are the number and the address the receiver *publishes*, the
+ones a person has to type into their phone or their mail client to reach it.
+Answering "is it set" and refusing to answer "what is it" left the owner of the
+workspace re-reading `brain env get` for a value brain already knew.
+
+`brain receiver email` and `brain receiver phone` print exactly that value,
+bare and unstyled on stdout, because the point of naming a channel is to pipe
+the answer into something else. A missing address is an error that names the
+variable and both ways to set it, mirroring `receiver url`'s missing-origin
+message rather than printing an empty line. The three real secrets
+(`twilio_auth_token`, `resend_api_key`, `resend_webhook_signing_secret`) are
+still never printed by any of these commands, and an integration test asserts
+it.
+
+## Bare `brain receiver` is machine-wide because receiver configuration is
+
+Every other receiver subcommand acts on the selected workspace, which is
+correct for a mutation: enabling ingress for the wrong workspace is a real
+mistake. But one machine hosts several workspaces, each with its own providers,
+public URL, and ingress UUID, and the question the bare command answers — what
+is my receiver set up as — is almost never about exactly one of them. So bare
+`brain receiver` reports every registered workspace and `-w` narrows it, the
+same shape `brain workspace list` already uses, down to sharing its
+`workspace::peer_context` helper for building a read-only context per record.
+
+That sharing carries the failure rule with it. A half-configured peer must not
+take the inventory down: an unreadable record reports `unavailable` with its
+repair command and the listing continues. The liveness probe follows the same
+principle in the other direction. When the shared process cannot be asked, the
+block says `live state unavailable` instead of printing `Server not running`,
+because inventing a fact about a process nobody reached is worse than admitting
+the gap — the user would go looking for a stopped server that is running fine.

@@ -2,8 +2,10 @@
 
 use anyhow::Result;
 
+mod details;
 mod enablement;
 mod hooks;
+mod identity;
 mod setup;
 mod url;
 
@@ -21,10 +23,12 @@ pub(crate) fn refresh_agent_hooks(root: &std::path::Path) -> Result<()> {
 pub fn run_receiver(
     args: &crate::cli::ReceiverArgs,
     context: &crate::workspace::CommandContext,
+    explicit_workspace: bool,
 ) -> Result<()> {
     run_receiver_with_refresher(
         args,
         context,
+        explicit_workspace,
         &crate::server::control::ServerClient::default(),
     )
 }
@@ -32,10 +36,14 @@ pub fn run_receiver(
 pub(crate) fn run_receiver_with_refresher(
     args: &crate::cli::ReceiverArgs,
     context: &crate::workspace::CommandContext,
+    explicit_workspace: bool,
     refresher: &dyn ReceiverIntentRefresher,
 ) -> Result<()> {
     use crate::cli::ReceiverServerAction;
-    match &args.action {
+    let Some(action) = &args.action else {
+        return details::run(context, explicit_workspace);
+    };
+    match action {
         ReceiverServerAction::Setup(args) => {
             run_configuration_command(context.workspace.id(), refresher, || {
                 setup::run(args, context)
@@ -66,6 +74,12 @@ pub(crate) fn run_receiver_with_refresher(
         }
         ReceiverServerAction::Status => print_receiver_status(context),
         ReceiverServerAction::Url(args) => url::run(args, context),
+        ReceiverServerAction::Email => {
+            identity::run(context, crate::server::receiver::Channel::Email)
+        }
+        ReceiverServerAction::Phone => {
+            identity::run(context, crate::server::receiver::Channel::Sms)
+        }
         ReceiverServerAction::Logs => crate::server::lifecycle::logs(),
     }
 }

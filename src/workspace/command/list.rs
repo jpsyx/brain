@@ -64,32 +64,10 @@ fn peer_requirements_block(
     record: &crate::workspace::WorkspaceRecord,
     theme: Theme,
 ) -> String {
-    let Some(context) = peer_context(name, record) else {
+    let Some(context) = crate::workspace::peer_context(name, record) else {
         return unavailable_block(name.as_str(), "workspace needs setup", theme);
     };
     requirements_block(&context, theme)
-}
-
-fn peer_context(
-    name: &crate::workspace::WorkspaceName,
-    record: &crate::workspace::WorkspaceRecord,
-) -> Option<crate::workspace::CommandContext> {
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
-    let current_dir = std::env::current_dir().ok()?;
-    let workspace = crate::workspace::WorkspaceContext::new(
-        &home,
-        record.workspace_id,
-        name.clone(),
-        &record.root,
-        record.local_user_id.clone(),
-        &current_dir,
-    )
-    .ok()?;
-    crate::workspace::CommandContext::new_read_only(
-        std::sync::Arc::new(workspace),
-        crate::workspace::RegistryStore::real(),
-    )
-    .ok()
 }
 
 fn unavailable_block(name: &str, reason: &str, theme: Theme) -> String {

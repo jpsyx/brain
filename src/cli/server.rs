@@ -10,8 +10,9 @@ pub struct ServerArgs {
 
 #[derive(Args, Debug)]
 pub struct ReceiverArgs {
+    /// Omit for every registered workspace's receiver details (`-w` narrows to one).
     #[command(subcommand)]
-    pub action: ReceiverServerAction,
+    pub action: Option<ReceiverServerAction>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -27,6 +28,16 @@ pub enum ReceiverServerAction {
     Start,
     /// Show persistent receiver intent and current availability.
     Status,
+    /// Print the email address the selected workspace's receiver answers on.
+    ///
+    /// The bare value on stdout, so a script or an agent can read it without
+    /// parsing a status block. `-w` asks about another workspace.
+    Email,
+    /// Print the phone number the selected workspace's receiver answers on.
+    ///
+    /// The bare value on stdout, so a script or an agent can read it without
+    /// parsing a status block. `-w` asks about another workspace.
+    Phone,
     /// Print the exact webhook URLs to paste into the provider portals.
     ///
     /// Informational only: it reads this machine's public base URL and the
@@ -166,7 +177,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("{arguments:?}: {error}"));
             assert!(
                 matches!(cli.command, Some(Cmd::Receiver(args))
-                    if matches!(args.action, ReceiverServerAction::Url(_))),
+                    if matches!(args.action, Some(ReceiverServerAction::Url(_)))),
                 "{arguments:?}"
             );
         }
@@ -182,8 +193,53 @@ mod tests {
     }
 
     #[test]
+    fn bare_receiver_parses_as_the_details_listing() {
+        let cli = Cli::try_parse_from(["brain", "receiver"]).expect("parse");
+
+        assert!(matches!(cli.command, Some(Cmd::Receiver(args)) if args.action.is_none()));
+    }
+
+    #[test]
+    fn receiver_email_and_phone_parse_bare_and_with_the_workspace_selector() {
+        for (arguments, expected) in [
+            (vec!["brain", "receiver", "email"], "email"),
+            (vec!["brain", "receiver", "phone"], "phone"),
+            (vec!["brain", "receiver", "email", "-w", "family"], "email"),
+            (vec!["brain", "-w", "family", "receiver", "phone"], "phone"),
+        ] {
+            let cli = Cli::try_parse_from(&arguments)
+                .unwrap_or_else(|error| panic!("{arguments:?}: {error}"));
+            let Some(Cmd::Receiver(args)) = cli.command else {
+                panic!("{arguments:?} should route to receiver");
+            };
+            let matched = match expected {
+                "email" => matches!(args.action, Some(ReceiverServerAction::Email)),
+                _ => matches!(args.action, Some(ReceiverServerAction::Phone)),
+            };
+            assert!(matched, "{arguments:?}");
+        }
+    }
+
+    #[test]
+    fn the_details_listing_and_both_addresses_are_read_only_status_invocations() {
+        // Printing configuration must never take the ready-workspace path: these
+        // are exactly the commands a half-configured workspace needs to answer.
+        for arguments in [
+            vec!["brain", "receiver"],
+            vec!["brain", "receiver", "email"],
+            vec!["brain", "receiver", "phone"],
+        ] {
+            let cli = Cli::try_parse_from(&arguments).expect("parse");
+
+            assert!(crate::workspace::is_read_only_status(&cli), "{arguments:?}");
+        }
+    }
+
+    #[test]
     fn receiver_commands_expose_enablement_but_no_manual_lifecycle() {
-        for action in ["setup", "set", "start", "stop", "status", "logs", "url"] {
+        for action in [
+            "setup", "set", "start", "stop", "status", "logs", "url", "email", "phone",
+        ] {
             assert!(
                 Cli::try_parse_from(["brain", "receiver", action]).is_ok(),
                 "receiver {action} should parse"
@@ -212,7 +268,7 @@ mod tests {
     fn receiver_set_allows_interactive_mode() {
         let cli = Cli::try_parse_from(["brain", "receiver", "set"]).expect("parse");
         assert!(matches!(cli.command, Some(Cmd::Receiver(args))
-            if matches!(args.action, ReceiverServerAction::Set { assignment: None })));
+            if matches!(args.action, Some(ReceiverServerAction::Set { assignment: None }))));
     }
 
     #[test]
@@ -243,7 +299,7 @@ mod tests {
         .expect("parse headless setup");
 
         assert!(matches!(cli.command, Some(Cmd::Receiver(args))
-            if matches!(&args.action, ReceiverServerAction::Setup(setup)
+            if matches!(&args.action, Some(ReceiverServerAction::Setup(setup))
                 if setup.phone_allowed == Some(false))));
     }
 }

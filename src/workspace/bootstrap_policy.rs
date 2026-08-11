@@ -164,14 +164,19 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
             ServerAction::Status => Invocation::ServerStatus,
             ServerAction::Logs => Invocation::Server,
         },
-        Some(Cmd::Receiver(args)) => match args.action {
-            // `url` is informational: it reads the public base URL and the
-            // portable ingress and prints, so it stays on the read-only path
-            // and never depends on receiver intent or a live server.
-            crate::cli::ReceiverServerAction::Status | crate::cli::ReceiverServerAction::Url(_) => {
-                Invocation::ReceiverStatus
-            }
-            _ => Invocation::Receiver,
+        Some(Cmd::Receiver(args)) => match &args.action {
+            // These are informational: they read persisted intent, the public
+            // base URL, the portable ingress, and the configured addresses and
+            // print. They stay on the read-only path so a workspace that still
+            // needs setup can answer the very questions that describe it.
+            None
+            | Some(
+                crate::cli::ReceiverServerAction::Status
+                | crate::cli::ReceiverServerAction::Url(_)
+                | crate::cli::ReceiverServerAction::Email
+                | crate::cli::ReceiverServerAction::Phone,
+            ) => Invocation::ReceiverStatus,
+            Some(_) => Invocation::Receiver,
         },
         Some(Cmd::Habits(_)) => Invocation::Habits,
         Some(Cmd::Reindex(_)) => Invocation::Reindex,

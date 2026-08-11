@@ -177,33 +177,8 @@ pub(crate) fn read_receiver_status(
 }
 
 fn print_receiver_status_snapshot(status: ReceiverStatus) {
-    let theme = crate::theme::Theme::active();
     println!(
-        "{}  {}",
-        theme.muted("Receiver"),
-        theme.value(if status.enabled {
-            "enabled"
-        } else {
-            "disabled"
-        })
-    );
-    println!(
-        "{}       {}",
-        theme.muted("TUI"),
-        theme.value(if status.tui_live { "live" } else { "not live" })
-    );
-    println!(
-        "{}    {}",
-        theme.muted("Server"),
-        theme.value(if status.server_running {
-            "running"
-        } else {
-            "not running"
-        })
-    );
-    println!(
-        "{} {}",
-        theme.muted("Accepting"),
-        theme.value(if status.accepting { "yes" } else { "no" })
+        "{}",
+        super::details::status_rows(status, crate::theme::Theme::active())
     );
 }

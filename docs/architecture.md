@@ -48,7 +48,8 @@ user types `brain …`
 
 the binary:
   ├─ ordinary run → writes a timestamped `/tmp` log; `--verbose` mirrors logs to stdout
-  ├─ server/receiver status, receiver url → literal read-only probe, no run log or repair
+  ├─ server/receiver status, receiver url, receiver details/email/phone → literal
+  │    read-only probe, no run log or repair
   ├─ help / version → print and exit without opening the TUI
   ├─ tasks complete / doctor / --no-tui → mutation, health check, or plain output
   ├─ tasks search → opens the persistent TUI with a custom task search
@@ -62,6 +63,7 @@ Help and version exit without opening the TUI. After these explicit exits,
 bare `brain` and interactive task routes open the persistent TUI.
 
 The intentional stdout families are `config/env/version`, `workspace list`,
+`receiver` details and `receiver email` / `receiver phone` addresses,
 explicit plain-task output, and help. `--verbose` mirrors logs to stdout for
 non-TUI commands. Clap errors and diagnostics go to stderr. The TUI renders to
 `/dev/tty`; TUI runs keep stdout quiet and expose the log through the tasks
@@ -78,12 +80,14 @@ argv
  └─→ Cli::parse                          (cli/)
       ├─→ help / -v / --version / Cmd::Version
       │    └─→ print and exit before workspace bootstrap or command gates
-      ├─→ status classifier              (server/receiver status skips write boundaries)
+      ├─→ status classifier              (server/receiver status and the receiver
+      │                                   details/address routes skip write boundaries)
       ├─→ logging::init                  (other commands: `/tmp` log; optional stdout mirror)
       ├─→ workspace::bootstrap            (explicit per-invocation policy)
       │    ├─ context-free/internal → no registry, root, or prompt
       │    ├─ create/attach/remove/repair → registry capability only
-      │    ├─ receiver status/url → read-only selected context, no migration,
+      │    ├─ receiver status/url/details/email/phone → read-only selected context,
+      │    │    no migration,
       │    │    readiness repair, users transaction recovery, or skills render
       │    └─ ordinary command → migrate only without a valid v2 registry,
       │         select once, validate readiness, repair interactively,
@@ -198,7 +202,13 @@ tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
 existing handlers. `command/server/` further separates receiver setup, HTTP
 server lifecycle, habits dispatch, and machine-wide process cleanup. Receiver command ownership is reflected
 on disk: `receiver/mod.rs` owns dispatch, `receiver/setup/` owns selected-record
-provider planning plus portable-user mapping. Its `setup/transaction.rs` owns
+provider planning plus portable-user mapping, `receiver/url.rs` owns the webhook
+URLs, `receiver/identity.rs` owns the configured per-channel address behind
+`receiver email` / `receiver phone`, and `receiver/details.rs` owns the bare
+`brain receiver` listing (including the shared intent-and-liveness rows
+`receiver status` prints). The listing builds a read-only context per registered
+record through `workspace::peer_context`, the same helper `workspace list` uses,
+so one unreadable peer degrades to a themed note instead of failing the run. Its `setup/transaction.rs` owns
 bounded rollback orchestration across the selected machine record, portable
 users, and hook artifacts; `setup/transaction/{lock,snapshot}.rs` own the
 advisory lock and exact filesystem restoration mechanics. One workspace-local advisory lock spans snapshot, every write,
@@ -1403,8 +1413,9 @@ rebuild:
   Resources → Archive). The picker's `sort_by` and `build_display_rows`
   rely on the derived `Ord`.
 - **The binary's stdout is only intentional short-lived CLI output:**
-  `config/env/version`, `workspace list`, explicit plain-task output, help, and
-  non-TUI logs mirrored by `--verbose`. Clap errors and diagnostics go to
+  `config/env/version`, `workspace list`, the `receiver` details listing and the
+  `receiver email` / `receiver phone` addresses, explicit plain-task output,
+  help, and non-TUI logs mirrored by `--verbose`. Clap errors and diagnostics go to
   stderr. The TUI renders to `/dev/tty`.
 - **Every `Choice` has exactly one palette row** (guarded by a test on
   `items(side, …)`) so the menu can't silently drop an action.

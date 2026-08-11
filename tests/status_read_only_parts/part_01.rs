@@ -50,6 +50,51 @@ fn receiver_status_reads_four_fields_without_mutating_workspace_or_machine_state
 }
 
 #[test]
+fn the_receiver_details_listing_and_both_addresses_write_nothing() {
+    let home = tempfile::tempdir().expect("temporary home");
+    seed_ready_workspace(home.path());
+    set_workspace_env(home.path(), "resend_from_email", "brain@example.test");
+    set_workspace_env(home.path(), "twilio_from_number", "+12125550100");
+    let before = snapshot(home.path());
+    let before_logs = run_log_snapshot();
+
+    for (arguments, expected) in [
+        (vec!["-b", "brain", "receiver"], "Receiver details  brain"),
+        (
+            vec!["-b", "brain", "receiver", "email"],
+            "brain@example.test",
+        ),
+        (vec!["-b", "brain", "receiver", "phone"], "+12125550100"),
+    ] {
+        let (pid, output) = run(home.path(), &arguments);
+
+        assert!(output.status.success(), "{arguments:?}: {output:?}");
+        assert_eq!(snapshot(home.path()), before, "{arguments:?} wrote state");
+        assert_eq!(
+            pid_run_logs(pid, &run_log_snapshot()),
+            pid_run_logs(pid, &before_logs),
+            "{arguments:?} created or modified a PID run log"
+        );
+        let stdout = String::from_utf8(output.stdout).expect("UTF-8 stdout");
+        assert!(stdout.contains(expected), "{arguments:?}:\n{stdout}");
+        assert!(!home.path().join(".cache/brain/server").exists());
+    }
+}
+
+fn set_workspace_env(home: &Path, name: &str, value: &str) {
+    let registry_path = home.join(".config/brain/env.json");
+    let mut registry: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&registry_path).expect("registry bytes"))
+            .expect("registry JSON");
+    registry["workspaces"]["brain"]["env"][name] = serde_json::json!(value);
+    std::fs::write(
+        &registry_path,
+        serde_json::to_vec_pretty(&registry).expect("registry JSON"),
+    )
+    .expect("seed workspace env");
+}
+
+#[test]
 fn sync_status_reports_partial_configuration_without_writing_any_state() {
     let home = tempfile::tempdir().expect("temporary home");
     seed_ready_workspace(home.path());

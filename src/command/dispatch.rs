@@ -107,7 +107,7 @@ pub fn run(
     }
     if let Some(Cmd::Receiver(args)) = &cli.command {
         crate::logging::log("dispatch receiver");
-        return super::server::run_receiver(args, context);
+        return super::server::run_receiver(args, context, cli.workspace_selector.is_some());
     }
     if let Some(Cmd::Habits(args)) = &cli.command {
         match &args.action {
