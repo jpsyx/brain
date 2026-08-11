@@ -66,7 +66,13 @@ pub fn is_watch_relevant(path: &Path) -> bool {
     for comp in path.components() {
         if let Component::Normal(os) = comp {
             let s = os.to_string_lossy();
-            if s == ".git" || s == ".cache" || s == ".DS_Store" {
+            if s == ".git" || s == ".cache" || s == ".DS_Store" || s == "node_modules" {
+                return false;
+            }
+            if matches!(
+                s.as_ref(),
+                "package.json" | "package-lock.json" | "bun.lock"
+            ) {
                 return false;
             }
             if s.contains("(conflict ") && s.contains(')') {
@@ -273,6 +279,23 @@ mod tests {
         assert!(!is_watch_relevant(Path::new(
             "notes/idea.md.__brainconflict__"
         )));
+    }
+
+    /// A dependency install is thousands of writes the sync now excludes, so
+    /// triggering on them means a debounced sync that transfers nothing, once
+    /// per agent launch. It must mirror the exclude set, not lag behind it.
+    #[test]
+    fn a_dependency_tree_never_triggers_a_sync() {
+        assert!(!is_watch_relevant(Path::new(
+            ".opencode/node_modules/zod/index.js"
+        )));
+        assert!(!is_watch_relevant(Path::new(
+            "projects/thing/node_modules/x/y.js"
+        )));
+        assert!(!is_watch_relevant(Path::new(".opencode/package-lock.json")));
+        assert!(!is_watch_relevant(Path::new(".opencode/bun.lock")));
+        // Brain's own bridge is content, so it still triggers.
+        assert!(is_watch_relevant(Path::new(".opencode/plugins/brain.js")));
     }
 
     #[test]

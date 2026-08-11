@@ -438,6 +438,11 @@ delegated task values.
   incomplete rather than guessed as unrestricted. The **task schema** row
   reports whether the workspace declares `tasks/SCHEMA.json`; a workspace
   without it cannot sync, so it renders `incomplete` instead of `ready`.
+- Dependency trees an agent frontend installs inside a workspace
+  (`node_modules/**` at any depth, plus `.opencode/{package.json,package-lock.json,bun.lock,.gitignore}`)
+  are excluded from sync and never trigger the change-watcher. Every machine
+  rebuilds them for itself. Brain's `.opencode/plugins/brain.js` bridge is still
+  synced.
 - A sync whose remote is missing `tasks/SCHEMA.json` **publishes it** rather than
   refusing, provided the remote's task CSVs hold no legacy rows. Remote CSVs that
   genuinely predate the current schema still refuse, naming

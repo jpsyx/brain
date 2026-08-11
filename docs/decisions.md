@@ -2980,6 +2980,43 @@ models a missing object as an error hides exactly this class of bug, which is
 why the identity test doubles now return exit 0 with empty output for a missing
 object, matching B2.
 
+## An agent frontend's dependency tree is not workspace content
+
+Running the brain panel on OpenCode made it install `@opencode-ai/plugin`'s
+dependencies into the workspace it was running in: 3,649 files and 61 MiB under
+`.opencode/node_modules`. Correct behavior for OpenCode, and nothing in the
+bisync exclude set covered it, so the change-watcher saw thousands of new files
+and pushed them. `family-brain` went to 3,286 objects of which **3,262 were
+`node_modules`** (24 objects of actual content); `pablo-brain` reached 6,782
+objects with **3,435 `node_modules`**, over half its object count.
+
+That last figure recontextualizes the sync-performance work in the PM log: the
+"6,700-object remote" whose listing cost motivated `--fast-list` was more than
+half agent dependencies.
+
+OpenCode states the intent itself — the `.opencode/.gitignore` it writes lists
+`node_modules`, `package.json`, `package-lock.json`, `bun.lock`, and
+`.gitignore` — but rclone does not read `.gitignore`. Those paths are now
+excluded, with `node_modules/**` left unanchored so it matches at any depth,
+whatever tooling a workspace grows. Brain's own `.opencode/plugins/brain.js`
+bridge stays synced: that is content every machine needs, and a test pins the
+distinction.
+
+**The watcher had to learn the same set.** It mirrors the exclude list by
+design, and mirroring it *partially* is its own bug: excluded writes that still
+trigger produce a debounced sync that transfers nothing, once per agent launch.
+
+The general rule this shares with the hook-script entry above: **anything Brain
+or its tooling generates inside a workspace root is a candidate for exclusion,
+because a workspace root is a sync surface, not a scratch directory.**
+
+A deeper fix exists and was deliberately not taken: `LifecycleTarget::Home`
+already exists, so the bridge could be installed into OpenCode's global plugin
+directory instead, keeping the dependency tree out of every workspace entirely.
+That changes a registered frontend's integration contract and depends on
+OpenCode's global-plugin behavior, so it belongs in its own change with its own
+verification rather than riding along with an exclude fix.
+
 ## The task store must exist before the first sync, not after it
 
 Root initialization seeded the PARA skeleton and both task CSVs *after* the

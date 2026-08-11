@@ -38,7 +38,17 @@ pub const CONFLICT_MARKER: &str = "__brainconflict__";
 /// (`tasks/.tasks_next_id`, `tasks/.habits_next_id`) reconciled out-of-band via
 /// the max-merge in `counters` (bisync's newer-wins would regress a counter and
 /// cause id collisions), not by bisync.
-const EXCLUDES: [&str; 12] = [
+///
+/// Also every dependency tree (`node_modules/**`, at any depth) and the
+/// machine-local package files an agent frontend drops beside its plugin.
+/// OpenCode installs `@opencode-ai/plugin`'s dependencies into whatever
+/// workspace it runs in, which is correct for OpenCode and pure waste to
+/// transfer: it put 3.2k objects and 45 MiB on one remote and over half the
+/// object count on another, and every machine rebuilds them for itself anyway.
+/// OpenCode's own `.opencode/.gitignore` names exactly this set. Brain's
+/// `.opencode/plugins/brain.js` bridge is *not* excluded — that is content every
+/// machine needs.
+const EXCLUDES: [&str; 17] = [
     ".config/workspace.json",
     ".config/workspace-claims/**",
     ".git/**",
@@ -51,6 +61,13 @@ const EXCLUDES: [&str; 12] = [
     "tasks/SCHEMA.json",
     "tasks/.tasks_next_id",
     "tasks/.habits_next_id",
+    // Unanchored, so it matches at any depth: whatever tooling a workspace grows,
+    // a dependency tree is rebuilt per machine and never worth transferring.
+    "node_modules/**",
+    ".opencode/package.json",
+    ".opencode/package-lock.json",
+    ".opencode/bun.lock",
+    ".opencode/.gitignore",
 ];
 
 /// Build the full argv for `rclone bisync <local> <remote>` for this direction.
@@ -263,6 +280,44 @@ mod tests {
             assert!(
                 argv.windows(2)
                     .any(|pair| pair[0] == "--exclude" && pair[1] == "tasks/SCHEMA.json"),
+                "{argv:?}"
+            );
+        }
+    }
+
+    /// OpenCode installs its plugin's dependencies into the workspace it runs
+    /// in, which put 3.2k files and 45 MiB of `node_modules` on one remote and
+    /// over half the object count on another. They are machine-local build
+    /// artifacts — OpenCode's own `.opencode/.gitignore` says exactly that — and
+    /// every machine rebuilds them for itself.
+    #[test]
+    fn excludes_machine_local_agent_build_artifacts() {
+        for argv in [args(Direction::Both), push_args(&cfg(), "/root", "BRAIN:b")] {
+            for pattern in [
+                "node_modules/**",
+                ".opencode/package.json",
+                ".opencode/package-lock.json",
+                ".opencode/bun.lock",
+                ".opencode/.gitignore",
+            ] {
+                assert!(
+                    argv.windows(2)
+                        .any(|pair| pair[0] == "--exclude" && pair[1] == pattern),
+                    "missing exclude {pattern} in {argv:?}"
+                );
+            }
+        }
+    }
+
+    /// The bridge Brain installs is content every machine needs, not an artifact.
+    #[test]
+    fn the_brain_opencode_plugin_itself_is_never_excluded() {
+        for argv in [args(Direction::Both), push_args(&cfg(), "/root", "BRAIN:b")] {
+            assert!(
+                !argv
+                    .windows(2)
+                    .any(|pair| pair[0] == "--exclude"
+                        && pair[1].contains("plugins")),
                 "{argv:?}"
             );
         }
