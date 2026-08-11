@@ -1492,22 +1492,24 @@ startup; changing personalization takes effect on the next launch.
 
 ## Why bundled skills are embedded in the binary (`include_dir`)
 
-brain is meant to be cloned and used by anyone, and its skills must work in *any*
-agent session, not just inside the repo. Embedding the `skills/` dir into the
+brain is meant to be cloned and used by anyone, and its skills must be available
+to every supported agent frontend opened in the selected brain root. Embedding
+the `skills/` dir into the
 binary with `include_dir` makes it self-contained: `brain skills sync` writes the
 skills out wherever they're needed, so a user who `cargo install`s brain (or
 moves the binary) still gets them. `include_str!` can't carry a skill's multiple
 files (SKILL.md + scripts), which is why the one dependency is justified.
 
-## Why the skill install is a two-hop link (registry → built)
+## Why bundled skills are project-scoped
 
-`brain skills sync` writes a built copy, links `~/.agents/skills/<name>` at it,
-then links each frontend's skills dir at that registry entry. This mirrors the
-fan-out shape a dotfiles manager already uses for its own skills, so brain-owned
-skills sit in the same shared registry every frontend reads — and so brain and a
-dotfiles manager can coexist on one machine once the dotfiles manager stops
-pruning brain-owned entries (the B4 bridge). The link *targets* are a pure
-function (`layout::link_ops`), unit-tested; the FS shell (`install`) stays thin.
+`brain skills sync` writes rendered skills directly to
+`<brain-root>/.agents/skills/<name>`, then links each project frontend's
+`.claude/skills`, `.codex/skills`, and `.opencode/skills` entry to that copy.
+Brain no longer writes `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`,
+or any other machine-global frontend registry. This keeps skills aligned with
+the selected workspace and prevents one brain workspace from changing another
+project's agent behavior. The link targets are a pure function
+(`layout::link_ops`), unit-tested; the filesystem shell (`install`) stays thin.
 
 ## Why skill auto-sync had a rollout gate (historical; default now on)
 
@@ -1517,8 +1519,9 @@ ready. The B4 cutover completed that ownership transition and activated the
 same seam.
 
 `skills_auto_sync` now defaults to `true`: config/personalize mutations and the
-first ready-workspace invocation after a version change render the live
-registry. Setting it `false` leaves only explicit `brain skills sync`.
+first ready-workspace invocation after a version change render the selected
+workspace's `.agents/skills` directory. Setting it `false` leaves only explicit
+`brain skills sync`.
 
 ## Why a version-stamped auto-resync (a brain update must ship skill changes)
 
@@ -1627,11 +1630,10 @@ Keeping personal tokens out of a bundled skill is a **review step, not an
 automated test** — see "Why there is no automated personal-data guard test"
 below.
 
-Cross-skill script calls (todo's `find_chronic_ignored.py`, …)
-standardized on the install-registry path `~/.agents/skills/todo/scripts/<name>.py`
-rather than the old `~/global-skills/...` (dotfiles-manager-owned) or
-`~/.claude/skills/...` (one-frontend) forms: that path is frontend-agnostic and is exactly where
-`brain skills sync` installs the `todo` skill, so it resolves for any cloner.
+Cross-skill script calls (todo's `find_chronic_ignored.py`, …) use the selected
+workspace path `$BRAIN_ROOT/.agents/skills/todo/scripts/<name>.py`. This keeps
+the bundled skills frontend-agnostic while ensuring each brain root carries its
+own complete skill set.
 
 ## Why second-brain split into a lean core + a `/contacts` skill + a `zotero-sync` plugin
 
@@ -1718,21 +1720,21 @@ non-obvious; the function name + these docs carry the *what*. This repo is
 not under git, so there's no PR review, no `.difit/` log, and no changelog
 file — `docs/` is the durable record.
 
-## B4 — the dotfiles-manager bridge + live cutover (ownership boundary, prune-safety, rollback)
+## B4 — historical shared-registry cutover (superseded)
 
-The B1–B3 pipeline was proven only in a sandbox; B4 is the one phase allowed to
-touch the live agent registry. The cutover flips the six migrated skills
+The B1–B3 pipeline was proven only in a sandbox; B4 was the phase that was
+allowed to touch the live agent registry. The cutover flipped the six migrated skills
 (`article-summarizer`, `brain-knowledge-capture`, `contacts`, `second-brain`,
 `todo`, `triage`) plus two plugins (`zotero-sync`, `linear-sync`) from
 dotfiles-manager-owned to brain-owned, and makes the dotfiles manager delegate to
 `brain skills sync` without ever pruning what brain owns.
 
-This section describes the general shape of the cutover for anyone whose skills
+This section describes the historical shape of the cutover for anyone whose skills
 are currently owned by a symlink-based dotfiles manager. Brain itself knows
 nothing about any such tool; all the coordination is on the dotfiles-manager
 side.
 
-**The ownership boundary is the link target, not a manifest file.** A registry
+**Historical ownership boundary.** A registry
 or frontend skill link is *brain-owned* iff it (transitively) resolves under
 brain's built dir (`$XDG_DATA_HOME/brain/skills` or `~/.local/share/brain/skills`).
 Dotfiles-manager-owned links resolve into its own sources (typically a

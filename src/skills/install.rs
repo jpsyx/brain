@@ -1,7 +1,7 @@
 //! Applying a render to disk.
 //!
 //! Collects the bundled skills plus the user's plugins, injects each skill's
-//! extension, writes the built copies, and creates the registry + frontend
+//! extension, writes the workspace-local copies, and creates frontend
 //! symlinks. Link *targets* come from the pure `layout::link_ops`; this module
 //! is the thin FS shell.
 
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::layout::{Layout, Link, WorkspaceCapabilityLayout, link_ops};
+use super::layout::{link_ops, Layout, Link, WorkspaceCapabilityLayout};
 use super::model::Skill;
 use super::{embed, extension, plugin, render};
 
@@ -196,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_writes_built_skill_and_registry_and_frontend_links() {
+    fn sync_writes_workspace_skill_and_frontend_links() {
         let root = sandbox();
         let layout = Layout::under_root(&root);
         let report = sync(&layout, &Sources::default()).unwrap();
@@ -204,20 +204,16 @@ mod tests {
 
         let built = layout.built_dir.join("article-summarizer").join("SKILL.md");
         assert!(built.is_file());
-        assert!(
-            fs::read_to_string(&built)
-                .unwrap()
-                .contains("article-summarizer")
-        );
+        assert!(fs::read_to_string(&built)
+            .unwrap()
+            .contains("article-summarizer"));
 
-        let registry = layout.agents_dir.join("article-summarizer");
-        assert_eq!(
-            fs::read_link(&registry).unwrap(),
-            layout.built_dir.join("article-summarizer")
-        );
         for f in &layout.frontends {
             let fe = f.join("article-summarizer");
-            assert_eq!(fs::read_link(&fe).unwrap(), registry);
+            assert_eq!(
+                fs::read_link(&fe).unwrap(),
+                layout.agents_dir.join("article-summarizer")
+            );
             assert!(fe.join("SKILL.md").is_file());
         }
         let _ = fs::remove_dir_all(&root);
@@ -238,13 +234,11 @@ mod tests {
         };
         let report = sync(&layout, &sources).unwrap();
         assert!(report.installed.iter().any(|n| n == "my-plugin"));
-        assert!(
-            layout
-                .agents_dir
-                .join("my-plugin")
-                .join("SKILL.md")
-                .is_file()
-        );
+        assert!(layout
+            .agents_dir
+            .join("my-plugin")
+            .join("SKILL.md")
+            .is_file());
         let _ = fs::remove_dir_all(&root);
     }
 

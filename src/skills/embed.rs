@@ -1,7 +1,7 @@
 //! The bundled skills, embedded into the binary from the repo's `skills/` dir
 //! (SKILL.md + any scripts), so a public cloner needs no repo checkout.
 
-use include_dir::{Dir, File, include_dir};
+use include_dir::{include_dir, Dir, File};
 
 use super::model::{Skill, SkillFile};
 

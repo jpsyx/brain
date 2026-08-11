@@ -12,7 +12,7 @@ looking people up and keeping that book clean. It is a sibling of
 contact lookups) and shares its brain-mutation conventions.
 
 Throughout, `<brain>` is the user's brain root (`brain config get root`,
-default `~/brain`) and `~/.agents/skills/contacts/scripts/contacts.py` is
+default `~/brain`) and `<brain-root>/.agents/skills/contacts/scripts/contacts.py` is
 this skill's CLI as installed by `brain skills sync`.
 
 > **Non-negotiables for every contacts request (read before answering):**
@@ -44,7 +44,7 @@ The contacts book lives at `<brain>/resources/contacts/`:
 All mutations go through the **deterministic CLI**, never by hand:
 
 ```
-python3 ~/.agents/skills/contacts/scripts/contacts.py <cmd>
+python3 "$BRAIN_ROOT/.agents/skills/contacts/scripts/contacts.py" <cmd>
 ```
 
 Columns: `id, name, job, company, email, phone, preferred_comms,
@@ -173,7 +173,7 @@ response with the
 [cleanup script](../second-brain/SKILL.md#end-of-session-clean-up-tool-byproducts):
 
 ```
-bash ~/.agents/skills/second-brain/cleanup.sh
+bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"
 ```
 
 No `brain reindex` run is needed — the contacts CSV is a standalone book, not

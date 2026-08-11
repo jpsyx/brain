@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
 use super::model::{Skill, SkillFile};
 
@@ -227,16 +227,14 @@ mod tests {
         let found = discover(&root);
         let mine = found.iter().find(|s| s.name == "my-plugin").unwrap();
         assert_eq!(mine.files.len(), 2);
-        assert!(
-            mine.files
-                .iter()
-                .any(|f| f.rel_path == Path::new("SKILL.md"))
-        );
-        assert!(
-            mine.files
-                .iter()
-                .any(|f| f.rel_path == Path::new("scripts/go.py"))
-        );
+        assert!(mine
+            .files
+            .iter()
+            .any(|f| f.rel_path == Path::new("SKILL.md")));
+        assert!(mine
+            .files
+            .iter()
+            .any(|f| f.rel_path == Path::new("scripts/go.py")));
         let _ = fs::remove_dir_all(&root);
     }
 

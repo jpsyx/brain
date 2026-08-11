@@ -93,10 +93,10 @@ pub struct SkillsArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum SkillsAction {
-    /// Render + install the bundled skills into the agent registry and frontends.
+    /// Render + install bundled skills into the selected workspace and frontends.
     Sync {
         /// Install under this sandbox dir instead of the real per-user layout
-        /// (for testing; never touches `~/.agents` or the frontend skill dirs).
+        /// (for testing; installs below this workspace instead of the selected one).
         #[arg(long)]
         root: Option<std::path::PathBuf>,
     },

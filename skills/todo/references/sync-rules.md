@@ -10,7 +10,7 @@ Run via:
 - `/todo reindex` — applies all rules to tasks.csv + habits.csv.
 - `/second-brain reindex` — same, plus projects + zotero. See
   `../second-brain/SKILL.md`.
-- `python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py [--fix]`
+- `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/apply_sync_rules.py" [--fix]`
   — dry-run by default; pass `--fix` to write corrections.
 
 ## Derived (computed on read; not stored)
