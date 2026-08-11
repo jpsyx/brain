@@ -112,6 +112,21 @@ fn one_shared_process_routes_the_same_sender_to_two_exact_workspace_sockets() {
 }
 
 #[test]
+fn the_addressed_workspaces_own_credential_is_the_one_that_must_verify() {
+    // Both workspaces answer on the same `/sms` URL, so a request that names
+    // family's number is checked against family's token. Holding personal's
+    // token buys nothing, and nothing is enqueued anywhere.
+    let mut fixture = DualWorkspaceReceiverFixture::start();
+
+    let crossed = fixture.post_family_signed_with_personal_credentials();
+
+    assert!(crossed.starts_with("HTTP/1.1 401"), "{crossed}");
+    assert!(fixture.family_jobs().is_empty());
+    assert!(fixture.personal_jobs().is_empty());
+    fixture.shutdown();
+}
+
+#[test]
 fn failed_socket_is_discarded_with_one_unavailable_response_and_no_retry() {
     let temp = tempfile::tempdir().unwrap();
     let personal = workspace(&temp, PERSONAL_ID, "personal");

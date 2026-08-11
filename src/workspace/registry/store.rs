@@ -115,7 +115,7 @@ impl RegistryStore {
             .map_err(|error| io_error(RegistryOperation::ReadRegistry, path, None, &error))?;
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|error| json_error(RegistryOperation::ParseRegistry, path, &error))?;
-        let upgraded = super::upgrade::upgrade_v2_to_v3(&value)
+        let upgraded = super::upgrade::upgrade_to_current(&value)
             .ok_or_else(|| Self::load_from(path).expect_err("schema was rejected above"))?;
         serde_json::from_value::<RawMachineRegistry>(upgraded)
             .map_err(|error| json_error(RegistryOperation::ParseRegistry, path, &error))

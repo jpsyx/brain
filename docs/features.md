@@ -309,9 +309,9 @@ before opening the brain panel.
 | `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
 | `brain config set enable_daily_triage_check=false` | Open the TUI without ever showing the daily-triage startup nudge. Portable config, so every machine on the workspace agrees; the palette still toggles it per session. |
 | `brain receiver {setup\|set\|start\|stop\|status\|url\|email\|phone\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, print the provider webhook URLs or configured addresses, or read shared-process logs. No receiver command starts or restarts a process. |
-| `brain receiver` | Report every registered workspace's receiver details: intent, live TUI/server/accepting state, the configured email and phone, the public base URL, and the provider webhook URLs. `-w` narrows it to one workspace. Informational and read-only: an unconfigured value reads `not set` and an unreadable workspace names its repair command rather than failing the whole listing. Provider secrets are never printed. |
-| `brain receiver {email\|phone}` | Print the bare address the selected workspace's receiver answers on (`resend_from_email` / `twilio_from_number`), on stdout with no styling, so a script or an agent can read it without parsing a status block. `-w` picks another workspace. An unset address names the variable and both ways to set it, and exits non-zero. |
-| `brain receiver url [--sms\|--email]` | Print the exact webhook URLs to paste into the Twilio/Resend portals for the selected workspace (`-w` picks another). Informational: it reads this machine's `brain_receiver_public_url` and the workspace's portable ingress UUID, so it works before receiver ingress is ever enabled or running. Both channels by default. |
+| `brain receiver` | Report this machine's one webhook URL per channel (with the public base URL it is built from), then every registered workspace's receiver details: intent, live TUI/server/accepting state, and the configured email and phone — the addresses that route a message to that workspace. `-w` narrows the workspace blocks to one; the URL block is machine-wide either way. Informational and read-only: an unconfigured value reads `not set` and an unreadable workspace names its repair command rather than failing the whole listing. Provider secrets are never printed. |
+| `brain receiver {email\|phone}` | Print the bare address the selected workspace's receiver answers on (`resend_from_email` / `twilio_from_number`), on stdout with no styling, so a script or an agent can read it without parsing a status block. This address is also the **routing key**: it is what selects this workspace out of every workspace sharing the machine's one URL. `-w` picks another workspace. An unset address names the variable and both ways to set it, and exits non-zero. |
+| `brain receiver url [--sms\|--email]` | Print the exact webhook URLs to paste into the Twilio/Resend portals. There is **one URL per channel for the whole machine** (`<public-url>/sms`, `<public-url>/email`); nothing in a URL names a workspace, so `-w` cannot change the answer and every workspace's portal gets the same pair. The output says so, alongside the paste-exactly rule. Informational: it reads this machine's machine-global `brain_receiver_public_url`, so it works before receiver ingress is ever enabled or running. Both channels by default. |
 
 `brain tasks mark <id> [as] done` is rewritten to `brain tasks complete <id>`
 before clap parses it.
@@ -1298,8 +1298,9 @@ brain (synced, never committed to the repo):
 
 The habits server remains one machine-shared, local-only service. The selected
 workspace is explicit in `GET /local/<lease>/w/<ingress>/habits` and
-`POST /local/<lease>/w/<ingress>/habits/done`. The exact live lease capability
-keeps local reads and mutations unavailable on provider-facing `/w/...` paths.
+`POST /local/<lease>/w/<ingress>/habits/done`. The exact live lease capability keeps local reads and mutations unavailable on
+the provider-facing `/sms` and `/email` paths, which carry no capability and no
+workspace at all.
 The opaque ingress first resolves through the
 shared process's live lease table. Only then does the server reload schema v2,
 verify the exact registry workspace and root plus matching portable manifest,
@@ -1307,18 +1308,27 @@ and read or write that workspace's habits CSV. Missing, malformed, unknown,
 no-live-TUI, unavailable, or mismatched routes never fall back to the machine
 default; the unavailable cases return 503. Receiver enablement gates
 provider-facing routes, not local capability-protected habits and triage pages.
-POST routing
-and live-lease checks happen before body IO, and local habits/triage action
-bodies larger than 16 KiB return 413. TUI links retain the ingress accepted at
+Local POST routing and live-lease checks happen before body IO, and local
+habits/triage action bodies larger than 16 KiB return 413. A provider POST is
+the one exception: its workspace lives in the payload, so its (1 MiB-bounded)
+body is read first, under the same connection deadline. TUI links retain the ingress accepted at
 registration, while `brain habits -w <workspace>` asks the live shared process
 for the exact selected workspace's accepted ingress.
 
-The shared process exposes authenticated
-`POST /w/<selected-ingress>/sms` and
-`POST /w/<selected-ingress>/email` routes only while that exact workspace has
-receiver enablement and a live TUI lease. It resolves the opaque ingress before
-loading provider credentials, users, prompt content, or the UUID-local job
-socket. Brain then verifies the Twilio or Resend/Svix signature before resolving
+The shared process exposes authenticated `POST /sms` and `POST /email` routes —
+two paths for the whole machine, naming no workspace. Brain reads the webhook
+body first, takes the destination the provider named (Twilio's `To`, a Resend
+payload's `to`/`cc`), and selects the workspace that publishes that number or
+address as its own `twilio_from_number` / `resend_from_email`. An address no
+registered workspace publishes is a plain 404; two workspaces publishing one
+address is refused as ambiguous rather than delivered to a guess. The selected
+workspace then serves the request only while it has receiver enablement and a
+live TUI lease, resolving its remembered ingress before loading provider
+credentials, users, prompt content, or the UUID-local job socket. Brain verifies
+the Twilio or Resend/Svix signature — against the workspace the message was
+addressed to, so holding a peer workspace's credential reaches nothing — then
+re-checks the now-authenticated destination against that workspace's own
+published address before resolving
 the normalized sender through the selected workspace's enabled portable phone
 or email identities. Unknown and disabled senders are rejected. Resend
 timestamps must be within five minutes. Request bodies and serialized job
@@ -1424,15 +1434,18 @@ Status requires both persisted intent and an enabled exact live lease before it
 reports `Accepting yes`; a live but disabled lease reports `TUI live` and
 `Accepting no`.
 
-Bare `brain receiver` answers the machine-wide version of that question. One
-machine hosts several workspaces and each configures its receiver separately,
-so with no `-w` it prints one block per registered workspace, in registry
-order, and `-w` narrows it to the one workspace that was asked about. Each
-block reports the same four intent-and-liveness rows as `receiver status`, then
-the configured email and phone, the public base URL, and the webhook URLs
-derived from that URL and the workspace's portable ingress. An unconfigured
-value reads `not set`; a workspace with no public base URL prints no webhook
-row, because there is no origin to derive one from. A workspace whose record
+Bare `brain receiver` answers the machine-wide version of that question. It
+opens with the machine's own block — the public base URL and the one webhook URL
+per channel built from it, plus the rule that explains why one URL can serve
+every workspace — because no URL names a workspace any more. Then, with no `-w`,
+one block per registered workspace in registry order; `-w` narrows those blocks
+to the one workspace that was asked about while the URL block stays machine-wide.
+Each workspace block reports the same four intent-and-liveness rows as
+`receiver status`, then the configured email and phone, which are exactly what
+route an inbound message to it. An unconfigured value reads `not set`; with no
+public base URL the machine block prints no webhook row and names the
+machine-wide variable to set, because there is no origin to build one from and
+the listing spans every workspace. A workspace whose record
 cannot be read reports `unavailable` with its repair command instead of taking
 the whole listing down, and a shared process that cannot be asked reports
 `live state unavailable` rather than claiming the server is stopped. The
@@ -1440,9 +1453,11 @@ listing prints the receiver's own published addresses; it never prints a
 provider credential.
 
 `brain receiver email` and `brain receiver phone` print just that address, on
-stdout with no styling, so a script or an agent can consume it directly. An
-unset address names the variable and both ways to set it, exactly as
-`receiver url` does for a missing public base URL, and exits non-zero.
+stdout with no styling, so a script or an agent can consume it directly. Since
+routing is by destination, printing the address answers both "where do people
+write to this workspace" and "what makes a message arrive here". An unset
+address names the variable and both ways to set it, exactly as `receiver url`
+does for a missing public base URL, and exits non-zero.
 
 `brain server status`, `brain receiver status -w <workspace>`,
 `brain receiver url -w <workspace>`, bare `brain receiver`, and
@@ -1460,8 +1475,8 @@ feature switch. When it is off, both channels are off even if stale provider
 fields remain. When intent is on, a channel becomes active from any provider
 field or an inbound-enabled portable `users.json` mapping; a malformed or
 partial active channel is incomplete. A ready channel requires its complete
-machine-local provider fields, public URL, and at least one matching portable
-inbound mapping. Status never prints provider secrets or sender addresses.
+machine-local provider fields, the machine-global public URL, and at least one
+matching portable inbound mapping. Status never prints provider secrets or sender addresses.
 
 If all TUIs are closed, the final unregister stops the server immediately, so
 an inbound text reaches no Brain process and receives no Brain response. If
@@ -1503,7 +1518,8 @@ and unregisters before its workspace job socket is removed. Two workspaces may
 hold leases concurrently; the last orderly exit shuts the shared process down.
 
 `brain receiver setup` walks through the selected channel's provider
-credentials, one public base URL, and a portable-user address mapping. It lists
+credentials, the machine's one public base URL (machine-global, so setting it
+for one workspace sets it for all), and a portable-user address mapping. It lists
 existing people from the selected workspace's `users.json`; the user may choose
 one or create a new ID and display name. SMS requires a phone and email requires
 an email, each with an explicit inbound-allowed state. Complete noninteractive
@@ -1517,9 +1533,9 @@ validation before writing.
 Supplying `--channels` without `--user-id`, as in
 `brain receiver setup -w family --channels sms`, keeps the selected channel
 and interactively collects the missing portable-user mapping.
-The setup output shows the exact
-`/w/<selected-ingress>/sms` and/or `/w/<selected-ingress>/email` URL to enter in
-the provider portal. Setup and `receiver set` notify only the selected live
+The setup output shows the exact `/sms` and/or `/email` URL to enter in the
+provider portal, and says that both are machine-wide: the number and address it
+just saved are what will route a message to this workspace. Setup and `receiver set` notify only the selected live
 lease to reload; they never start or restart a process. Provider,
 portable-user, and hook writes form a rollback-bounded setup transaction: any
 later failure restores the selected pre-state, leaves peer workspace state

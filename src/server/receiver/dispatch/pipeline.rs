@@ -3,6 +3,8 @@ use super::*;
 pub(super) struct SharedReceiverPipeline<'a> {
     pub(super) route: Option<crate::server::workspace_route::ResolvedWorkspaceRoute>,
     pub(super) request: &'a mut crate::server::http::Request,
+    /// The webhook body, already read by the boundary that routed on it.
+    pub(super) body: &'a [u8],
     pub(super) control: &'a std::sync::Mutex<crate::server::control::ControlServer>,
     pub(super) channel: crate::server::receiver::Channel,
     pub(super) handoff_deadline: Option<crate::server::http::deadline::HandoffDeadline>,
@@ -53,16 +55,15 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
     }
 
     fn verify_signature(&mut self, config: &Self::ProviderConfig) -> Result<Self::Authenticated> {
-        crate::server::receiver::http::authenticate(self.request, config, self.channel).map_err(
-            |error| {
+        crate::server::receiver::http::authenticate(self.request, self.body, config, self.channel)
+            .map_err(|error| {
                 DispatchHttpError {
                     status: error.status(),
                     unavailable: error.unavailable(),
                     message: error.to_string(),
                 }
                 .into()
-            },
-        )
+            })
     }
 
     fn resolve_actor(

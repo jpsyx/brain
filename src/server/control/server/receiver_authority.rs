@@ -34,6 +34,47 @@ impl ControlServer {
         Ok((ticket, loader))
     }
 
+    /// Capture route authority for a workspace already selected by the address
+    /// an inbound message arrived at.
+    ///
+    /// Provider URLs carry no ingress any more, so the remembered ingress comes
+    /// from this process's lease table; resolution from there is identical to
+    /// what an ingress-carrying URL used to get.
+    pub(crate) fn begin_receiver_route(
+        &self,
+        workspace_id: crate::workspace::WorkspaceId,
+        now: Instant,
+    ) -> Result<
+        (
+            crate::server::workspace_route::WorkspaceRouteTicket,
+            crate::server::workspace_route::VerifiedWorkspaceContextLoader,
+        ),
+        crate::server::workspace_route::WorkspaceRouteError,
+    > {
+        let ingress = self.receiver_ingress(workspace_id)?;
+        self.begin_workspace_route(ingress, now)
+    }
+
+    /// The ingress this process remembers for an addressed workspace.
+    pub(crate) fn receiver_ingress(
+        &self,
+        workspace_id: crate::workspace::WorkspaceId,
+    ) -> Result<crate::server::IngressId, crate::server::workspace_route::WorkspaceRouteError> {
+        self.leases
+            .known_workspace_ingress(workspace_id)
+            .ok_or_else(|| {
+                crate::server::workspace_route::WorkspaceRouteError::new(
+                    404,
+                    "workspace route not found",
+                )
+            })
+    }
+
+    /// The machine registry this process routes against.
+    pub(crate) fn registry_store(&self) -> RegistryStore {
+        self.registry_store.clone()
+    }
+
     pub(crate) fn begin_local_workspace_route(
         &self,
         ingress: crate::server::IngressId,
@@ -170,13 +211,15 @@ impl ControlServer {
         Ok(decision)
     }
 
+    /// The registry capability for replying to an addressed workspace that
+    /// cannot accept work right now, or `None` when this process knows no such
+    /// workspace.
     pub(crate) fn unavailable_receiver_target(
         &self,
-        ingress: crate::server::IngressId,
-        _now: Instant,
-    ) -> Option<(crate::workspace::WorkspaceId, RegistryStore)> {
+        workspace_id: crate::workspace::WorkspaceId,
+    ) -> Option<RegistryStore> {
         self.leases
-            .known_workspace(ingress)
-            .map(|workspace_id| (workspace_id, self.registry_store.clone()))
+            .known_workspace_ingress(workspace_id)
+            .map(|_| self.registry_store.clone())
     }
 }

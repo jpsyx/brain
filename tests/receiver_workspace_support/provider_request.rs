@@ -8,6 +8,15 @@ use hmac::{Hmac, Mac as _};
 use sha1::Sha1;
 use sha2::Sha256;
 
+/// The one machine-wide origin every fixture's provider portal points at.
+pub const PUBLIC_URL: &str = "https://receiver.example.test";
+
+/// The addresses each fixture workspace publishes. A provider webhook names one
+/// of these, and that is the only thing that selects a workspace.
+pub const PERSONAL_PHONE: &str = "+13105550100";
+pub const PERSONAL_EMAIL: &str = "brain@personal.example.test";
+pub const FAMILY_PHONE: &str = "+13105550111";
+
 pub struct ProviderPost {
     path: String,
     headers: String,
@@ -15,7 +24,7 @@ pub struct ProviderPost {
 }
 
 pub fn signed_sms(
-    ingress: brain::server::IngressId,
+    destination: &str,
     token: &str,
     provider_id: &str,
     prompt: &str,
@@ -25,14 +34,16 @@ pub fn signed_sms(
         ("Body".to_owned(), prompt.to_owned()),
         ("From".to_owned(), sender.to_owned()),
         ("MessageSid".to_owned(), provider_id.to_owned()),
+        ("To".to_owned(), destination.to_owned()),
     ]);
-    let path = format!("/w/{ingress}/sms");
-    let signature_url = format!("https://receiver.example.test{path}");
+    let path = "/sms".to_owned();
+    let signature_url = format!("{PUBLIC_URL}{path}");
     let signature = twilio_signature(token, &signature_url, &fields);
     let body = format!(
-        "Body={}&From={}&MessageSid={provider_id}",
+        "Body={}&From={}&MessageSid={provider_id}&To={}",
         prompt.replace(' ', "+"),
-        sender.replace('+', "%2B")
+        sender.replace('+', "%2B"),
+        destination.replace('+', "%2B"),
     );
     ProviderPost {
         path,
@@ -42,41 +53,13 @@ pub fn signed_sms(
 }
 
 pub fn signed_email_event(
-    ingress: brain::server::IngressId,
+    destination: &str,
     secret: &[u8],
     webhook_id: &str,
     event_type: &str,
 ) -> ProviderPost {
-    let body = format!(r#"{{"type":"{event_type}","data":{{"from":"member@example.test"}}}}"#);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        .to_string();
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret).unwrap();
-    mac.update(webhook_id.as_bytes());
-    mac.update(b".");
-    mac.update(timestamp.as_bytes());
-    mac.update(b".");
-    mac.update(body.as_bytes());
-    let signature = format!("v1,{}", STANDARD.encode(mac.finalize().into_bytes()));
-    ProviderPost {
-        path: format!("/w/{ingress}/email"),
-        headers: format!(
-            "svix-id: {webhook_id}\r\nsvix-timestamp: {timestamp}\r\nsvix-signature: {signature}\r\n"
-        ),
-        body,
-    }
-}
-
-pub fn signed_received_email_event(
-    ingress: brain::server::IngressId,
-    secret: &[u8],
-    webhook_id: &str,
-    email_id: &str,
-) -> ProviderPost {
     let body = format!(
-        r#"{{"type":"email.received","data":{{"from":"member@example.test","email_id":"{email_id}"}}}}"#
+        r#"{{"type":"{event_type}","data":{{"from":"member@example.test","to":["{destination}"]}}}}"#
     );
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -91,7 +74,37 @@ pub fn signed_received_email_event(
     mac.update(body.as_bytes());
     let signature = format!("v1,{}", STANDARD.encode(mac.finalize().into_bytes()));
     ProviderPost {
-        path: format!("/w/{ingress}/email"),
+        path: "/email".to_owned(),
+        headers: format!(
+            "svix-id: {webhook_id}\r\nsvix-timestamp: {timestamp}\r\nsvix-signature: {signature}\r\n"
+        ),
+        body,
+    }
+}
+
+pub fn signed_received_email_event(
+    destination: &str,
+    secret: &[u8],
+    webhook_id: &str,
+    email_id: &str,
+) -> ProviderPost {
+    let body = format!(
+        r#"{{"type":"email.received","data":{{"from":"member@example.test","to":["{destination}"],"email_id":"{email_id}"}}}}"#
+    );
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret).unwrap();
+    mac.update(webhook_id.as_bytes());
+    mac.update(b".");
+    mac.update(timestamp.as_bytes());
+    mac.update(b".");
+    mac.update(body.as_bytes());
+    let signature = format!("v1,{}", STANDARD.encode(mac.finalize().into_bytes()));
+    ProviderPost {
+        path: "/email".to_owned(),
         headers: format!(
             "svix-id: {webhook_id}\r\nsvix-timestamp: {timestamp}\r\nsvix-signature: {signature}\r\n"
         ),

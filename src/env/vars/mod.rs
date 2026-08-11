@@ -146,9 +146,11 @@ fn declared_value(name: &str, value: &str) -> Result<Value> {
     Ok(parse_value(value))
 }
 
-/// Persist several declared scalar values to one selected workspace record.
+/// Persist several declared scalar values, each to the scope that owns it: the
+/// selected workspace record, or the registry's machine-global map.
 pub(crate) fn set_many(command: &CommandContext, values: &[(&str, String)]) -> Result<()> {
     let mut map = load_map(command);
+    let mut global = load_global_map(command);
     for (name, value) in values {
         let segments = path_segments(name)?;
         if super::schema::is_structural(name) {
@@ -157,9 +159,54 @@ pub(crate) fn set_many(command: &CommandContext, values: &[(&str, String)]) -> R
         if segments.len() != 1 || !is_known(name) {
             bail!("unknown env variable `{name}` (known: {})", known_names());
         }
-        set_path(&mut map, name, Value::String(value.clone()))?;
+        let target = if is_machine_global(name) {
+            &mut global
+        } else {
+            &mut map
+        };
+        set_path(target, name, Value::String(value.clone()))?;
     }
-    save_map(command, &map)
+    save_map(command, &map)?;
+    if values.iter().any(|(name, _)| is_machine_global(name)) {
+        save_global_map(command, &global)?;
+    }
+    Ok(())
+}
+
+/// Undo machine-global writes that nothing else has touched since.
+///
+/// The machine-global map has no workspace identity to re-verify: the value
+/// describes the machine, so only the written value itself gates the rollback.
+pub(crate) fn restore_global_values_if_unchanged(
+    command: &CommandContext,
+    before: &Map<String, Value>,
+    written: &[(&str, String)],
+) -> Result<()> {
+    let global_writes = written
+        .iter()
+        .filter(|(name, _)| is_machine_global(name))
+        .collect::<Vec<_>>();
+    if global_writes.is_empty() {
+        return Ok(());
+    }
+    command
+        .registry_store
+        .transaction(|transaction| -> Result<()> {
+            let mut registry = transaction.load()?;
+            for (name, value) in &global_writes {
+                if registry.env.get(*name) != Some(&Value::String(value.clone())) {
+                    continue;
+                }
+                if let Some(original) = before.get(*name) {
+                    registry.env.insert((*name).to_owned(), original.clone());
+                } else {
+                    registry.env.remove(*name);
+                }
+            }
+            crate::workspace::validate_registry(&registry)?;
+            transaction.save(&registry)?;
+            Ok(())
+        })
 }
 
 pub(crate) fn restore_values_if_unchanged(
@@ -167,6 +214,15 @@ pub(crate) fn restore_values_if_unchanged(
     before: &Map<String, Value>,
     written: &[(&str, String)],
 ) -> Result<()> {
+    let written = written
+        .iter()
+        .filter(|(name, _)| !is_machine_global(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    if written.is_empty() {
+        return Ok(());
+    }
+    let written = &written;
     command
         .registry_store
         .transaction(|transaction| -> Result<()> {

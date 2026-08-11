@@ -25,30 +25,49 @@ const _: () = assert!(
         < RECEIVER_HANDLER_TIMEOUT.as_secs()
 );
 
-pub(crate) fn receiver_webhook_url(
-    public_base_url: &str,
-    ingress_id: crate::server::IngressId,
-    channel: Channel,
-) -> String {
-    let channel = match channel {
-        Channel::Sms => "sms",
-        Channel::Email => "email",
-    };
+/// The one machine-wide webhook URL a provider portal posts a channel to.
+///
+/// It carries no workspace identity: the destination number or address inside
+/// the payload selects the workspace (see
+/// [`crate::server::receiver::routing`]), so every workspace on a machine
+/// shares one URL per channel.
+pub(crate) fn receiver_webhook_url(public_base_url: &str, channel: Channel) -> String {
     format!(
-        "{}/w/{ingress_id}/{channel}",
-        public_base_url.trim_end_matches('/')
+        "{}{}",
+        public_base_url.trim_end_matches('/'),
+        webhook_path(channel)
     )
+}
+
+/// The path component of one channel's webhook. Pure.
+pub(crate) const fn webhook_path(channel: Channel) -> &'static str {
+    match channel {
+        Channel::Sms => "/sms",
+        Channel::Email => "/email",
+    }
+}
+
+/// Every destination address a provider payload names, before any signature has
+/// been checked. Pure.
+///
+/// Used only to select which workspace's signing credential the request is then
+/// verified against; see [`crate::server::receiver::routing`].
+pub(in crate::server) fn destinations(channel: Channel, body: &[u8]) -> Vec<String> {
+    match channel {
+        Channel::Sms => sms::destinations(body),
+        Channel::Email => email::destinations(body),
+    }
 }
 
 #[derive(Debug, Clone)]
 pub(in crate::server) struct ProviderConfig {
     pub workspace_id: crate::workspace::WorkspaceId,
     pub twilio_auth_token: String,
+    pub twilio_from_number: String,
     pub public_base_url: String,
     pub resend_signing_secret: String,
     pub resend_api_key: String,
     pub resend_from_email: String,
-    pub ingress_id: crate::server::IngressId,
 }
 
 impl ProviderConfig {
@@ -64,30 +83,16 @@ impl ProviderConfig {
             selected.record().workspace_id == route.context().id(),
             "provider configuration workspace changed after routing"
         );
-        let get = |name: &str| {
-            selected
-                .record()
-                .env
-                .get(name)
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_owned()
-        };
-        Ok(Self {
-            workspace_id: route.context().id(),
-            twilio_auth_token: get("twilio_auth_token"),
-            public_base_url: get("brain_receiver_public_url"),
-            resend_signing_secret: get("resend_webhook_signing_secret"),
-            resend_api_key: get("resend_api_key"),
-            resend_from_email: get("resend_from_email"),
-            ingress_id: route.lease().ingress_id,
-        })
+        Ok(Self::from_records(
+            route.context().id(),
+            &selected.record().env,
+            &registry.env,
+        ))
     }
 
     pub(in crate::server) fn load_for_workspace(
         store: &crate::workspace::RegistryStore,
         workspace_id: crate::workspace::WorkspaceId,
-        ingress_id: crate::server::IngressId,
     ) -> anyhow::Result<Self> {
         let registry = crate::workspace::RegistryStore::load_from(store.path())
             .context("loading routed workspace provider configuration")?;
@@ -96,23 +101,33 @@ impl ProviderConfig {
             .values()
             .find(|record| record.workspace_id == workspace_id)
             .context("routed receiver workspace no longer exists")?;
-        let get = |name: &str| {
-            record
-                .env
-                .get(name)
+        Ok(Self::from_records(workspace_id, &record.env, &registry.env))
+    }
+
+    /// Provider credentials from one workspace record plus the machine-global
+    /// values every workspace on this machine shares. Pure.
+    fn from_records(
+        workspace_id: crate::workspace::WorkspaceId,
+        record_env: &serde_json::Map<String, serde_json::Value>,
+        machine_env: &serde_json::Map<String, serde_json::Value>,
+    ) -> Self {
+        let string_of = |env: &serde_json::Map<String, serde_json::Value>, name: &str| {
+            env.get(name)
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or_default()
                 .to_owned()
         };
-        Ok(Self {
+        Self {
             workspace_id,
-            twilio_auth_token: get("twilio_auth_token"),
-            public_base_url: get("brain_receiver_public_url"),
-            resend_signing_secret: get("resend_webhook_signing_secret"),
-            resend_api_key: get("resend_api_key"),
-            resend_from_email: get("resend_from_email"),
-            ingress_id,
-        })
+            twilio_auth_token: string_of(record_env, "twilio_auth_token"),
+            twilio_from_number: string_of(record_env, "twilio_from_number"),
+            // One machine serves one public origin, so this is machine-global:
+            // the URL Twilio signs is identical for every workspace here.
+            public_base_url: string_of(machine_env, "brain_receiver_public_url"),
+            resend_signing_secret: string_of(record_env, "resend_webhook_signing_secret"),
+            resend_api_key: string_of(record_env, "resend_api_key"),
+            resend_from_email: string_of(record_env, "resend_from_email"),
+        }
     }
 }
 
@@ -142,7 +157,7 @@ impl ProviderError {
         }
     }
 
-    pub(super) const fn unavailable(self) -> bool {
+    pub(in crate::server) const fn unavailable(self) -> bool {
         matches!(self, Self::NotConfigured(_) | Self::Deadline)
     }
 }
@@ -177,28 +192,31 @@ pub(super) struct AuthenticatedInbound {
     pub email_reply: Option<super::EmailReplyContext>,
 }
 
+/// Authenticate one already-read provider body against the routed workspace.
+///
+/// The body arrives read: the shared boundary needs it before this point to
+/// learn which workspace the message was addressed to, and a request body can
+/// only be consumed once.
 pub(super) fn authenticate(
     request: &mut crate::server::http::Request,
+    body: &[u8],
     config: &ProviderConfig,
     channel: Channel,
 ) -> Result<AuthenticatedInbound, ProviderError> {
-    let body = request
-        .read_body(WEBHOOK_BODY_LIMIT)
-        .map_err(|error| match error {
-            crate::server::http::BodyError::TooLarge => ProviderError::BodyTooLarge,
-            crate::server::http::BodyError::Io(_) | crate::server::http::BodyError::Malformed => {
-                ProviderError::MalformedBody
-            }
-        })?;
     let pending_email = match channel {
         Channel::Sms => {
-            let inbound = sms::authenticate(request, &body, config)?;
+            let inbound = sms::authenticate(request, body, config)?;
+            confirm_destination(config, channel, body)?;
             request
                 .begin_handler_phase()
                 .map_err(|_| ProviderError::Deadline)?;
             return Ok(inbound);
         }
-        Channel::Email => email::verify(request, &body, config)?,
+        Channel::Email => {
+            let verified = email::verify(request, body, config)?;
+            confirm_destination(config, channel, body)?;
+            verified
+        }
     };
     if crate::server::receiver::dispatch::provider_delivery_completed(
         config.workspace_id,
@@ -213,17 +231,158 @@ pub(super) fn authenticate(
     email::fetch(pending_email, config)
 }
 
+/// Re-check, on now-authenticated bytes, that the message really was addressed
+/// to the workspace it was routed to.
+///
+/// Routing reads the destination before any signature is verified, which is
+/// safe on its own (it only picks whose credential to check). This closes the
+/// loop for the case where several workspaces share one provider account and so
+/// share one signing credential: the signature alone could not tell them apart,
+/// but the address the provider signed can.
+fn confirm_destination(
+    config: &ProviderConfig,
+    channel: Channel,
+    body: &[u8],
+) -> Result<(), ProviderError> {
+    let published = match channel {
+        Channel::Sms => &config.twilio_from_number,
+        Channel::Email => &config.resend_from_email,
+    };
+    let Some(published) = crate::server::receiver::routing::normalize_address(channel, published)
+    else {
+        return Err(ProviderError::NotConfigured(
+            "workspace receiver has no configured address",
+        ));
+    };
+    let addressed = destinations(channel, body)
+        .iter()
+        .filter_map(|destination| {
+            crate::server::receiver::routing::normalize_address(channel, destination)
+        })
+        .any(|destination| destination == published);
+    if addressed {
+        return Ok(());
+    }
+    Err(ProviderError::InvalidRequest(
+        "webhook destination is not this workspace's receiver address",
+    ))
+}
+
 pub(in crate::server) fn verify_unavailable_email(
-    request: &mut crate::server::http::Request,
+    request: &crate::server::http::Request,
+    body: &[u8],
     config: &ProviderConfig,
 ) -> Result<String, ProviderError> {
-    let body = request
+    email::verify(request, body, config).map(|verified| verified.webhook_id().to_owned())
+}
+
+/// Read one provider webhook body under its fixed limit.
+///
+/// The shared boundary calls this before routing, since the destination that
+/// selects the workspace lives inside the body.
+pub(in crate::server) fn read_webhook_body(
+    request: &mut crate::server::http::Request,
+) -> Result<Vec<u8>, ProviderError> {
+    request
         .read_body(WEBHOOK_BODY_LIMIT)
         .map_err(|error| match error {
             crate::server::http::BodyError::TooLarge => ProviderError::BodyTooLarge,
             crate::server::http::BodyError::Io(_) | crate::server::http::BodyError::Malformed => {
                 ProviderError::MalformedBody
             }
-        })?;
-    email::verify(request, &body, config).map(|verified| verified.webhook_id().to_owned())
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Channel, ProviderConfig, ProviderError, confirm_destination, destinations};
+
+    fn config() -> ProviderConfig {
+        ProviderConfig {
+            workspace_id: crate::workspace::WorkspaceId::new(),
+            twilio_auth_token: "token".to_owned(),
+            twilio_from_number: "+13105550111".to_owned(),
+            public_base_url: "https://brain.example.test".to_owned(),
+            resend_signing_secret: "secret".to_owned(),
+            resend_api_key: "key".to_owned(),
+            resend_from_email: "family@example.test".to_owned(),
+        }
+    }
+
+    #[test]
+    fn the_url_is_the_same_for_every_workspace_on_the_machine() {
+        assert_eq!(
+            super::receiver_webhook_url("https://brain.example.test", Channel::Sms),
+            "https://brain.example.test/sms"
+        );
+        assert_eq!(
+            super::receiver_webhook_url("https://brain.example.test", Channel::Email),
+            "https://brain.example.test/email"
+        );
+    }
+
+    #[test]
+    fn an_authenticated_body_must_name_the_address_it_was_routed_to() {
+        assert!(
+            confirm_destination(
+                &config(),
+                Channel::Sms,
+                b"Body=hi&From=%2B12125550100&To=%2B13105550111"
+            )
+            .is_ok()
+        );
+        assert!(
+            confirm_destination(
+                &config(),
+                Channel::Email,
+                br#"{"type":"email.received","data":{"to":["Family <FAMILY@example.test>"]}}"#
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_body_addressed_elsewhere_is_refused_after_its_signature_verified() {
+        // Reached only when the registry changed under a live route, or when two
+        // workspaces share one provider credential. Either way the verified
+        // destination, not the routing guess, has the last word.
+        let rejected = confirm_destination(
+            &config(),
+            Channel::Sms,
+            b"Body=hi&From=%2B12125550100&To=%2B19995550000",
+        )
+        .expect_err("a peer's destination must not pass");
+
+        assert!(matches!(rejected, ProviderError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn a_workspace_with_no_published_address_can_confirm_nothing() {
+        let unconfigured = ProviderConfig {
+            twilio_from_number: String::new(),
+            ..config()
+        };
+
+        let rejected = confirm_destination(
+            &unconfigured,
+            Channel::Sms,
+            b"Body=hi&From=%2B12125550100&To=%2B13105550111",
+        )
+        .expect_err("an unset receiver address cannot confirm a destination");
+
+        assert!(matches!(rejected, ProviderError::NotConfigured(_)));
+    }
+
+    #[test]
+    fn a_body_that_names_no_destination_yields_no_candidate() {
+        assert!(destinations(Channel::Sms, b"Body=hi").is_empty());
+        assert!(destinations(Channel::Email, b"not json").is_empty());
+        assert_eq!(
+            destinations(
+                Channel::Email,
+                br#"{"data":{"to":"one@example.test","cc":["two@example.test"]}}"#
+            ),
+            ["one@example.test", "two@example.test"]
+        );
+    }
 }

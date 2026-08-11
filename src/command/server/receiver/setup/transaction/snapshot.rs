@@ -10,6 +10,9 @@ use crate::{command::server::receiver::hooks, workspace::CommandContext};
 
 pub(super) struct SetupSnapshot {
     providers: serde_json::Map<String, serde_json::Value>,
+    /// The machine-global env before setup: the public receiver origin lives
+    /// there, since one machine serves one URL per channel.
+    machine_providers: serde_json::Map<String, serde_json::Value>,
     provider_writes: Vec<(&'static str, String)>,
     files: Vec<FileSnapshot>,
     directories: Vec<DirectorySnapshot>,
@@ -64,6 +67,7 @@ impl SetupSnapshot {
             .collect();
         Ok(Self {
             providers: crate::env::load_map(context),
+            machine_providers: crate::env::load_global_map(context),
             provider_writes: Vec::new(),
             files,
             directories,
@@ -81,6 +85,13 @@ impl SetupSnapshot {
             crate::env::restore_values_if_unchanged(context, &self.providers, &self.provider_writes)
         {
             failures.push(format!("restore selected provider record: {error:#}"));
+        }
+        if let Err(error) = crate::env::restore_global_values_if_unchanged(
+            context,
+            &self.machine_providers,
+            &self.provider_writes,
+        ) {
+            failures.push(format!("restore machine provider env: {error:#}"));
         }
         for directory in &self.directories {
             if directory.existed {

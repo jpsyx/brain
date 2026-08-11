@@ -1,12 +1,15 @@
-//! Bare `brain receiver`: every registered workspace's receiver details.
+//! Bare `brain receiver`: this machine's webhook URLs and every registered
+//! workspace's receiver details.
 //!
 //! A machine hosts several workspaces and each configures its receiver
 //! separately, so the question "what is my receiver set up as" is a machine-wide
-//! one by default. `-w` narrows it to the one workspace that was asked about.
+//! one by default. `-w` narrows the workspace blocks to the one that was asked
+//! about; the URL block above them is machine-wide either way, because there is
+//! one URL per channel and a workspace's own number and address are what route
+//! a message to it.
 
 use anyhow::Result;
 
-use crate::server::IngressId;
 use crate::server::receiver::Channel;
 use crate::theme::Theme;
 use crate::workspace::{CommandContext, WorkspaceId, WorkspaceName, WorkspaceRecord};
@@ -20,6 +23,9 @@ const DETAIL_LABEL_WIDTH: usize = 10;
 /// Label column width for `brain receiver status`, from its longest label.
 const STATUS_LABEL_WIDTH: usize = 9;
 
+/// What the machine-wide URL block calls this machine's configured origin.
+const PUBLIC_URL_LABEL: &str = "Public URL";
+
 /// Everything the listing reports about one workspace's receiver.
 pub(crate) struct ReceiverDetails {
     pub(crate) workspace: String,
@@ -28,8 +34,6 @@ pub(crate) struct ReceiverDetails {
     pub(crate) live: Option<ReceiverStatus>,
     pub(crate) email: Option<String>,
     pub(crate) phone: Option<String>,
-    pub(crate) public_url: Option<String>,
-    pub(crate) ingress: Option<IngressId>,
 }
 
 /// One workspace's row in the listing: its details, or why they are missing.
@@ -144,25 +148,56 @@ fn details_block(details: &ReceiverDetails, theme: Theme) -> String {
         details.phone.as_deref(),
         theme,
     ));
-    body.push(address_row(
-        "Public URL",
-        details.public_url.as_deref(),
-        theme,
-    ));
-    // No origin means no webhook URL exists yet, so there is nothing to paste.
-    if let (Some(public), Some(ingress)) = (details.public_url.as_deref(), details.ingress) {
-        body.push(theme.muted("Webhook URLs"));
-        body.push(super::url::webhook_rows(
-            public,
-            ingress,
-            &super::url::ALL_CHANNELS,
-            theme,
-        ));
-    }
     format!(
         "{}\n{}",
         heading(&details.workspace, theme),
         indent(&body.join("\n")),
+    )
+}
+
+/// The machine's one webhook URL per channel, printed once above the workspace
+/// blocks. Pure.
+///
+/// No URL names a workspace, so this belongs to the machine; the addresses in
+/// each workspace block below are what route a message to that workspace.
+#[must_use]
+pub(crate) fn machine_block(public_url: Option<&str>, theme: Theme) -> String {
+    let width = super::url::label_width(&super::url::ALL_CHANNELS).max(PUBLIC_URL_LABEL.len());
+    // Pad before styling: color escapes have no display width, so a
+    // format-width applied to a styled string misaligns the column.
+    let label = format!("{PUBLIC_URL_LABEL:width$}");
+    let mut body = vec![format!(
+        "  {}  {}",
+        theme.muted(&label),
+        public_url.map_or_else(
+            || theme.muted("not set"),
+            |public_url| theme.value(public_url)
+        ),
+    )];
+    // No origin means no webhook URL exists yet, so there is nothing to paste.
+    match public_url {
+        Some(public_url) => {
+            body.push(super::url::webhook_rows_at(
+                public_url,
+                &super::url::ALL_CHANNELS,
+                width,
+                theme,
+            ));
+            body.push(format!("  {}", theme.muted(super::url::ROUTING_RULE)));
+        }
+        // The listing spans every workspace, so it points at the machine-wide
+        // write rather than at a guided setup that would target only one.
+        None => body.push(format!(
+            "  {}",
+            theme.muted(
+                "Set the origin these webhook URLs are built from with `brain env set brain_receiver_public_url=https://<public-host>`."
+            )
+        )),
+    }
+    format!(
+        "{}\n{}",
+        theme.heading("Receiver webhook URLs"),
+        body.join("\n"),
     )
 }
 
@@ -185,12 +220,17 @@ fn indent(block: &str) -> String {
         .join("\n")
 }
 
-/// The whole listing, one block per workspace. Pure.
+/// The whole listing: this machine's webhook URLs, then one block per
+/// workspace. Pure.
 #[must_use]
-pub(crate) fn listing(reports: &[WorkspaceReport], theme: Theme) -> String {
-    reports
-        .iter()
-        .map(|report| format!("{}\n", report_block(report, theme)))
+pub(crate) fn listing(
+    public_url: Option<&str>,
+    reports: &[WorkspaceReport],
+    theme: Theme,
+) -> String {
+    std::iter::once(machine_block(public_url, theme))
+        .chain(reports.iter().map(|report| report_block(report, theme)))
+        .map(|block| format!("{block}\n"))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -214,7 +254,14 @@ pub(super) fn run(context: &CommandContext, explicit_workspace: bool) -> Result<
             )
         })
         .collect::<Vec<_>>();
-    print!("{}", listing(&reports, Theme::active()));
+    print!(
+        "{}",
+        listing(
+            super::url::public_base_url(context).as_deref(),
+            &reports,
+            Theme::active(),
+        )
+    );
     Ok(())
 }
 
@@ -236,8 +283,6 @@ fn workspace_report(
         live: live_status(record.receiver_enabled, record.workspace_id),
         email: identity::address(context, Channel::Email),
         phone: identity::address(context, Channel::Sms),
-        public_url: super::url::public_base_url(context),
-        ingress: crate::server::workspace_ingress(&context.workspace).ok(),
     }))
 }
 
@@ -255,13 +300,12 @@ fn live_status(enabled: bool, workspace_id: WorkspaceId) -> Option<ReceiverStatu
 
 #[cfg(test)]
 mod tests {
-    use super::{ReceiverDetails, ReceiverStatus, WorkspaceReport, listing, report_block};
-    use crate::server::IngressId;
+    use super::{
+        ReceiverDetails, ReceiverStatus, WorkspaceReport, listing, machine_block, report_block,
+    };
     use crate::theme::Theme;
 
-    fn ingress() -> IngressId {
-        IngressId::parse("8f670650-0c97-4cf2-aade-1b5bb51aa1b3").expect("ingress id")
-    }
+    const PUBLIC_URL: &str = "https://brain.example.test";
 
     fn configured() -> ReceiverDetails {
         ReceiverDetails {
@@ -275,8 +319,6 @@ mod tests {
             }),
             email: Some("brain@example.test".to_owned()),
             phone: Some("+12125550100".to_owned()),
-            public_url: Some("https://brain.example.test".to_owned()),
-            ingress: Some(ingress()),
         }
     }
 
@@ -288,22 +330,20 @@ mod tests {
     }
 
     #[test]
-    fn a_configured_workspace_reports_its_addresses_alongside_its_intent() {
+    fn a_configured_workspace_reports_the_addresses_that_route_to_it() {
         let block = block_of(configured());
 
         assert!(block.starts_with("Receiver details  family"), "{block}");
         assert!(block.contains("Receiver"), "{block}");
         assert!(block.contains("Accepting"), "{block}");
-        // The whole point of the listing: the addresses inbound senders use.
+        // The whole point of the listing: the addresses inbound senders use,
+        // which are also what selects this workspace over any other.
         assert!(block.contains("Email"), "{block}");
         assert!(block.contains("brain@example.test"), "{block}");
         assert!(block.contains("Phone"), "{block}");
         assert!(block.contains("+12125550100"), "{block}");
-        assert!(block.contains("https://brain.example.test"), "{block}");
-        assert!(
-            block.contains("https://brain.example.test/w/8f670650-0c97-4cf2-aade-1b5bb51aa1b3/sms"),
-            "{block}"
-        );
+        // The URLs are machine-wide, so no workspace block repeats them.
+        assert!(!block.contains("http"), "{block}");
     }
 
     #[test]
@@ -318,15 +358,42 @@ mod tests {
             }),
             email: None,
             phone: None,
-            public_url: None,
-            ingress: Some(ingress()),
             ..configured()
         });
 
-        assert_eq!(block.matches("not set").count(), 3, "{block}");
-        // No public URL means no origin, so there is no webhook URL to print.
-        assert!(!block.contains("/sms"), "{block}");
+        assert_eq!(block.matches("not set").count(), 2, "{block}");
         assert!(block.contains("disabled"), "{block}");
+    }
+
+    #[test]
+    fn the_machine_block_pairs_one_origin_with_one_url_per_channel() {
+        let block = machine_block(Some(PUBLIC_URL), Theme::dark(false));
+
+        assert!(block.starts_with("Receiver webhook URLs"), "{block}");
+        assert!(block.contains("Public URL"), "{block}");
+        assert!(block.contains("https://brain.example.test/sms"), "{block}");
+        assert!(
+            block.contains("https://brain.example.test/email"),
+            "{block}"
+        );
+        assert!(!block.contains("/w/"), "{block}");
+        // Why one URL can serve every workspace here.
+        assert!(
+            block.contains("routes each message by the number"),
+            "{block}"
+        );
+    }
+
+    #[test]
+    fn without_an_origin_the_machine_block_says_so_and_invents_no_url() {
+        let block = machine_block(None, Theme::dark(false));
+
+        assert!(block.contains("not set"), "{block}");
+        assert!(!block.contains("/sms"), "{block}");
+        assert!(
+            block.contains("brain env set brain_receiver_public_url="),
+            "{block}"
+        );
     }
 
     #[test]
@@ -360,8 +427,9 @@ mod tests {
     }
 
     #[test]
-    fn the_listing_separates_one_block_per_workspace() {
+    fn the_listing_leads_with_the_machine_urls_then_one_block_per_workspace() {
         let rendered = listing(
+            Some(PUBLIC_URL),
             &[
                 WorkspaceReport::Details(Box::new(configured())),
                 WorkspaceReport::Unavailable {
@@ -372,6 +440,9 @@ mod tests {
             Theme::dark(false),
         );
 
+        // The URLs come once, before the workspaces they can all reach.
+        assert!(rendered.starts_with("Receiver webhook URLs"), "{rendered}");
+        assert_eq!(rendered.matches("/sms").count(), 1, "{rendered}");
         assert!(rendered.contains("Receiver details  family"), "{rendered}");
         assert!(rendered.contains("personal"), "{rendered}");
         assert!(rendered.contains("\n\n"), "{rendered}");

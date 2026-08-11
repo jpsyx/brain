@@ -6,15 +6,13 @@ use brain::server::receiver::InboundJob;
 use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
-use super::provider_request::{post, signed_sms};
+use super::provider_request::{FAMILY_PHONE, PERSONAL_PHONE, PUBLIC_URL, post, signed_sms};
 use super::{FAMILY_ID, PERSONAL_ID, poll_until};
 
 pub struct DualWorkspaceReceiverFixture {
     home: tempfile::TempDir,
     pub personal: WorkspaceContext,
     pub family: WorkspaceContext,
-    personal_ingress: brain::server::IngressId,
-    family_ingress: brain::server::IngressId,
     personal_socket: Option<JobSocket>,
     family_socket: Option<JobSocket>,
     personal_jobs: Vec<InboundJob>,
@@ -39,9 +37,16 @@ impl DualWorkspaceReceiverFixture {
             "personal",
             "personal-member",
             "personal-token",
+            PERSONAL_PHONE,
         );
-        let (family, family_record, family_ingress) =
-            workspace(&home, FAMILY_ID, "family", "family-member", "family-token");
+        let (family, family_record, family_ingress) = workspace(
+            &home,
+            FAMILY_ID,
+            "family",
+            "family-member",
+            "family-token",
+            FAMILY_PHONE,
+        );
         let personal_name = personal.name().clone();
         let family_name = family.name().clone();
         let registry = brain::workspace::MachineRegistry {
@@ -51,7 +56,12 @@ impl DualWorkspaceReceiverFixture {
                 (personal_name, personal_record),
                 (family_name, family_record),
             ]),
-            env: serde_json::Map::new(),
+            // One machine, one public origin: the URL is the same for both
+            // workspaces, and their numbers are what tell them apart.
+            env: serde_json::Map::from_iter([(
+                "brain_receiver_public_url".to_owned(),
+                serde_json::json!(PUBLIC_URL),
+            )]),
         };
         let store =
             brain::workspace::RegistryStore::from_path(home.path().join(".config/brain/env.json"));
@@ -82,8 +92,6 @@ impl DualWorkspaceReceiverFixture {
             home,
             personal,
             family,
-            personal_ingress,
-            family_ingress,
             personal_socket: Some(personal_socket),
             family_socket: Some(family_socket),
             personal_jobs: Vec::new(),
@@ -107,10 +115,23 @@ impl DualWorkspaceReceiverFixture {
 
     pub fn post_personal_signed_with_family_credentials(&self) -> String {
         self.post_sms(
-            self.personal_ingress,
+            PERSONAL_PHONE,
             "family-token",
             "SM-swapped",
             "must reject swapped route",
+        )
+    }
+
+    /// A message addressed to family, signed with personal's Twilio token.
+    ///
+    /// One URL serves both workspaces, so the only thing that decides whose
+    /// credential authenticates a request is the number it names.
+    pub fn post_family_signed_with_personal_credentials(&self) -> String {
+        self.post_sms(
+            FAMILY_PHONE,
+            "personal-token",
+            "SM-crossed",
+            "must reject a peer's credential",
         )
     }
 
@@ -119,7 +140,7 @@ impl DualWorkspaceReceiverFixture {
         provider_id: &str,
         prompt: &str,
     ) -> std::sync::mpsc::Receiver<String> {
-        self.post_sms_async(self.personal_ingress, "personal-token", provider_id, prompt)
+        self.post_sms_async(PERSONAL_PHONE, "personal-token", provider_id, prompt)
     }
 
     pub fn post_family_async(
@@ -127,11 +148,11 @@ impl DualWorkspaceReceiverFixture {
         provider_id: &str,
         prompt: &str,
     ) -> std::sync::mpsc::Receiver<String> {
-        self.post_sms_async(self.family_ingress, "family-token", provider_id, prompt)
+        self.post_sms_async(FAMILY_PHONE, "family-token", provider_id, prompt)
     }
 
     pub fn post_family(&self, provider_id: &str, prompt: &str) -> String {
-        self.post_sms(self.family_ingress, "family-token", provider_id, prompt)
+        self.post_sms(FAMILY_PHONE, "family-token", provider_id, prompt)
     }
 
     pub fn personal_jobs(&mut self) -> Vec<InboundJob> {
@@ -229,28 +250,22 @@ impl DualWorkspaceReceiverFixture {
 
     fn post_sms_async(
         &self,
-        ingress: brain::server::IngressId,
+        destination: &str,
         token: &str,
         provider_id: &str,
         prompt: &str,
     ) -> std::sync::mpsc::Receiver<String> {
         let port = self.port;
-        let request = signed_sms(ingress, token, provider_id, prompt, "+12125550100");
+        let request = signed_sms(destination, token, provider_id, prompt, "+12125550100");
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         std::thread::spawn(move || tx.send(post(port, &request)).unwrap());
         rx
     }
 
-    fn post_sms(
-        &self,
-        ingress: brain::server::IngressId,
-        token: &str,
-        provider_id: &str,
-        prompt: &str,
-    ) -> String {
+    fn post_sms(&self, destination: &str, token: &str, provider_id: &str, prompt: &str) -> String {
         post(
             self.port,
-            &signed_sms(ingress, token, provider_id, prompt, "+12125550100"),
+            &signed_sms(destination, token, provider_id, prompt, "+12125550100"),
         )
     }
 }
@@ -281,6 +296,7 @@ fn workspace(
     name: &str,
     user_id: &str,
     token: &str,
+    phone: &str,
 ) -> (
     WorkspaceContext,
     brain::workspace::WorkspaceRecord,
@@ -309,10 +325,7 @@ fn workspace(
         receiver_enabled: true,
         env: serde_json::Map::from_iter([
             ("twilio_auth_token".to_owned(), serde_json::json!(token)),
-            (
-                "brain_receiver_public_url".to_owned(),
-                serde_json::json!("https://receiver.example.test"),
-            ),
+            ("twilio_from_number".to_owned(), serde_json::json!(phone)),
         ]),
     };
     (context, record, ingress)

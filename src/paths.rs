@@ -259,7 +259,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_root_key_reads_the_default_schema_v2_workspace() {
+    fn parse_root_key_reads_the_default_registry_workspace() {
+        // Version-agnostic on purpose: this is the legacy pointer fallback, and
+        // it must keep reading a root out of whatever schema it is handed.
         let registry = r#"{
             "schema_version": 3,
             "default_workspace": "family",

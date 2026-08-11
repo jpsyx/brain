@@ -17,7 +17,7 @@ use crate::workspace::{WorkspaceId, WorkspaceName};
 /// v3 added the top-level `env` map for machine-global values. An older file is
 /// upgraded in place on the next `brain` invocation (see
 /// [`super::upgrade`]).
-pub const REGISTRY_SCHEMA_VERSION: u32 = 3;
+pub const REGISTRY_SCHEMA_VERSION: u32 = 4;
 
 /// A user-facing surface that changes persistent receiver intent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

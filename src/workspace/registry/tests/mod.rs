@@ -53,7 +53,7 @@ fn registry_with_brain_and_family() -> MachineRegistry {
 
 fn valid_registry_json() -> Value {
     json!({
-        "schema_version": 3,
+        "schema_version": REGISTRY_SCHEMA_VERSION,
         "default_workspace": "brain",
         "workspaces": {
             "brain": {

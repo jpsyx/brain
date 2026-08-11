@@ -17,13 +17,14 @@ pub(super) struct VarSpec {
 /// They live in the registry's top-level `env` map, so every registered
 /// workspace reads and writes the same value. The test is whether the value
 /// could sensibly differ between two workspaces on one machine: the path to a
-/// binary cannot, so it belongs here; a workspace's public receiver URL can, so
-/// it does not.
-pub(crate) const MACHINE_GLOBAL_VARS: [&str; 1] = ["markdown_to_pdf_path"];
+/// binary cannot, and neither can the public receiver origin, since one machine
+/// serves one URL per channel and providers sign the literal URL.
+pub(crate) const MACHINE_GLOBAL_VARS: [&str; 2] =
+    ["markdown_to_pdf_path", "brain_receiver_public_url"];
 
 /// Whether `name` is stored once for the whole machine.
 #[must_use]
-pub(crate) fn is_machine_global(name: &str) -> bool {
+pub fn is_machine_global(name: &str) -> bool {
     MACHINE_GLOBAL_VARS.contains(&name)
 }
 
@@ -85,7 +86,7 @@ pub(super) const VARS: [VarSpec; 15] = [
     },
     VarSpec {
         name: "brain_receiver_public_url",
-        description: "Selected workspace's machine-local public receiver base URL. Requirement status reports only whether it is present and never prints it.",
+        description: "This machine's public receiver base URL. Machine-global: every registered workspace shares one origin, and brain serves one `/sms` and one `/email` URL under it, routing each message by the number or address it arrived at. Requirement status reports only whether it is present and never prints it.",
         default: None,
         legacy_config_fallback: false,
     },

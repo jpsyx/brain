@@ -392,6 +392,16 @@ impl LeaseTable {
         self.known_ingresses.get(&ingress_id).copied()
     }
 
+    /// The ingress this process remembers for one workspace, live or expired.
+    ///
+    /// Provider routes select a workspace by the address a message arrived at,
+    /// then resolve it exactly as an ingress-carrying URL used to: a remembered
+    /// ingress is what separates "asleep" from "no such route".
+    #[must_use]
+    pub(crate) fn known_workspace_ingress(&self, workspace_id: WorkspaceId) -> Option<IngressId> {
+        self.known_workspace_ingresses.get(&workspace_id).copied()
+    }
+
     /// Exact authority incarnation for one current workspace lease.
     #[must_use]
     pub(crate) fn authority_revision(

@@ -26,9 +26,9 @@ pub(super) fn run(args: &ReceiverSetupArgs, context: &CommandContext) -> Result<
         interactive_plan(context, args.channels)?
     };
     validate_plan(&mut plan)?;
-    let ingress = selected_ingress(context)?;
+    verify_selected_identity(context)?;
     transaction::persist_plan(&plan, context)?;
-    print_urls(&plan, ingress);
+    print_urls(&plan);
     println!(
         "{}",
         crate::theme::Theme::active().success("receiver configuration saved")
@@ -329,7 +329,12 @@ fn parse_channels(input: &str) -> Result<ReceiverSetupChannels> {
     }
 }
 
-fn selected_ingress(context: &CommandContext) -> Result<crate::server::IngressId> {
+/// Refuse to write provider credentials into a workspace whose portable
+/// identity no longer matches the one that was selected.
+///
+/// The webhook URLs no longer name a workspace, but the credentials this setup
+/// persists still belong to exactly one, so the identity check stays.
+fn verify_selected_identity(context: &CommandContext) -> Result<()> {
     let manifest = crate::workspace::WorkspaceManifest::load(
         context.workspace.root(),
         env!("CARGO_PKG_VERSION"),
@@ -338,12 +343,10 @@ fn selected_ingress(context: &CommandContext) -> Result<crate::server::IngressId
         manifest.workspace_id() == context.workspace.id(),
         "workspace manifest UUID changed during receiver setup"
     );
-    Ok(crate::server::IngressId::from(
-        manifest.receiver_ingress_id(),
-    ))
+    Ok(())
 }
 
-fn print_urls(plan: &SetupPlan, ingress: crate::server::IngressId) {
+fn print_urls(plan: &SetupPlan) {
     let public_url = provider_value(&plan.providers, "brain_receiver_public_url")
         .expect("validated setup includes public URL");
     let theme = crate::theme::Theme::active();
@@ -352,11 +355,7 @@ fn print_urls(plan: &SetupPlan, ingress: crate::server::IngressId) {
             "{}",
             theme.muted(&format!(
                 "Twilio webhook URL: {}",
-                crate::server::receiver::http::receiver_webhook_url(
-                    public_url,
-                    ingress,
-                    Channel::Sms,
-                )
+                crate::server::receiver::http::receiver_webhook_url(public_url, Channel::Sms)
             ))
         );
     }
@@ -365,14 +364,18 @@ fn print_urls(plan: &SetupPlan, ingress: crate::server::IngressId) {
             "{}",
             theme.muted(&format!(
                 "Resend webhook URL: {}",
-                crate::server::receiver::http::receiver_webhook_url(
-                    public_url,
-                    ingress,
-                    Channel::Email,
-                )
+                crate::server::receiver::http::receiver_webhook_url(public_url, Channel::Email)
             ))
         );
     }
+    // The URL names no workspace, so the number and address this setup just
+    // saved are what will route a message to it.
+    println!(
+        "{}",
+        theme.muted(
+            "Both URLs are machine-wide: brain routes each message by the number or address it arrived at."
+        )
+    );
 }
 
 pub(super) const fn sms(channels: ReceiverSetupChannels) -> bool {

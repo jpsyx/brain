@@ -9,19 +9,12 @@ mod support;
 use support::Fixture;
 
 #[test]
-fn noninteractive_setup_silos_provider_values_users_and_ingress_urls() {
+fn noninteractive_setup_silos_provider_values_and_users_under_one_machine_url() {
     let fixture = Fixture::new();
     let personal_manifest_before =
         std::fs::read(WorkspaceManifest::path(fixture.personal.root())).unwrap();
     let family_manifest_before =
         std::fs::read(WorkspaceManifest::path(fixture.family.root())).unwrap();
-    let personal_ingress =
-        WorkspaceManifest::load(fixture.personal.root(), env!("CARGO_PKG_VERSION"))
-            .unwrap()
-            .receiver_ingress_id();
-    let family_ingress = WorkspaceManifest::load(fixture.family.root(), env!("CARGO_PKG_VERSION"))
-        .unwrap()
-        .receiver_ingress_id();
 
     let personal = fixture.run(&[
         "-b",
@@ -90,12 +83,18 @@ fn noninteractive_setup_silos_provider_values_users_and_ingress_urls() {
         String::from_utf8_lossy(&family.stdout),
         String::from_utf8_lossy(&family.stderr)
     );
-    assert!(personal_output.contains(&format!(
-        "https://personal.example.test/w/{personal_ingress}/email"
-    )));
-    assert!(family_output.contains(&format!(
-        "https://family.example.test/w/{family_ingress}/sms"
-    )));
+    // Each setup prints the machine-wide URL for the channel it configured; no
+    // URL names a workspace, so both would be identical on one real machine.
+    assert!(
+        personal_output.contains("https://personal.example.test/email"),
+        "{personal_output}"
+    );
+    assert!(
+        family_output.contains("https://family.example.test/sms"),
+        "{family_output}"
+    );
+    assert!(!personal_output.contains("/w/"), "{personal_output}");
+    assert!(!family_output.contains("/w/"), "{family_output}");
     for secret in ["re_personal_secret", "whsec_personal_secret", "123456"] {
         assert!(!personal_output.contains(secret));
         assert!(!family_output.contains(secret));
@@ -105,17 +104,18 @@ fn noninteractive_setup_silos_provider_values_users_and_ingress_urls() {
     let personal_env = &registry.select(Some("personal")).unwrap().record().env;
     let family_env = &registry.select(Some("family")).unwrap().record().env;
     assert_eq!(personal_env["resend_api_key"], "re_personal_secret");
-    assert_eq!(
-        personal_env["brain_receiver_public_url"],
-        "https://personal.example.test"
-    );
     assert!(personal_env.get("twilio_auth_token").is_none());
     assert_eq!(family_env["twilio_auth_token"], "123456");
+    assert!(family_env.get("resend_api_key").is_none());
+    // The origin is machine-global, so it never lands in a workspace record and
+    // the second setup replaces what the first stored.
+    for env in [personal_env, family_env] {
+        assert!(env.get("brain_receiver_public_url").is_none());
+    }
     assert_eq!(
-        family_env["brain_receiver_public_url"],
+        registry.env["brain_receiver_public_url"],
         "https://family.example.test"
     );
-    assert!(family_env.get("resend_api_key").is_none());
 
     let personal_users = UsersStore::load(&fixture.personal).unwrap();
     let pablo = personal_users

@@ -2038,14 +2038,15 @@ before acting, while immutable status projections only filter them from the
 reported view. The watchdog owns the periodic guarantee: it expires a crashed
 final lease and shuts the process down even when no request arrives.
 
-## Why every HTTP route resolves opaque ingress before workspace state
+## Why every HTTP route resolves an exact workspace before workspace state
 
 Names, roots, defaults, and query parameters are mutable selectors and cannot
-safely identify a workspace at a machine-wide listener. Provider endpoints use
-`/w/<opaque-ingress>/{sms,email}`. Local habits and triage actions use
-`/local/<exact-live-lease>/w/<opaque-ingress>/...`, so a whole-port provider
-tunnel cannot publish local reads or mutations. The pure router parses these
-capabilities before any handler runs.
+safely identify a workspace at a machine-wide listener. Provider endpoints are
+the two machine-wide paths `/sms` and `/email` and resolve their workspace from
+the destination the provider signed (see the next decision). Local habits and
+triage actions use `/local/<exact-live-lease>/w/<opaque-ingress>/...`, so a
+whole-port provider tunnel cannot publish local reads or mutations. The pure
+router parses these capabilities before any handler runs.
 Global, malformed, missing, extra-component, or unknown routes are rejected;
 there is no fallback to the machine default.
 
@@ -2644,11 +2645,12 @@ person, so the corresponding phone or email belongs in that workspace's
 planner requires only the address family selected by the channel and carries
 an explicit inbound-allowed value for headless parity.
 
-The portable manifest is the sole owner of public ingress identity. Setup reads
-its stable UUID to render `/w/<ingress>/<channel>` and never generates or
-rewrites it. Only new workspace initialization creates an ingress; attach,
-rename, alias, and default changes preserve it. This lets every provider URL
-remain stable while mutable machine selectors change.
+The portable manifest remains the sole owner of ingress identity, which now
+serves local capability URLs and lease routing rather than any provider URL.
+Only new workspace initialization creates an ingress; attach, rename, alias, and
+default changes preserve it. Provider URLs are stable for a different reason:
+there is one per channel for the machine, and it is derived from the
+machine-global public origin alone.
 
 Guided and headless input converge on one validation boundary before any
 write. A public base is an HTTPS origin rather than an arbitrary concatenated
@@ -2919,9 +2921,17 @@ auto-discovery ran per workspace, so the answer was stored once per workspace,
 `brain env` listed the same path under every block as if each owned its own, and
 a user who fixed the path in one workspace still had a stale one in the next.
 
+`brain_receiver_public_url` joined it in v4. It was per-workspace only because
+each workspace's webhook URL used to carry its own ingress path; once one
+machine-wide URL per channel replaced that, a second answer for the origin would
+mean a second URL, which is exactly what the change removed.
+
 So schema v3 adds a top-level `env` map for values scoped to the machine, and
 the env layer routes reads and writes by scope
-(`env::schema::MACHINE_GLOBAL_VARS`). The question that decides scope is in
+(`env::schema::MACHINE_GLOBAL_VARS`); v4 hoists one more key through the same
+rewrite. Because `-w` is accepted on every env command, a machine-global write
+also *says* it landed once for the whole machine, rather than letting the
+selector imply a scope it does not have. The question that decides scope is in
 [config.md](config.md#deciding-which-store-owns-a-new-variable) as 2a: *could
 two workspaces on the same machine sensibly hold different values?*
 
@@ -3539,7 +3549,10 @@ workspace re-reading `brain env get` for a value brain already knew.
 
 `brain receiver email` and `brain receiver phone` print exactly that value,
 bare and unstyled on stdout, because the point of naming a channel is to pipe
-the answer into something else. A missing address is an error that names the
+the answer into something else. Routing by destination made the value load-
+bearing as well as publishable — it is what selects this workspace out of every
+workspace sharing the machine's one URL — which is one more reason the owner
+gets to read it rather than only confirm it exists. A missing address is an error that names the
 variable and both ways to set it, mirroring `receiver url`'s missing-origin
 message rather than printing an empty line. The three real secrets
 (`twilio_auth_token`, `resend_api_key`, `resend_webhook_signing_secret`) are
@@ -3550,10 +3563,12 @@ it.
 
 Every other receiver subcommand acts on the selected workspace, which is
 correct for a mutation: enabling ingress for the wrong workspace is a real
-mistake. But one machine hosts several workspaces, each with its own providers,
-public URL, and ingress UUID, and the question the bare command answers — what
-is my receiver set up as — is almost never about exactly one of them. So bare
-`brain receiver` reports every registered workspace and `-w` narrows it, the
+mistake. But one machine hosts several workspaces, each with its own providers
+and published addresses, and the question the bare command answers — what is my
+receiver set up as — is almost never about exactly one of them. So bare
+`brain receiver` opens with the machine's own webhook URLs, which belong to no
+workspace, then reports every registered workspace and lets `-w` narrow those
+blocks, the
 same shape `brain workspace list` already uses, down to sharing its
 `workspace::peer_context` helper for building a read-only context per record.
 
@@ -3660,3 +3675,47 @@ The fallbacks stay narrow and unchanged. A sole member is still adopted with no
 prompt at all, headless still errors with the exact repair commands, and a
 roster that cannot be read falls back to the plain ID prompt — readiness repair
 is the last thing that should fail.
+
+## One receiver URL per machine, routed by the address the message arrived at
+
+Every workspace's webhook URL used to carry its own opaque ingress:
+`https://host/w/<ingress>/sms`. That made the URL self-selecting, which is why it
+was built that way. It also made the URL the thing a user had to keep straight.
+Setting up a second workspace meant fetching a second pair of URLs, pasting a
+different one into each provider portal, and never mixing them up — while the
+Twilio number and Resend address *already* differed per workspace and already
+identified them unambiguously. The ingress in the path was a second identity for
+a question the payload had already answered.
+
+So there is now one URL per channel for the whole machine, `<public-url>/sms` and
+`<public-url>/email`, and the workspace is selected from the destination the
+provider names: Twilio's `To` against `twilio_from_number`, a Resend payload's
+`to`/`cc` against `resend_from_email`. One portal entry per channel, for every
+workspace, forever. `brain_receiver_public_url` became machine-global in the same
+change, because "one URL" and "a per-workspace origin" cannot both be true.
+
+**Routing reads the payload before the signature is verified, and that is safe.**
+It has to: with no identity in the path, the destination is only knowable from
+the body. What the unverified destination buys is exactly one thing — which
+workspace's signing credential the request is then checked against. A forged
+request naming another workspace's number still has to carry that workspace's
+own valid signature, so it is rejected exactly as an ingress-scoped forgery was.
+Nothing is read, loaded, or delivered on the strength of the unverified value.
+
+The one gap that argument leaves is a machine whose workspaces share a provider
+account, and therefore share a signing credential: there, a signature alone
+cannot tell two workspaces apart. So after verification, brain re-checks the
+now-authenticated destination against the routed workspace's own published
+address (`confirm_destination`). That also closes the narrower race where the
+registry changes between routing and credential load. Two workspaces publishing
+one address is refused outright as ambiguous rather than delivered to whichever
+sorted first: guessing there would hand one workspace another's private message.
+
+**What this costs.** A provider request's body is now read before brain knows
+whether any workspace answers, so an unavailable or unknown destination no longer
+rejects before body IO — only local routes still do. The read stays bounded by
+the same 1 MiB limit and the same connection deadline, and the control loop keeps
+answering while a body is outstanding, which is the property that actually
+mattered. The ingress itself is not gone: it still identifies local
+capability URLs and remains the lease-table key a routed provider request
+resolves through.

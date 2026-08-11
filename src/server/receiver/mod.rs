@@ -4,6 +4,7 @@ mod attachments;
 pub(crate) mod dispatch;
 pub(crate) mod http;
 mod job;
+pub(crate) mod routing;
 mod transport;
 mod unavailable;
 

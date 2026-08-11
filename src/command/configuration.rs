@@ -267,11 +267,20 @@ fn env_value_prompt(name: &str) -> String {
 }
 
 fn env_set_confirmation(name: &str, value: &str, theme: crate::theme::Theme) -> String {
-    if crate::env::is_sensitive(name) {
+    let confirmation = if crate::env::is_sensitive(name) {
         format!("{} saved", theme.accent(name))
     } else {
         crate::settings::set_confirmation(name, value, theme)
+    };
+    // `-w` is accepted on every env command, so a machine-global write must say
+    // that it landed once for the whole machine rather than in that workspace.
+    if crate::env::is_machine_global(name) {
+        return format!(
+            "{confirmation}\n{}",
+            theme.muted("machine-global: every registered workspace reads this one value")
+        );
     }
+    confirmation
 }
 
 fn persona_set_interactive(
@@ -381,6 +390,26 @@ mod tests {
             "Set default_agent_frontend (claude | codex | opencode) = "
         );
         assert_eq!(super::env_value_prompt("claude_cmd"), "Set claude_cmd = ");
+    }
+
+    #[test]
+    fn a_machine_global_env_confirmation_says_it_landed_for_the_whole_machine() {
+        let confirmation = env_set_confirmation(
+            "brain_receiver_public_url",
+            "https://brain.example.test",
+            crate::theme::Theme::dark(false),
+        );
+
+        assert!(
+            confirmation.contains("https://brain.example.test"),
+            "{confirmation}"
+        );
+        assert!(confirmation.contains("machine-global"), "{confirmation}");
+        // A workspace-scoped variable says nothing of the kind.
+        assert!(
+            !env_set_confirmation("claude_cmd", "claude", crate::theme::Theme::dark(false))
+                .contains("machine-global")
+        );
     }
 
     #[test]

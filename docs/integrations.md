@@ -111,10 +111,13 @@ helpers and shell-outs live in the tasks modules:
   no-op that mutates nothing when `enable_triage_habits` is off. The native
   equivalent of `apply_sync_rules.py --complete-managed-triage`.
 - **Receiver server** - the machine-wide TUI-lifetime process accepts
-  `POST /w/<selected-ingress>/sms` and
-  `POST /w/<selected-ingress>/email` only for an enabled workspace with a live
-  lease. Ingress resolution precedes all workspace provider and user reads.
-  Twilio requests must pass the exact URL/form HMAC and SMS sender allowlist.
+  `POST /sms` and `POST /email`, two machine-wide paths that name no workspace,
+  only for an enabled workspace with a live lease. The workspace is selected
+  from the destination the provider named (Twilio's `To`, a Resend payload's
+  `to`/`cc`) matched against each registered workspace's own
+  `twilio_from_number` / `resend_from_email`; that selection precedes all
+  workspace provider and user reads. Twilio requests must pass the exact
+  URL/form HMAC — over the one machine-wide URL — and the SMS sender allowlist.
   Resend requests must pass the official `v1,<signature>` Svix verification, a
   five-minute timestamp window, and the email sender allowlist. Inbound
   addresses arrive as RFC 5322 mailboxes, so the sender and every thread
@@ -516,9 +519,11 @@ closes the persistence-to-control-refresh race without changing ingress-first
 routing.
 
 For every HTTP request, the pure router first parses an exact typed provider
-`/w/<ingress>/{sms,email}` route or local
-`/local/<lease>/w/<ingress>/...` capability route. The shared process then captures a generation-bound
-ticket for the exact accepting lease. Only that ticket permits registry, root,
+`/{sms,email}` route or local `/local/<lease>/w/<ingress>/...` capability route.
+A provider route then resolves its workspace from the destination inside the
+already-read body (`server::receiver::routing`), which yields the ingress this
+process remembers for that workspace. The shared process then captures a
+generation-bound ticket for the exact accepting lease. Only that ticket permits registry, root,
 manifest, or workspace-runtime selection. Those filesystem checks occur
 without holding the control-state mutex, and the process revalidates the same
 live authority incarnation after loading before returning a context. Ordinary
@@ -790,12 +795,16 @@ required for receiver jobs: it records the completed assistant response so the
 TUI can deliver it over SMS or email without exposing the full thinking trace.
 
 Receiver setup stores provider credentials in the selected workspace's record
-in the machine-local brain env store. Enter the public base URL only, for
-example `https://brain.example.com`; the Twilio portal receives
-`https://brain.example.com/w/<selected-ingress>/sms` and the Resend portal
-receives `https://brain.example.com/w/<selected-ingress>/email`. Twilio signs the exact SMS URL, so the
-receiver derives that path before verification. Ordinary provider resolution
-uses only that selected record; Brain does not treat process-level `TWILIO_*`,
+in the machine-local brain env store, and the public base URL in that store's
+machine-global map, because one machine serves one origin. Enter the public base
+URL only, for example `https://brain.example.com`; the Twilio portal receives
+`https://brain.example.com/sms` and the Resend portal receives
+`https://brain.example.com/email`. Both are the same for every workspace on the
+machine: brain routes each inbound message by the number or address it arrived
+at, so a workspace is distinguished by its `twilio_from_number` /
+`resend_from_email`, never by its URL. Twilio signs the exact SMS URL, so the
+receiver rebuilds that one path before verification. Ordinary provider
+resolution uses the selected record plus that machine-global origin; Brain does not treat process-level `TWILIO_*`,
 `RESEND_*`, or `BRAIN_RECEIVER_PUBLIC_URL` values as runtime overrides. Secret
 values are redacted by `brain env list` and `brain env get`.
 The same pre-write validator serves guided and headless setup. It accepts only

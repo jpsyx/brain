@@ -98,12 +98,14 @@ impl std::error::Error for DispatchHttpError {}
 pub(in crate::server) fn dispatch_http(
     route: crate::server::workspace_route::ResolvedWorkspaceRoute,
     request: &mut crate::server::http::Request,
+    body: &[u8],
     control: &std::sync::Mutex<crate::server::control::ControlServer>,
     channel: super::Channel,
 ) -> Result<InboundJob, DispatchHttpError> {
     let mut pipeline = SharedReceiverPipeline {
         route: Some(route),
         request,
+        body,
         control,
         channel,
         handoff_deadline: None,

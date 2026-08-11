@@ -8,7 +8,10 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
-use super::provider_request::{post, signed_email_event, signed_received_email_event, signed_sms};
+use super::provider_request::{
+    PERSONAL_EMAIL, PERSONAL_PHONE, PUBLIC_URL, post, signed_email_event,
+    signed_received_email_event, signed_sms,
+};
 use super::{FAMILY_ID, PERSONAL_ID, poll_until};
 
 #[path = "fixture_support.rs"]
@@ -77,8 +80,12 @@ impl SharedReceiverFixture {
                         serde_json::json!("personal-token"),
                     ),
                     (
-                        "brain_receiver_public_url".to_owned(),
-                        serde_json::json!("https://receiver.example.test"),
+                        "twilio_from_number".to_owned(),
+                        serde_json::json!(PERSONAL_PHONE),
+                    ),
+                    (
+                        "resend_from_email".to_owned(),
+                        serde_json::json!(PERSONAL_EMAIL),
                     ),
                     (
                         "resend_webhook_signing_secret".to_owned(),
@@ -99,7 +106,12 @@ impl SharedReceiverFixture {
             schema_version: brain::workspace::REGISTRY_SCHEMA_VERSION,
             default_workspace: name,
             workspaces,
-            env: serde_json::Map::new(),
+            // The public origin is machine-global: one URL per channel serves
+            // every workspace registered here.
+            env: serde_json::Map::from_iter([(
+                "brain_receiver_public_url".to_owned(),
+                serde_json::json!(PUBLIC_URL),
+            )]),
         };
         let store =
             brain::workspace::RegistryStore::from_path(home.path().join(".config/brain/env.json"));
@@ -202,7 +214,7 @@ impl SharedReceiverFixture {
         post(
             self.port,
             &signed_sms(
-                self.ingress,
+                PERSONAL_PHONE,
                 "personal-token",
                 provider_id,
                 prompt,
@@ -214,7 +226,13 @@ impl SharedReceiverFixture {
     pub fn post_sms_from(&self, provider_id: &str, prompt: &str, sender: &str) -> String {
         post(
             self.port,
-            &signed_sms(self.ingress, "personal-token", provider_id, prompt, sender),
+            &signed_sms(
+                PERSONAL_PHONE,
+                "personal-token",
+                provider_id,
+                prompt,
+                sender,
+            ),
         )
     }
 
@@ -224,7 +242,7 @@ impl SharedReceiverFixture {
         prompt: &str,
     ) -> std::sync::mpsc::Receiver<String> {
         let request = signed_sms(
-            self.ingress,
+            PERSONAL_PHONE,
             "personal-token",
             provider_id,
             prompt,
@@ -239,7 +257,7 @@ impl SharedReceiverFixture {
     }
 
     pub fn post_email_without_credentials(&self) -> String {
-        let request = signed_email_event(self.ingress, b"wrong-secret", "unsigned", "invalid");
+        let request = signed_email_event(PERSONAL_EMAIL, b"wrong-secret", "unsigned", "invalid");
         post(self.port, &request)
     }
 
@@ -247,7 +265,7 @@ impl SharedReceiverFixture {
         post(
             self.port,
             &signed_email_event(
-                self.ingress,
+                PERSONAL_EMAIL,
                 b"personal-resend-secret",
                 "unavailable-webhook",
                 "email.received",
@@ -259,7 +277,7 @@ impl SharedReceiverFixture {
         post(
             self.port,
             &signed_received_email_event(
-                self.ingress,
+                PERSONAL_EMAIL,
                 b"personal-resend-secret",
                 "unavailable-replay-webhook",
                 "email-for-unavailable-replay",
@@ -275,7 +293,7 @@ impl SharedReceiverFixture {
         post(
             self.port,
             &signed_email_event(
-                self.ingress,
+                PERSONAL_EMAIL,
                 b"personal-resend-secret",
                 "permanent-webhook",
                 "email.received",
@@ -287,7 +305,7 @@ impl SharedReceiverFixture {
         post(
             self.port,
             &signed_email_event(
-                self.ingress,
+                PERSONAL_EMAIL,
                 b"personal-resend-secret",
                 "ignored-webhook",
                 "email.delivered",
@@ -298,8 +316,7 @@ impl SharedReceiverFixture {
     pub fn post_oversized_sms(&self) -> String {
         const OVERSIZED: usize = 1024 * 1024 + 1;
         let request = format!(
-            "POST /w/{}/sms HTTP/1.1\r\nHost: localhost\r\nContent-Length: {OVERSIZED}\r\nConnection: close\r\n\r\n",
-            self.ingress,
+            "POST /sms HTTP/1.1\r\nHost: localhost\r\nContent-Length: {OVERSIZED}\r\nConnection: close\r\n\r\n"
         );
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
         stream

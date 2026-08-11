@@ -35,8 +35,12 @@ pub fn requirements(command: &CommandContext) -> Result<Vec<Requirement>> {
     );
     let env = &selected.record().env;
     let (sync_status, watcher_status) = super::sync::statuses(env.get("sync"));
-    let (receiver_status, sms_status, email_status) =
-        super::receiver::statuses(selected.record().receiver_enabled, env, users.as_ref().ok());
+    let (receiver_status, sms_status, email_status) = super::receiver::statuses(
+        selected.record().receiver_enabled,
+        env,
+        &registry.env,
+        users.as_ref().ok(),
+    );
 
     let mut rows = vec![
         Requirement::required(

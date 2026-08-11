@@ -3,6 +3,18 @@ use std::collections::{BTreeSet, HashMap};
 use super::{AuthenticatedInbound, ProviderConfig, ProviderError};
 use crate::server::receiver::{AttachmentRef, Channel};
 
+/// The number a Twilio message was sent to, from the unverified form body.
+///
+/// Twilio names it `To`; it is the workspace's own Twilio number, which is what
+/// routing matches against.
+pub(super) fn destinations(body: &[u8]) -> Vec<String> {
+    parse_form(body)
+        .ok()
+        .and_then(|fields| fields.get("To").cloned())
+        .into_iter()
+        .collect()
+}
+
 pub(super) fn authenticate(
     request: &crate::server::http::Request,
     body: &[u8],
@@ -26,7 +38,7 @@ pub(super) fn authenticate(
     let signature = request.header("x-twilio-signature").unwrap_or_default();
     if !crate::server::security::verify_twilio(
         &config.twilio_auth_token,
-        &super::receiver_webhook_url(&config.public_base_url, config.ingress_id, Channel::Sms),
+        &super::receiver_webhook_url(&config.public_base_url, Channel::Sms),
         &sorted,
         signature,
     ) {
@@ -128,26 +140,34 @@ mod tests {
 
     #[test]
     fn twilio_query_strings_are_rejected_before_authentication() {
-        assert!(super::twilio_url_is_exact(
-            "/w/4ea7480a-bd86-47ec-9372-9f765ac2113a/sms"
-        ));
-        assert!(!super::twilio_url_is_exact(
-            "/w/4ea7480a-bd86-47ec-9372-9f765ac2113a/sms?unexpected=1"
-        ));
+        assert!(super::twilio_url_is_exact("/sms"));
+        assert!(!super::twilio_url_is_exact("/sms?unexpected=1"));
     }
 
     #[test]
-    fn signature_url_contains_the_selected_ingress() {
-        let ingress =
-            crate::server::IngressId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap();
+    fn the_signed_url_is_the_one_machine_wide_sms_url() {
+        // Twilio signs the literal URL it was configured with, and that URL now
+        // names no workspace at all.
         assert_eq!(
             super::super::receiver_webhook_url(
                 "https://receiver.example/",
-                ingress,
                 crate::server::receiver::Channel::Sms,
             ),
-            format!("https://receiver.example/w/{ingress}/sms")
+            "https://receiver.example/sms"
         );
+    }
+
+    #[test]
+    fn the_routed_destination_is_the_number_twilio_delivered_to() {
+        let destinations = super::destinations(b"Body=hello&From=%2B12125550100&To=%2B13105550111");
+
+        assert_eq!(destinations, ["+13105550111"]);
+    }
+
+    #[test]
+    fn a_form_without_a_destination_routes_nowhere() {
+        assert!(super::destinations(b"Body=hello&From=%2B12125550100").is_empty());
+        assert!(super::destinations(b"not a form").is_empty());
     }
 
     #[test]
