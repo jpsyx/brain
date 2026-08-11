@@ -1,5 +1,8 @@
 //! Channel-specific final-response shaping.
 
+mod plain_text;
+
+pub use plain_text::strip_markdown;
 use serde::Serialize;
 
 pub const SMS_LIMIT: usize = 480;
@@ -11,9 +14,13 @@ pub struct ReplyEnvelope {
     pub long_form_available: bool,
 }
 
+/// Shape the final SMS body. Markup is removed *before* the length decision:
+/// a phone renders none of it, so it must not consume the budget or trigger a
+/// needless "ask for a longer reply".
 #[must_use]
 pub fn sms(text: &str) -> ReplyEnvelope {
-    let clean = text.trim();
+    let plain = strip_markdown(text);
+    let clean = plain.as_str();
     if clean.chars().count() <= SMS_LIMIT {
         return ReplyEnvelope {
             channel: "sms",
@@ -84,6 +91,27 @@ pub fn completion_matches_actor(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sms_is_stripped_of_markup_a_phone_cannot_render() {
+        let reply = sms("## Today\n\n- **Rent** is due\n- see [the invoice](https://example.test/a)");
+        assert_eq!(
+            reply.text,
+            "Today\n\n- Rent is due\n- see the invoice (https://example.test/a)",
+            "SMS carries no markup, so the markers are wasted characters"
+        );
+    }
+
+    #[test]
+    fn markup_is_removed_before_the_limit_is_measured() {
+        let padded = format!("**{}**", "x".repeat(SMS_LIMIT));
+        let reply = sms(&padded);
+        assert!(
+            !reply.long_form_available,
+            "the four asterisks must not be what pushes a reply over the limit"
+        );
+        assert_eq!(reply.text.chars().count(), SMS_LIMIT);
+    }
 
     #[test]
     fn sms_stays_within_the_medium_limit() {

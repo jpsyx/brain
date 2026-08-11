@@ -1384,7 +1384,11 @@ interactive lifecycle completions are still polled, a same-channel message
 reuses the warm PTY, and another channel replaces it only after work finishes.
 `tui/app_sync.rs` holds inbound dispatch behind a pull when downstream state is
 more than two hours old and exposes current sync state to the footer and
-palette. Failed PTY launches retain the message for a backoff retry. Provider replies are handed
+palette. Failed PTY launches retain the message for a backoff retry. Every
+channel's final body is shaped by `server/reply/`, whose `plain_text/`
+submodules (`block.rs` for line-level scaffolding, `inline.rs` for spans) are a
+pure markdown-to-plain-text pass applied to SMS before the length decision;
+email keeps its markdown. Provider replies are handed
 to the bounded background worker in `server/delivery.rs`, keeping network
 latency off the TUI event loop. Receiver bodies are capped at 1 MiB by the
 shared parser, and the shared fixed worker set prevents one slow provider call
