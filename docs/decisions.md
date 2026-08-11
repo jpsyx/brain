@@ -1492,22 +1492,24 @@ startup; changing personalization takes effect on the next launch.
 
 ## Why bundled skills are embedded in the binary (`include_dir`)
 
-brain is meant to be cloned and used by anyone, and its skills must work in *any*
-agent session, not just inside the repo. Embedding the `skills/` dir into the
+brain is meant to be cloned and used by anyone, and its skills must be available
+to every supported agent frontend opened in the selected brain root. Embedding
+the `skills/` dir into the
 binary with `include_dir` makes it self-contained: `brain skills sync` writes the
 skills out wherever they're needed, so a user who `cargo install`s brain (or
 moves the binary) still gets them. `include_str!` can't carry a skill's multiple
 files (SKILL.md + scripts), which is why the one dependency is justified.
 
-## Why the skill install is a two-hop link (registry → built)
+## Why bundled skills are project-scoped
 
-`brain skills sync` writes a built copy, links `~/.agents/skills/<name>` at it,
-then links each frontend's skills dir at that registry entry. This mirrors the
-fan-out shape a dotfiles manager already uses for its own skills, so brain-owned
-skills sit in the same shared registry every frontend reads — and so brain and a
-dotfiles manager can coexist on one machine once the dotfiles manager stops
-pruning brain-owned entries (the B4 bridge). The link *targets* are a pure
-function (`layout::link_ops`), unit-tested; the FS shell (`install`) stays thin.
+`brain skills sync` writes rendered skills directly to
+`<brain-root>/.agents/skills/<name>`, then links each project frontend's
+`.claude/skills`, `.codex/skills`, and `.opencode/skills` entry to that copy.
+Brain no longer writes `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`,
+or any other machine-global frontend registry. This keeps skills aligned with
+the selected workspace and prevents one brain workspace from changing another
+project's agent behavior. The link targets are a pure function
+(`layout::link_ops`), unit-tested; the filesystem shell (`install`) stays thin.
 
 ## Why skill auto-sync had a rollout gate (historical; default now on)
 
@@ -1517,8 +1519,9 @@ ready. The B4 cutover completed that ownership transition and activated the
 same seam.
 
 `skills_auto_sync` now defaults to `true`: config/personalize mutations and the
-first ready-workspace invocation after a version change render the live
-registry. Setting it `false` leaves only explicit `brain skills sync`.
+first ready-workspace invocation after a version change render the selected
+workspace's `.agents/skills` directory. Setting it `false` leaves only explicit
+`brain skills sync`.
 
 ## Why a version-stamped auto-resync (a brain update must ship skill changes)
 
@@ -1606,18 +1609,18 @@ requires all of them to finish and merge their output into the run's output
 before Step 9.
 
 **Gating the tab-close on the run's declared outputs (extension-agnostic).**
-The daily-triage tab used to close the instant the `/triage` skill POSTed its
+The daily-triage tab used to close the instant the run POSTed its
 one-time token, and in practice the model fired that POST as soon as the *task*
 passes finished — before an extension's printable/PDF was baked — so the tab
 died mid-bake and the output never landed. The tempting fix (have the code wait
 for the PDF) is exactly wrong here: the agenda, the markdown, and `~/Downloads`
 are all a *user extension's* concern (`triage:daily-merge`), and the core skill +
-`triage_signal.rs` must assume **nothing** about whether any such extension
+`skill_session/signal.rs` must assume **nothing** about whether any such extension
 exists or what files it writes. So the fix is a generic contract: the completion
 POST carries a `require` list of output paths *the run itself declared* (an
 extension supplies them at `triage:daily-required-outputs`; core supplies none),
-and `App::tick_triage_done` holds the signal and refuses to close until every
-listed path exists (`triage_signal::ready_to_close`, pure). An empty list —
+and `App::tick_skill_sessions` holds the signal and refuses to close until every
+listed path exists (`skill_session::signal::ready_to_close`, pure). An empty list —
 the no-extension / fork case — closes immediately, identical to the old
 behavior. This is the reference case for the extension-agnostic rule now written
 into [AGENTS.md](../AGENTS.md): skill-related code and core skill text may assume
@@ -1627,11 +1630,10 @@ Keeping personal tokens out of a bundled skill is a **review step, not an
 automated test** — see "Why there is no automated personal-data guard test"
 below.
 
-Cross-skill script calls (todo's `find_chronic_ignored.py`, …)
-standardized on the install-registry path `~/.agents/skills/todo/scripts/<name>.py`
-rather than the old `~/global-skills/...` (dotfiles-manager-owned) or
-`~/.claude/skills/...` (one-frontend) forms: that path is frontend-agnostic and is exactly where
-`brain skills sync` installs the `todo` skill, so it resolves for any cloner.
+Cross-skill script calls (todo's `find_chronic_ignored.py`, …) use the selected
+workspace path `$BRAIN_ROOT/.agents/skills/todo/scripts/<name>.py`. This keeps
+the bundled skills frontend-agnostic while ensuring each brain root carries its
+own complete skill set.
 
 ## Why second-brain split into a lean core + a `/contacts` skill + a `zotero-sync` plugin
 
@@ -1718,21 +1720,21 @@ non-obvious; the function name + these docs carry the *what*. This repo is
 not under git, so there's no PR review, no `.difit/` log, and no changelog
 file — `docs/` is the durable record.
 
-## B4 — the dotfiles-manager bridge + live cutover (ownership boundary, prune-safety, rollback)
+## B4 — historical shared-registry cutover (superseded)
 
-The B1–B3 pipeline was proven only in a sandbox; B4 is the one phase allowed to
-touch the live agent registry. The cutover flips the six migrated skills
+The B1–B3 pipeline was proven only in a sandbox; B4 was the phase that was
+allowed to touch the live agent registry. The cutover flipped the six migrated skills
 (`article-summarizer`, `brain-knowledge-capture`, `contacts`, `second-brain`,
 `todo`, `triage`) plus two plugins (`zotero-sync`, `linear-sync`) from
 dotfiles-manager-owned to brain-owned, and makes the dotfiles manager delegate to
 `brain skills sync` without ever pruning what brain owns.
 
-This section describes the general shape of the cutover for anyone whose skills
+This section describes the historical shape of the cutover for anyone whose skills
 are currently owned by a symlink-based dotfiles manager. Brain itself knows
 nothing about any such tool; all the coordination is on the dotfiles-manager
 side.
 
-**The ownership boundary is the link target, not a manifest file.** A registry
+**Historical ownership boundary.** A registry
 or frontend skill link is *brain-owned* iff it (transitively) resolves under
 brain's built dir (`$XDG_DATA_HOME/brain/skills` or `~/.local/share/brain/skills`).
 Dotfiles-manager-owned links resolve into its own sources (typically a
@@ -2373,52 +2375,85 @@ JSON), rows are sorted deterministically (projects by name, resources by
 directory), and output is LF-terminated to match `tasks.csv`/`habits.csv` and the
 `csv_merge` writer (the pre-existing lookup files were stray CRLF).
 
-## The daily-triage tab: a dedicated ephemeral slot + a flag-file bridge
+## Skill sessions: N ephemeral single-prompt tabs + a per-token flag-file bridge
 
 Daily triage can be long and interactive, so running it inline in the main brain
 session blocked everything else until it finished. We moved it into its own
-brain-panel **tab** (`Alt+1` main / `Alt+2` daily triage) so the pass runs as a
-background task.
+brain-panel **tab** so the pass runs as a background task — and then generalized
+that one tab into **skill sessions**, because daily triage is not the only long
+prompt a user wants out of their main session (a personal `/email-triage` pass is
+the motivating second case).
 
-**Why a dedicated `triage_brain` slot, not a general
-`Vec<AgentController>` of sessions.** The requirement was explicitly narrow:
-users must *not* be able to spawn arbitrary sessions; a second session may
-exist *only* for daily triage. A dedicated `Option<AgentController>` plus a
-two-variant `BrainTab` models exactly that, keeps receiver/session state
-centered on the dedicated `App.brain` controller, and cannot grow into an
-unbounded tab manager by accident. Generalizing to N sessions would have been
-a much larger refactor for capability we deliberately do not want.
+**Why a general list now, when a dedicated `triage_brain` slot was the earlier
+decision.** The original constraint was that a user must not be able to spawn
+*arbitrary* sessions, which a dedicated `Option<AgentController>` plus a
+two-variant `BrainTab` modelled exactly. What changed is not that constraint but
+where it is enforced: sessions are still not arbitrary — each one must be a
+**declared definition**, either the builtin daily triage or an entry in the
+workspace's `skill_sessions` env array, and a definition already running offers no
+way to start again. So the set of possible sessions stays finite, named, and
+inspectable, while `App.skill_sessions: Vec<SkillSessionTab>` allows the several
+*different* long runs a user really does want in parallel. Receiver and session
+state stay centered on the dedicated `App.brain` controller exactly as before.
 
-**Why the session is untracked.** The triage tab is ephemeral by construction.
-`App::open_triage_tab` builds an `AgentController` from a `LaunchRequest` whose
-hook metadata carries only `BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`.
-The adapter adds the common workspace identity and agent kind, but the request
-has no instance ID, state DB, or response ID. The session-start bridge therefore
-never records it, and it is never a resume candidate. If the shell closes
-mid-triage the session is lost and the startup nudge simply fires again next
-launch, which is the desired behavior.
+**Why definitions are env, not portable config.** A skill session names a prompt
+whose skill must actually be installed on *this* machine (`/email-triage` is a
+personal global skill, not a brain-bundled one). A definition that travelled to a
+machine where the skill is absent would offer a palette row that fails, so the
+list is machine-local brain env, alongside the other "what can this machine
+actually run" values.
+
+**Why a tab identity rather than a list index or a definition key.** A tab is
+addressed by a monotonic `SessionTabId`. An index would let closing one tab
+silently repoint the active tab at another; a `SkillSessionKey` would break if the
+user edited `skill_sessions` while a session was running. The id survives both.
+The `Alt+<digit>` slots and the `Alt+[` / `Alt+]` cycle are both derived from one
+pure `tab_order`, so the two can never disagree about which tab is second.
+
+**Why the session is untracked.** A skill-session tab is ephemeral by
+construction. `App::open_skill_session` builds an `AgentController` from a
+`LaunchRequest` whose hook metadata carries only `BRAIN_SESSION_DONE_URL` and
+`BRAIN_SESSION_TOKEN`. The adapter adds the common workspace identity and agent
+kind, but the request has no instance ID, state DB, or response ID. The
+session-start bridge therefore never records it, and it is never a resume
+candidate. If the shell closes mid-run the session is lost and the user simply
+starts it again (and the startup nudge fires again next launch for daily triage),
+which is the desired behavior — resuming a half-finished single-prompt run is not
+something a user can reason about.
+
+**Why the completion protocol is appended to the prompt.** Daily triage could
+carry its POST instruction inside the bundled `/triage` skill because brain owns
+that text. brain owns none of a user's own skills, so the protocol travels with
+the prompt instead: `skill_session::prompt::launch_prompt` appends the POST
+instruction, the env var names, and the `require` convention to whatever prompt was
+configured. Any skill therefore participates unmodified, and there is exactly one
+protocol rather than one per skill.
 
 **Why a completion signal instead of idle-detection, and why via the brain
-server.** "The agent went idle" is unreliable because a triage pass asks the
-user questions. The `/triage` skill therefore POSTs an explicit completion
-signal (with a one-time token) once the pass truly ends. It targets the shared
-process already attached to the live TUI; opening a triage tab never elects or
-starts a server independently. A localhost `POST
-/local/<exact-live-lease>/w/<selected-ingress>/triage/done` carries the exact
-live TUI's capability and matches the local habits-completion precedent.
-Because the server
-is a *separate process* from the TUI, the signal crosses on disk
-(`<workspace-cache>/triage-done.json`) and the matching TUI polls it in its
-existing per-tick
-loop, the same poll-of-disk pattern the triage nudge and receiver responses
-already use. The token guard prevents a stale signal from closing a fresh tab.
+server.** "The agent went idle" is unreliable because these passes ask the user
+questions. The run therefore POSTs an explicit completion signal (with a one-time
+token) once it truly ends. It targets the shared process already attached to the
+live TUI; opening a tab never elects or starts a server independently. A localhost
+`POST /local/<exact-live-lease>/w/<selected-ingress>/session/done` carries the
+exact live TUI's capability and matches the local habits-completion precedent.
+Because the server is a *separate process* from the TUI, the signal crosses on
+disk and the matching TUI polls it in its existing per-tick loop, the same
+poll-of-disk pattern the triage nudge and receiver responses already use.
+
+**Why one signal file per token.** With several sessions open, a single
+`triage-done.json` would let whichever run finished first close whatever tab was
+listening. Signals are therefore `<workspace-cache>/skill-sessions/<token>.json`
+and each tab reads only its own. Since the token names a file and arrives in an
+HTTP body, `signal::parse_signal` rejects anything that isn't a safe file name
+before it can reach the file system, and the shell clears the whole directory at
+startup so a signal orphaned by a crashed run can't close a later tab.
 
 ## Palette commands carry a per-command `is_visible` predicate
 
 Command-palette visibility used to be a single growing `match` in
 `PaletteState::scoped` that special-cased each conditional command inline
 (`CloseBrain` needs a panel, the receiver rows need a running/stopped server,
-the notes/links rows need notes/links). Adding the daily-triage tab-switch rows
+the notes/links rows need notes/links). Adding the brain-panel tab-switch rows
 would have meant extending that match yet again.
 
 Instead each `PaletteCommand` now carries an `is_visible: fn(&PaletteState) ->
@@ -2429,14 +2464,24 @@ conditional logic lives next to the command it governs, new conditional commands
 are a one-line predicate, and `PaletteState` is the single snapshot of TUI state
 the predicates read, seeded at open time from the relevant `App` fields.
 
-**Why the tab-switch commands exist at all.** `Alt+1` / `Alt+2` are the intended
+**Why the tab-switch commands exist at all.** `Alt+1` / `Alt+<n>` are the intended
 tab switches, but terminal `Alt+digit` handling is unreliable — many terminals
 can't distinguish `Alt+1` from a bare `1`, and the encoding varies by terminal
 and keyboard layout. In a TUI where a focused brain panel forwards every key to
 the child agent, the *reliable* app-level surface is the command palette
-(`Ctrl+P` → filter → Enter), so **Show main brain session** / **Show daily
-triage session** are the works-anywhere path; the Alt chords remain as a bonus
-where the terminal supports them.
+(`Ctrl+P` → filter → Enter), so **Show main brain session** and the per-tab
+**Show \<title\> session** rows are the works-anywhere path; the Alt chords remain
+as a bonus where the terminal supports them.
+
+**Why palette rows became owned values.** The row list used to be
+`Vec<&'static PaletteCommand>` straight off the const table. A workspace's skill
+sessions contribute rows whose labels come from its own env, which cannot be
+`&'static`, so `PaletteState::rows` now builds owned `PaletteRow` values (number,
+label, action, shortcut) and splices the skill-session rows into the brain-tab
+group. The const table still fixes the order of everything brain declares itself,
+and the start rows are omitted for sessions already running — the same pure
+`skill_session::runnable` decision that the tab list is derived from, so a row can
+never disagree with the tabs that exist.
 
 ## Portable-user removal uses a recovery journal, not absent live files
 

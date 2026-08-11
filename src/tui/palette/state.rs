@@ -6,7 +6,7 @@
 use crate::tasks::task::AssignmentUiMode;
 use crate::tui::*;
 
-use super::command::{PALETTE_COMMANDS, PaletteScope};
+use super::command::{PALETTE_COMMANDS, PaletteRow, PaletteScope};
 
 impl PaletteState {
     /// Open the global command palette (global + any task-specific commands the
@@ -32,7 +32,8 @@ impl PaletteState {
             task_actions_modal: false,
             brain_open,
             receiver_enabled: false,
-            triage_open: false,
+            runnable_skill_sessions: Vec::new(),
+            open_skill_sessions: Vec::new(),
             logs_view: false,
             daily_triage_alert_disabled: false,
             assignment_mode: hidden_assignment_mode(),
@@ -64,7 +65,8 @@ impl PaletteState {
             // global "Close brain" never appears here regardless.
             brain_open: false,
             receiver_enabled: false,
-            triage_open: false,
+            runnable_skill_sessions: Vec::new(),
+            open_skill_sessions: Vec::new(),
             logs_view: false,
             daily_triage_alert_disabled: false,
             assignment_mode: hidden_assignment_mode(),
@@ -84,7 +86,8 @@ impl PaletteState {
             task_actions_modal: false,
             brain_open: false,
             receiver_enabled,
-            triage_open: false,
+            runnable_skill_sessions: Vec::new(),
+            open_skill_sessions: Vec::new(),
             logs_view: true,
             daily_triage_alert_disabled: false,
             assignment_mode: hidden_assignment_mode(),
@@ -190,26 +193,59 @@ impl PaletteState {
             | PaletteAction::ReturnToMainView
             | PaletteAction::ToggleDailyTriageAlert
             | PaletteAction::ShowMainBrainSession
-            | PaletteAction::ShowDailyTriageSession => cmd.label.to_owned(),
+            | PaletteAction::RunSkillSession(_)
+            | PaletteAction::ShowSkillSession(_) => cmd.label.to_owned(),
         }
     }
 
-    /// Commands the active scope permits, in canonical order and *before*
-    /// the text filter. These carry the stable 1-based numbers shown in the
-    /// palette (so the digit a user types always points at the same command,
-    /// mirroring the brain menu's numbered rows).
-    pub(crate) fn scoped(&self) -> Vec<&'static PaletteCommand> {
-        PALETTE_COMMANDS
+    /// Every row the active scope permits, in canonical order and *before* the
+    /// text filter, each carrying the stable 1-based number shown in the palette
+    /// (so the digit a user types always points at the same row, mirroring the
+    /// brain menu's numbered rows).
+    ///
+    /// The workspace's skill-session rows are spliced into the brain group: the
+    /// sessions that can be *started* now sit right after **Message brain** (an
+    /// always-present anchor, so their position doesn't move when a session
+    /// opens), and each running session's tab switch follows **Show main brain
+    /// session**. A running session contributes no start row, so the same session
+    /// can never be launched twice.
+    pub(crate) fn rows(&self) -> Vec<PaletteRow> {
+        let mut rows: Vec<PaletteRow> = Vec::new();
+        for command in PALETTE_COMMANDS
             .iter()
             .filter(|c| self.command_in_scope(c) && (c.is_visible)(self))
-            .collect()
+        {
+            push_row(&mut rows, self.label_for(command), command.action);
+            match command.action {
+                PaletteAction::SendBrainMessage => {
+                    for (key, label) in &self.runnable_skill_sessions {
+                        push_row(
+                            &mut rows,
+                            label.clone(),
+                            PaletteAction::RunSkillSession(*key),
+                        );
+                    }
+                }
+                PaletteAction::ShowMainBrainSession => {
+                    for (key, title) in &self.open_skill_sessions {
+                        push_row(
+                            &mut rows,
+                            format!("Show {title} session"),
+                            PaletteAction::ShowSkillSession(*key),
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        rows
     }
 
     /// The structural scope gate: task-vs-global, the habit filter, the
     /// logs-view command whitelist, and the task-actions-modal restriction. The
-    /// finer *conditional* gates (panel open, server running, triage tab open,
-    /// notes/links present) live in each command's `is_visible` predicate and
-    /// are applied on top of this by [`Self::scoped`].
+    /// finer *conditional* gates (panel open, server running, a skill session
+    /// open, notes/links present) live in each command's `is_visible` predicate
+    /// and are applied on top of this by [`Self::rows`].
     fn command_in_scope(&self, c: &PaletteCommand) -> bool {
         if self.logs_view {
             // The logs palette shows only this fixed set of read-only /
@@ -233,26 +269,16 @@ impl PaletteState {
         }
     }
 
-    /// The stable 1-based number shown next to `cmd`: its position in the
-    /// scope-visible list. `0` if the command isn't in scope (shouldn't
-    /// happen for a rendered row).
-    pub(crate) fn number_for(&self, cmd: &PaletteCommand) -> usize {
-        self.scoped()
-            .iter()
-            .position(|c| c.action == cmd.action)
-            .map_or(0, |i| i + 1)
-    }
-
-    /// Commands matching the current filter (case-insensitive substring over
-    /// the numbered, displayed label `"N. label"`, so users can narrow by
-    /// row number, label word, or task ID) AND the active scope.
-    pub(crate) fn visible(&self) -> Vec<&'static PaletteCommand> {
+    /// Rows matching the current filter (case-insensitive substring over the
+    /// numbered, displayed label `"N. label"`, so users can narrow by row
+    /// number, label word, or task ID) AND the active scope.
+    pub(crate) fn visible(&self) -> Vec<PaletteRow> {
         let q = self.filter.to_lowercase();
-        self.scoped()
+        self.rows()
             .into_iter()
-            .filter(|c| {
+            .filter(|row| {
                 q.is_empty() || {
-                    format!("{}. {}", self.number_for(c), self.label_for(c))
+                    format!("{}. {}", row.number, row.label)
                         .to_lowercase()
                         .contains(&q)
                 }
@@ -260,17 +286,12 @@ impl PaletteState {
             .collect()
     }
 
-    /// The rendered rows: each visible command's numbered label (`"N. …"`)
-    /// paired with its direct-key shortcut hint, if any.
+    /// The rendered rows: each visible row's numbered label (`"N. …"`) paired
+    /// with its direct-key shortcut hint, if any.
     pub(crate) fn numbered_entries(&self) -> Vec<(String, Option<&'static str>)> {
         self.visible()
             .iter()
-            .map(|c| {
-                (
-                    format!("{}. {}", self.number_for(c), self.label_for(c)),
-                    shortcut_for(c.action),
-                )
-            })
+            .map(|row| (format!("{}. {}", row.number, row.label), row.shortcut))
             .collect()
     }
 
@@ -285,7 +306,7 @@ impl PaletteState {
     }
 
     pub(crate) fn selected_action(&self) -> Option<PaletteAction> {
-        self.visible().get(self.selected).map(|c| c.action)
+        self.visible().get(self.selected).map(|row| row.action)
     }
 
     pub(crate) fn move_down(&mut self) {
@@ -311,6 +332,17 @@ impl PaletteState {
         self.filter.pop();
         self.selected = 0;
     }
+}
+
+/// Append one row, numbering it by its position. The number is what the palette
+/// shows and what a typed digit selects, so it must stay 1-based and gapless.
+fn push_row(rows: &mut Vec<PaletteRow>, label: String, action: PaletteAction) {
+    rows.push(PaletteRow {
+        number: rows.len() + 1,
+        label,
+        action,
+        shortcut: shortcut_for(action),
+    });
 }
 
 const fn hidden_assignment_mode() -> AssignmentUiMode {

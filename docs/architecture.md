@@ -331,7 +331,7 @@ session-discovery, and lifecycle rules. `registry` is the exhaustive table of
 frontend constructors, command metadata, lifecycle installations, exact health
 checks, capability evidence, and compatibility probes. Shared command, doctor,
 and setup code consume that table instead of switching on concrete frontends.
-`PtyPane` implements `AgentTransport`. The main panel and ephemeral triage tab
+`PtyPane` implements `AgentTransport`. The main panel and ephemeral skill-session tabs
 are both stored as `Option<AgentController>`; keyboard, receiver, draw, scroll,
 close, and event-loop code call controller semantics and never construct
 frontend keystrokes. Busy-turn follow-up is one controller operation; each
@@ -539,21 +539,21 @@ missing-persona gate every command runs at bootstrap). The task renderer's
 See [config.md](config.md) and [data-model.md](data-model.md).
 
 ### `skills/`
-The brain skill pipeline (sub-project B): render the bundled skills and install
-them into the shared agent registry (`~/.agents/skills`), fanning out to each
-frontend (Claude, **Codex**, OpenCode, Cursor). Split into `model` (the shared `Skill`/`SkillFile` type), `embed` (the
+The brain skill pipeline (sub-project B): render the bundled skills into the
+selected workspace's `.agents/skills` directory and fan them out to project
+frontends (Claude, **Codex**, and OpenCode). Split into `model` (the shared `Skill`/`SkillFile` type), `embed` (the
 `include_dir!`-embedded `skills/` dir → bundled `Skill`s), `plugin` (whole user
 skills discovered from `<root>/.config/plugins/<name>/`), `extension` (parse a
 `<root>/.config/extensions/<skill>.md` into named `[hook]` sections + catch-all,
 and `apply` it to a base `SKILL.md` at `<!-- brain:ext hook -->` markers,
-producing a *new built copy* only — never the repo/plugin source; unmatched
+producing a *new workspace copy* only — never the repo/plugin source; unmatched
 content lands in a trailing "Personal extensions" section), `render` (base skill
 → installable files, injecting the extension into `SKILL.md`), `layout` (the
-built dir + registry + frontend dirs, and the pure `link_ops` target
-computation), `install` (collect bundled + plugins, write built + create the
-two-hop symlinks; thin FS shell over `link_ops`), and `command`
-(`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the built
-dir, registry, frontend count, and extension/plugin sources before the FS shell
+workspace `.agents/skills` dir + frontend dirs, and the pure `link_ops` target
+computation), `install` (collect bundled + plugins, write workspace skills +
+create frontend symlinks; thin FS shell over `link_ops`), and `command`
+(`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the workspace
+skills dir, frontend count, and extension/plugin sources before the FS shell
 runs; `brain skills status` reports capability selection and enforcement).
 For workspace-only launches, `layout` and `install` also render selected skills
 under the workspace UUID and actor cache without creating registry or frontend
@@ -561,10 +561,9 @@ links. A machine skill is read only from its exact configured absolute
 directory; the source directory, `SKILL.md`, and every descendant must be real
 files or directories rather than symlinks. `resync_skills()` (the A seam) runs the pipeline, gated by
 `skills_auto_sync` (**default `true`** since the B4 cutover) so a mutation
-re-renders the live registry; set the flag `false` to manage skills only via
-explicit `brain skills sync`. A symlink-based dotfiles manager can coexist with
-this by delegating to `brain skills sync` and never pruning brain-owned links
-(they resolve into brain's built dir, outside the manager's own sources). See
+re-renders workspace skills; set the flag `false` to manage skills only via
+explicit `brain skills sync`. The pipeline never writes the user's global agent
+registry or global frontend skill directories. See
 the B spec under `docs/superpowers/specs/`.
 
 **Version-stamped auto-resync.** So a version bump ships its *skill* changes the
@@ -1033,9 +1032,9 @@ The larger submodules are directories split by concern: `handlers/`
 `dispatch`/`completion`/`state` and focused tests), and `tests/` (split by
 area). `app_brain/` owns the main persistent controller, receiver dispatch,
 and completion delivery;
-`app_triage_tab.rs` owns the ephemeral daily-triage controller and tab
-(open/close/select, the `BrainTab` resolution, and the `tick_triage_done`
-auto-close). The overlay-modal state
+`app_skill_session.rs` owns the ephemeral skill-session controllers and their
+tabs (open/close/select, the `BrainTab` / tab-slot resolution, and the
+`tick_skill_sessions` auto-close). The overlay-modal state
 structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `LinkPickerState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; `mod.rs` keeps only the `App` shell type, `Panel`,
@@ -1106,12 +1105,12 @@ Compatibility launch planning: re-exported `agent::AgentKind`,
 `Plan::{Resume,Fresh}` (chosen from actor-scoped DB resume candidates), and
 `build_llm_command`, which adds the legacy shell `cd` prefix around the command
 translated by the selected adapter and returns a typed error for a blank legacy
-session ID. `env_for` and `env_for_triage` remain only
+session ID. `env_for` and `env_for_skill_session` remain only
 as compatibility helpers for pure callers and tests. Live TUI panels build
 complete `LaunchRequest` values: the adapter supplies common workspace identity
 and `BRAIN_AGENT_KIND`; the main panel's `HookMetadata` adds instance, PID,
-state DB, and response attribution, while the triage panel adds only
-`BRAIN_TRIAGE_DONE_URL` and `BRAIN_TRIAGE_TOKEN`. `claude_cmd`, `codex_cmd`,
+state DB, and response attribution, while a skill-session panel adds only
+`BRAIN_SESSION_DONE_URL` and `BRAIN_SESSION_TOKEN`. `claude_cmd`, `codex_cmd`,
 `opencode_cmd`, and `default_agent_frontend` (which frontend this machine opens
 with no selector flag; resolved in `agent::default_frontend` right after
 bootstrap, since env needs a workspace) are machine-local brain env values. The three functional
@@ -1129,18 +1128,33 @@ children it spawns, and `bootstrap` refuses such a child that names no workspace
 so a code path that forgets `-w` fails instead of silently targeting the default.
 Both decisions are pure (`with_selector`, `violates_strict_selector`).
 
-### `triage_signal.rs`
-The on-disk bridge for the daily-triage tab's completion signal. Pure
-`parse_signal` + `ready_to_close` (the close gate: every path the run declared
-in `require` must exist; core declares none, so an empty list closes at once)
-plus a thin file shell (`record_done` / `read_signal` / `clear`,
-`<workspace-cache>/triage-done.json`): the brain server writes it from
-`POST /local/<lease>/w/<ingress>/triage/done`, the matching TUI polls it each tick and holds a premature signal
-until its required outputs land. Deliberately ignorant of *what* those outputs
-are — see the extension-agnostic rule in [AGENTS.md](../AGENTS.md). See
-[integrations.md](integrations.md). The route resolves a live lease and verified
-workspace context before selecting the signal path, so one workspace cannot
-close another workspace's triage tab.
+### `skill_session/`
+The skill-session model and its cross-process completion bridge — one dedicated
+ephemeral session per prompt, in its own brain-panel tab (see
+[features.md](features.md) and [integrations.md](integrations.md)).
+
+- `mod.rs` — the pure model: `SkillSessionKey` (`DailyTriage` or `Custom(index)`),
+  `SkillSessionSpec` (`title` / `prompt` / `command_label`), `available` (builtin
+  daily triage, gated on the workspace's daily-triage check, plus the parsed
+  `skill_sessions` env array), and `runnable` (what may be *started* now: offered
+  minus running, the decision that hides a row while its session runs).
+- `prompt.rs` — the launch prompt: the workspace's prompt plus the appended
+  completion protocol, and the `BRAIN_SESSION_DONE_URL` / `BRAIN_SESSION_TOKEN`
+  names. Pure, so a user's own skill needs no brain-specific edits.
+- `signal.rs` — the on-disk bridge. Pure `parse_signal` (which also rejects a
+  token that isn't safe as a file name, since it arrives in a request body) +
+  `ready_to_close` (the close gate: every path the run declared in `require` must
+  exist; core declares none, so an empty list closes at once), plus a thin file
+  shell (`record_done` / `read_signal` / `clear` / `clear_all`, one file per token
+  under `<workspace-cache>/skill-sessions/`): the brain server writes it from
+  `POST /local/<lease>/w/<ingress>/session/done`, and the matching TUI polls each
+  open tab's own token each tick, holding a premature signal until its required
+  outputs land. Deliberately ignorant of *what* those outputs are — see the
+  extension-agnostic rule in [AGENTS.md](../AGENTS.md). The route resolves a live
+  lease and verified workspace context before selecting the signal path, so one
+  workspace cannot close another workspace's tab.
+- `editor.rs` — the `brain env set skill_sessions` walkthrough (pure list
+  arithmetic + a thin prompt shell).
 
 ### `state.rs`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
@@ -1174,7 +1188,7 @@ unavailable response and discards the message. No process component stores an
 offline queue or launches an agent.
 - `server/router.rs` — pure exact-component mapping for
   provider `/w/<ingress>/{sms,email}` and capability-protected local
-  `/local/<lease>/w/<ingress>/{habits,habits/done,triage/done}` paths. Global,
+  `/local/<lease>/w/<ingress>/{habits,habits/done,session/done}` paths. Global,
   malformed, missing, and extra-component routes are rejected.
 - `server/workspace_route.rs` — resolves the typed ingress through the live
   lease table first. Shared-process routing captures a generation-bound lease
@@ -1305,9 +1319,9 @@ offline queue or launches an agent.
   own lifetime, so a page rendered before a TUI started keeps routing.
   Unknown, no-live-TUI, unavailable-root, and identity-mismatched routes
   are rejected and never fall back to the machine default.
-- `server/routes/triage/` - the capability-protected local triage completion controller: the
-  ephemeral daily-triage session's workspace-scoped completion signal (see
-  `triage_signal.rs`).
+- `server/routes/session/` - the capability-protected local skill-session
+  completion controller: an ephemeral skill session's workspace-scoped completion
+  signal (see `skill_session/signal.rs`).
 
 The shared HTTP process resolves receiver ingress availability before loading
 credentials, users, prompt data, or the workspace job socket. A request is

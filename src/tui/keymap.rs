@@ -4,7 +4,7 @@ use crate::tasks::view::View;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Position, Rect};
 
-use super::{BrainTab, Panel};
+use super::Panel;
 
 /// Which panel a mouse coordinate falls in. When a brain panel is open it
 /// owns the right half (`brain_rect`); a click/scroll inside it routes to
@@ -223,34 +223,72 @@ pub(crate) fn alt_scroll_direction(code: KeyCode, modifiers: KeyModifiers) -> Op
     }
 }
 
-/// Which brain-panel tab a keystroke selects, if any. Bound to `Alt+1`
-/// (the main session) and `Alt+2` (the ephemeral daily-triage session). We use
-/// `Alt+digit` rather than `Ctrl+digit` because most terminals don't
-/// distinguish `Ctrl+1` from a bare `1` (only the kitty keyboard protocol
-/// does), whereas `Alt+digit` arrives as a distinct Meta sequence everywhere.
-/// On macOS layouts where Option surfaces the produced glyph instead of an
-/// Alt-modified ASCII digit, accept the `Option+1` / `Option+2` glyphs too.
+/// A brain-panel tab a keystroke asks for: which slot, and whether it arrived as
+/// a deliberate `Alt`-modified chord.
+///
+/// The distinction decides what happens when the slot holds no tab. A chord is a
+/// tab request that simply missed, so the shell swallows it. A bare
+/// Option-produced glyph is *also* ordinary text (`£50`), so it must reach the
+/// panel rather than vanish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BrainTabSlot {
+    pub(crate) index: usize,
+    pub(crate) from_chord: bool,
+}
+
+/// Which brain-panel tab *slot* a keystroke selects, if any: `0` for `Alt+1` (the
+/// main session) and `n` for `Alt+<n+1>` (the nth open skill session). The caller
+/// resolves a slot against the tabs actually open, so an unoccupied digit selects
+/// nothing. We use `Alt+digit` rather than `Ctrl+digit` because most terminals
+/// don't distinguish `Ctrl+1` from a bare `1` (only the kitty keyboard protocol
+/// does), whereas `Alt+digit` arrives as a distinct Meta sequence everywhere. On
+/// macOS layouts where Option surfaces the produced glyph instead of an
+/// Alt-modified ASCII digit, accept the `Option+<digit>` glyphs too — flagged as
+/// not-a-chord, since those glyphs are typeable characters in their own right.
 #[must_use]
-pub(crate) fn alt_selects_brain_tab(code: KeyCode, modifiers: KeyModifiers) -> Option<BrainTab> {
+pub(crate) fn alt_selects_brain_tab_slot(
+    code: KeyCode,
+    modifiers: KeyModifiers,
+) -> Option<BrainTabSlot> {
     let modified = modifiers.intersects(KeyModifiers::ALT | KeyModifiers::META);
     match code {
-        KeyCode::Char('1') if modified => Some(BrainTab::Main),
-        KeyCode::Char('2') if modified => Some(BrainTab::Triage),
-        // macOS US-layout Option+1 (¡) / Option+2 (™).
-        KeyCode::Char('\u{00a1}') => Some(BrainTab::Main),
-        KeyCode::Char('\u{2122}') => Some(BrainTab::Triage),
+        KeyCode::Char(digit @ '1'..='9') if modified => Some(BrainTabSlot {
+            index: digit.to_digit(10)? as usize - 1,
+            from_chord: true,
+        }),
+        // macOS US-layout Option+1..Option+9 glyphs, in digit order.
+        KeyCode::Char(glyph) => MAC_OPTION_DIGIT_GLYPHS
+            .iter()
+            .position(|&candidate| candidate == glyph)
+            .map(|index| BrainTabSlot {
+                index,
+                from_chord: false,
+            }),
         _ => None,
     }
 }
+
+/// The glyphs a macOS US layout produces for `Option+1` … `Option+9`, in digit
+/// order, for terminals that send the glyph instead of an Alt-modified digit.
+const MAC_OPTION_DIGIT_GLYPHS: [char; 9] = [
+    '\u{00a1}', // ¡
+    '\u{2122}', // ™
+    '\u{00a3}', // £
+    '\u{00a2}', // ¢
+    '\u{221e}', // ∞
+    '\u{00a7}', // §
+    '\u{00b6}', // ¶
+    '\u{2022}', // •
+    '\u{00aa}', // ª
+];
 
 /// Whether a keystroke cycles the brain-panel tab, and in which direction:
 /// `Some(true)` = next (`Alt+]`), `Some(false)` = previous (`Alt+[`). This is
 /// the *reliable* tab switch: unlike `Alt+digit` (which many terminals can't
 /// distinguish from a bare digit), the bracket keys resolve either as an
 /// Alt-modified `[` / `]` or, on macOS US layouts with Option-as-glyph, as the
-/// Option-produced smart-quote glyphs — both of which we accept. With only two
-/// tabs the direction is cosmetic (either flips between them), but prev/next
-/// keeps the binding sensible if more tabs ever appear.
+/// Option-produced smart-quote glyphs — both of which we accept. The order is
+/// the tab strip's: the main session, then each open skill session.
 #[must_use]
 pub(crate) fn alt_cycles_brain_tab(code: KeyCode, modifiers: KeyModifiers) -> Option<bool> {
     let modified = modifiers.intersects(KeyModifiers::ALT | KeyModifiers::META);

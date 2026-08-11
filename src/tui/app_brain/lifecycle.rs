@@ -94,10 +94,11 @@ impl App<'_> {
 
     /// End every live agent child before the owning shell drops its transports.
     pub(crate) fn shutdown_agent_controllers(&mut self) {
-        for controller in [&mut self.brain, &mut self.triage_brain]
-            .into_iter()
-            .flatten()
-        {
+        for controller in self.brain.iter_mut().chain(
+            self.skill_sessions
+                .iter_mut()
+                .map(|tab| &mut tab.controller),
+        ) {
             let _ = controller.shutdown();
         }
     }

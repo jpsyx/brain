@@ -6,7 +6,7 @@ description: Use when the user asks to triage tasks, run "morning triage", run w
 # triage
 
 Throughout this skill, `<brain>` is the selected workspace root in
-`BRAIN_ROOT`, and `~/.agents/skills/todo/scripts/` is where `brain skills sync`
+`BRAIN_ROOT`, and `$BRAIN_ROOT/.agents/skills/todo/scripts/` is where `brain skills sync`
 installs the `/todo` skill's helper scripts. Run mutators only inside the Brain
 workspace/actor environment; they deliberately fail instead of falling back to
 a home-directory brain. Preserve each row's `assigned_to` unless the user asks
@@ -116,7 +116,7 @@ Do NOT ask the user "which mode?" outside of case (2). Saving their time is the 
 If the user says we can **skip** daily triage for the day ("skip daily
 triage", "no triage today", "we can skip triage"), run nothing else. If
 managed triage habits are enabled, complete the protected daily occurrence
-with `python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py
+with `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/apply_sync_rules.py" \
 --complete-managed-triage daily`. If they are disabled, acknowledge the skip
 without reading or mutating `habits.csv`. In either case, send the optional
 background completion signal as the final action when its two environment
@@ -161,7 +161,7 @@ straight to Step 0.
 Before the task-triage steps, run the 6-month backlog purge:
 
 ```
-python3 ~/.agents/skills/todo/scripts/purge_old_backlog.py
+python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/purge_old_backlog.py"
 ```
 
 It deletes any `status=backlog` task whose `backlogged_date` is >6 months
@@ -253,7 +253,7 @@ After past-due is clean, scan the next **8 days** for tasks likely to slip. This
 A task in `status=waiting` is paused on an **external** party (a reply, a vendor, a legal review), so its slipping isn't avoidance — deferring it never raised `defer_count`. But waiting forever is its own failure mode. Run:
 
 ```
-python3 ~/.agents/skills/todo/scripts/find_stale_waiting.py --pretty
+python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/find_stale_waiting.py" --pretty
 ```
 
 For each task that's been waiting **more than 7 days** (`waiting_since`), nudge the user: offer to **follow up with the external party** (infer who from the `task_name`/`see_also` if you can) and ask whether to **create a check-in task** for that follow-up. A task with `status=waiting` but an empty `waiting_since` is also surfaced (we can't tell how long — stamp it now). This is the counterpart to the chronic-ignore sweep: chronic-ignore is "we're avoiding it"; stale-waiting is "someone else is sitting on it and it's time to chase them."
@@ -334,7 +334,7 @@ A task in `tasks.csv` qualifies if `status != done`, its deadline is imminent or
 Don't apply these filters in your head — LLMs are bad at calendar math. Run the script:
 
 ```
-python3 ~/.agents/skills/todo/scripts/find_chronic_ignored.py
+python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/find_chronic_ignored.py"
 ```
 
 Outputs one JSON object per matching task (sorted by max-days-since-touch first) with `task_id`, `task_name`, `reasons[]`, `days_since_touch`, `days_since_create`, `status`, `priority`, `task_type`, `due_date`, `defer_count`, `project`, `hard_deadline`. Pipe to `--count` for a quick number, `--pretty` for human-readable.
@@ -366,7 +366,7 @@ options:  Drop (Recommended) / Revive / Start now / Defer to date
 Actions:
 
 - **`drop`** — remove from CSV (confirms first). Use as default.
-- **`revive`** — bumps `last_touched` to today without changing anything else. Use when the user explicitly says "yes I still care, leave it" — they'll get another 21 days before it reappears. Script: `python3 ~/.agents/skills/todo/scripts/touch_task.py <T###>`.
+- **`revive`** — bumps `last_touched` to today without changing anything else. Use when the user explicitly says "yes I still care, leave it" — they'll get another 21 days before it reappears. Script: `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/touch_task.py" <T###>`.
 - **`start-now`** — set `status=in_progress` and `start_date=today` (the underlying scripts will also touch the row). Use when the user commits to begin now.
 - **`convert-to-project`** — when the task is chronically ignored *because* it's too big to start. Suggest `/todo turn-into-project` per [task-project-link.md](../todo/references/task-project-link.md). Note: don't reflexively convert — converting a task the user has been avoiding doesn't fix the avoidance; sometimes drop is the honest answer.
 - **`defer to date`** — push `due_date` to a real date with a real commitment. Hard-deadline rows still require the Step 5 confirmation.
@@ -424,7 +424,7 @@ After the daily triage process completes (user has either resolved every past-du
 
 1. If managed triage habits are enabled, complete the protected daily occurrence via:
    ```
-   python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py --complete-managed-triage daily
+   python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/apply_sync_rules.py" --complete-managed-triage daily
    ```
    The helper resolves `system_key=brain.triage.daily`, records completion,
    and advances the recurring chain. Do not use the ordinary task or habit
@@ -443,12 +443,13 @@ habit done is what tells the tasks view (and the agenda) that daily triage
 is handled for the day, so the modal stops nagging. If you don't mark it,
 the user gets nagged even though triage ran.
 
-3. **If this pass is running as a background triage tab, signal completion.**
-   When the tasks view launches daily triage in its own ephemeral tab it sets
-   two environment variables in this session: `BRAIN_TRIAGE_DONE_URL` (a local
-   brain-server URL) and `BRAIN_TRIAGE_TOKEN` (a one-time token). **Only when
-   both are set**, after the habit is marked done, POST the completion signal so
-   the tasks view auto-closes this triage tab.
+3. **If this pass is running as a background skill-session tab, signal completion.**
+   When the tasks view launches daily triage in its own ephemeral tab it sets two
+   environment variables in this session: `BRAIN_SESSION_DONE_URL` (a local
+   brain-server URL) and `BRAIN_SESSION_TOKEN` (a one-time token), and the prompt
+   you were launched with already spells out the POST. **Only when both variables
+   are set**, after the habit is marked done, send that completion signal so the
+   tasks view auto-closes this tab.
 
    **The signal carries a `require` list — the paths of every output this run
    committed to producing that must exist before the tab may close.** Core
@@ -470,9 +471,9 @@ the user gets nagged even though triage ran.
    Then POST, substituting the required-output paths as a JSON string array (use
    `[]` when there are none):
    ```
-   [ -n "$BRAIN_TRIAGE_DONE_URL" ] && curl -fsS -X POST "$BRAIN_TRIAGE_DONE_URL" \
+   [ -n "$BRAIN_SESSION_DONE_URL" ] && curl -fsS -X POST "$BRAIN_SESSION_DONE_URL" \
      -H 'Content-Type: application/json' \
-     -d "{\"token\": \"$BRAIN_TRIAGE_TOKEN\", \"require\": [<required-output paths, or empty>]}" \
+     -d "{\"token\": \"$BRAIN_SESSION_TOKEN\", \"require\": [<required-output paths, or empty>]}" \
      >/dev/null || true
    ```
    Do this as the very last action of the pass: once every required output
@@ -526,19 +527,19 @@ Every weekly triage also checks whether it's the **monthly** triage.
 "Monthly" is not its own command — it's simply the **first weekly triage
 of a calendar month**, and its only extra job is reviewing the backlog.
 
-1. **Detect:** `python3 ~/.agents/skills/todo/scripts/monthly_triage_state.py`.
+1. **Detect:** `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/monthly_triage_state.py"`.
    If `is_monthly` is `false`, skip this step entirely. If `true`, do the
    dedupe + backlog review below, then mark it: `monthly_triage_state.py
    --mark` (so the next weekly triage this month is just weekly).
 2. **Dedupe backlog vs active (monthly only, silent):**
-   `python3 ~/.agents/skills/todo/scripts/dedupe_backlog.py`. This deletes
+   `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/dedupe_backlog.py"`. This deletes
    any backlog task that has an active-list twin which was *created after*
    the task was backlogged — i.e. the user already re-created (revived) it
    by hand, so the backlog copy is a stale duplicate. It does nothing but
    delete the duplicate backlog row, and prints nothing. **Silent like the
    purge: don't announce what (if anything) was deduped.** Run it before
    the backlog review so resurfaced candidates are dup-free.
-3. **Backlog review (monthly only):** `python3 ~/.agents/skills/todo/scripts/list_backlog.py --pretty`.
+3. **Backlog review (monthly only):** `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/list_backlog.py" --pretty`.
    The goal is **resurfacing**, not clearing: surface only backlog items
    that (a) look **relevant to current work** and (b) look **doable given
    current time/demands**. This is how the user rediscovers tasks they
@@ -561,7 +562,7 @@ After **all** in-baskets are empty:
 
 1. If managed triage habits are enabled, complete the protected weekly occurrence via:
    ```
-   python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py --complete-managed-triage weekly
+   python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/apply_sync_rules.py" --complete-managed-triage weekly
    ```
    The helper resolves `system_key=brain.triage.weekly`; visible names are not identity.
 2. If managed triage habits are disabled, skip habit lookup and mutation. The

@@ -35,14 +35,19 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
 }
 
 #[test]
-fn ctrl_n_targets_the_active_main_or_triage_controller_including_triage_only() {
+fn ctrl_n_targets_the_active_main_or_skill_session_controller_including_session_only() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let (main, main_recording) = recording_controller(&app, true, "main");
     let (triage, triage_recording) = recording_controller(&app, true, "triage");
     app.brain = Some(main);
-    app.triage_brain = Some(triage);
+    let session_tab = app.insert_test_skill_session(
+        crate::skill_session::SkillSessionKey::DailyTriage,
+        "Daily triage",
+        "token-main-test",
+        triage,
+    );
 
     app.active_brain_tab = BrainTab::Main;
     assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
@@ -52,7 +57,7 @@ fn ctrl_n_targets_the_active_main_or_triage_controller_including_triage_only() {
     );
     assert!(triage_recording.events().is_empty());
 
-    app.active_brain_tab = BrainTab::Triage;
+    app.active_brain_tab = BrainTab::Session(session_tab);
     assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
     assert_eq!(
         main_recording.events(),
@@ -66,8 +71,12 @@ fn ctrl_n_targets_the_active_main_or_triage_controller_including_triage_only() {
     let triage_only_temporary = tempfile::tempdir().expect("temporary directory");
     let mut triage_only = test_app(&triage_only_temporary, &cli, AgentKind::Claude);
     let (triage, recording) = recording_controller(&triage_only, true, "triage only");
-    triage_only.triage_brain = Some(triage);
-    triage_only.active_brain_tab = BrainTab::Triage;
+    triage_only.insert_test_skill_session(
+        crate::skill_session::SkillSessionKey::DailyTriage,
+        "Daily triage",
+        "token-session-only",
+        triage,
+    );
 
     assert!(triage_only.handle_new_session_shortcut(KeyCode::Char('n'), true));
     assert_eq!(recording.events(), vec![ControllerEvent::StartNewSession]);

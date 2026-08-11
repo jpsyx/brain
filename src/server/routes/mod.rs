@@ -5,4 +5,4 @@
 //! `pub mod` line plus its module.
 
 pub mod habits;
-pub mod triage;
+pub mod session;

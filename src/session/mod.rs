@@ -118,18 +118,19 @@ pub fn env_for(
     env
 }
 
-/// Env vars injected into the *ephemeral* daily-triage session.
+/// Env vars injected into an *ephemeral* skill session (daily triage, or any
+/// session a workspace declared in `skill_sessions`).
 ///
 /// Unlike [`env_for`], this deliberately **omits** `BRAIN_INSTANCE_ID` and
-/// `BRAIN_STATE_DB`. The SessionStart hook no-ops without them, so the triage
+/// `BRAIN_STATE_DB`. The SessionStart hook no-ops without them, so a skill
 /// session is never recorded in the session DB and can never be resumed — it is
-/// ephemeral by construction (if the shell closes mid-triage the session is
-/// simply lost, and the daily-triage nudge fires again next launch). In their
-/// place it carries the completion channel the `/triage` skill reports through:
-/// the brain-server done URL and the one-time token brain matches when the
-/// signal comes back (see [`crate::triage_signal`]).
+/// ephemeral by construction (if the shell closes mid-run the session is simply
+/// lost and the user starts it again). In their place it carries the completion
+/// channel the run reports through: the brain-server done URL and the one-time
+/// token brain matches when the signal comes back (see
+/// [`crate::skill_session::signal`]).
 #[must_use]
-pub fn env_for_triage(
+pub fn env_for_skill_session(
     workspace: &crate::workspace::WorkspaceContext,
     actor: &crate::actor::ActorContext,
     agent_kind: AgentKind,
@@ -146,8 +147,14 @@ pub fn env_for_triage(
             "BRAIN_AGENT_KIND".to_owned(),
             agent_kind.as_str().to_owned(),
         ),
-        ("BRAIN_TRIAGE_DONE_URL".to_owned(), done_url.to_owned()),
-        ("BRAIN_TRIAGE_TOKEN".to_owned(), token.to_owned()),
+        (
+            crate::skill_session::prompt::DONE_URL_ENV.to_owned(),
+            done_url.to_owned(),
+        ),
+        (
+            crate::skill_session::prompt::TOKEN_ENV.to_owned(),
+            token.to_owned(),
+        ),
     ]);
     env
 }

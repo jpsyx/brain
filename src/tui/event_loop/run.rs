@@ -44,9 +44,9 @@ pub(crate) fn event_loop<B: Backend>(
             }
         }
 
-        // Auto-close the ephemeral daily-triage tab when its session exits or
-        // the `/triage` skill signals completion (matching one-time token).
-        app.tick_triage_done();
+        // Auto-close each ephemeral skill-session tab when its session exits or
+        // its run signals completion (matching one-time token).
+        app.tick_skill_sessions();
         app.tick_receiver();
         app.tick_sync_status();
 
@@ -129,11 +129,11 @@ pub(crate) fn event_loop<B: Backend>(
         // Ctrl+X closes the brain panel (and ends its agent session) from
         // either panel. Intercepted before forwarding so it works even while
         // the brain panel is focused. No-op when no panel is open. 0x18, so
-        // no kitty-protocol dependency. On the daily-triage tab it closes only
+        // no kitty-protocol dependency. On a skill-session tab it closes only
         // that ephemeral session, leaving the main session untouched.
         if ctrl && matches!(k.code, KeyCode::Char('x' | 'X')) && app.any_brain_panel_visible() {
-            if app.effective_brain_tab() == BrainTab::Triage {
-                app.close_triage_tab();
+            if matches!(app.effective_brain_tab(), BrainTab::Session(_)) {
+                app.close_active_skill_session();
             } else {
                 app.close_brain();
             }
@@ -177,15 +177,20 @@ pub(crate) fn event_loop<B: Backend>(
                 _ => {}
             }
         }
-        // Alt+1 / Alt+2 select the brain-panel tab (main session / ephemeral
-        // daily-triage session) and focus the panel, from either side. Handled
-        // before the panel-key dispatch so they work while the brain panel is
-        // focused (where a bare digit types into the agent). Alt+2 is a no-op
-        // when no triage tab is open. Some macOS layouts surface the Option
-        // glyph instead of an Alt-modified digit, which the classifier accepts.
-        if let Some(tab) = alt_selects_brain_tab(k.code, k.modifiers) {
-            app.select_brain_tab(tab);
-            continue;
+        // Alt+1 selects the main brain session and Alt+<n> the nth open skill
+        // session, focusing the panel from either side. Handled before the
+        // panel-key dispatch so they work while the brain panel is focused
+        // (where a bare digit types into the agent). A digit with no tab behind
+        // it is a no-op. Some macOS layouts surface the Option glyph instead of
+        // an Alt-modified digit, which the classifier accepts.
+        // A deliberate Alt chord is consumed either way (a tab request that
+        // missed is still a tab request). A bare Option-produced glyph is also a
+        // typeable character, so when it selects nothing it must fall through to
+        // the panel rather than vanish.
+        if let Some(slot) = alt_selects_brain_tab_slot(k.code, k.modifiers) {
+            if app.select_brain_tab_slot(slot.index) || slot.from_chord {
+                continue;
+            }
         }
         // Alt+[ / Alt+] cycle the brain-panel tab (previous / next). The
         // reliable switch — terminal Alt+digit handling above is flaky, while
@@ -252,11 +257,12 @@ pub(crate) fn event_loop<B: Backend>(
             };
             let receiver_enabled = app.receiver_enabled;
             let daily_triage_alert_disabled = app.skip_daily_triage_check;
-            let triage_open = app.triage_brain.is_some();
+            let (runnable_sessions, open_sessions) = app.skill_session_palette_rows();
             if let Some(palette) = app.palette.as_mut() {
                 palette.receiver_enabled = receiver_enabled;
                 palette.daily_triage_alert_disabled = daily_triage_alert_disabled;
-                palette.triage_open = triage_open;
+                palette.runnable_skill_sessions = runnable_sessions;
+                palette.open_skill_sessions = open_sessions;
             }
             continue;
         }
@@ -315,11 +321,11 @@ pub(crate) fn event_loop<B: Backend>(
         }
 
         let quit = match app.focus {
-            // The brain panel routes to whichever tab is active: the ephemeral
-            // daily-triage session gets a plain forwarder; the main session
-            // keeps the receiver/turn-aware handler.
+            // The brain panel routes to whichever tab is active: an ephemeral
+            // skill session gets a plain forwarder; the main session keeps the
+            // receiver/turn-aware handler.
             Panel::Brain => match app.effective_brain_tab() {
-                BrainTab::Triage => handle_triage_key(app, &k, ctrl),
+                BrainTab::Session(_) => handle_skill_session_key(app, &k, ctrl),
                 BrainTab::Main => handle_brain_key(app, &k, ctrl),
             },
             // The main panel routes to whichever main view is showing. The

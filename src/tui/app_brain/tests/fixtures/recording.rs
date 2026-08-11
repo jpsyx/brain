@@ -270,3 +270,26 @@ pub(crate) fn recording_controller_for_actor(
     );
     (controller, recording)
 }
+
+/// A transport whose spawn always fails, for the launch-failure paths.
+pub(crate) struct FailingSpawnTransport;
+
+impl AgentTransport for FailingSpawnTransport {
+    fn spawn(&mut self, _spec: &LaunchSpec) -> Result<(), AgentError> {
+        Err(AgentError::Transport("injected spawn failure".to_owned()))
+    }
+
+    fn send(&mut self, _input: InputSequence) -> Result<(), AgentError> {
+        Ok(())
+    }
+
+    fn snapshot(&self) -> String {
+        String::new()
+    }
+
+    fn is_alive(&self) -> bool {
+        false
+    }
+
+    fn shutdown(&mut self) {}
+}

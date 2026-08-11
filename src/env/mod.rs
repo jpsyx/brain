@@ -18,7 +18,7 @@ pub(crate) use migrate::{migrate_checked, registry_is_current, registry_setup_ne
 pub use render::render_breakdown;
 pub(crate) use schema::MACHINE_GLOBAL_VARS;
 pub use schema::is_sensitive;
-pub use vars::{get, resolve_all, resolve_one, set, set_raw};
+pub use vars::{get, get_raw, resolve_all, resolve_one, set, set_raw};
 pub(crate) use vars::{restore_values_if_unchanged, set_many};
 
 pub(crate) use store::load_map;

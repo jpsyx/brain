@@ -1,10 +1,9 @@
-
 fn receiver_label(state: &PaletteState) -> Option<String> {
     state
         .visible()
         .iter()
         .find(|c| matches!(c.action, PaletteAction::ToggleReceiver))
-        .map(|c| state.label_for(c))
+        .map(|row| row.label.clone())
 }
 
 #[test]

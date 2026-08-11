@@ -1,4 +1,3 @@
-
 #[test]
 fn notes_toggle_in_global_palette_names_the_task() {
     // In the global command palette the toggle follows the task-ID convention
@@ -43,5 +42,5 @@ fn open_links_label(state: &PaletteState) -> Option<String> {
         .visible()
         .iter()
         .find(|c| matches!(c.action, PaletteAction::OpenLinks))
-        .map(|c| state.label_for(c))
+        .map(|row| row.label.clone())
 }

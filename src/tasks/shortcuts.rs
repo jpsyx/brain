@@ -175,7 +175,7 @@ pub const ALL: &[Shortcut] = &[
     Shortcut {
         keys: "^X",
         label: "close brain",
-        desc: "Close the brain panel and end its agent session (on the daily-triage tab, closes only that tab)",
+        desc: "Close the brain panel and end its agent session (on a skill-session tab, closes only that tab)",
         group: Group::Brain,
         in_footer: false,
     },
@@ -196,7 +196,7 @@ pub const ALL: &[Shortcut] = &[
     Shortcut {
         keys: "Alt+[ / Alt+]",
         label: "brain tab",
-        desc: "Cycle the brain-panel tab (main session ↔ ephemeral daily-triage session), only while a triage pass is running. Reliable everywhere; the command palette also carries 'Show main brain session' / 'Show daily triage session'. Alt+1 / Alt+2 select a tab directly on terminals that support Alt+digit",
+        desc: "Cycle the brain-panel tab (main session ↔ each open skill session, e.g. daily triage), only while a skill session is running. Reliable everywhere; the command palette also carries 'Show main brain session' and a 'Show <title> session' row per open tab. Alt+1 selects the main session and Alt+<n> the nth skill session on terminals that support Alt+digit",
         group: Group::Brain,
         in_footer: false,
     },
@@ -333,7 +333,7 @@ mod tests {
         assert!(
             brain
                 .iter()
-                .any(|s| s.keys == "Alt+[ / Alt+]" && s.desc.contains("triage"))
+                .any(|s| s.keys == "Alt+[ / Alt+]" && s.desc.contains("skill session"))
         );
     }
 

@@ -1,4 +1,3 @@
-
 #[test]
 fn logs_view_palette_only_lists_log_actions_and_return() {
     let state = PaletteState::new_logs_view(false);
@@ -51,5 +50,5 @@ fn daily_triage_label(state: &PaletteState) -> Option<String> {
         .visible()
         .iter()
         .find(|c| matches!(c.action, PaletteAction::ToggleDailyTriageAlert))
-        .map(|c| state.label_for(c))
+        .map(|row| row.label.clone())
 }

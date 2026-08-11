@@ -37,9 +37,9 @@
 
 mod app_actions;
 mod app_brain;
+mod app_skill_session;
 mod app_state;
 mod app_sync;
-mod app_triage_tab;
 mod draw;
 mod draw_assignee;
 mod draw_help;
@@ -123,14 +123,33 @@ pub(crate) enum Panel {
 }
 
 /// Which session is showing inside the brain panel. The panel normally hosts a
-/// single persistent session ([`BrainTab::Main`]); [`BrainTab::Triage`] is the
-/// ephemeral daily-triage session that appears as a second tab only while a
-/// triage pass is running (see `App::triage_brain`). Selected with `Alt+1` /
-/// `Alt+2`.
+/// single persistent session ([`BrainTab::Main`]); a [`BrainTab::Session`] is one
+/// of the ephemeral *skill sessions* that appear as extra tabs only while they
+/// run (see `App::skill_sessions` and [`crate::skill_session`]). Selected with
+/// `Alt+1` for the main session and `Alt+<n>` for the nth skill session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BrainTab {
     Main,
-    Triage,
+    Session(SessionTabId),
+}
+
+/// Identity of one open skill-session tab, unique for the life of the shell.
+///
+/// Tabs are addressed by this rather than by list position or by
+/// [`crate::skill_session::SkillSessionKey`] so that closing one tab can never
+/// silently repoint the active tab at another, and so a definition edited in
+/// `skill_sessions` mid-session still resolves to the tab it opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct SessionTabId(pub(crate) u32);
+
+/// One open skill-session tab: which session it runs, what its tab is called,
+/// the one-time completion token brain matches, and its ephemeral controller.
+pub(crate) struct SkillSessionTab {
+    pub(crate) id: SessionTabId,
+    pub(crate) key: crate::skill_session::SkillSessionKey,
+    pub(crate) title: String,
+    pub(crate) token: String,
+    pub(crate) controller: AgentController,
 }
 
 /// Subtle "elevation" background for the row(s) belonging to the currently
@@ -265,26 +284,30 @@ pub(crate) struct App<'a> {
     brain_turn_active: bool,
     focus: Panel,
 
-    /// The ephemeral daily-triage session, shown as a second brain-panel tab
-    /// (`Alt+2`) while a triage pass runs. Unlike `brain` it is never recorded
-    /// in the session DB (see `session::env_for_triage`), so it is never
-    /// resumed: if the shell closes before triage finishes the session is
-    /// simply lost, and the daily-triage nudge fires again next launch. It is
-    /// auto-closed when the `/triage` skill signals completion (see
-    /// `crate::triage_signal` + `tick_triage_done`).
-    triage_brain: Option<AgentController>,
-    /// Which brain-panel tab is showing. Only ever `BrainTab::Triage` while
-    /// `triage_brain` is `Some`.
+    /// The open skill sessions, each shown as its own brain-panel tab
+    /// (`Alt+2`, `Alt+3`, …) while it runs — the builtin daily triage and
+    /// whatever the workspace declared in `skill_sessions`. Unlike `brain` these
+    /// are never recorded in the session DB (see
+    /// `session::env_for_skill_session`), so they are never resumed: if the
+    /// shell closes before a run finishes the session is simply lost and the
+    /// user starts it again. Each is auto-closed when its run signals completion
+    /// (see `crate::skill_session::signal` + `tick_skill_sessions`).
+    skill_sessions: Vec<SkillSessionTab>,
+    /// The next tab identity to hand out. Monotonic, so a closed tab's id is
+    /// never reused within one shell.
+    next_session_tab_id: u32,
+    /// The workspace's raw `skill_sessions` env value, read once at startup.
+    /// Parsed into runnable definitions on demand by
+    /// [`crate::skill_session::available`]; `None` when the workspace declares
+    /// none.
+    configured_skill_sessions: Option<serde_json::Value>,
+    /// Which brain-panel tab is showing. Only ever `BrainTab::Session` while a
+    /// tab with that identity is open.
     active_brain_tab: BrainTab,
-    /// The one-time token brain handed the running triage session in
-    /// `BRAIN_TRIAGE_TOKEN`. The completion signal must carry a matching token
-    /// to auto-close the tab, so a stale signal from an earlier run can't close
-    /// a freshly-opened session.
-    triage_token: Option<String>,
     #[cfg(test)]
-    triage_done_url_override: Option<String>,
+    session_done_url_override: Option<String>,
     #[cfg(test)]
-    triage_transport_override: Option<Box<dyn crate::agent::AgentTransport>>,
+    session_transport_override: Option<Box<dyn crate::agent::AgentTransport>>,
 
     /// Which main view is showing in the main panel: the tasks view (startup
     /// default) or the brain-directory fuzzy-search view. The brain panel is

@@ -48,11 +48,16 @@ pub(crate) struct PaletteState {
     pub(super) brain_open: bool,
     /// Persistent receiver intent for the selected workspace.
     pub(super) receiver_enabled: bool,
-    /// Whether the ephemeral daily-triage tab is currently open. Gates the
-    /// "Show main brain session" / "Show daily triage session" commands, which
-    /// only make sense while there are two brain-panel tabs to switch between.
-    /// Seeded at open time like `receiver_enabled`.
-    pub(super) triage_open: bool,
+    /// The skill sessions that can be started right now, each with the
+    /// `command_label` its palette row shows. A session already running is
+    /// absent, which is what stops a user starting the same one twice. Seeded at
+    /// open time like `receiver_enabled`.
+    pub(super) runnable_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
+    /// The skill-session tabs currently open, each with its tab `title`. Gates
+    /// the "Show main brain session" row and contributes one focus row per open
+    /// tab — they only make sense while there is more than one tab to switch
+    /// between.
+    pub(super) open_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
     pub(super) logs_view: bool,
     /// Whether the daily-triage startup nudge is currently suppressed for this
     /// session (mirrors `App::skip_daily_triage_check`). Seeded at open time

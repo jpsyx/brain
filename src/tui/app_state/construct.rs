@@ -51,6 +51,11 @@ impl<'a> App<'a> {
         server_local_capability: crate::server::lifecycle::LeaseId,
     ) -> Self {
         let (brain_root, db_path) = app_workspace_paths(&command_context);
+        // A signal left behind by a run whose shell died must never close a tab
+        // opened later, so this shell starts with none pending.
+        crate::skill_session::signal::clear_all(&command_context.workspace);
+        let configured_skill_sessions =
+            crate::env::get_raw(&command_context, crate::skill_session::ENV_VAR);
         let (all_tasks, all_habits) = reconcile_triage_startup(
             &command_context.workspace,
             config.enable_triage_habits,
@@ -119,13 +124,14 @@ impl<'a> App<'a> {
             brain_transport_override: None,
             brain_turn_active: false,
             focus: Panel::Tasks,
-            triage_brain: None,
+            skill_sessions: Vec::new(),
+            next_session_tab_id: 0,
+            configured_skill_sessions,
             active_brain_tab: BrainTab::Main,
-            triage_token: None,
             #[cfg(test)]
-            triage_done_url_override: None,
+            session_done_url_override: None,
             #[cfg(test)]
-            triage_transport_override: None,
+            session_transport_override: None,
             brain_rect: None,
             instance,
             interactive_actor,

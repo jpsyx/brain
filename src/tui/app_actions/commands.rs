@@ -313,8 +313,11 @@ impl App<'_> {
             PaletteAction::ShowMainBrainSession => {
                 self.select_brain_tab(BrainTab::Main);
             }
-            PaletteAction::ShowDailyTriageSession => {
-                self.select_brain_tab(BrainTab::Triage);
+            PaletteAction::RunSkillSession(key) => {
+                self.run_skill_session(key);
+            }
+            PaletteAction::ShowSkillSession(key) => {
+                self.select_skill_session(key);
             }
             PaletteAction::ToggleNotes => {
                 self.toggle_notes();

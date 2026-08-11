@@ -143,7 +143,7 @@ def main() -> int:
     if "last_touched" not in cols:
         print(
             "tasks.csv is missing the last_touched column. "
-            "Run: python3 ~/.agents/skills/todo/scripts/apply_sync_rules.py --fix",
+            'Run: python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/apply_sync_rules.py" --fix',
             file=sys.stderr,
         )
         return 2

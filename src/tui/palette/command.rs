@@ -1,6 +1,7 @@
 //! The command-palette model: the action enum, the per-command scope/flags,
 //! the direct-key shortcut map, and the ordered command table.
 
+use crate::skill_session::SkillSessionKey;
 use crate::tui::{LinkKind, PaletteState};
 
 /// A per-command visibility predicate: given the current palette state (a
@@ -10,6 +11,22 @@ use crate::tui::{LinkKind, PaletteState};
 /// only while a triage session runs), on top of the structural `scope` /
 /// `works_on_habits` gates. Plain `fn` pointers so the table stays `const`.
 pub(super) type VisibleWhen = fn(&PaletteState) -> bool;
+
+/// One rendered palette row: its stable 1-based number, its resolved label, the
+/// action it fires, and its direct-key hint.
+///
+/// Rows are *owned* rather than `&'static PaletteCommand` because not every row
+/// is declared at compile time: a workspace's skill sessions contribute rows
+/// whose labels come from its own `skill_sessions` env array (see
+/// [`crate::skill_session`]). The static table below still fixes the order of
+/// everything brain declares itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PaletteRow {
+    pub(crate) number: usize,
+    pub(crate) label: String,
+    pub(crate) action: PaletteAction,
+    pub(crate) shortcut: Option<&'static str>,
+}
 
 pub(crate) struct PaletteCommand {
     pub(super) label: &'static str,
@@ -36,9 +53,10 @@ fn if_brain_open(s: &PaletteState) -> bool {
     s.brain_open
 }
 
-/// Visible only while the ephemeral daily-triage tab is open.
-fn if_triage_open(s: &PaletteState) -> bool {
-    s.triage_open
+/// Visible only while at least one skill-session tab is open — there is nothing
+/// to switch back *from* otherwise.
+fn if_skill_session_open(s: &PaletteState) -> bool {
+    !s.open_skill_sessions.is_empty()
 }
 
 /// Visible only when the in-context entry has notes to expand/collapse.
@@ -146,13 +164,18 @@ pub(crate) enum PaletteAction {
     ToggleDailyTriageAlert,
     /// Focus the main brain session tab (`BrainTab::Main`) — the palette-driven
     /// counterpart to `Alt+1`, reliable on terminals where Alt+digit is not.
-    /// Only offered while a daily-triage tab is open (nothing to switch away
+    /// Only offered while a skill-session tab is open (nothing to switch away
     /// from otherwise).
     ShowMainBrainSession,
-    /// Focus the ephemeral daily-triage session tab (`BrainTab::Triage`) — the
-    /// palette-driven counterpart to `Alt+2`. Only offered while that tab is
-    /// open.
-    ShowDailyTriageSession,
+    /// Start a skill session: a dedicated ephemeral tab seeded with that
+    /// session's prompt, which closes itself when the run signals completion.
+    /// One row per session the workspace offers (the builtin daily triage plus
+    /// its `skill_sessions` env entries), each hidden while its own session is
+    /// already running so it can't be started twice.
+    RunSkillSession(SkillSessionKey),
+    /// Focus a running skill session's tab — the palette-driven counterpart to
+    /// its `Alt+<n>`. Only offered while that session is open.
+    ShowSkillSession(SkillSessionKey),
 }
 
 /// Direct keystroke that bypasses the palette for a given action,
@@ -173,7 +196,8 @@ pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> 
         // not a per-tab key, and these palette rows are themselves the reliable
         // switch (the direct `Alt+1` / `Alt+2` are terminal-unreliable).
         PaletteAction::ShowMainBrainSession
-        | PaletteAction::ShowDailyTriageSession
+        | PaletteAction::RunSkillSession(_)
+        | PaletteAction::ShowSkillSession(_)
         | PaletteAction::ToggleReceiver
         | PaletteAction::ShowReceiverServerStatus
         | PaletteAction::ShowReceiverServerLogs
@@ -240,19 +264,14 @@ pub(super) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         works_on_habits: false,
         is_visible: if_brain_open,
     },
+    // The workspace's skill-session rows (start / focus) are spliced in around
+    // this row at build time — see `PaletteState::rows`.
     PaletteCommand {
         label: "Show main brain session",
         action: PaletteAction::ShowMainBrainSession,
         scope: PaletteScope::Global,
         works_on_habits: false,
-        is_visible: if_triage_open,
-    },
-    PaletteCommand {
-        label: "Show daily triage session",
-        action: PaletteAction::ShowDailyTriageSession,
-        scope: PaletteScope::Global,
-        works_on_habits: false,
-        is_visible: if_triage_open,
+        is_visible: if_skill_session_open,
     },
     PaletteCommand {
         // Label is overridden at render time from persistent workspace intent.

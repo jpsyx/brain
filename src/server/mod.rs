@@ -51,10 +51,10 @@ pub fn habits_done_path(ingress: IngressId, capability: lifecycle::LeaseId) -> S
     format!("/local/{capability}/w/{ingress}/habits/done")
 }
 
-/// The selected workspace's daily-triage completion route.
+/// The selected workspace's skill-session completion route.
 #[must_use]
-pub fn triage_done_path(ingress: IngressId, capability: lifecycle::LeaseId) -> String {
-    format!("/local/{capability}/w/{ingress}/triage/done")
+pub fn session_done_path(ingress: IngressId, capability: lifecycle::LeaseId) -> String {
+    format!("/local/{capability}/w/{ingress}/session/done")
 }
 
 /// Reload the selected workspace's stable portable ingress identity.
@@ -118,13 +118,13 @@ pub(in crate::server) fn respond(
             },
             Err(error) => workspace_route_error_response(&error),
         },
-        Route::TriageDone {
+        Route::SkillSessionDone {
             ingress,
             capability,
         } => match resolve_local_workspace_route(control, ingress, capability, now) {
             Ok(workspace) => match read_local_action_body(request) {
                 Ok(body) => {
-                    let (status, json) = routes::triage::done(workspace.context(), &body);
+                    let (status, json) = routes::session::done(workspace.context(), &body);
                     http::Response::json(status, json)
                 }
                 Err(error) => error.response(),

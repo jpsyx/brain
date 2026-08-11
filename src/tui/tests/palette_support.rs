@@ -15,7 +15,7 @@ fn has_toggle(state: &PaletteState) -> bool {
 fn toggle_label(state: &PaletteState) -> Option<String> {
     state
         .visible()
-        .iter()
-        .find(|c| matches!(c.action, PaletteAction::ToggleNotes))
-        .map(|c| state.label_for(c))
+        .into_iter()
+        .find(|row| matches!(row.action, PaletteAction::ToggleNotes))
+        .map(|row| row.label)
 }

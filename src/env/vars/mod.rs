@@ -38,6 +38,23 @@ pub fn get(command: &CommandContext, name: &str) -> Option<String> {
     get_path(&map, name).and_then(value_to_string)
 }
 
+/// The raw JSON value for `name` (no default fallback, no string coercion).
+///
+/// For structured env data — the `sync` block, the `skill_sessions` array —
+/// whose readers want the JSON shape rather than [`get`]'s rendered string.
+#[must_use]
+pub fn get_raw(command: &CommandContext, name: &str) -> Option<Value> {
+    let map = if is_machine_global(name) {
+        load_global_map(command)
+    } else {
+        load_map(command)
+    };
+    if name.contains('.') {
+        return get_path(&map, name).cloned();
+    }
+    map.get(name).cloned()
+}
+
 /// The effective value for a known env variable: explicit override else default.
 ///
 /// `root` resolves through [`crate::paths::brain_root_path`] so the shown value
@@ -319,19 +336,71 @@ fn get_path<'a>(map: &'a Map<String, Value>, path: &str) -> Option<&'a Value> {
     current
 }
 
+/// Write `value` at a dotted env path, creating missing intermediate objects.
+///
+/// Descends through objects by name and through arrays by index, mirroring
+/// [`get_path`], so one element of a structured list (`skill_sessions.0.prompt`)
+/// is addressable like any nested field. Missing object keys are created; a
+/// missing *array* index is an error rather than a silently invented entry.
 fn set_path(map: &mut Map<String, Value>, path: &str, value: Value) -> Result<()> {
     let segments = path_segments(path)?;
-    let mut current = map;
-    for segment in &segments[..segments.len() - 1] {
-        let entry = current
-            .entry((*segment).to_owned())
-            .or_insert_with(|| Value::Object(Map::new()));
-        current = entry.as_object_mut().ok_or_else(|| {
-            anyhow::anyhow!("cannot descend through non-object env value `{segment}`")
-        })?;
+    let (last, parents) = segments.split_last().expect("path has a segment");
+    let mut current = map
+        .entry((*parents.first().unwrap_or(last)).to_owned())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if parents.is_empty() {
+        map.insert((*last).to_owned(), value);
+        return Ok(());
     }
-    current.insert(segments[segments.len() - 1].to_owned(), value);
-    Ok(())
+    for (depth, segment) in parents.iter().enumerate().skip(1) {
+        current = descend(current, segment, &segments[..=depth])?;
+    }
+    match current {
+        Value::Object(object) => {
+            object.insert((*last).to_owned(), value);
+            Ok(())
+        }
+        Value::Array(array) => {
+            let index = array_index(last, array.len(), &segments)?;
+            array[index] = value;
+            Ok(())
+        }
+        _ => Err(anyhow::anyhow!(
+            "cannot descend through non-object env value `{}`",
+            parents.join(".")
+        )),
+    }
+}
+
+/// One step of [`set_path`]'s walk, creating a missing object key. `walked` is
+/// the path so far, for an error a user can locate.
+fn descend<'a>(current: &'a mut Value, segment: &str, walked: &[&str]) -> Result<&'a mut Value> {
+    match current {
+        Value::Array(array) => {
+            let index = array_index(segment, array.len(), walked)?;
+            Ok(&mut array[index])
+        }
+        Value::Object(object) => Ok(object
+            .entry(segment.to_owned())
+            .or_insert_with(|| Value::Object(Map::new()))),
+        _ => Err(anyhow::anyhow!(
+            "cannot descend through non-object env value `{segment}`"
+        )),
+    }
+}
+
+fn array_index(segment: &str, len: usize, walked: &[&str]) -> Result<usize> {
+    segment
+        .parse::<usize>()
+        .ok()
+        .filter(|index| *index < len)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no env array element at `{}`; the list holds {len} entr{}",
+                walked.join("."),
+                if len == 1 { "y" } else { "ies" }
+            )
+        })
 }
 
 pub(super) fn flatten_map(map: &Map<String, Value>) -> Vec<(String, Value)> {
