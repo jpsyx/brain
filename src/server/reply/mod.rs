@@ -73,6 +73,39 @@ pub fn unanswered_notice(channel: &'static str) -> ReplyEnvelope {
     }
 }
 
+/// Confirms that the channel's conversation was replaced with a fresh one.
+///
+/// Starting over is invisible from a phone — the next answer simply stops
+/// referring to what came before — so the boundary is stated explicitly. A
+/// sender who is told nothing cannot tell a new session from an ignored
+/// command.
+#[must_use]
+pub fn new_session_notice(channel: &'static str) -> ReplyEnvelope {
+    ReplyEnvelope {
+        channel,
+        text: "Started a fresh conversation. I’ve set aside everything from the previous one."
+            .to_owned(),
+        long_form_available: false,
+    }
+}
+
+/// Confirms a restart, and says how much waiting work it discarded.
+#[must_use]
+pub fn restart_notice(channel: &'static str, dropped: usize) -> ReplyEnvelope {
+    let text = match dropped {
+        0 => "Restarted. Nothing was waiting.".to_owned(),
+        1 => "Restarted. 1 waiting message was dropped, and its sender has been told.".to_owned(),
+        count => format!(
+            "Restarted. {count} waiting messages were dropped, and their senders have been told."
+        ),
+    };
+    ReplyEnvelope {
+        channel,
+        text,
+        long_form_available: false,
+    }
+}
+
 /// Verify that a completion artifact belongs to the immutable launched actor.
 #[must_use]
 pub fn completion_matches_actor(
@@ -150,6 +183,40 @@ mod tests {
                 "a failure must not read like the still-working notice"
             );
         }
+    }
+
+    /// Every acknowledgement brain sends has to survive the narrowest channel
+    /// it can go out on, and has to be distinguishable from the others — a
+    /// sender reads these instead of seeing any UI.
+    #[test]
+    fn control_acknowledgements_fit_one_sms_and_never_read_alike() {
+        for channel in ["sms", "email"] {
+            let notices = [
+                new_session_notice(channel).text,
+                restart_notice(channel, 0).text,
+                restart_notice(channel, 1).text,
+                restart_notice(channel, 4).text,
+                processing_notice(channel).text,
+                unanswered_notice(channel).text,
+            ];
+            for notice in &notices {
+                assert!(
+                    notice.chars().count() <= SMS_LIMIT,
+                    "must fit one SMS: {notice}"
+                );
+            }
+            let unique = notices.iter().collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(unique.len(), notices.len(), "two notices read the same");
+        }
+    }
+
+    /// The count is the whole point of the restart acknowledgement: it tells
+    /// the sender how many other people were just told to resend.
+    #[test]
+    fn a_restart_acknowledgement_reports_how_much_it_discarded() {
+        assert!(restart_notice("sms", 0).text.contains("Nothing"));
+        assert!(restart_notice("sms", 1).text.contains('1'));
+        assert!(restart_notice("sms", 7).text.contains('7'));
     }
 
     #[test]

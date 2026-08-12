@@ -36,6 +36,9 @@ impl App<'_> {
                 &mut self.receiver_queue,
             );
         }
+        // Before any gate: a restart is the way out of a queue that is stuck,
+        // so it must not be made to wait behind the queue it is clearing.
+        self.apply_queued_restart();
         let now = std::time::Instant::now();
         if !crate::tui::receiver_state::retry_ready(self.receiver_retry_at, now) {
             return;
@@ -47,6 +50,12 @@ impl App<'_> {
             && !self.receiver_sync_ready()
         {
             return;
+        }
+        // Only between messages, and only with the panel free: a `/new` that
+        // ran mid-turn would cut the conversation in the wrong place and kill
+        // the answer someone is already waiting on.
+        if !self.brain_turn_active && self.receiver_started.is_none() {
+            while self.apply_queued_new_session() {}
         }
         let queued = self.receiver_queue.first();
         let queued_channel = queued.map(|message| message.channel);
@@ -118,6 +127,9 @@ impl App<'_> {
             message.actor.user_id(),
             message.prompt
         );
+        // A `/new` on this channel makes the launch that follows it refuse to
+        // resume, which is what retires the old conversation.
+        self.receiver_force_fresh = self.receiver_new_session.remove(&message.channel);
         let reusing_receiver_panel = self.receiver_session_id.is_some() && self.brain_panel_open();
         if reusing_receiver_panel {
             if let Some(session_id) = self.receiver_session_id.as_deref() {

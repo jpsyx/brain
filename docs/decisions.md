@@ -3601,6 +3601,41 @@ block says `live state unavailable` instead of printing `Server not running`,
 because inventing a fact about a process nobody reached is worse than admitting
 the gap — the user would go looking for a stopped server that is running fine.
 
+## A receiver command must be the whole message, and the two act at different times
+
+A sender with no screen has exactly one input: the message body. So brain reads
+`/new` and `/restart` out of it — but only when the command is the *entire*
+message. Matching a prefix or a substring would let "what does /new do?" and
+"restart the sync and tell me how it went" be silently obeyed instead of
+answered, and the sender would get no reply to a question they are waiting on.
+On this channel, swallowing a real message is the worst available failure, so
+the match is exact (whitespace and case forgiven, because a phone adds a
+trailing newline and capitalizes the first letter without being asked).
+
+The two commands are applied at different points, which looks inconsistent
+until you ask what each is *for*.
+
+`/restart` is a rescue. Its entire value is immediacy: the sender is stuck
+behind a backlog and wants out. Queueing it behind the very backlog it clears
+would make it a no-op, so it is applied the moment it is polled off the socket,
+before any panel-availability gate. It still does not interrupt the answer in
+flight — that message is being worked on, not stuck — and it keeps anything
+sent after it, because that is work nobody asked to abandon. The cut is through
+the queue, not a wipe of it.
+
+`/new` is a conversational boundary. Its entire value is *where* it lands, so it
+waits its turn and is applied only between messages. Applied immediately it
+would cut mid-answer, discarding a reply someone is already waiting for and
+placing the boundary somewhere the sender did not choose.
+
+Retiring a session needs no archive step. Session selection already resumes the
+most recent claimable session for the (frontend, workspace, actor) scope, and
+the actor carries the channel — so `/new` only has to make the *next* launch
+refuse to resume. The fresh session it creates then becomes the most recent one
+and is what later messages pick up. The old conversation is not deleted, just
+never selected again, which is also what makes the command safe: nothing is
+destroyed by a sender who typed it by mistake.
+
 ## Email markdown is rendered by a parser we did not write
 
 SMS and email are opposite problems. A phone renders nothing, so markdown is

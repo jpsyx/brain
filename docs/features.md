@@ -1441,6 +1441,32 @@ the receiver retries after a short backoff instead of leaving a phantom
 "processing" job. Twilio and Resend reply delivery runs on a bounded background
 worker so provider latency never blocks TUI input or `Ctrl+Q`.
 
+### Steering the receiver from SMS or email
+
+Two messages are read as instructions to brain rather than questions for the
+agent. A message counts as a command only when the command is the **entire**
+message, ignoring surrounding whitespace and case — `/NeW` and `/new ` both
+work, while "what does /new do?" is an ordinary question and gets an ordinary
+answer. Both commands acknowledge their sender, because a sender with no screen
+cannot otherwise tell an obeyed command from an ignored one.
+
+| Command | Effect |
+| --- | --- |
+| `/new` | Retires the conversation for **the channel it arrived on** and starts a fresh one. The next message from that channel opens a new session instead of resuming; the old conversation is simply never picked up again. SMS and email are retired independently. |
+| `/restart` | Drops everything queued **ahead of it** and tells each of those senders their message could not be processed and should be resent. |
+
+The two are applied at deliberately different moments. `/restart` takes effect
+the moment it is polled, without waiting for a free panel: a sender restarts
+*because* they are stuck behind something, so making the command queue behind
+the backlog it clears would leave it useless. It does not interrupt the answer
+already in flight, and anything sent *after* the restart is kept, since that is
+new work nobody asked to abandon. `/new`, by contrast, waits its turn and is
+applied only between messages, because its whole value is *where* the boundary
+falls — running it mid-turn would cut the conversation in the wrong place and
+kill an answer someone is already waiting on. A `/new` for a channel whose panel
+is currently warm retires that panel immediately so the next message cannot
+reuse the conversation the sender just left.
+
 Every outbound SMS is shaped for a medium with no renderer. Brain converts the
 agent's answer to plain text before it is posted: headings, emphasis,
 strikethrough, code spans and fences, link and image syntax, blockquotes,

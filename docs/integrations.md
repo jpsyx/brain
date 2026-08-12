@@ -918,6 +918,17 @@ cannot corrupt the TUI. Outbound Twilio/Resend calls are serialized through a
 bounded background delivery worker, preserving reply order without blocking
 keyboard input or shell shutdown.
 
+An inbound message whose entire body is `/new` or `/restart` (case- and
+whitespace-insensitive) is a control command, read in
+`server/receiver/control.rs` and applied in
+`tui/app_brain/receiver/control.rs` rather than sent to the agent. `/restart`
+is applied as soon as it is polled, ahead of every dispatch gate;
+`/new` waits for a free panel and sets `App::receiver_new_session` for its
+channel, which the next launch consumes as `receiver_force_fresh` to skip
+session resumption. Both acknowledge their own sender through `reply_to_job`,
+which addresses the job's own recipients rather than whatever reply state is
+live — a dropped job is not the message currently in flight.
+
 Every outbound email carries both parts of the Resend payload: `text` is the
 agent's markdown verbatim, and `html` is that markdown rendered by
 `server/reply/html.rs` (`pulldown-cmark`) inside brain's styled card. Raw HTML

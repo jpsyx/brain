@@ -262,7 +262,15 @@ bounded Unix connection and exists afterward only in the exact target TUI's
 an unavailable response means the message was discarded. No row, spool file,
 replay cursor, or headless-agent record exists. Consequently, zero live TUIs
 means zero server and no Brain response, while a live peer plus unavailable
-target means one unavailable response and no retained work.
+target means one unavailable response and no retained work. A `/restart`
+command removes every queued entry ahead of it from that same memory queue,
+which is the only way work leaves it unanswered other than the abandon timeout.
+
+Session retirement has no model of its own. `/new` records nothing durable: it
+adds a channel to `App::receiver_new_session`, which the next launch consumes as
+the one-shot `App::receiver_force_fresh` to skip resume candidates. The retired
+session's row is left exactly as it was and simply stops being the most recent
+one for its (frontend, workspace, actor) scope.
 
 Status uses a separate `ReadOnlyWorkspace` bootstrap policy. It reads an
 already-valid current-schema selected record, manifest, portable users, persistent

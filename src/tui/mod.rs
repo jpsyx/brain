@@ -391,6 +391,14 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_enabled: bool,
     receiver_intent_refresher: Box<dyn crate::command::server::ReceiverIntentRefresher>,
     pub(crate) receiver_queue: Vec<crate::server::receiver::InboundJob>,
+    /// Channels whose next receiver message must open a fresh conversation.
+    ///
+    /// Set by a `/new` command and consumed by the launch that follows it, so
+    /// the boundary the sender asked for falls between two messages rather
+    /// than inside whichever one happened to be running.
+    pub(crate) receiver_new_session: std::collections::HashSet<crate::server::receiver::Channel>,
+    /// One-shot: the launch now starting must not resume any prior session.
+    pub(crate) receiver_force_fresh: bool,
     pub(crate) requested_receiver_actor: Option<crate::actor::ActorContext>,
     pub(crate) receiver_lease: Option<receiver_state::Lease>,
     pub(crate) receiver_generation: u64,

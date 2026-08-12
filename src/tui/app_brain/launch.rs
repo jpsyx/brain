@@ -165,13 +165,21 @@ impl App<'_> {
             actor.clone(),
         );
         let resume_override = self.receiver_resume_session.clone();
+        // A `/new` sender asked to leave the previous conversation, so nothing
+        // is offered for resumption; the fresh session registered below becomes
+        // the most recent one and is what later messages resume instead.
+        let force_fresh = std::mem::take(&mut self.receiver_force_fresh);
         let mut resume = None::<(String, String)>;
         let mut skipped_missing = false;
         {
-            let candidates = resume_override.map_or_else(
-                || SessionStore::sessions_by_recency(&self.db, &scope),
-                |id| vec![id],
-            );
+            let candidates = if force_fresh {
+                Vec::new()
+            } else {
+                resume_override.map_or_else(
+                    || SessionStore::sessions_by_recency(&self.db, &scope),
+                    |id| vec![id],
+                )
+            };
             for id in candidates {
                 let Ok(candidate) = crate::agent::AgentSession::new(&id) else {
                     continue;

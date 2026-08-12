@@ -1280,7 +1280,9 @@ offline queue or launches an agent.
   covers provider-ID state; `transport.rs`
   carries one short absolute deadline through nonblocking job-socket connect,
   frame write, and acknowledgment read; `job.rs` defines
-  the immutable serialized `InboundJob`; `unavailable.rs` owns the one-response,
+  the immutable serialized `InboundJob`; `control.rs` is the pure reading of a
+  message as a `/new` or `/restart` command plus the queue cut a restart makes;
+  `unavailable.rs` owns the one-response,
   no-retry discard result; and `attachments.rs` stages media for the TUI.
 - `server/control/` owns the bounded newline-delimited JSON protocol. `codec.rs`
   caps frames, requires one frame followed by EOF, and applies one absolute
