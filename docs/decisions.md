@@ -3934,3 +3934,35 @@ A refused retrieval now logs the HTTP status with its likely cause, because
 401/403 (a key that cannot read) and 404 (a key from a different account) need
 completely different fixes and are indistinguishable from the provider-facing
 502 that a bare upstream failure produces.
+
+## A transaction journal is machine-local, even though it lives in a synced root
+
+Brain's multi-file writes (portable users, triage habits, task schema) stage a
+journal plus per-file backups *beside* the live files, which puts them inside the
+synced workspace root. That was originally described as a feature: another
+machine could see the journal and recognize an interrupted publication.
+
+It is not a feature, because recovery is a **rollback**, and a rollback is only
+ever correct on the machine that crashed. The journal says "restore these live
+files from these backups", and those backups hold that machine's pre-edit bytes.
+Transferred to a peer, the same journal makes the peer overwrite its own live
+`users.json` with a stranger's older generation and then push the result, so one
+interrupted `brain user` edit on one laptop silently reverts the roster for the
+whole workspace. If the backups do not arrive with it, recovery instead fails
+hard and every load, including inbound receiver requests, reports users
+unavailable until someone deletes the file by hand. A journal is the one artifact
+whose meaning does not survive leaving its machine.
+
+So the artifact families are sync excludes, in both the bisync argv and the
+one-way push: `.brain-*` (every journal plus its staged/backup/restore scratch),
+`*.brain-triage-*` (the siblings named after the live file, like
+`.tasks.csv.brain-triage-<id>-0.staged`), and `*.transaction.lock` (per-machine
+flocks with nothing portable in them). `watch::is_watch_relevant` mirrors them:
+mid-transaction is the worst moment to fire a push, since the only thing such a
+push could carry is a half-applied group.
+
+Changing the filter set makes rclone bisync demand `--resync`, which brain already
+handles: the run aborts with `PriorListingMissing` and `should_auto_resync` retries
+once with a fresh baseline. Nothing is lost, because the newly excluded paths are
+scratch by definition. Objects a previous version already uploaded stay on the
+remote as inert junk; `rclone delete` on the remote path removes them.

@@ -502,6 +502,14 @@ delegated task values.
   documents — and only for a workspace Brain is initializing, never dropped into
   a root that already holds content. Templates live in `templates/workspace/`,
   embedded into the binary.
+- **Crash-recovery journals never leave the machine that wrote them.** Brain's
+  multi-file writes (portable users, triage habits, task schema) stage a journal
+  plus backup copies inside the workspace, and its setup locks live there too.
+  Those artifacts are excluded from sync and never trigger the change-watcher,
+  because a journal means "undo this" and is only ever true locally: transferred,
+  the next machine to read that file would roll its own copy back to the backup
+  and then push the rollback outward, reverting the workspace from one
+  interrupted edit.
 - Dependency trees an agent frontend installs inside a workspace
   (`node_modules/**` at any depth, plus `.opencode/{package.json,package-lock.json,bun.lock,.gitignore}`)
   are excluded from sync and never trigger the change-watcher. Every machine

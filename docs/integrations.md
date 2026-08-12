@@ -1033,8 +1033,11 @@ brain-root lookup.
   `--resync`), `--check-access --check-filename RCLONE_TEST`, and default
   excludes (`.git/**`, `.DS_Store`, `.cache/**`, the remote identity manifest
   `.config/workspace.json`, setup claims `.config/workspace-claims/**`, task
-  schema metadata `tasks/SCHEMA.json`, friendly conflict copies `*(conflict *)*`, and raw
-  markers `*.__brainconflict__*`) plus any
+  schema metadata `tasks/SCHEMA.json`, friendly conflict copies `*(conflict *)*`, raw
+  markers `*.__brainconflict__*`, and every in-root transaction artifact:
+  journals plus their staged/backup/restore scratch (`.brain-*`, and the
+  `.<live-name>.brain-triage-…` siblings) and transaction locks
+  (`*.transaction.lock`)) plus any
   user-configured `sync.exclude` patterns and an optional `sync.max_size` cap
   (`--max-size`, omitted when unset).
   `src/sync/run.rs` (`run_rclone`) spawns `rclone` with that argv and the
@@ -1415,10 +1418,13 @@ outside-world touchpoints:
   never reads a configured production remote.
 - **The watcher's exclude set** (`watch::is_watch_relevant`, a pure path
   predicate) mirrors the bisync filter (see `args::bisync_args`'s default
-  excludes above): a changed path under `.git`, `.cache`, or a `.DS_Store`, or
-  an existing friendly conflict copy (`*(conflict *)*`), never triggers a sync.
-  So a VCS write, a cache churn, or a conflict copy fanning in from another
-  machine can't kick the watcher. The watcher runs `notify` recursively over the
+  excludes above): a changed path under `.git`, `.cache`, or a `.DS_Store`, an
+  existing friendly conflict copy (`*(conflict *)*`), or a transaction
+  journal/scratch/lock (`.brain-*`, `*.brain-triage-*`, `*.transaction.lock`)
+  never triggers a sync.
+  So a VCS write, a cache churn, a conflict copy fanning in from another
+  machine, or a `brain user` edit mid-transaction can't kick the watcher;
+  mid-transaction is precisely when a push would carry a half-applied group. The watcher runs `notify` recursively over the
   brain root; when relevant changes settle for the `debounce_ms` window it
   spawns a detached `brain sync --push`. Push uses `rclone copy --update`, so
   it cannot download files or delete remote-only paths. Task CSV and counter

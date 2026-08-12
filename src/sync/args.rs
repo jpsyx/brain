@@ -39,6 +39,15 @@ pub const CONFLICT_MARKER: &str = "__brainconflict__";
 /// the max-merge in `counters` (bisync's newer-wins would regress a counter and
 /// cause id collisions), not by bisync.
 ///
+/// Also every in-root transaction artifact: the portable-user, triage-habit, and
+/// task-schema journals plus their staged/backup/restore scratch (`.brain-*`, and
+/// the `.<live-name>.brain-triage-…` siblings written beside a live file), and any
+/// in-root transaction lock. A journal is an instruction to *undo* a committed
+/// change and is only ever true of the machine that crashed: transferred, the next
+/// machine to load that file rolls its own copy back to the journal's backup and
+/// then pushes the rollback outward, so one interrupted edit reverts the whole
+/// workspace. Locks are per-machine flocks with nothing portable in them.
+///
 /// Also every dependency tree (`node_modules/**`, at any depth) and the
 /// machine-local package files an agent frontend drops beside its plugin.
 /// OpenCode installs `@opencode-ai/plugin`'s dependencies into whatever
@@ -48,9 +57,15 @@ pub const CONFLICT_MARKER: &str = "__brainconflict__";
 /// OpenCode's own `.opencode/.gitignore` names exactly this set. Brain's
 /// `.opencode/plugins/brain.js` bridge is *not* excluded — that is content every
 /// machine needs.
-const EXCLUDES: [&str; 17] = [
+const EXCLUDES: [&str; 20] = [
     ".config/workspace.json",
     ".config/workspace-claims/**",
+    // Unanchored, so each matches at any depth. `.brain-*` covers every journal
+    // and its staged/backup/restore scratch; the triage pattern also catches the
+    // siblings named after the live file (`.tasks.csv.brain-triage-<id>-0.staged`).
+    ".brain-*",
+    "*.brain-triage-*",
+    "*.transaction.lock",
     ".git/**",
     ".DS_Store",
     ".cache/**",
@@ -316,8 +331,7 @@ mod tests {
             assert!(
                 !argv
                     .windows(2)
-                    .any(|pair| pair[0] == "--exclude"
-                        && pair[1].contains("plugins")),
+                    .any(|pair| pair[0] == "--exclude" && pair[1].contains("plugins")),
                 "{argv:?}"
             );
         }
@@ -346,6 +360,25 @@ mod tests {
                 }),
                 "{argv:?}"
             );
+        }
+    }
+
+    /// A crash-recovery journal is an instruction to *undo* a committed change,
+    /// and it is only ever true of the machine that crashed. Transferred, the
+    /// next machine to load portable users rolls its own file back to the
+    /// journal's backup and then pushes that rollback outward, so one machine's
+    /// interrupted `brain user` edit silently reverts the whole workspace's
+    /// roster. Every in-root transaction artifact stays machine-local.
+    #[test]
+    fn excludes_transaction_journals_and_scratch_so_a_rollback_never_crosses_machines() {
+        for argv in [args(Direction::Both), push_args(&cfg(), "/root", "BRAIN:b")] {
+            for pattern in [".brain-*", "*.brain-triage-*", "*.transaction.lock"] {
+                assert!(
+                    argv.windows(2)
+                        .any(|pair| pair[0] == "--exclude" && pair[1] == pattern),
+                    "missing exclude {pattern} in {argv:?}"
+                );
+            }
         }
     }
 

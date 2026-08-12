@@ -60,7 +60,8 @@ impl Debouncer {
 }
 
 /// Whether a changed path should trigger a sync. Mirrors the bisync exclude set
-/// (spec §6): VCS/cache/OS cruft and existing conflict copies never trigger.
+/// (spec §6): VCS/cache/OS cruft, existing conflict copies, and transaction
+/// journals/scratch/locks never trigger.
 #[must_use]
 pub fn is_watch_relevant(path: &Path) -> bool {
     for comp in path.components() {
@@ -76,6 +77,15 @@ pub fn is_watch_relevant(path: &Path) -> bool {
                 return false;
             }
             if s.contains("(conflict ") && s.contains(')') {
+                return false;
+            }
+            // Transaction scratch: the `.brain-*` journals and their staged /
+            // backup / restore files, the `.<live-name>.brain-triage-…` siblings
+            // written beside a live file, and any in-root transaction lock.
+            if s.starts_with(".brain-")
+                || s.contains(".brain-triage-")
+                || s.ends_with(".transaction.lock")
+            {
                 return false;
             }
             if s.contains(crate::sync::args::CONFLICT_MARKER) {
@@ -296,6 +306,24 @@ mod tests {
         assert!(!is_watch_relevant(Path::new(".opencode/bun.lock")));
         // Brain's own bridge is content, so it still triggers.
         assert!(is_watch_relevant(Path::new(".opencode/plugins/brain.js")));
+    }
+
+    /// Mid-transaction is the worst possible moment to trigger a push: the
+    /// journal and its scratch are excluded from transfer, so a sync fired by
+    /// them can only transfer a half-applied group of live files.
+    #[test]
+    fn a_transaction_journal_or_lock_never_triggers_a_sync() {
+        for path in [
+            ".config/.brain-user-transaction.json",
+            ".config/.brain-user-4213-17e9-0.staged",
+            ".config/.brain-user-4213-17e9-0.backup",
+            ".config/.brain-triage-habits-transaction.json",
+            "tasks/.tasks.csv.brain-triage-9f2-0.staged",
+            "tasks/.brain-task-schema-tasks.staged",
+            ".config/.receiver-setup.transaction.lock",
+        ] {
+            assert!(!is_watch_relevant(Path::new(path)), "{path}");
+        }
     }
 
     #[test]

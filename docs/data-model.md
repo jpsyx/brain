@@ -633,9 +633,12 @@ and email has no phone requirement.
 
 Removing a person can change `tasks.csv`, `habits.csv`, and `users.json` as one
 recoverable group. Same-directory staged files and backups preserve each live
-file's mode. The transient `.config/.brain-user-transaction.json` journal is
-portable so another machine can recognize an interrupted publication; relative
-paths in it are validated before recovery. The SQLite serialization lock is
+file's mode. The transient `.config/.brain-user-transaction.json` journal lives
+inside the root but is **machine-local**: it, its staged/backup/restore scratch,
+and the receiver-setup lock are sync excludes, because recovery means rolling the
+group back to *this* machine's pre-edit generation and that is never true of a
+peer (see [decisions](decisions.md#a-transaction-journal-is-machine-local-even-though-it-lives-in-a-synced-root)).
+Relative paths in it are validated before recovery. The SQLite serialization lock is
 machine-local at
 `~/.cache/brain/workspaces/<workspace-uuid>/users.transaction.lock`. Before a
 portable-user load, Brain rolls any journaled group back to its complete old
