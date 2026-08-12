@@ -389,9 +389,24 @@ Values distinguish three states: `(unset)` (absent), `(empty)` (present but an
 empty string), and the value itself. Secrets render as `(set)` in every block,
 including workspaces that are not selected.
 
+**Email needs two Resend keys, always.** They are not interchangeable and
+neither falls back to the other:
+
+| Variable | Scope to give it | Used for |
+| --- | --- | --- |
+| `resend_sending_api_key` | **Sending access only** | Outbound replies |
+| `resend_full_access_api_key` | **Full access** | Reading inbound email and attachments |
+
+The split is forced from both directions. The receiving API cannot be read by a
+sending-only key, so retrieval needs full access. And a full-access key used for
+*sending* fans every outbound event out to every webhook on the account, not just
+the domain a workspace cares about — so delivery must use a key scoped to sending
+only. One key cannot satisfy both, which is why `brain receiver setup` prompts for
+both and the email channel reports `incomplete` until both are set.
+
 **Redaction covers credentials, not identifiers.** `is_sensitive`
-(`src/env/schema.rs`) redacts `twilio_auth_token`, `resend_api_key`,
-`resend_webhook_signing_secret`, the `agent_capabilities` credential
+(`src/env/schema.rs`) redacts `twilio_auth_token`, `resend_sending_api_key`,
+`resend_full_access_api_key`, `resend_webhook_signing_secret`, the `agent_capabilities` credential
 descendants, and the sync transport secrets `sync.b2_app_key`,
 `sync.crypt_password`, and `sync.crypt_password2`. Identifiers such as
 `twilio_account_sid`, `sync.b2_bucket`, and `sync.b2_key_id` stay visible on

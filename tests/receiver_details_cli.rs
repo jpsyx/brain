@@ -142,7 +142,7 @@ fn the_listing_reports_addresses_but_never_a_provider_secret() {
     let machine = configured();
     for (name, value) in [
         ("twilio_auth_token", "private-twilio-token"),
-        ("resend_api_key", "private-resend-key"),
+        ("resend_sending_api_key", "private-resend-key"),
         ("resend_webhook_signing_secret", "private-signing-secret"),
     ] {
         machine.ok(&["env", "set", "-w", "brain", &format!("{name}={value}")]);

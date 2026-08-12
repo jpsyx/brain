@@ -141,7 +141,7 @@ fn fetch_verified(
     config: &ProviderConfig,
     fetch: impl FnOnce(&str, &str) -> Result<FetchedEmail, ProviderError>,
 ) -> Result<AuthenticatedInbound, ProviderError> {
-    let fetched = fetch(&verified.email_id, &config.resend_api_key)?;
+    let fetched = fetch(&verified.email_id, &config.resend_full_access_api_key)?;
     if fetched.body.trim().is_empty() && fetched.attachments.is_empty() {
         return Err(ProviderError::InvalidRequest(
             "received email has no text body or attachment",
@@ -256,11 +256,51 @@ fn fetch_resend_json(key: &str, url: &str, limit: usize) -> Result<Vec<u8>, Prov
         .output_limited(limit)
         .map_err(|_| ProviderError::Upstream("fetching Resend receiving API failed"))?;
     if !output.status.success() {
+        // The provider is told only that an upstream call failed. The owner
+        // needs the status: 401/403 is a key that cannot read inbound mail,
+        // 404 is a key that belongs to a different account than the address,
+        // and a missing status is a network fault rather than a refusal.
+        crate::logging::log(format!(
+            "receiver email fetch rejected {} url={url}",
+            upstream_status(key, url).map_or_else(
+                || "with no HTTP status (could not reach Resend)".to_owned(),
+                |status| format!("with HTTP {status}{}", resend_status_hint(status)),
+            )
+        ));
         return Err(ProviderError::Upstream(
             "Resend receiving API rejected the request",
         ));
     }
     Ok(output.stdout)
+}
+
+/// What a rejected receiving-API status usually means, for the local log.
+fn resend_status_hint(status: u16) -> &'static str {
+    match status {
+        401 | 403 => {
+            " — resend_sending_api_key cannot read inbound mail; the key needs full access, not sending-only"
+        }
+        404 => " — this email id is not in the account resend_sending_api_key belongs to",
+        429 => " — rate limited by Resend",
+        _ => "",
+    }
+}
+
+/// Re-ask for just the status of a refused fetch. The request is a GET, so
+/// repeating it is safe, and it keeps the success path's parsing untouched.
+fn upstream_status(key: &str, url: &str) -> Option<u16> {
+    let max_time = super::RESEND_FETCH_TIMEOUT_SECONDS.to_string();
+    let output = crate::server::provider::CurlRequest::new()
+        .flag("silent")
+        .option("output", "/dev/null")
+        .option("write-out", "%{http_code}")
+        .option("connect-timeout", "5")
+        .option("max-time", &max_time)
+        .option("header", &format!("Authorization: Bearer {key}"))
+        .option("url", url)
+        .output_limited(16)
+        .ok()?;
+    String::from_utf8(output.stdout).ok()?.trim().parse().ok()
 }
 
 pub(in crate::server::receiver) fn refresh_attachment_access(
@@ -273,8 +313,8 @@ pub(in crate::server::receiver) fn refresh_attachment_access(
     if message.attachments.is_empty() {
         return Ok(Vec::new());
     }
-    let key = crate::server::provider::get(command, "resend_api_key").ok_or(
-        ProviderError::NotConfigured("RESEND_API_KEY is not configured"),
+    let key = crate::server::provider::get(command, "resend_full_access_api_key").ok_or(
+        ProviderError::NotConfigured("resend_full_access_api_key is not configured"),
     )?;
     refresh_attachment_access_with(
         &reply.provider_email_id,

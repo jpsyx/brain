@@ -95,7 +95,7 @@ impl SharedReceiverFixture {
                         )),
                     ),
                     (
-                        "resend_api_key".to_owned(),
+                        "resend_sending_api_key".to_owned(),
                         serde_json::json!("personal-resend-key"),
                     ),
                 ]),

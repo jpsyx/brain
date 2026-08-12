@@ -213,8 +213,8 @@ pub fn send_email(
     html: &str,
     reply: Option<&crate::server::receiver::EmailReplyContext>,
 ) -> anyhow::Result<()> {
-    let key = super::provider::get(command, "resend_api_key")
-        .ok_or_else(|| anyhow::anyhow!("RESEND_API_KEY is not configured"))?;
+    let key = super::provider::get(command, "resend_sending_api_key")
+        .ok_or_else(|| anyhow::anyhow!("resend_sending_api_key is not configured"))?;
     let from = super::provider::get(command, "resend_from_email")
         .ok_or_else(|| anyhow::anyhow!("RESEND_FROM_EMAIL is not configured"))?;
     let payload = email_payload(

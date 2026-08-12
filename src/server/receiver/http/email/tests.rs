@@ -29,12 +29,15 @@ fn authenticated_email_uses_injected_fetch_without_external_io() {
         twilio_from_number: String::new(),
         public_base_url: String::new(),
         resend_signing_secret: format!("whsec_{}", STANDARD.encode(key)),
-        resend_api_key: "selected-api-key".to_owned(),
+        resend_full_access_api_key: "full-access-key".to_owned(),
         resend_from_email: "brain@example.test".to_owned(),
     };
     let inbound = authenticate_payload(&headers, body, &config, |email_id, api_key| {
         assert_eq!(email_id, "email-1");
-        assert_eq!(api_key, "selected-api-key");
+        // Retrieval must use the full-access key. A sending-only key cannot read
+        // the receiving API, so reaching for the delivery credential here is the
+        // failure that silently stops inbound email.
+        assert_eq!(api_key, "full-access-key");
         Ok(FetchedEmail {
             body: "private prompt".to_owned(),
             sender: "member@example.test".to_owned(),
@@ -261,7 +264,7 @@ fn a_real_from_header_with_a_display_name_still_authenticates() {
         twilio_from_number: String::new(),
         public_base_url: String::new(),
         resend_signing_secret: format!("whsec_{}", STANDARD.encode(key)),
-        resend_api_key: "selected-api-key".to_owned(),
+        resend_full_access_api_key: String::new(),
         resend_from_email: "brain@example.test".to_owned(),
     };
 
@@ -331,3 +334,33 @@ fn resend_signature(key: &[u8], id: &str, timestamp: &str, body: &[u8]) -> Strin
     mac.update(body);
     format!("v1,{}", STANDARD.encode(mac.finalize().into_bytes()))
 }
+
+/// A refused fetch is answered to the provider as a bare upstream failure, so
+/// the local log is the only place the owner can learn which of two very
+/// different misconfigurations they have: a key that cannot read inbound mail
+/// at all, or a key belonging to a different account than the address.
+#[test]
+fn a_refused_fetch_distinguishes_a_powerless_key_from_a_wrong_account() {
+    let unauthorized = super::resend_status_hint(401);
+    let forbidden = super::resend_status_hint(403);
+    let missing = super::resend_status_hint(404);
+
+    assert!(
+        unauthorized.contains("full access"),
+        "401 must point at the key's permissions: {unauthorized}"
+    );
+    assert_eq!(unauthorized, forbidden, "401 and 403 are the same fault");
+    assert!(
+        missing.contains("account"),
+        "404 must point at the wrong account, not permissions: {missing}"
+    );
+    assert_ne!(
+        unauthorized, missing,
+        "the two faults need different fixes and must not read alike"
+    );
+    assert!(
+        super::resend_status_hint(500).is_empty(),
+        "an unclassified status must not invent an explanation"
+    );
+}
+

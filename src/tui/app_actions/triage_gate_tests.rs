@@ -145,3 +145,50 @@ fn successful_startup_sync_reads_config_after_acquiring_the_task_store_owner() {
             .all(|habit| !habit.is_managed_triage())
     );
 }
+
+/// `.claude/settings.json` syncs, and startup installs hooks *before* the
+/// startup pull, so a machine on an older brain can hand this one its stale
+/// hook commands and silently win. Reasserting after the pull is what stops a
+/// fixed hook path from coming back broken.
+#[test]
+fn a_pull_that_reverts_this_machines_hook_commands_is_corrected() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let home = temporary.path().join("home");
+    let root = temporary.path().join("brain");
+    std::fs::create_dir_all(root.join(".claude")).expect("workspace root");
+    std::fs::create_dir_all(&home).expect("home");
+    // Exactly what an older machine publishes and a pull brings down.
+    std::fs::write(
+        root.join(".claude/settings.json"),
+        r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"python3 .claude/brain-hooks/agent_turn_complete_hook.py"}]}]},"permissions":{"allow":["Read"]}}"#,
+    )
+    .expect("stale settings from the remote");
+
+    let workspace = crate::workspace::WorkspaceContext::new(
+        &home,
+        crate::workspace::WorkspaceId::parse("11111111-1111-4111-8111-111111111111")
+            .expect("workspace id"),
+        crate::workspace::WorkspaceName::parse("brain").expect("workspace name"),
+        &root,
+        "pablo",
+        &root,
+    )
+    .expect("workspace context");
+
+    super::reinstall_lifecycle_after_pull(&workspace);
+
+    let settings = std::fs::read_to_string(root.join(".claude/settings.json"))
+        .expect("settings after the pull was corrected");
+    assert!(
+        settings.contains("CLAUDE_PROJECT_DIR"),
+        "the pulled-in stale command was left in place: {settings}"
+    );
+    assert!(
+        !settings.contains("python3 .claude/brain-hooks"),
+        "the relative command survived: {settings}"
+    );
+    assert!(
+        settings.contains("Read"),
+        "unrelated settings from the remote must survive: {settings}"
+    );
+}

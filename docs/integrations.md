@@ -735,7 +735,7 @@ Which session to run is decided by the **lock + recency** model in
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
 
 Claude and Codex register the same generic bridge scripts. Claude stores
-project-relative `SessionStart` and `Stop` entries in
+root-anchored `SessionStart` and `Stop` entries in
 `<brain-root>/.claude/settings.json`; Codex stores portable
 `python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/<script>.py"` entries
 in `~/.codex/hooks.json`. Shared Codex updates use an adjacent machine-wide

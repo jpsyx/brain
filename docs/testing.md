@@ -112,7 +112,8 @@ first move is a failing test that reproduces it, *then* the fix.
   generic session-start bridge against a temporary SQLite DB and the real shell installer
   against temporary homes/roots. They cover the typed workspace/actor
   identity plus session attribution contract, selected-root argument and
-  `BRAIN_ROOT` precedence, project-relative commands, actor-scoped Claude,
+  `BRAIN_ROOT` precedence, working-directory-independent commands for every
+  frontend, actor-scoped Claude,
   Codex, and OpenCode rotation, atomic target-claim serialization, rollback and retry after
   an injected mutation failure, equal opaque IDs with conflicting immutable
   attribution, schema-v2 row preservation, and malformed/ambient no-op

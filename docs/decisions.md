@@ -3555,7 +3555,8 @@ workspace sharing the machine's one URL — which is one more reason the owner
 gets to read it rather than only confirm it exists. A missing address is an error that names the
 variable and both ways to set it, mirroring `receiver url`'s missing-origin
 message rather than printing an empty line. The three real secrets
-(`twilio_auth_token`, `resend_api_key`, `resend_webhook_signing_secret`) are
+(`twilio_auth_token`, `resend_sending_api_key`, `resend_full_access_api_key`,
+`resend_webhook_signing_secret`) are
 still never printed by any of these commands, and an integration test asserts
 it.
 
@@ -3880,3 +3881,36 @@ is stripped of control characters and truncated: an unrouted request must not be
 able to forge log lines or flood the log. A payload that names no destination at
 all is reported as its own fault rather than as a configuration mismatch, since
 nothing about the configuration is wrong in that case.
+
+## Two Resend keys, because one key cannot hold two permissions
+
+Retrieving an inbound email needs a Resend key with read access; sending a reply
+needs one with send access. A single full-access key satisfies both, and that is
+what brain assumed. But a full-access key used for sending reportedly fans every
+outbound event out to *every* webhook on the account, not just the domain the
+workspace cares about — so the natural fix is a sending-only key, which then
+cannot read inbound mail. The two requirements pull the single key in opposite
+directions and no value satisfies both.
+
+So the capability that needs the stronger permission gets its own credential.
+`resend_full_access_api_key` is consulted for retrieval and attachment refresh;
+`resend_sending_api_key` sends. Both are required and neither falls back to the
+other: a fallback would let a workspace look configured while one of the two
+capabilities was silently using a key that cannot perform it, which is exactly
+the failure that is invisible until an email stops arriving.
+
+The names carry the scope on purpose. `resend_full_access_api_key` is the one
+place a full-access credential is wanted, and saying so in the name means a
+reader never has to look up which of the two is allowed to be narrower.
+
+This is least privilege arriving through the front door: the key that reads a
+mailbox and the key that sends as a domain were only ever the same value for
+convenience, and the webhook fan-out is what made the convenience cost visible.
+The rename from `resend_api_key` is deliberately breaking — the email channel
+reports `incomplete` until both are set, which is louder and safer than carrying
+one key forward into a role it may not have permission for.
+
+A refused retrieval now logs the HTTP status with its likely cause, because
+401/403 (a key that cannot read) and 404 (a key from a different account) need
+completely different fixes and are indistinguishable from the provider-facing
+502 that a bare upstream failure produces.

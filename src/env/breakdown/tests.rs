@@ -176,8 +176,8 @@ fn every_declared_variable_appears_in_every_block_even_when_unset() {
 
     for block in &breakdown.workspaces {
         assert!(
-            row(&block.rows, "resend_api_key").value.is_none(),
-            "{} should list resend_api_key as unset",
+            row(&block.rows, "resend_sending_api_key").value.is_none(),
+            "{} should list resend_sending_api_key as unset",
             block.name
         );
     }
@@ -245,7 +245,7 @@ fn variables_document_every_global_and_declared_row_but_no_nested_path() {
         .collect::<Vec<_>>();
     assert!(documented.contains(&"schema_version"), "{documented:?}");
     assert!(documented.contains(&"default_workspace"), "{documented:?}");
-    for declared in ["root", "claude_cmd", "resend_api_key"] {
+    for declared in ["root", "claude_cmd", "resend_sending_api_key"] {
         assert!(documented.contains(&declared), "{documented:?}");
     }
     assert!(

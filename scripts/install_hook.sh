@@ -8,9 +8,11 @@
 # instructions; multi-workspace callers should always pass the selected root.
 #
 # The scripts live below the selected root so they travel with that workspace.
-# Hook commands are project-relative because Claude runs project hooks with the
-# selected workspace as its working directory. This keeps synced settings
-# portable across machines and across workspace root locations.
+# Hook commands are anchored to a root variable, never to the working
+# directory: a hook runs wherever the agent last changed directory to, so a
+# relative path stops resolving as soon as an agent runs `cd`. Naming no
+# absolute root keeps synced settings portable across machines and across
+# workspace root locations.
 #
 # Both bridges:
 #   - SessionStart: records which frontend session the brain panel drives (resume).
@@ -158,7 +160,7 @@ install_hook_settings() {
 install_hook_settings "$settings_path" "$sess_cmd" "$stop_cmd"
 install_hook_settings "$codex_settings_path" "$codex_sess_cmd" "$codex_stop_cmd"
 
-echo "install_hook.sh: hooks installed (project-relative) → $hook_dir"
+echo "install_hook.sh: hooks installed (root-anchored) → $hook_dir"
 echo "OpenCode plugin: $opencode_plugin_dir/brain.js"
 echo "settings: $settings_path"
 echo "Codex settings: $codex_settings_path"

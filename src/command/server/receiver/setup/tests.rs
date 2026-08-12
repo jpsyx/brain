@@ -15,7 +15,8 @@ fn provider_setup_fields_follow_selected_channels() {
         provider_fields(ReceiverSetupChannels::Email),
         [
             "brain_receiver_public_url",
-            "resend_api_key",
+            "resend_sending_api_key",
+            "resend_full_access_api_key",
             "resend_from_email",
             "resend_webhook_signing_secret",
         ]
@@ -48,8 +49,9 @@ fn shared_plan_validation_normalizes_public_url_and_provider_senders() {
             ("twilio_account_sid", "AC123"),
             ("twilio_auth_token", "secret"),
             ("twilio_from_number", "(212) 555-0100"),
-            ("resend_api_key", "re_secret"),
+            ("resend_sending_api_key", "re_secret"),
             ("resend_from_email", "Brain@Example.TEST"),
+            ("resend_full_access_api_key", "re_full_access"),
             ("resend_webhook_signing_secret", "whsec_secret"),
         ],
     );
@@ -96,8 +98,9 @@ fn shared_plan_validation_rejects_malformed_bases_and_blank_required_values_with
         ReceiverSetupChannels::Email,
         &[
             ("brain_receiver_public_url", ""),
-            ("resend_api_key", "re_secret"),
+            ("resend_sending_api_key", "re_secret"),
             ("resend_from_email", "brain@example.test"),
+            ("resend_full_access_api_key", "re_full_access"),
             ("resend_webhook_signing_secret", "whsec_secret"),
         ],
     );
@@ -111,8 +114,9 @@ fn guided_clear_flows_into_the_shared_required_value_validation() {
         ReceiverSetupChannels::Email,
         &[
             ("brain_receiver_public_url", &cleared),
-            ("resend_api_key", "re_secret"),
+            ("resend_sending_api_key", "re_secret"),
             ("resend_from_email", "brain@example.test"),
+            ("resend_full_access_api_key", "re_full_access"),
             ("resend_webhook_signing_secret", "whsec_secret"),
         ],
     );

@@ -27,7 +27,7 @@ fn breakdown() -> Breakdown {
                 is_selected: true,
                 rows: vec![
                     resolved("root", Some("/home/tester/brain"), "Workspace root."),
-                    resolved("resend_api_key", None, "Resend key."),
+                    resolved("resend_sending_api_key", None, "Resend key."),
                     resolved("sync.b2_bucket", Some("brain-bucket"), "Nested."),
                 ],
             },
@@ -107,7 +107,7 @@ fn every_row_of_every_workspace_renders_including_unset_ones() {
 
     assert!(out.contains("/home/tester/brain"), "{out}");
     assert!(out.contains("/home/tester/family"), "{out}");
-    assert!(out.contains("resend_api_key"), "{out}");
+    assert!(out.contains("resend_sending_api_key"), "{out}");
     assert!(out.contains("(unset)"), "{out}");
     assert!(out.contains("sync.b2_bucket"), "{out}");
     // `root` is a row in each of the two blocks, plus one legend entry.
@@ -166,7 +166,13 @@ fn one_name_column_width_is_shared_by_every_section() {
         .collect::<Vec<_>>();
     assert!(!value_columns.is_empty(), "{out}");
     // Every indented row pads its name to the widest name anywhere in the view.
-    let widest = "default_workspace".len();
+    // Derived from what is actually rendered rather than pinned to one variable,
+    // so declaring a longer name shifts the column instead of failing this.
+    let widest = value_columns
+        .iter()
+        .filter_map(|line| line.trim_start().split_once("  ").map(|(name, _)| name.len()))
+        .max()
+        .expect("at least one named row");
     for line in &value_columns {
         let name = line.trim_start();
         if let Some(rest) = name.split_once("  ") {
@@ -177,6 +183,10 @@ fn one_name_column_width_is_shared_by_every_section() {
             );
         }
     }
+    assert!(
+        widest >= "default_workspace".len(),
+        "the column must fit every declared name, widest was {widest}"
+    );
     assert!(
         out.contains(&format!(
             "{}{:<widest$}  2",

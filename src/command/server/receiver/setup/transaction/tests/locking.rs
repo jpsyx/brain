@@ -97,7 +97,7 @@ fn setup_serializes_identical_after_images_across_rollback_ownership() {
     );
     concurrent_result.expect("serialized concurrent setup");
     assert_eq!(
-        crate::env::get(&fixture.context, "resend_api_key").as_deref(),
+        crate::env::get(&fixture.context, "resend_sending_api_key").as_deref(),
         Some("re_secret")
     );
     assert!(

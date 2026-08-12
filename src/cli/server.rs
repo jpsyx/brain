@@ -84,9 +84,12 @@ pub struct ReceiverSetupArgs {
     /// Twilio sender phone number, including country code.
     #[arg(long)]
     pub twilio_from_number: Option<String>,
-    /// Resend API credential for the selected workspace.
+    /// Resend credential used only to send replies (scope: sending access only).
     #[arg(long)]
-    pub resend_api_key: Option<String>,
+    pub resend_sending_api_key: Option<String>,
+    /// Resend credential used only to read inbound email (must be full access).
+    #[arg(long)]
+    pub resend_full_access_api_key: Option<String>,
     /// Verified Resend sender address for outbound delivery.
     #[arg(long)]
     pub resend_from_email: Option<String>,
@@ -150,7 +153,8 @@ mod tests {
             "Twilio account identifier",
             "Twilio request-signing secret",
             "Twilio sender phone number",
-            "Resend API credential",
+            "Resend credential used only to send replies",
+            "Resend credential used only to read inbound email",
             "Verified Resend sender address",
             "Resend webhook-signing secret",
         ] {

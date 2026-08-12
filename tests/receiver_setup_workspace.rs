@@ -25,8 +25,10 @@ fn noninteractive_setup_silos_provider_values_and_users_under_one_machine_url() 
         "email",
         "--public-url",
         "https://personal.example.test/",
-        "--resend-api-key",
+        "--resend-sending-api-key",
         "re_personal_secret",
+        "--resend-full-access-api-key",
+        "full-access-key",
         "--resend-from-email",
         "brain@personal.example.test",
         "--resend-webhook-signing-secret",
@@ -103,10 +105,10 @@ fn noninteractive_setup_silos_provider_values_and_users_under_one_machine_url() 
     let registry = fixture.registry();
     let personal_env = &registry.select(Some("personal")).unwrap().record().env;
     let family_env = &registry.select(Some("family")).unwrap().record().env;
-    assert_eq!(personal_env["resend_api_key"], "re_personal_secret");
+    assert_eq!(personal_env["resend_sending_api_key"], "re_personal_secret");
     assert!(personal_env.get("twilio_auth_token").is_none());
     assert_eq!(family_env["twilio_auth_token"], "123456");
-    assert!(family_env.get("resend_api_key").is_none());
+    assert!(family_env.get("resend_sending_api_key").is_none());
     // The origin is machine-global, so it never lands in a workspace record and
     // the second setup replaces what the first stored.
     for env in [personal_env, family_env] {
@@ -187,8 +189,10 @@ fn channel_specific_setup_requires_only_its_own_user_address() {
         "email",
         "--public-url",
         "https://email.example.test",
-        "--resend-api-key",
+        "--resend-sending-api-key",
         "email-secret",
+        "--resend-full-access-api-key",
+        "full-access-key",
         "--resend-from-email",
         "brain@email.example.test",
         "--resend-webhook-signing-secret",

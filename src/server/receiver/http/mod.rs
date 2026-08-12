@@ -66,7 +66,7 @@ pub(in crate::server) struct ProviderConfig {
     pub twilio_from_number: String,
     pub public_base_url: String,
     pub resend_signing_secret: String,
-    pub resend_api_key: String,
+    pub resend_full_access_api_key: String,
     pub resend_from_email: String,
 }
 
@@ -125,7 +125,7 @@ impl ProviderConfig {
             // the URL Twilio signs is identical for every workspace here.
             public_base_url: string_of(machine_env, "brain_receiver_public_url"),
             resend_signing_secret: string_of(record_env, "resend_webhook_signing_secret"),
-            resend_api_key: string_of(record_env, "resend_api_key"),
+            resend_full_access_api_key: string_of(record_env, "resend_full_access_api_key"),
             resend_from_email: string_of(record_env, "resend_from_email"),
         }
     }
@@ -304,7 +304,7 @@ mod tests {
             twilio_from_number: "+13105550111".to_owned(),
             public_base_url: "https://brain.example.test".to_owned(),
             resend_signing_secret: "secret".to_owned(),
-            resend_api_key: "key".to_owned(),
+            resend_full_access_api_key: String::new(),
             resend_from_email: "family@example.test".to_owned(),
         }
     }

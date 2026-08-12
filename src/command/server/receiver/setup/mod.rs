@@ -218,7 +218,8 @@ fn provider_arg(args: &ReceiverSetupArgs, name: &str) -> Option<String> {
         "twilio_account_sid" => args.twilio_account_sid.clone(),
         "twilio_auth_token" => args.twilio_auth_token.clone(),
         "twilio_from_number" => args.twilio_from_number.clone(),
-        "resend_api_key" => args.resend_api_key.clone(),
+        "resend_sending_api_key" => args.resend_sending_api_key.clone(),
+        "resend_full_access_api_key" => args.resend_full_access_api_key.clone(),
         "resend_from_email" => args.resend_from_email.clone(),
         "resend_webhook_signing_secret" => args.resend_webhook_signing_secret.clone(),
         _ => None,
@@ -236,7 +237,8 @@ pub(super) fn provider_fields(channels: ReceiverSetupChannels) -> Vec<&'static s
     }
     if email(channels) {
         fields.extend([
-            "resend_api_key",
+            "resend_sending_api_key",
+            "resend_full_access_api_key",
             "resend_from_email",
             "resend_webhook_signing_secret",
         ]);
@@ -266,9 +268,14 @@ pub(super) fn provider_prompt(name: &str) -> (&'static str, &'static str, bool) 
             "The Twilio phone number Brain uses for outbound SMS, including country code.",
             false,
         ),
-        "resend_api_key" => (
-            "Resend API key",
-            "Your Resend API key for receiving and sending email. Input is hidden.",
+        "resend_sending_api_key" => (
+            "Resend sending API key",
+            "Resend key used only to send replies. Scope it to sending access only: a full-access key used for sending fans every outbound event out to every webhook on the account. Input is hidden.",
+            true,
+        ),
+        "resend_full_access_api_key" => (
+            "Resend full-access API key",
+            "Resend key used only to read inbound email. This one must have full access: the receiving API cannot be read by a sending-only key. Input is hidden.",
             true,
         ),
         "resend_from_email" => (

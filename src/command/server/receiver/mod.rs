@@ -107,7 +107,8 @@ fn receiver_env_fields() -> Vec<(&'static str, &'static str, &'static str, bool)
         "twilio_account_sid",
         "twilio_auth_token",
         "twilio_from_number",
-        "resend_api_key",
+        "resend_sending_api_key",
+        "resend_full_access_api_key",
         "resend_from_email",
         "resend_webhook_signing_secret",
     ]

@@ -16,6 +16,7 @@ struct StartupTriageRefresh {
 fn refresh_after_successful_startup_sync(
     workspace: &crate::workspace::WorkspaceContext,
 ) -> anyhow::Result<StartupTriageRefresh> {
+    reinstall_lifecycle_after_pull(workspace);
     let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
     let config = crate::config::Config::try_load(workspace)?;
     crate::tasks::triage_habits::apply_triage_habits_config_owned(
@@ -30,6 +31,28 @@ fn refresh_after_successful_startup_sync(
         tasks,
         habits,
     })
+}
+
+/// Re-assert this machine's lifecycle artifacts after a pull landed.
+///
+/// `.claude/settings.json` and the bridge scripts live inside the workspace
+/// root and are not excluded from sync, so a machine still running an older
+/// brain re-publishes its own versions and a pull hands them to everyone else.
+/// Startup installs them *before* the startup pull, so without this the pull
+/// silently wins and this machine runs with another machine's hook commands —
+/// which is how a fixed hook path came back broken, complete with the remote's
+/// older mtime.
+///
+/// These artifacts are generated from the running binary, never authored, so
+/// the local binary is authoritative and reinstalling is the resolution.
+/// Installation only writes on a real difference, so the common case where the
+/// pull changed nothing touches no mtimes and triggers no push.
+fn reinstall_lifecycle_after_pull(workspace: &crate::workspace::WorkspaceContext) {
+    if let Err(error) = crate::command::server::refresh_agent_hooks(workspace.root()) {
+        crate::logging::log(format!(
+            "reinstalling lifecycle artifacts after a pull failed: {error:#}"
+        ));
+    }
 }
 
 impl App<'_> {

@@ -113,7 +113,7 @@ fn is_private_setup_flag(value: &str) -> bool {
             | "--twilio-account-sid"
             | "--twilio-auth-token"
             | "--twilio-from-number"
-            | "--resend-api-key"
+            | "--resend-sending-api-key"
             | "--resend-from-email"
             | "--resend-webhook-signing-secret"
             | "--phone"
@@ -130,7 +130,8 @@ fn is_private_receiver_field(value: &str) -> bool {
             | "twilio_account_sid"
             | "twilio_auth_token"
             | "twilio_from_number"
-            | "resend_api_key"
+            | "resend_sending_api_key"
+            | "resend_full_access_api_key"
             | "resend_from_email"
             | "resend_webhook_signing_secret"
     )

@@ -101,7 +101,7 @@ pub fn requirements(command: &CommandContext) -> Result<Vec<Requirement>> {
             email_status,
             super::receiver::email_prompts(),
             format!(
-                "brain receiver setup -w {name} --channels email --public-url <HTTPS_URL> --resend-api-key <API_KEY> --resend-from-email <FROM_EMAIL> --resend-webhook-signing-secret <SIGNING_SECRET> --user-id <USER_ID> --email <EMAIL> --email-allowed true"
+                "brain receiver setup -w {name} --channels email --public-url <HTTPS_URL> --resend-sending-api-key <SENDING_ONLY_KEY> --resend-full-access-api-key <FULL_ACCESS_KEY> --resend-from-email <FROM_EMAIL> --resend-webhook-signing-secret <SIGNING_SECRET> --user-id <USER_ID> --email <EMAIL> --email-allowed true"
             ),
         ),
     ];

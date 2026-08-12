@@ -203,7 +203,7 @@ fn plan() -> super::super::SetupPlan {
                 "brain_receiver_public_url",
                 "https://brain.example.test".to_owned(),
             ),
-            ("resend_api_key", "re_secret".to_owned()),
+            ("resend_sending_api_key", "re_secret".to_owned()),
             ("resend_from_email", "brain@example.test".to_owned()),
             ("resend_webhook_signing_secret", "whsec_secret".to_owned()),
         ],

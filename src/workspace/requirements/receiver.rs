@@ -39,7 +39,8 @@ pub(super) fn statuses(
         || any_present(
             env,
             &[
-                "resend_api_key",
+                "resend_sending_api_key",
+                "resend_full_access_api_key",
                 "resend_from_email",
                 "resend_webhook_signing_secret",
             ],
@@ -65,7 +66,8 @@ pub(super) fn statuses(
             && all_present(
                 env,
                 &[
-                    "resend_api_key",
+                    "resend_sending_api_key",
+                    "resend_full_access_api_key",
                     "resend_from_email",
                     "resend_webhook_signing_secret",
                 ],

@@ -95,7 +95,7 @@ fn complete_email_uses_portable_mapping_and_leaves_sms_off() {
                 "brain_receiver_public_url".to_owned(),
                 json!("https://receiver.example"),
             ),
-            ("resend_api_key".to_owned(), json!("secret")),
+            ("resend_sending_api_key".to_owned(), json!("secret")),
             ("resend_from_email".to_owned(), json!("brain@example.com")),
             (
                 "resend_webhook_signing_secret".to_owned(),

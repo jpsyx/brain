@@ -269,14 +269,14 @@ fn dotted_paths_read_and_write_without_losing_siblings() {
 fn receiver_secrets_are_known_but_redacted_from_env_output() {
     let mut map = Map::new();
     map.insert("twilio_auth_token".to_owned(), Value::from("twilio-secret"));
-    map.insert("resend_api_key".to_owned(), Value::from("resend-secret"));
+    map.insert("resend_sending_api_key".to_owned(), Value::from("resend-secret"));
 
     assert_eq!(
         resolve_one_at(std::path::Path::new(TEST_ROOT), &map, "twilio_auth_token"),
         Some("(set)".to_owned())
     );
     assert_eq!(
-        resolve_one_at(std::path::Path::new(TEST_ROOT), &map, "resend_api_key"),
+        resolve_one_at(std::path::Path::new(TEST_ROOT), &map, "resend_sending_api_key"),
         Some("(set)".to_owned())
     );
 }
@@ -405,4 +405,39 @@ fn set_path_refuses_an_array_index_that_does_not_exist() {
 
     assert!(error.to_string().contains("skill_sessions.4"), "{error}");
     assert_eq!(map["skill_sessions"].as_array().map(Vec::len), Some(1));
+}
+
+/// Retrieving inbound mail and sending replies need different Resend
+/// permissions, and a full-access key used for sending fans every outbound
+/// event out to every webhook on the account. Two keys is therefore the only
+/// working shape, and each variable's help text has to say which scope it
+/// wants — the whole failure is invisible until an email silently stops
+/// arriving.
+#[test]
+fn each_resend_key_documents_the_scope_it_needs() {
+    let receiving = crate::env::schema::VARS
+        .iter()
+        .find(|spec| spec.name == "resend_full_access_api_key")
+        .expect("receiving key is declared");
+    let sending = crate::env::schema::VARS
+        .iter()
+        .find(|spec| spec.name == "resend_sending_api_key")
+        .expect("sending key is declared");
+
+    assert!(
+        receiving.description.to_lowercase().contains("full access"),
+        "receiving key must ask for full access: {}",
+        receiving.description
+    );
+    assert!(
+        sending.description.to_lowercase().contains("sending"),
+        "sending key must ask for a sending-only scope: {}",
+        sending.description
+    );
+    assert!(
+        !crate::env::schema::VARS
+            .iter()
+            .any(|spec| spec.name == "resend_api_key"),
+        "the single combined key must be gone, not quietly accepted alongside the two"
+    );
 }

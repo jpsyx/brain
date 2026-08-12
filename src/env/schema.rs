@@ -35,7 +35,7 @@ pub(super) use crate::agent::{
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 15] = [
+pub(super) const VARS: [VarSpec; 16] = [
     VarSpec {
         name: "root",
         description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",
@@ -109,8 +109,14 @@ pub(super) const VARS: [VarSpec; 15] = [
         legacy_config_fallback: false,
     },
     VarSpec {
-        name: "resend_api_key",
-        description: "Machine-local Resend API key used for inbound email retrieval and outbound delivery.",
+        name: "resend_sending_api_key",
+        description: "Machine-local Resend API key used only to send outbound replies. Scope it to sending access only: a full-access key used for sending fans every outbound event out to every webhook on the account.",
+        default: None,
+        legacy_config_fallback: false,
+    },
+    VarSpec {
+        name: "resend_full_access_api_key",
+        description: "Machine-local Resend API key with FULL ACCESS, used only to retrieve inbound email. The receiving API cannot be read by a sending-only key, which is why this is separate from resend_sending_api_key.",
         default: None,
         legacy_config_fallback: false,
     },
@@ -175,7 +181,8 @@ pub fn is_sensitive(name: &str) -> bool {
     matches!(
         name,
         "twilio_auth_token"
-            | "resend_api_key"
+            | "resend_sending_api_key"
+            | "resend_full_access_api_key"
             | "resend_webhook_signing_secret"
             | "sync.b2_app_key"
             | "sync.crypt_password"
