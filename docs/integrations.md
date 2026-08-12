@@ -334,6 +334,19 @@ The controller does not expose or duplicate those keystrokes. The TUI may hold
 a receiver job until the current turn is eligible for handoff, but once it
 calls the facade the frontend's native busy-turn behavior owns the follow-up.
 
+Injected text is always delivered as one **bracketed paste**
+(`ESC[200~` … `ESC[201~`, DEC mode 2004, in `src/agent/input.rs`), exactly as a
+terminal hands over clipboard content: newlines become the `CR` a real paste
+carries, and only the semantic submit or queue key lands as an actual
+keystroke, after the paste closes. All three frontends enable mode 2004 and
+insert the payload literally, so this is the frontend-neutral way to inject a
+prompt. It is what makes injection safe when the composer is in vim mode: the
+`ESC CR` "literal newline" chord Brain used previously left insert mode, so the
+rest of a multi-line prompt ran as normal-mode commands and the message sat in
+the composer unsubmitted forever. Control characters are stripped from the
+payload, so inbound message text cannot close the paste early and have the
+remainder execute as keystrokes.
+
 The TUI separately tracks whether a prompt has actually been submitted.
 Opening the panel is therefore not itself considered active work. This lets an
 inbound SMS or email replace an idle startup panel immediately, even if the

@@ -81,3 +81,44 @@ fn ctrl_n_targets_the_active_main_or_skill_session_controller_including_session_
     assert!(triage_only.handle_new_session_shortcut(KeyCode::Char('n'), true));
     assert_eq!(recording.events(), vec![ControllerEvent::StartNewSession]);
 }
+
+/// A remote turn owns the panel until it answers. Local keystrokes used to be
+/// forwarded straight into that PTY, landing in the composer beside the
+/// injected prompt, so they are dropped for the duration of the turn. The
+/// interrupt key stays live so a stuck remote turn is never a trap.
+#[test]
+fn local_keystrokes_do_not_reach_a_pty_that_is_answering_a_remote_message() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let recording = TransportRecording::default();
+    app.brain_transport_override = Some(recording.transport());
+    assert!(app.open_or_focus_brain(None));
+    app.focus = Panel::Brain;
+    app.receiver_started = Some(std::time::Instant::now());
+
+    let typed =
+        crossterm::event::KeyEvent::new(KeyCode::Char('x'), crossterm::event::KeyModifiers::NONE);
+    let enter =
+        crossterm::event::KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    handle_brain_key(&mut app, &typed, false);
+    handle_brain_key(&mut app, &enter, false);
+    assert_eq!(
+        recording.inputs(),
+        Vec::<Vec<u8>>::new(),
+        "no local keystroke may join the remote conversation"
+    );
+    assert!(
+        !app.brain_turn_active,
+        "a locked-out Enter must not be recorded as starting a turn"
+    );
+
+    let interrupt =
+        crossterm::event::KeyEvent::new(KeyCode::Char('c'), crossterm::event::KeyModifiers::CONTROL);
+    handle_brain_key(&mut app, &interrupt, true);
+    assert_eq!(
+        recording.inputs(),
+        [b"\x03".to_vec()],
+        "the interrupt key stays available"
+    );
+}

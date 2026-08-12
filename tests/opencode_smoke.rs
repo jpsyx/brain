@@ -101,9 +101,15 @@ fn opencode_input_and_workspace_scoped_session_contracts_are_explicit() {
         .queue_after_active_turn("next")
         .expect("busy-turn follow-up");
     controller.start_new_session().expect("new session");
+    // The follow-up's text rides in a bracketed paste, so no ESC in it can be
+    // read as a mode change; only the submit and new-session keys are keystrokes.
     assert_eq!(
         recording.inputs.lock().expect("recorded input").as_slice(),
-        [b"\r".to_vec(), b"next\r".to_vec(), b"/new\r".to_vec()]
+        [
+            b"\r".to_vec(),
+            b"\x1b[200~next\x1b[201~\r".to_vec(),
+            b"/new\r".to_vec()
+        ]
     );
     assert_eq!(controller.kind(), AgentKind::OpenCode);
     assert_eq!(

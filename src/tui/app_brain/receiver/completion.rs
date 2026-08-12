@@ -42,6 +42,51 @@ impl App<'_> {
         }
     }
 
+    /// Give up on a dispatched turn that never signalled completion.
+    ///
+    /// Nothing else releases one: the inactivity lease only expires once no
+    /// message is in flight, so a wedged turn pinned the panel and every
+    /// message behind it waited forever. The sender is told, and the panel is
+    /// torn down so the queue can move. The interactive session is restored
+    /// only when nothing is waiting, since queued work claims the panel next.
+    pub(super) fn abandon_timed_out_remote_turn(&mut self) {
+        if !crate::tui::receiver_state::remote_turn_timed_out(
+            self.receiver_started,
+            std::time::Instant::now(),
+        ) {
+            return;
+        }
+        crate::logging::log(format!(
+            "receiver turn abandoned after {}s with no completion signal; releasing {} queued message(s)",
+            crate::tui::receiver_state::REMOTE_TURN_TIMEOUT.as_secs(),
+            self.receiver_queue.len()
+        ));
+        if let (Some(channel), Some(sender)) = (
+            self.receiver_lease.map(|lease| lease.channel),
+            self.receiver_sender.clone(),
+        ) {
+            let notice = crate::server::reply::unanswered_notice(match channel {
+                crate::server::receiver::Channel::Sms => "sms",
+                crate::server::receiver::Channel::Email => "email",
+            });
+            match channel {
+                crate::server::receiver::Channel::Sms => {
+                    crate::server::delivery::send_sms_background(
+                        self.command_context.clone(),
+                        "unanswered SMS notice",
+                        sender,
+                        notice.text,
+                    );
+                }
+                crate::server::receiver::Channel::Email => {
+                    self.send_email_reply("unanswered email notice", &notice.text);
+                }
+            }
+        }
+        let nothing_queued = self.receiver_queue.is_empty();
+        self.close_receiver_panel(nothing_queued);
+    }
+
     pub(super) fn maybe_send_processing_delay(&mut self) {
         if self.receiver_delay_sent
             || self

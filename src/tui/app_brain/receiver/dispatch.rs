@@ -9,6 +9,9 @@ impl App<'_> {
         self.poll_completed_remote_response();
         self.poll_completed_interactive_turn();
         self.maybe_send_processing_delay();
+        // After the completion polls, so a late answer still wins over the
+        // deadline it arrived just past.
+        self.abandon_timed_out_remote_turn();
         if let Some(lease) = self.receiver_lease
             && crate::tui::receiver_state::expired(
                 lease,

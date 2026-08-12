@@ -77,6 +77,19 @@ pub fn processing_notice(channel: &'static str) -> ReplyEnvelope {
     }
 }
 
+/// Told to a sender whose turn was abandoned without ever producing an answer.
+///
+/// Silence is the worst outcome: the sender has already been promised a reply,
+/// so an unanswered turn says so plainly and invites a retry.
+#[must_use]
+pub fn unanswered_notice(channel: &'static str) -> ReplyEnvelope {
+    ReplyEnvelope {
+        channel,
+        text: "Sorry — I couldn’t finish answering that one. Please send it again.".to_owned(),
+        long_form_available: false,
+    }
+}
+
 /// Verify that a completion artifact belongs to the immutable launched actor.
 #[must_use]
 pub fn completion_matches_actor(

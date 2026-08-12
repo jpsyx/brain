@@ -336,3 +336,72 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
         }
     }
 }
+
+/// A dispatched turn that never signals completion used to pin the panel
+/// forever: the inactivity lease only expires once nothing is in flight, so
+/// every message behind it was answered with the processing notice and nothing
+/// else. The stuck turn is abandoned so the queue drains.
+#[test]
+fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let actor = app.interactive_actor.clone();
+    let live = live_panel(app.command_context.workspace.root());
+    app.brain = Some(panel_controller(&app, live));
+    let relaunch = LaunchRecording::default();
+    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
+        recording: relaunch,
+        alive: true,
+    }));
+    app.session_actor = Some(actor.clone());
+    app.receiver_session_id = Some("wedged-session".to_owned());
+    app.receiver_sender = Some("+15551234567".to_owned());
+    app.receiver_lease = Some(crate::tui::receiver_state::renew(
+        Channel::Sms,
+        0,
+        std::time::Instant::now(),
+    ));
+    // In flight for longer than any answer is allowed to take, with no
+    // completion artifact ever written.
+    app.receiver_started = Some(
+        std::time::Instant::now()
+            .checked_sub(crate::tui::receiver_state::REMOTE_TURN_TIMEOUT)
+            .expect("a deadline already in the past"),
+    );
+    app.brain_turn_active = true;
+    app.receiver_queue.push(InboundJob {
+        job_id: uuid::Uuid::new_v4(),
+        workspace_id: app.command_context.workspace.id(),
+        actor,
+        channel: Channel::Sms,
+        prompt: "when did I last pick up lexapro?".to_owned(),
+        authenticated_sender: "+15551234567".to_owned(),
+        attachments: Vec::new(),
+        received_at_unix_ms: 1,
+        provider_id: Some("provider-message-2".to_owned()),
+        thread_participants: vec!["+15551234567".to_owned()],
+        response_email: None,
+        allowed_response_recipients: Vec::new(),
+        email_reply: None,
+    });
+
+    app.tick_receiver();
+
+    assert!(
+        !app.brain_turn_active || app.receiver_started.is_some(),
+        "the wedged turn must not still be pinning the panel"
+    );
+    assert!(
+        app.receiver_started.is_none_or(|started| started.elapsed()
+            < crate::tui::receiver_state::REMOTE_TURN_TIMEOUT),
+        "the abandoned turn's deadline must be cleared or replaced by a fresh dispatch"
+    );
+
+    // The queue must make progress rather than waiting on the wedged turn.
+    app.tick_receiver();
+    assert!(
+        app.receiver_queue.is_empty(),
+        "the message behind the wedged turn must still get dispatched"
+    );
+}

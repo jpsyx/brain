@@ -6,6 +6,11 @@ use crate::server::receiver::Channel;
 
 pub const INACTIVITY_LEASE: Duration = Duration::from_secs(180);
 
+/// How long a dispatched message may go without a completion signal before its
+/// turn is abandoned. Long enough for a genuinely slow answer, short enough
+/// that a crashed or wedged turn does not strand the messages queued behind it.
+pub const REMOTE_TURN_TIMEOUT: Duration = Duration::from_secs(600);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Lease {
     pub channel: Channel,
@@ -64,6 +69,27 @@ pub fn renew(channel: Channel, generation: u64, now: Instant) -> Lease {
         generation,
         deadline: now + INACTIVITY_LEASE,
     }
+}
+
+/// Whether an in-flight remote turn has gone unanswered long enough to abandon.
+///
+/// Nothing else releases a dispatched turn: the inactivity lease only expires
+/// once no message is in flight, so a turn that never signals completion pins
+/// the panel and every later message waits behind it indefinitely.
+#[must_use]
+pub fn remote_turn_timed_out(started: Option<Instant>, now: Instant) -> bool {
+    started.is_some_and(|started| now.saturating_duration_since(started) >= REMOTE_TURN_TIMEOUT)
+}
+
+/// Whether a local keystroke may reach the brain PTY.
+///
+/// While a remote message is being answered the panel is the sender's
+/// conversation, not the user's: a stray keystroke lands in the composer beside
+/// the injected prompt, and an `Enter` submits it half-written. The interrupt
+/// key stays live so a stuck remote turn can never trap the user.
+#[must_use]
+pub const fn forwards_local_keystroke(remote_turn_in_flight: bool, interrupt: bool) -> bool {
+    interrupt || !remote_turn_in_flight
 }
 
 #[must_use]
@@ -210,6 +236,47 @@ mod tests {
             Some(now + Duration::from_secs(5)),
             now + Duration::from_secs(5)
         ));
+    }
+
+    /// A turn that never signalled completion pinned the panel forever, so
+    /// every later message queued behind it received the processing notice and
+    /// nothing else. It is abandoned so the queue can drain.
+    #[test]
+    fn a_remote_turn_that_never_completes_is_abandoned_so_the_queue_drains() {
+        let now = Instant::now();
+        assert!(!remote_turn_timed_out(None, now + REMOTE_TURN_TIMEOUT));
+        assert!(!remote_turn_timed_out(Some(now), now));
+        assert!(!remote_turn_timed_out(
+            Some(now),
+            (now + REMOTE_TURN_TIMEOUT)
+                .checked_sub(Duration::from_secs(1))
+                .expect("a deadline one second early")
+        ));
+        assert!(remote_turn_timed_out(Some(now), now + REMOTE_TURN_TIMEOUT));
+    }
+
+    /// The abandon deadline must outlast the processing notice, so a slow answer
+    /// gets told it is still coming before the turn is ever given up on.
+    #[test]
+    fn a_message_is_told_it_is_still_processing_well_before_its_turn_is_abandoned() {
+        assert!(REMOTE_TURN_TIMEOUT > Duration::from_secs(120));
+    }
+
+    /// Typing beside an in-flight remote answer corrupted the injected prompt,
+    /// and an `Enter` submitted it half-written, so the panel is locked for the
+    /// duration of the remote turn.
+    #[test]
+    fn local_keystrokes_are_locked_out_while_a_remote_turn_is_in_flight() {
+        assert!(!forwards_local_keystroke(true, false));
+        assert!(forwards_local_keystroke(false, false));
+    }
+
+    /// A remote turn that never completes must not leave the user unable to
+    /// reach their own agent.
+    #[test]
+    fn the_interrupt_key_is_never_locked_out() {
+        assert!(forwards_local_keystroke(true, true));
+        assert!(forwards_local_keystroke(false, true));
     }
 
     #[test]

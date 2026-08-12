@@ -3719,3 +3719,74 @@ answering while a body is outstanding, which is the property that actually
 mattered. The ingress itself is not gone: it still identifies local
 capability URLs and remains the lease-table key a routed provider request
 resolves through.
+
+## Injected prompts are pasted, not typed
+
+A prompt Brain injects into an open panel used to be typed character by
+character, with each newline encoded as `ESC CR` — the "insert a literal
+newline, don't submit" chord all three frontends accept. That works only while
+the composer is a plain text field.
+
+With Claude Code (or Codex) in **vim mode** it fails completely, and it failed
+silently. The `ESC` leaves insert mode, so everything after the first newline is
+executed as normal-mode commands: motions, a stray `i` that re-enters insert
+somewhere unintended, and a final `Enter` that never submits because the
+composer is no longer where the sequence assumed. The visible symptom is a
+receiver prompt sitting half-written in the composer forever. Nothing errors —
+the bytes were delivered, the transport succeeded — so the turn simply never
+starts, `brain_turn_active` stays pinned, and every message queued behind it is
+answered with the processing notice and nothing else.
+
+Every receiver prompt contains a newline (the actor preamble is separated from
+the message body by a blank line), so this hit **every** message that reused a
+warm panel. A message that launched a fresh panel was unaffected, because that
+path passes the prompt as a command-line argument and never types anything.
+That asymmetry is why the first SMS of a session answered and the rest did not.
+
+So text is now delivered as one **bracketed paste**. It is the mechanism
+terminals already use to hand an application clipboard content that must not be
+read as keystrokes, all three frontends enable it (verified by probing each one
+for `ESC[?2004h`), and it removes the `ESC` entirely rather than trying to
+out-guess an editor mode. The submit key still lands as a real keystroke, after
+the paste closes. Control characters are stripped from the payload so inbound
+message text cannot close the paste early and have its remainder run as
+keystrokes — the payload is attacker-influenced, since it is someone else's SMS.
+
+The general rule this encodes: **injected content is data, and it must be
+delivered through a channel that cannot reinterpret it as control.** Typing is
+that channel's opposite.
+
+## A dispatched turn that never answers must not strand the queue behind it
+
+The bug above exposed a second, independent one. Nothing released an in-flight
+receiver turn except a completion signal. The inactivity lease looks like a
+timeout but is not one: `expired` only fires once `receiver_started` is `None`,
+so it governs an idle warm panel, never a dispatched message. A turn that
+crashed, wedged, or was never submitted therefore pinned the panel forever, and
+every later message waited behind it indefinitely while its sender kept being
+told the answer was still coming.
+
+`remote_turn_timed_out` gives up on such a turn after ten minutes — comfortably
+longer than the two-minute processing notice, so a genuinely slow answer is told
+it is still coming long before it is ever abandoned. The sender is told plainly
+that the message went unanswered and should be resent, because silence after a
+promised reply is the worst available outcome. The panel is then torn down; the
+interactive session is restored only when nothing is queued, since queued work
+claims the panel next anyway.
+
+The check runs *after* the completion polls, so an answer that lands just past
+the deadline still wins.
+
+## The panel belongs to the sender while it is answering them
+
+Receiver dispatch focuses the brain panel, and a panel with a message in flight
+is not "warm", so `leave_warm_receiver_for_interactive_input` did not fire and
+local keystrokes were forwarded straight into the remote conversation's PTY.
+They landed in the composer beside the injected prompt, and a local `Enter`
+submitted it half-written.
+
+While a remote turn is in flight, local keystrokes are dropped and the footer
+says why. The interrupt key is deliberately exempt: a lock with no exit turns a
+wedged remote turn into a trapped TUI, and Ctrl+C is how the user takes their
+own agent back. That, plus the abandon deadline above, means the lock always
+ends — by answer, by interrupt, or by timeout.

@@ -158,11 +158,11 @@ impl AgentTransport for RecordingTransport {
             let text = if text.is_empty() {
                 self.pending_text.take().unwrap_or_default()
             } else {
-                String::from_utf8_lossy(text).into_owned()
+                crate::agent::input::paste_payload(text)
             };
             self.recording.record(Event::Queue(text));
         } else if bytes != b"\x1dsubmit" {
-            let text = String::from_utf8_lossy(&bytes).into_owned();
+            let text = crate::agent::input::paste_payload(&bytes);
             self.pending_text = Some(text.clone());
             self.recording.record(Event::Type(text));
         }

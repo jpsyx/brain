@@ -166,11 +166,11 @@ fn adapters_translate_submit_queue_and_new_session_input() {
     );
     assert_eq!(
         claude.input_for(AgentAction::FollowUpAfterActiveTurn("next")),
-        Ok(InputSequence::bytes(b"next\r"))
+        Ok(InputSequence::bytes(b"\x1b[200~next\x1b[201~\r"))
     );
     assert_eq!(
         codex.input_for(AgentAction::FollowUpAfterActiveTurn("next")),
-        Ok(InputSequence::bytes(b"next\t"))
+        Ok(InputSequence::bytes(b"\x1b[200~next\x1b[201~\t"))
     );
     assert_eq!(
         claude.input_for(AgentAction::StartNewSession),

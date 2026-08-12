@@ -94,6 +94,19 @@ pub(crate) fn handle_brain_key(
         }
     }
 
+    // A remote message is mid-answer: the panel is the sender's conversation
+    // and every keystroke would land in the composer beside the injected
+    // prompt, so only the interrupt key gets through.
+    if !crate::tui::receiver_state::forwards_local_keystroke(
+        app.receiver_started.is_some(),
+        ctrl && matches!(k.code, KeyCode::Char('c' | 'C')),
+    ) {
+        app.flash = Some(FlashKind::Info(
+            "Brain is answering a received message — input is locked until it replies (Ctrl+C interrupts)".to_owned(),
+        ));
+        return false;
+    }
+
     let Some(bytes) = key_to_bytes(k) else {
         return false;
     };

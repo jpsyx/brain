@@ -117,8 +117,14 @@ fn facade_drives_a_real_fake_opencode_process_with_semantic_input() {
         log.contains("arg|3|initial text stays one argument"),
         "{log}"
     );
+    // ESC[200~literal input ESC[201~ CR ESC[200~busy follow-up ESC[201~ CR /new CR
+    // Text arrives as a bracketed paste so no ESC can be read as a mode change;
+    // only the semantic submit and new-session keys land as real keystrokes.
     assert!(
-        log.contains("input|6c69746572616c20696e7075740d6275737920666f6c6c6f772d75700d2f6e65770d"),
+        log.contains(
+            "input|1b5b3230307e6c69746572616c20696e7075741b5b3230317e0d\
+             1b5b3230307e6275737920666f6c6c6f772d75701b5b3230317e0d2f6e65770d"
+        ),
         "{log}"
     );
     assert!(log.contains("env|BRAIN_ACTOR_ID"), "{log}");

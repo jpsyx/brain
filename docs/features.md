@@ -1395,6 +1395,15 @@ match; a different actor or channel switches once active work finishes. The
 initiating actor remains fixed for every follow-up in that session, even if a
 different machine-local user is selected elsewhere. A local prompt or
 keyboard input leaves a warm remote panel and resumes the interactive session.
+
+While a message is actually being answered, the panel belongs to that sender:
+local keystrokes are dropped rather than forwarded into the remote
+conversation, and a status line explains why. `Ctrl+C` is never locked out, so
+the user can always interrupt and take the session back. A dispatched message
+that produces no answer within ten minutes is given up on: the sender is told
+the message went unanswered and should be resent, and the panel is released so
+the messages queued behind it are still answered. (The two-minute "still
+processing" notice comes first, so a slow answer is never abandoned silently.)
 If an agent process cannot be launched, the inbound message remains queued and
 the receiver retries after a short backoff instead of leaving a phantom
 "processing" job. Twilio and Resend reply delivery runs on a bounded background
