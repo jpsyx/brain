@@ -90,6 +90,75 @@ pub(crate) fn select_workspace(
     ReceiverRoute::Workspace(first)
 }
 
+/// Longest an untrusted destination may be before it is cut short in the log.
+const LOGGED_ADDRESS_LIMIT: usize = 120;
+
+/// Render one untrusted address safely for a single log line.
+fn loggable(raw: &str) -> String {
+    let mut safe = raw
+        .chars()
+        .take(LOGGED_ADDRESS_LIMIT)
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    if raw.chars().count() > LOGGED_ADDRESS_LIMIT {
+        safe.push('…');
+    }
+    safe
+}
+
+/// Why a message routed nowhere, phrased for the machine owner's log.
+///
+/// The provider only ever gets an empty 404, so a prober cannot learn which
+/// addresses this machine serves. That makes the local log the one place the
+/// owner can find out what went wrong, and a bare "not found" leaves them
+/// guessing at a value they cannot see. Naming the address that arrived beside
+/// the ones actually configured turns it into a one-line fix.
+#[must_use]
+pub(crate) fn unrouted_explanation(
+    registry: &MachineRegistry,
+    channel: Channel,
+    destinations: &[String],
+) -> String {
+    let variable = address_var(channel);
+    let named = destinations
+        .iter()
+        .map(|destination| {
+            normalize_address(channel, destination).unwrap_or_else(|| loggable(destination))
+        })
+        .collect::<Vec<_>>();
+    if named.is_empty() {
+        return format!("request carried no destination address to route on ({variable})");
+    }
+    let configured = registry
+        .workspaces
+        .iter()
+        .map(|(name, record)| {
+            let published = record
+                .env
+                .get(variable)
+                .and_then(serde_json::Value::as_str)
+                .and_then(|published| normalize_address(channel, published));
+            published.map_or_else(
+                || format!("{name}=<unset>"),
+                |address| format!("{name}={address}"),
+            )
+        })
+        .collect::<Vec<_>>();
+    format!(
+        "no workspace publishes {} as its {variable}; this machine has [{}]. \
+         Point the provider at a configured address, or run \
+         `brain env set -w <workspace> {variable}=<address>`",
+        named.join(", "),
+        configured.join(", "),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
@@ -153,6 +222,58 @@ mod tests {
                 }),
             ),
         ])
+    }
+
+    /// A provider gets an empty 404 so a prober learns nothing, which leaves
+    /// the local log as the only place the owner can find out *why*. Naming the
+    /// address that arrived beside the addresses actually configured turns a
+    /// bare 404 into an obvious one-line fix.
+    #[test]
+    fn an_unrouted_address_is_explained_against_what_is_configured() {
+        let registry = two_workspaces();
+        let explanation = unrouted_explanation(
+            &registry,
+            Channel::Email,
+            &["brain@old-domain.test".to_owned()],
+        );
+
+        assert!(
+            explanation.contains("brain@old-domain.test"),
+            "must name the address that arrived: {explanation}"
+        );
+        assert!(
+            explanation.contains("personal@example.test")
+                && explanation.contains("family@example.test"),
+            "must name every configured address so the mismatch is visible: {explanation}"
+        );
+        assert!(
+            explanation.contains("resend_from_email"),
+            "must name the variable to change: {explanation}"
+        );
+    }
+
+    /// A payload carrying no destination at all is a different fault from one
+    /// naming an address nobody serves, and must not be reported as a mismatch.
+    #[test]
+    fn a_payload_with_no_destination_says_so_rather_than_blaming_configuration() {
+        let explanation = unrouted_explanation(&two_workspaces(), Channel::Sms, &[]);
+        assert!(
+            explanation.contains("no destination"),
+            "must say the payload named nothing: {explanation}"
+        );
+    }
+
+    /// The destination is attacker-supplied and unverified at this point, so it
+    /// must not be able to forge log lines or flood the log.
+    #[test]
+    fn an_untrusted_destination_cannot_forge_or_flood_log_lines() {
+        let explanation = unrouted_explanation(
+            &two_workspaces(),
+            Channel::Email,
+            &[format!("a@b.test\nreceiver forged line{}", "x".repeat(500))],
+        );
+        assert!(!explanation.contains('\n'), "log line was broken: {explanation}");
+        assert!(explanation.len() < 600, "unbounded log line: {explanation}");
     }
 
     #[test]

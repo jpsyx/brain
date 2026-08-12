@@ -3857,3 +3857,26 @@ An abandoned message's sender is told it could not be processed and asked to
 retry, on the channel it arrived on. Silence after a promised reply is the worst
 available outcome, and it is the one the sender cannot distinguish from being
 ignored.
+
+## An empty 404 to the provider, a specific one to the log
+
+An inbound message whose destination matches no workspace is answered with an
+empty 404, so whoever probed the URL learns nothing about which addresses this
+machine serves. That is the right answer to a stranger and the wrong one to the
+owner: when a real message bounces because a configured address is stale, the
+only visible evidence is a bare "404" in a provider dashboard, and the value that
+needs changing is the one value the operator cannot see.
+
+So the two audiences are separated. The provider still gets `Response::empty(404)`
+— unchanged, and the reason the response body is not where this belongs. The
+local log gets the address that arrived, every address this machine has
+configured for that channel, and the `brain env set` command that fixes it. A
+mismatch is then obvious on sight (`brain@new.example` arrived, this machine
+publishes `brain@old.example`) instead of requiring the operator to guess which
+of the two ends is wrong.
+
+The logged destination is attacker-supplied and unverified at that point, so it
+is stripped of control characters and truncated: an unrouted request must not be
+able to forge log lines or flood the log. A payload that names no destination at
+all is reported as its own fault rather than as a configuration mismatch, since
+nothing about the configuration is wrong in that case.

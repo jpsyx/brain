@@ -286,10 +286,13 @@ fn addressed_workspace(
                 "several workspaces publish this receiver address",
             ))
         }
+        // The provider is answered with an empty 404 either way, so this text
+        // exists for the machine owner's log: it is the only place a wrong or
+        // stale configured address can be spotted.
         receiver::routing::ReceiverRoute::Unknown => {
             Err(workspace_route::WorkspaceRouteError::new(
                 404,
-                "no workspace answers this receiver address",
+                receiver::routing::unrouted_explanation(&registry, channel, &destinations),
             ))
         }
     }
