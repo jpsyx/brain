@@ -170,6 +170,8 @@ impl<'a> App<'a> {
             receiver_started: None,
             receiver_delay_sent: false,
             receiver_probe: None,
+            receiver_panel_activity: None,
+            receiver_panel_sampled_at: None,
             receiver_retry_at: None,
             receiver_sync_runtime,
             receiver_sync_gate: None,

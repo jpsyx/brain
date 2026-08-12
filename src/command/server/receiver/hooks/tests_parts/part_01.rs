@@ -60,3 +60,47 @@ fn lifecycle_installations_follow_the_complete_frontend_registry() {
         ]
     );
 }
+
+/// A hook command runs wherever the agent last changed directory to, which is
+/// somewhere the agent chooses and brain cannot predict. Any frontend whose
+/// command is relative silently stops firing the moment an agent runs `cd`, and
+/// a completion hook that stops firing means a message never gets its reply.
+/// This held for Claude and had to hold for every frontend, so it is asserted
+/// over the whole registry rather than per adapter.
+#[test]
+fn no_frontend_registers_a_working_directory_relative_hook_command() {
+    let mut checked = 0;
+    for installation in lifecycle_installations() {
+        let crate::agent::LifecyclePayload::HookSettings {
+            style,
+            session_script,
+            completion_script,
+            ..
+        } = installation.payload()
+        else {
+            continue;
+        };
+        for script in [session_script, completion_script] {
+            let command = match style {
+                crate::agent::HookCommandStyle::ClaudeProjectDir => {
+                    claude_project_dir_command(Path::new(script))
+                }
+                crate::agent::HookCommandStyle::PortableBrainRoot => {
+                    portable_root_command(Path::new(script))
+                }
+            };
+            assert!(
+                command.contains("${"),
+                "{} resolves {script} against the working directory: {command}",
+                installation.id()
+            );
+            assert!(
+                !command.contains("python3 ."),
+                "{} uses a relative path: {command}",
+                installation.id()
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked >= 2, "no hook commands were checked at all");
+}

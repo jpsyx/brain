@@ -11,6 +11,7 @@ impl App<'_> {
         self.maybe_send_processing_delay();
         // After the completion polls, so a late answer still wins over the
         // deadline it arrived just past.
+        self.sample_panel_activity(std::time::Instant::now());
         self.probe_dispatched_receiver_message();
         self.abandon_timed_out_remote_turn();
         if let Some(lease) = self.receiver_lease

@@ -409,6 +409,10 @@ pub(crate) struct App<'a> {
     /// Panel samples still owed for the in-flight message: when the next one
     /// is due, and how many have already been taken.
     pub(crate) receiver_probe: Option<(std::time::Instant, usize)>,
+    /// Fingerprint of the panel's last sampled screen and when it last
+    /// differed: the frontend-neutral evidence that a turn is still working.
+    pub(crate) receiver_panel_activity: Option<(u64, std::time::Instant)>,
+    pub(crate) receiver_panel_sampled_at: Option<std::time::Instant>,
     pub(crate) receiver_retry_at: Option<std::time::Instant>,
     pub(crate) receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
     pub(crate) receiver_sync_gate: Option<ReceiverSyncGate>,

@@ -369,6 +369,15 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
             .checked_sub(crate::tui::receiver_state::REMOTE_TURN_TIMEOUT)
             .expect("a deadline already in the past"),
     );
+    // The panel has shown nothing new since well before the deadline, so the
+    // turn is stalled rather than slow.
+    app.receiver_panel_activity = Some((
+        0,
+        std::time::Instant::now()
+            .checked_sub(crate::tui::receiver_state::ACTIVE_WORK_IDLE)
+            .expect("a panel that went quiet"),
+    ));
+    app.receiver_panel_sampled_at = Some(std::time::Instant::now());
     app.brain_turn_active = true;
     app.receiver_queue.push(InboundJob {
         job_id: uuid::Uuid::new_v4(),
@@ -486,4 +495,77 @@ fn warm_panel_reuse_delivers_a_closed_paste_and_a_submit_key_to_the_real_pty() {
         rendered.contains("How many projects do we have open?"),
         "the whole message must reach the composer, got: {rendered:?}"
     );
+}
+
+/// Every frontend renders into the same PTY, so "is it still working" is read
+/// from the panel and must behave identically for all three. A frontend-specific
+/// activity signal would leave the other two abandoning turns that were fine.
+#[test]
+fn panel_activity_is_detected_the_same_way_for_every_frontend() {
+    for agent_kind in AgentKind::ALL {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, agent_kind);
+        let live = live_panel(app.command_context.workspace.root());
+        app.brain = Some(panel_controller(&app, live));
+        let start = std::time::Instant::now();
+        // The turn has been open far longer than the deadline, so only the
+        // panel decides whether it is still working.
+        app.receiver_started = Some(
+            start
+                .checked_sub(std::time::Duration::from_secs(3600))
+                .expect("a turn opened an hour ago"),
+        );
+
+        app.sample_panel_activity(start);
+        let baseline = app
+            .last_panel_change()
+            .unwrap_or_else(|| panic!("{agent_kind:?} recorded no baseline"));
+
+        // Sampling an unchanged screen must not look like fresh work, or a
+        // wedged turn would be waited on forever.
+        app.sample_panel_activity(start + std::time::Duration::from_secs(4));
+        assert_eq!(
+            app.last_panel_change(),
+            Some(baseline),
+            "{agent_kind:?} treated a static panel as activity"
+        );
+
+        // The agent renders something: that is work in progress.
+        app.brain
+            .as_mut()
+            .expect("panel")
+            .type_text("working")
+            .expect("render into the panel");
+        assert!(
+            wait_for_panel_contents(app.brain.as_ref().expect("panel"), "working"),
+            "{agent_kind:?} panel never echoed"
+        );
+        let later = start + std::time::Duration::from_secs(8);
+        app.sample_panel_activity(later);
+        assert_eq!(
+            app.last_panel_change(),
+            Some(later),
+            "{agent_kind:?} missed visible work"
+        );
+
+        // Long past the deadline, but the panel moved a moment ago: this turn
+        // is slow, not stalled, and must be left to finish.
+        assert!(
+            !crate::tui::receiver_state::abandons_stalled_turn(
+                app.receiver_started,
+                app.last_panel_change(),
+                later + std::time::Duration::from_secs(10),
+            ),
+            "{agent_kind:?} abandoned a turn that was still working"
+        );
+        assert!(
+            crate::tui::receiver_state::abandons_stalled_turn(
+                app.receiver_started,
+                app.last_panel_change(),
+                later + crate::tui::receiver_state::ACTIVE_WORK_IDLE,
+            ),
+            "{agent_kind:?} never gave up on a panel that went quiet"
+        );
+    }
 }

@@ -50,15 +50,19 @@ impl App<'_> {
     /// torn down so the queue can move. The interactive session is restored
     /// only when nothing is waiting, since queued work claims the panel next.
     pub(super) fn abandon_timed_out_remote_turn(&mut self) {
-        if !crate::tui::receiver_state::remote_turn_timed_out(
+        if !crate::tui::receiver_state::abandons_stalled_turn(
             self.receiver_started,
+            self.last_panel_change(),
             std::time::Instant::now(),
         ) {
             return;
         }
         crate::logging::log(format!(
-            "receiver turn abandoned after {}s with no completion signal; releasing {} queued message(s)",
-            crate::tui::receiver_state::REMOTE_TURN_TIMEOUT.as_secs(),
+            "receiver turn abandoned: {}s open with no completion and no panel activity for {}s; releasing {} queued message(s)",
+            self.receiver_started
+                .map_or(0, |started| started.elapsed().as_secs()),
+            self.last_panel_change()
+                .map_or(0, |changed| changed.elapsed().as_secs()),
             self.receiver_queue.len()
         ));
         // The panel is the only witness to why a turn never finished.
@@ -163,6 +167,7 @@ impl App<'_> {
         self.receiver_started = None;
         self.receiver_delay_sent = false;
         self.receiver_probe = None;
+        self.receiver_panel_activity = None;
         self.receiver_generation = self.receiver_generation.saturating_add(1);
         self.receiver_lease = Some(crate::tui::receiver_state::renew(
             channel,

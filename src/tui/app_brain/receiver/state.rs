@@ -58,6 +58,7 @@ impl App<'_> {
         self.receiver_started = None;
         self.receiver_delay_sent = false;
         self.receiver_probe = None;
+        self.receiver_panel_activity = None;
         self.requested_receiver_actor = None;
     }
 }

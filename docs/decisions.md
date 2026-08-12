@@ -3825,3 +3825,35 @@ working-directory dependency. Codex already used this shape for the same reason.
 The general rule: **a path recorded for later execution must be anchored to
 something the recorder controls** — an exported root variable — never to
 ambient state a tool call can change out from under it.
+
+## A deadline alone cannot tell a stalled turn from a slow one
+
+The abandon watchdog first shipped as a bare ten-minute deadline, which forced a
+bad trade: long enough not to kill a genuinely slow answer meant long enough to
+strand a queue behind a wedged one. Both failure modes are just "no completion
+artifact yet", so no single duration separates them.
+
+What separates them is whether anything is happening. Every frontend renders
+*something* while it works — a spinner, an elapsed counter, streaming tool
+output — so a panel that has not changed at all in ninety seconds is waiting on a
+person, not on a model. Abandoning now needs both: five minutes open **and** a
+completely quiet panel. A turn that keeps rendering is never abandoned, however
+long it runs, and the deadline could drop from ten minutes to five precisely
+because it no longer has to be generous enough to cover slow work.
+
+The activity signal is deliberately the **panel**, not a per-frontend transcript
+or session file. All three frontends draw into the same PTY, so reading the
+screen is one implementation that is correct for all of them by construction,
+rather than three that can drift — and a fourth frontend gets it for free. It
+also measures the right thing: not whether a file grew, but whether the agent is
+doing anything a person would recognise as work.
+
+The asymmetry of the two errors sets the constant. Calling a working turn stalled
+kills a good answer and tells the sender to resend something that was about to
+arrive; waiting another minute on a truly wedged one costs a minute. So ninety
+seconds is generous on purpose.
+
+An abandoned message's sender is told it could not be processed and asked to
+retry, on the channel it arrived on. Silence after a promised reply is the worst
+available outcome, and it is the one the sender cannot distinguish from being
+ignored.

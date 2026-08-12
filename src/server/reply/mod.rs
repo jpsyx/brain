@@ -85,7 +85,7 @@ pub fn processing_notice(channel: &'static str) -> ReplyEnvelope {
 pub fn unanswered_notice(channel: &'static str) -> ReplyEnvelope {
     ReplyEnvelope {
         channel,
-        text: "Sorry — I couldn’t finish answering that one. Please send it again.".to_owned(),
+        text: "Sorry — I couldn’t process that message. Please try sending it again.".to_owned(),
         long_form_available: false,
     }
 }
@@ -143,6 +143,30 @@ mod tests {
     fn email_preserves_full_text_and_escapes_html() {
         assert_eq!(email("# Heading\n\nDetails").text, "# Heading\n\nDetails");
         assert!(email_html("<unsafe>").contains("&lt;unsafe&gt;"));
+    }
+
+    /// A sender who was promised a reply and then told nothing has no way to
+    /// know the message died. The notice has to say it failed and ask for a
+    /// retry, on whichever channel the message arrived on.
+    #[test]
+    fn an_abandoned_message_tells_its_sender_to_try_again() {
+        for channel in ["sms", "email"] {
+            let notice = unanswered_notice(channel);
+            assert_eq!(notice.channel, channel);
+            assert!(!notice.long_form_available);
+            let text = notice.text.to_lowercase();
+            assert!(text.contains("again"), "no retry instruction: {text}");
+            assert!(
+                notice.text.chars().count() <= SMS_LIMIT,
+                "must fit one SMS: {}",
+                notice.text
+            );
+            assert_ne!(
+                notice.text,
+                processing_notice(channel).text,
+                "a failure must not read like the still-working notice"
+            );
+        }
     }
 
     #[test]

@@ -7,9 +7,20 @@ use crate::server::receiver::Channel;
 pub const INACTIVITY_LEASE: Duration = Duration::from_secs(180);
 
 /// How long a dispatched message may go without a completion signal before its
-/// turn is abandoned. Long enough for a genuinely slow answer, short enough
-/// that a crashed or wedged turn does not strand the messages queued behind it.
-pub const REMOTE_TURN_TIMEOUT: Duration = Duration::from_secs(600);
+/// turn is eligible to be abandoned. Short enough that a wedged turn does not
+/// strand the messages queued behind it; a turn that is still visibly working
+/// is never abandoned on this deadline alone.
+pub const REMOTE_TURN_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// How long the panel must sit completely unchanged before the turn behind it
+/// counts as stalled rather than slow.
+///
+/// Every frontend renders *something* while it works — a spinner, an elapsed
+/// counter, streaming output — so a panel that has not changed in this long is
+/// waiting on a person, not on a model. Deliberately generous: the cost of
+/// calling a working turn stalled is killing a good answer, while the cost of
+/// waiting another minute on a truly wedged one is only that minute.
+pub const ACTIVE_WORK_IDLE: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Lease {
@@ -88,14 +99,27 @@ pub fn next_probe(fired: usize, dispatched_at: Instant) -> Option<Instant> {
     PROBE_DELAYS.get(fired).map(|delay| dispatched_at + *delay)
 }
 
-/// Whether an in-flight remote turn has gone unanswered long enough to abandon.
+/// Whether an in-flight remote turn should be given up on.
 ///
 /// Nothing else releases a dispatched turn: the inactivity lease only expires
 /// once no message is in flight, so a turn that never signals completion pins
 /// the panel and every later message waits behind it indefinitely.
+///
+/// Two conditions, both required. The deadline has to pass, *and* the panel has
+/// to have stopped changing. An agent that is still rendering work is being
+/// waited on for a good reason, and no deadline should cut it off; `None`
+/// activity means nothing has been observed working, so only the deadline
+/// applies.
 #[must_use]
-pub fn remote_turn_timed_out(started: Option<Instant>, now: Instant) -> bool {
+pub fn abandons_stalled_turn(
+    started: Option<Instant>,
+    last_panel_change: Option<Instant>,
+    now: Instant,
+) -> bool {
     started.is_some_and(|started| now.saturating_duration_since(started) >= REMOTE_TURN_TIMEOUT)
+        && last_panel_change.is_none_or(|changed| {
+            now.saturating_duration_since(changed) >= ACTIVE_WORK_IDLE
+        })
 }
 
 /// Whether a local keystroke may reach the brain PTY.
@@ -279,26 +303,49 @@ mod tests {
 
     /// A turn that never signalled completion pinned the panel forever, so
     /// every later message queued behind it received the processing notice and
-    /// nothing else. It is abandoned so the queue can drain.
+    /// nothing else. Once the deadline passes and nothing is happening on
+    /// screen, it is abandoned so the queue can drain.
     #[test]
-    fn a_remote_turn_that_never_completes_is_abandoned_so_the_queue_drains() {
+    fn a_stalled_turn_is_abandoned_once_the_deadline_passes() {
         let now = Instant::now();
-        assert!(!remote_turn_timed_out(None, now + REMOTE_TURN_TIMEOUT));
-        assert!(!remote_turn_timed_out(Some(now), now));
-        assert!(!remote_turn_timed_out(
-            Some(now),
-            (now + REMOTE_TURN_TIMEOUT)
-                .checked_sub(Duration::from_secs(1))
-                .expect("a deadline one second early")
-        ));
-        assert!(remote_turn_timed_out(Some(now), now + REMOTE_TURN_TIMEOUT));
+        let past_deadline = now + REMOTE_TURN_TIMEOUT;
+        assert!(!abandons_stalled_turn(None, None, past_deadline));
+        assert!(!abandons_stalled_turn(Some(now), None, now));
+        assert!(abandons_stalled_turn(Some(now), None, past_deadline));
     }
 
-    /// The abandon deadline must outlast the processing notice, so a slow answer
-    /// gets told it is still coming before the turn is ever given up on.
+    /// An agent that is still working is rightfully being waited on. Abandoning
+    /// it would kill a good answer mid-flight and tell the sender to resend
+    /// something that was about to arrive.
     #[test]
-    fn a_message_is_told_it_is_still_processing_well_before_its_turn_is_abandoned() {
+    fn a_turn_still_doing_visible_work_is_never_abandoned() {
+        let now = Instant::now();
+        let long_past_deadline = now + REMOTE_TURN_TIMEOUT + Duration::from_secs(3600);
+        let just_moved = long_past_deadline
+            .checked_sub(Duration::from_secs(1))
+            .expect("the panel changed a moment ago");
+        assert!(
+            !abandons_stalled_turn(Some(now), Some(just_moved), long_past_deadline),
+            "a turn whose panel is still moving must be left alone, however long it takes"
+        );
+
+        let went_quiet = long_past_deadline
+            .checked_sub(ACTIVE_WORK_IDLE)
+            .expect("the panel stopped changing");
+        assert!(
+            abandons_stalled_turn(Some(now), Some(went_quiet), long_past_deadline),
+            "a panel that stopped moving is a stalled turn, not a slow one"
+        );
+    }
+
+    /// The deadlines have to nest: a sender is told the answer is still coming
+    /// long before the turn is given up on, and "quiet" has to be shorter than
+    /// the deadline or it could never be observed.
+    #[test]
+    fn the_abandon_deadline_sits_between_the_processing_notice_and_giving_up() {
+        assert_eq!(REMOTE_TURN_TIMEOUT, Duration::from_secs(300));
         assert!(REMOTE_TURN_TIMEOUT > Duration::from_secs(120));
+        assert!(ACTIVE_WORK_IDLE < REMOTE_TURN_TIMEOUT);
     }
 
     /// Typing beside an in-flight remote answer corrupted the injected prompt,
