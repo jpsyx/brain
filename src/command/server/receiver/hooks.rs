@@ -47,11 +47,21 @@ fn replace_entry(
     list.push(serde_json::json!({"hooks": [{"type": "command", "command": command}]}));
 }
 
-fn command(hook_path: &Path, root: &Path) -> String {
-    hook_path.strip_prefix(root).map_or_else(
-        |_| format!("python3 {}", hook_path.to_string_lossy()),
-        |relative| format!("python3 {}", relative.to_string_lossy()),
-    )
+/// Claude's hook command, anchored to the project root rather than the cwd.
+///
+/// Claude runs a hook in the session's *current* working directory, and its
+/// Bash tool's `cd` persists, so a project-relative command silently stops
+/// resolving as soon as an agent changes directory. `CLAUDE_PROJECT_DIR` is the
+/// project root Claude itself exports for exactly this; `BRAIN_ROOT` covers a
+/// session Brain launched, and `$HOME/brain` is the portable last resort. No
+/// machine-specific absolute path is written, because the settings file is
+/// synced and read on every machine.
+fn claude_project_dir_command(hook_path: &Path) -> String {
+    let relative = hook_path
+        .to_string_lossy()
+        .trim_start_matches('/')
+        .to_owned();
+    format!(r#"python3 "${{CLAUDE_PROJECT_DIR:-${{BRAIN_ROOT:-$HOME/brain}}}}/{relative}""#)
 }
 
 fn portable_root_command(hook_path: &Path) -> String {
@@ -432,12 +442,13 @@ pub(super) fn install_for_home_with(
                 legacy_session_scripts,
                 legacy_completion_scripts,
             } => {
-                let session_path = root.join(session_script);
-                let stop_path = root.join(completion_script);
+                // Both styles name the script through a root variable, so no
+                // command embeds this machine's resolved path.
                 let (session, stop) = match style {
-                    crate::agent::HookCommandStyle::WorkspaceRelative => {
-                        (command(&session_path, root), command(&stop_path, root))
-                    }
+                    crate::agent::HookCommandStyle::ClaudeProjectDir => (
+                        claude_project_dir_command(Path::new(session_script)),
+                        claude_project_dir_command(Path::new(completion_script)),
+                    ),
                     crate::agent::HookCommandStyle::PortableBrainRoot => (
                         portable_root_command(Path::new(session_script)),
                         portable_root_command(Path::new(completion_script)),

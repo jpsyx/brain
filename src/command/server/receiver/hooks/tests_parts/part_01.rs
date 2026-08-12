@@ -1,34 +1,34 @@
+/// Claude runs a hook in the session's *current* working directory, not the
+/// project root, and its Bash tool's `cd` persists for the rest of the session.
+/// A project-relative command therefore stopped resolving the moment an agent
+/// changed directory: the turn-complete hook failed, no completion artifact was
+/// written, and the message it was answering never got a reply. The command must
+/// not depend on the working directory at all.
 #[test]
-fn command_is_project_relative_for_paths_under_the_selected_root() {
-    let command = command(
-        Path::new("/Users/pablo/family/.claude/brain-hooks/agent_turn_complete_hook.py"),
-        Path::new("/Users/pablo/family"),
-    );
-    assert_eq!(command, "python3 .claude/brain-hooks/agent_turn_complete_hook.py");
-}
-
-#[test]
-fn command_falls_back_to_absolute_outside_the_selected_root() {
+fn claude_command_is_cwd_independent_because_hooks_run_wherever_the_agent_left_off() {
+    let command =
+        claude_project_dir_command(Path::new(".claude/brain-hooks/agent_turn_complete_hook.py"));
     assert_eq!(
-        command(
-            Path::new("/opt/hooks/x.py"),
-            Path::new("/Users/pablo/family")
-        ),
-        "python3 /opt/hooks/x.py"
+        command,
+        r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py""#
+    );
+    assert!(
+        !command.contains("python3 .claude"),
+        "a bare relative path resolves against whatever directory the agent last cd'd into"
     );
 }
 
+/// The settings file lives inside the synced workspace, so it must not carry a
+/// machine-specific absolute path: the same file is read on every machine.
 #[test]
-fn project_relative_command_is_identical_across_workspace_roots() {
-    let mini = command(
-        Path::new("/Users/pablo/family/.claude/brain-hooks/agent_turn_complete_hook.py"),
-        Path::new("/Users/pablo/family"),
+fn claude_command_stays_identical_across_machines_and_workspace_roots() {
+    let script = Path::new(".claude/brain-hooks/agent_turn_complete_hook.py");
+    assert_eq!(
+        claude_project_dir_command(script),
+        claude_project_dir_command(script),
+        "the command names no root, so every machine writes the same one"
     );
-    let mbp = command(
-        Path::new("/Users/member-b/fam-brain/.claude/brain-hooks/agent_turn_complete_hook.py"),
-        Path::new("/Users/member-b/fam-brain"),
-    );
-    assert_eq!(mini, mbp);
+    assert!(!claude_project_dir_command(script).contains("/Users/"));
 }
 
 #[test]

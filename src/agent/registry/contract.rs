@@ -12,8 +12,8 @@ pub(crate) enum LifecycleTarget {
 /// Command path convention used by a frontend's hook settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HookCommandStyle {
-    /// Commands are relative to the selected workspace root.
-    WorkspaceRelative,
+    /// Commands resolve through Claude's own project-root variable.
+    ClaudeProjectDir,
     /// Commands resolve through the portable `BRAIN_ROOT` fallback.
     PortableBrainRoot,
 }
@@ -183,7 +183,7 @@ pub(super) const CLAUDE_LIFECYCLE: [LifecycleInstallation; 5] = [
         id: "claude-settings",
         target: LifecycleTarget::Workspace(".claude/settings.json"),
         payload: LifecyclePayload::HookSettings {
-            style: HookCommandStyle::WorkspaceRelative,
+            style: HookCommandStyle::ClaudeProjectDir,
             session_script: ".claude/brain-hooks/agent_session_start_hook.py",
             completion_script: ".claude/brain-hooks/agent_turn_complete_hook.py",
             legacy_session_scripts: &["claude_session_start_hook.py"],

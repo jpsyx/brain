@@ -49,9 +49,11 @@ settings_path="${settings_dir}/settings.json"
 codex_settings_dir="${HOME}/.codex"
 codex_settings_path="${codex_settings_dir}/hooks.json"
 
-# Project-relative commands remain valid when the synced workspace moves.
-sess_cmd="python3 .claude/brain-hooks/agent_session_start_hook.py"
-stop_cmd="python3 .claude/brain-hooks/agent_turn_complete_hook.py"
+# Anchored to Claude's own project root: hooks run in the session's current
+# working directory, which the agent's `cd` moves, so a relative path breaks.
+# Naming no absolute root keeps the synced settings file machine-portable.
+sess_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py"'
+stop_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py"'
 codex_sess_cmd='python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py"'
 codex_stop_cmd='python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py"'
 

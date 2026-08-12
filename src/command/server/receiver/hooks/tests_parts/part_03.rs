@@ -24,11 +24,11 @@ fn concurrent_workspace_installs_preserve_both_roots_and_shared_codex_json() {
     for root in [&family, &work] {
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "SessionStart"),
-            "python3 .claude/brain-hooks/agent_session_start_hook.py"
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py""#
         );
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "Stop"),
-            "python3 .claude/brain-hooks/agent_turn_complete_hook.py"
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py""#
         );
     }
     let codex_bytes = std::fs::read(home.join(".codex/hooks.json")).unwrap();
@@ -300,4 +300,40 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
     );
     assert_eq!(response["actor_id"], "pablo");
     assert_eq!(response["channel"], "interactive");
+}
+
+/// Every machine already running Brain has the old working-directory-relative
+/// command on disk. Reinstalling must *replace* it rather than leave it beside
+/// the new one, or the broken command keeps firing and every turn runs the hook
+/// twice.
+#[test]
+fn reinstalling_replaces_the_broken_relative_command_instead_of_duplicating_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let root = temp.path().join("brain");
+    std::fs::create_dir_all(home.join(".codex")).unwrap();
+    std::fs::create_dir_all(root.join(".claude")).unwrap();
+    std::fs::write(
+        root.join(".claude/settings.json"),
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 .claude/brain-hooks/agent_session_start_hook.py"}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 .claude/brain-hooks/agent_turn_complete_hook.py"}]}]},"permissions":{"allow":["Read"]}}"#,
+    )
+    .unwrap();
+
+    install_for_home(&root, &home).unwrap();
+
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join(".claude/settings.json")).unwrap()).unwrap();
+    for event in ["SessionStart", "Stop"] {
+        let entries = settings["hooks"][event].as_array().unwrap();
+        assert_eq!(entries.len(), 1, "{event} kept a duplicate hook entry");
+        let command = entries[0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(
+            command.contains("CLAUDE_PROJECT_DIR"),
+            "{event} kept the broken relative command: {command}"
+        );
+    }
+    assert_eq!(
+        settings["permissions"]["allow"][0], "Read",
+        "unrelated settings must survive the repair"
+    );
 }

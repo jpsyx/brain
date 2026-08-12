@@ -3790,3 +3790,38 @@ says why. The interrupt key is deliberately exempt: a lock with no exit turns a
 wedged remote turn into a trapped TUI, and Ctrl+C is how the user takes their
 own agent back. That, plus the abandon deadline above, means the lock always
 ends — by answer, by interrupt, or by timeout.
+
+## A hook command may not depend on the working directory
+
+Brain registered Claude's lifecycle hooks as `python3 .claude/brain-hooks/<script>.py`,
+relative to the workspace root, on the documented assumption that "Claude runs
+project hooks from the selected workspace." That assumption was wrong. Claude
+runs a hook in the session's **current** working directory, and its Bash tool's
+`cd` persists for the rest of the session. So the moment an agent ran something
+like `cd ~/brain/projects && …`, the turn-complete hook could no longer be
+found.
+
+The failure mode is the expensive part. The hook is what writes the completion
+artifact brain polls for, so its failure is silent and total: the agent answers
+correctly, on screen, and the answer is never delivered. `receiver_started`
+stays set, so the turn never ends, the queue never advances, the panel stays
+locked, and the sender gets nothing. A missing file at a path that "looks
+right" cost a delivered reply.
+
+The command is now
+`python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/<script>.py"`.
+`CLAUDE_PROJECT_DIR` is what Claude exports for precisely this problem, and it
+is correct even for a session Brain did not launch; `BRAIN_ROOT` covers the
+launched case; `$HOME/brain` is the last resort. Verified by probing a real
+session: with the agent cd'd into a subdirectory, the hook's cwd was that
+subdirectory while `CLAUDE_PROJECT_DIR` still named the project root.
+
+**Why not an absolute path.** `.claude/settings.json` lives inside the synced
+workspace and is read on every machine, so `/Users/pablo/brain/...` would break
+the machine whose root is `/Users/someone-else/brain`. That portability is what
+motivated the relative path originally; the variable keeps it while dropping the
+working-directory dependency. Codex already used this shape for the same reason.
+
+The general rule: **a path recorded for later execution must be anchored to
+something the recorder controls** — an exported root variable — never to
+ambient state a tool call can change out from under it.

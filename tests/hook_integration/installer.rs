@@ -58,11 +58,11 @@ fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
     let settings = selected_root.join(".claude/settings.json");
     assert_eq!(
         settings_hook_commands(&settings, "SessionStart"),
-        vec!["python3 .claude/brain-hooks/agent_session_start_hook.py"]
+        vec![r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py""#]
     );
     assert_eq!(
         settings_hook_commands(&settings, "Stop"),
-        vec!["python3 .claude/brain-hooks/agent_turn_complete_hook.py"]
+        vec![r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py""#]
     );
     for name in [
         "agent_session_start_hook.py",

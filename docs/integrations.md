@@ -780,18 +780,24 @@ one namespace. Registry-driven installation deploys the two generic scripts into
 `<brain-root>/.claude/brain-hooks/` and registers them in that workspace's
 `.claude/settings.json`.
 
-**Hook commands are project-relative, not root-specific.** The registered
-command is `python3 .claude/brain-hooks/<script>.py`. Claude runs project hooks
-from the selected workspace, so the command remains valid when a synced
-workspace lives at a different home path or uses a different root name. The
-Rust installer and `install_hook.sh` emit the same command.
+**Hook commands are root-anchored, never working-directory-relative.** The
+registered Claude command is
+`python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/<script>.py"`.
+Claude runs a hook in the session's *current* working directory, not the
+project root, and its Bash tool's `cd` persists for the rest of the session, so
+a project-relative command stops resolving the moment an agent changes
+directory. `CLAUDE_PROJECT_DIR` is the project root Claude exports for exactly
+this purpose; `BRAIN_ROOT` covers a session Brain launched; `$HOME/brain` is the
+portable last resort. The Rust installer and `install_hook.sh` emit the same
+command, and reinstallation replaces a stale relative command in place (stale
+entries are matched by script basename, ignoring surrounding quotes).
 
-Claude and Codex use different command scopes. Claude runs project hooks from
-the selected workspace, so its project-relative command remains portable.
 Codex reads a global `~/.codex/hooks.json` and may execute it from any working
 directory, so Brain emits `python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/<script>.py"`
-for Codex. `BRAIN_ROOT` selects a workspace explicitly; `$HOME/brain` is the
-portable default. Brain does not depend on jpsyx-configs.
+for Codex — the same shape without Claude's project variable. `BRAIN_ROOT`
+selects a workspace explicitly; `$HOME/brain` is the portable default. No
+absolute path is baked into either file, because both are read on every synced
+machine. Brain does not depend on jpsyx-configs.
 
 `scripts/install_hook.sh` deploys the generic session-start and turn-complete
 bridges, compatibility entry points, Claude/Codex hook settings, and the

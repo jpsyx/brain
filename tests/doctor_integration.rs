@@ -32,10 +32,10 @@ fn install_bridge_files(settings_dir: &std::path::Path) {
 fn hook_settings() -> &'static str {
     r#"{"hooks":{
       "SessionStart":[{"hooks":[
-        {"type":"command","command":"python3 .claude/brain-hooks/agent_session_start_hook.py"}
+        {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py\""}
       ]}],
       "Stop":[{"hooks":[
-        {"type":"command","command":"python3 .claude/brain-hooks/agent_turn_complete_hook.py"}
+        {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py\""}
       ]}]
     }}"#
 }
@@ -126,7 +126,7 @@ fn doctor_requires_the_complete_start_and_stop_hook_pair() {
     std::fs::write(
         settings_dir.join("settings.json"),
         r#"{"hooks":{"SessionStart":[{"hooks":[
-          {"type":"command","command":"python3 .claude/brain-hooks/agent_session_start_hook.py"}
+          {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py\""}
         ]}]}}"#,
     )
     .unwrap();

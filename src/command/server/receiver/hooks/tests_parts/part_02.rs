@@ -85,7 +85,7 @@ fn merge_removes_legacy_and_generic_brain_hooks_but_preserves_unrelated_hooks() 
         &mut settings,
         "SessionStart",
         &["claude_session_start_hook.py", "agent_session_start_hook.py"],
-        "python3 .claude/brain-hooks/agent_session_start_hook.py",
+        r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py""#,
     );
 
     let commands = settings["hooks"]["SessionStart"]
@@ -99,7 +99,7 @@ fn merge_removes_legacy_and_generic_brain_hooks_but_preserves_unrelated_hooks() 
         commands,
         vec![
             "python3 /keep/unrelated.py",
-            "python3 .claude/brain-hooks/agent_session_start_hook.py",
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py""#,
         ]
     );
 }
