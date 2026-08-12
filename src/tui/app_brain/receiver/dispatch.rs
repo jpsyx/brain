@@ -11,6 +11,7 @@ impl App<'_> {
         self.maybe_send_processing_delay();
         // After the completion polls, so a late answer still wins over the
         // deadline it arrived just past.
+        self.probe_dispatched_receiver_message();
         self.abandon_timed_out_remote_turn();
         if let Some(lease) = self.receiver_lease
             && crate::tui::receiver_state::expired(
@@ -130,6 +131,27 @@ impl App<'_> {
         } else {
             self.requested_receiver_actor = Some(message.actor.clone());
         }
+        // Which delivery a message took is the first thing to know when one
+        // goes unanswered: a fresh launch passes the prompt as a command
+        // argument, while a reuse types it into a live composer.
+        crate::logging::log(format!(
+            "receiver dispatch delivering channel={:?} via {}",
+            message.channel,
+            if reusing_receiver_panel {
+                "warm-panel injection"
+            } else {
+                "fresh launch argument"
+            }
+        ));
+        if reusing_receiver_panel {
+            // What the composer already showed explains a prompt that lands but
+            // never submits: leftover text, or something waiting on a keypress.
+            crate::logging::log(format!(
+                "receiver panel before injection: {}",
+                self.panel_tail(14)
+                    .unwrap_or_else(|| "<no panel>".to_owned())
+            ));
+        }
         let launched = self.open_or_focus_brain(Some(&(prompt + &attachments)));
         let _ = crate::tui::receiver_state::commit_dispatch(&mut self.receiver_queue, launched);
         if launched {
@@ -141,8 +163,10 @@ impl App<'_> {
                 .clone_from(&message.response_email);
             self.receiver_email_reply.clone_from(&message.email_reply);
             self.receiver_generation = self.receiver_generation.saturating_add(1);
-            self.receiver_started = Some(std::time::Instant::now());
+            let dispatched_at = std::time::Instant::now();
+            self.receiver_started = Some(dispatched_at);
             self.receiver_delay_sent = false;
+            self.schedule_receiver_probes(dispatched_at);
             self.receiver_lease = Some(crate::tui::receiver_state::renew(
                 message.channel,
                 self.receiver_generation,

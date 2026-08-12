@@ -405,3 +405,85 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
         "the message behind the wedged turn must still get dispatched"
     );
 }
+
+/// The exact bytes a warm-panel reuse puts on the PTY, captured through a real
+/// `PtyPane`. This is the delivery that silently failed: the prompt appeared in
+/// the composer and no turn ever started, so the message got no reply.
+#[test]
+fn warm_panel_reuse_delivers_a_closed_paste_and_a_submit_key_to_the_real_pty() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let actor = app.interactive_actor.clone();
+    let root = app.command_context.workspace.root().to_path_buf();
+    let captured = root.join("captured.bin");
+    let panel = crate::pty_pane::PtyPane::spawn_shell_command_with_env(
+        &format!(
+            "stty raw -echo; printf READY; cat > {}",
+            captured.display()
+        ),
+        &[],
+        &root,
+        24,
+        80,
+    )
+    .expect("spawn capture panel");
+    app.brain = Some(panel_controller(&app, panel));
+    assert!(
+        wait_for_panel_contents(app.brain.as_ref().expect("panel"), "READY"),
+        "capture panel never became ready"
+    );
+    app.session_actor = Some(actor.clone());
+    app.receiver_session_id = Some("warm-session".to_owned());
+    app.receiver_lease = Some(crate::tui::receiver_state::renew(
+        Channel::Sms,
+        0,
+        std::time::Instant::now(),
+    ));
+    app.receiver_queue.push(InboundJob {
+        job_id: uuid::Uuid::new_v4(),
+        workspace_id: app.command_context.workspace.id(),
+        actor,
+        channel: Channel::Sms,
+        prompt: "How many projects do we have open?".to_owned(),
+        authenticated_sender: "+15551234567".to_owned(),
+        attachments: Vec::new(),
+        received_at_unix_ms: 1,
+        provider_id: Some("provider-message-1".to_owned()),
+        thread_participants: vec!["+15551234567".to_owned()],
+        response_email: None,
+        allowed_response_recipients: Vec::new(),
+        email_reply: None,
+    });
+
+    app.tick_receiver();
+    assert!(app.receiver_queue.is_empty(), "message was not dispatched");
+    assert!(
+        app.receiver_probe.is_some(),
+        "a dispatched message must be sampled, or an unsubmitted prompt leaves no evidence"
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let bytes = loop {
+        let bytes = std::fs::read(&captured).unwrap_or_default();
+        if bytes.ends_with(b"\r") || std::time::Instant::now() >= deadline {
+            break bytes;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    let rendered = String::from_utf8_lossy(&bytes).into_owned();
+
+    assert!(
+        bytes.starts_with(b"\x1b[200~"),
+        "delivery must open a bracketed paste, got: {rendered:?}"
+    );
+    assert!(
+        bytes.ends_with(b"\x1b[201~\r"),
+        "delivery must close the paste and then submit, got tail: {:?}",
+        String::from_utf8_lossy(&bytes[bytes.len().saturating_sub(24)..])
+    );
+    assert!(
+        rendered.contains("How many projects do we have open?"),
+        "the whole message must reach the composer, got: {rendered:?}"
+    );
+}

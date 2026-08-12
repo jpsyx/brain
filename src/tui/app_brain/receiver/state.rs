@@ -57,6 +57,7 @@ impl App<'_> {
         self.receiver_lease = None;
         self.receiver_started = None;
         self.receiver_delay_sent = false;
+        self.receiver_probe = None;
         self.requested_receiver_actor = None;
     }
 }

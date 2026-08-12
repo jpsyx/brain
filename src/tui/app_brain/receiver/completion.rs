@@ -61,28 +61,11 @@ impl App<'_> {
             crate::tui::receiver_state::REMOTE_TURN_TIMEOUT.as_secs(),
             self.receiver_queue.len()
         ));
-        if let (Some(channel), Some(sender)) = (
-            self.receiver_lease.map(|lease| lease.channel),
-            self.receiver_sender.clone(),
-        ) {
-            let notice = crate::server::reply::unanswered_notice(match channel {
-                crate::server::receiver::Channel::Sms => "sms",
-                crate::server::receiver::Channel::Email => "email",
-            });
-            match channel {
-                crate::server::receiver::Channel::Sms => {
-                    crate::server::delivery::send_sms_background(
-                        self.command_context.clone(),
-                        "unanswered SMS notice",
-                        sender,
-                        notice.text,
-                    );
-                }
-                crate::server::receiver::Channel::Email => {
-                    self.send_email_reply("unanswered email notice", &notice.text);
-                }
-            }
-        }
+        // The panel is the only witness to why a turn never finished.
+        crate::logging::log(format!(
+            "receiver abandoned panel showed: {}",
+            self.panel_tail(14).unwrap_or_else(|| "<no panel>".to_owned())
+        ));
         let nothing_queued = self.receiver_queue.is_empty();
         self.close_receiver_panel(nothing_queued);
     }
@@ -179,6 +162,7 @@ impl App<'_> {
         self.receiver_email_reply = None;
         self.receiver_started = None;
         self.receiver_delay_sent = false;
+        self.receiver_probe = None;
         self.receiver_generation = self.receiver_generation.saturating_add(1);
         self.receiver_lease = Some(crate::tui::receiver_state::renew(
             channel,

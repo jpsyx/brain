@@ -71,6 +71,23 @@ pub fn renew(channel: Channel, generation: u64, now: Instant) -> Lease {
     }
 }
 
+/// When to sample the panel after a message is dispatched.
+///
+/// Spread so the samples answer different questions: whether the prompt was
+/// accepted at all, whether a turn actually started, and what the screen looked
+/// like once it plainly should have finished.
+pub const PROBE_DELAYS: [Duration; 3] = [
+    Duration::from_secs(5),
+    Duration::from_secs(20),
+    Duration::from_secs(60),
+];
+
+/// Deadline for the probe after `fired` of them, or `None` once sampling ends.
+#[must_use]
+pub fn next_probe(fired: usize, dispatched_at: Instant) -> Option<Instant> {
+    PROBE_DELAYS.get(fired).map(|delay| dispatched_at + *delay)
+}
+
 /// Whether an in-flight remote turn has gone unanswered long enough to abandon.
 ///
 /// Nothing else releases a dispatched turn: the inactivity lease only expires
@@ -236,6 +253,28 @@ mod tests {
             Some(now + Duration::from_secs(5)),
             now + Duration::from_secs(5)
         ));
+    }
+
+    /// A prompt that sits unsubmitted in the composer is indistinguishable, from
+    /// brain's side, from a slow tool call: both are simply "no completion yet".
+    /// The panel has to be sampled while the turn is still open, and more than
+    /// once, or the evidence is gone by the time anyone looks.
+    #[test]
+    fn an_open_turn_is_sampled_repeatedly_and_then_stops() {
+        let now = Instant::now();
+        let first = next_probe(0, now).expect("a turn is sampled soon after dispatch");
+        let second = next_probe(1, now).expect("and again once it should have started");
+        assert!(first < second, "probes must spread out, not repeat instantly");
+        assert!(
+            next_probe(PROBE_DELAYS.len(), now).is_none(),
+            "sampling stops rather than logging forever"
+        );
+        assert!(
+            PROBE_DELAYS
+                .last()
+                .is_some_and(|last| *last < REMOTE_TURN_TIMEOUT),
+            "every probe must land while the turn is still open"
+        );
     }
 
     /// A turn that never signalled completion pinned the panel forever, so

@@ -169,6 +169,7 @@ impl<'a> App<'a> {
             receiver_resume_session: None,
             receiver_started: None,
             receiver_delay_sent: false,
+            receiver_probe: None,
             receiver_retry_at: None,
             receiver_sync_runtime,
             receiver_sync_gate: None,

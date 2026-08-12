@@ -1396,6 +1396,15 @@ initiating actor remains fixed for every follow-up in that session, even if a
 different machine-local user is selected elsewhere. A local prompt or
 keyboard input leaves a warm remote panel and resumes the interactive session.
 
+A dispatched message is sampled while its turn is still open (5s, 20s, and
+60s in), and each sample writes the panel's visible tail to the receiver log
+along with the delivery it took — a fresh launch argument or an injection into
+a warm panel. A prompt left unsubmitted in the composer and a genuinely slow
+tool call are the same "no completion yet" from brain's side, so the screen is
+the only thing that tells them apart, and only while the turn is still open.
+The exact wire form of an injected follow-up is logged before it is written,
+and the panel is captured again if the turn is ever abandoned.
+
 While a message is actually being answered, the panel belongs to that sender:
 local keystrokes are dropped rather than forwarded into the remote
 conversation, and a status line explains why. `Ctrl+C` is never locked out, so

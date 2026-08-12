@@ -406,6 +406,9 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_resume_session: Option<String>,
     pub(crate) receiver_started: Option<std::time::Instant>,
     pub(crate) receiver_delay_sent: bool,
+    /// Panel samples still owed for the in-flight message: when the next one
+    /// is due, and how many have already been taken.
+    pub(crate) receiver_probe: Option<(std::time::Instant, usize)>,
     pub(crate) receiver_retry_at: Option<std::time::Instant>,
     pub(crate) receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
     pub(crate) receiver_sync_gate: Option<ReceiverSyncGate>,

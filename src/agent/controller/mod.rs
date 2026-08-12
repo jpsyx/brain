@@ -205,10 +205,24 @@ impl AgentController {
         if text.trim().is_empty() {
             return Err(AgentError::EmptyInput);
         }
-        self.transport.send(
-            self.frontend
-                .input_for(AgentAction::FollowUpAfterActiveTurn(text))?,
-        )
+        let bytes = self
+            .frontend
+            .input_for(AgentAction::FollowUpAfterActiveTurn(text))?
+            .into_bytes();
+        // A follow-up is the only prompt brain types rather than passes as a
+        // launch argument, and the only one that has ever gone unsubmitted, so
+        // the exact wire form is recorded before it leaves.
+        crate::logging::log(format!(
+            "agent follow-up delivery: {} bytes head={:02x?} tail={:02x?} paste_opened={} paste_closed={}",
+            bytes.len(),
+            &bytes[..bytes.len().min(8)],
+            &bytes[bytes.len().saturating_sub(8)..],
+            bytes.starts_with(b"\x1b[200~"),
+            bytes
+                .windows(6)
+                .any(|window| window == b"\x1b[201~"),
+        ));
+        self.transport.send(InputSequence::bytes(bytes))
     }
 
     /// Request a new session through the selected frontend.
