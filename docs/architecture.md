@@ -765,7 +765,13 @@ outcome + the count of copies renamed + any leftover markers into `Clean` /
 SQLite journal at `<workspace-cache>/sync/journal.db` (table `sync_runs`,
 machine-local, never synced). `command::sync_once` is the thin orchestrator
 that runs this whole pipeline; `command::print_status`/`print_conflicts` back
-`brain sync status`/`brain sync conflicts`. `setup.rs` is `brain sync setup`'s
+`brain sync status`/`brain sync conflicts`. `command::resolve` backs `brain
+sync resolve`: local deletes plus, in `command::resolve_remote`, the remote
+half — an `rclone lsf` of the original's own remote directory, matched with
+`conflicts::remote_losers_for_original`, then one `rclone deletefile` per
+loser. Its rclone shell is an injected runner closure, so the decision logic is
+tested without the network. `resolve` runs no bisync and writes no journal
+entry. `setup.rs` is `brain sync setup`'s
 interactive flow (collect bucket + credentials, validate the local manifest,
 probe the remote identity, display the local canonical name/UUID plus configured
 target and observed remote status/UUID, and publish and read back the exact

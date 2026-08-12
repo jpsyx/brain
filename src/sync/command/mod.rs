@@ -28,6 +28,7 @@ use crate::sync::verify::{self, Outcome};
 use crate::theme::Theme;
 
 mod resolve;
+pub mod resolve_remote;
 pub use resolve::resolve;
 
 fn sync_task_state(

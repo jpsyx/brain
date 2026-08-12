@@ -59,7 +59,22 @@ Adapt the final response to the delivery medium:
   answer within the limit.
 - **Email:** write a polished, readable response with a useful subject,
   headings or lists where appropriate, and a plain-text equivalent. Include
-  meaningful attachment names and processing results.
+  meaningful attachment names and processing results. When the answer comes
+  from a note, quote or reproduce the relevant passage in the email itself,
+  nicely formatted (a short blockquote, a list, or a small table), so the
+  answer is self-contained.
+
+**Never include a filesystem path in an SMS or email reply.** No
+`Source: ~/brain/...` line, no bare path, no markdown link to a file, no
+additions table. The recipient is reading on a phone or in a mail client, where
+a path is not clickable and verifies nothing: in SMS it only burns the
+character budget, and in email the quoted content is what actually helps. Give
+the answer, and for email the supporting quote. This overrides
+[Referencing markdown files](#referencing-markdown-files) and
+[Always end with an "additions" table](#always-end-with-an-additions-table),
+which are terminal conventions: they apply to brain-panel output only. If an
+SMS or email request *changes* the brain, describe what changed in plain words
+("added it to your health notes"), not with a path or a table.
 
 ### Sending a longer response by email
 
@@ -375,6 +390,9 @@ This applies inside `~/brain/` notes as well: when one note refers to
 another, use a relative markdown link so the graph of references is
 machine-readable.
 
+**Not in SMS or email replies.** Those never carry a path or a file link; see
+[Inbound brain messages](#inbound-brain-messages-sms-and-email).
+
 ## Always end with an "additions" table
 
 **Any time you add, move, rename, or archive anything in `~/brain` —
@@ -383,7 +401,9 @@ item, a project, an area, an extracted IP, a hand-written note, a
 moved or archived folder, a synced item) — the LAST thing in your
 response MUST be a table summarizing exactly what changed and where.**
 This is universal: it applies to every command in this skill and to
-any ad-hoc edit, not just PDF adds.
+any ad-hoc edit, not just PDF adds. The one exception is an SMS or email
+reply, which carries no paths and no table at all; see
+[Inbound brain messages](#inbound-brain-messages-sms-and-email).
 
 Rules for the table:
 
@@ -959,6 +979,17 @@ are out of scope for this flow.
    per group — it refuses if a listed canonical file is missing, and
    it does not run any sync itself. Shell-quote any original whose
    path contains spaces (e.g. `brain sync resolve "my notes.md"`).
+   `resolve` clears each original's losers **on both sides** — the
+   local copies and the objects the sync left on the remote — so
+   don't try to clean the remote yourself. It reports what it did per
+   original, e.g. `(removed 1 copy, 1 remote object)`. Two lines are
+   worth reading back to the user rather than skipping past:
+   - `could not check the remote` means the remote lane failed; the
+     local copies are gone but a remote loser may survive. Re-run
+     `brain sync resolve <original>` once connectivity is back.
+   - `no local copies, N remote objects` is normal, not an error: it
+     means the local copy was already gone (an earlier resolve, or
+     another machine) and only the remote orphan was left.
 4. **Propagate the resolved state** with a single final sync:
    ```
    brain sync

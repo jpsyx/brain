@@ -105,7 +105,7 @@ fn conflict_copy_is_enumerated_and_resolved_leaving_only_the_canonical() {
     assert_eq!(group.copies[0].date, date);
 
     std::fs::write(a.join("one.md"), "merged: A-side + B-side").unwrap();
-    brain::sync::command::resolve(&a, &["one.md".to_string()]).unwrap();
+    brain::sync::command::resolve(&a, &SyncConfig::default(), &["one.md".to_string()]).unwrap();
 
     assert_eq!(
         std::fs::read_to_string(a.join("one.md")).unwrap(),
@@ -127,6 +127,58 @@ fn conflict_copy_is_enumerated_and_resolved_leaving_only_the_canonical() {
     );
     assert!(a.join("two.md").exists());
     assert!(a.join("three.md").exists());
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// The remote keeps rclone's raw `__brainconflict__` marker (only the local
+/// root is renamed), and both patterns are bisync excludes — so nothing but
+/// this lane can ever collect that orphan. Drives real rclone against a local
+/// directory standing in for the remote, to prove the argv works and not just
+/// that it looks right.
+#[test]
+fn remote_loser_objects_are_deleted_from_the_remote() {
+    if !rclone_available() {
+        eprintln!("skipping: rclone not on PATH");
+        return;
+    }
+    let base =
+        std::env::temp_dir().join(format!("brain-sync-remoteloser-it-{}", std::process::id()));
+    let remote = base.join("remote");
+    std::fs::create_dir_all(remote.join("skills")).unwrap();
+
+    let original = remote.join("skills/SKILL.md");
+    std::fs::write(&original, "winner").unwrap();
+    let marker = remote.join(format!(
+        "skills/SKILL.md.{}1",
+        brain::sync::args::CONFLICT_MARKER
+    ));
+    std::fs::write(&marker, "loser").unwrap();
+    // A same-directory neighbour that must be left strictly alone.
+    let neighbour = remote.join("skills/OTHER.md");
+    std::fs::write(&neighbour, "unrelated").unwrap();
+
+    let remote_arg = remote.to_string_lossy().into_owned();
+    let mut run = |args: &[String]| brain::sync::run::run_rclone_capture(&[], args);
+    let out = brain::sync::command::resolve_remote::resolve_remote_with(
+        &remote_arg,
+        Path::new("skills/SKILL.md"),
+        &mut run,
+    );
+
+    assert!(out.listed, "listing the remote directory should succeed");
+    assert_eq!(
+        out.deleted,
+        vec![std::path::PathBuf::from(format!(
+            "skills/SKILL.md.{}1",
+            brain::sync::args::CONFLICT_MARKER
+        ))],
+        "the raw remote marker must be deleted"
+    );
+    assert!(out.failed.is_empty(), "no delete should have failed");
+    assert!(!marker.exists(), "the remote loser object must be gone");
+    assert!(original.exists(), "the canonical original must survive");
+    assert!(neighbour.exists(), "an unrelated neighbour must survive");
 
     std::fs::remove_dir_all(&base).ok();
 }

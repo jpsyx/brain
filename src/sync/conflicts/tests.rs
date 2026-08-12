@@ -241,3 +241,53 @@ fn rename_markers_moves_real_marker_files_to_friendly_names() {
 
     std::fs::remove_dir_all(&tmp).ok();
 }
+
+#[test]
+fn marker_original_recovers_the_original_from_a_raw_marker() {
+    assert_eq!(
+        marker_original(Path::new(&format!("notes/idea.md.{CONFLICT_MARKER}2"))),
+        Some(PathBuf::from("notes/idea.md"))
+    );
+    // Extensionless originals carry the marker the same way.
+    assert_eq!(
+        marker_original(Path::new(&format!("README.{CONFLICT_MARKER}1"))),
+        Some(PathBuf::from("README"))
+    );
+    // A plain file is not a marker.
+    assert!(marker_original(Path::new("notes/idea.md")).is_none());
+    // A friendly copy is not a raw marker.
+    assert!(marker_original(Path::new("idea (conflict mac 2026-07-25).md")).is_none());
+}
+
+#[test]
+fn remote_losers_matches_raw_markers_and_friendly_copies_for_one_original() {
+    let remote = vec![
+        PathBuf::from("notes/idea.md"),
+        PathBuf::from(format!("notes/idea.md.{CONFLICT_MARKER}1")),
+        PathBuf::from(format!("notes/idea.md.{CONFLICT_MARKER}2")),
+        PathBuf::from("notes/idea (conflict mac 2026-07-25).md"),
+        // Same stem, different original — must not match.
+        PathBuf::from(format!("notes/idea-two.md.{CONFLICT_MARKER}1")),
+        // Same name in a different directory — must not match.
+        PathBuf::from(format!("other/idea.md.{CONFLICT_MARKER}1")),
+        PathBuf::from("notes/unrelated.md"),
+    ];
+
+    assert_eq!(
+        remote_losers_for_original(Path::new("notes/idea.md"), &remote),
+        vec![
+            PathBuf::from("notes/idea (conflict mac 2026-07-25).md"),
+            PathBuf::from(format!("notes/idea.md.{CONFLICT_MARKER}1")),
+            PathBuf::from(format!("notes/idea.md.{CONFLICT_MARKER}2")),
+        ]
+    );
+}
+
+#[test]
+fn remote_losers_never_returns_the_canonical_original_itself() {
+    let remote = vec![
+        PathBuf::from("notes/idea.md"),
+        PathBuf::from("notes/other.md"),
+    ];
+    assert!(remote_losers_for_original(Path::new("notes/idea.md"), &remote).is_empty());
+}

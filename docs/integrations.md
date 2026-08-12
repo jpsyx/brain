@@ -1187,7 +1187,9 @@ brain-root lookup.
   `is_marker`) renames it to the friendly `name (conflict <host> <date>).ext`
   right after the rclone run. Both the friendly (`*(conflict *)*`) and raw
   (`*.__brainconflict__*`) patterns are default excludes above, so neither gets
-  synced around on a later run. Because the rename leaves zero leftover markers,
+  synced around on a later run — which also means the remote's copy of the
+  marker is invisible to every later sync, and only `brain sync resolve` can
+  remove it. Because the rename leaves zero leftover markers,
   `sync_once` also feeds the *count of copies renamed* into `verify::classify`
   so the run is still reported `NeedsAttention` (journalled `conflicts=N`) — a
   real conflict is never masked as clean. `brain sync conflicts` lists what's
@@ -1206,9 +1208,20 @@ brain-root lookup.
   deletes them (never the canonical file itself), refusing outright
   (`ResolveDecision::CanonicalMissing` in `src/sync/command/resolve.rs`) if the
   canonical original doesn't exist on disk — the skill must merge into it
-  first. `resolve` never invokes `rclone` or the journal; it's a pure local
-  filesystem delete, so the skill runs one ordinary `brain sync` afterward to
-  push the resolution out.
+  first. Resolving also clears the **remote** losers for that original
+  (`src/sync/command/resolve_remote.rs`): rclone's marker lands on both sides
+  but only the local root is renamed, and both conflict patterns are bisync
+  excludes, so nothing else can ever collect that remote object.
+  `conflicts::remote_losers_for_original` matches it by *either* naming form
+  (raw `<original>.<MARKER><N>` or friendly), the lane lists just the
+  original's own remote directory (`rclone lsf --files-only`) and removes each
+  loser with `rclone deletefile` — one object at a time, never `delete`, which
+  would take a directory and recurse. `resolve` therefore does invoke `rclone`,
+  but never bisync and never the journal: it is still deletion only, so the
+  skill runs one ordinary `brain sync` afterward to push the merged canonical
+  out. A missing remote config or absent `rclone` degrades to the old
+  local-only behavior; an unreachable remote is reported as such rather than
+  as a clean one, so a silent listing failure can't read as "nothing there."
 - **The two task CSVs and their schema marker skip bisync entirely.**
   `tasks/tasks.csv` and `tasks/habits.csv` are added to `args::bisync_args`'s
   default excludes alongside `tasks/SCHEMA.json` (`src/sync/args.rs`), so the

@@ -1,14 +1,19 @@
-//! `brain sync resolve <original> [...]`: safe local delete of conflict
-//! copies once you've merged into the canonical original. Deletion only —
-//! never runs a sync.
+//! `brain sync resolve <original> [...]`: safe delete of conflict copies once
+//! you've merged into the canonical original — the local copies **and** the
+//! loser objects rclone left on the remote (see [`super::resolve_remote`]).
+//! Deletion only — never runs a sync.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
+use crate::sync::config::SyncConfig;
 use crate::sync::conflicts::{self, ConflictFile};
+use crate::sync::remote::build_remote;
 use crate::theme::Theme;
+
+use super::resolve_remote::{self, RemoteResolution};
 
 /// What resolving one original should do (pure classification, no fs).
 #[derive(Debug, PartialEq, Eq)]
@@ -43,36 +48,162 @@ pub fn resolve_decision(
     }
 }
 
+/// Whether the remote-cleanup lane should run: only with a configured remote
+/// and an rclone to drive it. Both missing halves degrade to a local-only
+/// resolve rather than an error — resolving is still useful offline.
+#[must_use]
+pub fn should_clean_remote(configured: bool, rclone_present: bool) -> bool {
+    configured && rclone_present
+}
+
 /// `brain sync resolve <original> [...]`: delete the resolved conflict copies
-/// for one or more canonical originals.
+/// for one or more canonical originals, locally and on the remote.
 ///
 /// Only deletes; never runs a sync. Empty `originals` drops into an
 /// interactive picker over the currently open conflict groups.
-pub fn resolve(root: &Path, originals: &[String]) -> Result<()> {
+pub fn resolve(root: &Path, cfg: &SyncConfig, originals: &[String]) -> Result<()> {
     if originals.is_empty() {
-        return resolve_interactive(root);
+        return resolve_interactive(root, cfg);
     }
     let theme = Theme::active();
     let files = conflicts::list_conflicts(root);
-    resolve_many(root, originals, &files, theme);
+    resolve_many(root, cfg, originals, &files, theme);
     Ok(())
 }
 
 /// Apply the resolve decision to every original in `originals`, in order.
 /// Shared by the explicit-args path and the interactive picker.
-fn resolve_many(root: &Path, originals: &[String], files: &[ConflictFile], theme: Theme) {
+fn resolve_many(
+    root: &Path,
+    cfg: &SyncConfig,
+    originals: &[String],
+    files: &[ConflictFile],
+    theme: Theme,
+) {
+    let remote = should_clean_remote(cfg.is_configured(), crate::sync::run::rclone_present())
+        .then(|| build_remote(cfg));
+    if remote.is_some() {
+        eprintln!(
+            "{}",
+            theme.muted("Removing the matching loser objects from the remote too…")
+        );
+    }
     for original in originals {
-        resolve_one(root, original, files, theme);
+        resolve_one(root, original, files, theme, remote.as_ref());
     }
 }
 
+/// Whether the remote-cleanup lane applies to this decision.
+///
+/// Both `Delete` and `NoCopies` qualify: an older brain (or another machine)
+/// may have removed the local copy while the remote loser still lingers, and
+/// that orphan is exactly what this lane exists to collect. `CanonicalMissing`
+/// refuses outright, so nothing is touched on either side.
+#[must_use]
+pub fn remote_lane_applies(decision: &ResolveDecision) -> bool {
+    matches!(
+        decision,
+        ResolveDecision::Delete(_) | ResolveDecision::NoCopies
+    )
+}
+
+/// Render the summary for an original that had no local copies. Stays on the
+/// original plain message unless the remote lane actually did something.
+#[must_use]
+pub fn no_copies_summary(
+    original: &str,
+    remote: Option<&RemoteResolution>,
+    theme: Theme,
+) -> String {
+    let plain = format!("no conflict copies for {original}");
+    match remote {
+        Some(r) if !r.listed => theme.warning(&format!("{plain} (could not check the remote)")),
+        Some(r) if !r.deleted.is_empty() => {
+            let n = r.deleted.len();
+            let noun = if n == 1 { "object" } else { "objects" };
+            format!(
+                "{} {} {}",
+                theme.success("resolved"),
+                theme.value(original),
+                theme.muted(&format!("(no local copies, {n} remote {noun})")),
+            )
+        }
+        _ => theme.muted(&plain),
+    }
+}
+
+/// Delete the remote loser objects for `original`, driving real rclone. Thin
+/// shell over the tested [`resolve_remote::resolve_remote_with`]; a failed
+/// delete is warned about here and reflected in the returned resolution.
+fn clean_remote(
+    remote: &crate::sync::remote::Remote,
+    original: &Path,
+    theme: Theme,
+) -> RemoteResolution {
+    let mut run = |args: &[String]| crate::sync::run::run_rclone_capture(&remote.env, args);
+    let resolution = resolve_remote::resolve_remote_with(&remote.arg, original, &mut run);
+    for failed in &resolution.failed {
+        eprintln!(
+            "{}",
+            theme.warning(&format!(
+                "could not remove {} from the remote",
+                failed.display()
+            ))
+        );
+    }
+    resolution
+}
+
+/// Render the themed one-line summary for a resolved original.
+///
+/// `remote` is `None` when the remote lane didn't run (no remote configured, or
+/// no rclone), in which case the line stays exactly as the local-only resolve
+/// always reported it.
+#[must_use]
+pub fn resolve_summary(
+    original: &str,
+    removed_local: usize,
+    remote: Option<&RemoteResolution>,
+    theme: Theme,
+) -> String {
+    let word = if removed_local == 1 { "copy" } else { "copies" };
+    let mut detail = format!("removed {removed_local} {word}");
+    match remote {
+        Some(r) if !r.listed => detail.push_str(", could not check the remote"),
+        Some(r) if !r.deleted.is_empty() => {
+            use std::fmt::Write as _;
+            let n = r.deleted.len();
+            let noun = if n == 1 { "object" } else { "objects" };
+            let _ = write!(detail, ", {n} remote {noun}");
+        }
+        _ => {}
+    }
+    format!(
+        "{} {} {}",
+        theme.success("resolved"),
+        theme.value(original),
+        theme.muted(&format!("({detail})")),
+    )
+}
+
 /// Apply the resolve decision for one original: delete its copies (best
-/// effort) and print a themed summary line. Never returns an error — an
-/// individual delete failure is noted and resolution continues.
-fn resolve_one(root: &Path, original: &str, files: &[ConflictFile], theme: Theme) {
+/// effort), clean the remote losers when a remote is available, and print a
+/// themed summary line. Never returns an error — an individual delete failure
+/// is noted and resolution continues.
+fn resolve_one(
+    root: &Path,
+    original: &str,
+    files: &[ConflictFile],
+    theme: Theme,
+    remote: Option<&crate::sync::remote::Remote>,
+) {
     let rel = Path::new(original);
     let exists = root.join(rel).exists();
-    match resolve_decision(rel, exists, files) {
+    let decision = resolve_decision(rel, exists, files);
+    let cleaned = remote
+        .filter(|_| remote_lane_applies(&decision))
+        .map(|r| clean_remote(r, rel, theme));
+    match decision {
         ResolveDecision::Delete(copies) => {
             let mut removed = 0usize;
             for copy in &copies {
@@ -86,12 +217,9 @@ fn resolve_one(root: &Path, original: &str, files: &[ConflictFile], theme: Theme
                     }
                 }
             }
-            let word = if removed == 1 { "copy" } else { "copies" };
             println!(
-                "{} {} {}",
-                theme.success("resolved"),
-                theme.value(original),
-                theme.muted(&format!("(removed {removed} {word})")),
+                "{}",
+                resolve_summary(original, removed, cleaned.as_ref(), theme)
             );
         }
         ResolveDecision::CanonicalMissing => {
@@ -103,17 +231,14 @@ fn resolve_one(root: &Path, original: &str, files: &[ConflictFile], theme: Theme
             );
         }
         ResolveDecision::NoCopies => {
-            println!(
-                "{}",
-                theme.muted(&format!("no conflict copies for {original}"))
-            );
+            println!("{}", no_copies_summary(original, cleaned.as_ref(), theme));
         }
     }
 }
 
 /// Interactive picker for bare `brain sync resolve` (no originals given).
 /// Thin shell over `resolve_many`; never unit-tested (drives `/dev/tty`).
-fn resolve_interactive(root: &Path) -> Result<()> {
+fn resolve_interactive(root: &Path, cfg: &SyncConfig) -> Result<()> {
     let theme = Theme::active();
     let files = conflicts::list_conflicts(root);
     let groups = conflicts::group_conflicts(&files);
@@ -164,13 +289,19 @@ fn resolve_interactive(root: &Path) -> Result<()> {
         }
     };
 
-    resolve_many(root, &chosen, &files, theme);
+    resolve_many(root, cfg, &chosen, &files, theme);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An unconfigured sync block: the remote lane stays off, so the local-side
+    /// fs tests below never reach for rclone or the network.
+    fn local_only() -> SyncConfig {
+        SyncConfig::default()
+    }
 
     fn idea_conflict_files() -> Vec<ConflictFile> {
         vec![
@@ -184,6 +315,105 @@ mod tests {
                 path: PathBuf::from("other (conflict mac 2026-07-25).md"),
             },
         ]
+    }
+
+    #[test]
+    fn the_remote_lane_runs_whenever_the_canonical_exists_even_with_no_local_copies() {
+        // The local copy may already be gone (resolved by an older brain that
+        // only cleaned the local side), while the remote loser still lingers.
+        assert!(remote_lane_applies(&ResolveDecision::NoCopies));
+        assert!(remote_lane_applies(&ResolveDecision::Delete(vec![
+            PathBuf::from("idea (conflict mac 2026-07-25).md")
+        ])));
+        assert!(
+            !remote_lane_applies(&ResolveDecision::CanonicalMissing),
+            "a missing canonical refuses outright; never touch the remote"
+        );
+    }
+
+    #[test]
+    fn no_copies_summary_reports_a_remote_only_cleanup() {
+        let remote = RemoteResolution {
+            deleted: vec![PathBuf::from("idea.md.__brainconflict__1")],
+            failed: vec![],
+            listed: true,
+        };
+        let line = no_copies_summary("idea.md", Some(&remote), Theme::dark(false));
+        assert!(line.contains("idea.md"), "{line}");
+        assert!(
+            line.contains("1 remote object"),
+            "a remote-only cleanup must still be reported: {line}"
+        );
+    }
+
+    #[test]
+    fn no_copies_summary_keeps_the_plain_message_when_both_sides_are_clean() {
+        let remote = RemoteResolution {
+            deleted: vec![],
+            failed: vec![],
+            listed: true,
+        };
+        assert_eq!(
+            no_copies_summary("idea.md", Some(&remote), Theme::dark(false)),
+            "no conflict copies for idea.md"
+        );
+        assert_eq!(
+            no_copies_summary("idea.md", None, Theme::dark(false)),
+            "no conflict copies for idea.md"
+        );
+    }
+
+    #[test]
+    fn should_clean_remote_requires_both_a_configured_remote_and_rclone() {
+        assert!(should_clean_remote(true, true));
+        assert!(!should_clean_remote(false, true));
+        assert!(!should_clean_remote(true, false));
+    }
+
+    #[test]
+    fn summary_reports_the_remote_objects_it_deleted() {
+        let remote = RemoteResolution {
+            deleted: vec![PathBuf::from("idea.md.__brainconflict__1")],
+            failed: vec![],
+            listed: true,
+        };
+        let line = resolve_summary("idea.md", 1, Some(&remote), Theme::dark(false));
+        assert!(line.contains("removed 1 copy"), "{line}");
+        assert!(
+            line.contains("1 remote object"),
+            "the remote deletion must be visible in the summary: {line}"
+        );
+    }
+
+    #[test]
+    fn summary_says_the_remote_was_clean_when_nothing_was_there() {
+        let remote = RemoteResolution {
+            deleted: vec![],
+            failed: vec![],
+            listed: true,
+        };
+        let line = resolve_summary("idea.md", 1, Some(&remote), Theme::dark(false));
+        assert!(
+            !line.contains("remote object"),
+            "no remote losers means no remote count to report: {line}"
+        );
+        assert!(!line.contains("could not"), "{line}");
+    }
+
+    #[test]
+    fn summary_admits_when_the_remote_could_not_be_checked() {
+        let remote = RemoteResolution::default(); // listed: false
+        let line = resolve_summary("idea.md", 1, Some(&remote), Theme::dark(false));
+        assert!(
+            line.contains("could not check the remote"),
+            "an unreachable remote must never read as a clean remote: {line}"
+        );
+    }
+
+    #[test]
+    fn summary_stays_local_only_when_the_remote_lane_did_not_run() {
+        let line = resolve_summary("idea.md", 2, None, Theme::dark(false));
+        assert_eq!(line, "resolved idea.md (removed 2 copies)");
     }
 
     #[test]
@@ -236,7 +466,7 @@ mod tests {
         fs::write(tmp.join("idea.md"), b"canonical").unwrap();
         fs::write(tmp.join("idea (conflict mac 2026-07-25).md"), b"loser").unwrap();
 
-        resolve(&tmp, &["idea.md".to_owned()]).unwrap();
+        resolve(&tmp, &local_only(), &["idea.md".to_owned()]).unwrap();
 
         assert!(
             tmp.join("idea.md").exists(),
@@ -263,7 +493,12 @@ mod tests {
         )
         .unwrap();
 
-        resolve(&tmp, &["idea.md".to_owned(), "other.md".to_owned()]).unwrap();
+        resolve(
+            &tmp,
+            &local_only(),
+            &["idea.md".to_owned(), "other.md".to_owned()],
+        )
+        .unwrap();
 
         assert!(
             tmp.join("idea.md").exists(),
@@ -293,7 +528,7 @@ mod tests {
         fs::write(dir.join("idea.md"), b"merged").unwrap();
         fs::write(dir.join("idea (conflict mac 2026-07-25).md"), b"loser").unwrap();
 
-        resolve(&tmp, &["projects/idea.md".to_owned()]).unwrap();
+        resolve(&tmp, &local_only(), &["projects/idea.md".to_owned()]).unwrap();
 
         assert!(
             dir.join("idea.md").exists(),
@@ -314,7 +549,7 @@ mod tests {
         fs::create_dir_all(&tmp).unwrap();
         fs::write(tmp.join("idea (conflict mac 2026-07-25).md"), b"loser").unwrap();
 
-        resolve(&tmp, &["idea.md".to_owned()]).unwrap();
+        resolve(&tmp, &local_only(), &["idea.md".to_owned()]).unwrap();
 
         assert!(
             tmp.join("idea (conflict mac 2026-07-25).md").exists(),

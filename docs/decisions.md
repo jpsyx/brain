@@ -1107,6 +1107,26 @@ renames the marker to a human-readable `name (conflict <host> <date>).ext`
 (see [data-model.md](data-model.md)) so resolving it later is a normal
 file-manager task, not spelunking for `__brainconflict__` files.
 
+**Why `brain sync resolve` deletes on the remote too, even though it runs no
+sync.** Keep-both writes the loser on *both* sides, and both conflict-name
+patterns are bisync excludes — the excludes are what stop a resolved conflict
+from being resurrected on the next run, but they also mean a normal sync can
+neither delete the remote object nor bring it down for the user to see. A
+local-only resolve therefore looked clean while leaking one orphan object into
+the bucket per conflict, forever, visible to no brain command. So resolve owns
+both halves: it is still *deletion only* (no bisync, no journal entry, no
+`--resync`), just deletion in both places. The two halves are deliberately
+independent — a resolve whose local copy is already gone still collects the
+remote orphan — because that is the state every conflict resolved before this
+lane existed is already in, and the state a second machine leaves behind. The
+lane matches losers by *both* naming forms (the remote keeps rclone's raw
+marker, since only the local root is ever renamed), lists only the original's
+own directory rather than the whole bucket, and uses `deletefile` rather than
+`delete` so a bug can never recurse over a directory. A remote that cannot be
+listed reports "could not check the remote" instead of the reassuring silence a
+clean remote would produce: with a destructive lane, the failure mode that
+matters is a false claim of success.
+
 **Why there is no silent auto-resync (partially superseded — see C3 below).**
 When bisync aborts (the `--max-delete` guard, or rclone's own "prior listings
 missing" guard), C2 deliberately does not retry with `--resync` on its own —

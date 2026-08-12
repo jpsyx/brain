@@ -1388,6 +1388,16 @@ existing friendly-named copies under the root (paths relative to the root) for
 `leftover_markers` counts any `__brainconflict__` files the rename pass failed
 to rewrite, which `verify::classify` surfaces as `NeedsAttention`.
 
+One consequence drives the resolve lane: the marker lands on both sides, but
+`rename_markers` only walks the **local** root, so the remote keeps the raw
+`<original>.<MARKER><N>` name — and because both patterns are excludes, no later
+sync can delete it or pull it down. `conflicts::marker_original` is the
+marker-side inverse of `parse_conflict_name` (recovering the original from a raw
+marker), and `conflicts::remote_losers_for_original(original, paths)` returns
+that original's losers among `paths` under *either* naming form — sorted, and
+never the original itself. That is the matcher the remote half of `brain sync
+resolve` runs against a remote listing.
+
 ## Conflict grouping + `conflicts --json` (C5, `src/sync/conflicts.rs`, `src/sync/command/mod.rs`)
 
 `parse_conflict_name` is the strict inverse of the friendly-name builder

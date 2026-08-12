@@ -64,7 +64,7 @@ pub fn run(args: &crate::cli::SyncArgs, command: &crate::workspace::CommandConte
         }
         Some(SyncAction::Resolve { originals }) => {
             crate::logging::log(format!("sync resolve originals={originals:?}"));
-            crate::sync::command::resolve(root, originals)
+            crate::sync::command::resolve(root, &cfg, originals)
         }
         None => {
             let direction = crate::sync::command::direction_from_flags(args.push, args.pull)?;

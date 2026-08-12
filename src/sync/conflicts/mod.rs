@@ -123,6 +123,39 @@ pub fn is_marker(path: &Path) -> bool {
         .is_some_and(|n| strip_marker(&n.to_string_lossy()).is_some())
 }
 
+/// Inverse of the marker suffix: from `<original>.<MARKER><N>` recover the
+/// canonical original path. Returns `None` when `path` carries no real marker.
+///
+/// The marker counterpart of [`parse_conflict_name`], which recovers the
+/// original from a *friendly* copy name. The remote keeps raw markers (only
+/// the local side is renamed), so the resolve lane needs both.
+#[must_use]
+pub fn marker_original(path: &Path) -> Option<PathBuf> {
+    let original_name = strip_marker(&path.file_name()?.to_string_lossy())?;
+    Some(join_dir(path.parent(), &original_name))
+}
+
+/// The loser copies of `original` among `paths`, matching **both** naming
+/// forms: rclone's raw `<original>.<MARKER><N>` markers and the friendly
+/// `stem (conflict <host> <date>).ext` copies.
+///
+/// Used against a remote listing, where losers keep the raw marker name
+/// because `rename_markers` only ever walks the local root. Never returns
+/// `original` itself. Sorted, so the delete order and output are deterministic.
+#[must_use]
+pub fn remote_losers_for_original(original: &Path, paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut losers: Vec<PathBuf> = paths
+        .iter()
+        .filter(|p| {
+            marker_original(p).as_deref() == Some(original)
+                || parse_conflict_name(p).is_some_and(|c| c.original == original)
+        })
+        .cloned()
+        .collect();
+    losers.sort();
+    losers
+}
+
 /// Given a marker file rclone produced (`<original>.<MARKER><N>`), compute the
 /// friendly path to rename it to. Returns `None` if the path doesn't carry a
 /// real marker suffix.

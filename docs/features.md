@@ -291,7 +291,7 @@ management and reporting commands stay outside the persistent shell.
 | *(any ordinary command)* | Before running, Brain makes the selected workspace usable: it **creates the root directory** when this machine has never had it (`env.json` rides between machines, so registering a workspace on one registers it on all), writes the portable manifest from the UUID the registry already holds, pulls from the configured sync, and seeds PARA + the task/habit CSVs + ID counters when there is nothing to pull. See [Workspace setup on first use](#workspace-setup-on-first-use). |
 | `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present, **followed by each workspace's required/optional feature health**. Add `-w <name>` to report health for that one workspace only. A workspace that still needs setup renders a one-line note naming its repair command instead of failing the listing. |
 | `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair\|migrate}` | Manage the schema-v2 registry, portable manifest, and coordinated legacy rollout. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. |
-| `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies. |
+| `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies, locally and on the remote. |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
@@ -826,6 +826,21 @@ the UUID lock and directs the user to resume `brain workspace migrate`.
   named original doesn't exist — merge into it first. Bare `brain sync
   resolve` (no arguments) drops into an interactive picker over the currently
   open conflict groups. Deletion only: it never runs a sync itself.
+  - **Both sides.** rclone writes the losing copy on the local root *and* the
+    remote, and both conflict-name patterns are sync excludes, so a normal
+    `brain sync` can neither remove the remote object nor bring it down.
+    `resolve` therefore also deletes that original's loser objects from the
+    remote (matching rclone's raw `<original>.__brainconflict__<N>` names,
+    which only the local side ever gets renamed away from), reporting them as
+    `(removed 1 copy, 1 remote object)`. It still never runs a sync, and never
+    touches anything but that original's losers. With no remote configured, or
+    no `rclone` installed, it quietly stays local-only. A remote it *cannot
+    reach* is reported as `could not check the remote` rather than passed off
+    as clean.
+  - Because the remote half is independent of the local half, resolving an
+    original whose local copy is already gone still collects the remote orphan
+    (`resolved X (no local copies, 1 remote object)`) — which is how a conflict
+    resolved by an older brain, or by another machine, gets cleaned up.
   - *Caveat:* a conflict copy is recognized purely by its
     `name (conflict <host> <YYYY-MM-DD>).ext` shape, so a genuine file you
     happened to name exactly that way is indistinguishable from a real
