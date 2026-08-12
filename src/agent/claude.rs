@@ -185,7 +185,7 @@ impl AgentFrontend for ClaudeFrontend {
             crate::agent::AgentAction::TypeText(text) => InputSequence::text(text),
             crate::agent::AgentAction::SubmitNow => InputSequence::bytes(b"\r"),
             crate::agent::AgentAction::FollowUpAfterActiveTurn(text) => {
-                InputSequence::text_with_suffix(text, b"\r")
+                InputSequence::text_then_key(text, b"\r")
             }
             crate::agent::AgentAction::StartNewSession => InputSequence::bytes(b"/new\r"),
         })

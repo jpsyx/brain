@@ -58,7 +58,7 @@ impl AgentTransport for ProcessTransport {
             .and_then(|child| child.stdin.as_mut())
             .ok_or_else(|| AgentError::Transport("OpenCode stdin is unavailable".to_owned()))?;
         stdin
-            .write_all(&input.into_bytes())
+            .write_all(&input.flattened())
             .and_then(|()| stdin.flush())
             .map_err(|error| AgentError::Transport(error.to_string()))
     }

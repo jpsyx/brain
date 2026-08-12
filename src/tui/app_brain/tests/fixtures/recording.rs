@@ -55,7 +55,7 @@ impl AgentFrontend for RecordingFrontend {
             }
             crate::agent::AgentAction::FollowUpAfterActiveTurn(text) => {
                 self.recording.record(ControllerEvent::QueueAfterActiveTurn);
-                InputSequence::text_with_suffix(text, b"\x1dqueue")
+                InputSequence::text_then_key(text, b"\x1dqueue")
             }
             crate::agent::AgentAction::StartNewSession => {
                 self.recording.record(ControllerEvent::StartNewSession);
@@ -94,7 +94,7 @@ impl AgentTransport for RecordingTransport {
     }
 
     fn send(&mut self, input: InputSequence) -> Result<(), AgentError> {
-        if input.into_bytes().ends_with(b"\x1dqueue") {
+        if input.flattened().ends_with(b"\x1dqueue") {
             self.recording.record(ControllerEvent::QueueDelivered);
         }
         Ok(())
@@ -193,7 +193,7 @@ impl AgentTransport for ObservedTransport {
             .lock()
             .expect("transport recording")
             .inputs
-            .push(input.into_bytes());
+            .push(input.flattened());
         Ok(())
     }
 

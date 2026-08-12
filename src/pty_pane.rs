@@ -28,7 +28,7 @@ use portable_pty::{
     ChildKiller, CommandBuilder, ExitStatus, MasterPty, NativePtySystem, PtySize, PtySystem,
 };
 
-use crate::agent::{AgentError, AgentTransport, InputSequence, LaunchSpec};
+use crate::agent::{AgentError, AgentTransport, InputSequence, InputWrite, LaunchSpec};
 
 /// Rows of scrollback the vt100 parser retains for the brain panel, so the
 /// user can mouse-wheel back through the agent's output. The panel has no
@@ -39,7 +39,7 @@ const SCROLLBACK_LEN: usize = 10_000;
 
 pub struct PtyPane {
     pub parser: Arc<RwLock<vt100::Parser>>,
-    writer_tx: Option<mpsc::Sender<Vec<u8>>>,
+    writer_tx: Option<mpsc::Sender<InputWrite>>,
     master: Option<Box<dyn MasterPty + Send>>,
     killer: Option<Box<dyn ChildKiller + Send + Sync>>,
     exit_status: Option<Arc<RwLock<Option<ExitStatus>>>>,
@@ -151,13 +151,18 @@ impl PtyPane {
             });
         }
 
-        // Writer: mpsc channel → PTY master.
-        let (writer_tx, writer_rx) = mpsc::channel::<Vec<u8>>();
+        // Writer: mpsc channel → PTY master. A write may ask to be held back
+        // until the child has had time to act on the one before it, so the
+        // wait happens here rather than on the UI thread that queued it.
+        let (writer_tx, writer_rx) = mpsc::channel::<InputWrite>();
         {
             let mut writer = pair.master.take_writer().context("take_writer failed")?;
             thread::spawn(move || {
-                while let Ok(bytes) = writer_rx.recv() {
-                    if writer.write_all(&bytes).is_err() {
+                while let Ok(write) = writer_rx.recv() {
+                    if !write.settle.is_zero() {
+                        thread::sleep(write.settle);
+                    }
+                    if writer.write_all(&write.bytes).is_err() {
                         break;
                     }
                     let _ = writer.flush();
@@ -206,7 +211,10 @@ impl PtyPane {
 
     pub fn send(&self, bytes: Vec<u8>) {
         if let Some(writer_tx) = self.writer_tx.as_ref() {
-            let _ = writer_tx.send(bytes);
+            let _ = writer_tx.send(InputWrite {
+                settle: std::time::Duration::ZERO,
+                bytes,
+            });
         }
     }
 
@@ -281,9 +289,12 @@ impl AgentTransport for PtyPane {
             .writer_tx
             .as_ref()
             .ok_or_else(|| AgentError::Transport("PTY child is not running".to_owned()))?;
-        writer_tx
-            .send(input.into_bytes())
-            .map_err(|_| AgentError::Transport("PTY input channel is closed".to_owned()))
+        for write in input.into_writes() {
+            writer_tx
+                .send(write)
+                .map_err(|_| AgentError::Transport("PTY input channel is closed".to_owned()))?;
+        }
+        Ok(())
     }
 
     fn snapshot(&self) -> String {

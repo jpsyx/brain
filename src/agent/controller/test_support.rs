@@ -85,7 +85,7 @@ impl AgentFrontend for RecordingFrontend {
                 InputSequence::bytes(b"\x1dsubmit")
             }
             AgentAction::FollowUpAfterActiveTurn(text) => {
-                InputSequence::text_with_suffix(text, QUEUE_MARKER)
+                InputSequence::text_then_key(text, QUEUE_MARKER)
             }
             AgentAction::StartNewSession => {
                 self.recording.record(Event::FrontendNewSession);
@@ -153,7 +153,7 @@ impl AgentTransport for RecordingTransport {
             return Ok(());
         }
 
-        let bytes = input.into_bytes();
+        let bytes = input.flattened();
         if let Some(text) = bytes.strip_suffix(QUEUE_MARKER) {
             let text = if text.is_empty() {
                 self.pending_text.take().unwrap_or_default()

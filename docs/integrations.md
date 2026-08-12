@@ -347,6 +347,17 @@ the composer unsubmitted forever. Control characters are stripped from the
 payload, so inbound message text cannot close the paste early and have the
 remainder execute as keystrokes.
 
+The paste and the submit key are **two separate writes**, and the key waits
+`PASTE_SETTLE` (400 ms, `src/agent/input.rs`) before it goes out. A frontend
+handles a paste and a keystroke on different paths — the paste is buffered and
+applied to the composer, the key is dispatched straight to the focused handler —
+so a key sharing the paste's write can be handled against a composer the paste
+has not reached yet, submitting nothing and leaving the prompt sitting there.
+`InputSequence` is therefore a list of `InputWrite`s (each with a `settle`
+delay) rather than one buffer, and `PtyPane`'s writer thread owns the wait so
+the event loop never blocks on it. Every frontend gets the same paced delivery;
+the adapter contract test asserts it for all of them.
+
 The TUI separately tracks whether a prompt has actually been submitted.
 Opening the panel is therefore not itself considered active work. This lets an
 inbound SMS or email replace an idle startup panel immediately, even if the
@@ -905,6 +916,15 @@ standard input rather than process arguments. Provider output is captured so it
 cannot corrupt the TUI. Outbound Twilio/Resend calls are serialized through a
 bounded background delivery worker, preserving reply order without blocking
 keyboard input or shell shutdown.
+
+Every outbound email carries both parts of the Resend payload: `text` is the
+agent's markdown verbatim, and `html` is that markdown rendered by
+`server/reply/html.rs` (`pulldown-cmark`) inside brain's styled card. Raw HTML
+in the answer is escaped to visible text rather than passed through, and link or
+image destinations outside `https:`/`http:`/`mailto:` are dropped — a reply
+quotes inbound message text, so both are attacker-influenced. Element styling
+rides in a `<style>` block; a client that drops it still renders a correct,
+structured document.
 
 ## System `open` and the editor
 

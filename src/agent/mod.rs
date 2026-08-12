@@ -25,7 +25,7 @@ pub use controller::{AgentController, AgentTransport};
 pub use default_frontend::resolved_frontend;
 pub use frontend::{LaunchRequest, LaunchSpec};
 pub use hooks::HookMetadata;
-pub use input::InputSequence;
+pub use input::{InputSequence, InputWrite};
 pub use session::{
     AgentKind, AgentSession, CompletionStatus, CompletionStrategy, SessionPlan, SessionScope,
     SessionStore,

@@ -155,7 +155,7 @@ impl AgentFrontend for CodexFrontend {
             crate::agent::AgentAction::TypeText(text) => InputSequence::text(text),
             crate::agent::AgentAction::SubmitNow => InputSequence::bytes(b"\r"),
             crate::agent::AgentAction::FollowUpAfterActiveTurn(text) => {
-                InputSequence::text_with_suffix(text, b"\t")
+                InputSequence::text_then_key(text, b"\t")
             }
             crate::agent::AgentAction::StartNewSession => InputSequence::bytes(b"/new\t"),
         })

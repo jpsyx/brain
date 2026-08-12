@@ -1,7 +1,9 @@
 //! Channel-specific final-response shaping.
 
+mod html;
 mod plain_text;
 
+pub use html::email_html;
 pub use plain_text::strip_markdown;
 use serde::Serialize;
 
@@ -47,25 +49,6 @@ pub fn email(text: &str) -> ReplyEnvelope {
         text: text.trim().to_owned(),
         long_form_available: false,
     }
-}
-
-#[must_use]
-pub fn email_html(text: &str) -> String {
-    let body = text
-        .trim()
-        .split("\n\n")
-        .map(|paragraph| format!("<p>{}</p>", escape_html(paragraph).replace('\n', "<br>")))
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!(
-        "<!doctype html><html><body style=\"margin:0;background:#f6f4ef;padding:32px;font-family:ui-sans-serif,system-ui,sans-serif;color:#252525\"><main style=\"max-width:680px;margin:auto;background:#fff;padding:32px;border-radius:16px;box-shadow:0 8px 30px #00000012\">{body}</main></body></html>"
-    )
-}
-
-fn escape_html(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }
 
 #[must_use]

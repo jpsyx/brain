@@ -156,10 +156,26 @@ fn every_frontend_satisfies_the_current_characterization_contract() {
             "{} submit",
             case.label
         );
+        let follow_up = frontend
+            .input_for(AgentAction::FollowUpAfterActiveTurn("follow"))
+            .expect("busy-turn follow-up");
         assert_eq!(
-            frontend.input_for(AgentAction::FollowUpAfterActiveTurn("follow")),
-            Ok(InputSequence::bytes(case.busy_turn_follow_up)),
+            follow_up.flattened(),
+            case.busy_turn_follow_up.to_vec(),
             "{} busy-turn follow-up",
+            case.label
+        );
+        // Every frontend loses the submit when it shares a write with the
+        // paste, so every frontend gets the same paced delivery.
+        assert_eq!(
+            follow_up.writes().len(),
+            2,
+            "{} must submit a follow-up in its own write",
+            case.label
+        );
+        assert!(
+            follow_up.writes()[1].settle > std::time::Duration::ZERO,
+            "{} must let the paste land before the submit key",
             case.label
         );
         assert_eq!(

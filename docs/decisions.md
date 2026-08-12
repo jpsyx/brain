@@ -3601,6 +3601,40 @@ block says `live state unavailable` instead of printing `Server not running`,
 because inventing a fact about a process nobody reached is worse than admitting
 the gap — the user would go looking for a stopped server that is running fine.
 
+## Email markdown is rendered by a parser we did not write
+
+SMS and email are opposite problems. A phone renders nothing, so markdown is
+stripped. An email client renders HTML, so markdown had to be *translated* —
+and until now it wasn't: the HTML part escaped the answer and wrapped each
+paragraph in a `<p>`, which means every reply arrived with its hashes,
+asterisks, and bracketed links intact, as visible punctuation. A structured
+answer — the case where email is chosen over SMS in the first place — read
+worst of all.
+
+The strip pass (`reply/plain_text/`) is deliberately *not* a parser: it is
+line-oriented, cannot fail, and is allowed to miss things, because on SMS a
+stray marker is a cosmetic loss. HTML has no such tolerance. Getting nesting,
+tables, fences, and entity escaping right is a CommonMark implementation, and
+writing one to send email is not this project's work, so `pulldown-cmark` does
+it. That asymmetry is the decision: the medium that tolerates being wrong gets
+our own code, the medium that does not gets a library.
+
+Two things the library correctly leaves to the caller are handled in
+`reply/html.rs`. `pulldown-cmark` passes raw HTML in the source straight
+through, which is right for a document you wrote and wrong for one that quotes
+an inbound SMS: those events become text, so markup is shown, not run. Link and
+image destinations are checked the same way and dropped unless they are
+`https:`, `http:`, or `mailto:` — a link is the one thing in an email a reader
+is invited to click.
+
+Element styling is a `<style>` block rather than inline `style` attributes.
+Inlining survives more mail clients, but reaching it means emitting every tag
+ourselves, which is the renderer we just declined to write. A `<style>` block
+is honored by Gmail, Apple Mail, and Outlook.com, and where it is ignored the
+reply degrades to a correct unstyled HTML document — still structured, still
+clickable. Losing the styling is an acceptable worst case; losing the structure
+is what we were fixing.
+
 ## SMS markdown is stripped in code, not merely asked for in the skill
 
 The bundled skill now tells the assistant to write SMS as plain text, and that
@@ -3776,6 +3810,37 @@ keystrokes — the payload is attacker-influenced, since it is someone else's SM
 The general rule this encodes: **injected content is data, and it must be
 delivered through a channel that cannot reinterpret it as control.** Typing is
 that channel's opposite.
+
+## The submit key needs its own write, after the paste has landed
+
+Pasting fixed the vim-mode corruption but not the whole bug. A prompt injected
+into a warm panel still went unsubmitted, now with the composer holding the
+text *correctly* and no turn behind it. Reproduced deterministically against a
+real Claude Code PTY: send `ESC[200~…ESC[201~\r` as one write to a panel whose
+previous turn just finished, and the text lands while the `\r` does nothing.
+The same bytes submit fine on a panel that has never run a turn, which is why
+the first message of a session always worked and a follow-up did not — the same
+asymmetry as the vim-mode bug, from a different cause.
+
+A terminal frontend handles the two on different paths. The paste is
+accumulated and applied to the composer as a state update; the keystroke is
+dispatched straight to the focused handler. When they arrive in one read, the
+key can be handled against a composer the paste has not been applied to yet, so
+`Enter` submits an empty composer (a no-op) and the text appears immediately
+afterward, stranded.
+
+So a follow-up is now **two writes**: the paste, then the key after a
+`PASTE_SETTLE` pause. Measured: sharing the write loses the submit every time,
+and a separate write 400 ms later always lands. That made `InputSequence` a
+list of `InputWrite`s rather than one byte buffer — pacing is part of what an
+input *is*, not something a call site should improvise — and the wait belongs
+to `PtyPane`'s existing writer thread, so the UI thread that queues a prompt
+never blocks. Every frontend pays the same 400 ms, on injected follow-ups only:
+nothing a human types is paced.
+
+The general rule: **when a frontend's input paths can reorder relative to each
+other, order in the byte stream is not order of effect.** Separate the writes
+that depend on each other and let the earlier one take effect first.
 
 ## A dispatched turn that never answers must not strand the queue behind it
 

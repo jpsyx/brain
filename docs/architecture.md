@@ -1499,6 +1499,14 @@ sibling so the two projects share a stack:
   watcher integration test. All decision logic remains in the pure,
   clock-injected `watch::Debouncer`, so we depend on neither
   `notify-debouncer-full` nor `notify-debouncer-mini`.
+- `pulldown-cmark` (`default-features = false`, `html`) — CommonMark parsing for
+  the email channel's HTML part (`src/server/reply/html.rs`). The agent answers
+  in markdown and a mail client renders HTML, so the two have to be bridged;
+  a correct CommonMark implementation is not something to hand-roll for an
+  email body. Default features are off to drop the crate's bundled CLI and
+  `getopts`. The *outbound SMS* direction stays on brain's own line-oriented
+  `reply/plain_text/` pass, which is intentionally not a parser — see
+  `docs/decisions.md`.
 
 `brain sync` also depends on **`rclone`**, but as an external command it
 shells out to (`src/sync/run.rs`), not a Cargo crate: brain builds the argv

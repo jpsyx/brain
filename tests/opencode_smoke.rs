@@ -329,7 +329,7 @@ impl AgentTransport for RecordingTransport {
             .inputs
             .lock()
             .expect("recorded inputs")
-            .push(input.into_bytes());
+            .push(input.flattened());
         Ok(())
     }
 
