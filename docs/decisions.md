@@ -3830,8 +3830,13 @@ key can be handled against a composer the paste has not been applied to yet, so
 afterward, stranded.
 
 So a follow-up is now **two writes**: the paste, then the key after a
-`PASTE_SETTLE` pause. Measured: sharing the write loses the submit every time,
-and a separate write 400 ms later always lands. That made `InputSequence` a
+`PASTE_SETTLE` pause. Measured on Claude: sharing the write loses the submit
+every time, and a separate write 400 ms later always lands. The same probe run
+against Codex and OpenCode did *not* reproduce the loss — both submitted either
+way — so this is a Claude flaw as of the builds tested. Every frontend is paced
+regardless: the cost is 400 ms on an injected follow-up, the alternative is a
+per-frontend exception that has to be re-verified on every upgrade, and the
+failure it prevents is a silently swallowed message. That made `InputSequence` a
 list of `InputWrite`s rather than one byte buffer — pacing is part of what an
 input *is*, not something a call site should improvise — and the wait belongs
 to `PtyPane`'s existing writer thread, so the UI thread that queues a prompt

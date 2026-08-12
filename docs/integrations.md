@@ -355,8 +355,9 @@ so a key sharing the paste's write can be handled against a composer the paste
 has not reached yet, submitting nothing and leaving the prompt sitting there.
 `InputSequence` is therefore a list of `InputWrite`s (each with a `settle`
 delay) rather than one buffer, and `PtyPane`'s writer thread owns the wait so
-the event loop never blocks on it. Every frontend gets the same paced delivery;
-the adapter contract test asserts it for all of them.
+the event loop never blocks on it. The loss was measured on Claude; Codex and
+OpenCode submitted either way. Every frontend is paced regardless, and the
+adapter contract test asserts it for all of them.
 
 The TUI separately tracks whether a prompt has actually been submitted.
 Opening the panel is therefore not itself considered active work. This lets an

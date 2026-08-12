@@ -165,8 +165,11 @@ fn every_frontend_satisfies_the_current_characterization_contract() {
             "{} busy-turn follow-up",
             case.label
         );
-        // Every frontend loses the submit when it shares a write with the
-        // paste, so every frontend gets the same paced delivery.
+        // Only Claude was measured losing the submit when the key shares the
+        // paste's write; Codex and OpenCode submitted either way. Every
+        // frontend is paced anyway — the pacing costs one injected follow-up
+        // 400ms, and which frontends have the flaw is a fact about their
+        // current builds, not something to re-derive after each upgrade.
         assert_eq!(
             follow_up.writes().len(),
             2,
