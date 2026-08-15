@@ -90,3 +90,6 @@ ambiguous.
 - 2026-08-13 created from a proposal to replace the five-minute inactivity
   drain with regular transcript-aware submission and progress polling, followed
   by session restart when recovery is necessary.
+- 2026-08-15 likely superseded by BR-12, which removes injection into the live
+  panel entirely in favor of a server queue plus fresh per-message sessions.
+  Reconcile (close, narrow, or fold in) before starting either.
