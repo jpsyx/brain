@@ -38,6 +38,26 @@ const CLAUDE_STOP_SCRIPT: &str = concat!(
     "    run_name=\"__main__\",\n",
     ")\n",
 );
+const SESSION_START_SHIM: &str = concat!(
+    "#!/usr/bin/env python3\n",
+    "\"\"\"Forward a hook cached by a frontend that predates Brain 0.71.\"\"\"\n\n",
+    "from pathlib import Path\n",
+    "import runpy\n\n\n",
+    "runpy.run_path(\n",
+    "    str(Path(__file__).parents[2] / \".brain/hooks/agent_session_start_hook.py\"),\n",
+    "    run_name=\"__main__\",\n",
+    ")\n",
+);
+const SESSION_STOP_SHIM: &str = concat!(
+    "#!/usr/bin/env python3\n",
+    "\"\"\"Forward a hook cached by a frontend that predates Brain 0.71.\"\"\"\n\n",
+    "from pathlib import Path\n",
+    "import runpy\n\n\n",
+    "runpy.run_path(\n",
+    "    str(Path(__file__).parents[2] / \".brain/hooks/agent_session_stop_hook.py\"),\n",
+    "    run_name=\"__main__\",\n",
+    ")\n",
+);
 const OPENCODE_PLUGIN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/scripts/opencode_brain_plugin.js"
@@ -145,9 +165,9 @@ fn remove_global_opencode_plugins(home: &Path) -> Result<()> {
 
 fn install_workspace_hooks() -> Result<()> {
     for root in workspace_roots() {
-        remove_superseded_workspace_scripts(&root)?;
         crate::command::server::refresh_agent_hooks(&root)
             .with_context(|| format!("install workspace hooks in {}", root.display()))?;
+        install_active_session_shims(&root)?;
     }
     Ok(())
 }
@@ -164,7 +184,11 @@ fn workspace_roots() -> Vec<PathBuf> {
         }
         Err(_) => {
             let legacy_root = crate::paths::brain_root_path();
-            return legacy_root.is_dir().then_some(legacy_root).into_iter().collect();
+            return legacy_root
+                .is_dir()
+                .then_some(legacy_root)
+                .into_iter()
+                .collect();
         }
     };
     registry
@@ -175,36 +199,28 @@ fn workspace_roots() -> Vec<PathBuf> {
         .collect()
 }
 
-fn remove_superseded_workspace_scripts(root: &Path) -> Result<()> {
-    let directory = root.join(".claude/brain-hooks");
-    for name in [
-        "claude_session_start_hook.py",
-        "claude_stop_hook.py",
-        "agent_session_start_hook.py",
-        "agent_turn_complete_hook.py",
+fn install_active_session_shims(root: &Path) -> Result<()> {
+    for (relative, contents) in [
+        (
+            ".claude/brain-hooks/claude_session_start_hook.py",
+            SESSION_START_SHIM,
+        ),
+        (
+            ".claude/brain-hooks/agent_session_start_hook.py",
+            SESSION_START_SHIM,
+        ),
+        (".claude/brain-hooks/claude_stop_hook.py", SESSION_STOP_SHIM),
+        (
+            ".claude/brain-hooks/agent_turn_complete_hook.py",
+            SESSION_STOP_SHIM,
+        ),
     ] {
-        let path = directory.join(name);
-        match std::fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("remove superseded hook {}", path.display()));
-            }
-        }
-    }
-    match std::fs::remove_dir(&directory) {
-        Ok(()) => {}
-        Err(error)
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
-            ) => {}
-        Err(error) => {
-            return Err(error).with_context(|| {
-                format!("remove superseded hook directory {}", directory.display())
-            });
-        }
+        crate::command::server::write_agent_workspace_artifact(
+            root,
+            Path::new(relative),
+            contents,
+            0o755,
+        )?;
     }
     Ok(())
 }

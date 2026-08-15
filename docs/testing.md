@@ -133,11 +133,12 @@ first move is a failing test that reproduces it, *then* the fix.
   `tests/startup_migration.rs` runs the compiled binary to prove an ordinary
   command removes only Brain-owned global lifecycle entries across Claude,
   Codex, and OpenCode; installs all three workspace integrations into every
-  existing configured root; removes superseded scripts; self-heals a deleted
-  managed hook; leaves help and version byte-idle; and restores the previous
-  lifecycle layout through the down migration. `tests/install_script.rs` drives
-  the real installer around fake versioned binaries to pin upgrade-after-replace
-  and downgrade-before-replace ordering.
+  existing configured root; proves every legacy workspace hook path forwards
+  to the new start or stop hook for already-running frontends; self-heals a
+  deleted managed hook; leaves help and version byte-idle; and restores the
+  previous lifecycle layout through the down migration.
+  `tests/install_script.rs` drives the real installer around fake versioned
+  binaries to pin upgrade-after-replace and downgrade-before-replace ordering.
   `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
   completion contract for a Codex-style `thread_id` payload. It also pauses a
   real session-stop bridge after payload parsing, rotates the same live Claude lineage

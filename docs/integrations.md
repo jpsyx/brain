@@ -826,6 +826,11 @@ legacy commands by script basename while preserving unrelated settings. Every
 ordinary Brain startup does the same automatically for every existing configured
 workspace before command dispatch; `brain receiver setup` also refreshes every
 registered frontend. Help and version are the only public no-write exceptions.
+The 0.71 lifecycle migration removes global registrations immediately, but
+retains workspace-local forwarding shims for the legacy script paths that an
+already-running frontend may have cached in memory. Those shims execute the new
+generic workspace hook and are not referenced by current Claude, Codex, or
+OpenCode configuration.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root

@@ -4116,3 +4116,11 @@ succeed. The main installer compares binary versions: the
 new binary migrates an upgrade after replacement, while the still-installed
 newer binary migrates a downgrade before replacement. This keeps the user out of
 the migration protocol in both directions.
+
+Removing a registration does not update an agent process that already read it.
+The 0.71 migration therefore removes the global registrations immediately but
+replaces the legacy workspace script paths with forwarding shims. A frontend
+started before the upgrade can finish its session through the new generic
+workspace hook instead of failing on a deleted file. No current frontend
+setting points at these compatibility paths, and a later migration may remove
+them once the compatibility window is no longer needed.

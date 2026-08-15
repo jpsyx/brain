@@ -229,7 +229,10 @@ Each migration supplies `up` and `down`; `version.rs` provides the three-part
 semantic comparison, and a focused module such as `lifecycle.rs` owns the
 actual cleanup, transformation, and target-state reconciliation. Ordinary
 commands run toward the compiled version and then reconcile its migrations so
-missing managed files self-heal. The version stamp lives at
+missing managed files self-heal. The lifecycle migration also retains inert
+workspace-local forwarding shims for hook commands cached by agent processes
+that started before the migration; no current frontend setting registers those
+legacy paths. The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
 

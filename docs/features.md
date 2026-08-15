@@ -577,7 +577,10 @@ before workspace bootstrap. On upgrade Brain removes superseded global
 lifecycle hooks and installs or repairs the workspace-local Claude, Codex, and
 OpenCode lifecycle artifacts in every existing configured workspace. Matching
 versions reconcile the same target state, so a deleted managed hook comes back
-on the next command. The version stamp is best-effort during ordinary startup:
+on the next command. Workspace-local compatibility shims keep hook commands
+cached by already-running agent processes forwarding to the new generic hooks;
+current frontend settings never register those legacy paths. The version stamp
+is best-effort during ordinary startup:
 if its directory is read-only, idempotent reconciliation repeats next time and
 the requested command retains its own diagnostics. `install.sh` detects an existing binary and performs the
 same forward transition during upgrade or the registered reverse transition

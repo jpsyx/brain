@@ -184,7 +184,7 @@ fn ordinary_startup_removes_global_hooks_and_installs_every_workspace_frontend()
 }
 
 #[test]
-fn ordinary_startup_removes_superseded_workspace_hook_scripts() {
+fn ordinary_startup_replaces_superseded_workspace_hooks_with_live_session_shims() {
     let fixture = Fixture::new();
     for root in [&fixture.family, &fixture.work] {
         let old_directory = root.join(".claude/brain-hooks");
@@ -208,15 +208,30 @@ fn ordinary_startup_removes_superseded_workspace_hook_scripts() {
         String::from_utf8_lossy(&output.stderr)
     );
     for root in [&fixture.family, &fixture.work] {
-        for name in [
-            "claude_session_start_hook.py",
-            "claude_stop_hook.py",
-            "agent_session_start_hook.py",
-            "agent_turn_complete_hook.py",
+        std::fs::write(
+            root.join(".brain/hooks/agent_session_start_hook.py"),
+            "raise SystemExit(19)\n",
+        )
+        .expect("replace session-start target");
+        std::fs::write(
+            root.join(".brain/hooks/agent_session_stop_hook.py"),
+            "raise SystemExit(23)\n",
+        )
+        .expect("replace session-stop target");
+        for (name, expected_status) in [
+            ("claude_session_start_hook.py", 19),
+            ("agent_session_start_hook.py", 19),
+            ("claude_stop_hook.py", 23),
+            ("agent_turn_complete_hook.py", 23),
         ] {
+            let shim = root.join(".claude/brain-hooks").join(name);
+            let status = Command::new("python3")
+                .arg(&shim)
+                .status()
+                .expect("run compatibility shim");
             assert!(
-                !root.join(".claude/brain-hooks").join(name).exists(),
-                "superseded {name} survived in {}",
+                status.code() == Some(expected_status),
+                "{shim:?} did not forward to the workspace hook in {}",
                 root.display()
             );
         }
@@ -236,7 +251,7 @@ fn explicit_down_migration_restores_the_previous_frontend_lifecycle() {
     let down = fixture.run(&[
         "__migrate",
         "--from-version",
-        "0.71.0",
+        env!("CARGO_PKG_VERSION"),
         "--to-version",
         "0.70.0",
     ]);
