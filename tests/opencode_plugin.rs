@@ -50,7 +50,7 @@ fn copy_hook(root: &Path, name: &str) {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("scripts")
         .join(name);
-    let destination = root.join(".claude/brain-hooks").join(name);
+    let destination = root.join(".brain/hooks").join(name);
     std::fs::create_dir_all(destination.parent().expect("hook parent")).unwrap();
     std::fs::copy(source, destination).unwrap();
 }
@@ -100,7 +100,7 @@ fn repeated_idle_events_leave_one_response_artifact_through_the_real_bridge() {
     let state_db = temporary.path().join("state.db");
     let response_dir = temporary.path().join("responses");
     copy_hook(&root, "agent_session_start_hook.py");
-    copy_hook(&root, "agent_turn_complete_hook.py");
+    copy_hook(&root, "agent_session_stop_hook.py");
     drop(brain::state::Db::open_path(&state_db).unwrap());
     register_pending_session(&state_db);
 

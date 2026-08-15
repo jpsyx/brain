@@ -60,7 +60,7 @@ const runHook = async (hook, payload) => {
 const hookPath = (name) => {
   const root = process.env.BRAIN_ROOT;
   if (!root) return undefined;
-  return `${root}/.claude/brain-hooks/${name}`;
+  return `${root}/.brain/hooks/${name}`;
 };
 
 const completedAssistantText = (messages) => {
@@ -146,7 +146,7 @@ const handleIdle = async (client, directory, sessionID) => {
   }
   const message = completedAssistantText(messages);
   if (!message) return;
-  await invokeHook(client, "turn_complete_bridge", hookPath("agent_turn_complete_hook.py"), {
+  await invokeHook(client, "session_stop_bridge", hookPath("agent_session_stop_hook.py"), {
     session_id: sessionID,
     last_assistant_message: message,
   });

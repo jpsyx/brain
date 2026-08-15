@@ -70,7 +70,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+S`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
 | A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu/model.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
 | How the brain panel launches Claude, Codex, or OpenCode (`claude_cmd`, `codex_cmd`, `opencode_cmd`, frontend selectors), or the file-open / Finder path | `docs/integrations.md` (controller/adapters in `src/agent/`; compatibility builders in `src/session.rs`; agent commands in `src/env/`; openers in `src/open_target.rs`) |
-| The session-start/turn-complete bridges, frontend registry, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{agent_session_start_hook,agent_turn_complete_hook}.py`, `scripts/opencode_brain_plugin.js`, `src/agent/registry.rs`, `src/agent/registry/contract.rs`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
+| The session-start/session-stop bridges, frontend registry, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{agent_session_start_hook,agent_session_stop_hook}.py`, `scripts/opencode_brain_plugin.js`, `src/agent/registry.rs`, `src/agent/registry/contract.rs`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
 | Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, `default_agent_frontend`, the `sync` block's fields, or **root resolution** (`root` is structural workspace-registry data in `~/.config/brain/env.json`, never writable free-form env; the legacy `~/.config/brain-root` pointer is read-only migration input) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; legacy compatibility in `src/paths.rs`; selected roots in `src/workspace/`; the `sync` block schema in `src/sync/config.rs`) |
 | `brain sync` itself (the `sync`/`--push`/`--pull`/`setup`/`repair`/`status`/`conflicts` surface), the rclone bisync transport, keep-both conflict naming, the `--max-delete` guard, or the sync journal | `docs/features.md` + `docs/integrations.md` + `docs/architecture.md` + `docs/data-model.md` (pipeline in `src/sync/`: `config`, `remote`, `args`, `run`, `conflicts`, `verify`, `journal`, `setup`, `command`; dispatched before the gate in `src/main.rs`) |
@@ -107,6 +107,21 @@ function** (the picker's matching, menu `handle_key`, `is_textlike`,
 config parsing, `session::build_llm_command`) and test that, rather than
 mocking the terminal or the filesystem. See
 [docs/testing.md](docs/testing.md) for the full strategy and layout.
+
+## Automatic migrations
+
+Users never run migrations themselves. Every `brain` invocation except help or
+version runs all applicable machine migrations before ordinary dispatch. A
+migration must clean up the superseded state, transform existing state, and
+create any missing state needed by the target version. The current migration
+is also reconciled on later invocations so deleted or stale managed artifacts
+self-heal.
+
+Every migration added from now on must provide both `up` and `down` operations.
+Keep migrations small and modular under `src/startup_migration/`. `install.sh`
+must detect an existing Brain version and invoke the new binary for an upgrade
+or the existing binary for a downgrade before replacement. Help and version
+must remain side-effect free.
 
 ## Build, run, test
 
@@ -300,7 +315,7 @@ users in `skills/`.)
   implement and test equivalent lifecycle, prompt, completion, and delivery
   behavior for every registered frontend. If one exposes a different
   integration surface
-  (for example, Claude settings versus Codex `~/.codex/hooks.json`), bridge the
+  (for example, Claude settings versus Codex workspace `.codex/hooks.json`), bridge the
   difference inside Brain. Keep every frontend behind the same controller
   facade; never route around the controller to make one call site appear
   supported.

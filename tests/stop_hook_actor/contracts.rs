@@ -22,7 +22,7 @@ fn normalized_completion_contract_preserves_exact_identity_for_every_frontend() 
         let response_id = format!("{agent_kind}-response");
         let output = run_hook(
             attributed_hook_command(
-                "agent_turn_complete_hook.py",
+                "agent_session_stop_hook.py",
                 &state_db,
                 &response_dir,
                 agent_kind,
@@ -59,7 +59,7 @@ fn thread_id_is_a_codex_only_compatibility_input() {
             fresh_lifecycle(agent_kind, &session_id);
         let output = run_hook(
             attributed_hook_command(
-                "agent_turn_complete_hook.py",
+                "agent_session_stop_hook.py",
                 &state_db,
                 &response_dir,
                 agent_kind,
@@ -91,7 +91,7 @@ fn transcript_fallback_is_claude_only() {
         .unwrap();
         let output = run_hook(
             attributed_hook_command(
-                "agent_turn_complete_hook.py",
+                "agent_session_stop_hook.py",
                 &state_db,
                 &response_dir,
                 agent_kind,
@@ -117,7 +117,7 @@ fn duplicate_and_mismatched_completion_events_are_noops() {
     let complete = || {
         run_hook(
             attributed_hook_command(
-                "agent_turn_complete_hook.py",
+                "agent_session_stop_hook.py",
                 &state_db,
                 &response_dir,
                 "opencode",
@@ -144,7 +144,7 @@ fn duplicate_and_mismatched_completion_events_are_noops() {
         }
         let output = run_hook(
             attributed_hook_command(
-                "agent_turn_complete_hook.py",
+                "agent_session_stop_hook.py",
                 &state_db,
                 &response_dir,
                 agent_kind,
@@ -172,7 +172,7 @@ fn wrong_workspace_actor_and_channel_cannot_complete_a_registered_lineage() {
         let (_temporary, state_db, response_dir, instance) =
             fresh_lifecycle("opencode", session_id);
         let mut command = attributed_hook_command(
-            "agent_turn_complete_hook.py",
+            "agent_session_stop_hook.py",
             &state_db,
             &response_dir,
             "opencode",
@@ -203,7 +203,7 @@ fn child_completion_payload_is_a_noop_for_every_frontend() {
             fresh_lifecycle(agent_kind, &session_id);
         let output = run_hook(
             attributed_hook_command(
-                "agent_turn_complete_hook.py",
+                "agent_session_stop_hook.py",
                 &state_db,
                 &response_dir,
                 agent_kind,
@@ -250,7 +250,7 @@ fn sqlite_commit_failure_restores_exact_prior_artifact_and_active_status() {
 
     let output = run_hook(
         attributed_hook_command(
-            "agent_turn_complete_hook.py",
+            "agent_session_stop_hook.py",
             &state_db,
             &response_dir,
             "opencode",

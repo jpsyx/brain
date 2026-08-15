@@ -1,4 +1,3 @@
-
 #[test]
 fn merge_is_idempotent_and_preserves_other_settings() {
     let mut settings = json!({"permissions": {"allow": ["Read"]}});
@@ -84,8 +83,11 @@ fn merge_removes_legacy_and_generic_brain_hooks_but_preserves_unrelated_hooks() 
     replace_entry(
         &mut settings,
         "SessionStart",
-        &["claude_session_start_hook.py", "agent_session_start_hook.py"],
-        r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py""#,
+        &[
+            "claude_session_start_hook.py",
+            "agent_session_start_hook.py",
+        ],
+        r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
     );
 
     let commands = settings["hooks"]["SessionStart"]
@@ -99,7 +101,7 @@ fn merge_removes_legacy_and_generic_brain_hooks_but_preserves_unrelated_hooks() 
         commands,
         vec![
             "python3 /keep/unrelated.py",
-            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py""#,
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
         ]
     );
 }
@@ -134,12 +136,10 @@ fn atomic_hook_replacement_preserves_an_existing_symlink() {
     })
     .unwrap();
 
-    assert!(
-        std::fs::symlink_metadata(&link)
-            .unwrap()
-            .file_type()
-            .is_symlink()
-    );
+    assert!(std::fs::symlink_metadata(&link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
     let updated: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&target).unwrap()).unwrap();
     assert_eq!(updated["before"], true);
@@ -181,12 +181,10 @@ fn workspace_static_artifact_preserves_an_in_workspace_symlink_idempotently() {
 
     assert!(installed.contains("session.created"));
     assert_eq!(std::fs::read_to_string(&target).unwrap(), installed);
-    assert!(
-        std::fs::symlink_metadata(plugin)
-            .unwrap()
-            .file_type()
-            .is_symlink()
-    );
+    assert!(std::fs::symlink_metadata(plugin)
+        .unwrap()
+        .file_type()
+        .is_symlink());
 }
 
 #[test]
@@ -204,12 +202,10 @@ fn workspace_static_artifact_rejects_a_leaf_symlink_outside_the_workspace() {
 
     assert!(result.is_err());
     assert_eq!(std::fs::read_to_string(&outside).unwrap(), "outside\n");
-    assert!(
-        std::fs::symlink_metadata(plugin)
-            .unwrap()
-            .file_type()
-            .is_symlink()
-    );
+    assert!(std::fs::symlink_metadata(plugin)
+        .unwrap()
+        .file_type()
+        .is_symlink());
 }
 
 #[test]
@@ -231,10 +227,8 @@ fn workspace_static_artifact_rejects_a_parent_symlink_outside_the_workspace() {
         std::fs::read_to_string(outside.join("brain.js")).unwrap(),
         "outside\n"
     );
-    assert!(
-        std::fs::symlink_metadata(plugins)
-            .unwrap()
-            .file_type()
-            .is_symlink()
-    );
+    assert!(std::fs::symlink_metadata(plugins)
+        .unwrap()
+        .file_type()
+        .is_symlink());
 }

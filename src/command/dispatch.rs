@@ -176,6 +176,9 @@ pub fn run(
             )
         }
         Some(Cmd::Version) => unreachable!("version exits before bootstrap"),
+        Some(Cmd::InternalMigration(_)) => {
+            unreachable!("internal migration exits before bootstrap")
+        }
         Some(
             Cmd::Config(_)
             | Cmd::Env(_)

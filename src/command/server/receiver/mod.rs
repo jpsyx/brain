@@ -15,10 +15,12 @@ pub(crate) use enablement::{
 };
 use enablement::{print_receiver_change, print_receiver_status};
 
-/// Refresh the bundled lifecycle hooks before an agent-capable TUI starts.
+/// Reconcile the bundled lifecycle hooks for one configured workspace.
 pub(crate) fn refresh_agent_hooks(root: &std::path::Path) -> Result<()> {
     hooks::install(root)
 }
+
+pub(crate) use hooks::{update_json_file, write_workspace_artifact};
 
 pub fn run_receiver(
     args: &crate::cli::ReceiverArgs,

@@ -280,7 +280,11 @@ fn installed_codex_parser_accepts_the_generated_per_invocation_overrides() {
     let parser_command = format!(
         "{} -- 'capability parser probe' >/dev/null",
         spec.command
-            .replacen("codex", "codex debug prompt-input", 1)
+            .replacen(
+                "codex --dangerously-bypass-hook-trust",
+                "codex debug prompt-input",
+                1,
+            )
     );
 
     let output = Command::new("/bin/sh")

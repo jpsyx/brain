@@ -21,7 +21,14 @@ const PROJECTS_HEADER: &str = "name,namespace,title,status,priority,due,director
 const RESOURCES_HEADER: &str = "zotero_key,title,authors,year,item_type,collection,directory,has_pdf,has_html,has_summary,has_other_notes,annotation_count,tags\n";
 
 const PARA_DIRECTORIES: [&str; 5] = ["projects", "areas", "resources", "archive", "tasks"];
-const INFRASTRUCTURE_DIRECTORIES: [&str; 5] = [".config", ".claude", ".codex", ".opencode", ".git"];
+const INFRASTRUCTURE_DIRECTORIES: [&str; 6] = [
+    ".brain",
+    ".config",
+    ".claude",
+    ".codex",
+    ".opencode",
+    ".git",
+];
 
 /// What a registered workspace root needs before a command can use it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -550,6 +557,12 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir(root.path().join(".config")).unwrap();
         std::fs::create_dir(root.path().join(".claude")).unwrap();
+        std::fs::create_dir_all(root.path().join(".brain/hooks")).unwrap();
+        std::fs::write(
+            root.path().join(".brain/hooks/agent_session_start_hook.py"),
+            "# managed lifecycle hook\n",
+        )
+        .unwrap();
         std::fs::create_dir(root.path().join("tasks")).unwrap();
         assert!(is_empty_workspace_inner(root.path()).unwrap());
     }

@@ -74,6 +74,23 @@ fn seed_ready_workspace(home: &Path) {
         .expect("registry JSON"),
     )
     .expect("machine registry");
+    seed_current_migration(home);
+}
+
+fn seed_current_migration(home: &Path) {
+    let output = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .args([
+            "__migrate",
+            "--from-version",
+            env!("CARGO_PKG_VERSION"),
+            "--to-version",
+            env!("CARGO_PKG_VERSION"),
+        ])
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .output()
+        .expect("run current migration");
+    assert!(output.status.success(), "{output:?}");
 }
 
 fn publish_live_process_record(home: &Path, generation: &str) {

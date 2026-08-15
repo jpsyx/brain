@@ -6,6 +6,7 @@
 
 mod configuration;
 mod global;
+mod internal;
 mod server;
 mod sync;
 mod tasks;
@@ -14,6 +15,7 @@ mod workspace;
 
 pub use configuration::*;
 pub use global::{AgentSelectionError, Cli};
+pub use internal::InternalMigrationArgs;
 pub use server::*;
 pub use sync::*;
 pub use tasks::*;
@@ -44,6 +46,10 @@ pub fn version_line() -> String {
 
 #[derive(Subcommand, Debug)]
 pub enum Cmd {
+    /// Run an installer-owned version transition.
+    #[command(name = "__migrate", hide = true)]
+    InternalMigration(InternalMigrationArgs),
+
     /// Open the merged shell in the tasks view, or run a tasks utility.
     ///
     /// All arguments after `tasks` are delegated verbatim to the tasks CLI

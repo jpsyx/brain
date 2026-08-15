@@ -16,19 +16,17 @@
 #
 # Both bridges:
 #   - SessionStart: records which frontend session the brain panel drives (resume).
-#   - Turn complete: captures the final assistant message for authenticated receiver jobs
+#   - Session stop: captures the final assistant message for authenticated receiver jobs
 #     (no-op unless $BRAIN_RESPONSE_DIR is set).
 #
-# Safe to re-run. Bails (non-zero) if jq is missing — we lean on jq to merge so
+# Safe to re-run. Bails (non-zero) if jq is missing; we lean on jq to merge so
 # we don't corrupt the user's settings.
 
 set -euo pipefail
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repo_session="${script_dir}/agent_session_start_hook.py"
-repo_stop="${script_dir}/agent_turn_complete_hook.py"
-repo_legacy_session="${script_dir}/claude_session_start_hook.py"
-repo_legacy_stop="${script_dir}/claude_stop_hook.py"
+repo_stop="${script_dir}/agent_session_stop_hook.py"
 repo_opencode_plugin="${script_dir}/opencode_brain_plugin.js"
 
 if [[ $# -gt 1 ]]; then
@@ -45,19 +43,19 @@ case "$selected_root" in
   "~/"*) selected_root="${HOME}/${selected_root#\~/}" ;;
 esac
 
-hook_dir="${selected_root}/.claude/brain-hooks"
+hook_dir="${selected_root}/.brain/hooks"
 settings_dir="${selected_root}/.claude"
 settings_path="${settings_dir}/settings.json"
-codex_settings_dir="${HOME}/.codex"
+codex_settings_dir="${selected_root}/.codex"
 codex_settings_path="${codex_settings_dir}/hooks.json"
 
 # Anchored to Claude's own project root: hooks run in the session's current
 # working directory, which the agent's `cd` moves, so a relative path breaks.
 # Naming no absolute root keeps the synced settings file machine-portable.
-sess_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py"'
-stop_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py"'
-codex_sess_cmd='python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py"'
-codex_stop_cmd='python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py"'
+sess_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py"'
+stop_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py"'
+codex_sess_cmd='python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py"'
+codex_stop_cmd='python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py"'
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "install_hook.sh: jq is required (brew install jq)" >&2
@@ -67,7 +65,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo "install_hook.sh: python3 is required" >&2
   exit 1
 fi
-for f in "$repo_session" "$repo_stop" "$repo_legacy_session" "$repo_legacy_stop" "$repo_opencode_plugin"; do
+for f in "$repo_session" "$repo_stop" "$repo_opencode_plugin"; do
   [[ -f "$f" ]] || { echo "install_hook.sh: hook script missing at $f" >&2; exit 1; }
 done
 
@@ -125,9 +123,7 @@ PY
 # Deploy the scripts under the synced brain dir without following a workspace
 # artifact symlink outside the selected root.
 install_static_file "$repo_session" "$hook_dir/agent_session_start_hook.py" 0755
-install_static_file "$repo_stop" "$hook_dir/agent_turn_complete_hook.py" 0755
-install_static_file "$repo_legacy_session" "$hook_dir/claude_session_start_hook.py" 0755
-install_static_file "$repo_legacy_stop" "$hook_dir/claude_stop_hook.py" 0755
+install_static_file "$repo_stop" "$hook_dir/agent_session_stop_hook.py" 0755
 
 opencode_plugin_dir="${selected_root}/.opencode/plugins"
 install_static_file "$repo_opencode_plugin" "$opencode_plugin_dir/brain.js" 0644
@@ -151,7 +147,7 @@ install_hook_settings() {
     .hooks //= {}
     | .hooks.SessionStart = ((.hooks.SessionStart // []) | strip(["claude_session_start_hook.py", "agent_session_start_hook.py"]))
         + [{"hooks": [{"type": "command", "command": $sess}]}]
-    | .hooks.Stop = ((.hooks.Stop // []) | strip(["claude_stop_hook.py", "agent_turn_complete_hook.py"]))
+    | .hooks.Stop = ((.hooks.Stop // []) | strip(["claude_stop_hook.py", "agent_turn_complete_hook.py", "agent_session_stop_hook.py"]))
         + [{"hooks": [{"type": "command", "command": $stop}]}]
   ' "$target_path" > "$tmp"
   mv "$tmp" "$target_path"

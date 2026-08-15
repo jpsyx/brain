@@ -518,7 +518,7 @@ resumes its last conversation; a second can't grab the one the first holds,
 so it takes the next-free session or a fresh one. Crashes don't strand a
 session — dead-PID locks are reaped (`kill -0`) on the next startup.
 
-## Why session-start and turn-complete bridges have distinct jobs
+## Why session-start and session-stop bridges have distinct jobs
 
 brain can choose a session id up front (`--session-id`), but if the user
 types `/new` (or `/clear`) mid-run, a frontend may rotate to an id Brain never
@@ -528,7 +528,7 @@ A **session-start bridge** runs for every supported frontend start event with th
 so brain always learns the current id and returns the exact scoped row to
 `active`.
 
-The **turn-complete bridge** has a separate, per-turn responsibility. It writes the
+The **session-stop bridge** has a separate, per-turn responsibility. It writes the
 authenticated completion artifact and marks that same scoped row `completed`,
 which lets queued receiver work advance. It does not end the persistent
 conversation or make the PTY disposable. The next successful local or queued
@@ -559,7 +559,7 @@ session release commit together.
 ## Why the completion bridge reads a Claude transcript when needed
 
 The final response the user receives over SMS/email exists only if the
-turn-complete bridge writes the response artifact, and there is no independent backstop
+session-stop bridge writes the response artifact, and there is no independent backstop
 for a still-alive panel: `App::close_brain`'s PTY-scrape fallback runs only
 after the agent process exits, which never happens for brain's persistent
 Claude session. So the hook is the single trigger, and it must not depend on a
@@ -644,10 +644,11 @@ slot it attempted.
 
 Lifecycle refresh follows workspace singleton acquisition, so a rejected second TUI
 cannot alter the lifecycle contract of the live process. Different-workspace
-TUIs remain concurrent, so their shared `~/.codex/hooks.json` updates use a
-machine-wide SQLite transaction lock plus same-directory atomic replacement.
-The lock prevents lost read-modify-write updates; the rename prevents readers
-from observing partial JSON and preserves the old bytes on failure.
+TUIs remain concurrent, and each now updates only its own workspace-local
+`.codex/hooks.json`. The adjacent lock and same-directory atomic replacement
+still protect two processes targeting the same workspace. The lock prevents
+lost read-modify-write updates; the rename prevents readers from observing
+partial JSON and preserves the old bytes on failure.
 
 ## Why OpenCode support is feature-probed and isolated
 
@@ -2342,7 +2343,7 @@ slow Twilio or Resend request from freezing keyboard input or delaying
 
 An open agent PTY is not proof that work is active: brain opens an idle panel
 before the startup daily-triage modal. The receiver therefore tracks submitted
-turns separately and lets the turn-complete bridge clear that state. Queued receiver work
+turns separately and lets the session-stop bridge clear that state. Queued receiver work
 can replace an idle panel immediately, but never interrupts a submitted local
 turn. A receiver launch is committed only after PTY creation succeeds; failure
 keeps the message queued and applies a retry backoff.
@@ -3318,8 +3319,8 @@ The guard needs three judgment calls encoded rather than guessed:
 
 ## Brain was pushing its own hook scripts to the cloud on every launch
 
-Every TUI startup reinstalls the lifecycle artifacts (`.claude/brain-hooks/*.py`,
-`.claude/settings.json`, `.opencode/plugins/brain.js`) by writing a temp file and
+Every TUI startup reinstalls the lifecycle artifacts (`.brain/hooks/*.py`,
+`.claude/settings.json`, `.codex/hooks.json`, `.opencode/plugins/brain.js`) by writing a temp file and
 renaming it over the destination. That is correct for atomicity and wrong for
 idempotence: renaming gives the file a fresh mtime even when the bytes are
 identical. Those files live inside the workspace root, so the change-triggered
@@ -3919,6 +3920,11 @@ ends — by answer, by interrupt, or by timeout.
 
 ## A hook command may not depend on the working directory
 
+This section records the earlier `.claude/brain-hooks/` repair. The later
+workspace-lifecycle migration at the end of this document supersedes its exact
+paths and removes the home-directory fallback; the root-anchoring principle
+remains current.
+
 Brain registered Claude's lifecycle hooks as `python3 .claude/brain-hooks/<script>.py`,
 relative to the workspace root, on the documented assumption that "Claude runs
 project hooks from the selected workspace." That assumption was wrong. Claude
@@ -4071,3 +4077,42 @@ handles: the run aborts with `PriorListingMissing` and `should_auto_resync` retr
 once with a fresh baseline. Nothing is lost, because the newly excluded paths are
 scratch by definition. Objects a previous version already uploaded stay on the
 remote as inert junk; `rclone delete` on the remote path removes them.
+
+## Managed lifecycle hooks belong to workspaces, and migrations are invisible
+
+Global lifecycle hooks made one workspace's Brain integration visible to every
+agent session a user started. Codex also needed a global hook command to infer a
+root from ambient environment. That is broader than the behavior Brain owns:
+the lifecycle bridge is meaningful only inside a configured Brain workspace.
+
+The current contract installs `agent_session_start_hook.py` and
+`agent_session_stop_hook.py` under each existing configured root's
+`.brain/hooks/` directory. Claude and Codex keep their hook registration in that
+same workspace; OpenCode keeps its thin plugin there as before. Codex requires
+project hook trust, so a Codex process launched through Brain carries the
+explicit bypass intended for automation that vets its hook sources. Brain owns
+and byte-verifies those scripts. The tradeoff is visible: unrelated enabled
+project hooks share that bypass, so adding one to a Brain workspace requires the
+same review as adding executable project configuration.
+
+Python remains the bridge runtime. All three frontends can execute other
+commands, but the existing standard-library bridge already supplies JSON,
+SQLite, locking, and atomic publication without a second compiled artifact or
+installer path. OpenCode would still need its JavaScript event adapter. Python 3
+is treated as an explicit prerequisite and checked by the installers.
+
+Migration cannot be a release-note chore. Every command except help and version
+runs the ordered machine migration table before ordinary dispatch. Each entry
+has an `up` and `down` operation, removes superseded state, transforms retained
+state, and creates missing target state. Current entries reconcile even after
+their version stamp matches, because managed artifacts can be deleted or
+rewritten after an upgrade. Workspace-local lifecycle directories remain setup
+metadata for empty-workspace detection, so reconciliation before bootstrap does
+not suppress first-run PARA and task seeding. An ordinary startup records its
+version stamp best-effort: if that machine-local directory is read-only, the
+idempotent reconciliation repeats later instead of masking the command's own
+diagnostic. The installer still requires its explicit migration and stamp to
+succeed. The main installer compares binary versions: the
+new binary migrates an upgrade after replacement, while the still-installed
+newer binary migrates a downgrade before replacement. This keeps the user out of
+the migration protocol in both directions.

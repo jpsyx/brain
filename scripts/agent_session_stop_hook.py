@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record a frontend's final assistant message for an inbound Brain job."""
+"""Record a frontend's final assistant message when its session stops."""
 from __future__ import annotations
 
 import json

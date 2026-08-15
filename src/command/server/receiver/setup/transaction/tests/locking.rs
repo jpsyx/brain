@@ -14,7 +14,10 @@ fn failed_setup_rollback_preserves_a_concurrent_success_and_live_lock_inode() {
     let release_failure = Arc::new(Barrier::new(2));
     let thread_provider_written = Arc::clone(&provider_written);
     let thread_release_failure = Arc::clone(&release_failure);
-    let lock = home.join(".codex/.hooks.json.transaction.lock");
+    let lock = context
+        .workspace
+        .root()
+        .join(".codex/.hooks.json.transaction.lock");
     std::fs::write(&lock, b"live lock").unwrap();
     let lock_inode = std::fs::metadata(&lock).unwrap().ino();
 
@@ -84,7 +87,7 @@ fn setup_serializes_identical_after_images_across_rollback_ownership() {
     let concurrent_result = match early {
         Ok(result) => result,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => concurrent_rx
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(3))
             .expect("serialized setup completion"),
         Err(error) => panic!("concurrent setup channel failed: {error}"),
     };

@@ -68,7 +68,7 @@ fn run_hook(mut command: Command, input: &serde_json::Value) -> std::process::Ou
 
 fn run_session_start_hook(db_path: &Path, session_id: &str) -> std::process::Output {
     let mut command = Command::new("python3");
-    command.arg(hook_path("claude_session_start_hook.py"));
+    command.arg(hook_path("agent_session_start_hook.py"));
     command.env("BRAIN_WORKSPACE_ID", "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b");
     command.env("BRAIN_WORKSPACE", "family");
     command.env("BRAIN_ROOT", "/workspaces/family");
@@ -186,7 +186,7 @@ fn completion_hook_keeps_job_identity_and_actor_context_for_each_frontend() {
     for (field, session_id, frontend) in cases {
         register_hook_session(&db_path, frontend, session_id);
         let mut command = Command::new("python3");
-        command.arg(hook_path("claude_stop_hook.py"));
+        command.arg(hook_path("agent_session_stop_hook.py"));
         command.env("BRAIN_RESPONSE_DIR", &response_dir);
         command.env("BRAIN_RESPONSE_ID", format!("job-{field}"));
         command.env("BRAIN_STATE_DB", &db_path);

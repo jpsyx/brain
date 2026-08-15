@@ -33,6 +33,7 @@ pub mod session;
 pub mod settings;
 pub mod skill_session;
 pub mod skills;
+pub mod startup_migration;
 pub mod state;
 pub mod sync;
 pub mod tasks;

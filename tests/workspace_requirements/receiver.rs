@@ -96,6 +96,7 @@ fn complete_email_uses_portable_mapping_and_leaves_sms_off() {
                 json!("https://receiver.example"),
             ),
             ("resend_sending_api_key".to_owned(), json!("secret")),
+            ("resend_full_access_api_key".to_owned(), json!("full-secret")),
             ("resend_from_email".to_owned(), json!("brain@example.com")),
             (
                 "resend_webhook_signing_secret".to_owned(),

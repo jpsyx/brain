@@ -38,7 +38,7 @@ fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
     std::fs::create_dir_all(selected_root.join(".claude")).expect("create settings directory");
     std::fs::write(
         selected_root.join(".claude/settings.json"),
-        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 \"/old/claude_session_start_hook.py\""}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 '/old/agent_turn_complete_hook.py'"}]}]}}"#,
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 \"/old/claude_session_start_hook.py\""}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 '/old/agent_session_stop_hook.py'"}]}]}}"#,
     )
     .expect("write legacy settings");
 
@@ -58,24 +58,18 @@ fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
     let settings = selected_root.join(".claude/settings.json");
     assert_eq!(
         settings_hook_commands(&settings, "SessionStart"),
-        vec![r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py""#]
+        vec![
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#
+        ]
     );
     assert_eq!(
         settings_hook_commands(&settings, "Stop"),
-        vec![r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py""#]
+        vec![
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
+        ]
     );
-    for name in [
-        "agent_session_start_hook.py",
-        "agent_turn_complete_hook.py",
-        "claude_session_start_hook.py",
-        "claude_stop_hook.py",
-    ] {
-        assert!(
-            selected_root
-                .join(".claude/brain-hooks")
-                .join(name)
-                .is_file()
-        );
+    for name in ["agent_session_start_hook.py", "agent_session_stop_hook.py"] {
+        assert!(selected_root.join(".brain/hooks").join(name).is_file());
     }
     assert_eq!(
         std::fs::read_to_string(selected_root.join(".opencode/plugins/brain.js")).unwrap(),
@@ -113,7 +107,7 @@ fn installer_reconciles_codex_hooks_idempotently() {
     let temp = tempfile::TempDir::new().expect("tempdir");
     let home = temp.path().join("home");
     let selected_root = temp.path().join("family");
-    let codex_hooks = home.join(".codex/hooks.json");
+    let codex_hooks = selected_root.join(".codex/hooks.json");
     std::fs::create_dir_all(codex_hooks.parent().expect("Codex settings parent"))
         .expect("create Codex settings directory");
     std::fs::write(
@@ -153,14 +147,14 @@ fn installer_reconciles_codex_hooks_idempotently() {
         settings_hook_commands(&codex_hooks, "SessionStart"),
         vec![
             "keep-session-start",
-            "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py\"",
+            "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py\"",
         ]
     );
     assert_eq!(
         settings_hook_commands(&codex_hooks, "Stop"),
         vec![
             "keep-stop",
-            "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py\"",
+            "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py\"",
         ]
     );
     let settings = read_settings(&codex_hooks);

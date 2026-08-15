@@ -53,15 +53,14 @@ fn replace_entry(
 /// Bash tool's `cd` persists, so a project-relative command silently stops
 /// resolving as soon as an agent changes directory. `CLAUDE_PROJECT_DIR` is the
 /// project root Claude itself exports for exactly this; `BRAIN_ROOT` covers a
-/// session Brain launched, and `$HOME/brain` is the portable last resort. No
-/// machine-specific absolute path is written, because the settings file is
-/// synced and read on every machine.
+/// session Brain launched. No machine-specific absolute path is written,
+/// because the settings file is synced and read on every machine.
 fn claude_project_dir_command(hook_path: &Path) -> String {
     let relative = hook_path
         .to_string_lossy()
         .trim_start_matches('/')
         .to_owned();
-    format!(r#"python3 "${{CLAUDE_PROJECT_DIR:-${{BRAIN_ROOT:-$HOME/brain}}}}/{relative}""#)
+    format!(r#"python3 "${{CLAUDE_PROJECT_DIR:-${{BRAIN_ROOT}}}}/{relative}""#)
 }
 
 fn portable_root_command(hook_path: &Path) -> String {
@@ -69,7 +68,7 @@ fn portable_root_command(hook_path: &Path) -> String {
         .to_string_lossy()
         .trim_start_matches('/')
         .to_owned();
-    format!(r#"python3 "${{BRAIN_ROOT:-$HOME/brain}}/{relative}""#)
+    format!(r#"python3 "${{BRAIN_ROOT}}/{relative}""#)
 }
 
 fn hook_lock_path(path: &Path) -> PathBuf {
@@ -88,9 +87,11 @@ fn hook_temporary_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{file_name}.tmp-{}", uuid::Uuid::new_v4()))
 }
 
-#[cfg(test)]
-fn update_json_file(path: &Path, mutation: impl FnOnce(&mut serde_json::Value)) -> Result<()> {
-    update_json_file_with_temporary(path, &hook_temporary_path(path), mutation)
+pub(crate) fn update_json_file(
+    path: &Path,
+    mutation: impl FnOnce(&mut serde_json::Value),
+) -> Result<()> {
+    update_json_file_with_temporary_and_lock(path, &hook_temporary_path(path), mutation, || Ok(()))
 }
 
 #[cfg(test)]
@@ -205,7 +206,7 @@ fn write_and_replace_json(temporary: &Path, destination: &Path, bytes: &[u8]) ->
 
 /// Whether a lifecycle artifact has to be replaced at all. Pure.
 ///
-/// Every TUI launch reinstalls these artifacts, and replacing a byte-identical
+/// Every ordinary Brain launch reinstalls these artifacts, and replacing a byte-identical
 /// file still gives it a new mtime — which trips Brain's own filesystem watcher
 /// and uploads an unchanged hook script on every single startup. Comparing first
 /// makes reinstallation genuinely idempotent on disk.
@@ -379,6 +380,17 @@ fn resolve_confined_write_destination(path: &Path, workspace: &Path) -> Result<P
         workspace.display()
     );
     Ok(write_destination)
+}
+
+pub(crate) fn write_workspace_artifact(
+    root: &Path,
+    relative: &Path,
+    contents: &str,
+    mode: u32,
+) -> Result<()> {
+    let destination = root.join(relative);
+    let write_destination = resolve_confined_write_destination(&destination, root)?;
+    write_static_file(&destination, &write_destination, contents, mode)
 }
 
 pub(super) fn install(root: &Path) -> Result<()> {

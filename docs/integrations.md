@@ -160,7 +160,7 @@ lifecycle bridges. Selecting more than one frontend exits with
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
 | Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `<claude_cmd> [--mcp-config <cache-json> --strict-mcp-config] --resume <id>` or `--session-id <id>` |
-| Codex | `codex_cmd` in brain env, default `codex` | Current panels launch fresh as `<codex_cmd> [-c <capability-override>...]`; the adapter retains `resume <id>` for a future validated resume source |
+| Codex | `codex_cmd` in brain env, default `codex` | Current panels launch fresh as `<codex_cmd> --dangerously-bypass-hook-trust [-c <capability-override>...]`; the adapter retains `resume <id>` for a future validated resume source |
 | OpenCode | `opencode_cmd` in brain env, default `opencode` | `<opencode_cmd> --agent brain [--session <validated-id>] [--prompt <initial-prompt>]`; lifecycle uses the workspace Brain plugin. |
 
 The crate-private `agent::ClaudeFrontend`, `agent::CodexFrontend`, and
@@ -621,7 +621,7 @@ tab/token/`require` machinery above.
 
 These triage rules are identical for Claude, Codex, and OpenCode. OpenCode's
 plugin may observe the ephemeral root session, but the generic session-start
-and turn-complete bridges no-op without the tracking attribution intentionally
+and session-stop bridges no-op without the tracking attribution intentionally
 omitted from a skill-session request; only the one-time session-done signal closes
 the tab.
 
@@ -709,8 +709,8 @@ Which session to run is decided by the **lock + recency** model in
    before authorization; rejected or failed attempts roll back without
    changing either lineage, and SQLite's busy timeout lets a contender retry
    the decision after the current writer commits.
-4. The generic **turn-complete bridge**
-   (`scripts/agent_turn_complete_hook.py`) records the turn's final
+4. The generic **session-stop bridge**
+   (`scripts/agent_session_stop_hook.py`) records the turn's final
    assistant message under
    `<workspace-cache>/responses/<response-id>.json` only while the exact
    frontend/workspace/session/actor/channel/instance tuple is still locked in
@@ -748,12 +748,13 @@ Which session to run is decided by the **lock + recency** model in
 
 Claude and Codex register the same generic bridge scripts. Claude stores
 root-anchored `SessionStart` and `Stop` entries in
-`<brain-root>/.claude/settings.json`; Codex stores portable
-`python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/<script>.py"` entries
-in `~/.codex/hooks.json`. Shared Codex updates use an adjacent machine-wide
-SQLite transaction lock and same-directory atomic replacement, preserving peer
-workspace registrations and unrelated JSON. Current Codex versions may ask the
-user to trust those hooks once in the Codex UI.
+`<brain-root>/.claude/settings.json`; Codex stores them in
+`<brain-root>/.codex/hooks.json`. Each command resolves a script below that
+workspace's `.brain/hooks/` directory. Brain-launched Codex sessions include
+`--dangerously-bypass-hook-trust` because Brain generated and byte-verifies the
+hook sources. This avoids an interactive trust prompt for the lifecycle bridge;
+it also means a user who adds unrelated enabled project hooks should review
+those hooks before launching that workspace through Brain.
 
 OpenCode installs one exact workspace plugin at
 `<brain-root>/.opencode/plugins/brain.js`. On a root `session.created`, the
@@ -761,7 +762,7 @@ plugin sends `{session_id, source}` to the generic session-start bridge. On
 `session.idle`, it resolves the reported session through the OpenCode client,
 rejects child sessions, fetches messages for that selected directory, and sends
 only the newest completed, non-synthetic assistant text to the generic
-turn-complete bridge. Repeated idle events remain safe because the Python
+session-stop bridge. Repeated idle events remain safe because the Python
 bridge authorizes and publishes against the exact active DB tuple. The plugin
 passes payloads over stdin, forwards only the narrow runtime and `BRAIN_*`
 environment allowlist, and logs lookup or bridge failures through OpenCode.
@@ -781,6 +782,15 @@ Brain's generic Python bridges and SQLite transaction. This keeps one security
 and delivery contract for all frontends instead of reimplementing DB authority
 inside a frontend plugin.
 
+All three frontends can launch non-Python commands. Brain keeps these two
+bridges as Python 3 scripts because the shipped standard-library implementation
+already provides the JSON, SQLite, locking, and atomic-file behavior needed at
+the hook boundary, while a second Rust executable would add build and install
+coordination without removing the frontend-specific OpenCode adapter. Python 3
+is therefore an explicit runtime prerequisite for lifecycle integration, not an
+assumption that every agent shell supplies it implicitly. The standalone hook
+installer checks it before changing a workspace.
+
 **One hook namespace, one DB per workspace.** Before the merge, `brain` and `tasks`
 each ran their own SessionStart hook keyed on separate env-var namespaces
 (`BRAIN_*` vs `TASKS_*`) writing separate DBs, so the two shells never adopted
@@ -789,39 +799,39 @@ there is now exactly one generic lifecycle protocol, keyed on `BRAIN_*`, one DB
 per workspace UUID (`<workspace-cache>/state.db`, table
 `brain_sessions`), and
 one namespace. Registry-driven installation deploys the two generic scripts into
-`<brain-root>/.claude/brain-hooks/` and registers them in that workspace's
-`.claude/settings.json`.
+`<brain-root>/.brain/hooks/` and registers them in that workspace's
+`.claude/settings.json` and `.codex/hooks.json`.
 
 **Hook commands are root-anchored, never working-directory-relative.** The
 registered Claude command is
-`python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/<script>.py"`.
+`python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/<script>.py"`.
 Claude runs a hook in the session's *current* working directory, not the
 project root, and its Bash tool's `cd` persists for the rest of the session, so
 a project-relative command stops resolving the moment an agent changes
 directory. `CLAUDE_PROJECT_DIR` is the project root Claude exports for exactly
-this purpose; `BRAIN_ROOT` covers a session Brain launched; `$HOME/brain` is the
-portable last resort. The Rust installer and `install_hook.sh` emit the same
+this purpose; `BRAIN_ROOT` covers a session Brain launched. The Rust installer
+and `install_hook.sh` emit the same
 command, and reinstallation replaces a stale relative command in place (stale
 entries are matched by script basename, ignoring surrounding quotes).
 
-Codex reads a global `~/.codex/hooks.json` and may execute it from any working
-directory, so Brain emits `python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/<script>.py"`
-for Codex — the same shape without Claude's project variable. `BRAIN_ROOT`
-selects a workspace explicitly; `$HOME/brain` is the portable default. No
-absolute path is baked into either file, because both are read on every synced
-machine. Brain does not depend on jpsyx-configs.
+Codex reads the selected workspace's `.codex/hooks.json`, so Brain emits
+`python3 "${BRAIN_ROOT}/.brain/hooks/<script>.py"`. `BRAIN_ROOT` selects the
+workspace explicitly. No absolute path is baked into either hook file, because
+both are read on every synced machine.
 
-`scripts/install_hook.sh` deploys the generic session-start and turn-complete
-bridges, compatibility entry points, Claude/Codex hook settings, and the
+`scripts/install_hook.sh` deploys the generic session-start and session-stop
+bridges, Claude/Codex workspace hook settings, and the
 OpenCode plugin from the same lifecycle registry contract. It strips stale
 legacy commands by script basename while preserving unrelated settings. Every
-TUI startup does the same automatically before state migration or agent launch;
-`brain receiver setup` also refreshes every registered frontend. The standalone
+ordinary Brain startup does the same automatically for every existing configured
+workspace before command dispatch; `brain receiver setup` also refreshes every
+registered frontend. Help and version are the only public no-write exceptions.
+The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
 precedence is the explicit argument,
-then `BRAIN_ROOT`, with `$HOME/brain` retained only as a documented legacy
-single-workspace fallback. The turn-complete bridge is
+then `BRAIN_ROOT`, with `$HOME/brain` retained only as the manual installer's
+single-workspace fallback. The session-stop bridge is
 required for receiver jobs: it records the completed assistant response so the
 TUI can deliver it over SMS or email without exposing the full thinking trace.
 
@@ -1064,7 +1074,8 @@ brain-root lookup.
   interrupted run can resume on the next invocation without forcing a full
   `--resync`), `--check-access --check-filename RCLONE_TEST`, and default
   excludes (`.git/**`, `.DS_Store`, `.cache/**`, the remote identity manifest
-  `.config/workspace.json`, setup claims `.config/workspace-claims/**`, task
+  `.config/workspace.json`, setup claims `.config/workspace-claims/**`, Python
+  bytecode (`__pycache__/**`, `*.pyc`), task
   schema metadata `tasks/SCHEMA.json`, friendly conflict copies `*(conflict *)*`, raw
   markers `*.__brainconflict__*`, and every in-root transaction artifact:
   journals plus their staged/backup/restore scratch (`.brain-*`, and the
@@ -1450,7 +1461,8 @@ outside-world touchpoints:
   never reads a configured production remote.
 - **The watcher's exclude set** (`watch::is_watch_relevant`, a pure path
   predicate) mirrors the bisync filter (see `args::bisync_args`'s default
-  excludes above): a changed path under `.git`, `.cache`, or a `.DS_Store`, an
+  excludes above): a changed path under `.git`, `.cache`, `node_modules`, or
+  `__pycache__`, a `.pyc` file, a `.DS_Store`, an
   existing friendly conflict copy (`*(conflict *)*`), or a transaction
   journal/scratch/lock (`.brain-*`, `*.brain-triage-*`, `*.transaction.lock`)
   never triggers a sync.

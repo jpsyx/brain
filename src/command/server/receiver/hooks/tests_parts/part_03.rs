@@ -1,6 +1,5 @@
-
 #[test]
-fn concurrent_workspace_installs_preserve_both_roots_and_shared_codex_json() {
+fn concurrent_workspace_installs_keep_every_codex_config_inside_its_root() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     let family = temp.path().join("family");
@@ -24,26 +23,25 @@ fn concurrent_workspace_installs_preserve_both_roots_and_shared_codex_json() {
     for root in [&family, &work] {
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "SessionStart"),
-            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py""#
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#
         );
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "Stop"),
-            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py""#
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
+        );
+        assert_eq!(
+            configured_command(&root.join(".codex/hooks.json"), "SessionStart"),
+            r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py""#
+        );
+        assert_eq!(
+            configured_command(&root.join(".codex/hooks.json"), "Stop"),
+            r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
         );
     }
     let codex_bytes = std::fs::read(home.join(".codex/hooks.json")).unwrap();
     let codex: serde_json::Value = serde_json::from_slice(&codex_bytes).unwrap();
     assert_eq!(codex["permissions"]["allow"][0], "Read");
-    assert_eq!(codex["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
-    assert_eq!(codex["hooks"]["Stop"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        codex["hooks"]["SessionStart"][0]["hooks"][0]["command"],
-        r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py""#
-    );
-    assert_eq!(
-        codex["hooks"]["Stop"][0]["hooks"][0]["command"],
-        r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py""#
-    );
+    assert!(codex.get("hooks").is_none());
 }
 
 #[test]
@@ -158,7 +156,7 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
     let root = temp.path().join("brain");
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&root).unwrap();
-    let stale_dir = root.join(".claude/brain-hooks");
+    let stale_dir = root.join(".brain/hooks");
     std::fs::create_dir_all(&stale_dir).unwrap();
     std::fs::write(stale_dir.join("claude_session_start_hook.py"), "# stale\n").unwrap();
     std::fs::write(stale_dir.join("claude_stop_hook.py"), "# stale\n").unwrap();
@@ -174,9 +172,9 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
         .unwrap(),
     )
     .unwrap();
-    std::fs::create_dir_all(home.join(".codex")).unwrap();
+    std::fs::create_dir_all(root.join(".codex")).unwrap();
     std::fs::write(
-        home.join(".codex/hooks.json"),
+        root.join(".codex/hooks.json"),
         serde_json::to_vec(&serde_json::json!({
             "hooks": {
                 "SessionStart": [{"hooks": [{"type": "command", "command": "python3 /old/claude_session_start_hook.py"}]}],
@@ -187,21 +185,21 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
     )
     .unwrap();
     install_for_home(&root, &home).unwrap();
-    let codex_hooks = home.join(".codex/hooks.json");
+    let codex_hooks = root.join(".codex/hooks.json");
     let codex_schema: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&codex_hooks).unwrap()).unwrap();
     assert_eq!(
         codex_schema["hooks"]["SessionStart"],
         json!([{"hooks": [{
             "type": "command",
-            "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py\""
+            "command": "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py\""
         }]}])
     );
     assert_eq!(
         codex_schema["hooks"]["Stop"],
         json!([{"hooks": [{
             "type": "command",
-            "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py\""
+            "command": "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py\""
         }]}])
     );
     let start = configured_command(&codex_hooks, "SessionStart");
@@ -315,14 +313,15 @@ fn reinstalling_replaces_the_broken_relative_command_instead_of_duplicating_it()
     std::fs::create_dir_all(root.join(".claude")).unwrap();
     std::fs::write(
         root.join(".claude/settings.json"),
-        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 .claude/brain-hooks/agent_session_start_hook.py"}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 .claude/brain-hooks/agent_turn_complete_hook.py"}]}]},"permissions":{"allow":["Read"]}}"#,
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 .brain/hooks/agent_session_start_hook.py"}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 .brain/hooks/agent_session_stop_hook.py"}]}]},"permissions":{"allow":["Read"]}}"#,
     )
     .unwrap();
 
     install_for_home(&root, &home).unwrap();
 
     let settings: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join(".claude/settings.json")).unwrap()).unwrap();
+        serde_json::from_slice(&std::fs::read(root.join(".claude/settings.json")).unwrap())
+            .unwrap();
     for event in ["SessionStart", "Stop"] {
         let entries = settings["hooks"][event].as_array().unwrap();
         assert_eq!(entries.len(), 1, "{event} kept a duplicate hook entry");

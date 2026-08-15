@@ -119,10 +119,10 @@ first move is a failing test that reproduces it, *then* the fix.
   attribution, schema-v2 row preservation, and malformed/ambient no-op
   behavior. The hook-installer
   unit tests live in `src/command/server/receiver/hooks/tests.rs`; they pin the
-  exact installed Codex JSON command schema, execute the
+  exact workspace-local Claude and Codex JSON command schema, execute the
   actual configured start and completion commands as one attributed lifecycle, and
-  proves stale deployed scripts are refreshed. A regression test runs the real
-  compatibility Claude completion entry point on a payload with **no** `last_assistant_message` but a
+  prove stale deployed scripts are refreshed. A regression test runs the real
+  session-stop bridge on a payload with **no** `last_assistant_message` but a
   `transcript_path` present and proves it still publishes the response artifact
   by recovering the final assistant text from the transcript — delivery must
   not hinge on that one optional field. Further unit tests prove locked
@@ -130,9 +130,17 @@ first move is a failing test that reproduces it, *then* the fix.
   settings, always leave parseable JSON, and preserve original bytes when an
   atomic replacement fails. TUI setup tests prove a held workspace singleton
   prevents hook refresh.
+  `tests/startup_migration.rs` runs the compiled binary to prove an ordinary
+  command removes only Brain-owned global lifecycle entries across Claude,
+  Codex, and OpenCode; installs all three workspace integrations into every
+  existing configured root; removes superseded scripts; self-heals a deleted
+  managed hook; leaves help and version byte-idle; and restores the previous
+  lifecycle layout through the down migration. `tests/install_script.rs` drives
+  the real installer around fake versioned binaries to pin upgrade-after-replace
+  and downgrade-before-replace ordering.
   `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
   completion contract for a Codex-style `thread_id` payload. It also pauses a
-  real turn-complete bridge after payload parsing, rotates the same live Claude lineage
+  real session-stop bridge after payload parsing, rotates the same live Claude lineage
   through the real session-start bridge, and proves the stale completion is
   rejected after serialization. A deterministic publication-failure fixture
   proves every registered frontend retains `active` state and leaves no staged file.
@@ -508,7 +516,8 @@ first move is a failing test that reproduces it, *then* the fix.
   and bounded-polls process exit plus generation-artifact removal. The test
   injects an extra cross-routed job into a copy of the history and proves its
   exact-route assertion rejects that mutation. It contains no fixed sleep.
-- **Literal read-only status.** `tests/status_read_only.rs` runs the compiled
+- **Read-only status after startup reconciliation.** `tests/status_read_only.rs`
+  first applies the current automatic migration, then runs the compiled
   `brain server status`, selected `brain receiver status`, bare
   `brain receiver`, `brain receiver email` / `brain receiver phone`,
   `brain sync status`,
@@ -529,7 +538,7 @@ first move is a failing test that reproduces it, *then* the fix.
   log, proving both observers fail on the defects they guard. Exact lease-table
   tests prove both process and workspace status leave expired leases, authority revisions,
   and shutdown state untouched for the watchdog. This catches accidental
-  migration, config initialization, users transaction locks, skill rendering,
+  redundant migration rewrites, config initialization, users transaction locks, skill rendering,
   state-DB/render-stamp writes, election, control-error suppression, and status
   pruning. Dedicated WAL fixtures also prove that sync status and tasks doctor
   do not checkpoint or otherwise mutate an existing SQLite database.
@@ -637,7 +646,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: manifest-aware create/attach, persistence failures, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. `workspace list` reports feature health for every registered workspace, `-w` narrows it to one, and a workspace still needing setup renders a note instead of failing the listing. |
 | `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
 | `tests/workspace_requirements.rs` + `tests/workspace_requirements/` | Central required/optional matrix, fail-closed malformed sync/receiver fields, portable receiver mappings, advisory capability health, redaction, exact selected-record isolation, and focused shared fixtures. |
-| `tests/status_read_only.rs` | Filesystem snapshots proving workspace list, sync status, receiver status, tasks doctor, and server status do not create or mutate machine/workspace state, including symlink and live-process cases. |
+| `tests/status_read_only.rs` | After priming the common automatic migration, filesystem snapshots prove workspace list, sync status, receiver status, tasks doctor, and server status do not create or mutate further machine/workspace state, including symlink and live-process cases. |
 | `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, valid-registry portable-policy upgrade, and persistence-failure preservation. Plus the **machine-global hoist upgrades (v2 → v3 → v4)**: an ordinary command hoists `markdown_to_pdf_path` and then `brain_receiver_public_url` into the machine-global map and strips every record copy, several configured paths collapse onto the first canonical workspace, a machine that never set one gains no global map, the exact previous bytes are backed up once and a rerun is a no-op, every workspace then resolves the one value, and a read-only `workspace list` reads an old schema without rewriting it. Plus the **v3 → v4 receiver-origin hoist** (`part_06`): a machine that already configured a receiver has its per-workspace origin hoisted by the next ordinary command, credentials and each workspace's routing number stay in their records, the exact previous bytes are backed up once, and afterwards every `-w` prints the same machine-wide `/sms` URL with no doubled slash and no ingress. The pure rewrite is unit-tested in `workspace::registry::upgrade`. |
 | `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` + `tui::app_brain::tests` | Portable mode ownership/defaults, strict and atomic persistence, exact advisory contract, real App launch-context parity, adapter mechanisms, option-terminated prompt argv, selected cwd, honest typed status, naive warning limits, and minimal environment. |
 | `tests/opencode_smoke.rs` + `tests/opencode_acceptance.rs` | Selector, command, session, semantic-input, facade, and deterministic fake-process acceptance for OpenCode without a live provider call. |
@@ -654,7 +663,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `agent::codex::sessions` + `agent::codex::frontend_tests` | Codex resume validation against a temporary rollout tree: an exact trailing-segment id match, refusal of prefix collisions and of ids not following a `-`, unrelated filenames, a missing sessions directory, day-tree search including older days, and no descent past the day level. The frontend half proves the interactive and response-channel predicates agree, that no resolvable home means nothing is resumable, and that a validated id becomes `codex resume '<id>'`. |
 | `tui::receiver_state` channel parity | Every dispatch decision (wait for an active turn, wait for a remote job, close an idle panel, start next) is asserted identical for SMS and email, and warm-panel reuse/replacement is asserted symmetric in both directions — the wait/reuse/start rules had previously been proven only for SMS. |
 | `workspace::templates` tests | The seeded `AGENTS.md` / `README.md`: written when absent, never overwriting an edited copy, idempotent, cross-referencing each other, carrying nothing instance-specific (no `~/brain`, absolute paths, private skills directory, or personal names), and naming only skills Brain actually bundles — checked in passages that discuss skills, so an example project slug is not mistaken for one. |
-| `tests/empty_workspace_initialization.rs` | First-run scaffolding through the compiled binary: an empty workspace gets PARA + CSVs + counters + a schema document declaring v2/`task_uuid`; a sync subcommand seeds the document it needs (sync dispatches before the workspace gate); and **a first sync that fails still leaves the whole task store in place**, since seeding it afterwards left a joining machine merging as `Legacy` against a `Current` remote with an empty `tasks/`. |
+| `tests/empty_workspace_initialization.rs` | First-run scaffolding through the compiled binary: an empty workspace still counts as empty after automatic lifecycle installation, then gets PARA + CSVs + counters + a schema document declaring v2/`task_uuid`; a sync subcommand seeds the document it needs (sync dispatches before the workspace gate); and **a first sync that fails still leaves the whole task store in place**, since seeding it afterwards left a joining machine merging as `Legacy` against a `Current` remote with an empty `tasks/`. |
 | `sync::csv_merge::remote_csvs` + `sync::csv_sync` part_06 + `sync::setup` schema_preflight | Remote task-schema generation decided by CSV *content*: absent/current/legacy classification (header-only current CSVs are current, whitespace proves nothing, one legacy CSV makes the remote legacy), a remote missing only its schema document is healed by publishing it, a failed publication is surfaced rather than assumed healed, and genuinely legacy remote rows still refuse while naming `brain workspace migrate`. Setup's guard refuses on legacy rows instead of on mere CSV existence. |
 | `sync::identity::adopt` tests + `tests/sync_local/manifest_adoption.rs` | A machine joining an already-synced workspace: the remote manifest is adopted with its `receiver_ingress_id` preserved (minting would fork it, and bisync never reconciles the manifest), a remote owned by another workspace UUID is refused without writing, malformed remote bytes are refused, an existing local manifest is never replaced, and an empty remote leaves the registry UUID as the fallback. The unit half uses a fake remote with B2's blank-read semantics; the `sync_local` half drives real `rclone` against a local-path remote. |
 | `tasks::schema::seed` tests | The embedded canonical `tasks/SCHEMA.json`: it declares schema version 2 / `task_uuid` merge key / mutable `task_id` display identity, its documented columns equal the headers Brain seeds and are all known current columns (the drift that left the pre-existing document declaring `assignee`), it carries no personal data, and seeding is write-only-when-absent, idempotent, a no-op without a `tasks/` directory, and leaves a freshly seeded workspace reading as schema-current. |

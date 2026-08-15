@@ -1,6 +1,7 @@
 #[test]
 fn server_status_is_a_literal_read_only_process_probe() {
     let home = tempfile::tempdir().expect("temporary home");
+    seed_current_migration(home.path());
     let before = snapshot(home.path());
     let before_logs = run_log_snapshot();
 

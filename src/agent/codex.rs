@@ -11,6 +11,7 @@ use crate::agent::{
 mod sessions;
 
 pub(crate) const DEFAULT_COMMAND: &str = "codex";
+const HOOK_TRUST_FLAG: &str = "--dangerously-bypass-hook-trust";
 
 /// Codex command, input, completion, and transcript conventions.
 pub(crate) struct CodexFrontend {
@@ -62,7 +63,7 @@ impl CodexFrontend {
         policy: Option<&str>,
         capability_overrides: &[String],
     ) -> String {
-        let mut parts = vec![command.trim().to_owned()];
+        let mut parts = vec![command.trim().to_owned(), HOOK_TRUST_FLAG.to_owned()];
         if let Some(policy) = policy {
             let policy = serde_json::to_string(policy)
                 .expect("serializing a Rust string as JSON cannot fail");
@@ -251,7 +252,10 @@ mod frontend_tests {
         let command = CodexFrontend::command_for("codex", &plan, None);
 
         // The id is shell-quoted, as every interpolated value is.
-        assert_eq!(command, format!("codex resume '{ID}'"));
+        assert_eq!(
+            command,
+            format!("codex --dangerously-bypass-hook-trust resume '{ID}'")
+        );
         assert!(sessions::rollout_matches(
             &format!("rollout-2026-08-11T09-49-49-{ID}.jsonl"),
             ID

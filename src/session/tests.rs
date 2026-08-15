@@ -159,7 +159,10 @@ fn codex_resume_uses_resume_subcommand() {
         None,
     )
     .expect("Codex resume command");
-    assert_eq!(cmd, "cd '/Users/x/brain' && codex resume 'sess-9'");
+    assert_eq!(
+        cmd,
+        "cd '/Users/x/brain' && codex --dangerously-bypass-hook-trust resume 'sess-9'"
+    );
 }
 
 #[test]
@@ -174,7 +177,7 @@ fn codex_fresh_uses_configured_base_command_without_claude_flags() {
     .expect("Codex fresh command");
     assert_eq!(
         cmd,
-        "cd '/Users/x/brain' && codex --model gpt-5 -- 'Start here'"
+        "cd '/Users/x/brain' && codex --model gpt-5 --dangerously-bypass-hook-trust -- 'Start here'"
     );
     assert!(!cmd.contains("--session-id"));
     assert!(!cmd.contains("--resume"));
@@ -202,13 +205,13 @@ fn launch_matrix_preserves_cwd_prefix_and_frontend_specific_session_syntax() {
             AgentKind::Codex,
             " codex --model gpt-5 ",
             Plan::Fresh("fresh-1".to_owned()),
-            "cd '/workspaces/family brain' && codex --model gpt-5 -- 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && codex --model gpt-5 --dangerously-bypass-hook-trust -- 'don'\\''t lose this'",
         ),
         (
             AgentKind::Codex,
             " codex --model gpt-5 ",
             Plan::Resume("resume-1".to_owned()),
-            "cd '/workspaces/family brain' && codex --model gpt-5 resume 'resume-1' -- 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && codex --model gpt-5 --dangerously-bypass-hook-trust resume 'resume-1' -- 'don'\\''t lose this'",
         ),
     ];
 

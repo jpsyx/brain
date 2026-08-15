@@ -67,7 +67,13 @@ pub fn is_watch_relevant(path: &Path) -> bool {
     for comp in path.components() {
         if let Component::Normal(os) = comp {
             let s = os.to_string_lossy();
-            if s == ".git" || s == ".cache" || s == ".DS_Store" || s == "node_modules" {
+            if s == ".git"
+                || s == ".cache"
+                || s == ".DS_Store"
+                || s == "node_modules"
+                || s == "__pycache__"
+                || s.ends_with(".pyc")
+            {
                 return false;
             }
             if matches!(
@@ -304,6 +310,10 @@ mod tests {
         )));
         assert!(!is_watch_relevant(Path::new(".opencode/package-lock.json")));
         assert!(!is_watch_relevant(Path::new(".opencode/bun.lock")));
+        assert!(!is_watch_relevant(Path::new(
+            ".agents/skills/todo/scripts/__pycache__/csvlib.cpython-314.pyc"
+        )));
+        assert!(!is_watch_relevant(Path::new("scripts/session_hook.pyc")));
         // Brain's own bridge is content, so it still triggers.
         assert!(is_watch_relevant(Path::new(".opencode/plugins/brain.js")));
     }

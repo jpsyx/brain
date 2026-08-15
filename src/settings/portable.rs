@@ -73,7 +73,7 @@ fn join_unique(values: Vec<String>) -> Option<String> {
 #[must_use]
 pub(crate) fn source_note(workspace: &str) -> String {
     format!(
-        "{} are portable: their live values come from users.json, not this store.\nInspect them with `brain user list -w {workspace}` and change them with `brain user`.",
+        "{} are portable: their live values come from users.json, not this store.\nInspect them with `brain user list -w {workspace}` and change them with `brain user -w {workspace}`.",
         SUPERSEDED_BY_USERS.join(", ")
     )
 }

@@ -6,14 +6,8 @@ fn second_configured_legacy_machine_joins_current_remote_through_real_coordinato
     }
     let fixture = Fixture::new();
 
-    Fixture::assert_success(
-        &fixture.run_b(&["sync", "repair", "-b", "family"]),
-        "establish second-machine legacy baseline",
-    );
-    Fixture::assert_success(
-        &fixture.run_a(&["sync", "repair", "-b", "family"]),
-        "establish first-machine legacy baseline",
-    );
+    fixture.repair_b_until_clean();
+    fixture.repair_a_until_clean();
     fixture.write_a_change();
     Fixture::assert_success(&fixture.migrate_a(), "migrate first machine");
     fixture.seed_a_high_counters();
@@ -21,8 +15,13 @@ fn second_configured_legacy_machine_joins_current_remote_through_real_coordinato
     Fixture::assert_success(&fixture.add_a_habit(), "allocate first-machine high habit");
     fixture.repair_a_until_clean();
     let first_uuid = task_rows(&fixture.remote)["T1"]["task_uuid"].clone();
-    let ordinary_repair = fixture.run_b(&["sync", "repair", "-b", "family"]);
-    assert!(!ordinary_repair.status.success());
+    let ordinary_repair = fixture.run_b_until_task_schema_refusal();
+    assert!(
+        !ordinary_repair.status.success(),
+        "ordinary repair unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&ordinary_repair.stdout),
+        String::from_utf8_lossy(&ordinary_repair.stderr)
+    );
     assert!(
         String::from_utf8_lossy(&ordinary_repair.stderr)
             .contains("remote task schema is Current, but local task schema is Legacy"),
@@ -224,6 +223,20 @@ impl Fixture {
             last = Some(output);
         }
         Self::assert_sync_complete(last.as_ref().unwrap(), "repair second-machine baseline");
+    }
+
+    fn run_b_until_task_schema_refusal(&self) -> Output {
+        let mut last = None;
+        for _ in 0..3 {
+            let output = self.run_b(&["sync", "repair", "-b", "family"]);
+            if String::from_utf8_lossy(&output.stderr)
+                .contains("remote task schema is Current, but local task schema is Legacy")
+            {
+                return output;
+            }
+            last = Some(output);
+        }
+        last.expect("at least one second-machine repair attempt")
     }
 
     fn write_a_change(&self) {

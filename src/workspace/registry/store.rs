@@ -101,11 +101,10 @@ impl RegistryStore {
     /// Load a registry for **reading only**, tolerating an older schema by
     /// upgrading it in memory.
     ///
-    /// Literal read-only probes (`brain workspace list`, the status commands)
-    /// must neither fail nor write just because this machine has not run an
-    /// ordinary command since the schema changed. The upgraded value is never
-    /// persisted here; the next ordinary command performs the real, backed-up,
-    /// transactional upgrade.
+    /// Read-only command bootstrap must not persist a registry schema rewrite.
+    /// The process-wide startup migration may already have reconciled managed
+    /// artifacts through this in-memory view; the next write-capable bootstrap
+    /// performs the real, backed-up, transactional registry upgrade.
     pub fn load_readable(path: &Path) -> Result<MachineRegistry, RegistryError> {
         match Self::load_from(path) {
             Err(RegistryError::UnsupportedSchemaVersion { .. }) => {}

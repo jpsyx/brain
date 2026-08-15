@@ -63,7 +63,7 @@ pub(crate) fn launch_spec(
     let mut controller = AgentController::for_workspace_with_command(
         Arc::clone(request.workspace()),
         kind,
-        command.to_owned(),
+        hermetic_frontend_command(kind, command),
         request.actor().clone(),
         Box::new(transport),
     );
@@ -83,11 +83,21 @@ pub(crate) fn launch_with_spawn_failure(
     let mut controller = AgentController::for_workspace_with_command(
         Arc::clone(request.workspace()),
         kind,
-        command.to_owned(),
+        hermetic_frontend_command(kind, command),
         request.actor().clone(),
         Box::new(FailingTransport),
     );
     controller.launch(request)
+}
+
+fn hermetic_frontend_command(kind: AgentKind, command: &str) -> String {
+    if kind == AgentKind::OpenCode && command == "opencode" {
+        return std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/opencode/fake_opencode.sh")
+            .display()
+            .to_string();
+    }
+    command.to_owned()
 }
 
 struct RecordingTransport {

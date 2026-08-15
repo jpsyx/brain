@@ -36,6 +36,7 @@ fn receiver_status_rejects_generation_replacement_in_its_single_control_probe() 
 #[test]
 fn concurrent_status_commands_leave_an_active_generation_exactly_unchanged() {
     let mut fixture = DualWorkspaceReceiverFixture::start();
+    seed_current_migration(fixture.home());
     let before_filesystem = snapshot(fixture.home());
     let before_server = fixture.server_snapshot();
     let control_socket = fixture.home().join(".cache/brain/server/control.sock");

@@ -164,10 +164,10 @@ any other machine on the workspace launches.
 The adapters use `codex_cmd`, `opencode_cmd`, and `claude_cmd` from brain env.
 Codex
 participates in the same frontend/workspace/actor/channel session store but
-currently rejects resume candidates, so live Codex panels start fresh. Every TUI
-startup refreshes the registry-declared lifecycle artifacts before state
-migration or agent launch, so remote prompts and completion delivery use the
-same current protocol. When brain
+currently rejects resume candidates, so live Codex panels start fresh. Every
+ordinary Brain command refreshes the registry-declared lifecycle artifacts in
+all existing configured workspaces before bootstrap, so remote prompts and
+completion delivery use the same current protocol. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
 native busy-turn queue key. Claude and OpenCode receive `Enter`. Text and the
 adapter-defined final key are one semantic facade operation, so callers never
@@ -420,8 +420,9 @@ delegated task values.
   created, deepest first, for manual inspection and cleanup. An
   `AlreadyExists` path belongs to the competing actor and is preserved without
   being listed as invocation-created.
-- When the selected workspace contains only Brain setup metadata and empty
-  PARA directories, the first tasks launch completes initialization before
+- When the selected workspace contains only Brain setup metadata (including
+  `.brain/`, `.claude/`, `.codex/`, and `.opencode/` lifecycle artifacts) and
+  empty PARA directories, the first tasks launch completes initialization before
   loading the task view. It creates the portable config, task and habit CSVs,
   task counters, lookup CSVs, and `projects/`, `areas/`, `resources/`,
   `archive/`, and `tasks/`. A configured workspace sync is completed before
@@ -510,8 +511,9 @@ delegated task values.
   the next machine to read that file would roll its own copy back to the backup
   and then push the rollback outward, reverting the workspace from one
   interrupted edit.
-- Dependency trees an agent frontend installs inside a workspace
-  (`node_modules/**` at any depth, plus `.opencode/{package.json,package-lock.json,bun.lock,.gitignore}`)
+- Machine-local agent build artifacts inside a workspace (`node_modules/**` and
+  `__pycache__/**` at any depth, `*.pyc`, plus
+  `.opencode/{package.json,package-lock.json,bun.lock,.gitignore}`)
   are excluded from sync and never trigger the change-watcher. Every machine
   rebuilds them for itself. Brain's `.opencode/plugins/brain.js` bridge is still
   synced.
@@ -569,6 +571,17 @@ portable user data. A malformed nonblank legacy ID stops with an exact
 `brain workspace repair --local-user-id` command instead of failing later in
 actor bootstrap. Help, version, and hidden internal server execution never
 prompt.
+
+Every public command except help and version runs automatic machine migrations
+before workspace bootstrap. On upgrade Brain removes superseded global
+lifecycle hooks and installs or repairs the workspace-local Claude, Codex, and
+OpenCode lifecycle artifacts in every existing configured workspace. Matching
+versions reconcile the same target state, so a deleted managed hook comes back
+on the next command. The version stamp is best-effort during ordinary startup:
+if its directory is read-only, idempotent reconciliation repeats next time and
+the requested command retains its own diagnostics. `install.sh` detects an existing binary and performs the
+same forward transition during upgrade or the registered reverse transition
+before downgrade. Users do not run a migration command.
 
 After readiness, the selected workspace and one resolved actor are pinned in
 the command context for the invocation's lifetime.
@@ -1175,15 +1188,16 @@ regardless of which machine synced last.
 **Doctor.** `brain tasks doctor` prints one themed report for the selected
 workspace. It validates the UUID-scoped session DB and every registry-declared
 lifecycle artifact independently. Hook events must contain the current
-session-start and turn-complete bridge commands; bridge and plugin files must
+session-start and session-stop bridge commands; bridge and plugin files must
 exactly match Brain's bundled bytes. OpenCode compatibility additionally checks
 the configured command's version, required TUI flags, JSON session listing,
 generated capability schema, and plugin load in disposable HOME/XDG roots. It reports the rclone
 probe, and appends the same redacted requirements matrix used by other status
 surfaces. Missing rclone with sync off is informational and does not fail
-doctor. Doctor opens an existing SQLite database read-only, probes rclone with
-an explicit no-config path, and never creates config, cache, lock, journal, or
-skill-render state. Hook repair names the exact installer and selected root.
+doctor. After the common startup migration has reconciled lifecycle artifacts,
+Doctor opens an existing SQLite database read-only, probes rclone with an
+explicit no-config path, and never creates cache, journal, or skill-render
+state. Hook repair names the exact installer and selected root.
 
 ### `brain persona`
 

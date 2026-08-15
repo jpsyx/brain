@@ -5,6 +5,7 @@
 pub enum Invocation {
     Help,
     Version,
+    InternalMigration,
     AgentHook,
     InternalServer,
     WorkspaceCreate,
@@ -62,6 +63,7 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::User => Some(RegistryOnlyPromptOrder::BeforeMigration),
         Invocation::Help
         | Invocation::Version
+        | Invocation::InternalMigration
         | Invocation::AgentHook
         | Invocation::InternalServer
         | Invocation::WorkspaceList
@@ -95,6 +97,7 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
     match invocation {
         Invocation::Help
         | Invocation::Version
+        | Invocation::InternalMigration
         | Invocation::Server
         | Invocation::ServerStatus
         | Invocation::Killall => BootstrapPolicy::None,
@@ -133,6 +136,7 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
 
     match &cli.command {
         None => Invocation::Tui,
+        Some(Cmd::InternalMigration(_)) => Invocation::InternalMigration,
         Some(Cmd::Version) => Invocation::Version,
         Some(Cmd::Workspace(args)) => match &args.action {
             WorkspaceAction::List => Invocation::WorkspaceList,

@@ -63,10 +63,10 @@ with open(capture_file, "a", encoding="utf-8") as output:
 const setupCaptureRoot = () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "brain-opencode-plugin-"));
   const root = path.join(temporary, "root with spaces");
-  const hookDirectory = path.join(root, ".claude", "brain-hooks");
+  const hookDirectory = path.join(root, ".brain", "hooks");
   const captureFile = path.join(temporary, "capture.jsonl");
   fs.mkdirSync(hookDirectory, { recursive: true });
-  for (const name of ["agent_session_start_hook.py", "agent_turn_complete_hook.py"]) {
+  for (const name of ["agent_session_start_hook.py", "agent_session_stop_hook.py"]) {
     fs.writeFileSync(path.join(hookDirectory, name), captureHook, { mode: 0o755 });
   }
   Object.assign(process.env, {
@@ -173,11 +173,11 @@ const rootAndChildScenario = async (BrainPlugin) => {
         payload: { session_id: "root-new", source: "startup" },
       },
       {
-        hook: "agent_turn_complete_hook.py",
+        hook: "agent_session_stop_hook.py",
         payload: { session_id: "root-new", last_assistant_message: "new root answer" },
       },
       {
-        hook: "agent_turn_complete_hook.py",
+        hook: "agent_session_stop_hook.py",
         payload: { session_id: "root-resumed", last_assistant_message: "resumed root answer" },
       },
     ],
@@ -216,7 +216,7 @@ const completionScenario = async (BrainPlugin) => {
     const plugin = await BrainPlugin({ client: fake.client, directory: root });
     await dispatch(plugin, idle("root"));
     const stopRecords = records(captureFile).filter(
-      (record) => record.hook === "agent_turn_complete_hook.py",
+      (record) => record.hook === "agent_session_stop_hook.py",
     );
     if (expected === undefined) {
       assert.equal(stopRecords.length, 0, `${name} must not invoke completion`);
@@ -258,7 +258,7 @@ const errorsScenario = async (BrainPlugin) => {
     messages: { root: [completedAssistant([textPart("secret assistant text")])] },
   });
   fs.writeFileSync(
-    path.join(root, ".claude", "brain-hooks", "agent_turn_complete_hook.py"),
+    path.join(root, ".brain", "hooks", "agent_session_stop_hook.py"),
     "#!/usr/bin/env python3\nraise SystemExit(17)\n",
     { mode: 0o755 },
   );

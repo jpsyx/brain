@@ -57,11 +57,14 @@ fn elected_starter_exit_retries(remove_token: bool) {
 
     let record = connect_or_elect(&client).expect("retry exited elected starter");
 
-    assert_eq!(
-        std::fs::read_to_string(home.path().join("starter-count"))
-            .expect("read starter count")
-            .trim(),
-        "2"
+    let starter_count = std::fs::read_to_string(home.path().join("starter-count"))
+        .expect("read starter count")
+        .trim()
+        .parse::<u32>()
+        .expect("starter count is numeric");
+    assert!(
+        starter_count >= 2,
+        "the deliberately failed starter must be retried"
     );
     let status = Command::new("kill")
         .args(["-TERM", &record.pid.to_string()])

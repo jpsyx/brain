@@ -80,7 +80,8 @@ impl Fixture {
             },
         )
         .unwrap();
-        let codex = home.join(".codex/hooks.json");
+        let codex = root.join(".codex/hooks.json");
+        std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
         std::fs::write(&codex, b"{\"peer\":true}\n").unwrap();
         std::fs::create_dir_all(root.join(".config")).unwrap();
         std::fs::write(
@@ -109,14 +110,12 @@ impl Fixture {
             self.users_before
         );
         assert_eq!(
-            std::fs::read(self.home.join(".codex/hooks.json")).unwrap(),
+            std::fs::read(self.context.workspace.root().join(".codex/hooks.json")).unwrap(),
             self.codex_before
         );
         for path in [
-            ".claude/brain-hooks/agent_session_start_hook.py",
-            ".claude/brain-hooks/agent_turn_complete_hook.py",
-            ".claude/brain-hooks/claude_session_start_hook.py",
-            ".claude/brain-hooks/claude_stop_hook.py",
+            ".brain/hooks/agent_session_start_hook.py",
+            ".brain/hooks/agent_session_stop_hook.py",
             ".claude/settings.json",
             ".opencode/plugins/brain.js",
         ] {
@@ -218,12 +217,8 @@ fn every_persistence_and_hook_failure_restores_exact_selected_bytes_and_peer_sta
         CommitStep::Users,
         CommitStep::Directory("agent-session-start-script"),
         CommitStep::Hook("agent-session-start-script"),
-        CommitStep::Directory("agent-turn-complete-script"),
-        CommitStep::Hook("agent-turn-complete-script"),
-        CommitStep::Directory("claude-session-start-compatibility-script"),
-        CommitStep::Hook("claude-session-start-compatibility-script"),
-        CommitStep::Directory("claude-stop-compatibility-script"),
-        CommitStep::Hook("claude-stop-compatibility-script"),
+        CommitStep::Directory("agent-session-stop-script"),
+        CommitStep::Hook("agent-session-stop-script"),
         CommitStep::Directory("claude-settings"),
         CommitStep::Lock("claude-settings"),
         CommitStep::Hook("claude-settings"),
@@ -252,7 +247,7 @@ fn setup_rejects_an_external_bridge_symlink_and_preserves_its_target_exactly() {
     use std::os::unix::fs::PermissionsExt as _;
 
     let fixture = Fixture::new();
-    let hook_dir = fixture.context.workspace.root().join(".claude/brain-hooks");
+    let hook_dir = fixture.context.workspace.root().join(".brain/hooks");
     std::fs::create_dir_all(&hook_dir).unwrap();
     let target = fixture.home.join("rendered-session-bridge.py");
     let middle = fixture.home.join("current-session-bridge.py");
@@ -294,7 +289,7 @@ fn setup_rejects_an_external_bridge_symlink_and_preserves_its_target_exactly() {
 #[test]
 fn setup_rejects_an_external_dangling_bridge_symlink_without_creating_its_target() {
     let fixture = Fixture::new();
-    let hook_dir = fixture.context.workspace.root().join(".claude/brain-hooks");
+    let hook_dir = fixture.context.workspace.root().join(".brain/hooks");
     std::fs::create_dir_all(&hook_dir).unwrap();
     let target = fixture.home.join("not-yet-rendered-session-bridge.py");
     let middle = fixture.home.join("current-session-bridge.py");

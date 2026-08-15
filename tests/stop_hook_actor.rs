@@ -119,7 +119,7 @@ fn codex_completion_uses_the_job_response_id_and_preserves_actor_context() {
         )
         .unwrap();
     let command = attributed_hook_command(
-        "agent_turn_complete_hook.py",
+        "agent_session_stop_hook.py",
         &state_db,
         &response_dir,
         "codex",
@@ -202,10 +202,7 @@ hook.main()
         "job-before-new",
     );
     stop.arg("-c").arg(PAUSE_AFTER_PAYLOAD);
-    stop.env(
-        "BRAIN_TEST_HOOK",
-        hook_script("agent_turn_complete_hook.py"),
-    );
+    stop.env("BRAIN_TEST_HOOK", hook_script("agent_session_stop_hook.py"));
     stop.env("BRAIN_TEST_READY", &ready);
     stop.env("BRAIN_TEST_GO", &go);
     let stopped = spawn_hook(
@@ -285,7 +282,7 @@ fn artifact_publication_failure_never_commits_completion_or_leaves_a_staged_file
         std::fs::create_dir_all(response_dir.join("job-failure.json")).unwrap();
 
         let command = attributed_hook_command(
-            "agent_turn_complete_hook.py",
+            "agent_session_stop_hook.py",
             &state_db,
             &response_dir,
             agent_kind,

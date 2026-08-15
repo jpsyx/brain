@@ -48,8 +48,8 @@ pub const CONFLICT_MARKER: &str = "__brainconflict__";
 /// then pushes the rollback outward, so one interrupted edit reverts the whole
 /// workspace. Locks are per-machine flocks with nothing portable in them.
 ///
-/// Also every dependency tree (`node_modules/**`, at any depth) and the
-/// machine-local package files an agent frontend drops beside its plugin.
+/// Also every dependency tree (`node_modules/**`, at any depth), Python bytecode,
+/// and the machine-local package files an agent frontend drops beside its plugin.
 /// OpenCode installs `@opencode-ai/plugin`'s dependencies into whatever
 /// workspace it runs in, which is correct for OpenCode and pure waste to
 /// transfer: it put 3.2k objects and 45 MiB on one remote and over half the
@@ -57,7 +57,7 @@ pub const CONFLICT_MARKER: &str = "__brainconflict__";
 /// OpenCode's own `.opencode/.gitignore` names exactly this set. Brain's
 /// `.opencode/plugins/brain.js` bridge is *not* excluded — that is content every
 /// machine needs.
-const EXCLUDES: [&str; 20] = [
+const EXCLUDES: [&str; 22] = [
     ".config/workspace.json",
     ".config/workspace-claims/**",
     // Unanchored, so each matches at any depth. `.brain-*` covers every journal
@@ -79,6 +79,8 @@ const EXCLUDES: [&str; 20] = [
     // Unanchored, so it matches at any depth: whatever tooling a workspace grows,
     // a dependency tree is rebuilt per machine and never worth transferring.
     "node_modules/**",
+    "__pycache__/**",
+    "*.pyc",
     ".opencode/package.json",
     ".opencode/package-lock.json",
     ".opencode/bun.lock",
@@ -310,6 +312,8 @@ mod tests {
         for argv in [args(Direction::Both), push_args(&cfg(), "/root", "BRAIN:b")] {
             for pattern in [
                 "node_modules/**",
+                "__pycache__/**",
+                "*.pyc",
                 ".opencode/package.json",
                 ".opencode/package-lock.json",
                 ".opencode/bun.lock",

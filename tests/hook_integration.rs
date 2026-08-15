@@ -29,12 +29,6 @@ fn hook_script() -> PathBuf {
         .join("agent_session_start_hook.py")
 }
 
-fn legacy_hook_script() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("scripts")
-        .join("claude_session_start_hook.py")
-}
-
 /// Fresh temp DB with the real schema (via `Db::open`).
 fn fresh_db() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::TempDir::new().expect("tempdir");
@@ -260,20 +254,6 @@ fn normalized_session_id_records_exact_identity_for_every_frontend() {
             ))
         );
     }
-}
-
-#[test]
-fn claude_named_start_launcher_preserves_the_normalized_contract() {
-    let (_tmp, db) = fresh_db();
-    register_session(&db, "claude", "pablo", "pending", "inst-1", 4242);
-    let mut command = attributed_hook_command(&db, "claude", "pablo", "inst-1", 4242);
-    command.arg(legacy_hook_script());
-
-    let output = run_hook_command(command, &start_input("real"));
-
-    assert!(output.status.success(), "launcher failed: {output:?}");
-    assert_eq!(read_session(&db, "pending").unwrap().1, None);
-    assert_eq!(read_session(&db, "real").unwrap().1, Some(4242));
 }
 
 #[test]

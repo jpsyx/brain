@@ -80,6 +80,9 @@ argv
  └─→ Cli::parse                          (cli/)
       ├─→ help / -v / --version / Cmd::Version
       │    └─→ print and exit before workspace bootstrap or command gates
+      ├─→ startup_migration::run_current
+      │    └─→ migrate by version, clean obsolete machine state, and reconcile
+      │         managed artifacts in every existing configured workspace
       ├─→ status classifier              (server/receiver status and the receiver
       │                                   details/address routes skip write boundaries)
       ├─→ logging::init                  (other commands: `/tmp` log; optional stdout mirror)
@@ -87,8 +90,8 @@ argv
       │    ├─ context-free/internal → no registry, root, or prompt
       │    ├─ create/attach/remove/repair → registry capability only
       │    ├─ receiver status/url/details/email/phone → read-only selected context,
-      │    │    no migration,
-      │    │    readiness repair, users transaction recovery, or skills render
+      │    │    no bootstrap-time readiness repair, users transaction recovery,
+      │    │    or skills render
       │    └─ ordinary command → migrate only without a valid v2 registry,
       │         select once, validate readiness, repair interactively,
       │         return CommandContext
@@ -194,8 +197,9 @@ all fail before frontend or transport work.
 ## Modules
 
 ### `main.rs`
-The binary entry point is intentionally thin: parse, context-free version exit,
-logging, one workspace bootstrap, one dispatch call, and one top-level error
+The binary entry point is intentionally thin: parse, context-free help/version
+exit, startup migration, logging, one workspace bootstrap, one dispatch call,
+and one top-level error
 boundary. It links the library modules instead of declaring a duplicate module
 tree. `command/dispatch.rs` owns the exhaustive `Cmd` routing, while focused
 `command/{configuration,tasks,sync,server,workspace,users,reindex}` modules own the
@@ -217,6 +221,23 @@ another's identical after-images. `receiver/hooks.rs` owns
 registry-driven frontend lifecycle installation;
 its focused installer tests live in the owned `receiver/hooks/tests.rs`
 submodule.
+
+### `startup_migration/`
+
+`startup_migration/mod.rs` owns a small ordered table of version boundaries.
+Each migration supplies `up` and `down`; `version.rs` provides the three-part
+semantic comparison, and a focused module such as `lifecycle.rs` owns the
+actual cleanup, transformation, and target-state reconciliation. Ordinary
+commands run toward the compiled version and then reconcile its migrations so
+missing managed files self-heal. The version stamp lives at
+`$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
+`~/.config/brain/migrations/version`). Help and version exit before this module.
+
+`install.sh` compares the installed and built versions. An upgrade installs the
+new binary and asks it to migrate forward; a downgrade asks the still-installed
+newer binary to migrate backward before replacement. The hidden `__migrate`
+route exists only for that installer handoff and exits before ordinary
+bootstrap.
 
 ### `cli/`
 The clap derive surface, split by command family. `mod.rs` keeps the parser
@@ -732,7 +753,8 @@ post-pass → verify → journal**: `config` (`SyncConfig`, parsed from the brai
 block) feeds `remote::build_remote` (the B2 remote as `RCLONE_CONFIG_*` env
 vars, never on argv) and `args::bisync_args` (the full `rclone bisync` argv:
 conflict resolution bias for the direction, keep-both flags, `--max-delete`,
-default excludes, `--check-access --check-filename RCLONE_TEST`, plus
+default excludes (including machine-local dependency trees and Python
+bytecode), `--check-access --check-filename RCLONE_TEST`, plus
 `--stats 10s --stats-one-line` for live progress and `--resilient --recover`
 for resumability). Before any remote or portable mutation,
 `identity/` validates the selected root's existing portable manifest, probes

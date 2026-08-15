@@ -279,9 +279,9 @@ fn run_new_session_plugin_bridge(app: &App<'_>) {
         .command_context
         .workspace
         .root()
-        .join(".claude/brain-hooks");
+        .join(".brain/hooks");
     std::fs::create_dir_all(&hook_directory).expect("generic hook directory");
-    for name in ["agent_session_start_hook.py", "agent_turn_complete_hook.py"] {
+    for name in ["agent_session_start_hook.py", "agent_session_stop_hook.py"] {
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("scripts")

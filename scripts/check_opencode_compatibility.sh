@@ -11,12 +11,12 @@ probe_root=$(mktemp -d "${TMPDIR:-/tmp}/brain-opencode-compatibility.XXXXXX")
 trap 'rm -rf "$probe_root"' EXIT HUP INT TERM
 probe_home="$probe_root/home"
 probe_workspace="$probe_root/workspace"
-mkdir -p "$probe_home" "$probe_workspace/.opencode/plugins" "$probe_workspace/.claude/brain-hooks"
+mkdir -p "$probe_home" "$probe_workspace/.opencode/plugins" "$probe_workspace/.brain/hooks"
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cp "$script_dir/opencode_brain_plugin.js" "$probe_workspace/.opencode/plugins/brain.js"
-cp "$script_dir/agent_session_start_hook.py" "$probe_workspace/.claude/brain-hooks/agent_session_start_hook.py"
-cp "$script_dir/agent_turn_complete_hook.py" "$probe_workspace/.claude/brain-hooks/agent_turn_complete_hook.py"
+cp "$script_dir/agent_session_start_hook.py" "$probe_workspace/.brain/hooks/agent_session_start_hook.py"
+cp "$script_dir/agent_session_stop_hook.py" "$probe_workspace/.brain/hooks/agent_session_stop_hook.py"
 
 config='{"default_agent":"brain","agent":{"brain":{"mode":"primary","prompt":"Brain compatibility probe","permission":{"skill":{"*":"deny","probe":"allow"}}}},"mcp":{"brain_ws_probe":{"type":"local","command":["/usr/bin/true"],"enabled":false}},"skills":{"paths":[]}}'
 

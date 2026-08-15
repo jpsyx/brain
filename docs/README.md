@@ -53,6 +53,7 @@ src/
   actor/         : immutable ActorContext for local and authenticated requests
   agent/         : AgentController, frontend registry, and Claude/Codex/OpenCode adapters
   users/         : portable people, normalized identities, and atomic users.json storage
+  startup_migration/ : automatic machine up/down migrations and reconciliation
   migration/     : explicit journaled legacy-to-multi-workspace rollout
   config.rs      — typed knobs (triage pattern, linear, rollover)
   paths.rs       : legacy migration-only root compatibility
@@ -69,9 +70,8 @@ src/
   open_target.rs — "how to open this path" + new-iTerm2-tab opener
 scripts/
   agent_session_start_hook.py  : frontend-neutral attributed session rotation
-  agent_turn_complete_hook.py  : frontend-neutral authorized completion publication
+  agent_session_stop_hook.py   : frontend-neutral authorized completion publication
   opencode_brain_plugin.js     : thin OpenCode event-to-bridge adapter
-  claude_*_hook.py             : installed compatibility entry points
 tests/
   entry_collect.rs   — entry::collect against real temp dir trees
   root_resolution.rs — config parse + tilde expansion composition

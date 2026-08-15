@@ -272,10 +272,13 @@ the one-shot `App::receiver_force_fresh` to skip resume candidates. The retired
 session's row is left exactly as it was and simply stops being the most recent
 one for its (frontend, workspace, actor) scope.
 
-Status uses a separate `ReadOnlyWorkspace` bootstrap policy. It reads an
+After the process-wide startup migration boundary, status uses a separate
+`ReadOnlyWorkspace` bootstrap policy. It reads an
 already-valid current-schema selected record, manifest, portable users, persistent
 intent, and any existing generation snapshot without invoking recovery or
-write-capable stores. This preserves the four-field receiver projection
+write-capable command stores. The earlier migration may clean obsolete global
+hooks, reconcile workspace lifecycle artifacts, and update the machine migration
+stamp. After that common boundary, status preserves the four-field receiver projection
 (`Receiver`, `TUI`, `Server`, `Accepting`) without changing bytes or process
 state. One generation-bound control response carries the process lease count
 and exact-workspace lease state. The underlying lease-table view filters
@@ -318,6 +321,14 @@ are created exclusively with mode `0600`, and receive only centrally redacted
 argv values.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
 current diagnostic-log destination.
+
+Machine startup migrations have one separate version record:
+`$XDG_CONFIG_HOME/brain/migrations/version`, falling back to
+`~/.config/brain/migrations/version`. It records the target Brain version whose
+ordered migrations were last applied. It is machine state, not portable
+workspace data and not part of a workspace's UUID cache. A later ordinary
+invocation still reconciles current managed artifacts even when this stamp
+already matches, which is how a missing hook is recreated without user action.
 
 ### Receiver address routing (`server/receiver/routing.rs`)
 
@@ -967,7 +978,7 @@ without a manual `brain skills sync`.
   is rejected. The authorization reads and accepted rotation mutation
   share one `BEGIN IMMEDIATE` transaction, so concurrent target claims are
   serialized and a rejected or failed attempt preserves both lineages.
-- `SessionStore::mark_completed` and the turn-complete bridge transition the exact scoped
+- `SessionStore::mark_completed` and the session-stop bridge transition the exact scoped
   row to `completed`; an accepted session-start event or
   `SessionStore::mark_active` after a successful local or queued submit returns
   it to `active`.
@@ -1462,6 +1473,10 @@ serializes `modified`/`bytes` as JSON `null` rather than omitting the fields.
 No groups at all serializes as `[]`. This is the shape the `/second-brain
 resolve-conflicts` skill parses; see [integrations.md](integrations.md) for
 the resolve side of the contract.
+
+Machine-local build outputs are not workspace data. The file lane excludes
+dependency trees and Python bytecode (`node_modules/**`, `__pycache__/**`, and
+`*.pyc`), and the change watcher applies the same classification.
 
 ## CSV semantic merge (`src/sync/csv_merge/`, `src/sync/csv_sync/`)
 

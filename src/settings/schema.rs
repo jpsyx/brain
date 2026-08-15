@@ -39,17 +39,17 @@ pub(super) const VARS: [VarSpec; 14] = [
     },
     VarSpec {
         name: "response_email",
-        description: "Address long replies are sent to. Portable: the live value comes from users.json — change it with `brain user`. A value in this store is legacy migration input only.",
+        description: "Address long replies are sent to. Portable: the live value comes from users.json; change it with `brain user -w <WORKSPACE>`. A value in this store is legacy migration input only.",
         default: None,
     },
     VarSpec {
         name: "allowed_sms_senders",
-        description: "Phone numbers allowed to initiate inbound work. Portable: the live value comes from users.json — change it with `brain user`. A value in this store is legacy migration input only.",
+        description: "Phone numbers allowed to initiate inbound work. Portable: the live value comes from users.json; change it with `brain user -w <WORKSPACE>`. A value in this store is legacy migration input only.",
         default: None,
     },
     VarSpec {
         name: "allowed_email_senders",
-        description: "Email addresses allowed to initiate inbound work. Portable: the live value comes from users.json — change it with `brain user`. A value in this store is legacy migration input only.",
+        description: "Email addresses allowed to initiate inbound work. Portable: the live value comes from users.json; change it with `brain user -w <WORKSPACE>`. A value in this store is legacy migration input only.",
         default: None,
     },
     VarSpec {

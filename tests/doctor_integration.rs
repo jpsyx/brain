@@ -15,7 +15,10 @@ fn compatible_opencode() -> [(AgentKind, Result<Option<String>, brain::agent::Ag
 }
 
 fn install_bridge_files(settings_dir: &std::path::Path) {
-    let hooks = settings_dir.join("brain-hooks");
+    let hooks = settings_dir
+        .parent()
+        .expect("workspace root")
+        .join(".brain/hooks");
     std::fs::create_dir_all(&hooks).unwrap();
     std::fs::write(
         hooks.join("agent_session_start_hook.py"),
@@ -23,8 +26,8 @@ fn install_bridge_files(settings_dir: &std::path::Path) {
     )
     .unwrap();
     std::fs::write(
-        hooks.join("agent_turn_complete_hook.py"),
-        include_str!("../scripts/agent_turn_complete_hook.py"),
+        hooks.join("agent_session_stop_hook.py"),
+        include_str!("../scripts/agent_session_stop_hook.py"),
     )
     .unwrap();
 }
@@ -32,10 +35,10 @@ fn install_bridge_files(settings_dir: &std::path::Path) {
 fn hook_settings() -> &'static str {
     r#"{"hooks":{
       "SessionStart":[{"hooks":[
-        {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py\""}
+        {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py\""}
       ]}],
       "Stop":[{"hooks":[
-        {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py\""}
+        {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py\""}
       ]}]
     }}"#
 }
@@ -43,10 +46,10 @@ fn hook_settings() -> &'static str {
 fn codex_hook_settings() -> &'static str {
     r#"{"hooks":{
       "SessionStart":[{"hooks":[
-        {"type":"command","command":"python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py\""}
+        {"type":"command","command":"python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py\""}
       ]}],
       "Stop":[{"hooks":[
-        {"type":"command","command":"python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py\""}
+        {"type":"command","command":"python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py\""}
       ]}]
     }}"#
 }
@@ -126,7 +129,7 @@ fn doctor_requires_the_complete_start_and_stop_hook_pair() {
     std::fs::write(
         settings_dir.join("settings.json"),
         r#"{"hooks":{"SessionStart":[{"hooks":[
-          {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py\""}
+          {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py\""}
         ]}]}}"#,
     )
     .unwrap();
@@ -153,7 +156,10 @@ fn doctor_rejects_stale_opencode_plugin_and_bridge_contents() {
 
     std::fs::write(&plugin, include_str!("../scripts/opencode_brain_plugin.js")).unwrap();
     std::fs::write(
-        settings_dir.join("brain-hooks/agent_session_start_hook.py"),
+        settings_dir
+            .parent()
+            .unwrap()
+            .join(".brain/hooks/agent_session_start_hook.py"),
         "stale bridge",
     )
     .unwrap();
@@ -191,7 +197,7 @@ fn diagnosis_is_ok_when_all_checks_pass() {
     std::fs::create_dir_all(&settings_dir).unwrap();
     std::fs::write(settings_dir.join("settings.json"), hook_settings()).unwrap();
     install_bridge_files(&settings_dir);
-    let codex_hooks = tmp.path().join(".codex/hooks.json");
+    let codex_hooks = tmp.path().join("brain/.codex/hooks.json");
     std::fs::create_dir_all(codex_hooks.parent().unwrap()).unwrap();
     std::fs::write(&codex_hooks, codex_hook_settings()).unwrap();
     let plugin = tmp.path().join("brain/.opencode/plugins/brain.js");
@@ -240,7 +246,7 @@ fn doctor_requires_all_functional_frontend_integrations() {
     std::fs::create_dir_all(&settings_dir).unwrap();
     std::fs::write(settings_dir.join("settings.json"), hook_settings()).unwrap();
     install_bridge_files(&settings_dir);
-    let codex_hooks = tmp.path().join(".codex/hooks.json");
+    let codex_hooks = tmp.path().join("brain/.codex/hooks.json");
 
     let diag = brain::tasks::doctor::run_doctor_with_frontends(
         &db_path,

@@ -97,7 +97,7 @@ fn adapters_preserve_fresh_and_resume_command_syntax() {
             .launch_spec(&fresh_with_prompt("Start here"))
             .expect("Codex launch")
             .command,
-        "codex -- 'Start here'"
+        "codex --dangerously-bypass-hook-trust -- 'Start here'"
     );
     assert_eq!(
         claude
@@ -111,7 +111,7 @@ fn adapters_preserve_fresh_and_resume_command_syntax() {
             .launch_spec(&resume("sess-9"))
             .expect("Codex launch")
             .command,
-        "codex resume 'sess-9'"
+        "codex --dangerously-bypass-hook-trust resume 'sess-9'"
     );
 }
 
@@ -143,7 +143,7 @@ fn adapters_preserve_configured_prefix_and_prompt_quoting() {
             ))
             .expect("Codex launch")
             .command,
-        "codex --model gpt-5 resume 'resume-1' -- 'don'\\''t lose this'"
+        "codex --model gpt-5 --dangerously-bypass-hook-trust resume 'resume-1' -- 'don'\\''t lose this'"
     );
 }
 

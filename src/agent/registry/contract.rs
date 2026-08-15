@@ -5,8 +5,6 @@ use std::path::{Path, PathBuf};
 pub(crate) enum LifecycleTarget {
     /// Path relative to the selected workspace root.
     Workspace(&'static str),
-    /// Path relative to the current user's home directory.
-    Home(&'static str),
 }
 
 /// Command path convention used by a frontend's hook settings.
@@ -14,7 +12,7 @@ pub(crate) enum LifecycleTarget {
 pub(crate) enum HookCommandStyle {
     /// Commands resolve through Claude's own project-root variable.
     ClaudeProjectDir,
-    /// Commands resolve through the portable `BRAIN_ROOT` fallback.
+    /// Commands resolve through the selected workspace's `BRAIN_ROOT`.
     PortableBrainRoot,
 }
 
@@ -23,7 +21,7 @@ pub(crate) enum HookCommandStyle {
 pub(crate) enum LifecyclePayload {
     /// Write exact bundled source with the requested Unix mode.
     StaticFile { contents: &'static str, mode: u32 },
-    /// Merge Brain's normalized start and completion hooks into JSON settings.
+    /// Merge Brain's normalized session-start and session-stop hooks into JSON settings.
     HookSettings {
         style: HookCommandStyle,
         session_script: &'static str,
@@ -53,10 +51,9 @@ impl LifecycleInstallation {
     }
 
     #[must_use]
-    pub(crate) fn path(self, root: &Path, home: &Path) -> PathBuf {
+    pub(crate) fn path(self, root: &Path, _home: &Path) -> PathBuf {
         match self.target {
             LifecycleTarget::Workspace(relative) => root.join(relative),
-            LifecycleTarget::Home(relative) => home.join(relative),
         }
     }
 
@@ -81,8 +78,6 @@ impl LifecycleInstallation {
 pub(crate) enum HealthCheckTarget {
     /// A selected-workspace-relative file.
     WorkspaceFile(&'static str),
-    /// A home-relative file.
-    HomeFile(&'static str),
 }
 
 /// Evidence expected at one health-check location.
@@ -112,10 +107,9 @@ impl HealthCheckDescriptor {
     }
 
     #[must_use]
-    pub(crate) fn path(self, root: &Path, home: &Path) -> PathBuf {
+    pub(crate) fn path(self, root: &Path, _home: &Path) -> PathBuf {
         match self.target {
             HealthCheckTarget::WorkspaceFile(relative) => root.join(relative),
-            HealthCheckTarget::HomeFile(relative) => home.join(relative),
         }
     }
 
@@ -129,53 +123,28 @@ const SESSION_START_SCRIPT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/scripts/agent_session_start_hook.py"
 ));
-const TURN_COMPLETE_SCRIPT: &str = include_str!(concat!(
+const SESSION_STOP_SCRIPT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/scripts/agent_turn_complete_hook.py"
+    "/scripts/agent_session_stop_hook.py"
 ));
 const OPENCODE_PLUGIN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/scripts/opencode_brain_plugin.js"
 ));
-const LEGACY_SESSION_START_SCRIPT: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/scripts/claude_session_start_hook.py"
-));
-const LEGACY_STOP_SCRIPT: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/scripts/claude_stop_hook.py"
-));
-
-pub(super) const CLAUDE_LIFECYCLE: [LifecycleInstallation; 5] = [
+pub(super) const CLAUDE_LIFECYCLE: [LifecycleInstallation; 3] = [
     LifecycleInstallation {
         id: "agent-session-start-script",
-        target: LifecycleTarget::Workspace(".claude/brain-hooks/agent_session_start_hook.py"),
+        target: LifecycleTarget::Workspace(".brain/hooks/agent_session_start_hook.py"),
         payload: LifecyclePayload::StaticFile {
             contents: SESSION_START_SCRIPT,
             mode: 0o755,
         },
     },
     LifecycleInstallation {
-        id: "agent-turn-complete-script",
-        target: LifecycleTarget::Workspace(".claude/brain-hooks/agent_turn_complete_hook.py"),
+        id: "agent-session-stop-script",
+        target: LifecycleTarget::Workspace(".brain/hooks/agent_session_stop_hook.py"),
         payload: LifecyclePayload::StaticFile {
-            contents: TURN_COMPLETE_SCRIPT,
-            mode: 0o755,
-        },
-    },
-    LifecycleInstallation {
-        id: "claude-session-start-compatibility-script",
-        target: LifecycleTarget::Workspace(".claude/brain-hooks/claude_session_start_hook.py"),
-        payload: LifecyclePayload::StaticFile {
-            contents: LEGACY_SESSION_START_SCRIPT,
-            mode: 0o755,
-        },
-    },
-    LifecycleInstallation {
-        id: "claude-stop-compatibility-script",
-        target: LifecycleTarget::Workspace(".claude/brain-hooks/claude_stop_hook.py"),
-        payload: LifecyclePayload::StaticFile {
-            contents: LEGACY_STOP_SCRIPT,
+            contents: SESSION_STOP_SCRIPT,
             mode: 0o755,
         },
     },
@@ -184,23 +153,23 @@ pub(super) const CLAUDE_LIFECYCLE: [LifecycleInstallation; 5] = [
         target: LifecycleTarget::Workspace(".claude/settings.json"),
         payload: LifecyclePayload::HookSettings {
             style: HookCommandStyle::ClaudeProjectDir,
-            session_script: ".claude/brain-hooks/agent_session_start_hook.py",
-            completion_script: ".claude/brain-hooks/agent_turn_complete_hook.py",
+            session_script: ".brain/hooks/agent_session_start_hook.py",
+            completion_script: ".brain/hooks/agent_session_stop_hook.py",
             legacy_session_scripts: &["claude_session_start_hook.py"],
-            legacy_completion_scripts: &["claude_stop_hook.py"],
+            legacy_completion_scripts: &["claude_stop_hook.py", "agent_turn_complete_hook.py"],
         },
     },
 ];
 
 pub(super) const CODEX_LIFECYCLE: [LifecycleInstallation; 1] = [LifecycleInstallation {
     id: "codex-settings",
-    target: LifecycleTarget::Home(".codex/hooks.json"),
+    target: LifecycleTarget::Workspace(".codex/hooks.json"),
     payload: LifecyclePayload::HookSettings {
         style: HookCommandStyle::PortableBrainRoot,
-        session_script: ".claude/brain-hooks/agent_session_start_hook.py",
-        completion_script: ".claude/brain-hooks/agent_turn_complete_hook.py",
+        session_script: ".brain/hooks/agent_session_start_hook.py",
+        completion_script: ".brain/hooks/agent_session_stop_hook.py",
         legacy_session_scripts: &["claude_session_start_hook.py"],
-        legacy_completion_scripts: &["claude_stop_hook.py"],
+        legacy_completion_scripts: &["claude_stop_hook.py", "agent_turn_complete_hook.py"],
     },
 }];
 
@@ -219,7 +188,7 @@ pub(super) const CLAUDE_HEALTH: [HealthCheckDescriptor; 4] = [
         target: HealthCheckTarget::WorkspaceFile(".claude/settings.json"),
         expectation: HealthCheckExpectation::Hook {
             event: "SessionStart",
-            suffix: ".claude/brain-hooks/agent_session_start_hook.py",
+            suffix: ".brain/hooks/agent_session_start_hook.py",
         },
     },
     HealthCheckDescriptor {
@@ -227,47 +196,47 @@ pub(super) const CLAUDE_HEALTH: [HealthCheckDescriptor; 4] = [
         target: HealthCheckTarget::WorkspaceFile(".claude/settings.json"),
         expectation: HealthCheckExpectation::Hook {
             event: "Stop",
-            suffix: ".claude/brain-hooks/agent_turn_complete_hook.py",
+            suffix: ".brain/hooks/agent_session_stop_hook.py",
         },
     },
     HealthCheckDescriptor {
         label: "session-start bridge",
-        target: HealthCheckTarget::WorkspaceFile(".claude/brain-hooks/agent_session_start_hook.py"),
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_start_hook.py"),
         expectation: HealthCheckExpectation::FileContents(SESSION_START_SCRIPT),
     },
     HealthCheckDescriptor {
-        label: "turn-complete bridge",
-        target: HealthCheckTarget::WorkspaceFile(".claude/brain-hooks/agent_turn_complete_hook.py"),
-        expectation: HealthCheckExpectation::FileContents(TURN_COMPLETE_SCRIPT),
+        label: "session-stop bridge",
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_stop_hook.py"),
+        expectation: HealthCheckExpectation::FileContents(SESSION_STOP_SCRIPT),
     },
 ];
 
 pub(super) const CODEX_HEALTH: [HealthCheckDescriptor; 4] = [
     HealthCheckDescriptor {
         label: "SessionStart",
-        target: HealthCheckTarget::HomeFile(".codex/hooks.json"),
+        target: HealthCheckTarget::WorkspaceFile(".codex/hooks.json"),
         expectation: HealthCheckExpectation::Hook {
             event: "SessionStart",
-            suffix: ".claude/brain-hooks/agent_session_start_hook.py",
+            suffix: ".brain/hooks/agent_session_start_hook.py",
         },
     },
     HealthCheckDescriptor {
         label: "Stop",
-        target: HealthCheckTarget::HomeFile(".codex/hooks.json"),
+        target: HealthCheckTarget::WorkspaceFile(".codex/hooks.json"),
         expectation: HealthCheckExpectation::Hook {
             event: "Stop",
-            suffix: ".claude/brain-hooks/agent_turn_complete_hook.py",
+            suffix: ".brain/hooks/agent_session_stop_hook.py",
         },
     },
     HealthCheckDescriptor {
         label: "session-start bridge",
-        target: HealthCheckTarget::WorkspaceFile(".claude/brain-hooks/agent_session_start_hook.py"),
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_start_hook.py"),
         expectation: HealthCheckExpectation::FileContents(SESSION_START_SCRIPT),
     },
     HealthCheckDescriptor {
-        label: "turn-complete bridge",
-        target: HealthCheckTarget::WorkspaceFile(".claude/brain-hooks/agent_turn_complete_hook.py"),
-        expectation: HealthCheckExpectation::FileContents(TURN_COMPLETE_SCRIPT),
+        label: "session-stop bridge",
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_stop_hook.py"),
+        expectation: HealthCheckExpectation::FileContents(SESSION_STOP_SCRIPT),
     },
 ];
 
@@ -279,12 +248,12 @@ pub(super) const OPENCODE_HEALTH: [HealthCheckDescriptor; 3] = [
     },
     HealthCheckDescriptor {
         label: "session-start bridge",
-        target: HealthCheckTarget::WorkspaceFile(".claude/brain-hooks/agent_session_start_hook.py"),
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_start_hook.py"),
         expectation: HealthCheckExpectation::FileContents(SESSION_START_SCRIPT),
     },
     HealthCheckDescriptor {
-        label: "turn-complete bridge",
-        target: HealthCheckTarget::WorkspaceFile(".claude/brain-hooks/agent_turn_complete_hook.py"),
-        expectation: HealthCheckExpectation::FileContents(TURN_COMPLETE_SCRIPT),
+        label: "session-stop bridge",
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_stop_hook.py"),
+        expectation: HealthCheckExpectation::FileContents(SESSION_STOP_SCRIPT),
     },
 ];

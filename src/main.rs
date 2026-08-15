@@ -20,6 +20,15 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(brain::cli::Cmd::InternalMigration(args)) = &cli.command {
+        brain::startup_migration::run_explicit(&args.from_version, &args.to_version)?;
+        return Ok(());
+    }
+
+    if let Err(error) = brain::startup_migration::run_current() {
+        exit_with_error(&error, None);
+    }
+
     // An explicitly selected frontend is validated before any workspace, TUI,
     // hook, server, or PTY setup. A frontend that comes from workspace env can
     // only be known after bootstrap, so it is validated inside dispatch.
