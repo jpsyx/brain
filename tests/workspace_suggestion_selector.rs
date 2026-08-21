@@ -23,6 +23,22 @@ const NAMES_A_COMMAND: [(&str, &str); 2] = [
     ("command/sync.rs", "brain sync repair"),
 ];
 
+#[test]
+fn test_only_section_directories_are_excluded_without_hiding_production_modules() {
+    assert!(is_test_only_directory(Path::new(
+        "src/sync/check/tests_sections"
+    )));
+    assert!(is_test_only_directory(Path::new(
+        "src/tui/tests/keymap_sections"
+    )));
+    assert!(!is_test_only_directory(Path::new(
+        "src/sync/command/reporting_sections"
+    )));
+    assert!(!is_test_only_directory(Path::new(
+        "src/sync/command/sections"
+    )));
+}
+
 fn production_source(path: &Path) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
     let mut production = Vec::new();
@@ -45,13 +61,27 @@ fn production_source(path: &Path) -> Option<String> {
     Some(production.join("\n"))
 }
 
+fn is_test_only_directory(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    if matches!(name, "tests_parts" | "tests_sections") {
+        return true;
+    }
+    name.ends_with("_sections")
+        && path
+            .ancestors()
+            .skip(1)
+            .any(|ancestor| ancestor.file_name().is_some_and(|name| name == "tests"))
+}
+
 fn rust_sources(directory: &Path, found: &mut Vec<PathBuf>) {
     let entries = std::fs::read_dir(directory).expect("readable source directory");
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
         if path.is_dir() {
-            if name != "tests_parts" {
+            if !is_test_only_directory(&path) {
                 rust_sources(&path, found);
             }
         } else if path.extension().is_some_and(|extension| extension == "rs")
