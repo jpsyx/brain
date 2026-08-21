@@ -118,6 +118,7 @@ impl<O: TerminalOps> Drop for ManagedTerminal<O> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn restore_after_event_loop(
     event_loop_result: Result<()>,
     restore: impl FnOnce() -> Result<()>,

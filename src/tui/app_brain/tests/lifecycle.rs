@@ -273,11 +273,27 @@ fn whole_shell_shutdown_explicitly_stops_every_agent_controller_once() {
         Some(AgentKind::OpenCode)
     );
 
-    app.shutdown_agent_controllers();
-    app.shutdown_agent_controllers();
+    assert!(app.shutdown_agent_controllers().is_empty());
+    assert!(app.shutdown_agent_controllers().is_empty());
 
     assert_eq!(main_recording.shutdowns(), 1);
     assert_eq!(triage_recording.shutdowns(), 1);
+}
+
+#[test]
+fn whole_shell_shutdown_returns_controller_errors_instead_of_swallowing_them() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
+    app.brain = Some(unavailable_recording_controller(&app));
+
+    let errors = app.shutdown_agent_controllers();
+
+    assert_eq!(errors.len(), 1);
+    assert_eq!(
+        errors[0].to_string(),
+        "frontend error: injected shutdown failure"
+    );
 }
 
 fn run_new_session_plugin_bridge(app: &App) {

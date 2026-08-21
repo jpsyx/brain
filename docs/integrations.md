@@ -598,15 +598,21 @@ with its registration for habits and triage URLs; a short-lived habits command
 asks the current generation for that selected workspace's live accepted
 ingress. Neither path reselects an ingress from a later manifest read.
 
-TUI startup orders ownership as workspace readiness, UUID singleton, UUID-local
-`jobs.sock`, bounded connect/elect/register handshake, heartbeat worker, then
-agent/event loop. If the selected generation exits between discovery and
+TUI startup flows through named `TuiRuntime` builder stages. They order
+ownership as workspace readiness, UUID singleton, hook/skill refresh,
+UUID-local `jobs.sock`, bounded connect/elect/register handshake, heartbeat
+worker, assignment, terminal, App/session state, initial agent panel, startup
+sync, watcher, and periodic puller. If the selected generation exits between discovery and
 registration, the handshake re-enters election and registers with the winner;
 an authoritative workspace rejection returns immediately.
 The worker sends one heartbeat per second. Missing transport, a stale
 generation, or a lost lease triggers bounded election/reuse and re-registration;
 concurrent TUIs use the same election path so only one replacement wins.
-Orderly exit stops the worker and unregisters before removing `jobs.sock`.
+The runtime tick drains health events before skill-session, receiver, sync, and
+triage work. Orderly exit stops the worker and unregisters before agent
+shutdown, periodic-puller and watcher drop, session-lock release, terminal
+restoration, and final singleton release. The receiver-owned `jobs.sock` stays
+inside the App for the complete live runtime.
 
 The nudge's **Skip** button takes a different route entirely. Skipping is
 deterministic — it only marks today's protected Morning Triage occurrence done
@@ -1425,7 +1431,7 @@ brain-root lookup.
 ## Auto-sync triggers (startup, periodic, change, and receiver)
 
 The auto-sync layer (`src/sync/{lock,watch,periodic,trigger,freshness,current,follow}.rs`,
-wired into `src/tui/event_loop/setup.rs` and `src/tui/app_sync.rs`) drives the
+wired into `src/tui/runtime/mod.rs` and `src/tui/app_sync.rs`) drives the
 rclone handoff automatically. Every automatic trigger runs the sync in a
 **detached background process**, never on a thread inside the shell, so a sync
 can neither write over the TUI nor be killed when the shell quits. Its own

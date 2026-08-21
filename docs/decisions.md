@@ -203,6 +203,30 @@ error, clears each successful capability, and retries only failures. When both
 the event loop and required cleanup fail, the required cleanup error retains
 the pre-refactor precedence established by the teardown `?` sequence.
 
+## Why one `TuiRuntime` owns the process lifetime
+
+The persistent shell previously kept its process resources as locals in
+`run_tui`, while the event loop named every recurring subsystem. That preserved
+behavior but left ownership, recurring order, and teardown order implicit in one
+long function. `TuiRuntime` is now the composition root for the already-existing
+RAII owners. It owns the App, terminal session, workspace singleton, heartbeat
+worker, watcher, periodic puller, receiver endpoint through the App, and shell
+instance/session lock. It does not wrap or duplicate their cleanup internals.
+
+Startup uses named stages in the established order. A pure lifecycle model pins
+that acquisition sequence and makes orderly shutdown idempotent. Shutdown keeps
+the server unregister before agent shutdown, then stops the periodic puller and
+watcher, releases the session lock, restores the terminal, and holds the
+workspace singleton until the runtime drops. `Drop` invokes the same sequence
+as a best-effort fallback, so an early return cannot bypass cleanup. Controller
+and session-release failures are logged while later teardown stages continue.
+
+The recurring coordinator similarly names the current order without moving
+feature decisions out of their owners. Sync and triage still decide internally
+whether task data needs refreshing. Logical-day advancement remains part of the
+manual refresh path and only rechecks triage when the day rolled. This keeps the
+terminal loop structural: tick, draw, poll/read, then one application update.
+
 ## Why we push the kitty protocol unconditionally (and avoid the probe)
 
 Distinguishing `Ctrl-Enter` (reveal in Finder) from `Enter` (open file)

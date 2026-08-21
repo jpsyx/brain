@@ -6,9 +6,9 @@ use crate::workspace::{
     CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
 };
 
-use super::{
-    acquire_singleton_then_refresh, load_startup_config, periodic_pull_enabled,
-    restore_after_event_loop, startup_sync_plan,
+use crate::tui::runtime::terminal::restore_after_event_loop;
+use crate::tui::runtime::{
+    acquire_singleton_then_refresh, load_startup_config, periodic_pull_enabled, startup_sync_plan,
 };
 
 #[test]

@@ -27,11 +27,20 @@ impl ControllerRecording {
 struct RecordingFrontend {
     kind: AgentKind,
     recording: ControllerRecording,
+    available: bool,
 }
 
 impl AgentFrontend for RecordingFrontend {
     fn kind(&self) -> AgentKind {
         self.kind
+    }
+
+    fn ensure_available(&self) -> Result<(), AgentError> {
+        if self.available {
+            Ok(())
+        } else {
+            Err(AgentError::Frontend("injected shutdown failure".to_owned()))
+        }
     }
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
@@ -261,6 +270,7 @@ pub(crate) fn recording_controller_for_actor(
         Box::new(RecordingFrontend {
             kind: app.agent_kind,
             recording: recording.clone(),
+            available: true,
         }),
         Box::new(RecordingTransport {
             recording: recording.clone(),
@@ -269,6 +279,24 @@ pub(crate) fn recording_controller_for_actor(
         }),
     );
     (controller, recording)
+}
+
+pub(crate) fn unavailable_recording_controller(app: &App) -> AgentController {
+    let recording = ControllerRecording::default();
+    AgentController::new(
+        Arc::clone(&app.command_context.workspace),
+        app.interactive_actor.clone(),
+        Box::new(RecordingFrontend {
+            kind: app.agent_kind,
+            recording: recording.clone(),
+            available: false,
+        }),
+        Box::new(RecordingTransport {
+            recording,
+            alive: true,
+            snapshot: String::new(),
+        }),
+    )
 }
 
 /// A transport whose spawn always fails, for the launch-failure paths.

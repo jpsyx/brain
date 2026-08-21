@@ -42,6 +42,19 @@ first move is a failing test that reproduces it, *then* the fix.
   replace an event-loop error, required cleanup retains its prior precedence
   when both paths fail, and `Drop` completes without panicking. None opens
   `/dev/tty`.
+- **TUI process lifecycle and recurring order.** `tui::runtime::shutdown`
+  tests a pure acquisition/shutdown state model. It pins singleton, receiver,
+  server, terminal, App, and background-service acquisition; idempotent
+  teardown; server-before-agent shutdown; periodic-puller and watcher drop;
+  session-lock release; terminal restoration; and singleton ownership through
+  final runtime drop. `tui::runtime::tick` pins the production-used order for
+  exited-panel task refresh, heartbeat health, skill sessions, receiver, sync
+  status with conditional task refresh, and the triage gate with conditional
+  task refresh. Its refresh-stage test pins logical-day advancement, task
+  reload, conditional rollover triage, and reporting. The event-update
+  classifier verifies input filtering. Whole-shell agent tests also prove that
+  every controller is attempted once and shutdown errors are returned to the
+  runtime for logging. These tests use no sleeps or terminal.
 - **Workspace CLI decisions.** Clap and binary tests cover every placement of
   the raw `--workspace/-w` selector, including after delegated task positionals,
   the long equals form, the `--` terminator, and duplicate/missing-value errors,
@@ -654,10 +667,11 @@ first move is a failing test that reproduces it, *then* the fix.
 
 ## What we deliberately don't test
 
-- **The interactive event loop.** `tui::run_tui` opens `/dev/tty`, toggles raw
+- **The interactive event loop.** `TuiRuntime` opens `/dev/tty`, toggles raw
   mode, pushes kitty flags, spawns the selected agent PTY, and runs the panel
-  loop. We test the terminal lifecycle through injected headless operations and
-  the pure application logic it calls (`handle_key`, `App::*`, `focus_*`,
+  loop. We test its lifecycle and recurring order through pure stage models,
+  its terminal lifecycle through injected headless operations, and the pure
+  application logic it calls (`handle_key`, `App::*`, `focus_*`,
   `panel_borders`, `key_to_bytes`, the render helpers); we don't drive a real
   terminal or a live Claude/Codex/OpenCode provider process.
 - **Ratatui frame output.** We assert on the `Line`s we build, not on

@@ -114,13 +114,16 @@ metadata, initializes the portable config, task stores, lookup CSVs, counters,
 and PARA directories, then publishes the initialized tree with a configured
 push before the task CSVs are loaded.
 
-tui::run_tui(TuiLaunch) (the persistent shell)
+tui::run_tui(TuiLaunch) (thin persistent-shell facade)
  ├─→ command::tasks::browse converts the task clap DTO once into owned
  │   TaskViewOptions, then moves the resolved view, task rows, selector state,
  │   and workspace context into TuiLaunch
- ├─→ command_context.workspace.root()       (immutable selected root snapshot)
- ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)
- └─→ App event loop (tasks view + search view + agent PTY)
+ └─→ TuiRuntime::start(TuiLaunch)
+      ├─→ named startup stages own singleton, receiver endpoint, server lease,
+      │   terminal, App/session state, watcher, and periodic puller
+      ├─→ command_context.workspace.root()   (immutable selected root snapshot)
+      ├─→ build_search(brain_root)            (entry::collect over all buckets → picker::App)
+      └─→ tick → draw → poll/read → application update
        ├─ agent::SessionStore: reap dead locks, scoped resume / claim or register
        ├─ App owns one AgentController per live main/triage panel
        │    ├─ access::AccessPolicy snapshots trusted portable mode/root/actor
@@ -170,7 +173,7 @@ rule applies across the large runtime families:
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
-| TUI | `tui/mod.rs` and the existing app coordinators | `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `model.rs` owns shared panel/tab state; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| TUI | `tui/runtime/mod.rs` and the existing app coordinators | `runtime/mod.rs` owns process-lifetime startup and resources; `runtime/tick.rs` coordinates recurring feature boundaries; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `model.rs` owns shared panel/tab state; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
 | Live receiver runtime | `tui/receiver/{decision,effect,runtime}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
@@ -957,13 +960,13 @@ the IO/threads/`Command`:
   five-minute periodic, change-push, and message-pull policies in
   `brain sync status`.
 
-**The `run_tui` lifecycle seam** (`src/tui/event_loop/setup.rs`) is the one wire
-point: after the startup work and before the event loop it calls
-`trigger::spawn_detached_sync(Pull)` whenever sync is configured and holds a
+**The `TuiRuntime` lifecycle seam** (`src/tui/runtime/mod.rs`) owns startup and
+process-lifetime services. Its sync-services stage calls
+`trigger::spawn_detached_sync(Pull)` whenever sync is configured and retains a
 `periodic::spawn_periodic_puller` handle plus a `watch::spawn_watcher` handle
-(when `watch_effective()`). It drops that TUI's timer and watcher after the
-event loop, which explicitly stop and join only their workers, and performs no
-exit sync. `ReceiverRuntime` owns the receiver freshness-gate state and its
+(when `watch_effective()`). Orderly shutdown drops that TUI's timer and watcher,
+which explicitly stop and join only their workers, and performs no exit sync.
+`ReceiverRuntime` owns the receiver freshness-gate state and its
 observation-driven pure poll transition. `App` owns the injected sync adapter
 that reads clocks, journals, and current process state and launches children.
 Each receiver tick walks one explicit ordered stage list. The runtime
@@ -1148,8 +1151,10 @@ submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
 `draw_assignee` module so the shared-workspace overlay stays separate from the
 general confirm, link, and brain-input modal renderer.
 
-The larger submodules are directories split by concern: `runtime/terminal.rs`
-(the RAII terminal owner), `action/` (the closed
+The larger submodules are directories split by concern: `runtime/`
+(`mod.rs` for the process owner, `tick.rs` for recurring coordination,
+`shutdown.rs` for lifecycle order, and `terminal.rs` for the RAII terminal
+owner), `action/` (the closed
 `GlobalAction` enum), `handlers/`
 (`overlay`/`tasks_view`/`input`), `event_loop/` (`setup`/`modal_route`/`run`),
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
@@ -1188,13 +1193,17 @@ files, or provider delivery remains in the existing App coordinators.
 phone configuration and renders persistent warning content independently from
 the transient palette flash.
 
-### Startup (`run_tui`)
-`run_tui()` first acquires the workspace UUID singleton, refreshes hooks, binds
-the UUID-scoped `jobs.sock`, completes a bounded connect/elect/register
-handshake with the machine-wide server, and starts its heartbeat worker. The
+### Startup and shutdown (`TuiRuntime`)
+
+`run_tui()` only starts `TuiRuntime`, runs it, and requests orderly shutdown.
+The runtime's named builder stages acquire the workspace UUID singleton,
+refresh hooks and skills, bind the UUID-scoped `jobs.sock`, complete a bounded
+connect/elect/register handshake with the machine-wide server, and start its
+heartbeat worker. The
 handshake retries only stale or missing generations, while authoritative
-workspace rejection ends startup. Only then does it open the state DB, resolve
-assignment state, build the brain-search picker (`build_search`), and assemble
+workspace rejection ends startup. It next resolves assignment state, acquires
+the terminal, opens the state DB, builds the brain-search picker
+(`build_search`), and assembles
 one internal `AppInit` request. `App::new(AppInit)` initializes the
 lifetime-free shell model from that owned request.
 Before opening the state DB, `TerminalSession::acquire` opens `/dev/tty`, builds
@@ -1211,20 +1220,34 @@ The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
 then launches the selected frontend through an `AgentController`
 (Claude or OpenCode resume-vs-fresh; Codex fresh) and `focus_tasks()`
-returns focus to the tasks main view so `j`/`k` work at once. It then wires the auto-sync
-triggers (a mandatory detached pull-biased startup sync and, when
-`watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
-loop through a narrow mutable borrow of the owned ratatui terminal. Shutdown
-stops heartbeats and attempts a bounded unregister before
-shutting down the main and triage controllers, dropping the watcher, releasing
-the session lock, restoring the terminal, or letting the app remove `jobs.sock`;
-the final accepted
-unregister stops the shared process. No exit sync or
-idle timer exists. The **daily-triage nudge**
-is coupled to that startup sync: when a configured startup sync is pending, `run_tui`
-does *not* run the check immediately. It captures the sync journal's latest
+returns focus to the tasks main view so `j`/`k` work at once. The sync-services
+stage then wires a detached pull-biased startup sync and retains the optional
+watcher and periodic puller. The runtime owns the `App`, `TerminalSession`,
+workspace singleton, heartbeat worker, watcher, periodic puller, shell instance
+identity, and the App state that holds the session lock and receiver job socket.
+
+One runtime tick coordinates the established order: close an exited agent panel
+and refresh tasks if needed, drain heartbeat/server-health events, tick skill
+sessions, tick the receiver, poll sync status and conditionally refresh tasks,
+then poll the triage gate and conditionally refresh tasks. Manual refresh has a
+second explicit order: advance the logical day, reload tasks, check triage only
+after a day rollover, then report the refresh. The terminal loop itself contains
+only runtime tick, draw, terminal poll/read, and one application update call.
+
+Orderly shutdown is idempotent. It stops the heartbeat worker and attempts the
+bounded unregister before shutting down the main and skill-session controllers,
+drops the periodic puller and watcher, releases the shell's session lock, then
+restores the terminal. The singleton remains held until the runtime itself is
+dropped, after every owned resource has completed its orderly teardown. `Drop`
+reuses the same sequence as a best-effort fallback and logs restoration errors
+without panicking. Agent-controller and session-lock teardown failures are also
+logged instead of discarded. The final accepted unregister stops the shared process. No
+exit sync exists. The **daily-triage nudge**
+is coupled to that startup sync: when a configured startup sync is pending, the
+runtime does *not* run the check immediately. It captures the sync journal's latest
 clean downstream row ID, kicks the sync, and calls `App::arm_triage_gate`
-(deferral, no modal). Each event-loop tick then calls `App::tick_triage_gate`.
+(deferral, no modal). The recurring tick coordinator then calls
+`App::tick_triage_gate`.
 Once a newer clean pull/both/resync row appears, it strictly reloads portable
 config, reconciles managed policy under the workspace task-store owner, reloads
 both synced CSVs, and evaluates the live process-scoped alert state. Palette

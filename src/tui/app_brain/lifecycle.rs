@@ -93,14 +93,18 @@ impl App {
     }
 
     /// End every live agent child before the owning shell drops its transports.
-    pub(crate) fn shutdown_agent_controllers(&mut self) {
+    pub(crate) fn shutdown_agent_controllers(&mut self) -> Vec<crate::agent::AgentError> {
+        let mut errors = Vec::new();
         for controller in self.brain.iter_mut().chain(
             self.skill_sessions
                 .iter_mut()
                 .map(|tab| &mut tab.controller),
         ) {
-            let _ = controller.shutdown();
+            if let Err(error) = controller.shutdown() {
+                errors.push(error);
+            }
         }
+        errors
     }
 
     /// Re-read the CSVs after a brain interaction; route any error to
@@ -116,18 +120,6 @@ impl App {
     /// flashes a confirmation so the user sees that the repaint
     /// actually happened, even when nothing visible changed.
     pub(crate) fn refresh(&mut self) {
-        // A tasks session can span days. Advance `today` first if this refresh
-        // crossed into a new logical day (6 AM rollover by default) so the
-        // rebuilt view uses the new date, then re-open the daily-triage nudge
-        // against the freshly-reloaded habits.
-        let rolled = self.advance_triage_day(chrono::Local::now().naive_local());
-        let reload = self.reload_tasks();
-        if rolled {
-            self.check_daily_triage();
-        }
-        self.flash = Some(match reload {
-            Ok(()) => FlashKind::Info("✓ refreshed".to_string()),
-            Err(e) => FlashKind::Error(format!("⚠ reload failed: {e}")),
-        });
+        crate::tui::runtime::tick::refresh(self);
     }
 }

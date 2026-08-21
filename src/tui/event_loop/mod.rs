@@ -7,4 +7,5 @@ mod modal_route;
 mod run;
 mod setup;
 
+pub(super) use run::event_loop;
 pub(crate) use setup::run_tui;
