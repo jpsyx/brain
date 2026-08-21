@@ -1,5 +1,20 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FilterPolicy {
+    WordAtoms,
+    Contiguous,
+}
+
+impl FilterPolicy {
+    fn matches(self, query: &str, text: &str) -> bool {
+        match self {
+            Self::WordAtoms => query.split_whitespace().all(|word| text.contains(word)),
+            Self::Contiguous => text.contains(query),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PaletteRow<A> {
     pub(crate) number: usize,
@@ -21,6 +36,7 @@ impl<A> PaletteRow<A> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PaletteControls {
+    filter_policy: FilterPolicy,
     wrap_navigation: bool,
     ctrl_pn_navigation: bool,
     ctrl_query_edits: bool,
@@ -30,6 +46,7 @@ pub(crate) struct PaletteControls {
 
 impl PaletteControls {
     pub(crate) const SEARCH: Self = Self {
+        filter_policy: FilterPolicy::WordAtoms,
         wrap_navigation: false,
         ctrl_pn_navigation: true,
         ctrl_query_edits: true,
@@ -38,6 +55,7 @@ impl PaletteControls {
     };
 
     pub(crate) const TASKS: Self = Self {
+        filter_policy: FilterPolicy::Contiguous,
         wrap_navigation: true,
         ctrl_pn_navigation: false,
         ctrl_query_edits: false,
@@ -123,18 +141,17 @@ impl<A: Copy> CommandPalette<A> {
     }
 
     fn refilter(&mut self) {
-        let words = self
-            .query
-            .split_whitespace()
-            .map(str::to_lowercase)
-            .collect::<Vec<_>>();
+        let query = self.query.to_lowercase();
         self.filtered = self
             .rows
             .iter()
             .enumerate()
             .filter_map(|(index, row)| {
                 let text = format!("{}. {}", row.number, row.label).to_lowercase();
-                words.iter().all(|word| text.contains(word)).then_some(index)
+                self.controls
+                    .filter_policy
+                    .matches(&query, &text)
+                    .then_some(index)
             })
             .collect();
         self.selected = 0;

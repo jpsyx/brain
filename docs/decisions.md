@@ -93,8 +93,10 @@ Both surfaces build the same reusable `PaletteRow<A>` and
 `CommandPalette<A>` state. The model centralizes numbering, filtering,
 selection, cancellation, and confirmation, while a small controls value keeps
 the established navigation and text-input differences between the two
-surfaces. Catalogs still decide row order, dynamic labels, visibility, task
-context, and destructive-row placement.
+surfaces. That controls value also selects the established filter policy:
+case-insensitive word atoms for search, and one case-insensitive contiguous
+substring for task palettes. Catalogs still decide row order, dynamic labels,
+visibility, task context, and destructive-row placement.
 
 A plugin registry would make a finite in-process command set harder to audit,
 weaken exhaustive dispatch, and require erasing feature context. A closed enum

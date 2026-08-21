@@ -33,6 +33,15 @@ fn search_palette() -> CommandPalette<Action> {
     CommandPalette::new("Test palette", None, rows(), PaletteControls::SEARCH)
 }
 
+fn palette_with_label(label: &str, controls: PaletteControls) -> CommandPalette<Action> {
+    CommandPalette::new(
+        "Test palette",
+        None,
+        vec![PaletteRow::new(label, Action::Alpha, None)],
+        controls,
+    )
+}
+
 #[test]
 fn palette_numbers_rows_and_starts_on_the_first_action() {
     let palette = search_palette();
@@ -176,4 +185,65 @@ fn alt_characters_keep_each_surface_filter_contract() {
     tasks.handle_key(alt_key(KeyCode::Char('b')));
     assert_eq!(tasks.query(), "b");
     assert_eq!(tasks.selected_action(), Some(Action::Beta));
+}
+
+#[test]
+fn search_and_task_palettes_keep_distinct_filter_policies() {
+    let cases = [
+        (PaletteControls::SEARCH, "brain message", 1),
+        (PaletteControls::TASKS, "brain message", 0),
+        (PaletteControls::TASKS, "message brain", 1),
+        (PaletteControls::TASKS, "MESSAGE BRAIN", 1),
+    ];
+
+    for (controls, query, expected_rows) in cases {
+        let mut palette = palette_with_label("Message brain", controls);
+        for value in query.chars() {
+            palette.handle_key(key(KeyCode::Char(value)));
+        }
+        assert_eq!(palette.visible().len(), expected_rows, "{controls:?}");
+    }
+}
+
+#[test]
+fn search_filter_is_case_insensitive_and_empty_query_restores_every_row() {
+    let mut palette = search_palette();
+    for value in "ALPHA".chars() {
+        palette.handle_key(key(KeyCode::Char(value)));
+    }
+    assert_eq!(palette.selected_action(), Some(Action::Alpha));
+    assert_eq!(palette.visible().len(), 1);
+
+    for _ in "ALPHA".chars() {
+        palette.handle_key(key(KeyCode::Backspace));
+    }
+    assert_eq!(palette.query(), "");
+    assert_eq!(
+        palette
+            .visible()
+            .into_iter()
+            .map(|row| row.action)
+            .collect::<Vec<_>>(),
+        vec![Action::Alpha, Action::Beta, Action::Gamma]
+    );
+}
+
+#[test]
+fn search_plain_jk_enter_text_and_lowercase_ctrl_jk_navigate() {
+    for value in ['j', 'k'] {
+        let mut palette = search_palette();
+        palette.handle_key(key(KeyCode::Char(value)));
+        assert_eq!(palette.query(), value.to_string());
+    }
+
+    let cases = [('j', false, Action::Beta), ('k', true, Action::Alpha)];
+    for (value, start_on_second, expected) in cases {
+        let mut palette = search_palette();
+        if start_on_second {
+            palette.handle_key(key(KeyCode::Down));
+        }
+        palette.handle_key(ctrl_key(KeyCode::Char(value)));
+        assert_eq!(palette.selected_action(), Some(expected), "Ctrl-{value}");
+        assert_eq!(palette.query(), "");
+    }
 }

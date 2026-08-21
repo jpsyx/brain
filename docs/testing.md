@@ -162,12 +162,13 @@ first move is a failing test that reproduces it, *then* the fix.
   `build_display_rows`, and navigation clamping (`move_*`, `page_*`,
   `selected_path`).
 - **Palette state and menu navigation.** The generic `CommandPalette<A>` is a
-  pure state machine tested for word/number filtering, empty results,
-  selection clamping, wrapping versus saturating movement, each surface's
-  established Ctrl/Alt handling, Enter confirmation, and Esc/Ctrl-c
-  cancellation. Catalog guards prove shared task/search application rows wrap
-  the same `GlobalAction` and preserve their exact shared or contextual
-  label/shortcut metadata.
+  pure state machine tested for the search palette's case-insensitive
+  word-atom/number filtering, the task palette's case-insensitive contiguous
+  substring filtering, empty-query restoration and empty results, selection
+  clamping, wrapping versus saturating movement, each surface's established
+  Ctrl/Alt handling, Enter confirmation, and Esc/Ctrl-c cancellation. Catalog
+  guards prove shared task/search application rows wrap the same `GlobalAction`
+  and preserve their exact shared or contextual label/shortcut metadata.
   Search structural guards keep the layout toggle last and ensure every
   `SearchAction` appears exactly once when applicable (including `CreatePdf`
   when a markdown target is present). The two contextual rows: "Create PDF"
