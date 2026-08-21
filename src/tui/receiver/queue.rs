@@ -1,6 +1,7 @@
 //! Bounded, in-memory receiver admission and FIFO dispatch.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use crate::server::receiver::{ControlCommand, InboundJob, RestartPlan, parse_control_command};
 
@@ -8,10 +9,13 @@ const CAPACITY: usize = 64;
 
 /// One socket admission that has appended but not yet committed its job.
 ///
-/// Its fields stay private so only the queue can decide which staged append a
-/// failed acknowledgement is allowed to roll back.
+/// Its fields stay private so only its issuing queue can decide which staged
+/// append a failed acknowledgement is allowed to roll back.
 #[derive(Debug)]
-pub struct StagedAdmission(u64);
+pub struct StagedAdmission {
+    queue_identity: Arc<()>,
+    generation: u64,
+}
 
 /// Why a job could not enter the live TUI's queue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +42,9 @@ impl std::error::Error for StageError {}
 /// The live TUI's bounded FIFO of authenticated receiver work.
 #[derive(Debug, Default)]
 pub struct InboundQueue {
+    // Allocation identity stays stable when the queue moves, and the token
+    // keeps it alive until the admission is consumed.
+    identity: Arc<()>,
     jobs: VecDeque<InboundJob>,
     staged: Option<u64>,
     next_admission: u64,
@@ -68,15 +75,19 @@ impl InboundQueue {
         self.next_admission = self.next_admission.wrapping_add(1);
         self.jobs.push_back(job);
         self.staged = Some(admission);
-        Ok(StagedAdmission(admission))
+        Ok(StagedAdmission {
+            queue_identity: Arc::clone(&self.identity),
+            generation: admission,
+        })
     }
 
     /// Make the exact staged admission visible to dispatch.
     #[must_use]
     #[allow(clippy::needless_pass_by_value)] // Consuming the token prevents admission replay.
     pub fn finalize(&mut self, admission: StagedAdmission) -> bool {
-        let StagedAdmission(admission) = admission;
-        if self.staged == Some(admission) {
+        if Arc::ptr_eq(&self.identity, &admission.queue_identity)
+            && self.staged == Some(admission.generation)
+        {
             self.staged = None;
             true
         } else {
@@ -87,8 +98,9 @@ impl InboundQueue {
     /// Remove only the tail appended by this exact staged admission.
     #[allow(clippy::needless_pass_by_value)] // Consuming the token prevents rollback replay.
     pub fn rollback(&mut self, admission: StagedAdmission) -> Option<InboundJob> {
-        let StagedAdmission(admission) = admission;
-        (self.staged == Some(admission)).then(|| {
+        (Arc::ptr_eq(&self.identity, &admission.queue_identity)
+            && self.staged == Some(admission.generation))
+        .then(|| {
             self.staged = None;
             self.jobs
                 .pop_back()

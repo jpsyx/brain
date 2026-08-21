@@ -91,6 +91,32 @@ fn rollback_removes_only_the_exact_staged_tail_job() {
 }
 
 #[test]
+fn a_foreign_token_cannot_finalize_another_queues_staged_tail() {
+    let mut first = InboundQueue::default();
+    let mut second = InboundQueue::default();
+    let first_token = first.stage(job("first staged")).unwrap();
+    let second_token = second.stage(job("second staged")).unwrap();
+
+    assert!(!first.finalize(second_token));
+    assert!(!second.finalize(first_token));
+    assert!(first.head().is_none());
+    assert!(second.head().is_none());
+}
+
+#[test]
+fn a_foreign_token_cannot_roll_back_another_queues_staged_tail() {
+    let mut first = InboundQueue::default();
+    let mut second = InboundQueue::default();
+    let first_token = first.stage(job("first staged")).unwrap();
+    let second_token = second.stage(job("second staged")).unwrap();
+
+    assert!(first.rollback(second_token).is_none());
+    assert!(second.rollback(first_token).is_none());
+    assert_eq!(prompts(&first), vec!["first staged"]);
+    assert_eq!(prompts(&second), vec!["second staged"]);
+}
+
+#[test]
 fn head_commit_is_fifo_and_a_failed_launch_retains_the_head() {
     let mut queue = InboundQueue::default();
     admit(&mut queue, "first");

@@ -2344,10 +2344,11 @@ silently changing FIFO semantics. Tests receive only an owned read-only
 snapshot.
 
 If the TUI stages after `commit` but cannot write its final `accepted`
-acknowledgment, an opaque admission token removes only that exact staged tail
-item before releasing the exclusive queue borrow. A successful write finalizes
-the same token and makes the job dispatchable. The server therefore treats the
-failed handoff as unavailable and never commits an ID for work the TUI did not
+acknowledgment, an opaque admission token bound to its issuing queue identity
+and admission generation removes only that exact staged tail item before
+releasing the exclusive queue borrow. A successful write finalizes the same
+token and makes the job dispatchable. The server therefore treats the failed
+handoff as unavailable and never commits an ID for work the TUI did not
 acknowledge.
 
 Webhook verification follows provider replay guidance: HMAC comparisons are

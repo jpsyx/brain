@@ -897,8 +897,9 @@ workspace UUID, immutable actor and channel, normalized sender, prompt, stable
 provider email/attachment IDs, provider ID, and acceptance-time response
 metadata. The TUI returns `prepared`, then after the server's exact-revision
 admission commits, `InboundQueue` stages the decoded job under an opaque token
-in its private 64-entry memory queue. The socket writes final `accepted` before
-the queue finalizes that job for dispatch. If the write fails, token-scoped
+bound to that queue's stable identity and the admission generation in its
+private 64-entry memory queue. The socket writes final `accepted` before the
+queue finalizes that job for dispatch. If the write fails, token-scoped
 rollback removes only that exact staged append before the event-loop poll
 releases its exclusive queue borrow. The queue remains live-TUI-only and has no
 durable backing or headless consumer.
