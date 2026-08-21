@@ -64,10 +64,10 @@ impl App {
     /// Deliberately not gated on the panel being free. A sender restarts
     /// *because* they are stuck behind something, so making the command wait
     /// for the thing it is meant to escape would leave it useless.
-    pub(crate) fn apply_queued_restart(&mut self) {
-        let Some(plan) = self.receiver.take_restart() else {
-            return;
-        };
+    pub(crate) fn apply_receiver_restart(
+        &self,
+        plan: &crate::server::receiver::RestartPlan<InboundJob>,
+    ) {
         crate::logging::log(format!(
             "receiver control /restart from channel={:?}; dropping {} queued message(s)",
             plan.command.channel,
@@ -93,12 +93,9 @@ impl App {
 
     /// Apply a `/new` sitting at the head of the queue, if the panel is free.
     ///
-    /// Returns `true` when one was consumed, so the caller can re-enter rather
-    /// than dispatch a command as if it were a prompt.
-    pub(crate) fn apply_queued_new_session(&mut self) -> bool {
-        let Some(job) = self.receiver.take_new_session() else {
-            return false;
-        };
+    /// The tick coordinator re-enters this stage after the effect, so adjacent
+    /// controls are consumed before ordinary work can dispatch.
+    pub(crate) fn apply_receiver_new_session(&mut self, job: &InboundJob) {
         crate::logging::log(format!(
             "receiver control /new for channel={:?}; next message opens a fresh session",
             job.channel
@@ -111,11 +108,10 @@ impl App {
             self.close_receiver_panel(false);
         }
         self.reply_to_job(
-            &job,
+            job,
             "new session acknowledgement",
             &crate::server::reply::new_session_notice(channel_label(job.channel)).text,
         );
-        true
     }
 }
 

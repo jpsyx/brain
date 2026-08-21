@@ -112,7 +112,7 @@ impl App {
         }
     }
 
-    pub(crate) fn receiver_sync_ready(&mut self) -> bool {
+    pub(crate) fn execute_receiver_sync_freshness_effect(&mut self) -> bool {
         let config = SyncConfig::load(&self.command_context);
         if !config.is_configured() {
             return true;

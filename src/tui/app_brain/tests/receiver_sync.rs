@@ -172,15 +172,15 @@ fn receiver_freshness_gate_opens_only_after_the_injected_journal_advances() {
     let runtime = TestReceiverSyncRuntime::new();
     app.receiver_sync_runtime = Box::new(runtime.clone());
 
-    assert!(!app.receiver_sync_ready());
+    assert!(!app.execute_receiver_sync_freshness_effect());
     assert!(
-        !app.receiver_sync_ready(),
+        !app.execute_receiver_sync_freshness_effect(),
         "unchanged journal must remain gated"
     );
     runtime.state.lock().unwrap().journal_id = Some(5);
     runtime.advance(std::time::Duration::from_millis(250));
 
-    assert!(app.receiver_sync_ready());
+    assert!(app.execute_receiver_sync_freshness_effect());
     assert_eq!(runtime.state.lock().unwrap().launches.len(), 1);
 }
 
@@ -193,24 +193,30 @@ fn receiver_pull_retries_and_falls_back_after_three_clock_driven_grace_periods()
     let runtime = TestReceiverSyncRuntime::new();
     app.receiver_sync_runtime = Box::new(runtime.clone());
 
-    assert!(!app.receiver_sync_ready(), "attempt one launches");
+    assert!(
+        !app.execute_receiver_sync_freshness_effect(),
+        "attempt one launches"
+    );
     runtime.advance(std::time::Duration::from_secs(4));
-    assert!(!app.receiver_sync_ready(), "grace period suppresses retry");
+    assert!(
+        !app.execute_receiver_sync_freshness_effect(),
+        "grace period suppresses retry"
+    );
     assert_eq!(runtime.state.lock().unwrap().launches.len(), 1);
     runtime.advance(std::time::Duration::from_secs(1));
     assert!(
-        !app.receiver_sync_ready(),
+        !app.execute_receiver_sync_freshness_effect(),
         "attempt two launches at five seconds"
     );
     runtime.advance(std::time::Duration::from_secs(5));
     assert!(
-        !app.receiver_sync_ready(),
+        !app.execute_receiver_sync_freshness_effect(),
         "attempt three launches at ten seconds"
     );
     runtime.advance(std::time::Duration::from_secs(5));
 
     assert!(
-        app.receiver_sync_ready(),
+        app.execute_receiver_sync_freshness_effect(),
         "third failed start falls back locally"
     );
     assert_eq!(runtime.state.lock().unwrap().launches.len(), 3);

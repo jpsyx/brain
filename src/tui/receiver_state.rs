@@ -2,8 +2,6 @@
 
 use std::time::{Duration, Instant};
 
-use crate::server::receiver::Channel;
-
 /// How long a dispatched message may go without a completion signal before its
 /// turn is eligible to be abandoned. Short enough that a wedged turn does not
 /// strand the messages queued behind it; a turn that is still visibly working
@@ -19,41 +17,6 @@ pub const REMOTE_TURN_TIMEOUT: Duration = Duration::from_secs(300);
 /// calling a working turn stalled is killing a good answer, while the cost of
 /// waiting another minute on a truly wedged one is only that minute.
 pub const ACTIVE_WORK_IDLE: Duration = Duration::from_secs(90);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DispatchAction {
-    WaitForTurn,
-    CloseIdlePanel,
-    ReuseReceiverPanel,
-    StartNext,
-}
-
-#[must_use]
-pub fn dispatch_action_for_channel(
-    queued_channel: Option<Channel>,
-    panel_open: bool,
-    panel_channel: Option<Channel>,
-    turn_active: bool,
-    remote_job_active: bool,
-) -> DispatchAction {
-    if queued_channel.is_none() || remote_job_active || turn_active {
-        DispatchAction::WaitForTurn
-    } else if panel_open && queued_channel == panel_channel {
-        DispatchAction::ReuseReceiverPanel
-    } else if panel_open {
-        DispatchAction::CloseIdlePanel
-    } else {
-        DispatchAction::StartNext
-    }
-}
-
-#[must_use]
-pub const fn should_poll_interactive_completion(
-    turn_active: bool,
-    remote_job_active: bool,
-) -> bool {
-    turn_active && !remote_job_active
-}
 
 #[must_use]
 pub fn retry_ready(deadline: Option<Instant>, now: Instant) -> bool {

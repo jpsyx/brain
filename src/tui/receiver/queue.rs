@@ -142,6 +142,16 @@ impl InboundQueue {
         Some(RestartPlan { command, dropped })
     }
 
+    /// Whether finalized work contains an immediate restart control.
+    #[must_use]
+    pub fn has_restart(&self) -> bool {
+        let finalized_len = self.jobs.len() - usize::from(self.staged.is_some());
+        self.jobs
+            .iter()
+            .take(finalized_len)
+            .any(|job| parse_control_command(&job.prompt) == Some(ControlCommand::Restart))
+    }
+
     /// Consume a new-session command only when it reaches the FIFO head.
     pub fn take_new_session(&mut self) -> Option<InboundJob> {
         (self.head().is_some_and(|job| {
@@ -151,6 +161,14 @@ impl InboundQueue {
             self.jobs
                 .pop_front()
                 .expect("the new-session command was just observed at the head")
+        })
+    }
+
+    /// Whether the next dispatchable job is a new-session control.
+    #[must_use]
+    pub fn has_new_session(&self) -> bool {
+        self.head().is_some_and(|job| {
+            parse_control_command(&job.prompt) == Some(ControlCommand::NewSession)
         })
     }
 

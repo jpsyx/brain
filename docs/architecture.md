@@ -171,7 +171,7 @@ rule applies across the large runtime families:
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/mod.rs` and the existing app coordinators | `model.rs` owns shared panel/tab state; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/mod.rs` | One `ReceiverRuntime` owns the socket, queue, intent and channel controls, session and delivery identity, lease and generation, activity/retry/probe timing, and freshness gate; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits |
+| Live receiver runtime | `tui/receiver/{decision,effect,runtime}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -966,6 +966,10 @@ event loop, which explicitly stop and join only their workers, and performs no
 exit sync. `ReceiverRuntime` owns the receiver freshness-gate state and its
 observation-driven pure poll transition. `App` owns the injected sync adapter
 that reads clocks, journals, and current process state and launches children.
+Each receiver tick walks one explicit ordered stage list. The runtime
+re-snapshots receiver-local facts before each stage and returns a typed effect,
+so a completed effect can change a later decision without replaying a one-shot
+timeout, lease, control, or dispatch transition.
 `tui/app_sync.rs` passes those observations into the runtime and owns the
 cross-feature sync launch, task reload, footer, and warning effects at the exact queued-job
 consumption boundary. It
@@ -1145,7 +1149,8 @@ The larger submodules are directories split by concern: `action/` (the closed
 (`construct`/`nav`/`view`/`selection_query`), `app_actions/`
 (`commands`/`receiver`/`triage`, with pure triage policy in
 `triage/decision.rs`), `app_brain/` (`launch`/`lifecycle` plus receiver
-`dispatch`/`completion`/`state` and focused tests), and `tests/` (split by
+`dispatch`/`completion`/`state` effect executors and focused tests), and
+`tests/` (split by
 area). `app_brain/` owns the main persistent controller, receiver dispatch,
 and completion delivery;
 `app_brain/launch/session.rs` owns the full fresh-or-resume launch transaction,
@@ -1162,8 +1167,11 @@ structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `ReceiverRuntime`, the App-owned receiver sync effect adapter, `filter_tasks`,
 re-exports, and module wiring. Receiver
 representation is private to `receiver/runtime.rs` and its focused child
-modules. App coordinators consume queue, launch, completion, lease, diagnostic,
-and freshness-gate operations instead of mutating receiver fields. The runtime
+modules. `receiver/decision.rs` maps independent facts onto the fixed tick
+stages, while `receiver/effect.rs` carries only the data each App-owned effect
+needs. App coordinators execute those effects and feed semantic outcomes back
+through completion, dispatch, diagnostic, and freshness-gate operations rather
+than mutating receiver fields. The runtime
 receives sync observations and never reads journals, files, or process state or
 launches sync children. Cross-feature
 work that touches the agent controller, task reloads, sync processes, response

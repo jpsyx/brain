@@ -6,16 +6,7 @@ impl App {
     /// A Stop hook marks the end of an interactive turn without killing the
     /// persistent panel. If remote work is waiting, close only after that
     /// completion signal so the active turn is never interrupted.
-    pub(super) fn poll_completed_interactive_turn(&mut self) {
-        if !crate::tui::receiver_state::should_poll_interactive_completion(
-            self.brain_turn_active,
-            self.receiver.remote_turn_in_flight(),
-        ) {
-            return;
-        }
-        let Some(session_id) = self.receiver.interactive_response_id().map(str::to_owned) else {
-            return;
-        };
+    pub(super) fn poll_completed_interactive_turn(&mut self, session_id: &str) {
         let path = self
             .command_context
             .workspace
@@ -50,9 +41,6 @@ impl App {
     /// torn down so the queue can move. The interactive session is restored
     /// only when nothing is waiting, since queued work claims the panel next.
     pub(super) fn abandon_timed_out_remote_turn(&mut self) {
-        if !self.receiver.should_abandon_turn(std::time::Instant::now()) {
-            return;
-        }
         crate::logging::log(format!(
             "receiver turn abandoned: {}s open with no completion and no panel activity for {}s; releasing {} queued message(s)",
             self.receiver
@@ -72,13 +60,7 @@ impl App {
         self.close_receiver_panel(nothing_queued);
     }
 
-    pub(super) fn maybe_send_processing_delay(&mut self) {
-        let Some(target) = self
-            .receiver
-            .claim_processing_delay(std::time::Instant::now())
-        else {
-            return;
-        };
+    pub(super) fn send_processing_delay(&self, target: crate::tui::receiver::DeliveryTarget) {
         let channel = target.channel;
         let notice = crate::server::reply::processing_notice(match channel {
             crate::server::receiver::Channel::Sms => "sms",
@@ -99,13 +81,13 @@ impl App {
         }
     }
 
-    pub(super) fn poll_completed_remote_response(&mut self) {
-        let Some(turn) = self.receiver.active_remote_turn() else {
-            return;
-        };
-        let session_id = turn.response_id.to_owned();
-        let channel = turn.channel;
-        let sender = turn.sender.to_owned();
+    pub(super) fn poll_completed_remote_response(
+        &mut self,
+        target: crate::tui::receiver::RemoteCompletionTarget,
+    ) {
+        let session_id = target.response_id;
+        let channel = target.channel;
+        let sender = target.sender;
         let path = self
             .command_context
             .workspace

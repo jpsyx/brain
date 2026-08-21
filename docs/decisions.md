@@ -2351,6 +2351,35 @@ token and makes the job dispatchable. The server therefore treats the failed
 handoff as unavailable and never commits an ID for work the TUI did not
 acknowledge.
 
+## Why the receiver tick uses ordered decisions and effects, not one lifecycle enum
+
+A receiver tick observes several independent dimensions: an interactive turn,
+a remote completion, a processing-response delay, a panel activity sample, an
+activity probe, a turn timeout, a warm-session lease, a retry deadline, a sync
+freshness gate, control messages, and queued work. Combining those dimensions
+into one lifecycle enum would create a large cross-product whose variants
+encode incidental timing combinations rather than real domain states.
+
+`receiver::decision` therefore keeps those inputs as independent `TickFacts`.
+`TickStage` names only the historical execution order, and each pure stage
+decision produces at most one typed `ReceiverEffectKind`. The runtime
+re-snapshots facts before every stage and materializes one-shot targets only
+when that decision is reached. The App executes the corresponding
+`ReceiverEffect`, retaining ownership of `AgentController`, response files,
+provider delivery, task reloads, child processes, and sync observations. It
+then feeds semantic completion, dispatch, diagnostic, or freshness results
+back to the runtime. Re-snapshotting prevents duplicate state transitions and
+allows an earlier effect, such as a timeout or `/restart`, to change all later
+decisions in the same tick.
+
+The fixed order remains remote completion, interactive completion, processing
+delay, panel activity, activity probe, turn timeout, warm-lease expiry, socket
+polling, `/restart`, retry readiness, sync freshness, `/new`, idle-panel
+selection, and dispatch. `/new` may repeat within its own stage to consume
+consecutive control messages, and a waiting retry or sync gate halts the
+remaining stages. This is sequencing policy, not a second mutable receiver
+state machine.
+
 Webhook verification follows provider replay guidance: HMAC comparisons are
 constant-time and Resend timestamps have a five-minute tolerance. Provider
 delivery IDs use a 1024-entry accepted cache keyed by workspace, channel, and

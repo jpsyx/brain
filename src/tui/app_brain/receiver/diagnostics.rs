@@ -39,12 +39,6 @@ impl App {
     /// interval because rendering the screen is not free at the event loop's
     /// rate.
     pub(crate) fn sample_panel_activity(&mut self, now: std::time::Instant) {
-        if !self.receiver.panel_sample_due(now) {
-            if !self.receiver.remote_turn_in_flight() {
-                self.receiver.note_panel_sample(now, None);
-            }
-            return;
-        }
         let digest = self
             .brain
             .as_ref()
@@ -59,11 +53,7 @@ impl App {
     }
 
     /// Log the panel once each scheduled sample comes due.
-    pub(super) fn probe_dispatched_receiver_message(&mut self) {
-        let now = std::time::Instant::now();
-        let Some(probe) = self.receiver.take_due_probe(now) else {
-            return;
-        };
+    pub(super) fn log_receiver_activity_probe(&self, probe: &crate::tui::receiver::ReceiverProbe) {
         crate::logging::log(format!(
             "receiver probe {}s after dispatch: turn_active={} awaiting_response_for={:?} panel={}",
             probe.elapsed_seconds,

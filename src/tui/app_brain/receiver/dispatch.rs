@@ -1,78 +1,98 @@
-//! Live job-socket polling and queued-work dispatch.
+//! Ordered receiver decisions and application-owned effect execution.
 
+use crate::server::receiver::InboundJob;
 use crate::tui::*;
 
 impl App {
-    /// Drain jobs received on the UUID-local socket. Active agent work is
-    /// never interrupted; the queue is consumed when the panel is available.
+    /// Plan and execute one pass over the receiver's ordered lifecycle stages.
     pub(crate) fn tick_receiver(&mut self) {
-        self.poll_completed_remote_response();
-        self.poll_completed_interactive_turn();
-        self.maybe_send_processing_delay();
-        // After the completion polls, so a late answer still wins over the
-        // deadline it arrived just past.
-        self.sample_panel_activity(std::time::Instant::now());
-        self.probe_dispatched_receiver_message();
-        self.abandon_timed_out_remote_turn();
-        if let Some(channel) = self.receiver.warm_lease_expired(std::time::Instant::now()) {
-            crate::logging::log(format!(
-                "receiver session lease expired channel={channel:?}; restoring interactive session"
-            ));
-            self.close_receiver_panel(true);
-        }
-        self.receiver.poll_jobs(self.command_context.workspace.id());
-        // Before any gate: a restart is the way out of a queue that is stuck,
-        // so it must not be made to wait behind the queue it is clearing.
-        self.apply_queued_restart();
-        let now = std::time::Instant::now();
-        if !self.receiver.retry_ready(now) {
-            return;
-        }
-        if self.receiver.has_pending_work()
-            && !self.brain_turn_active
-            && !self.receiver.remote_turn_in_flight()
-            && !self.receiver_sync_ready()
-        {
-            return;
-        }
-        // Only between messages, and only with the panel free: a `/new` that
-        // ran mid-turn would cut the conversation in the wrong place and kill
-        // the answer someone is already waiting on.
-        if !self.brain_turn_active && !self.receiver.remote_turn_in_flight() {
-            while self.apply_queued_new_session() {}
-        }
-        let queued = self.receiver.next_job().cloned();
-        let queued_channel = queued.as_ref().map(|message| message.channel);
-        let reusable_channel = (queued
-            .as_ref()
-            .is_some_and(|message| self.session_actor.as_ref() == Some(&message.actor)))
-        .then(|| self.receiver.active_channel())
-        .flatten();
-        match crate::tui::receiver_state::dispatch_action_for_channel(
-            queued_channel,
-            self.brain_panel_open(),
-            reusable_channel,
-            self.brain_turn_active,
-            self.receiver.remote_turn_in_flight(),
-        ) {
-            crate::tui::receiver_state::DispatchAction::WaitForTurn => {
-                return;
-            }
-            crate::tui::receiver_state::DispatchAction::CloseIdlePanel => {
-                if self.receiver.has_receiver_session() {
-                    crate::logging::log("receiver dispatch switching from a warm receiver channel");
-                    self.close_receiver_panel(false);
-                } else {
-                    crate::logging::log("receiver dispatch replacing idle interactive brain panel");
-                    self.close_brain();
+        for stage in crate::tui::receiver::TickStage::ORDERED {
+            loop {
+                let context = self.receiver_tick_context();
+                let decision =
+                    self.receiver
+                        .plan_tick_stage(stage, context, std::time::Instant::now());
+                match decision {
+                    crate::tui::receiver::ReceiverDecision::Continue => break,
+                    crate::tui::receiver::ReceiverDecision::Stop => return,
+                    crate::tui::receiver::ReceiverDecision::Effect(effect) => {
+                        let repeat_stage = matches!(
+                            &effect,
+                            crate::tui::receiver::ReceiverEffect::ApplyNewSession(_)
+                        );
+                        if !self.execute_receiver_effect(effect) {
+                            return;
+                        }
+                        if !repeat_stage {
+                            break;
+                        }
+                    }
                 }
             }
-            crate::tui::receiver_state::DispatchAction::ReuseReceiverPanel
-            | crate::tui::receiver_state::DispatchAction::StartNext => {}
         }
-        let Some(message) = self.receiver.next_job().cloned() else {
-            return;
-        };
+    }
+
+    fn receiver_tick_context(&self) -> crate::tui::receiver::ReceiverTickContext {
+        let queued_actor_matches_session = self
+            .receiver
+            .next_job()
+            .is_some_and(|job| self.session_actor.as_ref() == Some(&job.actor));
+        crate::tui::receiver::ReceiverTickContext {
+            brain_turn_active: self.brain_turn_active,
+            panel_open: self.brain_panel_open(),
+            queued_actor_matches_session,
+        }
+    }
+
+    fn execute_receiver_effect(&mut self, effect: crate::tui::receiver::ReceiverEffect) -> bool {
+        match effect {
+            crate::tui::receiver::ReceiverEffect::PollRemoteCompletion(target) => {
+                self.poll_completed_remote_response(target);
+            }
+            crate::tui::receiver::ReceiverEffect::PollInteractiveCompletion { response_id } => {
+                self.poll_completed_interactive_turn(&response_id);
+            }
+            crate::tui::receiver::ReceiverEffect::DeliverProcessingDelay(target) => {
+                self.send_processing_delay(target);
+            }
+            crate::tui::receiver::ReceiverEffect::SamplePanelActivity { sampled_at } => {
+                self.sample_panel_activity(sampled_at);
+            }
+            crate::tui::receiver::ReceiverEffect::LogActivityProbe(probe) => {
+                self.log_receiver_activity_probe(&probe);
+            }
+            crate::tui::receiver::ReceiverEffect::AbandonTimedOutTurn => {
+                self.abandon_timed_out_remote_turn();
+            }
+            crate::tui::receiver::ReceiverEffect::ExpireWarmLease { channel } => {
+                crate::logging::log(format!(
+                    "receiver session lease expired channel={channel:?}; restoring interactive session"
+                ));
+                self.close_receiver_panel(true);
+            }
+            crate::tui::receiver::ReceiverEffect::PollInboundJobs => {
+                self.receiver.poll_jobs(self.command_context.workspace.id());
+            }
+            crate::tui::receiver::ReceiverEffect::ApplyRestart(plan) => {
+                self.apply_receiver_restart(&plan);
+            }
+            crate::tui::receiver::ReceiverEffect::CheckSyncFreshness => {
+                return self.execute_receiver_sync_freshness_effect();
+            }
+            crate::tui::receiver::ReceiverEffect::ApplyNewSession(job) => {
+                self.apply_receiver_new_session(&job);
+            }
+            crate::tui::receiver::ReceiverEffect::CloseIdlePanel { receiver_panel } => {
+                self.close_idle_panel_for_receiver_dispatch(receiver_panel);
+            }
+            crate::tui::receiver::ReceiverEffect::Dispatch(message) => {
+                self.dispatch_receiver_message(&message);
+            }
+        }
+        true
+    }
+
+    fn dispatch_receiver_message(&mut self, message: &InboundJob) {
         let label = match message.channel {
             crate::server::receiver::Channel::Sms => "SMS",
             crate::server::receiver::Channel::Email => "email",
@@ -88,11 +108,11 @@ impl App {
         let staged = crate::server::receiver::stage_attachments(
             &self.command_context.workspace,
             &self.command_context,
-            &message,
+            message,
         );
         let mut attachments = String::new();
         for attachment in staged {
-            use std::fmt::Write;
+            use std::fmt::Write as _;
             let _ = write!(
                 attachments,
                 "\nAttachment: {}",
@@ -132,9 +152,9 @@ impl App {
         } else {
             self.receiver.request_receiver_launch(message.actor.clone());
         }
-        // Which delivery a message took is the first thing to know when one
-        // goes unanswered: a fresh launch passes the prompt as a command
-        // argument, while a reuse types it into a live composer.
+        // A fresh launch passes the prompt as a command argument; warm reuse
+        // types it into the live composer. The distinction is essential when
+        // diagnosing a message that reached the panel but never submitted.
         crate::logging::log(format!(
             "receiver dispatch delivering channel={:?} via {}",
             message.channel,
@@ -145,8 +165,8 @@ impl App {
             }
         ));
         if reusing_receiver_panel {
-            // What the composer already showed explains a prompt that lands but
-            // never submits: leftover text, or something waiting on a keypress.
+            // Existing composer contents explain a prompt that lands beside
+            // leftover text or behind something waiting on a keypress.
             crate::logging::log(format!(
                 "receiver panel before injection: {}",
                 self.panel_tail(14)
@@ -157,7 +177,7 @@ impl App {
         let dispatched_at = std::time::Instant::now();
         let _ = self
             .receiver
-            .finish_dispatch(launched, &message, dispatched_at);
+            .finish_dispatch(launched, message, dispatched_at);
         if launched {
             crate::logging::log(format!(
                 "receiver dispatch started channel={:?} queue_depth={}",

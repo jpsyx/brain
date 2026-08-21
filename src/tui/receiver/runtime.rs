@@ -15,6 +15,7 @@ use super::StageError;
 mod diagnostics;
 mod session;
 mod sync;
+mod tick;
 
 pub(crate) use sync::{SyncGateObservation, SyncGatePoll};
 
@@ -39,6 +40,13 @@ pub(crate) struct ActiveRemoteTurn<'a> {
     pub(crate) response_id: &'a str,
     pub(crate) channel: Channel,
     pub(crate) sender: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RemoteCompletionTarget {
+    pub(crate) response_id: String,
+    pub(crate) channel: Channel,
+    pub(crate) sender: String,
 }
 
 #[derive(Debug, Clone)]
@@ -344,15 +352,6 @@ impl ReceiverRuntime {
     #[must_use]
     pub(crate) fn has_pending_channel_reset(&self) -> bool {
         !self.new_session_channels.is_empty() || self.force_fresh
-    }
-
-    #[must_use]
-    pub(crate) fn retry_ready(&mut self, now: Instant) -> bool {
-        if !crate::tui::receiver_state::retry_ready(self.retry_at, now) {
-            return false;
-        }
-        self.retry_at = None;
-        true
     }
 
     fn renew_lease(&mut self, channel: Channel, now: Instant) {

@@ -911,6 +911,16 @@ admission polling, dispatch commit, session launch, completion, warm-session
 expiry, diagnostics, and sync-gate polling. The App continues to coordinate
 agent controllers, response files, provider delivery, task reloads, and sync
 child launches across their feature boundaries.
+The tick coordinator walks these ordered stages: remote completion,
+interactive completion, processing delay, panel activity, activity probe,
+turn timeout, warm-lease expiry, socket polling, `/restart`, retry readiness,
+sync freshness, `/new`, idle-panel selection, and dispatch. Pure decisions use
+independent receiver facts instead of a cross-product lifecycle state.
+`ReceiverRuntime` re-snapshots those facts and materializes a typed effect at
+each stage; App executes it and feeds completion, dispatch, diagnostic, or sync
+results back through semantic runtime methods. This preserves the historical
+ordering while ensuring controller, filesystem, provider, process, task, and
+sync effects never move into the runtime.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.
@@ -950,9 +960,9 @@ whitespace-insensitive) is a control command, read in
 `server/receiver/control.rs` and applied in
 `tui/app_brain/receiver/control.rs` rather than sent to the agent. `/restart`
 is applied as soon as it is polled, ahead of every dispatch gate;
-`/new` waits for a free panel and sets `App::receiver_new_session` for its
-channel, which the next launch consumes as `receiver_force_fresh` to skip
-session resumption. Both acknowledge their own sender through `reply_to_job`,
+`/new` waits for a free panel and records a runtime-owned fresh-session intent
+for its channel, which the next launch consumes to skip session resumption.
+Both acknowledge their own sender through `reply_to_job`,
 which addresses the job's own recipients rather than whatever reply state is
 live — a dropped job is not the message currently in flight.
 
@@ -1508,8 +1518,10 @@ outside-world touchpoints:
   appears. The footer polls `current.json` every 250ms and displays the active
   direction. `ReceiverRuntime` owns the gate attempt and deadline state; its
   pure transition consumes caller-supplied clock, journal, and running-process
-  observations. The App-owned injected sync adapter performs those reads and
-  the detached child launch outside the receiver module. The production policy gives a
+  observations. The tick exposes that transition as the sync-freshness effect.
+  The App-owned injected sync adapter performs those reads and the detached
+  child launch outside the receiver module, then returns readiness through the
+  runtime's semantic gate operations. The production policy gives a
   launched pull five seconds to appear and permits at most three attempts; if
   none starts, the TUI warns and processes the job with local state. The same
   status poll watches for successful downstream journal advancement and reloads
