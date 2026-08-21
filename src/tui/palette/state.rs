@@ -1,17 +1,15 @@
-//! `PaletteState` behavior: the constructors for the global palette and the
-//! task-actions modal, contextual label resolution, scope/filter derivation of
-//! the visible rows, and cursor movement / text editing. The struct itself
-//! lives in the `tui` root so every submodule can reach its fields.
+//! `TaskPalette` behavior: contextual catalog construction around the shared
+//! command-palette state used by both TUI surfaces.
 
 use crate::tasks::task::AssignmentUiMode;
 use crate::tui::*;
 
-use super::command::{PALETTE_COMMANDS, PaletteRow, PaletteScope};
+use super::{PALETTE_COMMANDS, PaletteRow, PaletteScope};
 
-impl PaletteState {
+impl TaskPalette {
     /// Open the global command palette (global + any task-specific commands the
     /// context permits).
-    pub(crate) const fn new(
+    pub(crate) fn new(
         task_id: Option<String>,
         context_is_habit: bool,
         context_has_notes: bool,
@@ -21,8 +19,7 @@ impl PaletteState {
         _logs_available: bool,
     ) -> Self {
         Self {
-            filter: String::new(),
-            selected: 0,
+            palette: empty_palette(),
             task_id,
             task_label: None,
             context_is_habit,
@@ -38,12 +35,13 @@ impl PaletteState {
             daily_triage_alert_disabled: false,
             assignment_mode: hidden_assignment_mode(),
         }
+        .rebuild_palette()
     }
 
     /// Open the task actions modal. Caller must guarantee a task is selected
     /// (the ID is required for the modal title; the label is shown as a
     /// dim subtitle).
-    pub(crate) const fn new_task_actions(
+    pub(crate) fn new_task_actions(
         task_id: String,
         task_label: String,
         context_is_habit: bool,
@@ -52,8 +50,7 @@ impl PaletteState {
         context_links: LinkKind,
     ) -> Self {
         Self {
-            filter: String::new(),
-            selected: 0,
+            palette: empty_palette(),
             task_id: Some(task_id),
             task_label: Some(task_label),
             context_is_habit,
@@ -71,12 +68,12 @@ impl PaletteState {
             daily_triage_alert_disabled: false,
             assignment_mode: hidden_assignment_mode(),
         }
+        .rebuild_palette()
     }
 
-    pub(crate) const fn new_logs_view(receiver_enabled: bool) -> Self {
+    pub(crate) fn new_logs_view(receiver_enabled: bool) -> Self {
         Self {
-            filter: String::new(),
-            selected: 0,
+            palette: empty_palette(),
             task_id: None,
             task_label: None,
             context_is_habit: false,
@@ -92,13 +89,29 @@ impl PaletteState {
             daily_triage_alert_disabled: false,
             assignment_mode: hidden_assignment_mode(),
         }
+        .rebuild_palette()
     }
 
     /// Seed the selected workspace's per-surface assignment visibility.
     #[must_use]
-    pub(crate) const fn with_assignment_mode(mut self, mode: AssignmentUiMode) -> Self {
+    pub(crate) fn with_assignment_mode(mut self, mode: AssignmentUiMode) -> Self {
         self.assignment_mode = mode;
-        self
+        self.rebuild_palette()
+    }
+
+    #[must_use]
+    pub(crate) fn with_runtime_context(
+        mut self,
+        receiver_enabled: bool,
+        daily_triage_alert_disabled: bool,
+        runnable_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
+        open_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
+    ) -> Self {
+        self.receiver_enabled = receiver_enabled;
+        self.daily_triage_alert_disabled = daily_triage_alert_disabled;
+        self.runnable_skill_sessions = runnable_skill_sessions;
+        self.open_skill_sessions = open_skill_sessions;
+        self.rebuild_palette()
     }
 
     pub(crate) const fn task_in_context(&self) -> bool {
@@ -115,7 +128,7 @@ impl PaletteState {
         // the task actions modal and the global command palette. In the global command palette it also
         // names the entry (e.g. "Expand T123 notes"), matching the
         // task-ID convention of the other task-specific commands.
-        if matches!(cmd.action, PaletteAction::ToggleNotes) {
+        if matches!(cmd.action, TaskAction::ToggleNotes) {
             let verb = if self.context_notes_expanded {
                 "Collapse"
             } else {
@@ -128,14 +141,17 @@ impl PaletteState {
         }
         // The daily-triage toggle names the action that will happen next:
         // "Disable" while the alert is active, "Enable" while it's suppressed.
-        if matches!(cmd.action, PaletteAction::ToggleDailyTriageAlert) {
+        if matches!(
+            cmd.action,
+            TaskAction::Global(GlobalAction::ToggleDailyTriageAlert)
+        ) {
             return if self.daily_triage_alert_disabled {
                 "Enable daily triage alert".to_owned()
             } else {
                 "Disable daily triage alert".to_owned()
             };
         }
-        if matches!(cmd.action, PaletteAction::ToggleReceiver) {
+        if matches!(cmd.action, TaskAction::Global(GlobalAction::ToggleReceiver)) {
             return if self.receiver_enabled {
                 "Disable receiver".to_owned()
             } else {
@@ -146,7 +162,7 @@ impl PaletteState {
         // a lone Linear issue, a lone notes URL, or several links (→ picker).
         // The global palette names the task; the actions modal doesn't (its
         // title already does).
-        if matches!(cmd.action, PaletteAction::OpenLinks) {
+        if matches!(cmd.action, TaskAction::OpenLinks) {
             let named = (!self.task_actions_modal)
                 .then_some(self.task_id.as_deref())
                 .flatten();
@@ -167,34 +183,22 @@ impl PaletteState {
             return cmd.label.to_owned();
         };
         match cmd.action {
-            PaletteAction::MarkTaskComplete => format!("Mark {id} as complete"),
-            PaletteAction::DeferTask(days) => format!("Defer {id} +{days}d"),
-            PaletteAction::RemoveTask => format!("Remove task {id}"),
-            PaletteAction::ReassignTask => format!("Reassign {id}"),
-            PaletteAction::MessageBrainAboutTask => format!("Message brain about {id}"),
-            PaletteAction::StartTask => format!("Start {id}"),
+            TaskAction::MarkTaskComplete => format!("Mark {id} as complete"),
+            TaskAction::DeferTask(days) => format!("Defer {id} +{days}d"),
+            TaskAction::RemoveTask => format!("Remove task {id}"),
+            TaskAction::ReassignTask => format!("Reassign {id}"),
+            TaskAction::MessageBrainAboutTask => format!("Message brain about {id}"),
+            TaskAction::StartTask => format!("Start {id}"),
             // `OpenLinks` and `ToggleNotes` are resolved above; global
             // actions don't reach this branch (filtered above). Fall
             // through defensively.
-            PaletteAction::OpenLinks
-            | PaletteAction::AddTask
-            | PaletteAction::ChooseAssigneeFilter
-            | PaletteAction::SendBrainMessage
-            | PaletteAction::CloseBrain
-            | PaletteAction::OpenHabitsInBrowser
-            | PaletteAction::SyncBrainNow
-            | PaletteAction::ShowSyncStatus
-            | PaletteAction::OpenAgenda
-            | PaletteAction::ToggleNotes
-            | PaletteAction::ToggleReceiver
-            | PaletteAction::ShowReceiverServerStatus
-            | PaletteAction::ShowReceiverServerLogs
-            | PaletteAction::ShowBrainLogs
-            | PaletteAction::ReturnToMainView
-            | PaletteAction::ToggleDailyTriageAlert
-            | PaletteAction::ShowMainBrainSession
-            | PaletteAction::RunSkillSession(_)
-            | PaletteAction::ShowSkillSession(_) => cmd.label.to_owned(),
+            TaskAction::OpenLinks
+            | TaskAction::AddTask
+            | TaskAction::ChooseAssigneeFilter
+            | TaskAction::OpenHabitsInBrowser
+            | TaskAction::OpenAgenda
+            | TaskAction::ToggleNotes
+            | TaskAction::Global(_) => cmd.label.to_owned(),
         }
     }
 
@@ -209,29 +213,29 @@ impl PaletteState {
     /// opens), and each running session's tab switch follows **Show main brain
     /// session**. A running session contributes no start row, so the same session
     /// can never be launched twice.
-    pub(crate) fn rows(&self) -> Vec<PaletteRow> {
-        let mut rows: Vec<PaletteRow> = Vec::new();
+    fn catalog_rows(&self) -> Vec<PaletteRow<TaskAction>> {
+        let mut rows: Vec<PaletteRow<TaskAction>> = Vec::new();
         for command in PALETTE_COMMANDS
             .iter()
             .filter(|c| self.command_in_scope(c) && (c.is_visible)(self))
         {
             push_row(&mut rows, self.label_for(command), command.action);
             match command.action {
-                PaletteAction::SendBrainMessage => {
+                TaskAction::Global(GlobalAction::MessageBrain) => {
                     for (key, label) in &self.runnable_skill_sessions {
                         push_row(
                             &mut rows,
                             label.clone(),
-                            PaletteAction::RunSkillSession(*key),
+                            TaskAction::Global(GlobalAction::RunSkillSession(*key)),
                         );
                     }
                 }
-                PaletteAction::ShowMainBrainSession => {
+                TaskAction::Global(GlobalAction::ShowMainBrainSession) => {
                     for (key, title) in &self.open_skill_sessions {
                         push_row(
                             &mut rows,
                             format!("Show {title} session"),
-                            PaletteAction::ShowSkillSession(*key),
+                            TaskAction::Global(GlobalAction::ShowSkillSession(*key)),
                         );
                     }
                 }
@@ -245,7 +249,7 @@ impl PaletteState {
     /// logs-view command whitelist, and the task-actions-modal restriction. The
     /// finer *conditional* gates (panel open, server running, a skill session
     /// open, notes/links present) live in each command's `is_visible` predicate
-    /// and are applied on top of this by [`Self::rows`].
+    /// and are applied on top of this while the shared row state is built.
     fn command_in_scope(&self, c: &PaletteCommand) -> bool {
         if self.logs_view {
             // The logs palette shows only this fixed set of read-only /
@@ -253,12 +257,14 @@ impl PaletteState {
             // applies.
             return matches!(
                 c.action,
-                PaletteAction::ToggleReceiver
-                    | PaletteAction::ShowReceiverServerStatus
-                    | PaletteAction::ShowSyncStatus
-                    | PaletteAction::ShowReceiverServerLogs
-                    | PaletteAction::ShowBrainLogs
-                    | PaletteAction::ReturnToMainView
+                TaskAction::Global(
+                    GlobalAction::ToggleReceiver
+                        | GlobalAction::ShowReceiverServerStatus
+                        | GlobalAction::ShowSyncStatus
+                        | GlobalAction::ShowReceiverServerLogs
+                        | GlobalAction::ShowBrainLogs
+                        | GlobalAction::ShowTasks
+                )
             );
         }
         match c.scope {
@@ -272,30 +278,22 @@ impl PaletteState {
     /// Rows matching the current filter (case-insensitive substring over the
     /// numbered, displayed label `"N. label"`, so users can narrow by row
     /// number, label word, or task ID) AND the active scope.
-    pub(crate) fn visible(&self) -> Vec<PaletteRow> {
-        let q = self.filter.to_lowercase();
-        self.rows()
-            .into_iter()
-            .filter(|row| {
-                q.is_empty() || {
-                    format!("{}. {}", row.number, row.label)
-                        .to_lowercase()
-                        .contains(&q)
-                }
-            })
-            .collect()
+    #[cfg(test)]
+    pub(crate) fn rows(&self) -> &[PaletteRow<TaskAction>] {
+        self.palette.rows()
+    }
+
+    pub(crate) fn visible(&self) -> Vec<&PaletteRow<TaskAction>> {
+        self.palette.visible()
     }
 
     /// The rendered rows: each visible row's numbered label (`"N. …"`) paired
     /// with its direct-key shortcut hint, if any.
     pub(crate) fn numbered_entries(&self) -> Vec<(String, Option<&'static str>)> {
-        self.visible()
-            .iter()
-            .map(|row| (format!("{}. {}", row.number, row.label), row.shortcut))
-            .collect()
+        self.palette.numbered_entries()
     }
 
-    pub(crate) fn title(&self) -> String {
+    fn catalog_title(&self) -> String {
         if self.task_actions_modal {
             if let Some(id) = &self.task_id {
                 return format!("Task {id} actions");
@@ -305,44 +303,51 @@ impl PaletteState {
         "Command palette".to_owned()
     }
 
-    pub(crate) fn selected_action(&self) -> Option<PaletteAction> {
-        self.visible().get(self.selected).map(|row| row.action)
+    pub(crate) fn title(&self) -> &str {
+        self.palette.title()
     }
 
-    pub(crate) fn move_down(&mut self) {
-        let n = self.visible().len();
-        if n > 0 {
-            self.selected = (self.selected + 1) % n;
-        }
+    pub(crate) fn subtitle(&self) -> Option<&str> {
+        self.palette.subtitle()
     }
 
-    pub(crate) fn move_up(&mut self) {
-        let n = self.visible().len();
-        if n > 0 {
-            self.selected = (self.selected + n - 1) % n;
-        }
+    pub(crate) const fn task_actions_modal(&self) -> bool {
+        self.task_actions_modal
     }
 
-    pub(crate) fn append(&mut self, c: char) {
-        self.filter.push(c);
-        self.selected = 0;
+    pub(crate) fn selected(&self) -> usize {
+        self.palette.selected()
     }
 
-    pub(crate) fn pop(&mut self) {
-        self.filter.pop();
-        self.selected = 0;
+    pub(crate) fn query(&self) -> &str {
+        self.palette.query()
+    }
+
+    pub(crate) fn handle_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> PaletteStep<TaskAction> {
+        self.palette.handle_key(key)
+    }
+
+    fn rebuild_palette(mut self) -> Self {
+        let title = self.catalog_title();
+        let subtitle = self
+            .task_actions_modal
+            .then(|| self.task_label.clone())
+            .flatten();
+        self.palette =
+            CommandPalette::new(title, subtitle, self.catalog_rows(), PaletteControls::TASKS);
+        self
     }
 }
 
 /// Append one row, numbering it by its position. The number is what the palette
 /// shows and what a typed digit selects, so it must stay 1-based and gapless.
-fn push_row(rows: &mut Vec<PaletteRow>, label: String, action: PaletteAction) {
-    rows.push(PaletteRow {
-        number: rows.len() + 1,
-        label,
-        action,
-        shortcut: shortcut_for(action),
-    });
+fn push_row(rows: &mut Vec<PaletteRow<TaskAction>>, label: String, action: TaskAction) {
+    let mut row = PaletteRow::new(label, action, shortcut_for(action));
+    row.number = rows.len() + 1;
+    rows.push(row);
 }
 
 const fn hidden_assignment_mode() -> AssignmentUiMode {
@@ -352,4 +357,8 @@ const fn hidden_assignment_mode() -> AssignmentUiMode {
         show_reassign_control: false,
         show_filter: false,
     }
+}
+
+fn empty_palette() -> CommandPalette<TaskAction> {
+    CommandPalette::new("Command palette", None, Vec::new(), PaletteControls::TASKS)
 }

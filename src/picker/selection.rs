@@ -16,7 +16,7 @@ impl App {
         side: crate::state::PanelSide,
         include_msg: bool,
         receiver_enabled: bool,
-    ) -> menu::MenuApp {
+    ) -> menu::SearchPalette {
         let targets = menu::Targets {
             receiver_enabled: Some(receiver_enabled),
             pdf: self.selected_markdown_filename(),
@@ -24,7 +24,12 @@ impl App {
             open_dir: self.selected_dir_reldisplay(),
             delete: self.selected_filename(),
         };
-        menu::MenuApp::new(side, include_msg, &targets)
+        crate::tui::CommandPalette::new(
+            "Command palette",
+            None,
+            menu::items(side, include_msg, &targets),
+            crate::tui::PaletteControls::SEARCH,
+        )
     }
 
     /// The absolute path of the highlighted entry when it is a markdown file,

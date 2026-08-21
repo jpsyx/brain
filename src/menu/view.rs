@@ -13,8 +13,12 @@ use ratatui::{
 
 use crate::render;
 
-use super::app::MenuApp;
-use super::model::{Choice, shortcut_for};
+use super::SearchPalette;
+use super::model::SearchAction;
+use crate::tui::PaletteRow;
+
+#[cfg(test)]
+use super::model::shortcut_for;
 
 /// Columns the palette modal needs so its widest row renders — label **and**
 /// shortcut hint — without being clipped by the border. Mirrors the fixed
@@ -22,7 +26,7 @@ use super::model::{Choice, shortcut_for};
 /// prefix (digits + `.`), the 3-column arrow gutter, the label, then the
 /// `  [key]` hint. Floored so the `type filter …` footer always fits, and
 /// padded on the right so long rows don't butt against the border.
-fn palette_width(rows: &[(Choice, String)]) -> usize {
+fn palette_width(rows: &[PaletteRow<SearchAction>]) -> usize {
     const LEAD: usize = 2; // the two leading spaces
     const ARROW: usize = 3; // " ❯ " / "   "
     const HINT_FRAME: usize = 4; // "  [" + "]"
@@ -32,9 +36,11 @@ fn palette_width(rows: &[(Choice, String)]) -> usize {
     let num = rows.len().to_string().len() + 1; // right-aligned digits + '.'
     let content = rows
         .iter()
-        .map(|(choice, label)| {
-            let hint = shortcut_for(*choice).map_or(0, |k| HINT_FRAME + k.chars().count());
-            LEAD + num + ARROW + label.chars().count() + hint
+        .map(|row| {
+            let hint = row
+                .shortcut
+                .map_or(0, |key| HINT_FRAME + key.chars().count());
+            LEAD + num + ARROW + row.label.chars().count() + hint
         })
         .max()
         .unwrap_or(0)
@@ -46,7 +52,7 @@ fn palette_width(rows: &[(Choice, String)]) -> usize {
 ///
 /// Drawn on top of whatever the host already rendered; `Clear` wipes the box
 /// region first so the content behind doesn't bleed through.
-pub fn draw_modal(f: &mut Frame, app: &MenuApp, area: Rect) {
+pub(crate) fn draw_modal(f: &mut Frame, app: &SearchPalette, area: Rect) {
     // Tall enough for every row plus chrome (border 2 + input + separator +
     // footer = 5), clamped to the screen.
     let rows = u16::try_from(app.filtered().len().max(1)).unwrap_or(u16::MAX);
@@ -95,14 +101,14 @@ pub fn draw_modal(f: &mut Frame, app: &MenuApp, area: Rect) {
             .filtered()
             .iter()
             .enumerate()
-            .map(|(row, &item_idx)| {
-                let (choice, label) = &app.rows()[item_idx];
+            .map(|(list_index, &item_idx)| {
+                let row = &app.rows()[item_idx];
                 item_line(
                     item_idx,
                     app.rows().len(),
-                    label,
-                    row == app.selected(),
-                    shortcut_for(*choice),
+                    &row.label,
+                    list_index == app.selected(),
+                    row.shortcut,
                 )
             })
             .collect();
@@ -209,20 +215,25 @@ mod tests {
         // modal must be wide enough to show that hint without clipping it at
         // the border (the bug in the screenshot).
         let rows = vec![
-            (
-                Choice::OpenDir,
+            PaletteRow::new(
                 open_dir_label("projects/personal__foo/docs/integrations"),
+                SearchAction::OpenDir,
+                shortcut_for(SearchAction::OpenDir),
             ),
-            (Choice::SearchProjects, "Search projects".to_owned()),
+            PaletteRow::new(
+                "Search projects",
+                SearchAction::SearchProjects,
+                shortcut_for(SearchAction::SearchProjects),
+            ),
         ];
         let width = palette_width(&rows);
 
         // Reconstruct the widest row's rendered column count: 2 leading spaces
         // + right-aligned number prefix + 3-col arrow gutter + label + hint.
         let num = rows.len().to_string().len() + 1;
-        let (choice, label) = &rows[0];
-        let hint = 4 + shortcut_for(*choice).unwrap().chars().count();
-        let row = 2 + num + 3 + label.chars().count() + hint;
+        let first = &rows[0];
+        let hint = 4 + first.shortcut.unwrap().chars().count();
+        let row = 2 + num + 3 + first.label.chars().count() + hint;
 
         assert!(
             width >= row + 2, // + the two side borders
@@ -250,7 +261,13 @@ mod tests {
     #[test]
     fn shortcut_hint_is_rendered_dim_next_to_its_row() {
         // Row 0 is "Message brain" → carries the ^M hint.
-        let line = item_line(0, 9, "Message brain", false, shortcut_for(Choice::Msg));
+        let line = item_line(
+            0,
+            9,
+            "Message brain",
+            false,
+            shortcut_for(SearchAction::Global(crate::tui::GlobalAction::MessageBrain)),
+        );
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("[^M]"), "got: {text}");
         let hint = line

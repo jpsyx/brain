@@ -1,7 +1,6 @@
 use super::{
-    PaletteAction, PaletteCommand, PaletteScope, always, if_assignment_create,
-    if_assignment_filter, if_assignment_reassign, if_brain_open, if_has_links, if_has_notes,
-    if_skill_session_open,
+    PaletteCommand, PaletteScope, TaskAction, always, if_assignment_create, if_assignment_filter,
+    if_assignment_reassign, if_brain_open, if_has_links, if_has_notes, if_skill_session_open,
 };
 
 // Order here is the order shown in both palettes (`visible()` preserves
@@ -12,28 +11,28 @@ use super::{
 pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         label: "Add task",
-        action: PaletteAction::AddTask,
+        action: TaskAction::AddTask,
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: if_assignment_create,
     },
     PaletteCommand {
         label: "Start this task",
-        action: PaletteAction::StartTask,
+        action: TaskAction::StartTask,
         scope: PaletteScope::TaskSpecific,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Mark as complete",
-        action: PaletteAction::MarkTaskComplete,
+        action: TaskAction::MarkTaskComplete,
         scope: PaletteScope::TaskSpecific,
         works_on_habits: true,
         is_visible: always,
     },
     PaletteCommand {
         label: "Message brain about this task",
-        action: PaletteAction::MessageBrainAboutTask,
+        action: TaskAction::MessageBrainAboutTask,
         scope: PaletteScope::TaskSpecific,
         // Asking the brain agent about a habit reads fine — the
         // context prefix just names the H-ID instead of a T-ID.
@@ -42,23 +41,23 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         label: "Message brain",
-        action: PaletteAction::SendBrainMessage,
+        action: TaskAction::Global(crate::tui::GlobalAction::MessageBrain),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Close brain",
-        action: PaletteAction::CloseBrain,
+        action: TaskAction::Global(crate::tui::GlobalAction::CloseBrain),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: if_brain_open,
     },
     // The workspace's skill-session rows (start / focus) are spliced in around
-    // this row at build time — see `PaletteState::rows`.
+    // this row at build time — see `TaskPalette::rows`.
     PaletteCommand {
         label: "Show main brain session",
-        action: PaletteAction::ShowMainBrainSession,
+        action: TaskAction::Global(crate::tui::GlobalAction::ShowMainBrainSession),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: if_skill_session_open,
@@ -66,21 +65,21 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         // Label is overridden at render time from persistent workspace intent.
         label: "Enable receiver",
-        action: PaletteAction::ToggleReceiver,
+        action: TaskAction::Global(crate::tui::GlobalAction::ToggleReceiver),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Show receiver server status",
-        action: PaletteAction::ShowReceiverServerStatus,
+        action: TaskAction::Global(crate::tui::GlobalAction::ShowReceiverServerStatus),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Show receiver logs",
-        action: PaletteAction::ShowReceiverServerLogs,
+        action: TaskAction::Global(crate::tui::GlobalAction::ShowReceiverServerLogs),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
@@ -89,14 +88,14 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         // Label is overridden at render time (Expand vs Collapse) by
         // `label_for`; this static is the fallback.
         label: "Expand notes",
-        action: PaletteAction::ToggleNotes,
+        action: TaskAction::ToggleNotes,
         scope: PaletteScope::TaskSpecific,
         works_on_habits: true,
         is_visible: if_has_notes,
     },
     PaletteCommand {
         label: "Remove this task",
-        action: PaletteAction::RemoveTask,
+        action: TaskAction::RemoveTask,
         scope: PaletteScope::TaskSpecific,
         // Habit removal goes through a different /todo path; keep this
         // tasks only to avoid sending the wrong instruction.
@@ -105,70 +104,70 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         label: "Reassign this task",
-        action: PaletteAction::ReassignTask,
+        action: TaskAction::ReassignTask,
         scope: PaletteScope::TaskSpecific,
         works_on_habits: true,
         is_visible: if_assignment_reassign,
     },
     PaletteCommand {
         label: "Filter by assignee",
-        action: PaletteAction::ChooseAssigneeFilter,
+        action: TaskAction::ChooseAssigneeFilter,
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: if_assignment_filter,
     },
     PaletteCommand {
         label: "Defer +1d",
-        action: PaletteAction::DeferTask(1),
+        action: TaskAction::DeferTask(1),
         scope: PaletteScope::TaskSpecific,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Defer +7d",
-        action: PaletteAction::DeferTask(7),
+        action: TaskAction::DeferTask(7),
         scope: PaletteScope::TaskSpecific,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Defer +14d",
-        action: PaletteAction::DeferTask(14),
+        action: TaskAction::DeferTask(14),
         scope: PaletteScope::TaskSpecific,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Open habits in browser",
-        action: PaletteAction::OpenHabitsInBrowser,
+        action: TaskAction::OpenHabitsInBrowser,
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Sync brain now",
-        action: PaletteAction::SyncBrainNow,
+        action: TaskAction::Global(crate::tui::GlobalAction::SyncBrainNow),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Show sync status",
-        action: PaletteAction::ShowSyncStatus,
+        action: TaskAction::Global(crate::tui::GlobalAction::ShowSyncStatus),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Open today's agenda",
-        action: PaletteAction::OpenAgenda,
+        action: TaskAction::OpenAgenda,
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Show brain logs",
-        action: PaletteAction::ShowBrainLogs,
+        action: TaskAction::Global(crate::tui::GlobalAction::ShowBrainLogs),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
@@ -178,14 +177,14 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         // `label_for` from the seeded `daily_triage_alert_disabled`; this
         // static is the fallback.
         label: "Disable daily triage alert",
-        action: PaletteAction::ToggleDailyTriageAlert,
+        action: TaskAction::Global(crate::tui::GlobalAction::ToggleDailyTriageAlert),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Return to main view",
-        action: PaletteAction::ReturnToMainView,
+        action: TaskAction::Global(crate::tui::GlobalAction::ShowTasks),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
@@ -193,7 +192,7 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         // Static fallback label; `label_for` overrides it per link kind.
         label: "Open link",
-        action: PaletteAction::OpenLinks,
+        action: TaskAction::OpenLinks,
         scope: PaletteScope::TaskSpecific,
         // Habits never link to Linear, but they can carry notes URLs — the
         // link-kind gate below hides the command unless there's ≥ 1 link.

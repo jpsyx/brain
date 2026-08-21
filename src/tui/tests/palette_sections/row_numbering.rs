@@ -2,7 +2,7 @@
 fn sync_brain_palette_command_has_no_shortcut() {
     use crate::tui::palette::shortcut_for;
 
-    let state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
     let rows = state.numbered_entries();
 
     assert!(
@@ -10,13 +10,16 @@ fn sync_brain_palette_command_has_no_shortcut() {
             .any(|(label, shortcut)| label.contains("Sync brain now") && shortcut.is_none()),
         "{rows:?}"
     );
-    assert_eq!(shortcut_for(PaletteAction::SyncBrainNow), None);
+    assert_eq!(
+        shortcut_for(TaskAction::Global(GlobalAction::SyncBrainNow)),
+        None
+    );
 }
 
 #[test]
 fn task_actions_modal_palette_keeps_order_minus_globals() {
     // Same relative order, with the global commands filtered out.
-    let state = PaletteState::new_task_actions(
+    let state = TaskPalette::new_task_actions(
         "T1".into(),
         "task".into(),
         false,
@@ -27,26 +30,26 @@ fn task_actions_modal_palette_keeps_order_minus_globals() {
     assert_eq!(
         action_order(&state),
         vec![
-            PaletteAction::StartTask,
-            PaletteAction::MarkTaskComplete,
-            PaletteAction::MessageBrainAboutTask,
-            PaletteAction::ToggleNotes,
-            PaletteAction::RemoveTask,
-            PaletteAction::DeferTask(1),
-            PaletteAction::DeferTask(7),
-            PaletteAction::DeferTask(14),
+            TaskAction::StartTask,
+            TaskAction::MarkTaskComplete,
+            TaskAction::MessageBrainAboutTask,
+            TaskAction::ToggleNotes,
+            TaskAction::RemoveTask,
+            TaskAction::DeferTask(1),
+            TaskAction::DeferTask(7),
+            TaskAction::DeferTask(14),
         ]
     );
 }
 
-// --- PaletteState: numbered rows (brain-menu parity) ---
+// --- TaskPalette: numbered rows (brain-menu parity) ---
 
 #[test]
 fn palette_rows_are_numbered_from_one_in_canonical_order() {
     // Numbers are the 1-based position in the scope-visible list, stable
     // regardless of the text filter — so the digit a user types always
     // points at the same command.
-    let state = PaletteState::new(
+    let state = TaskPalette::new(
         Some("T1".into()),
         false,
         true,
@@ -64,7 +67,7 @@ fn palette_rows_are_numbered_from_one_in_canonical_order() {
 #[test]
 fn typing_a_row_number_filters_to_that_numbered_row() {
     // "2." prefixes the second command, so a query of "2" keeps it.
-    let mut state = PaletteState::new(
+    let mut state = TaskPalette::new(
         Some("T1".into()),
         false,
         true,
@@ -74,7 +77,10 @@ fn typing_a_row_number_filters_to_that_numbered_row() {
         false,
     );
     let second = state.rows()[1].clone();
-    state.append('2');
+    state.handle_key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('2'),
+        crossterm::event::KeyModifiers::NONE,
+    ));
     let hits = state.visible();
     assert!(
         hits.iter().any(|c| c.action == second.action),

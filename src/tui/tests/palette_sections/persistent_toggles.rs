@@ -1,17 +1,17 @@
-fn receiver_label(state: &PaletteState) -> Option<String> {
+fn receiver_label(state: &TaskPalette) -> Option<String> {
     state
         .visible()
         .iter()
-        .find(|c| matches!(c.action, PaletteAction::ToggleReceiver))
+        .find(|c| matches!(c.action, TaskAction::Global(GlobalAction::ToggleReceiver)))
         .map(|row| row.label.clone())
 }
 
 #[test]
 fn receiver_toggle_label_names_the_next_persistent_action() {
-    let mut state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
     assert_eq!(receiver_label(&state).as_deref(), Some("Enable receiver"));
 
-    state.receiver_enabled = true;
+    let state = state.with_runtime_context(true, false, Vec::new(), Vec::new());
     assert_eq!(receiver_label(&state).as_deref(), Some("Disable receiver"));
 }
 
@@ -19,14 +19,16 @@ fn receiver_toggle_label_names_the_next_persistent_action() {
 fn daily_triage_toggle_is_globally_available() {
     // A long-running TUI needs to flip the alert mid-session, so the toggle is
     // a global command shown regardless of selection.
-    let state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
-    assert!(action_order(&state).contains(&PaletteAction::ToggleDailyTriageAlert));
+    let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
+    assert!(
+        action_order(&state).contains(&TaskAction::Global(GlobalAction::ToggleDailyTriageAlert))
+    );
 }
 
 #[test]
 fn daily_triage_toggle_reads_disable_when_alert_enabled() {
     // Default state: the alert is enabled, so the command offers to disable it.
-    let state = PaletteState::new(None, false, false, false, LinkKind::None, false, false);
+    let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
     assert_eq!(
         daily_triage_label(&state).as_deref(),
         Some("Disable daily triage alert")

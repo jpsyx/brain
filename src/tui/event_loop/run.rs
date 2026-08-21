@@ -227,9 +227,9 @@ pub(crate) fn event_loop<B: Backend>(
             && app.focus == Panel::Tasks
             && matches!(app.main_view, MainView::Tasks | MainView::Logs)
         {
-            let mut palette = if app.main_view == MainView::Logs {
+            let palette = if app.main_view == MainView::Logs {
                 app.refresh_receiver_enabled();
-                PaletteState::new_logs_view(app.receiver_enabled)
+                TaskPalette::new_logs_view(app.receiver_enabled)
             } else {
                 app.refresh_receiver_enabled();
                 let task_id = app.current_task_id();
@@ -237,7 +237,7 @@ pub(crate) fn event_loop<B: Backend>(
                 let has_notes = app.current_has_notes();
                 let notes_expanded = app.current_notes_expanded();
                 let link_kind = app.current_link_kind();
-                PaletteState::new(
+                TaskPalette::new(
                     task_id,
                     is_habit,
                     has_notes,
@@ -251,10 +251,12 @@ pub(crate) fn event_loop<B: Backend>(
             let receiver_enabled = app.receiver_enabled;
             let daily_triage_alert_disabled = app.skip_daily_triage_check;
             let (runnable_sessions, open_sessions) = app.skill_session_palette_rows();
-            palette.receiver_enabled = receiver_enabled;
-            palette.daily_triage_alert_disabled = daily_triage_alert_disabled;
-            palette.runnable_skill_sessions = runnable_sessions;
-            palette.open_skill_sessions = open_sessions;
+            let palette = palette.with_runtime_context(
+                receiver_enabled,
+                daily_triage_alert_disabled,
+                runnable_sessions,
+                open_sessions,
+            );
             open_overlay(&mut app.overlay, Overlay::TaskPalette(palette));
             continue;
         }

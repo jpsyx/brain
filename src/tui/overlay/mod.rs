@@ -1,19 +1,19 @@
 //! The shell's single modal owner and its explicit state transitions.
 
 use crate::confirm::Confirm;
-use crate::menu::MenuApp;
+use crate::menu::SearchPalette;
 use crate::tui::{
-    AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState, PaletteState,
-    SyncLogState,
+    AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState, SyncLogState,
+    TaskPalette,
 };
 
 /// The only modal state the shell can represent. Each variant owns exactly the
 /// data its input and draw routes need.
 pub(crate) enum Overlay {
-    TaskPalette(PaletteState),
+    TaskPalette(TaskPalette),
     BrainInput(BrainInputState),
     TaskConfirmation(ConfirmState),
-    SearchPalette(MenuApp),
+    SearchPalette(SearchPalette),
     SearchConfirmation(Confirm),
     LinkPicker(LinkPickerState),
     AssigneeFilter(AssigneeFilterState),
@@ -75,16 +75,16 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::confirm::Confirm;
-    use crate::menu::{MenuApp, Targets};
+    use crate::menu::{SearchPalette, Targets, items};
     use crate::state::PanelSide;
     use crate::tui::{
         AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkKind, LinkPickerState,
-        ModalInput, Overlay, PaletteState, SyncLogState, close_overlay, modal_input_target,
+        ModalInput, Overlay, SyncLogState, TaskPalette, close_overlay, modal_input_target,
         open_overlay, replace_overlay,
     };
 
     fn task_palette() -> Overlay {
-        Overlay::TaskPalette(PaletteState::new(
+        Overlay::TaskPalette(TaskPalette::new(
             None,
             false,
             false,
@@ -165,7 +165,12 @@ mod tests {
                 ModalInput::TaskConfirmation,
             ),
             (
-                Overlay::SearchPalette(MenuApp::new(PanelSide::Right, true, &Targets::default())),
+                Overlay::SearchPalette(SearchPalette::new(
+                    "Command palette",
+                    None,
+                    items(PanelSide::Right, true, &Targets::default()),
+                    crate::tui::PaletteControls::SEARCH,
+                )),
                 ModalInput::SearchPalette,
             ),
             (

@@ -10,9 +10,9 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
 
-pub(crate) fn draw_palette(f: &mut Frame, state: &PaletteState, area: Rect) {
+pub(crate) fn draw_palette(f: &mut Frame, state: &TaskPalette, area: Rect) {
     let visible = state.visible();
-    let show_subtitle = state.task_actions_modal && state.task_label.is_some();
+    let show_subtitle = state.task_actions_modal() && state.subtitle().is_some();
     // Base inner height: filter + separator + list (≥1) + footer = 4 +
     // visible. Add a row when the task actions modal subtitle is shown.
     let list_h = u16::try_from(visible.len()).unwrap_or(u16::MAX);
@@ -60,7 +60,7 @@ pub(crate) fn draw_palette(f: &mut Frame, state: &PaletteState, area: Rect) {
 
     let mut idx = 0_usize;
     if show_subtitle {
-        let label = state.task_label.as_deref().unwrap_or("");
+        let label = state.subtitle().unwrap_or("");
         // Truncate to fit; small left padding keeps the label off the
         // border.
         let max_chars = usize::from(inner.width).saturating_sub(2).max(8);
@@ -84,7 +84,7 @@ pub(crate) fn draw_palette(f: &mut Frame, state: &PaletteState, area: Rect) {
             Style::default().fg(accent).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            state.filter.clone(),
+            state.query().to_owned(),
             Style::default().fg(Color::Rgb(192, 202, 245)),
         ),
     ]);
@@ -92,7 +92,7 @@ pub(crate) fn draw_palette(f: &mut Frame, state: &PaletteState, area: Rect) {
     let cursor_x = filter_area
         .x
         .saturating_add(3)
-        .saturating_add(u16::try_from(state.filter.chars().count()).unwrap_or(u16::MAX))
+        .saturating_add(u16::try_from(state.query().chars().count()).unwrap_or(u16::MAX))
         .min(filter_area.x + filter_area.width.saturating_sub(1));
     f.set_cursor_position((cursor_x, filter_area.y));
 
@@ -110,7 +110,7 @@ pub(crate) fn draw_palette(f: &mut Frame, state: &PaletteState, area: Rect) {
     let list_area = chunks[idx];
     idx += 1;
     let entries = state.numbered_entries();
-    render_palette_list(f, &entries, state.selected, list_area);
+    render_palette_list(f, &entries, state.selected(), list_area);
 
     f.render_widget(Paragraph::new(palette_footer()), chunks[idx]);
 }

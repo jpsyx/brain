@@ -1,7 +1,6 @@
-
 #[test]
 fn open_links_hidden_when_task_has_no_links() {
-    let state = PaletteState::new_task_actions(
+    let state = TaskPalette::new_task_actions(
         "T1".into(),
         "task".into(),
         false,
@@ -15,7 +14,7 @@ fn open_links_hidden_when_task_has_no_links() {
 #[test]
 fn open_links_single_linear_label() {
     // Actions modal (no id in the label) and global palette (named).
-    let actions = PaletteState::new_task_actions(
+    let actions = TaskPalette::new_task_actions(
         "T1".into(),
         "task".into(),
         false,
@@ -29,7 +28,7 @@ fn open_links_single_linear_label() {
         Some("Open Linear link")
     );
 
-    let global = PaletteState::new(
+    let global = TaskPalette::new(
         Some("T123".into()),
         false,
         false,
@@ -46,7 +45,7 @@ fn open_links_single_linear_label() {
 
 #[test]
 fn open_links_single_notes_label() {
-    let actions = PaletteState::new_task_actions(
+    let actions = TaskPalette::new_task_actions(
         "T1".into(),
         "task".into(),
         false,
@@ -60,7 +59,7 @@ fn open_links_single_notes_label() {
         Some("Open link from note")
     );
 
-    let global = PaletteState::new(
+    let global = TaskPalette::new(
         Some("T90".into()),
         false,
         false,
@@ -77,7 +76,7 @@ fn open_links_single_notes_label() {
 
 #[test]
 fn open_links_multiple_label() {
-    let actions = PaletteState::new_task_actions(
+    let actions = TaskPalette::new_task_actions(
         "T1".into(),
         "task".into(),
         false,
@@ -91,7 +90,7 @@ fn open_links_multiple_label() {
         Some("Open attached link")
     );
 
-    let global = PaletteState::new(
+    let global = TaskPalette::new(
         Some("T123".into()),
         false,
         false,

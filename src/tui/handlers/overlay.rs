@@ -6,34 +6,16 @@ use crate::tui::*;
 
 use crossterm::event::{KeyCode, KeyModifiers};
 
-pub(crate) fn handle_palette_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
+pub(crate) fn handle_palette_key(app: &mut App, k: &crossterm::event::KeyEvent, _ctrl: bool) {
     let Some(Overlay::TaskPalette(palette)) = app.overlay.as_mut() else {
         return;
     };
-    match k.code {
-        KeyCode::Esc => {
+    match palette.handle_key(*k) {
+        PaletteStep::Continue => {}
+        PaletteStep::Cancel => {
             close_overlay(&mut app.overlay);
         }
-        KeyCode::Char('c') if ctrl => {
-            close_overlay(&mut app.overlay);
-        }
-        KeyCode::Enter => {
-            if let Some(action) = palette.selected_action() {
-                app.execute_palette_action(action);
-            }
-        }
-        KeyCode::Up => palette.move_up(),
-        KeyCode::Down => palette.move_down(),
-        // Ctrl+J / Ctrl+K aliases for ↓ / ↑ — vim-flavored navigation
-        // for users with hands already on the home row. Distinct from
-        // bare j / k (which are typed into the filter as letters).
-        // Requires kitty-protocol disambiguation in the host terminal,
-        // same caveat as Ctrl+M.
-        KeyCode::Char('j' | 'J') if ctrl => palette.move_down(),
-        KeyCode::Char('k' | 'K') if ctrl => palette.move_up(),
-        KeyCode::Backspace => palette.pop(),
-        KeyCode::Char(c) if !ctrl => palette.append(c),
-        _ => {}
+        PaletteStep::Confirm(action) => app.execute_task_action(action),
     }
 }
 

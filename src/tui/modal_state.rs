@@ -10,12 +10,11 @@
 use ratatui::style::Color;
 
 use crate::tasks::task::{AssignmentUiMode, AssignmentUser};
-use crate::tui::{Link, LinkKind};
+use crate::tui::{CommandPalette, Link, LinkKind, TaskAction};
 
 /// One row in the command palette. See `palette` for the command table.
-pub(crate) struct PaletteState {
-    pub(super) filter: String,
-    pub(super) selected: usize,
+pub(crate) struct TaskPalette {
+    pub(super) palette: CommandPalette<TaskAction>,
     /// ID of the currently-selected task / habit at the moment the
     /// palette was opened, if any. Drives the task actions modal title ("Task
     /// T123 actions") AND the labels of task-specific commands when

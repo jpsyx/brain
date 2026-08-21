@@ -128,7 +128,10 @@ tui::run_tui(TuiLaunch) (the persistent shell)
        │    ├─ agent::registry owns construction, lifecycle, health, and compatibility metadata
        │    └─ PtyPane clears inherited env, spawns the complete spec, and carries bytes
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
-       ├─ Ctrl+P opens a command palette (tasks: tui::palette; search: menu::MenuApp; status and log actions open the logs view)
+       ├─ Ctrl+P opens a contextual command palette backed by tui::palette::CommandPalette
+       │    ├─ task/log rows carry feature-owned TaskAction values
+       │    ├─ search rows carry feature-owned SearchAction values
+       │    └─ shared app commands wrap one closed GlobalAction and run through App::execute_global_action
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
        └─ quit → the loop just returns (no plan, no wrapper handoff)
 ```
@@ -688,7 +691,7 @@ section-grouped rows. Navigation (`move_up`/`down`, `page_*`,
 `ensure_visible`) keeps the cursor and its section header on screen.
 Rendering is delegated to `render.rs` and exposed as `draw_into(f, app,
 area)` so `tui`'s embedded search panel paints it. It owns no modal state:
-`selection` returns the contextual `MenuApp` or `Confirm` data that the shell
+`selection` returns the contextual `SearchPalette` or `Confirm` data that the shell
 wraps in its one `Overlay` slot. The `App` is driven
 key-by-key by the search view (`tui/search_view.rs`): `Enter` opens the
 selection in place (a directory falls back to a Finder reveal), `Ctrl-Enter`
@@ -699,14 +702,14 @@ the path and `drop_path`s the entry (`reload_entries` keeps the query), and
 the picker stays open.
 
 ### `menu/`
-Split into `labels` (contextual-row elision), `model` (`Choice`/`Targets`/the
-row list/`shortcut_for`), `filter` (the substring matcher), `app` (`MenuApp` +
-`handle_key`), and `view` (`draw_modal`).
-The command palette (the top-level menu). It has **no screen of its own**:
-the host opens it with `Ctrl-p`, drives its pure `MenuApp` + `handle_key`,
-and paints it with `draw_modal` as a centered overlay. `Choice` enumerates
-the rows; the row list is built per-open by `items(side, include_msg,
-pdf_target, delete_target)` because the rows are contextual: the **layout
+Split into `labels` (contextual-row elision), `model`
+(`SearchAction`/`Targets`/the row list/`shortcut_for`), and `view`
+(`draw_modal`). It has **no screen of its own**: the host opens it with
+`Ctrl-p`, drives the shared pure `CommandPalette<SearchAction>` state, and
+paints it with `draw_modal` as a centered overlay. `SearchAction` owns only
+search-specific operations and wraps `GlobalAction` for application commands.
+The row list is built per-open by `items(side, include_msg, targets)` because
+the rows are contextual: the **layout
 toggle** has a dynamic label (`layout_choice_label`: "Move brain panel to the
 left" / "...right"), the **"Create PDF for '…'"** row (label via
 `create_pdf_label`, which elides a long filename) leads the list only when
@@ -717,13 +720,12 @@ via `delete_label`, which shares `create_pdf_label`'s ellipsis threshold via
 action is never the default-selected row), and the "Message brain" row is
 dropped when `include_msg` is false (the persistent
 shell hides it while the panel is open, shows it to re-open once closed).
-`MenuApp::new(side, include_msg, pdf_target, delete_target)` owns the filtered
-view; `filter_indices` /
-`item_matches` are **pure** matchers (each row's matchable text includes its
-1-based number), and `handle_key` is a **pure** key handler (returns
-`Continue`/`Confirm`/`Cancel`). `Cancel` (Esc) tells the host to drop the
-overlay, not to exit. In the persistent shell `Msg` opens/focuses the brain
-panel and `ToggleLayout` swaps which side it sits on.
+The shared state owns the filtered row indices and key handling (each row's
+matchable text includes its 1-based number) and returns
+`Continue`/`Confirm`/`Cancel`. `Cancel` (Esc) tells the host to drop the
+overlay, not to exit. In the persistent shell `GlobalAction::MessageBrain`
+opens or focuses the brain panel and `GlobalAction::ToggleLayout` swaps which
+side it sits on.
 
 ### `confirm.rs`
 The shared yes/no confirmation modal. Like `menu`, it has **no screen of its
@@ -1130,10 +1132,11 @@ submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
 `draw_assignee` module so the shared-workspace overlay stays separate from the
 general confirm, link, and brain-input modal renderer.
 
-The larger submodules are directories split by concern: `handlers/`
+The larger submodules are directories split by concern: `action/` (the closed
+`GlobalAction` enum), `handlers/`
 (`overlay`/`tasks_view`/`input`), `event_loop/` (`setup`/`modal_route`/`run`),
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
-`draw/mod.rs`), `palette/` (`command`/`state`), `app_state/`
+`draw/mod.rs`), `palette/` (`model`/`command`/`state`), `app_state/`
 (`construct`/`nav`/`view`/`selection_query`), `app_actions/`
 (`commands`/`receiver`/`triage`, with pure triage policy in
 `triage/decision.rs`), `app_brain/` (`launch`/`lifecycle` plus receiver
@@ -1147,7 +1150,7 @@ public app actions.
 tabs (open/close/select, the `BrainTab` / tab-slot resolution, and the
 `tick_skill_sessions` auto-close). The `Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
-structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
+structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; shared panel, tab, and deferred-gate types live in
 `model.rs`, while `mod.rs` keeps the `App` shell type, `filter_tasks`, re-exports,
@@ -1539,8 +1542,10 @@ rebuild:
   `receiver email` / `receiver phone` addresses, explicit plain-task output,
   help, and non-TUI logs mirrored by `--verbose`. Clap errors and diagnostics go to
   stderr. The TUI renders to `/dev/tty`.
-- **Every `Choice` has exactly one palette row** (guarded by a test on
-  `items(side, …)`) so the menu can't silently drop an action.
+- **Every `SearchAction` has exactly one applicable palette row** (guarded by
+  tests on `items(side, …)`) so the search catalog cannot silently drop an
+  action. Shared task/search rows also assert the same `GlobalAction` while
+  preserving each surface's contextual label and direct-key metadata.
 - **The brain panel is open at startup but closeable.** `tui` launches the
   selected controller at startup and is two-panel; when its agent
   exits the panel **closes** (search goes full-width) — it does not quit the

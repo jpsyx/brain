@@ -70,7 +70,7 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
         fail: false,
     });
     app.overlay = Some(crate::tui::Overlay::TaskPalette(
-        crate::tui::PaletteState::new(
+        crate::tui::TaskPalette::new(
             None,
             false,
             false,

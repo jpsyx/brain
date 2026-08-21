@@ -14,9 +14,9 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use super::{App, Overlay, close_overlay, open_overlay, replace_overlay};
 use crate::entry::{self, Bucket};
-use crate::main_view::MainView;
-use crate::menu::{self, Choice};
+use crate::menu::SearchAction;
 use crate::open_target;
+use crate::tui::PaletteStep;
 use crate::{confirm, picker};
 
 impl App {
@@ -126,13 +126,13 @@ pub(crate) fn route_search_palette(app: &mut App, k: &KeyEvent) {
     let Some(Overlay::SearchPalette(palette)) = app.overlay.as_mut() else {
         return;
     };
-    match menu::handle_key(palette, *k) {
-        menu::Step::Continue => {}
-        menu::Step::Cancel => {
+    match palette.handle_key(*k) {
+        PaletteStep::Continue => {}
+        PaletteStep::Cancel => {
             close_overlay(&mut app.overlay);
         }
-        menu::Step::Confirm(choice) => {
-            if choice == Choice::Delete {
+        PaletteStep::Confirm(action) => {
+            if action == SearchAction::Delete {
                 if let Some(path) = app.search.selected_path() {
                     let confirm = picker::App::delete_confirmation(path);
                     replace_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
@@ -142,7 +142,7 @@ pub(crate) fn route_search_palette(app: &mut App, k: &KeyEvent) {
                 return;
             }
             close_overlay(&mut app.overlay);
-            dispatch_choice(app, choice);
+            app.execute_search_action(action);
         }
     }
 }
@@ -181,56 +181,48 @@ pub(crate) fn route_search_confirm(app: &mut App, k: &KeyEvent) {
     }
 }
 
-fn dispatch_choice(app: &mut App, choice: Choice) {
-    match choice {
-        Choice::CreatePdf => {
-            if let Some(path) = app.search.selected_markdown_path() {
-                create_pdf_inline(app, &path);
-                app.search_refresh();
+impl App {
+    fn execute_search_action(&mut self, action: SearchAction) {
+        match action {
+            SearchAction::Global(action) => self.execute_global_action(action),
+            SearchAction::CreatePdf => {
+                if let Some(path) = self.search.selected_markdown_path() {
+                    create_pdf_inline(self, &path);
+                    self.search_refresh();
+                }
+            }
+            SearchAction::OpenFile => {
+                if let Some(path) = self.search.selected_path() {
+                    open_selection(&path);
+                }
+            }
+            SearchAction::OpenDir => {
+                if let Some(path) = self.search.selected_path() {
+                    reveal_in_finder(&path);
+                }
+            }
+            SearchAction::Delete => {}
+            SearchAction::SearchProjects => {
+                let roots = single_bucket_root(&self.brain_root, Bucket::Projects);
+                self.search_rescope(&roots);
+            }
+            SearchAction::SearchAreas => {
+                let roots = single_bucket_root(&self.brain_root, Bucket::Areas);
+                self.search_rescope(&roots);
+            }
+            SearchAction::SearchResources => {
+                let roots = single_bucket_root(&self.brain_root, Bucket::Resources);
+                self.search_rescope(&roots);
+            }
+            SearchAction::SearchArchive => {
+                let roots = single_bucket_root(&self.brain_root, Bucket::Archive);
+                self.search_rescope(&roots);
+            }
+            SearchAction::GlobalSearch => {
+                let roots = all_bucket_roots(&self.brain_root);
+                self.search_rescope(&roots);
             }
         }
-        Choice::OpenFile => {
-            if let Some(path) = app.search.selected_path() {
-                open_selection(&path);
-            }
-        }
-        Choice::OpenDir => {
-            if let Some(path) = app.search.selected_path() {
-                reveal_in_finder(&path);
-            }
-        }
-        Choice::Delete => {}
-        // Open (or focus) the app-level brain panel.
-        Choice::Msg => {
-            app.open_or_focus_brain(None);
-        }
-        // Switch main view instead of the old cross-shell handoff.
-        Choice::OpenTasks => app.main_view = MainView::Tasks,
-        Choice::ToggleLayout => {
-            app.panel_side = app.panel_side.flipped();
-            let _ = app.db.set_panel_side(app.panel_side);
-        }
-        Choice::SearchProjects => {
-            let roots = single_bucket_root(&app.brain_root, Bucket::Projects);
-            app.search_rescope(&roots);
-        }
-        Choice::SearchAreas => {
-            let roots = single_bucket_root(&app.brain_root, Bucket::Areas);
-            app.search_rescope(&roots);
-        }
-        Choice::SearchResources => {
-            let roots = single_bucket_root(&app.brain_root, Bucket::Resources);
-            app.search_rescope(&roots);
-        }
-        Choice::SearchArchive => {
-            let roots = single_bucket_root(&app.brain_root, Bucket::Archive);
-            app.search_rescope(&roots);
-        }
-        Choice::GlobalSearch => {
-            let roots = all_bucket_roots(&app.brain_root);
-            app.search_rescope(&roots);
-        }
-        Choice::ToggleReceiver => app.toggle_receiver(),
     }
 }
 

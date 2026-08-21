@@ -1,8 +1,7 @@
 //! The command-palette model: the action enum, the per-command scope/flags,
 //! the direct-key shortcut map, and the ordered command table.
 
-use crate::skill_session::SkillSessionKey;
-use crate::tui::{LinkKind, PaletteState};
+use crate::tui::{LinkKind, TaskPalette};
 
 /// A per-command visibility predicate: given the current palette state (a
 /// snapshot of the TUI state relevant to the palette), decide whether the
@@ -10,27 +9,19 @@ use crate::tui::{LinkKind, PaletteState};
 /// lives (e.g. "Close brain" only with a panel open, the triage-tab switches
 /// only while a triage session runs), on top of the structural `scope` /
 /// `works_on_habits` gates. Plain `fn` pointers so the table stays `const`.
-pub(super) type VisibleWhen = fn(&PaletteState) -> bool;
+pub(super) type VisibleWhen = fn(&TaskPalette) -> bool;
 
-/// One rendered palette row: its stable 1-based number, its resolved label, the
-/// action it fires, and its direct-key hint.
+/// One task-catalog command before its contextual label and shared row are
+/// resolved.
 ///
 /// Rows are *owned* rather than `&'static PaletteCommand` because not every row
 /// is declared at compile time: a workspace's skill sessions contribute rows
 /// whose labels come from its own `skill_sessions` env array (see
 /// [`crate::skill_session`]). The static table below still fixes the order of
 /// everything brain declares itself.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PaletteRow {
-    pub(crate) number: usize,
-    pub(crate) label: String,
-    pub(crate) action: PaletteAction,
-    pub(crate) shortcut: Option<&'static str>,
-}
-
 pub(crate) struct PaletteCommand {
     pub(super) label: &'static str,
-    pub(crate) action: PaletteAction,
+    pub(crate) action: TaskAction,
     pub(super) scope: PaletteScope,
     /// Only consulted for `TaskSpecific` commands. When false, the
     /// command is hidden when the selected entry is a habit. (E.g. defer
@@ -44,40 +35,40 @@ pub(crate) struct PaletteCommand {
 // --- Visibility predicates (referenced from the const command table) ---
 
 /// Always visible (subject only to the structural scope gate).
-fn always(_: &PaletteState) -> bool {
+fn always(_: &TaskPalette) -> bool {
     true
 }
 
 /// Visible only while the main brain panel is open.
-fn if_brain_open(s: &PaletteState) -> bool {
+fn if_brain_open(s: &TaskPalette) -> bool {
     s.brain_open
 }
 
 /// Visible only while at least one skill-session tab is open — there is nothing
 /// to switch back *from* otherwise.
-fn if_skill_session_open(s: &PaletteState) -> bool {
+fn if_skill_session_open(s: &TaskPalette) -> bool {
     !s.open_skill_sessions.is_empty()
 }
 
 /// Visible only when the in-context entry has notes to expand/collapse.
-fn if_has_notes(s: &PaletteState) -> bool {
+fn if_has_notes(s: &TaskPalette) -> bool {
     s.context_has_notes
 }
 
 /// Visible only when the in-context entry has at least one openable link.
-fn if_has_links(s: &PaletteState) -> bool {
+fn if_has_links(s: &TaskPalette) -> bool {
     s.context_links != LinkKind::None
 }
 
-fn if_assignment_create(s: &PaletteState) -> bool {
+fn if_assignment_create(s: &TaskPalette) -> bool {
     s.assignment_mode.show_create_control
 }
 
-fn if_assignment_reassign(s: &PaletteState) -> bool {
+fn if_assignment_reassign(s: &TaskPalette) -> bool {
     s.assignment_mode.show_reassign_control
 }
 
-fn if_assignment_filter(s: &PaletteState) -> bool {
+fn if_assignment_filter(s: &TaskPalette) -> bool {
     s.assignment_mode.show_filter
 }
 
@@ -92,22 +83,12 @@ pub(super) enum PaletteScope {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum PaletteAction {
+pub(crate) enum TaskAction {
+    Global(crate::tui::GlobalAction),
     /// Ask the brain agent to collect a new task, preserving actor assignment
     /// as the default unless the user explicitly selects another member.
     AddTask,
-    /// Open (or focus) the persistent brain panel, resuming the shell's
-    /// most-recently-active session. The user types directly into it.
-    SendBrainMessage,
-    /// Close the brain panel and end its agent session. Only offered while
-    /// a panel is open.
-    CloseBrain,
-    ToggleReceiver,
-    ShowReceiverServerStatus,
-    ShowReceiverServerLogs,
-    ShowBrainLogs,
-    ReturnToMainView,
-    /// Like `SendBrainMessage`, but the entered text is prefixed with
+    /// Like `GlobalAction::MessageBrain`, but the entered text is prefixed with
     /// "This message is about <ID>:" so the brain agent knows which
     /// task / habit the user is asking about. Requires a selection.
     MessageBrainAboutTask,
@@ -137,10 +118,6 @@ pub(crate) enum PaletteAction {
     /// server already attached to the live TUI.
     /// Global.
     OpenHabitsInBrowser,
-    /// Kick a best-effort background `brain sync` now. Global; no shortcut.
-    SyncBrainNow,
-    /// Report whether a sync is currently running. Global; no shortcut.
-    ShowSyncStatus,
     /// Open today's agenda — same code path as the `Ctrl+A` shortcut.
     /// Routes through the `agenda` zsh function, which generates the
     /// PDF if needed and opens it. On failure (no markdown for today)
@@ -155,62 +132,37 @@ pub(crate) enum PaletteAction {
     /// has ≥ 1 link (Linear or notes); a single link opens directly, several
     /// raise the picker. The label reflects which (see `label_for`).
     OpenLinks,
-    /// Toggle the daily-triage startup nudge for the current session — the
-    /// runtime counterpart to the portable `enable_daily_triage_check` config
-    /// variable that seeds it at startup. Flips
-    /// `App::skip_daily_triage_check` (process-scoped, not persisted config) so
-    /// a long-running TUI can suppress or restore the alert across day
-    /// rollovers. Global; label swaps Disable/Enable (see `label_for`).
-    ToggleDailyTriageAlert,
-    /// Focus the main brain session tab (`BrainTab::Main`) — the palette-driven
-    /// counterpart to `Alt+1`, reliable on terminals where Alt+digit is not.
-    /// Only offered while a skill-session tab is open (nothing to switch away
-    /// from otherwise).
-    ShowMainBrainSession,
-    /// Start a skill session: a dedicated ephemeral tab seeded with that
-    /// session's prompt, which closes itself when the run signals completion.
-    /// One row per session the workspace offers (the builtin daily triage plus
-    /// its `skill_sessions` env entries), each hidden while its own session is
-    /// already running so it can't be started twice.
-    RunSkillSession(SkillSessionKey),
-    /// Focus a running skill session's tab — the palette-driven counterpart to
-    /// its `Alt+<n>`. Only offered while that session is open.
-    ShowSkillSession(SkillSessionKey),
 }
 
 /// Direct keystroke that bypasses the palette for a given action,
 /// rendered as a dim `[…]` annotation next to the palette label.
 /// Returns `None` when an action has no direct shortcut.
-pub(crate) const fn shortcut_for(action: PaletteAction) -> Option<&'static str> {
+pub(crate) const fn shortcut_for(action: TaskAction) -> Option<&'static str> {
     match action {
-        PaletteAction::MarkTaskComplete => Some("^D"),
-        PaletteAction::RemoveTask => Some("^⌫"),
-        PaletteAction::MessageBrainAboutTask => Some("^⇧M"),
-        PaletteAction::SendBrainMessage => Some("^M"),
-        PaletteAction::CloseBrain => Some("^X"),
-        PaletteAction::OpenHabitsInBrowser => Some("^H"),
-        PaletteAction::OpenAgenda => Some("^A"),
-        PaletteAction::ToggleNotes => Some("l"),
-        PaletteAction::OpenLinks => Some("^O"),
+        TaskAction::Global(action) => {
+            // Search exposes ShowTasks as "Open tasks" with ^T; the task/log
+            // catalog's contextual "Return to main view" row has no direct key.
+            if matches!(action, crate::tui::GlobalAction::ShowTasks) {
+                None
+            } else {
+                action.shortcut()
+            }
+        }
+        TaskAction::MarkTaskComplete => Some("^D"),
+        TaskAction::RemoveTask => Some("^⌫"),
+        TaskAction::MessageBrainAboutTask => Some("^⇧M"),
+        TaskAction::OpenHabitsInBrowser => Some("^H"),
+        TaskAction::OpenAgenda => Some("^A"),
+        TaskAction::ToggleNotes => Some("l"),
+        TaskAction::OpenLinks => Some("^O"),
         // No per-command hint: the tab switch is a cycle (`Alt+[` / `Alt+]`),
         // not a per-tab key, and these palette rows are themselves the reliable
         // switch (the direct `Alt+1` / `Alt+2` are terminal-unreliable).
-        PaletteAction::ShowMainBrainSession
-        | PaletteAction::RunSkillSession(_)
-        | PaletteAction::ShowSkillSession(_)
-        | PaletteAction::ToggleReceiver
-        | PaletteAction::ShowReceiverServerStatus
-        | PaletteAction::ShowReceiverServerLogs
-        | PaletteAction::ShowBrainLogs
-        | PaletteAction::ReturnToMainView
-        | PaletteAction::StartTask
-        | PaletteAction::DeferTask(_)
-        | PaletteAction::SyncBrainNow
-        | PaletteAction::ShowSyncStatus
-        | PaletteAction::ToggleDailyTriageAlert
-        | PaletteAction::AddTask
-        | PaletteAction::ReassignTask
-        | PaletteAction::ChooseAssigneeFilter => None,
+        TaskAction::StartTask
+        | TaskAction::DeferTask(_)
+        | TaskAction::AddTask
+        | TaskAction::ReassignTask
+        | TaskAction::ChooseAssigneeFilter => None,
     }
 }
 

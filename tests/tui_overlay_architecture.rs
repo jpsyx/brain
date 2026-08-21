@@ -20,7 +20,8 @@ fn shell_has_one_overlay_owner_and_picker_has_none() {
         "the precedence-booleans snapshot must not remain"
     );
     for independent_slot in [
-        "palette: Option<PaletteState>",
+        "task_palette: Option<TaskPalette>",
+        "search_palette: Option<SearchPalette>",
         "brain_input: Option<BrainInputState>",
         "confirm: Option<ConfirmState>",
         "link_picker: Option<LinkPickerState>",
@@ -34,7 +35,7 @@ fn shell_has_one_overlay_owner_and_picker_has_none() {
         );
     }
     assert!(
-        !picker.contains("Option<menu::MenuApp>"),
+        !picker.contains("Option<menu::SearchPalette>"),
         "picker::App must not own the search palette"
     );
     assert!(

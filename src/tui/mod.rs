@@ -36,6 +36,7 @@
 //!   each surface.
 //! - `shell` — the [`ShellRunner`] injection boundary.
 
+mod action;
 mod app_actions;
 mod app_brain;
 mod app_skill_session;
@@ -76,6 +77,7 @@ pub(crate) use launch::TuiLaunch;
 // (the `App` impl is split across files; the handlers / draw / keymap fns
 // call across module boundaries). `event_loop` can't be glob-imported because
 // its `event_loop` fn would shadow the module name.
+pub(crate) use action::*;
 pub(crate) use app_state::AppInit;
 pub(crate) use app_sync::*;
 pub(crate) use draw::*;

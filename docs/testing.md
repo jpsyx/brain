@@ -161,11 +161,16 @@ first move is a failing test that reproduces it, *then* the fix.
   no matches; highlight bytes recorded), section grouping in
   `build_display_rows`, and navigation clamping (`move_*`, `page_*`,
   `selected_path`).
-- **Menu navigation.** `handle_key` as a pure state machine: movement
-  saturation, ctrl-jk, digit jump in/out of range, Enter confirm, Esc /
-  Ctrl-c cancel. Plus structural guards: the layout toggle is the last row,
-  and every `Choice` appears exactly once (including `CreatePdf` when a
-  markdown target is present). Also the two contextual rows: "Create PDF"
+- **Palette state and menu navigation.** The generic `CommandPalette<A>` is a
+  pure state machine tested for word/number filtering, empty results,
+  selection clamping, wrapping versus saturating movement, each surface's
+  established Ctrl/Alt handling, Enter confirmation, and Esc/Ctrl-c
+  cancellation. Catalog guards prove shared task/search application rows wrap
+  the same `GlobalAction` and preserve their exact shared or contextual
+  label/shortcut metadata.
+  Search structural guards keep the layout toggle last and ensure every
+  `SearchAction` appears exactly once when applicable (including `CreatePdf`
+  when a markdown target is present). The two contextual rows: "Create PDF"
   appears only with a `.md` target, leads the list, and carries `^G`;
   "Delete" appears with any target, **trails** the list, and carries `^D`.
   Both elide a long filename through the shared `truncate_label_filename` /

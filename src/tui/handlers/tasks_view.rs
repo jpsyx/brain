@@ -152,7 +152,7 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
                 open_overlay(
                     &mut app.overlay,
                     Overlay::TaskPalette(
-                        PaletteState::new_task_actions(
+                        TaskPalette::new_task_actions(
                             id,
                             label,
                             is_habit,

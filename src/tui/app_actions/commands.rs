@@ -30,6 +30,86 @@ fn protect_removal(
 }
 
 impl App {
+    pub(crate) fn execute_global_action(&mut self, action: GlobalAction) {
+        match action {
+            GlobalAction::MessageBrain => {
+                self.open_or_focus_brain(None);
+            }
+            GlobalAction::CloseBrain => self.close_brain(),
+            GlobalAction::ToggleReceiver => self.toggle_receiver(),
+            GlobalAction::ToggleLayout => {
+                self.panel_side = self.panel_side.flipped();
+                let _ = self.db.set_panel_side(self.panel_side);
+            }
+            GlobalAction::ShowTasks => self.main_view = crate::main_view::MainView::Tasks,
+            GlobalAction::ShowReceiverServerStatus => self.show_receiver_status(),
+            GlobalAction::ShowReceiverServerLogs => {
+                crate::logging::log("palette request receiver server logs");
+                self.show_logs_view(LogKind::Receiver);
+            }
+            GlobalAction::ShowBrainLogs => {
+                crate::logging::log("palette request brain TUI logs");
+                self.show_logs_view(LogKind::Brain);
+            }
+            GlobalAction::SyncBrainNow => {
+                if crate::sync::trigger::spawn_detached_sync(
+                    &self.command_context.workspace,
+                    crate::sync::args::Direction::Both,
+                )
+                .is_some()
+                {
+                    self.flash = Some(FlashKind::Info("✓ sync started".to_owned()));
+                } else {
+                    self.flash = Some(FlashKind::Error("sync could not start".to_owned()));
+                }
+            }
+            GlobalAction::ShowSyncStatus => {
+                crate::logging::log("palette request sync status");
+                open_overlay(
+                    &mut self.overlay,
+                    Overlay::SyncLog(SyncLogState { scroll: u16::MAX }),
+                );
+            }
+            GlobalAction::ToggleDailyTriageAlert => self.toggle_daily_triage_alert(),
+            GlobalAction::ShowMainBrainSession => self.select_brain_tab(BrainTab::Main),
+            GlobalAction::RunSkillSession(key) => self.run_skill_session(key),
+            GlobalAction::ShowSkillSession(key) => self.select_skill_session(key),
+        }
+    }
+
+    fn toggle_daily_triage_alert(&mut self) {
+        self.skip_daily_triage_check = !self.skip_daily_triage_check;
+        let persisted = self.persist_daily_triage_check();
+        if self.skip_daily_triage_check {
+            crate::logging::log("palette disabled daily triage alert");
+            self.flash = Some(FlashKind::Info(persisted.map_or_else(
+                |error| {
+                    format!(
+                        "daily triage alert disabled for this session only; saving it failed: {error:#}"
+                    )
+                },
+                |()| "daily triage alert disabled (saved to config)".to_owned(),
+            )));
+        } else {
+            crate::logging::log("palette enabled daily triage alert");
+            self.flash = Some(FlashKind::Info(persisted.map_or_else(
+                |error| {
+                    format!(
+                        "daily triage alert enabled for this session only; saving it failed: {error:#}"
+                    )
+                },
+                |()| "daily triage alert enabled (saved to config)".to_owned(),
+            )));
+            if should_check_daily_triage(
+                TriageAlertEvent::PaletteEnabled,
+                self.triage_gate.is_some(),
+                self.skip_daily_triage_check,
+            ) {
+                self.check_daily_triage();
+            }
+        }
+    }
+
     pub(crate) fn show_logs_view(&mut self, kind: LogKind) {
         crate::logging::log(format!("open logs view kind={kind:?}"));
         self.logs_view = Some(LogsView::load(kind, self.log_path.as_deref()));
@@ -179,27 +259,15 @@ impl App {
         Ok(())
     }
 
-    pub(crate) fn execute_palette_action(&mut self, action: PaletteAction) {
+    pub(crate) fn execute_task_action(&mut self, action: TaskAction) {
         close_overlay(&mut self.overlay);
         match action {
-            PaletteAction::SendBrainMessage => {
-                // Open / focus the persistent brain panel; the user types into it.
-                self.open_or_focus_brain(None);
-            }
-            PaletteAction::AddTask => {
+            TaskAction::Global(action) => self.execute_global_action(action),
+            TaskAction::AddTask => {
                 let message = add_task_prompt(self.assignment.actor_id().as_str());
                 self.send_brain_prompt(&message);
             }
-            PaletteAction::CloseBrain => {
-                self.close_brain();
-            }
-            PaletteAction::ToggleReceiver => self.toggle_receiver(),
-            PaletteAction::ShowReceiverServerStatus => self.show_receiver_status(),
-            PaletteAction::ShowReceiverServerLogs => {
-                crate::logging::log("palette request receiver server logs");
-                self.show_logs_view(LogKind::Receiver);
-            }
-            PaletteAction::MessageBrainAboutTask => {
+            TaskAction::MessageBrainAboutTask => {
                 // Clone (id, name) before opening the brain-input overlay so
                 // the borrow on visible_tasks ends first.
                 let target = self
@@ -213,7 +281,7 @@ impl App {
                     );
                 }
             }
-            PaletteAction::MarkTaskComplete => {
+            TaskAction::MarkTaskComplete => {
                 // Open a Yes/No confirmation rather than completing
                 // immediately — same guard as the Ctrl+Enter shortcut,
                 // since this mutates tasks.csv. The Yes path calls
@@ -229,7 +297,7 @@ impl App {
                     );
                 }
             }
-            PaletteAction::DeferTask(days) => {
+            TaskAction::DeferTask(days) => {
                 let Some(id) = self.current_task_id() else {
                     return;
                 };
@@ -241,7 +309,7 @@ impl App {
                 let message = format!("Defer task {id} by {days} {day_word}");
                 self.send_brain_prompt(&message);
             }
-            PaletteAction::RemoveTask => {
+            TaskAction::RemoveTask => {
                 // Open a Yes/No confirmation rather than firing off the
                 // remove immediately — destructive enough to warrant the
                 // extra keystroke. The Yes path calls `run_remove`.
@@ -256,14 +324,14 @@ impl App {
                     );
                 }
             }
-            PaletteAction::ReassignTask => {
+            TaskAction::ReassignTask => {
                 let Some(id) = self.current_task_id() else {
                     return;
                 };
                 let message = reassign_task_prompt(&id);
                 self.send_brain_prompt(&message);
             }
-            PaletteAction::ChooseAssigneeFilter => {
+            TaskAction::ChooseAssigneeFilter => {
                 open_overlay(
                     &mut self.overlay,
                     Overlay::AssigneeFilter(AssigneeFilterState::new(
@@ -272,91 +340,19 @@ impl App {
                     )),
                 );
             }
-            PaletteAction::OpenHabitsInBrowser => {
+            TaskAction::OpenHabitsInBrowser => {
                 self.run_open_habits();
             }
-            PaletteAction::SyncBrainNow => {
-                if crate::sync::trigger::spawn_detached_sync(
-                    &self.command_context.workspace,
-                    crate::sync::args::Direction::Both,
-                )
-                .is_some()
-                {
-                    self.flash = Some(FlashKind::Info("✓ sync started".to_owned()));
-                } else {
-                    self.flash = Some(FlashKind::Error("sync could not start".to_owned()));
-                }
-            }
-            PaletteAction::ShowSyncStatus => {
-                crate::logging::log("palette request sync status");
-                // A modal, not a flash: the interesting thing about a running
-                // sync is the transcript, and the status line stays a one-liner.
-                open_overlay(
-                    &mut self.overlay,
-                    Overlay::SyncLog(SyncLogState { scroll: u16::MAX }),
-                );
-            }
-            PaletteAction::OpenAgenda => {
+            TaskAction::OpenAgenda => {
                 self.run_open_agenda();
             }
-            PaletteAction::ShowBrainLogs => {
-                crate::logging::log("palette request brain TUI logs");
-                self.show_logs_view(LogKind::Brain);
-            }
-            PaletteAction::ReturnToMainView => {
-                crate::logging::log("palette request return to main view");
-                self.main_view = crate::main_view::MainView::Tasks;
-            }
-            PaletteAction::ToggleDailyTriageAlert => {
-                self.skip_daily_triage_check = !self.skip_daily_triage_check;
-                // Persist it: turning the nudge off is a decision about the
-                // workspace, not about this session, so it must survive a
-                // restart and reach the other machines on the workspace.
-                let persisted = self.persist_daily_triage_check();
-                if self.skip_daily_triage_check {
-                    crate::logging::log("palette disabled daily triage alert");
-                    self.flash = Some(FlashKind::Info(
-                        persisted.map_or_else(
-                            |error| format!("daily triage alert disabled for this session only; saving it failed: {error:#}"),
-                            |()| "daily triage alert disabled (saved to config)".to_owned(),
-                        ),
-                    ));
-                } else {
-                    crate::logging::log("palette enabled daily triage alert");
-                    self.flash = Some(FlashKind::Info(
-                        persisted.map_or_else(
-                            |error| format!("daily triage alert enabled for this session only; saving it failed: {error:#}"),
-                            |()| "daily triage alert enabled (saved to config)".to_owned(),
-                        ),
-                    ));
-                    // Re-enabling re-arms the nudge. While startup refresh is
-                    // pending, wait for synced config and habits instead of
-                    // evaluating stale local state.
-                    if should_check_daily_triage(
-                        TriageAlertEvent::PaletteEnabled,
-                        self.triage_gate.is_some(),
-                        self.skip_daily_triage_check,
-                    ) {
-                        self.check_daily_triage();
-                    }
-                }
-            }
-            PaletteAction::ShowMainBrainSession => {
-                self.select_brain_tab(BrainTab::Main);
-            }
-            PaletteAction::RunSkillSession(key) => {
-                self.run_skill_session(key);
-            }
-            PaletteAction::ShowSkillSession(key) => {
-                self.select_skill_session(key);
-            }
-            PaletteAction::ToggleNotes => {
+            TaskAction::ToggleNotes => {
                 self.toggle_notes();
             }
-            PaletteAction::OpenLinks => {
+            TaskAction::OpenLinks => {
                 self.run_open_links();
             }
-            PaletteAction::StartTask => {
+            TaskAction::StartTask => {
                 let Some(id) = self.current_task_id() else {
                     return;
                 };

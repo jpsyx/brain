@@ -80,18 +80,40 @@ still return to the unchanged underlying view, and confirmed actions retain
 their existing effects, but there is no hidden second modal waiting behind the
 visible one.
 
+## Why shared application actions use a closed enum
+
+The task, log, and brain-search catalogs are contextual views over one
+application. Commands such as Message brain and Toggle receiver therefore use
+one `GlobalAction` identity and one `App::execute_global_action` mediator,
+while `TaskAction` and `SearchAction` retain task IDs, selected paths, and other
+feature-only semantics. Each feature enum wraps `GlobalAction` explicitly, so
+catalogs stay statically typed without trait objects or erased callbacks.
+
+Both surfaces build the same reusable `PaletteRow<A>` and
+`CommandPalette<A>` state. The model centralizes numbering, filtering,
+selection, cancellation, and confirmation, while a small controls value keeps
+the established navigation and text-input differences between the two
+surfaces. Catalogs still decide row order, dynamic labels, visibility, task
+context, and destructive-row placement.
+
+A plugin registry would make a finite in-process command set harder to audit,
+weaken exhaustive dispatch, and require erasing feature context. A closed enum
+instead makes every application effect visible to the compiler and keeps
+cross-feature work at the `App` boundary.
+
 ## Why the palette is a modal overlay, not its own screen
 
 The palette is drawn as a modal **overlay inside the persistent shell**
-(`menu::draw_modal` over the active view, `menu::MenuApp` driven by the shell's
-overlay route), rather than a separate full-screen TUI the way it started.
+(`menu::draw_modal` over the active view, with the shared `CommandPalette`
+driven by the shell's overlay route), rather than a separate full-screen TUI
+the way it started.
 The reason is `Esc`: a separate screen would have to *exit* on `Esc`,
 dropping the user all the way back to the shell and losing the search they
 were in. As an overlay, `Esc` just closes the box and the picker is still
 right there underneath — the same back-out-of-a-modal behavior the `tasks`
 TUI has. This is why `menu/` has no `run()`/event loop of its own; it
-exposes pure state (`MenuApp`, `handle_key`) plus `draw_modal`, and the
-shell owns the loop. A confirmed row returns a `Choice`, which
+exposes a contextual catalog plus `draw_modal`, and the shell owns the loop.
+A confirmed row returns a `SearchAction`, which
 `tui/search_view.rs` runs in place (rescope, message brain, open tasks,
 PDF/delete) without leaving the shell.
 
@@ -2521,17 +2543,17 @@ startup so a signal orphaned by a crashed run can't close a later tab.
 ## Palette commands carry a per-command `is_visible` predicate
 
 Command-palette visibility used to be a single growing `match` in
-`PaletteState::scoped` that special-cased each conditional command inline
+the task-palette catalog builder that special-cased each conditional command inline
 (`CloseBrain` needs a panel, the receiver rows need a running/stopped server,
 the notes/links rows need notes/links). Adding the brain-panel tab-switch rows
 would have meant extending that match yet again.
 
-Instead each `PaletteCommand` now carries an `is_visible: fn(&PaletteState) ->
-bool` predicate (default `always`). `scoped` applies the *structural* gate
-(`command_in_scope`: task-vs-global, the habit filter, the logs-view whitelist,
+Instead each `PaletteCommand` now carries an `is_visible: fn(&TaskPalette) ->
+bool` predicate (default `always`). The catalog builder applies the *structural*
+gate (`command_in_scope`: task-vs-global, the habit filter, the logs-view whitelist,
 the task-actions-modal restriction) and then the command's own predicate. The
 conditional logic lives next to the command it governs, new conditional commands
-are a one-line predicate, and `PaletteState` is the single snapshot of TUI state
+are a one-line predicate, and `TaskPalette` is the single snapshot of TUI state
 the predicates read, seeded at open time from the relevant `App` fields.
 
 **Why the tab-switch commands exist at all.** `Alt+1` / `Alt+<n>` are the intended
@@ -2546,9 +2568,9 @@ as a bonus where the terminal supports them.
 **Why palette rows became owned values.** The row list used to be
 `Vec<&'static PaletteCommand>` straight off the const table. A workspace's skill
 sessions contribute rows whose labels come from its own env, which cannot be
-`&'static`, so `PaletteState::rows` now builds owned `PaletteRow` values (number,
-label, action, shortcut) and splices the skill-session rows into the brain-tab
-group. The const table still fixes the order of everything brain declares itself,
+`&'static`, so `TaskPalette` now builds owned shared `PaletteRow<TaskAction>`
+values (number, label, action, shortcut) and splices the skill-session rows into
+the brain-tab group. The const table still fixes the order of everything brain declares itself,
 and the start rows are omitted for sessions already running — the same pure
 `skill_session::runnable` decision that the tab list is derived from, so a row can
 never disagree with the tabs that exist.

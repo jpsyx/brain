@@ -1,14 +1,16 @@
-//! The palette's data model: every action it can run (`Choice`), the
+//! The search palette's feature-owned actions (`SearchAction`), the
 //! contextual targets that gate the entry-action rows (`Targets`), and the
 //! pure builders for the ordered row list (`items`) and each row's direct-key
 //! hint (`shortcut_for`).
 
 use crate::state::PanelSide;
+use crate::tui::{GlobalAction, PaletteRow};
 
 use super::labels::{create_pdf_label, delete_label, open_dir_label, open_file_label};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Choice {
+pub(crate) enum SearchAction {
+    Global(GlobalAction),
     /// Convert the highlighted markdown file to a colocated PDF. Only offered
     /// as a row when a `.md` file is selected (its label carries the
     /// filename), so it is a *conditional* choice, not part of `STATIC_ITEMS`.
@@ -28,30 +30,26 @@ pub enum Choice {
     /// a row whenever something is selected (its label carries the filename),
     /// so it's a *conditional* choice, not part of `STATIC_ITEMS`.
     Delete,
-    Msg,
-    OpenTasks,
     SearchProjects,
     SearchAreas,
     SearchResources,
     SearchArchive,
     GlobalSearch,
-    /// Persistently invert receiver intent for the selected workspace.
-    ToggleReceiver,
-    /// Swap which side the brain panel sits on. Only meaningful in the
-    /// persistent two-panel TUI; a no-op for the one-shot picker.
-    ToggleLayout,
 }
 
 /// The static rows, in display order. The layout-toggle row is appended
 /// separately because its label depends on the current panel side.
-const STATIC_ITEMS: &[(Choice, &str)] = &[
-    (Choice::Msg, "Message brain"),
-    (Choice::OpenTasks, "Open tasks"),
-    (Choice::SearchProjects, "Search projects"),
-    (Choice::SearchAreas, "Search areas"),
-    (Choice::SearchResources, "Search resources"),
-    (Choice::SearchArchive, "Search archive"),
-    (Choice::GlobalSearch, "Global search"),
+const STATIC_ITEMS: &[(SearchAction, &str)] = &[
+    (
+        SearchAction::Global(GlobalAction::MessageBrain),
+        "Message brain",
+    ),
+    (SearchAction::Global(GlobalAction::ShowTasks), "Open tasks"),
+    (SearchAction::SearchProjects, "Search projects"),
+    (SearchAction::SearchAreas, "Search areas"),
+    (SearchAction::SearchResources, "Search resources"),
+    (SearchAction::SearchArchive, "Search archive"),
+    (SearchAction::GlobalSearch, "Global search"),
 ];
 
 /// The label for the layout-toggle row: it names the direction the panel
@@ -92,72 +90,83 @@ pub struct Targets {
 /// it while the brain panel is already open (there's nothing to open), and
 /// shows it (to re-open the panel) once it's closed. The one-shot picker
 /// always includes it.
-pub(super) fn items(
+pub(crate) fn items(
     side: PanelSide,
     include_msg: bool,
     targets: &Targets,
-) -> Vec<(Choice, String)> {
-    let mut v: Vec<(Choice, String)> = Vec::new();
+) -> Vec<PaletteRow<SearchAction>> {
+    let mut rows = Vec::new();
     // The contextual entry-action rows lead the list so a common action is
     // the default-selected one on open. "Create PDF" keeps the lead when a
     // markdown file is highlighted; "Open file" / "Open directory" follow.
     if let Some(filename) = &targets.pdf {
-        v.push((Choice::CreatePdf, create_pdf_label(filename)));
+        push_row(
+            &mut rows,
+            SearchAction::CreatePdf,
+            create_pdf_label(filename),
+        );
     }
     if let Some(filename) = &targets.open_file {
-        v.push((Choice::OpenFile, open_file_label(filename)));
+        push_row(&mut rows, SearchAction::OpenFile, open_file_label(filename));
     }
     if let Some(rel_dir) = &targets.open_dir {
-        v.push((Choice::OpenDir, open_dir_label(rel_dir)));
+        push_row(&mut rows, SearchAction::OpenDir, open_dir_label(rel_dir));
     }
-    v.extend(
-        STATIC_ITEMS
-            .iter()
-            .filter(|(c, _)| include_msg || *c != Choice::Msg)
-            .map(|(c, l)| (*c, (*l).to_owned())),
-    );
+    for (action, label) in STATIC_ITEMS.iter().filter(|(action, _)| {
+        include_msg || *action != SearchAction::Global(GlobalAction::MessageBrain)
+    }) {
+        push_row(&mut rows, *action, (*label).to_owned());
+    }
     if let Some(enabled) = targets.receiver_enabled {
-        v.push((
-            Choice::ToggleReceiver,
+        push_row(
+            &mut rows,
+            SearchAction::Global(GlobalAction::ToggleReceiver),
             if enabled {
                 "Disable receiver"
             } else {
                 "Enable receiver"
             }
             .to_owned(),
-        ));
+        );
     }
-    v.push((Choice::ToggleLayout, layout_choice_label(side).to_owned()));
+    push_row(
+        &mut rows,
+        SearchAction::Global(GlobalAction::ToggleLayout),
+        layout_choice_label(side).to_owned(),
+    );
     // "Delete" trails the list, deliberately never the default-selected row:
     // a destructive action should not fire from a stray Enter on palette open.
     if let Some(filename) = &targets.delete {
-        v.push((Choice::Delete, delete_label(filename)));
+        push_row(&mut rows, SearchAction::Delete, delete_label(filename));
     }
-    v
+    rows
 }
 
 /// Direct keystroke that fires a choice without opening the palette,
 /// rendered as a dim `[…]` annotation next to the palette row. `None` when a
 /// row has no direct shortcut.
 #[must_use]
-pub const fn shortcut_for(choice: Choice) -> Option<&'static str> {
-    match choice {
-        Choice::CreatePdf => Some("^G"),
+pub(crate) const fn shortcut_for(action: SearchAction) -> Option<&'static str> {
+    match action {
+        SearchAction::Global(action) => action.shortcut(),
+        SearchAction::CreatePdf => Some("^G"),
         // "Open file" / "Open directory" reuse the picker's existing keys:
         // plain Enter opens the file, Ctrl-Enter reveals its directory.
-        Choice::OpenFile => Some("↵"),
-        Choice::OpenDir => Some("^↵"),
-        Choice::Delete => Some("^D"),
-        Choice::Msg => Some("^M"),
-        Choice::OpenTasks => Some("^T"),
-        Choice::SearchProjects
-        | Choice::SearchAreas
-        | Choice::SearchResources
-        | Choice::SearchArchive
-        | Choice::GlobalSearch
-        | Choice::ToggleLayout
-        | Choice::ToggleReceiver => None,
+        SearchAction::OpenFile => Some("↵"),
+        SearchAction::OpenDir => Some("^↵"),
+        SearchAction::Delete => Some("^D"),
+        SearchAction::SearchProjects
+        | SearchAction::SearchAreas
+        | SearchAction::SearchResources
+        | SearchAction::SearchArchive
+        | SearchAction::GlobalSearch => None,
     }
+}
+
+fn push_row(rows: &mut Vec<PaletteRow<SearchAction>>, action: SearchAction, label: String) {
+    let mut row = PaletteRow::new(label, action, shortcut_for(action));
+    row.number = rows.len() + 1;
+    rows.push(row);
 }
 
 #[cfg(test)]
