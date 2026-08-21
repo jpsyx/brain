@@ -330,6 +330,8 @@ pub(crate) struct App {
     /// One owner for receiver-local ingress, intent, session, delivery,
     /// timing, and sync-gate state.
     receiver: crate::tui::receiver::ReceiverRuntime,
+    /// App-owned adapter for cross-feature sync observations and effects.
+    receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
     pub(crate) sync_status: Option<String>,
     pub(crate) sync_status_next_poll: Instant,
     pub(crate) last_seen_downstream_id: Option<i64>,

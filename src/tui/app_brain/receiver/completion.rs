@@ -136,7 +136,7 @@ impl App {
             "receiver agent response completed channel={channel:?}"
         ));
         if crate::sync::config::SyncConfig::load(&self.command_context).is_configured() {
-            let _ = self.receiver.spawn_detached_sync(
+            let _ = self.receiver_sync_runtime.spawn_detached_sync(
                 &self.command_context.workspace,
                 crate::sync::args::Direction::Push,
             );

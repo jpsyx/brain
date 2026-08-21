@@ -1507,8 +1507,9 @@ outside-world touchpoints:
   `brain sync --pull` and holds the message queue until a newer journal row
   appears. The footer polls `current.json` every 250ms and displays the active
   direction. `ReceiverRuntime` owns the gate attempt and deadline state; its
-  injected sync adapter supplies monotonic and UTC clocks, current/journal
-  reads, and child launch. The production policy gives a
+  pure transition consumes caller-supplied clock, journal, and running-process
+  observations. The App-owned injected sync adapter performs those reads and
+  the detached child launch outside the receiver module. The production policy gives a
   launched pull five seconds to appear and permits at most three attempts; if
   none starts, the TUI warns and processes the job with local state. The same
   status poll watches for successful downstream journal advancement and reloads

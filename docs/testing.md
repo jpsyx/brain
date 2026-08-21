@@ -610,9 +610,10 @@ first move is a failing test that reproduces it, *then* the fix.
   fail-closed compiled-binary bootstrap, concurrent different-workspace entry,
   and same-workspace coalescing/following use bounded channels without fixed
   sleeps. `sync/trigger.rs` verifies completed detached children are reaped.
-  Injected receiver clocks/readers/runners deterministically prove the 250ms
-  status poll, journal-advance gate, five-second retry grace, and three-attempt
-  fallback. The clock-driven watcher-loop test proves stopping one workspace's
+  App-owned injected receiver sync clocks/readers/runners deterministically
+  prove the 250ms status poll, journal-advance gate, five-second retry grace,
+  three-attempt fallback, and completion push. A runtime unit test proves the
+  gate transitions only from supplied observations. The clock-driven watcher-loop test proves stopping one workspace's
   watcher leaves its peer live; `tests/watch_local.rs` waits on callback
   channels rather than fixed sleeps.
   `sync/check.rs` separately proves schema-aware read-only identity, hybrid
@@ -664,7 +665,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, and no obsolete receiver launch argument. |
-| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. |
+| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The App retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

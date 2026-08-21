@@ -77,13 +77,13 @@ impl ReceiverSyncRuntime for SystemReceiverSyncRuntime {
 
 impl App {
     pub(crate) fn tick_sync_status(&mut self) {
-        let now = self.receiver.monotonic_now();
+        let now = self.receiver_sync_runtime.monotonic_now();
         if now < self.sync_status_next_poll {
             return;
         }
         self.sync_status_next_poll = now + crate::sync::freshness::STATUS_POLL_INTERVAL;
         self.sync_status = self
-            .receiver
+            .receiver_sync_runtime
             .live_sync_state(self.command_context.workspace.paths())
             .map(|state| {
                 if self.receiver.sync_gate_is_armed() {
@@ -99,7 +99,7 @@ impl App {
             self.sync_status = Some("↻ preparing receiver message sync…".to_owned());
         }
         let latest = self
-            .receiver
+            .receiver_sync_runtime
             .latest_successful_downstream_id(self.command_context.workspace.paths());
         if journal_advanced(self.last_seen_downstream_id, latest) {
             self.last_seen_downstream_id = latest;
@@ -118,8 +118,20 @@ impl App {
             return true;
         }
 
-        let workspace = std::sync::Arc::clone(&self.command_context.workspace);
-        if let Some(poll) = self.receiver.poll_sync_gate(workspace.paths()) {
+        if self.receiver.sync_gate_is_armed() {
+            let workspace = std::sync::Arc::clone(&self.command_context.workspace);
+            let observation = crate::tui::receiver::SyncGateObservation::new(
+                self.receiver_sync_runtime.monotonic_now(),
+                self.receiver_sync_runtime
+                    .latest_successful_downstream_id(workspace.paths()),
+                self.receiver_sync_runtime
+                    .live_sync_state(workspace.paths())
+                    .is_some(),
+            );
+            let poll = self
+                .receiver
+                .poll_sync_gate(observation)
+                .expect("an armed receiver sync gate must accept an observation");
             match poll {
                 crate::tui::receiver::SyncGatePoll::Waiting => return false,
                 crate::tui::receiver::SyncGatePoll::Completed => {
@@ -146,7 +158,7 @@ impl App {
         }
 
         if let Some(state) = self
-            .receiver
+            .receiver_sync_runtime
             .live_sync_state(self.command_context.workspace.paths())
         {
             if state.direction != "push" {
@@ -156,11 +168,11 @@ impl App {
         }
 
         let last_downstream = self
-            .receiver
+            .receiver_sync_runtime
             .latest_downstream_completion(self.command_context.workspace.paths());
         if !crate::sync::freshness::message_pull_due(
             last_downstream.as_deref(),
-            self.receiver.utc_now(),
+            self.receiver_sync_runtime.utc_now(),
         ) {
             return true;
         }
@@ -172,7 +184,7 @@ impl App {
             "receiver message waiting for downstream freshness pull attempt={attempts}"
         ));
         if self
-            .receiver
+            .receiver_sync_runtime
             .spawn_detached_sync(&self.command_context.workspace, Direction::Pull)
             .is_none()
         {
@@ -186,8 +198,11 @@ impl App {
     }
 
     fn arm_receiver_sync_gate(&mut self, attempts: u8) {
-        self.receiver
-            .arm_sync_gate(self.command_context.workspace.paths(), attempts);
+        let now = self.receiver_sync_runtime.monotonic_now();
+        let seen_journal_id = self
+            .receiver_sync_runtime
+            .latest_successful_downstream_id(self.command_context.workspace.paths());
+        self.receiver.arm_sync_gate(now, seen_journal_id, attempts);
         self.sync_status = Some("↻ preparing receiver message sync…".to_owned());
     }
 }

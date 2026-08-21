@@ -9,6 +9,10 @@ fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
         app.contains("receiver: crate::tui::receiver::ReceiverRuntime"),
         "App must own one ReceiverRuntime"
     );
+    assert!(
+        app.contains("receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>"),
+        "App must coordinate receiver sync effects"
+    );
     for forbidden in [
         "receiver_control:",
         "receiver_enabled:",
@@ -33,7 +37,6 @@ fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
         "receiver_panel_activity:",
         "receiver_panel_sampled_at:",
         "receiver_retry_at:",
-        "receiver_sync_runtime:",
         "receiver_sync_gate:",
     ] {
         assert!(!app.contains(forbidden), "App still owns {forbidden}");
@@ -44,13 +47,47 @@ fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
         "crate::tui::receiver::InboundQueue",
         "std::collections::HashSet<crate::server::receiver::Channel>",
         "Option<receiver_state::Lease>",
-        "Box<dyn ReceiverSyncRuntime>",
         "Option<ReceiverSyncGate>",
     ] {
         assert!(
             !app.contains(forbidden_type),
             "App still owns raw receiver type {forbidden_type}"
         );
+    }
+}
+
+#[test]
+fn receiver_runtime_contains_no_sync_effect_adapters_or_io() {
+    let receiver_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui/receiver");
+    let mut sources = vec![receiver_root.join("runtime.rs")];
+    sources.extend(
+        walkdir::WalkDir::new(receiver_root.join("runtime"))
+            .into_iter()
+            .map(|entry| entry.expect("walk receiver runtime source"))
+            .filter(|entry| entry.file_type().is_file())
+            .map(walkdir::DirEntry::into_path)
+            .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("rs")),
+    );
+
+    for path in sources {
+        let source = std::fs::read_to_string(&path).expect("read receiver runtime source");
+        for forbidden in [
+            "ReceiverSyncRuntime",
+            "SystemReceiverSyncRuntime",
+            "WorkspacePaths",
+            "WorkspaceContext",
+            "Journal::open",
+            "read_state(",
+            "spawn_detached_sync",
+            "std::fs",
+            "std::process",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{} contains forbidden sync effect token {forbidden}",
+                path.display()
+            );
+        }
     }
 }
 

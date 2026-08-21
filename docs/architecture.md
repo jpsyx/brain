@@ -964,8 +964,10 @@ point: after the startup work and before the event loop it calls
 (when `watch_effective()`). It drops that TUI's timer and watcher after the
 event loop, which explicitly stop and join only their workers, and performs no
 exit sync. `ReceiverRuntime` owns the receiver freshness-gate state and its
-clock-driven poll transition. `tui/app_sync.rs` owns the cross-feature sync
-launch, task reload, footer, and warning effects at the exact queued-job
+observation-driven pure poll transition. `App` owns the injected sync adapter
+that reads clocks, journals, and current process state and launches children.
+`tui/app_sync.rs` passes those observations into the runtime and owns the
+cross-feature sync launch, task reload, footer, and warning effects at the exact queued-job
 consumption boundary. It
 queues stale inbound work behind a pull and reloads tasks before dispatch. It
 also reloads tasks whenever a new successful downstream journal row appears.
@@ -1157,10 +1159,13 @@ structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; shared panel, tab, and deferred-gate types live in
 `model.rs`, while `mod.rs` keeps the `App` shell type, one private
-`ReceiverRuntime`, `filter_tasks`, re-exports, and module wiring. Receiver
+`ReceiverRuntime`, the App-owned receiver sync effect adapter, `filter_tasks`,
+re-exports, and module wiring. Receiver
 representation is private to `receiver/runtime.rs` and its focused child
 modules. App coordinators consume queue, launch, completion, lease, diagnostic,
-and freshness-gate operations instead of mutating receiver fields. Cross-feature
+and freshness-gate operations instead of mutating receiver fields. The runtime
+receives sync observations and never reads journals, files, or process state or
+launches sync children. Cross-feature
 work that touches the agent controller, task reloads, sync processes, response
 files, or provider delivery remains in the existing App coordinators.
 `status_warning.rs` validates receiver

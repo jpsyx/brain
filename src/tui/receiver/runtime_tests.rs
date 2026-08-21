@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use super::ReceiverRuntime;
+use super::{ReceiverRuntime, SyncGateObservation, SyncGatePoll};
 use crate::server::receiver::{Channel, InboundJob};
 
 fn sms_job(prompt: &str) -> InboundJob {
@@ -106,4 +106,22 @@ fn force_fresh_is_consumed_only_when_session_selection_begins() {
     let _launch = runtime.begin_session_launch();
     assert!(runtime.begin_session_selection().force_fresh);
     assert!(!runtime.begin_session_selection().force_fresh);
+}
+
+#[test]
+fn sync_gate_transitions_only_from_caller_supplied_observations() {
+    let mut runtime = ReceiverRuntime::new(true);
+    let launched_at = Instant::now();
+    runtime.arm_sync_gate(launched_at, Some(4), 1);
+
+    let waiting = runtime.poll_sync_gate(SyncGateObservation::new(launched_at, Some(4), false));
+    assert!(matches!(waiting, Some(SyncGatePoll::Waiting)));
+
+    let completed = runtime.poll_sync_gate(SyncGateObservation::new(
+        launched_at + Duration::from_millis(250),
+        Some(5),
+        false,
+    ));
+    assert!(matches!(completed, Some(SyncGatePoll::Completed)));
+    assert!(!runtime.sync_gate_is_armed());
 }

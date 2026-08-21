@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 use crate::actor::ActorContext;
 use crate::command::server::ReceiverIntentRefresher;
 use crate::server::receiver::{Channel, EmailReplyContext, InboundJob};
-use crate::tui::{ReceiverSyncRuntime, SystemReceiverSyncRuntime};
 
 use super::InboundQueue;
 
@@ -17,7 +16,7 @@ mod diagnostics;
 mod session;
 mod sync;
 
-pub(crate) use sync::SyncGatePoll;
+pub(crate) use sync::{SyncGateObservation, SyncGatePoll};
 
 const INACTIVITY_LEASE: Duration = Duration::from_secs(180);
 
@@ -85,7 +84,6 @@ pub(crate) struct ReceiverRuntime {
     panel_activity: Option<(u64, Instant)>,
     panel_sampled_at: Option<Instant>,
     retry_at: Option<Instant>,
-    sync_runtime: Box<dyn ReceiverSyncRuntime>,
     sync_gate: Option<ReceiverSyncGate>,
 }
 
@@ -116,7 +114,6 @@ impl ReceiverRuntime {
             panel_activity: None,
             panel_sampled_at: None,
             retry_at: None,
-            sync_runtime: Box::new(SystemReceiverSyncRuntime),
             sync_gate: None,
         }
     }
@@ -129,19 +126,6 @@ impl ReceiverRuntime {
         if let Some(socket) = self.socket.as_ref() {
             socket.poll_jobs(workspace_id, &mut self.queue);
         }
-    }
-
-    #[must_use]
-    pub(crate) fn monotonic_now(&self) -> Instant {
-        self.sync_runtime.monotonic_now()
-    }
-
-    #[must_use]
-    pub(crate) fn latest_successful_downstream_id(
-        &self,
-        paths: &crate::workspace::WorkspacePaths,
-    ) -> Option<i64> {
-        self.sync_runtime.latest_successful_downstream_id(paths)
     }
 
     #[must_use]

@@ -7,4 +7,4 @@ mod runtime;
 mod runtime_tests;
 
 pub use queue::{InboundQueue, StageError, StagedAdmission};
-pub(crate) use runtime::{ReceiverRuntime, SyncGatePoll};
+pub(crate) use runtime::{ReceiverRuntime, SyncGateObservation, SyncGatePoll};
