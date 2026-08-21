@@ -1,7 +1,7 @@
 include!("tests_support.rs");
-include!("tests_parts/part_01.rs");
-include!("tests_parts/part_02.rs");
-include!("tests_parts/part_03.rs");
+include!("tests_sections/portable_commands.rs");
+include!("tests_sections/atomic_installation.rs");
+include!("tests_sections/lifecycle_delivery.rs");
 
 #[test]
 fn an_unchanged_lifecycle_artifact_is_never_rewritten() {

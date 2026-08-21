@@ -1,6 +1,6 @@
 include!("store_support.rs");
 
-include!("store_parts/part_01.rs");
-include!("store_parts/part_02.rs");
-include!("store_parts/part_03.rs");
-include!("store_parts/part_04.rs");
+include!("store_sections/lock_and_load_errors.rs");
+include!("store_sections/atomic_save.rs");
+include!("store_sections/diagnostics_and_serialization.rs");
+include!("store_sections/paths_and_updates.rs");

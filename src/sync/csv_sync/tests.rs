@@ -1,10 +1,10 @@
 include!("tests_support.rs");
-include!("tests_parts/part_01.rs");
-include!("tests_parts/part_02.rs");
-include!("tests_parts/part_03.rs");
-include!("tests_parts/part_04.rs");
-include!("tests_parts/part_05.rs");
-include!("tests_parts/part_06.rs");
+include!("tests_sections/paths_and_current_schema.rs");
+include!("tests_sections/remote_schema_preflight.rs");
+include!("tests_sections/project_metadata.rs");
+include!("tests_sections/metadata_retries_and_legacy.rs");
+include!("tests_sections/invalid_generations_and_counters.rs");
+include!("tests_sections/remote_schema_publication.rs");
 
 #[test]
 fn the_task_state_probe_lists_only_the_tasks_directory() {

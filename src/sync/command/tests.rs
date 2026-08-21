@@ -1,9 +1,9 @@
 include!("tests_support.rs");
-include!("tests_parts/part_01.rs");
-include!("tests_parts/part_02.rs");
-include!("tests_parts/part_03.rs");
-include!("tests_parts/part_04.rs");
-include!("tests_parts/part_05.rs");
-include!("tests_parts/part_06.rs");
-include!("tests_parts/part_07.rs");
-include!("tests_parts/part_08.rs");
+include!("tests_sections/conflicts_json.rs");
+include!("tests_sections/conflict_display.rs");
+include!("tests_sections/run_history.rs");
+include!("tests_sections/triggers.rs");
+include!("tests_sections/direction_and_repair.rs");
+include!("tests_sections/progress_and_csv_notes.rs");
+include!("tests_sections/csv_reconciliation.rs");
+include!("tests_sections/repair_guidance.rs");

@@ -136,6 +136,17 @@ search view. The search panel lives in a bordered half of the shell alongside
 the live brain panel; opening a file or rescoping a bucket happens in place
 and the shell stays up.
 
+## Test module structure
+
+Large test suites keep their shared fixture scope in a parent `tests.rs` or
+integration-test entry point, then `include!` cohesive sections from a sibling
+`*_sections/` directory. Section filenames name the behavior, subsystem, or
+invariant they cover, such as `remote_schema_preflight.rs` or
+`receiver_origin_upgrade.rs`; they never encode split order. The
+`tests/module_structure.rs` architecture guard checks every tracked Rust file
+under `src/` and `tests/` and fails with each offending path if a numbered
+`part_<digits>.rs` fragment returns.
+
 ## Module ownership boundaries
 
 Large command families are organized as directory modules whose children mirror

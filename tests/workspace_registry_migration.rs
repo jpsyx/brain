@@ -1,8 +1,8 @@
 include!("support/workspace_registry_migration_support.rs");
 
-include!("workspace_registry_migration_parts/part_01.rs");
-include!("workspace_registry_migration_parts/part_02.rs");
-include!("workspace_registry_migration_parts/part_03.rs");
-include!("workspace_registry_migration_parts/part_04.rs");
-include!("workspace_registry_migration_parts/part_05.rs");
-include!("workspace_registry_migration_parts/part_06.rs");
+include!("workspace_registry_migration_sections/initial_flat_migration.rs");
+include!("workspace_registry_migration_sections/migration_idempotency.rs");
+include!("workspace_registry_migration_sections/v2_upgrade.rs");
+include!("workspace_registry_migration_sections/registry_write_order.rs");
+include!("workspace_registry_migration_sections/markdown_path_upgrade.rs");
+include!("workspace_registry_migration_sections/receiver_origin_upgrade.rs");

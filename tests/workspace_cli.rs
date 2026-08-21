@@ -1,9 +1,9 @@
 include!("support/workspace_cli_support.rs");
 
-include!("workspace_cli_parts/part_01.rs");
-include!("workspace_cli_parts/part_02.rs");
-include!("workspace_cli_parts/part_03.rs");
-include!("workspace_cli_parts/part_04.rs");
-include!("workspace_cli_parts/part_05.rs");
-include!("workspace_cli_parts/part_06.rs");
-include!("workspace_cli_parts/part_07.rs");
+include!("workspace_cli_sections/legacy_migration.rs");
+include!("workspace_cli_sections/selection_and_legacy.rs");
+include!("workspace_cli_sections/creation_transactions.rs");
+include!("workspace_cli_sections/attach_and_mutate.rs");
+include!("workspace_cli_sections/list_and_remove.rs");
+include!("workspace_cli_sections/error_diagnostics.rs");
+include!("workspace_cli_sections/overlapping_roots.rs");

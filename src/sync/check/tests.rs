@@ -1,7 +1,7 @@
 include!("tests_support.rs");
-include!("tests_parts/part_01.rs");
-include!("tests_parts/part_02.rs");
-include!("tests_parts/part_03.rs");
-include!("tests_parts/part_04.rs");
-include!("tests_parts/part_05.rs");
-include!("tests_parts/part_06.rs");
+include!("tests_sections/remote_delta.rs");
+include!("tests_sections/csv_diff.rs");
+include!("tests_sections/csv_pending.rs");
+include!("tests_sections/report.rs");
+include!("tests_sections/schema_safety.rs");
+include!("tests_sections/baseline_read.rs");
