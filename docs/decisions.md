@@ -176,6 +176,25 @@ the interactive UI still reaches the real terminal. crossterm's
 raw-mode toggles and event reader operate on the controlling terminal
 regardless, so input is unaffected.
 
+## Why terminal cleanup keeps the established safe order
+
+`TerminalSession` is the sole owner of `/dev/tty`, the ratatui terminal, and
+the terminal modes Brain changes. Acquisition records each successful or
+possibly partial capability before proceeding, so a later setup failure can
+run the same restoration used by orderly shutdown. Explicit restoration is
+idempotent, and `Drop` retries remaining best-effort cleanup while logging any
+failure without panicking.
+
+The release plan intentionally preserves Brain's existing externally visible
+order: pop keyboard enhancement when it was pushed, disable raw mode, disable
+mouse capture and leave the alternate screen, then show the cursor. This is a
+dependency-safe release of acquired capabilities, not a mechanical reversal
+that would reorder established terminal commands during an architecture-only
+refactor. If the paired alternate-screen and mouse-capture write fails partway,
+both harmless inverse commands are already armed. Tests pin this order through
+a headless terminal-operations seam; production still writes the same commands
+to `/dev/tty` and adds no capability probe.
+
 ## Why we push the kitty protocol unconditionally (and avoid the probe)
 
 Distinguishing `Ctrl-Enter` (reveal in Finder) from `Enter` (open file)

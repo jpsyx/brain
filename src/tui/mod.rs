@@ -61,6 +61,7 @@ mod overlay;
 mod palette;
 pub mod receiver;
 mod receiver_state;
+mod runtime;
 mod search_view;
 mod shell;
 pub mod singleton;

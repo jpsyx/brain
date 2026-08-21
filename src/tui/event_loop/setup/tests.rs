@@ -7,8 +7,22 @@ use crate::workspace::{
 };
 
 use super::{
-    acquire_singleton_then_refresh, load_startup_config, periodic_pull_enabled, startup_sync_plan,
+    acquire_singleton_then_refresh, load_startup_config, periodic_pull_enabled,
+    restore_after_event_loop, startup_sync_plan,
 };
+
+#[test]
+fn event_loop_error_still_runs_terminal_restoration() {
+    let mut restored = false;
+
+    let result = restore_after_event_loop(Err(anyhow::anyhow!("event loop failed")), || {
+        restored = true;
+        Ok(())
+    });
+
+    assert!(restored);
+    assert_eq!(result.unwrap_err().to_string(), "event loop failed");
+}
 
 #[test]
 fn periodic_pull_runs_only_for_a_sync_configured_shell() {

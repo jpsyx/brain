@@ -2,21 +2,11 @@
 //! alternate screen with mouse capture and the kitty keyboard protocol, builds
 //! the `App`, runs the event loop, then restores the terminal on the way out.
 
-use std::fs::OpenOptions;
-
 use anyhow::Result;
-use crossterm::{
-    event::{
-        DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
-        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
-    },
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
-use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::config::Config;
 use crate::state::Db;
+use crate::tui::runtime::terminal::TerminalSession;
 use crate::tui::*;
 
 use super::run::event_loop;
@@ -43,17 +33,6 @@ fn startup_sync_plan(sync_configured: bool, suppress_alert: bool) -> StartupSync
 
 const fn periodic_pull_enabled(sync_configured: bool) -> bool {
     sync_configured
-}
-
-/// Turn off mouse *motion* reporting (DECSET 1002 button-drag + 1003 any-event)
-/// that `EnableMouseCapture` also enables, keeping only button + wheel
-/// reporting. With motion reporting on, iTerm2 won't let ⌘-hover / ⌘-click reach
-/// its native link / Semantic-History handler; with only button + wheel, holding
-/// ⌘ bypasses to native links while we still capture the scroll wheel.
-/// Best-effort: a write failure just leaves the default capture in place.
-fn disable_mouse_motion_reporting<W: std::io::Write>(w: &mut W) {
-    let _ = w.write_all(b"\x1b[?1002l\x1b[?1003l");
-    let _ = w.flush();
 }
 
 fn acquire_singleton_then_refresh(
@@ -95,6 +74,14 @@ fn register_server_lease(
     ))
 }
 
+fn restore_after_event_loop(
+    event_loop_result: Result<()>,
+    restore: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    restore()?;
+    event_loop_result
+}
+
 pub(crate) fn run_tui(launch: TuiLaunch) -> Result<()> {
     let TuiLaunch {
         command_context,
@@ -128,35 +115,7 @@ pub(crate) fn run_tui(launch: TuiLaunch) -> Result<()> {
         task_options.assigned_to.as_deref(),
     )?;
 
-    enable_raw_mode()?;
-    // Render to /dev/tty, NOT stdout: the `brain` zsh wrapper captures this
-    // binary's stdout (the shell-side plan), so writing the TUI to stdout
-    // would send the alternate-screen escapes into that capture and hang the
-    // wrapper on a blank line while the event loop runs forever. crossterm
-    // reads key events from /dev/tty independently, so input still works.
-    // (Matches the one-shot picker and the pre-merge brain shell.)
-    let mut out = OpenOptions::new().write(true).open("/dev/tty")?;
-    // EnableMouseCapture routes wheel events to us so we can scroll the
-    // panels ourselves (the alternate screen has no native scrollback).
-    // The cost: click-drag text selection now needs a modifier (Shift, or
-    // Option in iTerm2 / Ghostty) to bypass mouse reporting.
-    execute!(out, EnterAlternateScreen, EnableMouseCapture)?;
-    disable_mouse_motion_reporting(&mut out);
-    // Ask the terminal (best-effort) for the kitty keyboard protocol's
-    // `DISAMBIGUATE_ESCAPE_CODES` extension. With it on, Ctrl+M is
-    // reported distinctly from Enter, Ctrl+I from Tab, etc. — without
-    // which they share encoding (both → 0x0D / 0x09) and shortcuts like
-    // our Ctrl+M can't be distinguished from Enter. Terminals that don't
-    // support the protocol ignore the sequence silently. iTerm2 3.5+,
-    // Ghostty, WezTerm, Alacritty, Kitty, Foot all support it; the
-    // legacy macOS Terminal.app does not.
-    let enhanced_keyboard = execute!(
-        out,
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
-    )
-    .is_ok();
-    let backend = CrosstermBackend::new(out);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal = TerminalSession::acquire()?;
 
     // Persistent state: open the session DB. Each tasks-shell invocation gets
     // a fresh instance id; the SessionStart integration reads BRAIN_* env vars
@@ -267,7 +226,7 @@ pub(crate) fn run_tui(launch: TuiLaunch) -> Result<()> {
     };
     let periodic_puller = periodic_pull_enabled(sync_configured)
         .then(|| crate::sync::periodic::spawn_periodic_puller(command_context.workspace.clone()));
-    let result = event_loop(&mut terminal, &mut app, &server_lease);
+    let result = event_loop(terminal.terminal_mut(), &mut app, &server_lease);
 
     if let Err(error) = server_lease.shutdown() {
         crate::logging::log(format!("shared-server lease unregister failed: {error:#}"));
@@ -281,17 +240,7 @@ pub(crate) fn run_tui(launch: TuiLaunch) -> Result<()> {
     // resumes the session this shell was driving.
     let _ = app.db.release(&instance);
 
-    if enhanced_keyboard {
-        let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
-    }
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        DisableMouseCapture,
-        LeaveAlternateScreen
-    )?;
-    terminal.show_cursor()?;
-    result
+    restore_after_event_loop(result, || terminal.restore())
 }
 
 #[cfg(test)]

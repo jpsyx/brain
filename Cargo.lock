@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "brain"
-version = "0.71.17"
+version = "0.71.18"
 dependencies = [
  "anyhow",
  "base64",

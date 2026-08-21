@@ -170,7 +170,7 @@ rule applies across the large runtime families:
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
-| TUI | `tui/mod.rs` and the existing app coordinators | `model.rs` owns shared panel/tab state; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| TUI | `tui/mod.rs` and the existing app coordinators | `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `model.rs` owns shared panel/tab state; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
 | Live receiver runtime | `tui/receiver/{decision,effect,runtime}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
@@ -1148,7 +1148,8 @@ submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
 `draw_assignee` module so the shared-workspace overlay stays separate from the
 general confirm, link, and brain-input modal renderer.
 
-The larger submodules are directories split by concern: `action/` (the closed
+The larger submodules are directories split by concern: `runtime/terminal.rs`
+(the RAII terminal owner), `action/` (the closed
 `GlobalAction` enum), `handlers/`
 (`overlay`/`tasks_view`/`input`), `event_loop/` (`setup`/`modal_route`/`run`),
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
@@ -1196,6 +1197,14 @@ workspace rejection ends startup. Only then does it open the state DB, resolve
 assignment state, build the brain-search picker (`build_search`), and assemble
 one internal `AppInit` request. `App::new(AppInit)` initializes the
 lifetime-free shell model from that owned request.
+Before opening the state DB, `TerminalSession::acquire` opens `/dev/tty`, builds
+the ratatui terminal, and records raw mode, alternate screen, mouse capture,
+mouse-motion adjustment, optional keyboard enhancement, and cursor-restoration
+ownership in one guard. A later startup or event-loop error therefore restores
+the terminal through the same path as an orderly return. Acquisition failure
+rolls back every mode that may already have been enabled. Explicit restoration
+is idempotent; `Drop` retries remaining cleanup best-effort and logs a failure
+without panicking.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
 then launches the selected frontend through an `AgentController`
@@ -1203,9 +1212,11 @@ then launches the selected frontend through an `AgentController`
 returns focus to the tasks main view so `j`/`k` work at once. It then wires the auto-sync
 triggers (a mandatory detached pull-biased startup sync and, when
 `watch_effective()`, a held `watch::spawn_watcher` handle), runs the event
-loop. Shutdown stops heartbeats and attempts a bounded unregister before
+loop through a narrow mutable borrow of the owned ratatui terminal. Shutdown
+stops heartbeats and attempts a bounded unregister before
 shutting down the main and triage controllers, dropping the watcher, releasing
-the session lock, or letting the app remove `jobs.sock`; the final accepted
+the session lock, restoring the terminal, or letting the app remove `jobs.sock`;
+the final accepted
 unregister stops the shared process. No exit sync or
 idle timer exists. The **daily-triage nudge**
 is coupled to that startup sync: when a configured startup sync is pending, `run_tui`

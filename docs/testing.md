@@ -30,6 +30,14 @@ first move is a failing test that reproduces it, *then* the fix.
   and display state are owned runtime data. `tests/tui_construction_boundary.rs`
   rejects an `App` lifetime, a retained task clap DTO, the obsolete receiver
   launch parameter, or any `run_tui` shape other than one owned `TuiLaunch`.
+- **Terminal lifecycle ownership.** `tui::runtime::terminal` drives the real
+  acquisition and restoration state machine through a headless recording
+  operations seam. Failure injection covers rollback at every fallible setup
+  boundary, including a possibly partial alternate-screen/mouse write. The
+  tests pin normal cleanup order, optional keyboard-pop omission, cursor
+  restoration, and idempotent repeated restoration. A setup test injects an
+  event-loop error and proves restoration still runs while the original loop
+  error is retained. None opens `/dev/tty`.
 - **Workspace CLI decisions.** Clap and binary tests cover every placement of
   the raw `--workspace/-w` selector, including after delegated task positionals,
   the long equals form, the `--` terminator, and duplicate/missing-value errors,
@@ -643,8 +651,9 @@ first move is a failing test that reproduces it, *then* the fix.
 ## What we deliberately don't test
 
 - **The interactive event loop.** `tui::run_tui` opens `/dev/tty`, toggles raw
-  mode, pushes kitty flags, spawns the selected agent PTY, and runs the panel loop. We
-  test the *pure* logic it calls (`handle_key`, `App::*`, `focus_*`,
+  mode, pushes kitty flags, spawns the selected agent PTY, and runs the panel
+  loop. We test the terminal lifecycle through injected headless operations and
+  the pure application logic it calls (`handle_key`, `App::*`, `focus_*`,
   `panel_borders`, `key_to_bytes`, the render helpers); we don't drive a real
   terminal or a live Claude/Codex/OpenCode provider process.
 - **Ratatui frame output.** We assert on the `Line`s we build, not on
@@ -774,9 +783,11 @@ logic to a pure function over mocking:
 - **No mock for the filesystem.** `entry::collect` runs against real temp
   dirs (`tempfile`). Real walkdir behavior (hidden filter, depth) is the
   spec.
-- **No mock for the terminal.** Instead of mocking crossterm, the
-  navigation/matching logic is pure (`handle_key`, `App`), and only the
-  thin `run()` shell touches `/dev/tty`.
+- **One focused seam for terminal lifecycle.** A recording operations
+  implementation verifies Brain's acquisition and restoration decisions. It
+  does not emulate crossterm or a terminal. Navigation and matching remain pure
+  (`handle_key`, `App`), and only `TerminalSession::acquire` touches
+  `/dev/tty`.
 - **No mock for the config store.** `settings` schema resolution runs against
   an explicit in-memory map, never the real `<brain-root>/.config/config.json`.
   That's a value seam, not a mock.
