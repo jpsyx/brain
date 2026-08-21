@@ -9,8 +9,6 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use crate::tui::App;
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum LogKind {
     Receiver,
@@ -62,8 +60,8 @@ impl LogsView {
     }
 }
 
-pub(crate) fn draw_logs(f: &mut Frame, app: &App, area: Rect) {
-    let Some(logs) = app.logs_view.as_ref() else {
+pub(crate) fn draw_logs(f: &mut Frame, logs: Option<&LogsView>, area: Rect) {
+    let Some(logs) = logs else {
         return;
     };
     let block = Block::default()

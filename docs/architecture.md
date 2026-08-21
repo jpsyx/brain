@@ -173,7 +173,7 @@ rule applies across the large runtime families:
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
-| TUI | `tui/runtime/mod.rs` and the existing app coordinators | `runtime/mod.rs` owns process-lifetime startup and resources; `runtime/tick.rs` coordinates recurring feature boundaries; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `model.rs` owns shared panel/tab state; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/mod.rs` owns process-lifetime startup and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` coordinates recurring feature boundaries; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
 | Live receiver runtime | `tui/receiver/{decision,effect,runtime}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
@@ -1114,24 +1114,31 @@ outcome; ordinary sync does not gain a second policy branch.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the
-main-view axis. One `App` owns: the tasks-view state, the embedded
-`picker::App` (`search`, the brain-directory view), the app-level `brain`
-panel, `focus` (main panel vs brain panel), `main_view`, `panel_side`, and one
-startup-resolved task `AssignmentContext`. It also owns exactly one
+main-view axis. One `App` coordinates two focused state owners. `TasksState`
+owns task/habit source rows, view materialization, assignment and query
+filtering, selection, notes expansion, rendered body lines, and viewport
+layout. `ShellState` owns the active main view, panel focus and side, the brain
+panel's hit-test rectangle, the embedded brain-directory `picker::App`, the
+logs view, and the selected brain-tab identity. Both expose semantic
+transitions and render projections rather than their internal field
+representation. Immutable workspace/runtime identity, CSV IO, agent and
+skill-session controllers, the state DB, receiver runtime, sync effects, and
+cross-feature coordination remain on `App`. `App` also owns exactly one
 `overlay: Option<Overlay>`. The data-bearing variants cover the task palette,
 brain input, task confirmation, search palette, search confirmation, link
 picker, assignee filter, help, and sync log. This makes simultaneous modals
 unrepresentable; `overlay/mod.rs` owns the pure open, replace, route, and close
 transitions. Input routing and drawing exhaustively match that same enum, so no
-boolean precedence model can disagree with what is visible. The assignment
-context carries the effective
+boolean precedence model can disagree with what is visible. The task
+aggregate's assignment context carries the effective
 actor, portable-member rows, and the one-person/shared visibility decision.
-`App` also owns the process-scoped assignee filter and its captive member
-picker. Startup validates `--assigned-to` against the assignment context and
-seeds that same field; view materialization retains the complete base set so
+`TasksState` also owns the process-scoped assignee filter; its captive member
+picker remains overlay state. Startup validates `--assigned-to` against the
+assignment context and seeds the task state; view materialization retains the
+complete base set so
 body rebuilding can switch members or clear to all before fuzzy matching. Plain
 output instead applies assignment as a final render filter. Header composition
-renders assignment only from that live App field, while non-assignment CLI
+renders assignment only from the focused task render projection, while non-assignment CLI
 filters remain in the static chip row. The context's
 detail mode controls task-card rendering, and its create, reassign, and filter
 flags independently gate their palette rows. A missing portable registry uses
@@ -1141,7 +1148,9 @@ a one-actor compatibility context with hidden assignment controls.
 panel focus/scroll, brain open/close/new, quit) → captive modal → brain panel
 (forward bytes) → active main view (`handlers` for tasks, `search_view` for the
 brain-directory picker). `draw` renders the active main view in the main
-panel and the brain panel beside it (`panel_side`). Task and app-level overlays
+panel and the brain panel beside it (`ShellState::panel_side`). The task
+renderer accepts `&mut TasksState` plus a small cross-feature chrome context;
+the logs renderer accepts only the selected `LogsView`. Task and app-level overlays
 span that composed shell; search palette and confirmation variants stay
 centered inside the search `main_area`, matching the picker's pre-shell render.
 `search_view.rs` is the brain-directory view's handler (its picker nav, in-place
@@ -1158,8 +1167,8 @@ owner), `action/` (the closed
 `GlobalAction` enum), `handlers/`
 (`overlay`/`tasks_view`/`input`), `event_loop/` (`setup`/`modal_route`/`run`),
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
-`draw/mod.rs`), `palette/` (`model`/`command`/`state`), `app_state/`
-(`construct`/`nav`/`view`/`selection_query`), `app_actions/`
+`draw/mod.rs`), `state/` (`tasks`/`shell`), `palette/`
+(`model`/`command`/`state`), `app_state/` (`construct`/`view`), `app_actions/`
 (`commands`/`receiver`/`triage`, with pure triage policy in
 `triage/decision.rs`), `app_brain/` (`launch`/`lifecycle` plus receiver
 `dispatch`/`completion`/`state` effect executors and focused tests), and
@@ -1169,15 +1178,16 @@ and completion delivery;
 `app_brain/launch/session.rs` owns the full fresh-or-resume launch transaction,
 while `launch.rs` keeps capability construction, transport selection, and the
 public app actions.
-`app_skill_session.rs` owns the ephemeral skill-session controllers and their
+`app_skill_session/` owns the ephemeral skill-session controllers and their
 tabs (open/close/select, the `BrainTab` / tab-slot resolution, and the
 `tick_skill_sessions` auto-close). The `Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
 structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; shared panel, tab, and deferred-gate types live in
-`model.rs`, while `mod.rs` keeps the `App` shell type, one private
-`ReceiverRuntime`, the App-owned receiver sync effect adapter, `filter_tasks`,
+`model.rs`, while `mod.rs` keeps the coordinating `App` type, its private
+`TasksState` and `ShellState` owners, one private `ReceiverRuntime`, the
+App-owned receiver sync effect adapter, `filter_tasks`,
 re-exports, and module wiring. Receiver
 representation is private to `receiver/runtime.rs` and its focused child
 modules. `receiver/decision.rs` maps independent facts onto the fixed tick

@@ -16,7 +16,7 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
 
         assert!(!app.handle_new_session_shortcut(KeyCode::Char('n'), false));
         assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
-        assert_eq!(app.focus, Panel::Brain);
+        assert_eq!(app.shell.focus(), Panel::Brain);
         assert!(app.brain_turn_active);
         let expected_bytes = match agent_kind {
             AgentKind::Claude | AgentKind::OpenCode => "2f 6e 65 77 0d",
@@ -49,7 +49,7 @@ fn ctrl_n_targets_the_active_main_or_skill_session_controller_including_session_
         triage,
     );
 
-    app.active_brain_tab = BrainTab::Main;
+    app.select_brain_tab(BrainTab::Main);
     assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
     assert_eq!(
         main_recording.events(),
@@ -57,7 +57,7 @@ fn ctrl_n_targets_the_active_main_or_skill_session_controller_including_session_
     );
     assert!(triage_recording.events().is_empty());
 
-    app.active_brain_tab = BrainTab::Session(session_tab);
+    app.select_brain_tab(BrainTab::Session(session_tab));
     assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
     assert_eq!(
         main_recording.events(),
@@ -94,7 +94,7 @@ fn local_keystrokes_do_not_reach_a_pty_that_is_answering_a_remote_message() {
     let recording = TransportRecording::default();
     app.brain_transport_override = Some(recording.transport());
     assert!(app.open_or_focus_brain(None));
-    app.focus = Panel::Brain;
+    app.shell.focus_brain();
     let actor = app.interactive_actor.clone();
     let job = receiver_job(&app, actor, Channel::Sms, "remote request");
     begin_receiver_turn(&mut app, &job, "remote-response", std::time::Instant::now());

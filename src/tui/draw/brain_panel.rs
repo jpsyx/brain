@@ -14,7 +14,7 @@ use tui_term::widget::PseudoTerminal;
 use crate::tui::*;
 
 pub(crate) fn draw_brain(f: &mut Frame, app: &mut App, area: Rect) {
-    let focused = app.focus == Panel::Brain;
+    let focused = app.shell.focus() == Panel::Brain;
     let tab_titles = app.brain_tab_titles();
     let has_tabs = tab_titles.len() > 1;
     let active_tab = app.effective_brain_tab();

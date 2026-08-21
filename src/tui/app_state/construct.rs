@@ -2,7 +2,6 @@
 //! task/habit lists, injected runners, and the session DB, then build the
 //! first body.
 
-use crate::tasks::render::header_lines;
 use crate::tui::*;
 
 pub(crate) struct AppInit {
@@ -93,8 +92,6 @@ impl App {
         });
         let interactive_actor = command_context.actor.clone();
         let agent_command = crate::agent::configured_command(&command_context, agent_kind);
-        let query = initial_search.unwrap_or_default();
-        let in_search = !query.is_empty();
         let twilio_from = crate::env::get(&command_context, "twilio_from_number");
         let persistent_warning = receiver_phone_warning(&config, twilio_from.as_deref());
         let receiver_sync_runtime: Box<dyn ReceiverSyncRuntime> =
@@ -102,13 +99,23 @@ impl App {
         let sync_status_next_poll = receiver_sync_runtime.monotonic_now();
         let last_seen_downstream_id = receiver_sync_runtime
             .latest_successful_downstream_id(command_context.workspace.paths());
-        let header = header_lines(&view, &task_options, active_view);
-        let mut app = Self {
+        let tasks = TasksState::new(TasksStateInit {
+            view,
+            task_options,
+            today,
+            active_view,
+            all_tasks,
+            all_habits,
+            assignment,
+            assignment_filter,
+            initial_search,
             tag_styles: crate::personalization::load_tag_styles(&command_context.workspace),
+        });
+        let shell = ShellState::new(search, panel_side);
+        Self {
             command_context,
             server_ingress,
             server_local_capability,
-            today,
             // Seeded to the startup date; `run_tui` overwrites it with the
             // current logical day right after the startup triage check so the
             // first same-day refresh doesn't re-fire the nudge.
@@ -120,43 +127,20 @@ impl App {
             config,
             agent_kind,
             agent_command,
-            full_notes: task_options.full_notes,
-            expanded_notes: HashSet::new(),
-            task_options,
             csv_path,
-            all_tasks,
-            all_habits,
-            active_view,
-            header,
-            body_lines: Vec::new(),
-            visual_row_offsets: vec![0],
-            visible_tasks: Vec::new(),
-            task_line_ranges: Vec::new(),
-            selected_task: None,
-            pending_count: None,
-            base_tasks: view.tasks,
-            query,
-            in_search,
-            matcher: SkimMatcherV2::default().ignore_case(),
-            assignment,
-            assignment_filter,
-            scroll: 0,
-            last_inner_height: 1,
-            last_content_rows: 1,
+            tasks,
             brain: None,
             #[cfg(test)]
             brain_transport_override: None,
             brain_turn_active: false,
-            focus: Panel::Tasks,
             skill_sessions: Vec::new(),
             next_session_tab_id: 0,
             configured_skill_sessions,
-            active_brain_tab: BrainTab::Main,
             #[cfg(test)]
             session_done_url_override: None,
             #[cfg(test)]
             session_transport_override: None,
-            brain_rect: None,
+            shell,
             instance,
             interactive_actor,
             session_actor: None,
@@ -175,13 +159,7 @@ impl App {
             sync_status: None,
             sync_status_next_poll,
             last_seen_downstream_id,
-            main_view: MainView::Tasks,
-            logs_view: None,
-            search,
-            panel_side,
-        };
-        app.rebuild_body();
-        app
+        }
     }
 }
 

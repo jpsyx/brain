@@ -1,7 +1,7 @@
 //! The brain-directory (fuzzy search) main view's key handling and actions.
 //!
 //! Ported from the pre-merge standalone brain shell. Drives the embedded
-//! `picker::App` (`app.search`) — its query, navigation, and in-place file
+//! `picker::App` (owned by `ShellState`) stores its query, navigation, and in-place file
 //! opening. Search palette and confirmation data live in the shell's single
 //! overlay slot. Only invoked while `main_view == MainView::BrainSearch`
 //! and the main panel is focused; the app-level chords (view switching,
@@ -24,7 +24,7 @@ impl App {
     /// switch from the brain-search palette).
     pub(crate) fn search_rescope(&mut self, roots: &[(Bucket, std::path::PathBuf)]) {
         if let Ok(entries) = entry::collect(&self.brain_root, roots) {
-            self.search.set_entries(&entries);
+            self.shell.search_mut().set_entries(&entries);
         }
     }
 
@@ -32,7 +32,7 @@ impl App {
     /// (`Ctrl-R`, or after a PDF is created / an entry is trashed).
     pub(crate) fn search_refresh(&mut self) {
         if let Ok(entries) = entry::collect(&self.brain_root, &all_bucket_roots(&self.brain_root)) {
-            self.search.reload_entries(&entries);
+            self.shell.search_mut().reload_entries(&entries);
         }
     }
 }
@@ -66,7 +66,7 @@ pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, al
         // Enter opens the selection in place (shell stays up); Ctrl-Enter
         // reveals it in Finder.
         KeyCode::Enter => {
-            if let Some(path) = app.search.selected_path() {
+            if let Some(path) = app.shell.search().selected_path() {
                 if ctrl {
                     reveal_in_finder(&path);
                 } else {
@@ -79,8 +79,8 @@ pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, al
         // offered only when the panel is closed.
         KeyCode::Char('p') if ctrl => {
             app.refresh_receiver_enabled();
-            let palette = app.search.search_palette(
-                app.panel_side,
+            let palette = app.shell.search().search_palette(
+                app.shell.panel_side(),
                 app.brain.is_none(),
                 app.receiver.is_enabled(),
             );
@@ -88,7 +88,7 @@ pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, al
         }
         // Ctrl-G: "Create PDF" confirmation for a highlighted markdown file.
         KeyCode::Char('g') if ctrl => {
-            if let Some(path) = app.search.selected_markdown_path() {
+            if let Some(path) = app.shell.search().selected_markdown_path() {
                 let confirm = picker::App::pdf_confirmation(path);
                 open_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
             }
@@ -97,26 +97,26 @@ pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, al
         KeyCode::Char('r') if ctrl => app.search_refresh(),
         // Ctrl-D: red "Delete" confirmation for the highlighted entry.
         KeyCode::Char('d') if ctrl => {
-            if let Some(path) = app.search.selected_path() {
+            if let Some(path) = app.shell.search().selected_path() {
                 let confirm = picker::App::delete_confirmation(path);
                 open_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
             }
         }
 
-        KeyCode::Up => app.search.move_up(),
-        KeyCode::Char('k') if ctrl => app.search.move_up(),
-        KeyCode::Down => app.search.move_down(),
-        KeyCode::Char('j') if ctrl => app.search.move_down(),
-        KeyCode::PageUp => app.search.page_up(),
-        KeyCode::PageDown => app.search.page_down(),
-        KeyCode::Home => app.search.jump_first(),
-        KeyCode::End => app.search.jump_last(),
+        KeyCode::Up => app.shell.search_mut().move_up(),
+        KeyCode::Char('k') if ctrl => app.shell.search_mut().move_up(),
+        KeyCode::Down => app.shell.search_mut().move_down(),
+        KeyCode::Char('j') if ctrl => app.shell.search_mut().move_down(),
+        KeyCode::PageUp => app.shell.search_mut().page_up(),
+        KeyCode::PageDown => app.shell.search_mut().page_down(),
+        KeyCode::Home => app.shell.search_mut().jump_first(),
+        KeyCode::End => app.shell.search_mut().jump_last(),
 
-        KeyCode::Backspace => app.search.pop_query(),
-        KeyCode::Char('u') if ctrl => app.search.clear_query(),
-        KeyCode::Char('w') if ctrl => app.search.delete_word(),
+        KeyCode::Backspace => app.shell.search_mut().pop_query(),
+        KeyCode::Char('u') if ctrl => app.shell.search_mut().clear_query(),
+        KeyCode::Char('w') if ctrl => app.shell.search_mut().delete_word(),
 
-        KeyCode::Char(c) if !ctrl && !alt => app.search.push_query(c),
+        KeyCode::Char(c) if !ctrl && !alt => app.shell.search_mut().push_query(c),
         _ => {}
     }
     false
@@ -133,7 +133,7 @@ pub(crate) fn route_search_palette(app: &mut App, k: &KeyEvent) {
         }
         PaletteStep::Confirm(action) => {
             if action == SearchAction::Delete {
-                if let Some(path) = app.search.selected_path() {
+                if let Some(path) = app.shell.search().selected_path() {
                     let confirm = picker::App::delete_confirmation(path);
                     replace_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
                 } else {
@@ -186,18 +186,18 @@ impl App {
         match action {
             SearchAction::Global(action) => self.execute_global_action(action),
             SearchAction::CreatePdf => {
-                if let Some(path) = self.search.selected_markdown_path() {
+                if let Some(path) = self.shell.search().selected_markdown_path() {
                     create_pdf_inline(self, &path);
                     self.search_refresh();
                 }
             }
             SearchAction::OpenFile => {
-                if let Some(path) = self.search.selected_path() {
+                if let Some(path) = self.shell.search().selected_path() {
                     open_selection(&path);
                 }
             }
             SearchAction::OpenDir => {
-                if let Some(path) = self.search.selected_path() {
+                if let Some(path) = self.shell.search().selected_path() {
                     reveal_in_finder(&path);
                 }
             }

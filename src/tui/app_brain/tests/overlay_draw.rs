@@ -26,7 +26,8 @@ fn rendered_modal_right_edge(overlay: Overlay, title: &str) -> u16 {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.main_view = crate::main_view::MainView::BrainSearch;
+    app.shell
+        .show_main_view(crate::main_view::MainView::BrainSearch);
     app.overlay = Some(overlay);
     let (brain, _) = recording_controller(&app, true, "brain panel");
     app.brain = Some(brain);

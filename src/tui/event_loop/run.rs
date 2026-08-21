@@ -87,12 +87,12 @@ fn update_application(app: &mut App, event: &Event) -> bool {
     // and only in the unmodal tasks panel. Any other action (a chord,
     // a modal key, a search keystroke, or a non-motion normal key) clears
     // it the moment it happens.
-    let preserves_count = app.focus == Panel::Tasks
-        && !app.in_search
+    let preserves_count = app.shell.focus() == Panel::Tasks
+        && !app.tasks.is_searching()
         && app.overlay.is_none()
         && is_count_relevant_key(k.code, ctrl);
     if !preserves_count {
-        app.pending_count = None;
+        app.tasks.clear_count();
     }
 
     // Modal overlays take all input, resolved before any panel / chord /
@@ -189,13 +189,13 @@ fn update_application(app: &mut App, event: &Event) -> bool {
     // keeps the agent's readline chords when it has focus): Ctrl+H / Ctrl+L
     // cycle left / right, Ctrl+T jumps to the tasks view, Ctrl+B jumps to
     // the brain-directory view. The brain panel stays open across a switch.
-    if app.focus == Panel::Tasks {
+    if app.shell.focus() == Panel::Tasks {
         if let Some(dir) = main_view::ctrl_cycles_view(k.code, ctrl) {
-            app.main_view = app.main_view.step(dir);
+            app.shell.cycle_main_view(dir);
             return false;
         }
         if let Some(mv) = main_view::ctrl_jumps_view(k.code, ctrl) {
-            app.main_view = mv;
+            app.shell.show_main_view(mv);
             return false;
         }
     }
@@ -204,18 +204,18 @@ fn update_application(app: &mut App, event: &Event) -> bool {
     // (in the brain panel it's a readline binding for the child).
     if ctrl
         && ctrl_opens_palette(k.code)
-        && app.focus == Panel::Tasks
-        && matches!(app.main_view, MainView::Tasks | MainView::Logs)
+        && app.shell.focus() == Panel::Tasks
+        && matches!(app.shell.main_view(), MainView::Tasks | MainView::Logs)
     {
-        let palette = if app.main_view == MainView::Logs {
+        let palette = if app.shell.main_view() == MainView::Logs {
             app.refresh_receiver_enabled();
             TaskPalette::new_logs_view(app.receiver.is_enabled())
         } else {
             app.refresh_receiver_enabled();
-            let task_id = app.current_task_id();
-            let is_habit = app.current_is_habit();
-            let has_notes = app.current_has_notes();
-            let notes_expanded = app.current_notes_expanded();
+            let task_id = app.tasks.current_task_id();
+            let is_habit = app.tasks.current_is_habit();
+            let has_notes = app.tasks.current_has_notes();
+            let notes_expanded = app.tasks.current_notes_expanded();
             let link_kind = app.current_link_kind();
             TaskPalette::new(
                 task_id,
@@ -226,7 +226,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
                 app.brain_panel_open(),
                 app.log_path.is_some(),
             )
-            .with_assignment_mode(app.assignment.mode())
+            .with_assignment_mode(app.tasks.assignment().mode())
         };
         let receiver_enabled = app.receiver.is_enabled();
         let daily_triage_alert_disabled = app.skip_daily_triage_check;
@@ -249,7 +249,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
     // KeyCode::Enter and routes through Enter's handler instead. The
     // Shift-modified sibling Ctrl+Shift+M is the task-scoped message
     // (handled below).
-    if ctrl_opens_brain(k.code, ctrl, shift) && app.focus == Panel::Tasks {
+    if ctrl_opens_brain(k.code, ctrl, shift) && app.shell.focus() == Panel::Tasks {
         app.open_or_focus_brain(None);
         return false;
     }
@@ -263,8 +263,8 @@ fn update_application(app: &mut App, event: &Event) -> bool {
     // we don't want to steal it from the child.
     if ctrl
         && matches!(k.code, KeyCode::Char('a' | 'A'))
-        && app.focus == Panel::Tasks
-        && app.main_view == MainView::Tasks
+        && app.shell.focus() == Panel::Tasks
+        && app.shell.main_view() == MainView::Tasks
     {
         app.run_open_agenda();
         return false;
@@ -281,13 +281,10 @@ fn update_application(app: &mut App, event: &Event) -> bool {
     // on the kitty protocol reporting the Shift modifier; without it,
     // Ctrl+Shift+M collapses to Enter and the palette is the fallback.
     if ctrl_messages_brain_about_task(k.code, ctrl, shift)
-        && app.focus == Panel::Tasks
-        && app.main_view == MainView::Tasks
+        && app.shell.focus() == Panel::Tasks
+        && app.shell.main_view() == MainView::Tasks
     {
-        let target = app
-            .selected_task
-            .and_then(|i| app.visible_tasks.get(i))
-            .map(|t| (t.id.clone(), t.name.clone()));
+        let target = app.tasks.selected_identity();
         if let Some((id, label)) = target {
             open_overlay(
                 &mut app.overlay,
@@ -297,7 +294,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
         return false;
     }
 
-    match app.focus {
+    match app.shell.focus() {
         // The brain panel routes to whichever tab is active: an ephemeral
         // skill session gets a plain forwarder; the main session keeps the
         // receiver/turn-aware handler.
@@ -308,10 +305,10 @@ fn update_application(app: &mut App, event: &Event) -> bool {
         // The main panel routes to whichever main view is showing. The
         // tasks view has its own normal/search modes; the brain-directory
         // view is an always-filtering picker.
-        Panel::Tasks => match app.main_view {
+        Panel::Tasks => match app.shell.main_view() {
             MainView::BrainSearch => handle_search_view_key(app, &k, ctrl, alt),
             MainView::Logs => handle_logs_key(app, k.code, ctrl),
-            MainView::Tasks if app.in_search => handle_search_key(app, k.code, ctrl),
+            MainView::Tasks if app.tasks.is_searching() => handle_search_key(app, k.code, ctrl),
             MainView::Tasks => handle_normal_key(app, k.code, ctrl),
         },
     }

@@ -320,7 +320,16 @@ first move is a failing test that reproduces it, *then* the fix.
   identity errors happen before a resumable claim and clear the attempted
   response identity. Fallback completion captures the transport snapshot with
   the controller's initiating actor/channel before teardown.
-- **Skill sessions** (`skill_session/`, `tui/app_skill_session.rs`,
+- **Focused TUI state owners** (`tui/state/`). Standalone `TasksState` tests
+  cover construction, view source changes, assignment and query filtering,
+  selection, notes expansion, body rebuilding, wrapped-row layout, and scroll
+  clamping. Standalone `ShellState` tests cover construction, main-view and
+  focus transitions, panel side and hit-test layout, embedded search, logs, and
+  active-tab selection against the set of open session identities. Call-site
+  tests use semantic transitions or render projections, never aggregate field
+  representation. `tests/tui_state_aggregates_architecture.rs` rejects the old
+  flat fields on `App` and direct aggregate field access outside `tui/state/`.
+- **Skill sessions** (`skill_session/`, `tui/app_skill_session/`,
   `tui/app_brain/tests/skill_session.rs`). The pure half is unit-tested directly:
   what the workspace offers (`available`: the builtin daily triage only while the
   check is enabled, then the parsed `skill_sessions` entries), what a running
@@ -708,6 +717,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, and no obsolete receiver launch argument. |
+| `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: `App` owns one `TasksState` and one `ShellState`, none of the former flat task/shell fields remain on `App`, and TUI modules outside `tui/state/` cannot access either representation directly. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. The App retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |

@@ -65,6 +65,7 @@ mod runtime;
 mod search_view;
 mod shell;
 pub mod singleton;
+mod state;
 mod status_warning;
 
 #[cfg(test)]
@@ -97,24 +98,23 @@ pub(crate) use overlay::*;
 pub(crate) use palette::*;
 pub(crate) use search_view::*;
 pub(crate) use shell::*;
+pub(crate) use state::*;
 pub(crate) use status_warning::*;
 
-use std::collections::HashSet;
-use std::ops::Range;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use chrono::NaiveDate;
+#[cfg(test)]
 use fuzzy_matcher::skim::SkimMatcherV2;
-use ratatui::{layout::Rect, style::Color, text::Line};
+use ratatui::style::Color;
 
 use crate::agent::AgentController;
 use crate::config::Config;
-use crate::main_view::MainView;
 use crate::session::AgentKind;
 use crate::state::{Db, PanelSide};
-use crate::tasks::task::{AssignmentContext, Task};
-use crate::tasks::view::{TaskViewOptions, View};
+use crate::tasks::task::Task;
+use crate::tasks::view::View;
 use crate::users::UserId;
 
 use shell::ShellRunner;
@@ -132,8 +132,6 @@ pub(crate) struct App {
     /// Workspace ingress verified and accepted with this TUI's live lease.
     server_ingress: crate::server::IngressId,
     server_local_capability: crate::server::lifecycle::LeaseId,
-    tag_styles: crate::personalization::tags::TagStyles,
-    today: NaiveDate,
     /// Runtime config, held so post-startup actions (the `r`-hotkey triage
     /// re-check) can reach `daily_triage_name_pattern` and
     /// `day_rollover_hour` without re-loading the file.
@@ -157,69 +155,10 @@ pub(crate) struct App {
     /// portable `enable_daily_triage_check` config; the palette flips it and
     /// writes the config, so the choice outlives the session.
     skip_daily_triage_check: bool,
-    /// When set (via the `--full-notes` flag), every task starts with its
-    /// notes expanded. The per-task `l` toggle still layers on top.
-    full_notes: bool,
-    /// IDs of tasks/habits whose notes the user has expanded via `l` (or the
-    /// "Expand notes" palette action). Effective expansion is
-    /// `full_notes || expanded_notes.contains(id)`.
-    expanded_notes: HashSet<String>,
-    task_options: TaskViewOptions,
     /// Path to the tasks CSV, held so palette actions can reload after
     /// mutating it.
     csv_path: PathBuf,
-
-    /// Full unfiltered task list — needed to rebuild on Tab view-cycle.
-    all_tasks: Vec<Task>,
-    /// Full unfiltered habit list. Powers `View::Habits` and is reloaded
-    /// from `habits.csv` whenever a palette action mutates it.
-    all_habits: Vec<Task>,
-    /// Current Tab-cycle view. `None` when the initial view was a custom
-    /// selector (e.g. `tasks tomorrow`); pressing Tab adopts `View::Today`.
-    active_view: Option<View>,
-
-    /// Snapshot of the active view's tasks; the source for in-shell fuzzy filter.
-    base_tasks: Vec<Task>,
-    /// Pre-rendered top banner. Rebuilt on view-cycle.
-    header: Vec<Line<'static>>,
-
-    /// Search mode state (in-shell fuzzy filter).
-    query: String,
-    in_search: bool,
-    matcher: SkimMatcherV2,
-    /// Assignment visibility and portable members resolved once at startup.
-    assignment: AssignmentContext,
-    /// Process-scoped assignee filter selected from the native picker.
-    assignment_filter: Option<UserId>,
-
-    /// Currently-visible tasks (after fuzzy filter). Indexed by
-    /// `selected_task`; consumed by palette actions that need a task ID.
-    visible_tasks: Vec<Task>,
-    /// `body_lines` range each visible task occupies (excludes the
-    /// trailing blank separator). Used for highlight + scroll-into-view.
-    task_line_ranges: Vec<Range<usize>>,
-    /// Index into `visible_tasks`. `None` only when the visible list is
-    /// empty; otherwise always points at exactly one task.
-    selected_task: Option<usize>,
-    /// Vim-style numeric count prefix in progress. `Some(n)` after the
-    /// user has typed digits (e.g. `3`) but before the motion key that
-    /// consumes them (`j`/`k`/↑/↓). Any other keystroke clears it.
-    pending_count: Option<usize>,
-    /// Body lines for the current `query` (rebuilt on every query change).
-    body_lines: Vec<Line<'static>>,
-    /// Prefix sum mapping each `body_lines` index to its first visual
-    /// (wrapped) row, recomputed each frame from the content width. Length
-    /// is `body_lines.len() + 1`; the last entry is the total visual rows.
-    /// Everything scroll/highlight-related works in these visual rows so a
-    /// note that wraps doesn't desync the selection band from the text.
-    visual_row_offsets: Vec<u16>,
-
-    /// Scroll bookkeeping. `scroll` and `last_content_rows` are in visual
-    /// (wrapped) rows, matching how `Paragraph::scroll` treats a wrapped
-    /// body.
-    scroll: u16,
-    last_inner_height: u16,
-    last_content_rows: u16,
+    tasks: TasksState,
 
     /// The persistent brain panel: an interactive agent PTY. `None` until
     /// the user opens it (Ctrl+M, a brain action, …); once open the layout
@@ -234,7 +173,6 @@ pub(crate) struct App {
     /// completed. Receiver dispatch waits for active work, but can replace an
     /// idle startup panel even while another modal is visible.
     brain_turn_active: bool,
-    focus: Panel,
 
     /// The open skill sessions, each shown as its own brain-panel tab
     /// (`Alt+2`, `Alt+3`, …) while it runs — the builtin daily triage and
@@ -253,34 +191,12 @@ pub(crate) struct App {
     /// [`crate::skill_session::available`]; `None` when the workspace declares
     /// none.
     configured_skill_sessions: Option<serde_json::Value>,
-    /// Which brain-panel tab is showing. Only ever `BrainTab::Session` while a
-    /// tab with that identity is open.
-    active_brain_tab: BrainTab,
     #[cfg(test)]
     session_done_url_override: Option<String>,
     #[cfg(test)]
     session_transport_override: Option<Box<dyn crate::agent::AgentTransport>>,
 
-    /// Which main view is showing in the main panel: the tasks view (startup
-    /// default) or the brain-directory fuzzy-search view. The brain panel is
-    /// app-level and persists across a switch. See `crate::main_view`.
-    main_view: MainView,
-    /// The currently selected diagnostic log source, when the log main view
-    /// is active.
-    pub(crate) logs_view: Option<LogsView>,
-    /// The brain-directory (fuzzy-search) main view's picker state — entries,
-    /// query, and matches. Only receives
-    /// keys while `main_view == MainView::BrainSearch` and the main panel is
-    /// focused; drawn in the main panel area then.
-    search: crate::picker::App,
-    /// Which side the brain panel sits on when open (the other side holds the
-    /// active main view). Toggled by the brain-search palette's layout row;
-    /// persisted in the state DB.
-    panel_side: PanelSide,
-    /// On-screen rectangle the brain panel last occupied (the right half),
-    /// recorded each frame by `draw`. `None` when no brain panel is open.
-    /// Read by the mouse handler to decide which panel the wheel scrolls.
-    brain_rect: Option<Rect>,
+    shell: ShellState,
 
     /// This shell's lineage id (one per running tasks shell). Owns the lock on
     /// whatever Claude session it's currently driving; the SessionStart hook

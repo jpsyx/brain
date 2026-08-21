@@ -1,14 +1,8 @@
-//! `App` state: construction, query/filter, selection, notes toggles,
-//! and view navigation. The `App` type lives in the `tui` root; this module's
-//! submodules each add an `impl App` block by concern:
-//!   - `construct`        — `App::new`
-//!   - `nav`              — query/filter, body rebuild, scroll, cursor movement
-//!   - `view`             — Tab-cycle view switching + CSV reloads
-//!   - `selection_query`  — current-entry queries + notes toggles
+//! `App` construction and task-store coordination. Pure task-list state lives
+//! in `tui::state::TasksState`; this module retains only the IO boundary that
+//! reloads CSV rows into that aggregate.
 
 mod construct;
-mod nav;
-mod selection_query;
 mod view;
 
 pub(crate) use construct::AppInit;

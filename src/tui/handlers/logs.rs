@@ -10,41 +10,17 @@ fn logs_quit_action(code: KeyCode, ctrl: bool) -> bool {
 
 pub(crate) fn handle_logs_key(app: &mut App, code: KeyCode, ctrl: bool) -> bool {
     if logs_quit_action(code, ctrl) {
-        app.main_view = crate::main_view::MainView::Tasks;
+        app.shell.show_main_view(crate::main_view::MainView::Tasks);
         return false;
     }
     match code {
-        KeyCode::Esc => app.main_view = crate::main_view::MainView::Tasks,
-        KeyCode::Char('j') | KeyCode::Down => {
-            if let Some(logs) = app.logs_view.as_mut() {
-                logs.scroll_by(3);
-            }
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            if let Some(logs) = app.logs_view.as_mut() {
-                logs.scroll_by(-3);
-            }
-        }
-        KeyCode::PageDown => {
-            if let Some(logs) = app.logs_view.as_mut() {
-                logs.scroll_by(20);
-            }
-        }
-        KeyCode::PageUp => {
-            if let Some(logs) = app.logs_view.as_mut() {
-                logs.scroll_by(-20);
-            }
-        }
-        KeyCode::Char('g') => {
-            if let Some(logs) = app.logs_view.as_mut() {
-                logs.scroll = 0;
-            }
-        }
-        KeyCode::Char('G') => {
-            if let Some(logs) = app.logs_view.as_mut() {
-                logs.scroll = u16::MAX;
-            }
-        }
+        KeyCode::Esc => app.shell.show_main_view(crate::main_view::MainView::Tasks),
+        KeyCode::Char('j') | KeyCode::Down => app.shell.scroll_logs(3),
+        KeyCode::Char('k') | KeyCode::Up => app.shell.scroll_logs(-3),
+        KeyCode::PageDown => app.shell.scroll_logs(20),
+        KeyCode::PageUp => app.shell.scroll_logs(-20),
+        KeyCode::Char('g') => app.shell.scroll_logs_to_start(),
+        KeyCode::Char('G') => app.shell.scroll_logs_to_end(),
         _ => {}
     }
     false

@@ -72,7 +72,7 @@ impl App {
     pub(crate) fn focus_brain(&mut self) {
         if self.any_brain_panel_visible() {
             self.alert = None;
-            self.focus = Panel::Brain;
+            self.shell.focus_brain();
         }
     }
 
@@ -82,11 +82,34 @@ impl App {
     /// completion signal, so the focus switch is our cue to pick up
     /// whatever changed while the user was over in the brain panel.
     pub(crate) fn focus_tasks(&mut self) {
-        let was_on_brain = self.focus == Panel::Brain;
+        let was_on_brain = self.shell.focus() == Panel::Brain;
         self.alert = None;
-        self.focus = Panel::Tasks;
+        self.shell.focus_tasks();
         if was_on_brain {
             self.reload_after_brain();
+        }
+    }
+
+    pub(crate) fn scroll_focused_half_page(&mut self, up: bool) {
+        match self.shell.focus() {
+            Panel::Brain => {
+                if let Some(controller) = self.active_brain_controller_mut() {
+                    let step = half_page_step(controller.terminal_rows().unwrap_or_default());
+                    if up {
+                        let _ = controller.scroll_up(step);
+                    } else {
+                        let _ = controller.scroll_down(step);
+                    }
+                }
+            }
+            Panel::Tasks => {
+                let step = (self.tasks.tasks_per_page() / 2).max(1);
+                if up {
+                    self.tasks.select_prev(step);
+                } else {
+                    self.tasks.select_next(step);
+                }
+            }
         }
     }
 

@@ -18,6 +18,7 @@ use crate::tui::*;
 /// the total visual row count. This is the bridge between the logical-line
 /// bookkeeping (`task_line_ranges`, built width-agnostically) and the
 /// wrapped rows the Paragraph actually paints.
+#[cfg(test)]
 pub(crate) fn visual_row_offsets(heights: &[u16]) -> Vec<u16> {
     let mut acc: u16 = 0;
     let mut out = Vec::with_capacity(heights.len() + 1);
@@ -32,6 +33,7 @@ pub(crate) fn visual_row_offsets(heights: &[u16]) -> Vec<u16> {
 /// Map a logical line range to its visual (wrapped) row range via `offsets`
 /// (as built by [`visual_row_offsets`]). Indices are clamped into the table
 /// so a stale range (computed before the latest rebuild) can't panic.
+#[cfg(test)]
 pub(crate) fn visual_range(
     offsets: &[u16],
     logical: std::ops::Range<usize>,
@@ -43,36 +45,6 @@ pub(crate) fn visual_range(
     let start = offsets[logical.start.min(last)];
     let end = offsets[logical.end.min(last)];
     start..end
-}
-
-/// Compute the on-screen rectangle covering `app.selected_task`'s content
-/// rows, clipped to the visible portion. Returns `None` when nothing is
-/// selected or the selection is entirely off-screen (scrolled away).
-/// Works in visual (wrapped) rows so a task sitting after a wrapped note
-/// still highlights the right band.
-pub(crate) fn selection_band_rect(app: &App, content_area: Rect) -> Option<Rect> {
-    let sel = app.selected_task?;
-    let range = app.task_line_ranges.get(sel)?;
-    let vis = visual_range(&app.visual_row_offsets, range.clone());
-    let start = vis.start;
-    let end = vis.end;
-    let scroll = app.scroll;
-    let bottom = scroll.saturating_add(content_area.height);
-    if end <= scroll || start >= bottom {
-        return None;
-    }
-    let vis_start = start.max(scroll);
-    let vis_end = end.min(bottom);
-    let height = vis_end.saturating_sub(vis_start);
-    if height == 0 {
-        return None;
-    }
-    Some(Rect {
-        x: content_area.x,
-        y: content_area.y + (vis_start - scroll),
-        width: content_area.width,
-        height,
-    })
 }
 
 /// Blend an RGB color 80% toward its current value, 20% toward white.

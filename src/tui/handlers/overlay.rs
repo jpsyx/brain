@@ -189,7 +189,7 @@ pub(crate) fn handle_assignee_filter_key(
     if apply {
         let selected = picker.selected_user();
         close_overlay(&mut app.overlay);
-        app.set_assignment_filter(selected);
+        app.tasks.set_assignment_filter(selected);
     }
 }
 

@@ -38,10 +38,10 @@ impl App {
             GlobalAction::CloseBrain => self.close_brain(),
             GlobalAction::ToggleReceiver => self.toggle_receiver(),
             GlobalAction::ToggleLayout => {
-                self.panel_side = self.panel_side.flipped();
-                let _ = self.db.set_panel_side(self.panel_side);
+                self.shell.toggle_panel_side();
+                let _ = self.db.set_panel_side(self.shell.panel_side());
             }
-            GlobalAction::ShowTasks => self.main_view = crate::main_view::MainView::Tasks,
+            GlobalAction::ShowTasks => self.shell.show_main_view(crate::main_view::MainView::Tasks),
             GlobalAction::ShowReceiverServerStatus => self.show_receiver_status(),
             GlobalAction::ShowReceiverServerLogs => {
                 crate::logging::log("palette request receiver server logs");
@@ -112,8 +112,8 @@ impl App {
 
     pub(crate) fn show_logs_view(&mut self, kind: LogKind) {
         crate::logging::log(format!("open logs view kind={kind:?}"));
-        self.logs_view = Some(LogsView::load(kind, self.log_path.as_deref()));
-        self.main_view = crate::main_view::MainView::Logs;
+        self.shell
+            .show_logs(LogsView::load(kind, self.log_path.as_deref()));
     }
 
     /// Wrap `mark_task_complete` with flash-message setting so both the
@@ -130,8 +130,8 @@ impl App {
     /// a decision when there are preservable links — keeps the no-impact
     /// case from costing the user a back-and-forth.
     pub(crate) fn run_remove(&mut self, raw_id: &str) {
-        if let Err(error) = protect_removal(&self.all_tasks, &self.all_habits, raw_id, &self.config)
-        {
+        let (all_tasks, all_habits) = self.tasks.source_rows();
+        if let Err(error) = protect_removal(all_tasks, all_habits, raw_id, &self.config) {
             self.flash = Some(FlashKind::Error(format!("⚠ {error}")));
             return;
         }
@@ -191,8 +191,7 @@ impl App {
     /// `open_runner`; multiple links raise the picker modal so the user can
     /// choose. The picker is bound to the task's id at open time.
     pub(crate) fn run_open_links(&mut self) {
-        let task = self.selected_task.and_then(|i| self.visible_tasks.get(i));
-        let Some(task) = task else {
+        let Some(task) = self.tasks.selected_task() else {
             return;
         };
         let links = task_links(task, &self.config.linear_base_url());
@@ -209,6 +208,14 @@ impl App {
                 );
             }
         }
+    }
+
+    pub(crate) fn current_link_kind(&self) -> LinkKind {
+        let Some(task) = self.tasks.selected_task() else {
+            return LinkKind::None;
+        };
+        let links = task_links(task, &self.config.linear_base_url());
+        classify_links(task, &links)
     }
 
     /// Open the link-picker's highlighted URL and close the modal. No-op
@@ -264,16 +271,13 @@ impl App {
         match action {
             TaskAction::Global(action) => self.execute_global_action(action),
             TaskAction::AddTask => {
-                let message = add_task_prompt(self.assignment.actor_id().as_str());
+                let message = add_task_prompt(self.tasks.assignment().actor_id().as_str());
                 self.send_brain_prompt(&message);
             }
             TaskAction::MessageBrainAboutTask => {
                 // Clone (id, name) before opening the brain-input overlay so
                 // the borrow on visible_tasks ends first.
-                let target = self
-                    .selected_task
-                    .and_then(|i| self.visible_tasks.get(i))
-                    .map(|t| (t.id.clone(), t.name.clone()));
+                let target = self.tasks.selected_identity();
                 if let Some((id, label)) = target {
                     open_overlay(
                         &mut self.overlay,
@@ -286,10 +290,7 @@ impl App {
                 // immediately — same guard as the Ctrl+Enter shortcut,
                 // since this mutates tasks.csv. The Yes path calls
                 // `run_mark_complete`.
-                let target = self
-                    .selected_task
-                    .and_then(|i| self.visible_tasks.get(i))
-                    .map(|t| (t.id.clone(), t.name.clone()));
+                let target = self.tasks.selected_identity();
                 if let Some((id, label)) = target {
                     open_overlay(
                         &mut self.overlay,
@@ -298,7 +299,7 @@ impl App {
                 }
             }
             TaskAction::DeferTask(days) => {
-                let Some(id) = self.current_task_id() else {
+                let Some(id) = self.tasks.current_task_id() else {
                     return;
                 };
                 // Hand off to the brain agent (which has the /todo skill
@@ -313,10 +314,7 @@ impl App {
                 // Open a Yes/No confirmation rather than firing off the
                 // remove immediately — destructive enough to warrant the
                 // extra keystroke. The Yes path calls `run_remove`.
-                let target = self
-                    .selected_task
-                    .and_then(|i| self.visible_tasks.get(i))
-                    .map(|t| (t.id.clone(), t.name.clone()));
+                let target = self.tasks.selected_identity();
                 if let Some((id, label)) = target {
                     open_overlay(
                         &mut self.overlay,
@@ -325,7 +323,7 @@ impl App {
                 }
             }
             TaskAction::ReassignTask => {
-                let Some(id) = self.current_task_id() else {
+                let Some(id) = self.tasks.current_task_id() else {
                     return;
                 };
                 let message = reassign_task_prompt(&id);
@@ -335,8 +333,8 @@ impl App {
                 open_overlay(
                     &mut self.overlay,
                     Overlay::AssigneeFilter(AssigneeFilterState::new(
-                        self.assignment.users(),
-                        self.assignment_filter.as_ref(),
+                        self.tasks.assignment().users(),
+                        self.tasks.assignment_filter(),
                     )),
                 );
             }
@@ -347,13 +345,13 @@ impl App {
                 self.run_open_agenda();
             }
             TaskAction::ToggleNotes => {
-                self.toggle_notes();
+                self.tasks.toggle_notes();
             }
             TaskAction::OpenLinks => {
                 self.run_open_links();
             }
             TaskAction::StartTask => {
-                let Some(id) = self.current_task_id() else {
+                let Some(id) = self.tasks.current_task_id() else {
                     return;
                 };
                 // Asks the brain agent to (1) gather the task's context

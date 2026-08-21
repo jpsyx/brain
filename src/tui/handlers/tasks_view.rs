@@ -34,21 +34,20 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
     if !ctrl {
         if let KeyCode::Char(c) = code {
             if let Some(d) = c.to_digit(10) {
-                if let Some(n) = accumulate_count(app.pending_count, d) {
-                    app.pending_count = Some(n);
+                if app.tasks.push_count_digit(d) {
                     return false;
                 }
             }
         }
     }
-    let count = app.pending_count.take().unwrap_or(1);
+    let count = app.tasks.take_count();
 
     // Single-letter view shortcuts (bare letters only). `view_shortcut`
     // returns `None` for ctrl-modified keys, so `Ctrl+P` (palette) and the
     // other chords never collide with the bare view letters. `h` is handled
     // in the match below because it doubles as a notes-collapse key.
     if let Some(view) = view_shortcut(code, ctrl) {
-        app.set_view(view);
+        app.tasks.set_view(view);
         return false;
     }
 
@@ -63,21 +62,24 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
     match code {
         KeyCode::Char('q' | 'Q') => return true,
         KeyCode::Char('c') if ctrl => return true,
-        KeyCode::Esc => match normal_escape_action(app.has_active_filter()) {
-            EscapeAction::ClearFilters => app.clear_active_filters(),
+        KeyCode::Esc => match normal_escape_action(app.tasks.has_active_filter()) {
+            EscapeAction::ClearFilters => app.tasks.clear_active_filters(),
             EscapeAction::Quit => return true,
         },
-        KeyCode::Char('/') => app.in_search = true,
-        KeyCode::Tab => app.cycle_view_next(),
-        KeyCode::BackTab => app.cycle_view_prev(),
+        KeyCode::Char('/') => app.tasks.enter_search(),
+        KeyCode::Tab => app.tasks.cycle_view_next(),
+        KeyCode::BackTab => app.tasks.cycle_view_prev(),
 
         KeyCode::Char('h') if !ctrl => {
             // Sole exception to "`h` = habits view": when the highlighted
             // entry's notes are expanded, `h` collapses them instead.
-            if h_collapses_notes(app.current_has_notes(), app.current_notes_expanded()) {
-                app.toggle_notes();
+            if h_collapses_notes(
+                app.tasks.current_has_notes(),
+                app.tasks.current_notes_expanded(),
+            ) {
+                app.tasks.toggle_notes();
             } else {
-                app.set_view(View::Habits);
+                app.tasks.set_view(View::Habits);
             }
         }
 
@@ -97,10 +99,7 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
         KeyCode::Char('d') if ctrl => {
             // Clone fields before opening the overlay to drop the
             // shared borrow on visible_tasks first.
-            let target = app
-                .selected_task
-                .and_then(|i| app.visible_tasks.get(i))
-                .map(|t| (t.id.clone(), t.name.clone()));
+            let target = app.tasks.selected_identity();
             if let Some((id, label)) = target {
                 open_overlay(
                     &mut app.overlay,
@@ -116,13 +115,10 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
         // since their removal path is different (handled elsewhere via the
         // brain agent's habit-specific flow).
         KeyCode::Backspace if ctrl_removes_task(code, ctrl) => {
-            if app.current_is_habit() {
+            if app.tasks.current_is_habit() {
                 return false;
             }
-            let target = app
-                .selected_task
-                .and_then(|i| app.visible_tasks.get(i))
-                .map(|t| (t.id.clone(), t.name.clone()));
+            let target = app.tasks.selected_identity();
             if let Some((id, label)) = target {
                 open_overlay(
                     &mut app.overlay,
@@ -140,14 +136,11 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
         KeyCode::Enter => {
             // Clone (id, name) up front so the shared borrow on
             // visible_tasks ends before we open the palette overlay.
-            let target = app
-                .selected_task
-                .and_then(|i| app.visible_tasks.get(i))
-                .map(|t| (t.id.clone(), t.name.clone()));
+            let target = app.tasks.selected_identity();
             if let Some((id, label)) = target {
-                let is_habit = app.current_is_habit();
-                let has_notes = app.current_has_notes();
-                let notes_expanded = app.current_notes_expanded();
+                let is_habit = app.tasks.current_is_habit();
+                let has_notes = app.tasks.current_has_notes();
+                let notes_expanded = app.tasks.current_notes_expanded();
                 let link_kind = app.current_link_kind();
                 open_overlay(
                     &mut app.overlay,
@@ -160,7 +153,7 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
                             notes_expanded,
                             link_kind,
                         )
-                        .with_assignment_mode(app.assignment.mode()),
+                        .with_assignment_mode(app.tasks.assignment().mode()),
                     ),
                 );
             }
@@ -168,38 +161,38 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
 
         // One task at a time, or `count` tasks when a vim-style numeric
         // prefix preceded the motion (e.g. `3j` moves down 3).
-        KeyCode::Down | KeyCode::Char('j') => app.select_next(count),
-        KeyCode::Up | KeyCode::Char('k') => app.select_prev(count),
+        KeyCode::Down | KeyCode::Char('j') => app.tasks.select_next(count),
+        KeyCode::Up | KeyCode::Char('k') => app.tasks.select_prev(count),
 
         // Page-step navigation. `d`/`u` ~ half a screen; PgDn pages down,
         // PgUp pages up. (Bare `b` is the backlog-view jump, handled by
         // `view_shortcut` above; the letter aliases `f`/`b` were retired in
         // favor of the dedicated page keys.)
         KeyCode::Char('d') => {
-            let step = (app.tasks_per_page() / 2).max(1);
-            app.select_next(step);
+            let step = (app.tasks.tasks_per_page() / 2).max(1);
+            app.tasks.select_next(step);
         }
         KeyCode::Char('u') => {
-            let step = (app.tasks_per_page() / 2).max(1);
-            app.select_prev(step);
+            let step = (app.tasks.tasks_per_page() / 2).max(1);
+            app.tasks.select_prev(step);
         }
         KeyCode::PageDown => {
-            app.select_next(app.tasks_per_page().max(1));
+            app.tasks.select_next(app.tasks.tasks_per_page().max(1));
         }
         KeyCode::PageUp => {
-            app.select_prev(app.tasks_per_page().max(1));
+            app.tasks.select_prev(app.tasks.tasks_per_page().max(1));
         }
-        KeyCode::Home | KeyCode::Char('g') => app.select_first(),
-        KeyCode::End | KeyCode::Char('G') => app.select_last(),
+        KeyCode::Home | KeyCode::Char('g') => app.tasks.select_first(),
+        KeyCode::End | KeyCode::Char('G') => app.tasks.select_last(),
 
         // Toggle the selected task's notes between a single-line preview and
         // the full markdown-rendered body. Inert when the task has no notes.
-        KeyCode::Char('l') => app.toggle_notes(),
+        KeyCode::Char('l') => app.tasks.toggle_notes(),
 
         // Arrow aliases for notes on a task that has them: → expands,
         // ← collapses. No-op otherwise.
-        KeyCode::Right => app.expand_notes(),
-        KeyCode::Left => app.collapse_notes(),
+        KeyCode::Right => app.tasks.expand_notes(),
+        KeyCode::Left => app.tasks.collapse_notes(),
 
         _ => {}
     }
@@ -214,31 +207,31 @@ pub(crate) fn handle_search_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
     // Esc and Ctrl+C both back out of `/`: leave search mode and drop the
     // filter. Ctrl+C used to quit the whole shell here — it now mirrors Esc.
     if search_key_abandons_filter(code, ctrl) {
-        app.in_search = false;
-        app.clear_query();
+        app.tasks.leave_search();
+        app.tasks.clear_query();
         return false;
     }
     // Backspace and Ctrl+U edit the query, but on an empty query they back
     // out of search instead (a second Ctrl+U after clearing leaves `/`).
-    if search_edit_key_exits_when_empty(code, ctrl) && app.query.is_empty() {
-        app.in_search = false;
+    if search_edit_key_exits_when_empty(code, ctrl) && app.tasks.query_is_empty() {
+        app.tasks.leave_search();
         return false;
     }
     match code {
-        KeyCode::Enter => app.in_search = false,
-        KeyCode::Backspace => app.pop_query(),
-        KeyCode::Char('u') if ctrl => app.clear_query(),
-        KeyCode::Char(c) if !ctrl => app.append_query(c),
+        KeyCode::Enter => app.tasks.leave_search(),
+        KeyCode::Backspace => app.tasks.pop_query(),
+        KeyCode::Char('u') if ctrl => app.tasks.clear_query(),
+        KeyCode::Char(c) if !ctrl => app.tasks.append_query(c),
 
         // Arrow keys move the selection (j / k are typed into the query
         // since this is text input). Useful when narrowing the list and
         // picking a result for a palette action.
-        KeyCode::Down => app.select_next(1),
-        KeyCode::Up => app.select_prev(1),
-        KeyCode::PageDown => app.select_next(app.tasks_per_page().max(1)),
-        KeyCode::PageUp => app.select_prev(app.tasks_per_page().max(1)),
-        KeyCode::Home => app.select_first(),
-        KeyCode::End => app.select_last(),
+        KeyCode::Down => app.tasks.select_next(1),
+        KeyCode::Up => app.tasks.select_prev(1),
+        KeyCode::PageDown => app.tasks.select_next(app.tasks.tasks_per_page().max(1)),
+        KeyCode::PageUp => app.tasks.select_prev(app.tasks.tasks_per_page().max(1)),
+        KeyCode::Home => app.tasks.select_first(),
+        KeyCode::End => app.tasks.select_last(),
 
         _ => {}
     }

@@ -23,7 +23,7 @@ impl App {
             .as_ref()
             .is_some_and(|controller| controller.is_alive().unwrap_or(false))
         {
-            self.focus = Panel::Brain;
+            self.shell.focus_brain();
             self.alert = None;
             if let Some(p) = prompt {
                 if let Some(controller) = self.brain.as_mut()
@@ -213,7 +213,7 @@ impl App {
                 if prompt.is_some_and(|value| !value.trim().is_empty()) {
                     self.mark_brain_turn_started();
                 }
-                self.focus = Panel::Brain;
+                self.shell.focus_brain();
                 crate::logging::log(format!(
                     "brain panel started agent={} turn_active={}",
                     self.agent_kind.label(),

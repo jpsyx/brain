@@ -82,7 +82,7 @@ impl App {
     /// The tab actually showable right now: a `Session` only while a tab with
     /// that identity exists, else `Main`.
     pub(crate) fn effective_brain_tab(&self) -> BrainTab {
-        resolve_active_tab(self.active_brain_tab, &self.skill_session_tab_ids())
+        self.shell.active_brain_tab(&self.skill_session_tab_ids())
     }
 
     /// The controller behind the currently-active tab, if any.
@@ -143,12 +143,13 @@ impl App {
     /// Selecting a skill session is a no-op when that tab isn't open; selecting
     /// any tab when the panel is closed does nothing.
     pub(crate) fn select_brain_tab(&mut self, tab: BrainTab) {
-        if !self.any_brain_panel_visible() {
-            return;
+        let open = self.skill_session_tab_ids();
+        if self
+            .shell
+            .select_brain_tab(tab, &open, self.any_brain_panel_visible())
+        {
+            self.alert = None;
         }
-        self.active_brain_tab = resolve_active_tab(tab, &self.skill_session_tab_ids());
-        self.focus = Panel::Brain;
-        self.alert = None;
     }
 
     /// Select a tab by its `Alt+<digit>` slot: slot 0 is the main session, slot
@@ -184,47 +185,14 @@ impl App {
     /// Ordered `[Main, …sessions]` so `next` from Main lands on the first skill
     /// session.
     pub(crate) fn cycle_brain_tab(&mut self, forward: bool) {
-        if !self.any_brain_panel_visible() {
-            return;
+        let open = self.skill_session_tab_ids();
+        if self
+            .shell
+            .cycle_brain_tab(&open, forward, self.any_brain_panel_visible())
+        {
+            self.alert = None;
         }
-        let tabs = tab_order(&self.skill_session_tab_ids());
-        let n = tabs.len();
-        let current = self.effective_brain_tab();
-        let idx = tabs.iter().position(|&t| t == current).unwrap_or(0);
-        let next = if forward {
-            (idx + 1) % n
-        } else {
-            (idx + n - 1) % n
-        };
-        self.select_brain_tab(tabs[next]);
     }
-}
-
-/// Which tab is actually showable: a `Session` only when a tab with that
-/// identity is open, else `Main`. Keeps `Alt+<n>` a no-op for a tab that isn't
-/// there and stops rendering / routing from ever pointing at a closed session.
-/// Pure.
-pub(crate) fn resolve_active_tab(requested: BrainTab, open: &[SessionTabId]) -> BrainTab {
-    match requested {
-        BrainTab::Session(id) if open.contains(&id) => BrainTab::Session(id),
-        _ => BrainTab::Main,
-    }
-}
-
-/// The tab strip's order: the main session, then each open skill session in the
-/// order it was opened. Pure; drives both the `Alt+<digit>` slots and the
-/// `Alt+[` / `Alt+]` cycle so the two can't disagree.
-pub(crate) fn tab_order(open: &[SessionTabId]) -> Vec<BrainTab> {
-    let mut tabs = vec![BrainTab::Main];
-    tabs.extend(open.iter().copied().map(BrainTab::Session));
-    tabs
-}
-
-/// The tab an `Alt+<digit>` slot selects: slot 0 (`Alt+1`) is the main session,
-/// slot `n` the nth open skill session. `None` when nothing occupies that slot.
-/// Pure.
-pub(crate) fn tab_for_slot(slot: usize, open: &[SessionTabId]) -> Option<BrainTab> {
-    tab_order(open).get(slot).copied()
 }
 
 #[cfg(test)]

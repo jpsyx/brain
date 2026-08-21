@@ -33,7 +33,7 @@ impl App {
         self.session_actor = None;
         self.brain_turn_active = false;
         self.alert = None;
-        self.focus = Panel::Tasks;
+        self.shell.focus_tasks();
         let _ = SessionStore::release(&self.db, &self.instance);
         self.clear_receiver_panel_state();
         self.reload_after_brain();

@@ -15,7 +15,7 @@ fn controller_drives_interactive_submit_queued_work_and_single_shutdown() {
     SessionStore::mark_completed(&app.db, &session, &scope).expect("complete session");
     let (controller, recording) = recording_controller(&app, true, "final snapshot");
     app.brain = Some(controller);
-    app.focus = Panel::Brain;
+    app.shell.focus_brain();
 
     let enter =
         crossterm::event::KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
@@ -145,13 +145,13 @@ fn agent_exit_closes_only_the_panel_and_returns_to_the_live_tui() {
         Some(AgentKind::OpenCode)
     );
     main_recording.set_alive(false);
-    app.focus = Panel::Brain;
+    app.shell.focus_brain();
 
     assert!(app.close_exited_brain_panel());
 
     assert!(app.brain.is_none());
     assert!(app.has_skill_session(crate::skill_session::SkillSessionKey::DailyTriage));
-    assert_eq!(app.focus, Panel::Tasks);
+    assert_eq!(app.shell.focus(), Panel::Tasks);
     assert_eq!(main_recording.shutdowns(), 1);
     assert_eq!(triage_recording.shutdowns(), 0);
 }
@@ -192,7 +192,7 @@ fn close_delivers_transport_snapshot_with_the_initiating_actor_and_channel() {
     assert_eq!(actor, initiating_actor);
     assert_eq!(channel, Channel::Sms);
     assert!(app.brain.is_none());
-    assert_eq!(app.focus, Panel::Tasks);
+    assert_eq!(app.shell.focus(), Panel::Tasks);
 }
 
 #[test]
@@ -213,12 +213,12 @@ fn close_brain_releases_each_frontend_session_for_the_next_shell() {
             .expect("register locked session");
         let live = live_panel(app.command_context.workspace.root());
         app.brain = Some(panel_controller(&app, live));
-        app.focus = Panel::Brain;
+        app.shell.focus_brain();
 
         app.close_brain();
 
         assert!(app.brain.is_none());
-        assert_eq!(app.focus, Panel::Tasks);
+        assert_eq!(app.shell.focus(), Panel::Tasks);
         assert_eq!(app.db.sessions_by_recency(&scope), [session_id]);
     }
 }
@@ -237,7 +237,7 @@ fn half_page_scroll_targets_the_visible_skill_session_controller() {
         "token-scroll-test",
         triage,
     );
-    app.focus = Panel::Brain;
+    app.shell.focus_brain();
 
     app.scroll_focused_half_page(true);
     app.scroll_focused_half_page(false);

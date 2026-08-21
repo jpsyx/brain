@@ -41,7 +41,7 @@ pub(crate) fn handle_mouse(app: &mut App, me: crossterm::event::MouseEvent) {
         _ => return,
     };
 
-    match panel_at(app.brain_rect, me.column, me.row) {
+    match panel_at(app.shell.brain_rect(), me.column, me.row) {
         Panel::Brain => {
             if let Some(controller) = app.active_brain_controller_mut() {
                 if up {
@@ -53,9 +53,9 @@ pub(crate) fn handle_mouse(app: &mut App, me: crossterm::event::MouseEvent) {
         }
         Panel::Tasks => {
             if up {
-                app.select_prev(WHEEL_TASKS);
+                app.tasks.select_prev(WHEEL_TASKS);
             } else {
-                app.select_next(WHEEL_TASKS);
+                app.tasks.select_next(WHEEL_TASKS);
             }
         }
     }

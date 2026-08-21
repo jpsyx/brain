@@ -98,8 +98,9 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
             fail: true,
         }));
     app.overlay = Some(crate::tui::Overlay::SearchPalette(
-        app.search
-            .search_palette(app.panel_side, false, app.receiver.is_enabled()),
+        app.shell
+            .search()
+            .search_palette(app.shell.panel_side(), false, app.receiver.is_enabled()),
     ));
     for character in "disable receiver".chars() {
         crate::tui::route_search_palette(&mut app, &plain_key(KeyCode::Char(character)));

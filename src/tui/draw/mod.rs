@@ -32,7 +32,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(area);
-        match app.panel_side {
+        match app.shell.panel_side() {
             PanelSide::Right => (cols[0], Some(cols[1])),
             PanelSide::Left => (cols[1], Some(cols[0])),
         }
@@ -42,12 +42,23 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
 
     // Record the brain panel's rect so the mouse handler can hit-test the
     // wheel against it (None when the main view owns the full width).
-    app.brain_rect = brain_area;
+    app.shell.record_brain_rect(brain_area);
 
-    match app.main_view {
-        MainView::Tasks => draw_tasks(f, app, main_area),
-        MainView::BrainSearch => crate::picker::draw_into(f, &mut app.search, main_area),
-        MainView::Logs => draw_logs(f, app, main_area),
+    match app.shell.main_view() {
+        MainView::Tasks => {
+            let context = TasksPanelContext {
+                split_pane_open: app.any_brain_panel_visible(),
+                focused: app.shell.focus() == Panel::Tasks,
+                flash: app.flash.as_ref(),
+                sync_status: app.sync_status.as_deref(),
+                persistent_warning: app.persistent_warning.as_deref(),
+            };
+            draw_tasks(f, &mut app.tasks, &context, main_area);
+        }
+        MainView::BrainSearch => {
+            crate::picker::draw_into(f, app.shell.search_mut(), main_area);
+        }
+        MainView::Logs => draw_logs(f, app.shell.logs_view(), main_area),
     }
     if let Some(brain_rect) = brain_area {
         draw_brain(f, app, brain_rect);

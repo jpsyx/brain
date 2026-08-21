@@ -142,8 +142,9 @@ impl App {
                     token,
                     controller,
                 });
-                self.active_brain_tab = BrainTab::Session(id);
-                self.focus = Panel::Brain;
+                let open = self.skill_session_tab_ids();
+                self.shell
+                    .select_brain_tab(BrainTab::Session(id), &open, true);
                 self.alert = None;
                 crate::logging::log(format!(
                     "skill session opened title={} agent={}",
@@ -181,12 +182,12 @@ impl App {
         let _ = tab.controller.shutdown();
         crate::skill_session::signal::clear(&self.command_context.workspace, &tab.token);
         if was_showing {
-            self.active_brain_tab = BrainTab::Main;
-            self.focus = if self.brain.is_some() {
-                Panel::Brain
-            } else {
-                Panel::Tasks
-            };
+            let open = self.skill_session_tab_ids();
+            self.shell
+                .select_brain_tab(BrainTab::Main, &open, self.brain.is_some());
+            if self.brain.is_none() {
+                self.shell.focus_tasks();
+            }
         }
         self.reload_after_brain();
     }
@@ -217,7 +218,9 @@ impl App {
             token: token.to_owned(),
             controller,
         });
-        self.active_brain_tab = BrainTab::Session(id);
+        let open = self.skill_session_tab_ids();
+        self.shell
+            .select_brain_tab(BrainTab::Session(id), &open, true);
         id
     }
 

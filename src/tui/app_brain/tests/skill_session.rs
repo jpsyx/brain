@@ -45,8 +45,8 @@ fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
             .expect("skill session controller");
         assert_eq!(controller.kind(), kind);
         assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
-        assert!(matches!(app.active_brain_tab, BrainTab::Session(_)));
-        assert_eq!(app.focus, Panel::Brain);
+        assert!(matches!(app.effective_brain_tab(), BrainTab::Session(_)));
+        assert_eq!(app.shell.focus(), Panel::Brain);
         let spec = {
             let specs = recording.0.lock().expect("launch recording");
             assert_eq!(specs.len(), 1);
@@ -110,8 +110,8 @@ fn opencode_triage_completion_cleans_up_the_ephemeral_transport_and_signal_once(
     app.tick_skill_sessions();
 
     assert!(!app.has_skill_session(SkillSessionKey::DailyTriage));
-    assert_eq!(app.active_brain_tab, BrainTab::Main);
-    assert_eq!(app.focus, Panel::Tasks);
+    assert_eq!(app.effective_brain_tab(), BrainTab::Main);
+    assert_eq!(app.shell.focus(), Panel::Tasks);
     assert_eq!(recording.shutdowns(), 1);
     assert!(
         crate::skill_session::signal::read_signal(&app.command_context.workspace, &token).is_none()

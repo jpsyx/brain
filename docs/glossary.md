@@ -33,15 +33,15 @@ it (split) or closed (main view full-width).
 | Plain English | What it means | Code |
 | --- | --- | --- |
 | **main view** | One of the three full-screen surfaces you switch between. | `main_view::MainView` (`src/main_view.rs`) |
-| **tasks view** | The task-management surface (agenda, triage, habits). The **default** at startup. | `MainView::Tasks`; state in the tasks App fields / `src/tasks/` modules |
+| **tasks view** | The task-management surface (agenda, triage, habits). The **default** at startup. | `MainView::Tasks`; `tui::state::TasksState`; `src/tasks/` modules |
 | **brain directory view** / **brain search view** | The fuzzy-search-over-the-selected-workspace surface (this was *bare `brain`* before the merge). | `MainView::BrainSearch`; `src/picker/`, `src/entry.rs` |
-| **logs view** | The scrollable diagnostic-log surface reached through the palette or the three-view cycle. | `MainView::Logs`; `src/tui/render/logs.rs` |
+| **logs view** | The scrollable diagnostic-log surface reached through the palette or the three-view cycle. | `MainView::Logs`; `tui::state::ShellState`; `src/tui/logs_view.rs` |
 | **brain panel** | The live agent chat session in a PTY. Claude is the default; `--codex` / `-cx` selects Codex and `--open-code` / `-oc` selects OpenCode. App-level: the panel does **not** belong to a main view and stays open across a view switch. (Formerly called the *claude panel* in the `tasks` project.) | `src/agent/controller/` (`AgentController`); `src/pty_pane.rs` (`PtyPane` transport); `App.brain: Option<AgentController>`; `App.agent_kind` |
-| **brain-panel tab** | Which session the brain panel is showing: the main session (`BrainTab::Main`) or one of the open **skill sessions** (`BrainTab::Session(SessionTabId)`), selected with `Alt+1` and `Alt+<n>`. A skill-session tab exists only while its run is in flight and is never tracked in the session DB. | `App.skill_sessions: Vec<SkillSessionTab>`; `App.active_brain_tab: BrainTab`; `src/tui/app_skill_session.rs` |
+| **brain-panel tab** | Which session the brain panel is showing: the main session (`BrainTab::Main`) or one of the open **skill sessions** (`BrainTab::Session(SessionTabId)`), selected with `Alt+1` and `Alt+<n>`. A skill-session tab exists only while its run is in flight and is never tracked in the session DB. | `App.skill_sessions: Vec<SkillSessionTab>`; active identity in `tui::state::ShellState`; `src/tui/app_skill_session/` |
 | **skill session** | A dedicated ephemeral agent session for **one prompt**, run in its own brain-panel tab and auto-closed when the run signals completion. Daily triage is the builtin one; a workspace declares its own in the `skill_sessions` env array (`title`, `prompt`, `command_label`). Nothing requires the prompt to be a skill — that is just the intent. | `src/skill_session/` (`SkillSessionSpec`, `SkillSessionKey`, `signal`, `prompt`); `src/tui/app_skill_session.rs` |
 | **panel** | Generic term; in this app the only panel is the brain panel. | — |
 | **sub-view** | One of the tabbed modes *inside* the tasks view (`today`, `mit`, `past_due`, `week`, `habits`, `backlog`, `all`). These were called "views" in the old `tasks` project. `Tab` / `Shift+Tab` cycle them; only meaningful in the tasks view. | `view::View` + `View::CYCLE` (`src/tasks/view/`) |
-| **focus** | Which surface receives keystrokes: the active main view, or the brain panel. `Alt+H`/`Alt+L` move focus between the spatial left/right halves. | `App.focus` |
+| **focus** | Which surface receives keystrokes: the active main view, or the brain panel. `Alt+H`/`Alt+L` move focus between the spatial left/right halves. | `tui::state::ShellState` |
 
 ## View switching vs. panel focus (two different axes)
 
@@ -51,7 +51,7 @@ These are deliberately distinct and use different modifiers:
 | --- | --- | --- | --- |
 | **cycle main views** | Change *which main view* is shown (tasks ↔ brain directory ↔ logs). | `Ctrl+H` (left) / `Ctrl+L` (right) | `main_view::ctrl_cycles_view` → `MainView::step` |
 | **jump to a main view** | Go straight to one named main view. | `Ctrl+T` (tasks) / `Ctrl+B` (brain directory) | `main_view::ctrl_jumps_view` |
-| **focus a panel** | Move keyboard focus between the main view and the brain panel (spatial left/right). | `Alt+H` / `Alt+L` | `App::focus_left` / `focus_right` |
+| **focus a panel** | Move keyboard focus between the main view and the brain panel (spatial left/right). | `Alt+H` / `Alt+L` | `ShellState::{focus_tasks,focus_brain}` with `App` coordination when task reload is required |
 
 ## Modals and overlays
 

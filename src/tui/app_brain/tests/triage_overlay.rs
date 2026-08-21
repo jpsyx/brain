@@ -41,7 +41,10 @@ fn completed_startup_sync_waits_for_help_to_close_before_showing_triage() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.all_habits = vec![triage_habit(app.today, false)];
+    let today = app.tasks.today();
+    let all_tasks = app.tasks.source_rows().0.to_vec();
+    app.tasks
+        .replace_rows(all_tasks, vec![triage_habit(today, false)]);
     app.config.enable_triage_habits = true;
     app.skip_daily_triage_check = false;
     app.triage_gate = Some(completed_refresh_gate());
@@ -74,7 +77,10 @@ fn completed_startup_sync_still_withdraws_an_open_stale_triage_nudge() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.all_habits = vec![triage_habit(app.today, true)];
+    let today = app.tasks.today();
+    let all_tasks = app.tasks.source_rows().0.to_vec();
+    app.tasks
+        .replace_rows(all_tasks, vec![triage_habit(today, true)]);
     app.config.enable_triage_habits = true;
     app.skip_daily_triage_check = false;
     app.triage_gate = Some(completed_refresh_gate());

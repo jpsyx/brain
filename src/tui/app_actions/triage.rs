@@ -76,7 +76,7 @@ impl App {
             &self.command_context.workspace,
             crate::tasks::triage_habits::ManagedTriageKind::Daily,
             self.config.enable_triage_habits,
-            self.today,
+            self.tasks.today(),
         );
         match outcome {
             Ok(_) => {
@@ -102,9 +102,9 @@ impl App {
         if let Some(habit) = triage_modal_target(
             self.config.enable_triage_habits,
             self.skip_daily_triage_check,
-            &self.all_habits,
+            self.tasks.all_habits(),
             &self.config.daily_triage_name_pattern,
-            self.today,
+            self.tasks.today(),
         ) {
             open_overlay(
                 &mut self.overlay,
@@ -126,9 +126,9 @@ impl App {
         let target = triage_modal_target(
             self.config.enable_triage_habits,
             self.skip_daily_triage_check,
-            &self.all_habits,
+            self.tasks.all_habits(),
             &self.config.daily_triage_name_pattern,
-            self.today,
+            self.tasks.today(),
         );
         let occupancy = match self.overlay.as_ref() {
             Some(Overlay::TaskConfirmation(confirm)) if confirm.kind == ConfirmKind::RunTriage => {
@@ -231,27 +231,7 @@ impl App {
             match refresh_after_successful_startup_sync(&self.command_context.workspace) {
                 Ok(refreshed) => {
                     self.config = refreshed.config;
-                    self.all_tasks = refreshed.tasks;
-                    self.all_habits = refreshed.habits;
-                    let selector = self
-                        .active_view
-                        .map_or(crate::tasks::selector::Selector::All, |view| {
-                            view.selector(self.today)
-                        });
-                    let spec = crate::tasks::view::build_view(
-                        &self.task_options,
-                        &selector,
-                        self.active_view,
-                        self.data_for_view(self.active_view),
-                        self.today,
-                    );
-                    self.header = crate::tasks::render::header_lines(
-                        &spec,
-                        &self.task_options,
-                        self.active_view,
-                    );
-                    self.base_tasks = spec.tasks;
-                    self.rebuild_body();
+                    self.tasks.replace_rows(refreshed.tasks, refreshed.habits);
                     // The nudge was already raised at startup, so this is a
                     // reconciliation, not a first look: open it if the synced
                     // state now says triage is outstanding, and withdraw a stale
@@ -298,7 +278,7 @@ impl App {
     pub(crate) fn advance_triage_day(&mut self, now: chrono::NaiveDateTime) -> bool {
         match triage_rollover(self.triage_day, now, self.config.day_rollover_hour) {
             Some(day) => {
-                self.today = day;
+                self.tasks.set_today(day);
                 self.triage_day = day;
                 true
             }

@@ -194,7 +194,7 @@ fn closing_one_session_leaves_another_tab_selected_rather_than_jumping_to_main()
 
     // Watching daily triage (tab 2) while email triage (tab 3) completes.
     app.select_brain_tab_slot(1);
-    let watched = app.active_brain_tab;
+    let watched = app.effective_brain_tab();
     let email_token = app
         .skill_session_token(SkillSessionKey::Custom(0))
         .expect("email session token");
@@ -204,10 +204,11 @@ fn closing_one_session_leaves_another_tab_selected_rather_than_jumping_to_main()
     app.tick_skill_sessions();
 
     assert_eq!(
-        app.active_brain_tab, watched,
+        app.effective_brain_tab(),
+        watched,
         "closing another tab must not change which tab is showing"
     );
-    assert_eq!(app.focus, Panel::Brain);
+    assert_eq!(app.shell.focus(), Panel::Brain);
 }
 
 #[test]
@@ -224,14 +225,14 @@ fn a_failed_start_leaves_you_on_the_tab_you_were_reading() {
     app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
     app.session_transport_override = Some(triage_recording.transport());
     app.open_triage_tab();
-    let watched = app.active_brain_tab;
+    let watched = app.effective_brain_tab();
 
     app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
     app.session_transport_override = Some(Box::new(FailingSpawnTransport));
     app.run_skill_session(SkillSessionKey::Custom(0));
 
     assert!(!app.has_skill_session(SkillSessionKey::Custom(0)));
-    assert_eq!(app.active_brain_tab, watched);
+    assert_eq!(app.effective_brain_tab(), watched);
     assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
     assert!(matches!(app.flash, Some(crate::tui::FlashKind::Error(_))));
 }
