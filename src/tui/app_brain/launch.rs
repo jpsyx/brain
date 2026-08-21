@@ -101,9 +101,7 @@ impl App {
                 crate::logging::log(format!("marking agent session active failed: {error:#}"));
             }
         }
-        if self.receiver_lease.is_none()
-            && let Some(session_id) = self.interactive_session_id.as_deref()
-        {
+        if let Some(session_id) = self.receiver.interactive_completion_to_clear() {
             let path = self
                 .command_context
                 .workspace

@@ -65,10 +65,11 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let peer_name = seed_receiver_registry(&app);
     let calls = Arc::new(Mutex::new(Vec::new()));
-    app.receiver_intent_refresher = Box::new(RecordingReceiverRefresh {
-        calls: Arc::clone(&calls),
-        fail: false,
-    });
+    app.receiver
+        .replace_intent_refresher(Box::new(RecordingReceiverRefresh {
+            calls: Arc::clone(&calls),
+            fail: false,
+        }));
     app.overlay = Some(crate::tui::Overlay::TaskPalette(
         crate::tui::TaskPalette::new(
             None,
@@ -85,26 +86,27 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
     }
     crate::tui::handle_palette_key(&mut app, &plain_key(KeyCode::Enter), false);
 
-    assert!(app.receiver_enabled);
+    assert!(app.receiver.is_enabled());
     let saved = RegistryStore::load_from(app.command_context.registry_store.path()).unwrap();
     assert!(saved.workspaces[app.command_context.workspace.name()].receiver_enabled);
     assert!(!saved.workspaces[&peer_name].receiver_enabled);
     assert_eq!(*calls.lock().unwrap(), [app.command_context.workspace.id()]);
 
-    app.receiver_intent_refresher = Box::new(RecordingReceiverRefresh {
-        calls: Arc::clone(&calls),
-        fail: true,
-    });
+    app.receiver
+        .replace_intent_refresher(Box::new(RecordingReceiverRefresh {
+            calls: Arc::clone(&calls),
+            fail: true,
+        }));
     app.overlay = Some(crate::tui::Overlay::SearchPalette(
         app.search
-            .search_palette(app.panel_side, false, app.receiver_enabled),
+            .search_palette(app.panel_side, false, app.receiver.is_enabled()),
     ));
     for character in "disable receiver".chars() {
         crate::tui::route_search_palette(&mut app, &plain_key(KeyCode::Char(character)));
     }
     crate::tui::route_search_palette(&mut app, &plain_key(KeyCode::Enter));
 
-    assert!(!app.receiver_enabled);
+    assert!(!app.receiver.is_enabled());
     assert!(matches!(
         app.flash.as_ref(),
         Some(crate::tui::FlashKind::Error(message))
@@ -139,12 +141,13 @@ fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
     let live = live_panel(app.command_context.workspace.root());
     app.brain = Some(panel_controller(&app, live));
     app.session_actor = Some(actor.clone());
-    app.receiver_session_id = Some("receiver-session".to_owned());
-    app.receiver_lease = Some(crate::tui::receiver_state::renew(
-        Channel::Sms,
-        0,
+    let warm_job = receiver_job(&app, actor.clone(), Channel::Sms, "previous message");
+    warm_receiver_session(
+        &mut app,
+        &warm_job,
+        "receiver-session",
         std::time::Instant::now(),
-    ));
+    );
     let workspace_id = app.command_context.workspace.id();
     enqueue_receiver_job(
         &mut app,
@@ -167,10 +170,13 @@ fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
 
     app.tick_receiver();
 
-    assert!(app.receiver_queue.is_empty());
-    assert_eq!(app.receiver_session_id.as_deref(), Some("receiver-session"));
+    assert!(!app.receiver.has_pending_work());
+    assert_eq!(
+        app.receiver.receiver_response_id(),
+        Some("receiver-session")
+    );
     assert_eq!(app.session_actor.as_ref(), Some(&actor));
-    assert!(app.receiver_started.is_some());
+    assert!(app.receiver.remote_turn_in_flight());
     assert!(app.brain_turn_active);
     assert_eq!(
         SessionStore::completion_status(&app.db, &session, &scope),
@@ -296,19 +302,20 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
 
             app.tick_receiver();
 
+            let target = app.receiver.email_reply_target();
             if *channel == Channel::Email {
                 assert_eq!(
-                    app.receiver_response_email.as_deref(),
+                    target.response_email.as_deref(),
                     Some("member@example.test")
                 );
                 assert_eq!(
                     crate::server::delivery::trusted_response_recipients(
-                        app.receiver_response_email.as_deref(),
-                        &app.receiver_recipients,
+                        target.response_email.as_deref(),
+                        &target.recipients,
                     ),
                     ["member@example.test", "thread@example.test"]
                 );
-                let reply = app.receiver_email_reply.as_ref().unwrap();
+                let reply = target.reply.as_ref().unwrap();
                 assert_eq!(reply.provider_email_id, "accepted-email-id");
                 assert_eq!(reply.subject, "Accepted subject");
                 assert_eq!(
@@ -316,9 +323,9 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
                     Some("<accepted-message@example.test>")
                 );
             } else {
-                assert!(app.receiver_response_email.is_none());
-                assert!(app.receiver_recipients.is_empty());
-                assert!(app.receiver_email_reply.is_none());
+                assert!(target.response_email.is_none());
+                assert!(target.recipients.is_empty());
+                assert!(target.reply.is_none());
             }
 
             let prompt = format!(
@@ -336,10 +343,7 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
             };
             assert_workspace_only_launch_spec(&app, &spec, kind, actor, &prompt);
             assert_eq!(app.session_actor.as_ref(), Some(actor));
-            assert_eq!(
-                app.receiver_lease.map(|lease| lease.channel),
-                Some(*channel)
-            );
+            assert_eq!(app.receiver.active_channel(), Some(*channel));
         }
     }
 }

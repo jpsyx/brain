@@ -229,7 +229,7 @@ pub(crate) fn event_loop<B: Backend>(
         {
             let palette = if app.main_view == MainView::Logs {
                 app.refresh_receiver_enabled();
-                TaskPalette::new_logs_view(app.receiver_enabled)
+                TaskPalette::new_logs_view(app.receiver.is_enabled())
             } else {
                 app.refresh_receiver_enabled();
                 let task_id = app.current_task_id();
@@ -248,7 +248,7 @@ pub(crate) fn event_loop<B: Backend>(
                 )
                 .with_assignment_mode(app.assignment.mode())
             };
-            let receiver_enabled = app.receiver_enabled;
+            let receiver_enabled = app.receiver.is_enabled();
             let daily_triage_alert_disabled = app.skip_daily_triage_check;
             let (runnable_sessions, open_sessions) = app.skill_session_palette_rows();
             let palette = palette.with_runtime_context(

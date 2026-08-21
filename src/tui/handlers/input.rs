@@ -90,7 +90,7 @@ pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, ct
     // and every keystroke would land in the composer beside the injected
     // prompt, so only the interrupt key gets through.
     if !crate::tui::receiver_state::forwards_local_keystroke(
-        app.receiver_started.is_some(),
+        app.receiver.remote_turn_in_flight(),
         ctrl && matches!(k.code, KeyCode::Char('c' | 'C')),
     ) {
         app.flash = Some(FlashKind::Info(

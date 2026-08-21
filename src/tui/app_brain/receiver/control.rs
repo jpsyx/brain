@@ -65,7 +65,7 @@ impl App {
     /// *because* they are stuck behind something, so making the command wait
     /// for the thing it is meant to escape would leave it useless.
     pub(crate) fn apply_queued_restart(&mut self) {
-        let Some(plan) = self.receiver_queue.take_restart() else {
+        let Some(plan) = self.receiver.take_restart() else {
             return;
         };
         crate::logging::log(format!(
@@ -96,18 +96,17 @@ impl App {
     /// Returns `true` when one was consumed, so the caller can re-enter rather
     /// than dispatch a command as if it were a prompt.
     pub(crate) fn apply_queued_new_session(&mut self) -> bool {
-        let Some(job) = self.receiver_queue.take_new_session() else {
+        let Some(job) = self.receiver.take_new_session() else {
             return false;
         };
-        self.receiver_new_session.insert(job.channel);
         crate::logging::log(format!(
             "receiver control /new for channel={:?}; next message opens a fresh session",
             job.channel
         ));
         // A warm panel would be reused for the next message, which is exactly
         // the conversation the sender asked to leave, so it is retired now.
-        if self.receiver_session_id.is_some()
-            && self.receiver_lease.map(|lease| lease.channel) == Some(job.channel)
+        if self.receiver.has_receiver_session()
+            && self.receiver.active_channel() == Some(job.channel)
         {
             self.close_receiver_panel(false);
         }

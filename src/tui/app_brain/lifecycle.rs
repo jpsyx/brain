@@ -18,13 +18,13 @@ impl App {
         &mut self,
         deliver: impl FnOnce(&mut Self, crate::server::delivery::CompletionDelivery),
     ) {
-        let receiver_panel = self.receiver_session_id.is_some();
+        let receiver_panel = self.receiver.has_receiver_session();
         let completed_remote = self
             .brain
             .as_ref()
             .is_some_and(|panel| panel.is_alive().is_ok_and(|alive| !alive))
             && receiver_panel
-            && self.receiver_started.is_some();
+            && self.receiver.remote_turn_in_flight();
         let completion = completed_remote
             .then_some(self.brain.as_ref())
             .flatten()
@@ -42,7 +42,7 @@ impl App {
                 crate::actor::ActorContext::follow_up(&self.interactive_actor),
             );
             if let Some(session_id) = self.db.locked_session_for_instance(&self.instance, &scope) {
-                self.interactive_agent_session_id = Some(session_id);
+                self.receiver.record_interactive_agent_session(session_id);
             }
         }
         self.session_actor = None;
@@ -61,7 +61,7 @@ impl App {
         completion: crate::server::delivery::CompletionDelivery,
     ) {
         let (snapshot, _actor, channel) = completion.into_parts();
-        let Some(sender) = self.receiver_sender.clone() else {
+        let Some(target) = self.receiver.active_delivery_target() else {
             return;
         };
         match channel {
@@ -70,7 +70,7 @@ impl App {
                 crate::server::delivery::send_sms_background(
                     self.command_context.clone(),
                     "fallback final SMS response",
-                    sender,
+                    target.sender,
                     reply.text,
                 );
             }

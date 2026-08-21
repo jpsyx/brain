@@ -903,6 +903,14 @@ queue finalizes that job for dispatch. If the write fails, token-scoped
 rollback removes only that exact staged append before the event-loop poll
 releases its exclusive queue borrow. The queue remains live-TUI-only and has no
 durable backing or headless consumer.
+One private `ReceiverRuntime` owns that queue together with the job socket,
+persisted-intent view, channel reset controls, sender and recipient context,
+interactive and remote session identity, lease and generation, activity and
+retry timing, and freshness-gate state. TUI callers use semantic operations for
+admission polling, dispatch commit, session launch, completion, warm-session
+expiry, diagnostics, and sync-gate polling. The App continues to coordinate
+agent controllers, response files, provider delivery, task reloads, and sync
+child launches across their feature boundaries.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.
@@ -1491,14 +1499,16 @@ outside-world touchpoints:
   `recv_timeout` loop for each sync-configured live shell. Every timeout starts
   a detached pull. Dropping its handle signals and joins the worker immediately;
   the workspace lock coalesces ticks from peer shells or an active sync.
-- **The receiver freshness gate** (`sync/freshness.rs` +
-  `tui/app_sync.rs`) reads the newest successful downstream journal row at the
+- **The receiver freshness gate** (`sync/freshness.rs`,
+  `tui/receiver/runtime/sync.rs`, and `tui/app_sync.rs`) reads the newest
+  successful downstream journal row at the
   live TUI's queued-job consumption boundary, not in shared-server dispatch.
   Before SMS/email dispatch, a missing row or age over two hours starts
   `brain sync --pull` and holds the message queue until a newer journal row
   appears. The footer polls `current.json` every 250ms and displays the active
-  direction. An injected receiver runtime supplies monotonic and UTC clocks,
-  current/journal reads, and child launch. The production policy gives a
+  direction. `ReceiverRuntime` owns the gate attempt and deadline state; its
+  injected sync adapter supplies monotonic and UTC clocks, current/journal
+  reads, and child launch. The production policy gives a
   launched pull five seconds to appear and permits at most three attempts; if
   none starts, the TUI warns and processes the job with local state. The same
   status poll watches for successful downstream journal advancement and reloads

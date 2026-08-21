@@ -12,9 +12,10 @@ use crate::tui::*;
 
 impl App {
     pub(in crate::tui::app_brain) fn send_email_reply(&self, action: &'static str, message: &str) {
+        let target = self.receiver.email_reply_target();
         let recipients = crate::server::delivery::trusted_response_recipients(
-            self.receiver_response_email.as_deref(),
-            &self.receiver_recipients,
+            target.response_email.as_deref(),
+            &target.recipients,
         );
         if recipients.is_empty() {
             crate::logging::log(format!(
@@ -29,10 +30,10 @@ impl App {
             self.command_context.clone(),
             action,
             recipients,
-            crate::server::delivery::reply_subject(self.receiver_email_reply.as_ref()),
+            crate::server::delivery::reply_subject(target.reply.as_ref()),
             reply.text,
             html,
-            self.receiver_email_reply.clone(),
+            target.reply,
         );
     }
 }

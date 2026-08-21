@@ -53,10 +53,3 @@ pub(crate) struct TriageGate {
     /// true value means only delivery of an outstanding nudge remains.
     pub(crate) refresh_complete: bool,
 }
-
-pub(crate) struct ReceiverSyncGate {
-    pub(crate) seen_journal_id: Option<i64>,
-    pub(crate) launched_at: Instant,
-    pub(crate) next_poll: Instant,
-    pub(crate) attempts: u8,
-}

@@ -327,46 +327,9 @@ pub(crate) struct App {
     /// lifetime of the tasks shell; tracks which brain session this shell is
     /// driving (lock + recency).
     pub(crate) db: Db,
-    /// The UUID-local job socket is owned by this TUI. Accepted inbound work
-    /// waits only in the bounded in-memory queue below.
-    pub(crate) receiver_control: Option<crate::tui::singleton::JobSocket>,
-    /// Persistent receiver intent for this exact selected workspace.
-    pub(crate) receiver_enabled: bool,
-    receiver_intent_refresher: Box<dyn crate::command::server::ReceiverIntentRefresher>,
-    pub(crate) receiver_queue: crate::tui::receiver::InboundQueue,
-    /// Channels whose next receiver message must open a fresh conversation.
-    ///
-    /// Set by a `/new` command and consumed by the launch that follows it, so
-    /// the boundary the sender asked for falls between two messages rather
-    /// than inside whichever one happened to be running.
-    pub(crate) receiver_new_session: std::collections::HashSet<crate::server::receiver::Channel>,
-    /// One-shot: the launch now starting must not resume any prior session.
-    pub(crate) receiver_force_fresh: bool,
-    pub(crate) requested_receiver_actor: Option<crate::actor::ActorContext>,
-    pub(crate) receiver_lease: Option<receiver_state::Lease>,
-    pub(crate) receiver_generation: u64,
-    pub(crate) receiver_sender: Option<String>,
-    pub(crate) receiver_recipients: Vec<String>,
-    pub(crate) receiver_response_email: Option<String>,
-    pub(crate) receiver_email_reply: Option<crate::server::receiver::EmailReplyContext>,
-    pub(crate) receiver_session_id: Option<String>,
-    /// Stable response artifact ID for the interactive frontend session.
-    pub(crate) interactive_session_id: Option<String>,
-    /// Opaque frontend session ID used only for validated resume operations.
-    pub(crate) interactive_agent_session_id: Option<String>,
-    pub(crate) receiver_resume_session: Option<String>,
-    pub(crate) receiver_started: Option<std::time::Instant>,
-    pub(crate) receiver_delay_sent: bool,
-    /// Panel samples still owed for the in-flight message: when the next one
-    /// is due, and how many have already been taken.
-    pub(crate) receiver_probe: Option<(std::time::Instant, usize)>,
-    /// Fingerprint of the panel's last sampled screen and when it last
-    /// differed: the frontend-neutral evidence that a turn is still working.
-    pub(crate) receiver_panel_activity: Option<(u64, std::time::Instant)>,
-    pub(crate) receiver_panel_sampled_at: Option<std::time::Instant>,
-    pub(crate) receiver_retry_at: Option<std::time::Instant>,
-    pub(crate) receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
-    pub(crate) receiver_sync_gate: Option<ReceiverSyncGate>,
+    /// One owner for receiver-local ingress, intent, session, delivery,
+    /// timing, and sync-gate state.
+    receiver: crate::tui::receiver::ReceiverRuntime,
     pub(crate) sync_status: Option<String>,
     pub(crate) sync_status_next_poll: Instant,
     pub(crate) last_seen_downstream_id: Option<i64>,

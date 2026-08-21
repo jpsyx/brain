@@ -14,39 +14,23 @@ impl App {
         self.sample_panel_activity(std::time::Instant::now());
         self.probe_dispatched_receiver_message();
         self.abandon_timed_out_remote_turn();
-        if let Some(lease) = self.receiver_lease
-            && crate::tui::receiver_state::expired(
-                lease,
-                std::time::Instant::now(),
-                self.receiver_lease.map(|current| current.channel),
-                self.receiver_generation,
-            )
-            && self.receiver_session_id.is_some()
-            && self.receiver_started.is_none()
-        {
+        if let Some(channel) = self.receiver.warm_lease_expired(std::time::Instant::now()) {
             crate::logging::log(format!(
-                "receiver session lease expired channel={:?}; restoring interactive session",
-                lease.channel
+                "receiver session lease expired channel={channel:?}; restoring interactive session"
             ));
             self.close_receiver_panel(true);
         }
-        if let Some(socket) = self.receiver_control.as_ref() {
-            socket.poll_jobs(
-                self.command_context.workspace.id(),
-                &mut self.receiver_queue,
-            );
-        }
+        self.receiver.poll_jobs(self.command_context.workspace.id());
         // Before any gate: a restart is the way out of a queue that is stuck,
         // so it must not be made to wait behind the queue it is clearing.
         self.apply_queued_restart();
         let now = std::time::Instant::now();
-        if !crate::tui::receiver_state::retry_ready(self.receiver_retry_at, now) {
+        if !self.receiver.retry_ready(now) {
             return;
         }
-        self.receiver_retry_at = None;
-        if !self.receiver_queue.is_empty()
+        if self.receiver.has_pending_work()
             && !self.brain_turn_active
-            && self.receiver_started.is_none()
+            && !self.receiver.remote_turn_in_flight()
             && !self.receiver_sync_ready()
         {
             return;
@@ -54,27 +38,28 @@ impl App {
         // Only between messages, and only with the panel free: a `/new` that
         // ran mid-turn would cut the conversation in the wrong place and kill
         // the answer someone is already waiting on.
-        if !self.brain_turn_active && self.receiver_started.is_none() {
+        if !self.brain_turn_active && !self.receiver.remote_turn_in_flight() {
             while self.apply_queued_new_session() {}
         }
-        let queued = self.receiver_queue.head();
-        let queued_channel = queued.map(|message| message.channel);
-        let reusable_channel = self.receiver_lease.and_then(|lease| {
-            (queued.is_some_and(|message| self.session_actor.as_ref() == Some(&message.actor)))
-                .then_some(lease.channel)
-        });
+        let queued = self.receiver.next_job().cloned();
+        let queued_channel = queued.as_ref().map(|message| message.channel);
+        let reusable_channel = (queued
+            .as_ref()
+            .is_some_and(|message| self.session_actor.as_ref() == Some(&message.actor)))
+        .then(|| self.receiver.active_channel())
+        .flatten();
         match crate::tui::receiver_state::dispatch_action_for_channel(
             queued_channel,
             self.brain_panel_open(),
             reusable_channel,
             self.brain_turn_active,
-            self.receiver_started.is_some(),
+            self.receiver.remote_turn_in_flight(),
         ) {
             crate::tui::receiver_state::DispatchAction::WaitForTurn => {
                 return;
             }
             crate::tui::receiver_state::DispatchAction::CloseIdlePanel => {
-                if self.receiver_session_id.is_some() {
+                if self.receiver.has_receiver_session() {
                     crate::logging::log("receiver dispatch switching from a warm receiver channel");
                     self.close_receiver_panel(false);
                 } else {
@@ -85,7 +70,7 @@ impl App {
             crate::tui::receiver_state::DispatchAction::ReuseReceiverPanel
             | crate::tui::receiver_state::DispatchAction::StartNext => {}
         }
-        let Some(message) = self.receiver_queue.head().cloned() else {
+        let Some(message) = self.receiver.next_job().cloned() else {
             return;
         };
         let label = match message.channel {
@@ -131,10 +116,11 @@ impl App {
         );
         // A `/new` on this channel makes the launch that follows it refuse to
         // resume, which is what retires the old conversation.
-        self.receiver_force_fresh = self.receiver_new_session.remove(&message.channel);
-        let reusing_receiver_panel = self.receiver_session_id.is_some() && self.brain_panel_open();
+        self.receiver.prepare_channel_launch(message.channel);
+        let reusing_receiver_panel =
+            self.receiver.has_receiver_session() && self.brain_panel_open();
         if reusing_receiver_panel {
-            if let Some(session_id) = self.receiver_session_id.as_deref() {
+            if let Some(session_id) = self.receiver.receiver_response_id() {
                 let response_path = self
                     .command_context
                     .workspace
@@ -144,7 +130,7 @@ impl App {
                 let _ = std::fs::remove_file(response_path);
             }
         } else {
-            self.requested_receiver_actor = Some(message.actor.clone());
+            self.receiver.request_receiver_launch(message.actor.clone());
         }
         // Which delivery a message took is the first thing to know when one
         // goes unanswered: a fresh launch passes the prompt as a command
@@ -168,38 +154,21 @@ impl App {
             ));
         }
         let launched = self.open_or_focus_brain(Some(&(prompt + &attachments)));
-        let _ = self.receiver_queue.commit_head(launched);
+        let dispatched_at = std::time::Instant::now();
+        let _ = self
+            .receiver
+            .finish_dispatch(launched, &message, dispatched_at);
         if launched {
-            self.receiver_retry_at = None;
-            self.receiver_sender = Some(message.authenticated_sender.clone());
-            self.receiver_recipients
-                .clone_from(&message.allowed_response_recipients);
-            self.receiver_response_email
-                .clone_from(&message.response_email);
-            self.receiver_email_reply.clone_from(&message.email_reply);
-            self.receiver_generation = self.receiver_generation.saturating_add(1);
-            let dispatched_at = std::time::Instant::now();
-            self.receiver_started = Some(dispatched_at);
-            self.receiver_delay_sent = false;
-            self.schedule_receiver_probes(dispatched_at);
-            self.receiver_lease = Some(crate::tui::receiver_state::renew(
-                message.channel,
-                self.receiver_generation,
-                std::time::Instant::now(),
-            ));
             crate::logging::log(format!(
                 "receiver dispatch started channel={:?} queue_depth={}",
                 message.channel,
-                self.receiver_queue.len()
+                self.receiver.pending_count()
             ));
         } else {
-            self.requested_receiver_actor = None;
-            self.receiver_retry_at =
-                Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
             crate::logging::log(format!(
                 "receiver dispatch launch failed; message retained channel={:?} queue_depth={}",
                 message.channel,
-                self.receiver_queue.len()
+                self.receiver.pending_count()
             ));
         }
     }

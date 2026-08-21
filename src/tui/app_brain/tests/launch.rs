@@ -58,8 +58,8 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_every_fr
             specs[0].clone()
         };
         assert_workspace_only_launch_spec(&app, &spec, kind, &actor, prompt);
-        let response_id = app.interactive_session_id.as_deref().unwrap();
-        let agent_session_id = app.interactive_agent_session_id.as_deref().unwrap();
+        let response_id = app.receiver.interactive_response_id().unwrap();
+        let agent_session_id = app.receiver.interactive_agent_session_id().unwrap();
         match kind {
             AgentKind::Claude => {
                 assert_eq!(response_id, agent_session_id);
@@ -116,7 +116,10 @@ fn capability_failure_leaves_a_resumable_session_free_and_clears_response_identi
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
-    app.interactive_session_id = Some("stale-interactive-response".to_owned());
+    app.receiver.record_interactive_session(
+        "stale-interactive-response".to_owned(),
+        "stale-interactive-agent".to_owned(),
+    );
     let scope = SessionScope::new(
         AgentKind::Claude,
         app.command_context.workspace.id(),
@@ -148,9 +151,9 @@ fn capability_failure_leaves_a_resumable_session_free_and_clears_response_identi
         [session.as_str()],
         "fallible prelaunch work must finish before claiming the candidate"
     );
-    assert!(app.interactive_session_id.is_none());
-    assert!(app.interactive_agent_session_id.is_none());
-    assert!(app.receiver_session_id.is_none());
+    assert!(app.receiver.interactive_response_id().is_none());
+    assert!(app.receiver.interactive_agent_session_id().is_none());
+    assert!(app.receiver.receiver_response_id().is_none());
     assert!(recording.0.lock().expect("launch recording").is_empty());
 }
 
@@ -248,7 +251,10 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
 
     assert!(resume_app.open_or_focus_brain(None));
 
-    assert_eq!(resume_app.interactive_session_id.as_deref(), Some(valid_id));
+    assert_eq!(
+        resume_app.receiver.interactive_response_id(),
+        Some(valid_id)
+    );
     assert!(resume_app.alert.is_none());
     assert_eq!(
         resume_app.db.sessions_by_recency(&resume_scope),
@@ -274,7 +280,7 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
     assert!(fresh_app.open_or_focus_brain(None));
 
     assert_ne!(
-        fresh_app.interactive_session_id.as_deref(),
+        fresh_app.receiver.interactive_response_id(),
         Some(missing_id)
     );
     assert!(
@@ -311,9 +317,12 @@ fn receiver_restore_uses_the_frontend_session_id_not_the_response_artifact_id() 
         ClaudeTranscript::create(app.command_context.workspace.root(), frontend_session_id);
     let (controller, _) = recording_controller(&app, true, "receiver");
     app.brain = Some(controller);
-    app.receiver_session_id = Some("receiver-response-artifact".to_owned());
-    app.interactive_session_id = Some("interactive-response-artifact".to_owned());
-    app.interactive_agent_session_id = Some(frontend_session_id.to_owned());
+    app.receiver
+        .record_receiver_session("receiver-response-artifact".to_owned());
+    app.receiver.record_interactive_session(
+        "interactive-response-artifact".to_owned(),
+        frontend_session_id.to_owned(),
+    );
     let launches = LaunchRecording::default();
     app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
         recording: launches.clone(),
@@ -328,7 +337,7 @@ fn receiver_restore_uses_the_frontend_session_id_not_the_response_artifact_id() 
     assert!(!specs[0].command.contains("interactive-response-artifact"));
     drop(specs);
     assert_eq!(
-        app.interactive_agent_session_id.as_deref(),
+        app.receiver.interactive_agent_session_id(),
         Some(frontend_session_id)
     );
 }

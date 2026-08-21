@@ -18,29 +18,19 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
         alive: true,
     }));
     app.session_actor = Some(actor.clone());
-    app.receiver_session_id = Some("wedged-session".to_owned());
-    app.receiver_sender = Some("+15551234567".to_owned());
-    app.receiver_lease = Some(crate::tui::receiver_state::renew(
-        Channel::Sms,
-        0,
-        std::time::Instant::now(),
-    ));
     // In flight for longer than any answer is allowed to take, with no
     // completion artifact ever written.
-    app.receiver_started = Some(
-        std::time::Instant::now()
-            .checked_sub(crate::tui::receiver_state::REMOTE_TURN_TIMEOUT)
-            .expect("a deadline already in the past"),
-    );
-    // The panel has shown nothing new since well before the deadline, so the
-    // turn is stalled rather than slow.
-    app.receiver_panel_activity = Some((
-        0,
-        std::time::Instant::now()
-            .checked_sub(crate::tui::receiver_state::ACTIVE_WORK_IDLE)
-            .expect("a panel that went quiet"),
-    ));
-    app.receiver_panel_sampled_at = Some(std::time::Instant::now());
+    let started = std::time::Instant::now()
+        .checked_sub(crate::tui::receiver_state::REMOTE_TURN_TIMEOUT)
+        .expect("a deadline already in the past");
+    let wedged_job = receiver_job(&app, actor.clone(), Channel::Sms, "wedged request");
+    begin_receiver_turn(&mut app, &wedged_job, "wedged-session", started);
+    let quiet = std::time::Instant::now()
+        .checked_sub(crate::tui::receiver_state::ACTIVE_WORK_IDLE)
+        .expect("a panel that went quiet");
+    app.receiver.note_panel_sample(quiet, Some(0));
+    app.receiver
+        .note_panel_sample(std::time::Instant::now(), None);
     app.brain_turn_active = true;
     let workspace_id = app.command_context.workspace.id();
     enqueue_receiver_job(
@@ -65,11 +55,11 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
     app.tick_receiver();
 
     assert!(
-        !app.brain_turn_active || app.receiver_started.is_some(),
+        !app.brain_turn_active || app.receiver.remote_turn_in_flight(),
         "the wedged turn must not still be pinning the panel"
     );
     assert!(
-        app.receiver_started.is_none_or(
+        app.receiver.remote_started_at().is_none_or(
             |started| started.elapsed() < crate::tui::receiver_state::REMOTE_TURN_TIMEOUT
         ),
         "the abandoned turn's deadline must be cleared or replaced by a fresh dispatch"
@@ -78,7 +68,7 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
     // The queue must make progress rather than waiting on the wedged turn.
     app.tick_receiver();
     assert!(
-        app.receiver_queue.is_empty(),
+        !app.receiver.has_pending_work(),
         "the message behind the wedged turn must still get dispatched"
     );
 }
@@ -108,12 +98,13 @@ fn warm_panel_reuse_delivers_a_closed_paste_and_a_submit_key_to_the_real_pty() {
         "capture panel never became ready"
     );
     app.session_actor = Some(actor.clone());
-    app.receiver_session_id = Some("warm-session".to_owned());
-    app.receiver_lease = Some(crate::tui::receiver_state::renew(
-        Channel::Sms,
-        0,
+    let warm_job = receiver_job(&app, actor.clone(), Channel::Sms, "previous request");
+    warm_receiver_session(
+        &mut app,
+        &warm_job,
+        "warm-session",
         std::time::Instant::now(),
-    ));
+    );
     let workspace_id = app.command_context.workspace.id();
     enqueue_receiver_job(
         &mut app,
@@ -135,9 +126,12 @@ fn warm_panel_reuse_delivers_a_closed_paste_and_a_submit_key_to_the_real_pty() {
     );
 
     app.tick_receiver();
-    assert!(app.receiver_queue.is_empty(), "message was not dispatched");
     assert!(
-        app.receiver_probe.is_some(),
+        !app.receiver.has_pending_work(),
+        "message was not dispatched"
+    );
+    assert!(
+        app.receiver.has_scheduled_probe(),
         "a dispatched message must be sampled, or an unsubmitted prompt leaves no evidence"
     );
 
@@ -180,11 +174,12 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
         let start = std::time::Instant::now();
         // The turn has been open far longer than the deadline, so only the
         // panel decides whether it is still working.
-        app.receiver_started = Some(
-            start
-                .checked_sub(std::time::Duration::from_secs(3600))
-                .expect("a turn opened an hour ago"),
-        );
+        let started = start
+            .checked_sub(std::time::Duration::from_secs(3600))
+            .expect("a turn opened an hour ago");
+        let actor = app.interactive_actor.clone();
+        let job = receiver_job(&app, actor, Channel::Sms, "slow request");
+        begin_receiver_turn(&mut app, &job, "slow-response", started);
 
         app.sample_panel_activity(start);
         let baseline = app
@@ -222,7 +217,7 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
         // is slow, not stalled, and must be left to finish.
         assert!(
             !crate::tui::receiver_state::abandons_stalled_turn(
-                app.receiver_started,
+                app.receiver.remote_started_at(),
                 app.last_panel_change(),
                 later + std::time::Duration::from_secs(10),
             ),
@@ -230,7 +225,7 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
         );
         assert!(
             crate::tui::receiver_state::abandons_stalled_turn(
-                app.receiver_started,
+                app.receiver.remote_started_at(),
                 app.last_panel_change(),
                 later + crate::tui::receiver_state::ACTIVE_WORK_IDLE,
             ),
@@ -284,7 +279,7 @@ fn a_restart_command_clears_the_backlog_and_is_never_sent_to_the_agent() {
     app.tick_receiver();
 
     assert!(
-        app.receiver_queue.is_empty(),
+        !app.receiver.has_pending_work(),
         "the survivor should have been dispatched, not left waiting"
     );
     let specs = recording.0.lock().unwrap();
@@ -356,7 +351,7 @@ fn a_new_command_retires_the_channel_session_without_becoming_a_prompt() {
     );
     drop(specs);
     assert!(
-        app.receiver_new_session.is_empty() && !app.receiver_force_fresh,
+        !app.receiver.has_pending_channel_reset(),
         "the fresh-session request is consumed by the launch it applies to"
     );
 }

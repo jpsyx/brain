@@ -22,7 +22,7 @@ fn app_session_selection_skips_a_stale_opencode_row_and_starts_fresh() {
     assert!(app.open_or_focus_brain(None));
 
     assert_ne!(
-        app.interactive_agent_session_id.as_deref(),
+        app.receiver.interactive_agent_session_id(),
         Some(stale.as_str())
     );
     assert!(
@@ -59,7 +59,7 @@ fn restarted_opencode_app_resumes_a_persisted_workspace_session() {
     assert!(restarted.open_or_focus_brain(None));
 
     assert_eq!(
-        restarted.interactive_agent_session_id.as_deref(),
+        restarted.receiver.interactive_agent_session_id(),
         Some("session-1")
     );
     assert!(restarted.alert.is_none());
@@ -77,9 +77,10 @@ fn opencode_receiver_restore_resumes_only_a_session_that_still_exists() {
     let current_transport = TransportRecording::default();
     current_transport.set_alive(true);
     app.brain = Some(app.controller_for_transport(sms_actor(), current_transport.transport()));
-    app.receiver_session_id = Some("receiver-response".to_owned());
-    app.interactive_session_id = Some("interactive-response".to_owned());
-    app.interactive_agent_session_id = Some("session-1".to_owned());
+    app.receiver
+        .record_receiver_session("receiver-response".to_owned());
+    app.receiver
+        .record_interactive_session("interactive-response".to_owned(), "session-1".to_owned());
     let restored = TransportRecording::default();
     app.brain_transport_override = Some(restored.transport());
 
@@ -87,7 +88,7 @@ fn opencode_receiver_restore_resumes_only_a_session_that_still_exists() {
 
     assert_eq!(current_transport.shutdowns(), 1);
     assert_eq!(
-        app.interactive_agent_session_id.as_deref(),
+        app.receiver.interactive_agent_session_id(),
         Some("session-1")
     );
     let specs = restored.launch_specs();
@@ -104,16 +105,17 @@ fn opencode_receiver_restore_falls_back_fresh_when_the_session_disappeared() {
     let current_transport = TransportRecording::default();
     current_transport.set_alive(true);
     app.brain = Some(app.controller_for_transport(sms_actor(), current_transport.transport()));
-    app.receiver_session_id = Some("receiver-response".to_owned());
-    app.interactive_session_id = Some("interactive-response".to_owned());
-    app.interactive_agent_session_id = Some("stale".to_owned());
+    app.receiver
+        .record_receiver_session("receiver-response".to_owned());
+    app.receiver
+        .record_interactive_session("interactive-response".to_owned(), "stale".to_owned());
     let restored = TransportRecording::default();
     app.brain_transport_override = Some(restored.transport());
 
     app.close_receiver_panel(true);
 
     assert_eq!(current_transport.shutdowns(), 1);
-    assert_ne!(app.interactive_agent_session_id.as_deref(), Some("stale"));
+    assert_ne!(app.receiver.interactive_agent_session_id(), Some("stale"));
     assert!(
         app.alert
             .as_deref()

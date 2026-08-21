@@ -4,8 +4,6 @@ use std::time::{Duration, Instant};
 
 use crate::server::receiver::Channel;
 
-pub const INACTIVITY_LEASE: Duration = Duration::from_secs(180);
-
 /// How long a dispatched message may go without a completion signal before its
 /// turn is eligible to be abandoned. Short enough that a wedged turn does not
 /// strand the messages queued behind it; a turn that is still visibly working
@@ -21,13 +19,6 @@ pub const REMOTE_TURN_TIMEOUT: Duration = Duration::from_secs(300);
 /// calling a working turn stalled is killing a good answer, while the cost of
 /// waiting another minute on a truly wedged one is only that minute.
 pub const ACTIVE_WORK_IDLE: Duration = Duration::from_secs(90);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Lease {
-    pub channel: Channel,
-    pub generation: u64,
-    pub deadline: Instant,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DispatchAction {
@@ -67,15 +58,6 @@ pub const fn should_poll_interactive_completion(
 #[must_use]
 pub fn retry_ready(deadline: Option<Instant>, now: Instant) -> bool {
     deadline.is_none_or(|deadline| now >= deadline)
-}
-
-#[must_use]
-pub fn renew(channel: Channel, generation: u64, now: Instant) -> Lease {
-    Lease {
-        channel,
-        generation,
-        deadline: now + INACTIVITY_LEASE,
-    }
 }
 
 /// When to sample the panel after a message is dispatched.
@@ -126,16 +108,6 @@ pub fn abandons_stalled_turn(
 #[must_use]
 pub const fn forwards_local_keystroke(remote_turn_in_flight: bool, interrupt: bool) -> bool {
     interrupt || !remote_turn_in_flight
-}
-
-#[must_use]
-pub fn expired(
-    lease: Lease,
-    now: Instant,
-    active_channel: Option<Channel>,
-    generation: u64,
-) -> bool {
-    lease.deadline <= now && active_channel == Some(lease.channel) && generation == lease.generation
 }
 
 #[cfg(test)]

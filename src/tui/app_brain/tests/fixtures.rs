@@ -113,6 +113,7 @@ pub(super) fn test_app(
             ACCEPTED_LOCAL_CAPABILITY,
         )
         .expect("valid local capability"),
+        receiver: crate::tui::receiver::ReceiverRuntime::new(false),
     })
 }
 

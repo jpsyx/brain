@@ -95,7 +95,9 @@ fn local_keystrokes_do_not_reach_a_pty_that_is_answering_a_remote_message() {
     app.brain_transport_override = Some(recording.transport());
     assert!(app.open_or_focus_brain(None));
     app.focus = Panel::Brain;
-    app.receiver_started = Some(std::time::Instant::now());
+    let actor = app.interactive_actor.clone();
+    let job = receiver_job(&app, actor, Channel::Sms, "remote request");
+    begin_receiver_turn(&mut app, &job, "remote-response", std::time::Instant::now());
 
     let typed =
         crossterm::event::KeyEvent::new(KeyCode::Char('x'), crossterm::event::KeyModifiers::NONE);

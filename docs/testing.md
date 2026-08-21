@@ -315,6 +315,11 @@ first move is a failing test that reproduces it, *then* the fix.
   a same-channel warm panel is reused, a different channel replaces it, and a
   warm receiver lease never hides interactive bridge completion. Failed
   launches retain their message and retry backoff deadlines are honored.
+  `tui/receiver/runtime_tests.rs` constructs the single receiver owner and
+  exercises dispatch commit, delivery context, completion, warm-lease expiry,
+  and force-fresh consumption at session selection. `tests/tui_receiver_runtime_architecture.rs`
+  rejects the former receiver field bag on `App` and direct representation
+  access outside `tui/receiver/`.
   `sync/freshness.rs` tests the strict two-hour message threshold;
   `sync/journal.rs` proves push-only/aborted rows do not refresh it.
   `server/delivery.rs` verifies that provider delivery is dispatched off the
@@ -659,6 +664,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, and no obsolete receiver launch argument. |
+| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

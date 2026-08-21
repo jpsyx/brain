@@ -43,13 +43,8 @@ impl App {
             self.close_brain();
         }
 
-        let receiver_request = self.requested_receiver_actor.is_some();
-        if receiver_request {
-            self.receiver_session_id = None;
-        } else {
-            self.interactive_session_id = None;
-            self.interactive_agent_session_id = None;
-        }
+        let launch = self.receiver.begin_session_launch();
+        let receiver_request = launch.receiver_request;
         let capability_plan = match self.launch_capability_plan() {
             Ok(plan) => plan,
             Err(error) => {
@@ -63,8 +58,8 @@ impl App {
         };
 
         let pid = i32::try_from(std::process::id()).unwrap_or(0);
-        let requested_actor = self.requested_receiver_actor.clone();
-        let actor = requested_actor
+        let actor = launch
+            .requested_actor
             .unwrap_or_else(|| crate::actor::ActorContext::follow_up(&self.interactive_actor));
         let transport = brain_transport(self);
         let mut controller = self.controller_for_transport(actor.clone(), transport);
@@ -78,18 +73,17 @@ impl App {
             self.command_context.workspace.id(),
             actor.clone(),
         );
-        let resume_override = self.receiver_resume_session.clone();
+        let selection = self.receiver.begin_session_selection();
         // A `/new` sender asked to leave the previous conversation, so nothing
         // is offered for resumption; the fresh session registered below becomes
         // the most recent one and is what later messages resume instead.
-        let force_fresh = std::mem::take(&mut self.receiver_force_fresh);
         let mut resume = None::<(String, String)>;
         let mut skipped_missing = false;
         {
-            let candidates = if force_fresh {
+            let candidates = if selection.force_fresh {
                 Vec::new()
             } else {
-                resume_override.map_or_else(
+                selection.resume_override.map_or_else(
                     || SessionStore::sessions_by_recency(&self.db, &scope),
                     |id| vec![id],
                 )
@@ -145,24 +139,16 @@ impl App {
                 }
             },
         };
-        self.requested_receiver_actor = None;
-        self.receiver_resume_session = None;
+        self.receiver
+            .record_session_started(receiver_request, response_id.clone(), session_id);
         if receiver_request {
-            self.receiver_session_id = Some(response_id.clone());
-            let response_path =
-                self.command_context
-                    .workspace
-                    .paths()
-                    .responses_dir()
-                    .join(format!(
-                        "{}.json",
-                        self.receiver_session_id.as_deref().unwrap_or_default()
-                    ));
+            let response_path = self
+                .command_context
+                .workspace
+                .paths()
+                .responses_dir()
+                .join(format!("{response_id}.json"));
             let _ = std::fs::remove_file(response_path);
-        }
-        if !receiver_request {
-            self.interactive_session_id = Some(response_id.clone());
-            self.interactive_agent_session_id = Some(session_id);
         }
         let fresh_session = matches!(plan, Plan::Fresh(_));
         self.alert = if fresh_session {
@@ -242,12 +228,7 @@ impl App {
                 ));
                 self.brain = None;
                 self.brain_turn_active = false;
-                if receiver_request {
-                    self.receiver_session_id = None;
-                } else {
-                    self.interactive_session_id = None;
-                    self.interactive_agent_session_id = None;
-                }
+                self.receiver.record_session_launch_failed(receiver_request);
                 self.session_actor = None;
                 let _ = SessionStore::release(&self.db, &self.instance);
                 self.flash = Some(FlashKind::Error(format!(

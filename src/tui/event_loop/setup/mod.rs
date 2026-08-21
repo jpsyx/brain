@@ -174,6 +174,13 @@ pub(crate) fn run_tui(launch: TuiLaunch) -> Result<()> {
 
     let panel_side = db.get_panel_side();
     let search = build_search(&brain_root);
+    let receiver_enabled = crate::command::server::receiver_enabled(&command_context)
+        .unwrap_or_else(|error| {
+            crate::logging::log(format!("receiver intent load failed: {error:#}"));
+            false
+        });
+    let mut receiver = crate::tui::receiver::ReceiverRuntime::new(receiver_enabled);
+    receiver.install_socket(job_socket);
     let mut app = App::new(AppInit {
         command_context: command_context.clone(),
         view,
@@ -199,9 +206,9 @@ pub(crate) fn run_tui(launch: TuiLaunch) -> Result<()> {
         skip_daily_triage_check,
         server_ingress: server_lease.ingress_id(),
         server_local_capability: server_lease.lease_id(),
+        receiver,
     });
     crate::logging::log("workspace job socket and shared-server lease ready");
-    app.receiver_control = Some(job_socket);
     // The brain panel opens at startup (resuming the latest session), but focus
     // stays on the tasks main view so `j`/`k` work immediately. `open_or_focus_
     // brain` focuses the panel, so flip focus back to the main view afterward.

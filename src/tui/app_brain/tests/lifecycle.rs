@@ -66,8 +66,9 @@ fn closing_an_opencode_panel_refreshes_the_frontend_rotated_session_id() {
     }));
     assert!(app.open_or_focus_brain(None));
     let placeholder = app
-        .interactive_agent_session_id
-        .clone()
+        .receiver
+        .interactive_agent_session_id()
+        .map(str::to_owned)
         .expect("fresh placeholder");
     let rotated = "opencode-real-session";
     let connection = rusqlite::Connection::open(&app.db_path).expect("state connection");
@@ -83,7 +84,7 @@ fn closing_an_opencode_panel_refreshes_the_frontend_rotated_session_id() {
 
     app.close_brain();
 
-    assert_eq!(app.interactive_agent_session_id.as_deref(), Some(rotated));
+    assert_eq!(app.receiver.interactive_agent_session_id(), Some(rotated));
 }
 
 #[test]
@@ -95,8 +96,9 @@ fn opencode_new_session_input_and_plugin_event_rotate_the_app_to_the_new_root() 
     app.brain_transport_override = Some(recording.transport());
     assert!(app.open_or_focus_brain(None));
     let pending = app
-        .interactive_agent_session_id
-        .clone()
+        .receiver
+        .interactive_agent_session_id()
+        .map(str::to_owned)
         .expect("pending frontend session");
 
     assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
@@ -106,7 +108,7 @@ fn opencode_new_session_input_and_plugin_event_rotate_the_app_to_the_new_root() 
     app.close_brain();
 
     assert_eq!(
-        app.interactive_agent_session_id.as_deref(),
+        app.receiver.interactive_agent_session_id(),
         Some("root-after-new")
     );
     let connection = rusqlite::Connection::open(&app.db_path).expect("state connection");
@@ -168,14 +170,18 @@ fn close_delivers_transport_snapshot_with_the_initiating_actor_and_channel() {
     );
     app.brain = Some(controller);
     app.session_actor = Some(app.interactive_actor.clone());
-    app.receiver_session_id = Some("receiver-session".to_owned());
-    app.receiver_started = Some(std::time::Instant::now());
-    app.receiver_sender = Some("+15551234567".to_owned());
-    app.receiver_lease = Some(crate::tui::receiver_state::renew(
+    let job = receiver_job(
+        &app,
+        initiating_actor.clone(),
         Channel::Email,
-        0,
+        "remote request",
+    );
+    begin_receiver_turn(
+        &mut app,
+        &job,
+        "receiver-session",
         std::time::Instant::now(),
-    ));
+    );
     let mut delivered = None;
 
     app.close_brain_with(|_, completion| delivered = Some(completion));
@@ -296,8 +302,8 @@ fn run_new_session_plugin_bridge(app: &App) {
         })
         .expect("OpenCode plugin acceptance requires Bun or Node");
     let response_id = app
-        .interactive_session_id
-        .as_deref()
+        .receiver
+        .interactive_response_id()
         .expect("interactive response id");
     let output = std::process::Command::new(runtime)
         .arg(

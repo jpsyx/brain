@@ -170,8 +170,8 @@ rule applies across the large runtime families:
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
-| TUI | `tui/mod.rs` and the existing app coordinators | `model.rs` owns shared panel/tab/gate state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver queue | `tui/receiver/mod.rs` | `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, FIFO head commits, and receiver control mutations; socket, dispatch, completion, and tests consume semantic operations or read-only snapshots |
+| TUI | `tui/mod.rs` and the existing app coordinators | `model.rs` owns shared panel/tab state; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| Live receiver runtime | `tui/receiver/mod.rs` | One `ReceiverRuntime` owns the socket, queue, intent and channel controls, session and delivery identity, lease and generation, activity/retry/probe timing, and freshness gate; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -963,8 +963,10 @@ point: after the startup work and before the event loop it calls
 `periodic::spawn_periodic_puller` handle plus a `watch::spawn_watcher` handle
 (when `watch_effective()`). It drops that TUI's timer and watcher after the
 event loop, which explicitly stop and join only their workers, and performs no
-exit sync. `tui/app_sync.rs` owns the receiver freshness gate
-and the 250ms TUI status poll at the exact queued-job consumption boundary. It
+exit sync. `ReceiverRuntime` owns the receiver freshness-gate state and its
+clock-driven poll transition. `tui/app_sync.rs` owns the cross-feature sync
+launch, task reload, footer, and warning effects at the exact queued-job
+consumption boundary. It
 queues stale inbound work behind a pull and reloads tasks before dispatch. It
 also reloads tasks whenever a new successful downstream journal row appears.
 The receiver completion path launches an immediate push before delivery. The
@@ -1154,8 +1156,14 @@ tabs (open/close/select, the `BrainTab` / tab-slot resolution, and the
 structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; shared panel, tab, and deferred-gate types live in
-`model.rs`, while `mod.rs` keeps the `App` shell type, `filter_tasks`, re-exports,
-and module wiring. `status_warning.rs` validates receiver
+`model.rs`, while `mod.rs` keeps the `App` shell type, one private
+`ReceiverRuntime`, `filter_tasks`, re-exports, and module wiring. Receiver
+representation is private to `receiver/runtime.rs` and its focused child
+modules. App coordinators consume queue, launch, completion, lease, diagnostic,
+and freshness-gate operations instead of mutating receiver fields. Cross-feature
+work that touches the agent controller, task reloads, sync processes, response
+files, or provider delivery remains in the existing App coordinators.
+`status_warning.rs` validates receiver
 phone configuration and renders persistent warning content independently from
 the transient palette flash.
 

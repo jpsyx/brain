@@ -125,7 +125,7 @@ fn receiver_job_consumption_waits_for_this_workspace_freshness_pull() {
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     configure_receiver_sync(&app);
     let runtime = TestReceiverSyncRuntime::new();
-    app.receiver_sync_runtime = Box::new(runtime.clone());
+    app.receiver.replace_sync_runtime(Box::new(runtime.clone()));
     let actor = app.interactive_actor.clone();
     let workspace_id = app.command_context.workspace.id();
     enqueue_receiver_job(
@@ -150,7 +150,7 @@ fn receiver_job_consumption_waits_for_this_workspace_freshness_pull() {
     app.tick_receiver();
 
     assert_eq!(
-        app.receiver_queue.len(),
+        app.receiver.pending_count(),
         1,
         "queued work must not dispatch early"
     );
@@ -170,7 +170,7 @@ fn receiver_freshness_gate_opens_only_after_the_injected_journal_advances() {
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     configure_receiver_sync(&app);
     let runtime = TestReceiverSyncRuntime::new();
-    app.receiver_sync_runtime = Box::new(runtime.clone());
+    app.receiver.replace_sync_runtime(Box::new(runtime.clone()));
 
     assert!(!app.receiver_sync_ready());
     assert!(
@@ -191,7 +191,7 @@ fn receiver_pull_retries_and_falls_back_after_three_clock_driven_grace_periods()
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     configure_receiver_sync(&app);
     let runtime = TestReceiverSyncRuntime::new();
-    app.receiver_sync_runtime = Box::new(runtime.clone());
+    app.receiver.replace_sync_runtime(Box::new(runtime.clone()));
 
     assert!(!app.receiver_sync_ready(), "attempt one launches");
     runtime.advance(std::time::Duration::from_secs(4));
@@ -224,7 +224,7 @@ fn sync_status_poll_uses_the_injected_clock_and_bounded_interval() {
     assert_eq!(app.last_seen_downstream_id, None);
     let runtime = TestReceiverSyncRuntime::new();
     app.sync_status_next_poll = crate::tui::ReceiverSyncRuntime::monotonic_now(&runtime);
-    app.receiver_sync_runtime = Box::new(runtime.clone());
+    app.receiver.replace_sync_runtime(Box::new(runtime.clone()));
 
     app.tick_sync_status();
     app.tick_sync_status();
@@ -242,7 +242,7 @@ fn a_successful_downstream_sync_reloads_tasks_without_a_manual_refresh() {
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let runtime = TestReceiverSyncRuntime::new();
     app.sync_status_next_poll = crate::tui::ReceiverSyncRuntime::monotonic_now(&runtime);
-    app.receiver_sync_runtime = Box::new(runtime);
+    app.receiver.replace_sync_runtime(Box::new(runtime));
     std::fs::write(
         &app.csv_path,
         "task_uuid,task_id,task_name,task_type,status,waiting_since,priority,due_date,hard_deadline,start_date,assigned_to,see_also,notes,project,energy_level,context,estimated_duration,blocked_by,defer_count,created_date,completed_date,last_touched,linear_issue,system_key,backlogged_date\n\
@@ -275,16 +275,16 @@ fn receiver_completion_immediately_publishes_agent_created_changes() {
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     configure_receiver_sync(&app);
     let runtime = TestReceiverSyncRuntime::new();
-    app.receiver_sync_runtime = Box::new(runtime.clone());
+    app.receiver.replace_sync_runtime(Box::new(runtime.clone()));
     let actor = sms_actor();
     app.session_actor = Some(actor.clone());
-    app.receiver_session_id = Some("receiver-push-session".to_owned());
-    app.receiver_sender = Some("+15551234567".to_owned());
-    app.receiver_lease = Some(crate::tui::receiver_state::renew(
-        Channel::Sms,
-        0,
+    let job = receiver_job(&app, actor.clone(), Channel::Sms, "capture this task");
+    begin_receiver_turn(
+        &mut app,
+        &job,
+        "receiver-push-session",
         std::time::Instant::now(),
-    ));
+    );
     let response_path = app
         .command_context
         .workspace

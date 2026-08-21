@@ -78,8 +78,9 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
 
     app.tick_receiver();
     let response_id = app
-        .receiver_session_id
-        .clone()
+        .receiver
+        .receiver_response_id()
+        .map(str::to_owned)
         .expect("receiver response id");
     let response_path = app
         .command_context
@@ -106,8 +107,8 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
         !response_path.exists(),
         "completion artifact must be consumed"
     );
-    assert!(app.receiver_started.is_none());
-    assert!(app.receiver_sender.is_none());
+    assert!(!app.receiver.remote_turn_in_flight());
+    assert!(app.receiver.active_delivery_target().is_none());
     assert!(app.brain.is_some(), "completed receiver panel stays warm");
     let log = PathBuf::from(std::env::var_os("BRAIN_FAKE_CURL_LOG").expect("fake curl log"));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

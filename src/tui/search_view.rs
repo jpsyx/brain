@@ -82,7 +82,7 @@ pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, al
             let palette = app.search.search_palette(
                 app.panel_side,
                 app.brain.is_none(),
-                app.receiver_enabled,
+                app.receiver.is_enabled(),
             );
             open_overlay(&mut app.overlay, Overlay::SearchPalette(palette));
         }
