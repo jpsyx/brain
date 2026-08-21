@@ -363,4 +363,3 @@ fn a_refused_fetch_distinguishes_a_powerless_key_from_a_wrong_account() {
         "an unclassified status must not invent an explanation"
     );
 }
-

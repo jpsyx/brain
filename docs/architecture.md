@@ -140,13 +140,29 @@ and the shell stays up.
 
 Large command families are organized as directory modules whose children mirror
 their dependency seams. In particular, `sync::command` keeps orchestration in
-`command/mod.rs`, while status formatting, direction decisions, and conflict
-presentation live in `command/reporting.rs`; the parent re-exports the stable
-call paths. Session-store persistence is colocated under `state/session_store.rs`,
-and sync identity's external command adapter lives under
-`sync/identity/remote_command.rs`. Tests remain colocated with the module they
-exercise, preserving access to private implementation details without making
-the production module a test-suite container.
+`command/mod.rs`, while status formatting, direction decisions, conflict
+presentation, and file-finding rendering live under `command/reporting/`; the
+parent re-exports the stable call paths. The same coordinator-versus-detail
+rule applies across the large runtime families:
+
+| Boundary | Coordinator / public seam | Focused implementation modules |
+| --- | --- | --- |
+| Agent compatibility | `agent/opencode/probe.rs` | `probe/runner.rs` owns bounded subprocess execution; `probe/tests.rs` owns characterization |
+| Ordinary task commands | `command/tasks.rs` | `tasks/set.rs` owns field mutation; `tasks/browse.rs` owns query resolution and browser launch |
+| Receiver installation | `command/server/receiver/{hooks,setup}.rs` | `hooks/{artifact,json}.rs` own confined artifacts and atomic JSON; `setup/validation.rs` owns pure input validation |
+| Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
+| Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
+| Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
+| TUI | `tui/mod.rs` and the existing app coordinators | `model.rs` owns shared panel/tab/gate state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
+
+Session-store persistence is colocated under `state/session_store.rs`, and sync
+identity's external command adapter lives under
+`sync/identity/remote_command.rs`. Large tests follow the same rule: behavior
+groups live in focused child modules but remain descendants of the production
+module, preserving access to private implementation details without making a
+production file a test-suite container. The line-count audit treats production,
+unit tests, integration tests, and fixtures alike.
 
 ## Multi-workspace foundation boundary
 
@@ -374,7 +390,9 @@ adapter returns the complete native text and final-key sequence.
 feature and schema probes, discovers resumable sessions for the exact selected
 root, and translates semantic controller actions to OpenCode's native input.
 Its compatibility probe runs version, TUI-option, session-list, generated-config,
-and plugin-load checks in disposable HOME/XDG roots. Successful reports are
+and plugin-load checks in disposable HOME/XDG roots. `probe/runner.rs` owns the
+bounded process-group runner and read-only command capture; `probe.rs` retains
+only compatibility policy and caching. Successful reports are
 cached by configured command for the process; failed probes remain actionable
 and are not cached as compatibility evidence. Session discovery runs
 `session list --format json` in the selected root and admits only non-archived,
@@ -1047,6 +1065,9 @@ schema marker, then preflights the matching local manifest and every
 base, local, and remote task/habit table as one operation before any write;
 `csv_sync/metadata.rs` stages project metadata and republishes every
 authoritative metadata file so retries heal partial remote publication.
+`csv_sync/transport.rs` is the rclone-facing adapter that batches staging,
+downloads, and publication; the parent retains merge policy and setup
+classification.
 Its publication result distinguishes local filesystem failures from remote
 transport failures so command diagnostics identify the failing boundary.
 `counters` consumes display-ID floors from the reconciled tables only after
@@ -1092,17 +1113,22 @@ The larger submodules are directories split by concern: `handlers/`
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
 `draw/mod.rs`), `palette/` (`command`/`state`), `app_state/`
 (`construct`/`nav`/`view`/`selection_query`), `app_actions/`
-(`commands`/`receiver`/`triage`), `app_brain/` (`launch`/`lifecycle` plus receiver
+(`commands`/`receiver`/`triage`, with pure triage policy in
+`triage/decision.rs`), `app_brain/` (`launch`/`lifecycle` plus receiver
 `dispatch`/`completion`/`state` and focused tests), and `tests/` (split by
 area). `app_brain/` owns the main persistent controller, receiver dispatch,
 and completion delivery;
+`app_brain/launch/session.rs` owns the full fresh-or-resume launch transaction,
+while `launch.rs` keeps capability construction, transport selection, and the
+public app actions.
 `app_skill_session.rs` owns the ephemeral skill-session controllers and their
 tabs (open/close/select, the `BrainTab` / tab-slot resolution, and the
 `tick_skill_sessions` auto-close). The overlay-modal state
 structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `LinkPickerState`, and the confirm enums) live in `modal_state.rs` with
-`pub(super)` fields; `mod.rs` keeps only the `App` shell type, `Panel`,
-`filter_tasks`, and the module wiring. `status_warning.rs` validates receiver
+`pub(super)` fields; shared panel, tab, and deferred-gate types live in
+`model.rs`, while `mod.rs` keeps the `App` shell type, `filter_tasks`, re-exports,
+and module wiring. `status_warning.rs` validates receiver
 phone configuration and renders persistent warning content independently from
 the transient palette flash.
 
@@ -1272,7 +1298,12 @@ offline queue or launches an agent.
   any later registration advances the remembered revision even when every
   lease field is reused. Revision advancement is checked before the lease
   transition, so an unrepresentable next revision leaves all authority state
-  unchanged.
+  unchanged. `workspace_route/loader.rs` owns the injectable verified-context
+  loader, leaving the parent focused on route authority and error semantics.
+- `server/request.rs`: the HTTP facade after pure routing. It resolves local
+  capabilities or provider destinations, applies body limits, dispatches the
+  selected route, and translates receiver failures to provider-facing
+  responses. `server/mod.rs` remains the thin lifecycle and URL entry point.
 - `server/http/` — the shared process's bounded, connection-closing HTTP/1.x
   request parser and response writer. Request heads are capped at 16 KiB, IO
   starts with one absolute two-second monotonic parse deadline, and each

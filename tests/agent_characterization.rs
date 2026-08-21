@@ -227,7 +227,7 @@ fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
     let semantic_calls = [
         (include_str!("../src/tui/handlers/input.rs"), "submit_now"),
         (
-            include_str!("../src/tui/app_brain/launch.rs"),
+            include_str!("../src/tui/app_brain/launch/session.rs"),
             "queue_after_active_turn",
         ),
         (
@@ -235,7 +235,7 @@ fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
             "start_new_session",
         ),
         (
-            include_str!("../src/tui/app_brain/launch.rs"),
+            include_str!("../src/tui/app_brain/launch/session.rs"),
             "resume_candidate_exists",
         ),
         (
@@ -252,6 +252,10 @@ fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
 
     let callers = [
         ("launch", include_str!("../src/tui/app_brain/launch.rs")),
+        (
+            "launch session",
+            include_str!("../src/tui/app_brain/launch/session.rs"),
+        ),
         ("input", include_str!("../src/tui/handlers/input.rs")),
         (
             "receiver dispatch",
