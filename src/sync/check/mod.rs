@@ -177,6 +177,27 @@ fn fetch_remote_csv(
     text
 }
 
+fn check_bisync_args(
+    cfg: &SyncConfig,
+    local: &str,
+    remote_arg: &str,
+    workdir: &str,
+) -> Vec<String> {
+    let mut args = crate::sync::args::bisync_args(
+        cfg,
+        local,
+        remote_arg,
+        workdir,
+        crate::sync::args::Direction::Both,
+    );
+    args.extend([
+        "--compare".to_owned(),
+        "size,checksum".to_owned(),
+        "--dry-run".to_owned(),
+    ]);
+    args
+}
+
 /// Run `brain check`: dry-run bisync, classify pending changes, print the report.
 ///
 /// Thin IO shell; the report text itself is built by [`format_report`].
@@ -215,14 +236,7 @@ pub fn run(
     let remote = verified.remote();
     let local = root.to_string_lossy().into_owned();
     let workdir = crate::sync::run::bisync_workdir(paths);
-    let mut args = crate::sync::args::bisync_args(
-        cfg,
-        &local,
-        &remote.arg,
-        &workdir.to_string_lossy(),
-        crate::sync::args::Direction::Both,
-    );
-    args.push("--dry-run".into());
+    let args = check_bisync_args(cfg, &local, &remote.arg, &workdir.to_string_lossy());
     println!(
         "{}",
         theme.muted("Checking file changes with rclone dry-run…")

@@ -20,3 +20,25 @@ fn baseline_read_failure_is_labeled_instead_of_treated_as_empty() {
     assert!(error.to_string().contains("baseline tasks/tasks.csv"));
     assert!(error.to_string().contains("permission denied"));
 }
+
+#[test]
+fn read_only_check_ignores_timestamp_only_drift_without_changing_real_sync_policy() {
+    let cfg: SyncConfig =
+        serde_json::from_str(r#"{"enabled":true,"b2_bucket":"bucket"}"#).unwrap();
+    let check = check_bisync_args(&cfg, "/brain", "remote:brain", "/work");
+    let sync = crate::sync::args::bisync_args(
+        &cfg,
+        "/brain",
+        "remote:brain",
+        "/work",
+        crate::sync::args::Direction::Both,
+    );
+
+    assert!(
+        check
+            .windows(2)
+            .any(|pair| pair == ["--compare", "size,checksum"])
+    );
+    assert!(check.iter().any(|arg| arg == "--dry-run"));
+    assert!(!sync.iter().any(|arg| arg == "--compare"));
+}

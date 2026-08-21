@@ -6,7 +6,6 @@ fn format_triggers_shows_debounce_window_when_watch_on() {
     assert!(line.contains("change-push on"), "{line}");
     assert!(line.contains("3000ms"), "{line}");
 }
-
 #[test]
 fn format_triggers_hides_debounce_window_when_watch_off() {
     // watch is disabled → the debounce window is meaningless, so don't show it.
@@ -18,11 +17,10 @@ fn format_triggers_hides_debounce_window_when_watch_off() {
 }
 
 #[test]
-fn format_triggers_never_advertises_an_idle_pull_loop() {
-    let cfg: SyncConfig =
-        serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b","idle_pull_secs":120}"#).unwrap();
+fn format_triggers_advertises_the_five_minute_periodic_pull() {
+    let cfg: SyncConfig = serde_json::from_str(r#"{"enabled":true,"b2_bucket":"b"}"#).unwrap();
     let line = format_triggers(&cfg, Theme::dark(false));
-    assert!(!line.contains("idle-pull"), "{line}");
+    assert!(line.contains("periodic-pull every 5m"), "{line}");
 }
 
 #[test]

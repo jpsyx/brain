@@ -56,7 +56,10 @@ impl crate::tui::ReceiverSyncRuntime for TestReceiverSyncRuntime {
         state.live.clone()
     }
 
-    fn latest_journal_id(&self, _paths: &crate::workspace::WorkspacePaths) -> Option<i64> {
+    fn latest_successful_downstream_id(
+        &self,
+        _paths: &crate::workspace::WorkspacePaths,
+    ) -> Option<i64> {
         self.state.lock().unwrap().journal_id
     }
 
@@ -214,6 +217,7 @@ fn sync_status_poll_uses_the_injected_clock_and_bounded_interval() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    assert_eq!(app.last_seen_downstream_id, None);
     let runtime = TestReceiverSyncRuntime::new();
     app.sync_status_next_poll = crate::tui::ReceiverSyncRuntime::monotonic_now(&runtime);
     app.receiver_sync_runtime = Box::new(runtime.clone());
@@ -225,4 +229,85 @@ fn sync_status_poll_uses_the_injected_clock_and_bounded_interval() {
     app.tick_sync_status();
 
     assert_eq!(runtime.state.lock().unwrap().live_reads, 2);
+}
+
+#[test]
+fn a_successful_downstream_sync_reloads_tasks_without_a_manual_refresh() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let runtime = TestReceiverSyncRuntime::new();
+    app.sync_status_next_poll = crate::tui::ReceiverSyncRuntime::monotonic_now(&runtime);
+    app.receiver_sync_runtime = Box::new(runtime);
+    std::fs::write(
+        &app.csv_path,
+        "task_uuid,task_id,task_name,task_type,status,waiting_since,priority,due_date,hard_deadline,start_date,assigned_to,see_also,notes,project,energy_level,context,estimated_duration,blocked_by,defer_count,created_date,completed_date,last_touched,linear_issue,system_key,backlogged_date\n\
+         55dc97d4-daa0-4e9c-b36c-78550f153f58,T900,Review synced task,code,backlog,,p2,2026-08-30,true,,test-user,,,,,,,,0,2026-08-20,,2026-08-20,,,\n",
+    )
+    .expect("write downstream task");
+    assert_eq!(
+        crate::tasks::task::load_tasks(&app.csv_path)
+            .expect("load downstream task fixture")
+            .len(),
+        1,
+        "the fixture must be a valid task before exercising the refresh"
+    );
+
+    app.tick_sync_status();
+
+    assert_eq!(app.last_seen_downstream_id, Some(4));
+    assert!(
+        app.all_tasks
+            .iter()
+            .any(|task| task.name == "Review synced task"),
+        "the live TUI stayed stale after a successful downstream sync"
+    );
+}
+
+#[test]
+fn receiver_completion_immediately_publishes_agent_created_changes() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    configure_receiver_sync(&app);
+    let runtime = TestReceiverSyncRuntime::new();
+    app.receiver_sync_runtime = Box::new(runtime.clone());
+    let actor = sms_actor();
+    app.session_actor = Some(actor.clone());
+    app.receiver_session_id = Some("receiver-push-session".to_owned());
+    app.receiver_sender = Some("+15551234567".to_owned());
+    app.receiver_lease = Some(crate::tui::receiver_state::renew(
+        Channel::Sms,
+        0,
+        std::time::Instant::now(),
+    ));
+    let response_path = app
+        .command_context
+        .workspace
+        .paths()
+        .responses_dir()
+        .join("receiver-push-session.json");
+    std::fs::create_dir_all(response_path.parent().expect("response directory"))
+        .expect("create response directory");
+    std::fs::write(
+        response_path,
+        serde_json::json!({
+            "actor_id": actor.user_id().as_str(),
+            "channel": "sms",
+            "message": "Task captured."
+        })
+        .to_string(),
+    )
+    .expect("write receiver completion");
+
+    app.tick_receiver();
+
+    assert_eq!(
+        runtime.state.lock().unwrap().launches,
+        [(
+            app.command_context.workspace.id(),
+            crate::sync::args::Direction::Push,
+        )],
+        "receiver completion must publish without relying only on the watcher"
+    );
 }

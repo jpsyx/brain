@@ -79,6 +79,8 @@ impl<'a> App<'a> {
         let receiver_sync_runtime: Box<dyn ReceiverSyncRuntime> =
             Box::new(SystemReceiverSyncRuntime);
         let sync_status_next_poll = receiver_sync_runtime.monotonic_now();
+        let last_seen_downstream_id = receiver_sync_runtime
+            .latest_successful_downstream_id(command_context.workspace.paths());
         let mut app = Self {
             tag_styles: crate::personalization::load_tag_styles(&command_context.workspace),
             command_context,
@@ -179,6 +181,7 @@ impl<'a> App<'a> {
             receiver_sync_gate: None,
             sync_status: None,
             sync_status_next_poll,
+            last_seen_downstream_id,
             main_view: MainView::Tasks,
             logs_view: None,
             search,

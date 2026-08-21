@@ -852,7 +852,7 @@ rclone dry-run and before the CSV baseline pass. No journal entry, no conflict p
 baseline mutation: it never calls `rclone bisync` without `--dry-run`, and
 its CSV pass never writes local files, remotes, or baselines.
 
-**The auto-sync trigger layer** (`lock.rs`/`watch.rs`/`trigger.rs`, wired
+**The auto-sync trigger layer** (`lock.rs`/`watch.rs`/`periodic.rs`/`trigger.rs`, wired
 into the shell lifecycle and receiver dispatch) makes sync automatic while keeping the pure/impure
 split. The **pure** cores carry the decisions and the tests; the thin shells do
 the IO/threads/`Command`:
@@ -878,6 +878,10 @@ the IO/threads/`Command`:
   `Direction::Push` run. That direction uses a one-way, non-deleting rclone
   copy; its CSV/counter pass reads remote state only to build a safe upload and
   never writes local state, so the push cannot re-arm its own watcher.
+- `periodic.rs`: the live-shell five-minute pull timer. Its owned handle uses
+  a stop channel plus a joined worker, so closing one shell stops its timer
+  promptly. Each tick launches the same detached pull path as startup, and the
+  workspace lock coalesces overlapping timers and manual work.
 - `trigger.rs`: the single shell-facing entry point. The pure request builder
   pins the canonical selector and expected UUID; the injected
   `DetachedSyncRunner` boundary makes child launch observable in tests.
@@ -885,8 +889,9 @@ the IO/threads/`Command`:
   `brain --workspace <canonical-name> sync [--pull|--push] --if-idle`, fully
   detached (`process_group(0)` + null stdio), with `BRAIN_WORKSPACE_ID` set to
   the selected UUID. Bootstrap compares that expected UUID with the record
-  selected by `--workspace` and refuses a mismatch. Automatic startup, watcher,
-  and receiver-freshness triggers go through it, for two reasons: a sync in a
+  selected by `--workspace` and refuses a mismatch. Automatic startup,
+  periodic, watcher, receiver-freshness, and receiver completion triggers go
+  through it, for two reasons: a sync in a
   separate process can never write over the TUI, and a detached child in its own
   process group outlives the shell / terminal close. `--if-idle` makes a
   redundant trigger coalesce (exit silently) rather than follow. There is no
@@ -915,16 +920,20 @@ the IO/threads/`Command`:
   without wall-clock sleeps.
 - `config.rs` carries `debounce_ms` (default 3000) and
   `debounce() -> Duration`; `command::format_triggers` renders the startup,
-  change-push, and message-pull policies in `brain sync status`.
+  five-minute periodic, change-push, and message-pull policies in
+  `brain sync status`.
 
 **The `run_tui` lifecycle seam** (`src/tui/event_loop/setup.rs`) is the one wire
 point: after the startup work and before the event loop it calls
 `trigger::spawn_detached_sync(Pull)` whenever sync is configured and holds a
-`watch::spawn_watcher` handle (when `watch_effective()`). It drops that TUI's
-watcher after the event loop, which explicitly stops and joins only its worker,
-and performs no exit sync. `tui/app_sync.rs` owns the receiver freshness gate
+`periodic::spawn_periodic_puller` handle plus a `watch::spawn_watcher` handle
+(when `watch_effective()`). It drops that TUI's timer and watcher after the
+event loop, which explicitly stop and join only their workers, and performs no
+exit sync. `tui/app_sync.rs` owns the receiver freshness gate
 and the 250ms TUI status poll at the exact queued-job consumption boundary. It
-queues stale inbound work behind a pull and reloads tasks before dispatch. The
+queues stale inbound work behind a pull and reloads tasks before dispatch. It
+also reloads tasks whenever a new successful downstream journal row appears.
+The receiver completion path launches an immediate push before delivery. The
 shared server does not own this gate. All paths are gated and best-effort; an
 unconfigured brain gets no watcher or automatic sync.
 
@@ -1432,7 +1441,10 @@ interactive lifecycle completions are still polled, a same-channel message
 reuses the warm PTY, and another channel replaces it only after work finishes.
 `tui/app_sync.rs` holds inbound dispatch behind a pull when downstream state is
 more than two hours old and exposes current sync state to the footer and
-palette. Failed PTY launches retain the message for a backoff retry. Every
+palette. The common receiver prompt classifies task-capture requests as task
+creation instead of immediate execution, unless the sender explicitly asks for
+both. A verified completion launches an immediate push. Failed PTY launches
+retain the message for a backoff retry. Every
 channel's final body is shaped by `server/reply/`, whose `plain_text/`
 submodules (`block.rs` for line-level scaffolding, `inline.rs` for spans) are a
 pure markdown-to-plain-text pass applied to SMS before the length decision;

@@ -6,7 +6,15 @@ use crate::workspace::{
     CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
 };
 
-use super::{acquire_singleton_then_refresh, load_startup_config, startup_sync_plan};
+use super::{
+    acquire_singleton_then_refresh, load_startup_config, periodic_pull_enabled, startup_sync_plan,
+};
+
+#[test]
+fn periodic_pull_runs_only_for_a_sync_configured_shell() {
+    assert!(periodic_pull_enabled(true));
+    assert!(!periodic_pull_enabled(false));
+}
 
 #[test]
 fn suppressed_startup_alert_still_waits_to_refresh_synced_state() {

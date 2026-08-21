@@ -1395,9 +1395,9 @@ brain-root lookup.
   not installed · sync off`), which never affects the doctor's overall
   pass/fail.
 
-## Auto-sync triggers (startup pull, change push, receiver freshness)
+## Auto-sync triggers (startup, periodic, change, and receiver)
 
-The auto-sync layer (`src/sync/{lock,watch,trigger,freshness,current,follow}.rs`,
+The auto-sync layer (`src/sync/{lock,watch,periodic,trigger,freshness,current,follow}.rs`,
 wired into `src/tui/event_loop/setup.rs` and `src/tui/app_sync.rs`) drives the
 rclone handoff automatically. Every automatic trigger runs the sync in a
 **detached background process**, never on a thread inside the shell, so a sync
@@ -1422,7 +1422,8 @@ outside-world touchpoints:
   The manual `run_sync` in `command/sync.rs` takes this lock too, closing a pre-existing
   concurrent-`brain sync` race.
 - **The detached sync spawn** (`trigger::spawn_detached_sync(workspace, dir)`) is the one
-  entry point the startup, watcher, and receiver-freshness triggers use. It
+  entry point the startup, periodic, watcher, receiver-freshness, and receiver
+  completion triggers use. It
   spawns the current exe as
   `brain --workspace <canonical-name> sync [--pull|--push] --if-idle` fully
   detached, with `BRAIN_WORKSPACE_ID=<selected UUID>` as a defense-in-depth
@@ -1482,6 +1483,10 @@ outside-world touchpoints:
   debounce loop accepts an injected clock in tests. Its handle owns an explicit
   stop signal and worker join, so dropping one TUI stops only that workspace's
   watcher while peer workspace watchers remain live.
+- **The periodic puller** (`sync/periodic.rs`) owns a five-minute
+  `recv_timeout` loop for each sync-configured live shell. Every timeout starts
+  a detached pull. Dropping its handle signals and joins the worker immediately;
+  the workspace lock coalesces ticks from peer shells or an active sync.
 - **The receiver freshness gate** (`sync/freshness.rs` +
   `tui/app_sync.rs`) reads the newest successful downstream journal row at the
   live TUI's queued-job consumption boundary, not in shared-server dispatch.
@@ -1491,8 +1496,10 @@ outside-world touchpoints:
   direction. An injected receiver runtime supplies monotonic and UTC clocks,
   current/journal reads, and child launch. The production policy gives a
   launched pull five seconds to appear and permits at most three attempts; if
-  none starts, the TUI warns and processes the job with local state. There is
-  no periodic pull timer and no exit sync.
+  none starts, the TUI warns and processes the job with local state. The same
+  status poll watches for successful downstream journal advancement and reloads
+  task state automatically. A verified receiver completion starts a detached
+  push before provider delivery. There is no exit sync.
 
 ## The auto-rebuild
 

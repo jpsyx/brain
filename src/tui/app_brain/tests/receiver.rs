@@ -315,7 +315,7 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
             }
 
             let prompt = format!(
-                "This is an authenticated {label} message from Remote member (actor remote-member). Respond as the user's brain.\n\n{body}"
+                "This is an authenticated {label} message from Remote member (actor remote-member). Respond as the user's brain. If the message asks to add, create, capture, remember, or track a task, create it in Brain's task system; do not perform the task now unless the sender explicitly asks you to.\n\n{body}"
             );
             let spec = {
                 let specs = recording.0.lock().unwrap();

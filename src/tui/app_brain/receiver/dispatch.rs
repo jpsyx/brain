@@ -122,7 +122,7 @@ impl App<'_> {
             );
         }
         let prompt = format!(
-            "This is an authenticated {label} message from {} (actor {}). Respond as the user's brain.\n\n{}",
+            "This is an authenticated {label} message from {} (actor {}). Respond as the user's brain. If the message asks to add, create, capture, remember, or track a task, create it in Brain's task system; do not perform the task now unless the sender explicitly asks you to.\n\n{}",
             message.actor.display_name(),
             message.actor.user_id(),
             message.prompt

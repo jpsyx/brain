@@ -12,7 +12,10 @@ pub(crate) trait ReceiverSyncRuntime: Send {
         &self,
         paths: &crate::workspace::WorkspacePaths,
     ) -> Option<crate::sync::current::CurrentState>;
-    fn latest_journal_id(&self, paths: &crate::workspace::WorkspacePaths) -> Option<i64>;
+    fn latest_successful_downstream_id(
+        &self,
+        paths: &crate::workspace::WorkspacePaths,
+    ) -> Option<i64>;
     fn latest_downstream_completion(
         &self,
         paths: &crate::workspace::WorkspacePaths,
@@ -43,10 +46,13 @@ impl ReceiverSyncRuntime for SystemReceiverSyncRuntime {
             .filter(|state| crate::server::lifecycle::pid_alive(state.pid))
     }
 
-    fn latest_journal_id(&self, paths: &crate::workspace::WorkspacePaths) -> Option<i64> {
+    fn latest_successful_downstream_id(
+        &self,
+        paths: &crate::workspace::WorkspacePaths,
+    ) -> Option<i64> {
         Journal::open(&paths.sync_journal())
             .ok()
-            .and_then(|journal| journal.latest_id().ok())
+            .and_then(|journal| journal.latest_successful_downstream_id().ok())
             .flatten()
     }
 
@@ -92,6 +98,18 @@ impl App<'_> {
         if self.sync_status.is_none() && self.receiver_sync_gate.is_some() {
             self.sync_status = Some("↻ preparing receiver message sync…".to_owned());
         }
+        let latest = self
+            .receiver_sync_runtime
+            .latest_successful_downstream_id(self.command_context.workspace.paths());
+        if journal_advanced(self.last_seen_downstream_id, latest) {
+            self.last_seen_downstream_id = latest;
+            if let Err(error) = self.reload_tasks() {
+                crate::logging::log(format!("post-sync task refresh failed: {error:#}"));
+                self.flash = Some(FlashKind::Error(format!(
+                    "post-sync task refresh failed: {error}"
+                )));
+            }
+        }
     }
 
     pub(crate) fn receiver_sync_ready(&mut self) -> bool {
@@ -109,7 +127,7 @@ impl App<'_> {
             if journal_advanced(
                 gate.seen_journal_id,
                 self.receiver_sync_runtime
-                    .latest_journal_id(self.command_context.workspace.paths()),
+                    .latest_successful_downstream_id(self.command_context.workspace.paths()),
             ) {
                 crate::logging::log("receiver freshness pull completed; dispatch may continue");
                 self.sync_status = None;
@@ -188,7 +206,7 @@ impl App<'_> {
         self.receiver_sync_gate = Some(ReceiverSyncGate {
             seen_journal_id: self
                 .receiver_sync_runtime
-                .latest_journal_id(self.command_context.workspace.paths()),
+                .latest_successful_downstream_id(self.command_context.workspace.paths()),
             launched_at: now,
             next_poll: now,
             attempts,

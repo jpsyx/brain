@@ -426,6 +426,7 @@ pub(crate) struct App<'a> {
     pub(crate) receiver_sync_gate: Option<ReceiverSyncGate>,
     pub(crate) sync_status: Option<String>,
     pub(crate) sync_status_next_poll: Instant,
+    pub(crate) last_seen_downstream_id: Option<i64>,
 }
 
 #[cfg(test)]

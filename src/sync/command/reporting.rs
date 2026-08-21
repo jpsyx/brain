@@ -186,8 +186,7 @@ pub fn format_last_run(run: Option<&SyncRun>, theme: Theme) -> String {
     )
 }
 
-/// Format the configured auto-sync triggers. The flags are honored once the
-/// trigger/watcher phase lands; `status` shows them so the setup is visible.
+/// Format the configured auto-sync triggers so their policy remains visible.
 #[must_use]
 pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
     let yn = |b: bool| {
@@ -206,12 +205,18 @@ pub fn format_triggers(cfg: &SyncConfig, theme: Theme) -> String {
     } else {
         String::new()
     };
+    let periodic = if cfg.is_configured() {
+        theme.success("every 5m")
+    } else {
+        theme.muted("off")
+    };
     format!(
-        "{} startup-pull {} · change-push {}{} · message-pull {}",
+        "{} startup-pull {} · change-push {}{} · periodic-pull {} · message-pull {}",
         theme.muted("triggers:"),
         yn(cfg.is_configured()),
         yn(watch_on),
         debounce,
+        periodic,
         theme.success("after 2h"),
     )
 }

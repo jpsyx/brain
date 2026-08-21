@@ -1311,7 +1311,7 @@ remote CSV as a provisional snapshot for local deltas. The real sync still does
 the full id-keyed 3-way merge and refreshes the baseline; this heuristic only
 makes the preview less misleading.
 
-## C4 — event-driven auto-sync (`notify`, freshness gates, and the sync lock)
+## C4: live-shell auto-sync (`notify`, periodic pulls, freshness gates, and the sync lock)
 
 C4 makes sync automatic. The durable choices below are the ones a later phase
 (such as a standalone daemon) should keep rather than "simplify."
@@ -1328,13 +1328,30 @@ killed independently) and mix two unrelated concerns in one daemon. The accepted
 tradeoff is no live sync while *no* shell is open. The next startup pull and
 manual `brain sync` cover that gap.
 
-**Why there is no idle or exit sync.** A periodic pull performs network and
-filesystem work without a user event and made a long-running receiver machine
-harder to reason about. Exit sync is redundant once local writes are watched,
-and it complicates shutdown. Downstream work now has two deliberate triggers:
-startup, and the moment an inbound receiver message is about to run when the
-last successful downstream sync is over two hours old. The two-hour value is a
-freshness threshold, not a timer.
+**Why there is a fixed five-minute pull but no exit sync.** Field use showed
+that startup and receiver freshness alone leave a long-running main TUI stale
+after another machine publishes a change. Each configured live shell therefore
+starts a fixed five-minute pull timer. It is intentionally not another config
+knob: the invariant is that an open Brain converges promptly. The detached
+runner and UUID lock make duplicate timers cheap to coalesce. Exit sync remains
+redundant once local writes and receiver completions push, and it complicates
+shutdown. The receiver's two-hour value remains a message-time freshness
+threshold, not its polling interval.
+
+**Why receiver completion pushes explicitly.** The filesystem watcher is the
+general local-write safety net, but receiver work has a precise durable
+completion boundary. Launching a push there prevents an agent-created task from
+waiting for watcher delivery and still uses the same detached runner and lock.
+The common receiver prompt also disambiguates task-capture wording from a
+request to perform the task immediately.
+
+**Why read-only check compares size and checksum.** Filesystem and remote mtimes
+can drift even when bytes are identical, which made `brain check` report
+phantom changes such as task metadata. Its dry run adds
+`--compare size,checksum`, which ignores timestamp-only drift while still
+detecting same-size content changes. Real sync retains rclone's default
+mtime-aware comparison because its newer-side conflict resolution needs that
+ordering signal.
 
 **Why `notify`, with a macOS polling fallback.** `notify` provides one watcher
 boundary across platforms. Linux uses its recommended native backend. In the
@@ -1901,7 +1918,8 @@ field:
    immediately reap-able even though the orphaned `rclone` was still writing.
 
 The fix makes execution independent of the shell: every automatic trigger
-(startup, watcher, receiver freshness) spawns a detached
+(startup, periodic pull, watcher, receiver freshness, receiver completion)
+spawns a detached
 `brain --workspace <canonical-name> sync --if-idle` child (`process_group(0)` +
 null stdio) with the selected UUID in `BRAIN_WORKSPACE_ID`. The canonical name
 keeps the selector stable across alias/default changes, while bootstrap's UUID

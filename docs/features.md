@@ -911,9 +911,10 @@ left the baseline listings unusable, the next sync detects it and self-heals
 with a one-time resync automatically — you never have to know a sync was
 interrupted, and turning off the machine mid-sync never leaves a stuck state.
 
-**Automatic sync (startup pull / change push / receiver freshness pull).** On
-a configured machine, sync is event-driven rather than periodic. There is no
-idle sync loop and no exit sync.
+**Automatic sync (startup pull / periodic pull / change push / receiver
+freshness / receiver completion push).** A configured shell checks for remote
+changes every five minutes in addition to reacting to local and receiver
+events. There is no exit sync.
 
 Every trigger below spawns a **detached background `brain sync` process** (with
 the canonical `--workspace <workspace>` plus `--if-idle`, so changing the machine
@@ -926,6 +927,10 @@ interrupted by, the network.
 - **On start.** Opening any sync-configured shell always kicks a pull-biased
   background sync so local state catches up with the remote. The first frame
   renders immediately, while the footer shows that sync is active.
+- **Every five minutes while open.** Each sync-configured shell starts a small
+  timer that launches a pull-biased background sync every five minutes. The
+  workspace lock coalesces timers from multiple shells, so a long-running main
+  or receiver TUI cannot remain stale indefinitely.
 - **Live watcher (`sync.watch`).** While the shell is open, a filesystem
   watcher starts a one-way, non-deleting upload after edits under the brain
   root settle (`debounce_ms`, default 3000ms). A burst coalesces into one push.
@@ -944,8 +949,14 @@ interrupted by, the network.
   timer. Launch detection and retries are finite: brain polls at 250ms, allows
   five seconds for a pull to appear, and tries at most three launches before
   continuing with local state and a visible warning.
+- **After receiver work.** A completed receiver turn immediately starts a
+  push, so files or task rows created by the agent do not wait for the watcher.
+  A request to add, create, capture, remember, or track a task is explicitly
+  treated as task capture, unless the sender also asks Brain to perform it now.
+  Every successful downstream sync also reloads the live TUI's task state, so
+  newly pulled task rows appear without a manual refresh.
 
-All three are journalled like manual syncs and **coalesce** through a
+All five are journalled like manual syncs and **coalesce** through a
 workspace-UUID lock: concurrent triggers (startup + watcher + receiver gate + a second shell + a
 manual `brain sync`) never run two rclone syncs for the same workspace at once.
 Different workspaces may sync concurrently. A redundant background
@@ -1018,8 +1029,8 @@ per machine you want to join it.
    must pass `--adopt-workspace-id <UUID>` with the exact local UUID; `--yes`
    alone is insufficient.
 3. **Verify the triggers.** Run `brain sync status` and confirm it reports
-   startup pull, change push, the two-hour receiver freshness policy, and the
-   last run.
+   startup pull, five-minute periodic pull, change push, the two-hour receiver
+   freshness policy, and the last run.
    Auto-sync is on by default the moment `brain sync setup` finishes — you
    don't need to flip anything else on.
 4. **Env auto-migration.** Before a valid schema-v2 registry exists, the legacy
@@ -1511,7 +1522,10 @@ destination that is not `https:`, `http:`, or `mailto:` is dropped.
 When cloud sync is configured, receiver dispatch also applies the two-hour
 freshness gate described above. The HTTP acknowledgement remains immediate,
 but stale local state is pulled before the queued message reaches the selected
-Claude, Codex, or OpenCode frontend.
+Claude, Codex, or OpenCode frontend. Task-capture language is passed with an
+explicit instruction to create the task rather than perform it, unless the
+sender asks for immediate execution. After a verified response completes,
+Brain starts a push before delivering the reply.
 
 Receiver enablement is persistent workspace intent, separate from process and
 lease availability. `brain receiver start`, `brain receiver stop`, startup

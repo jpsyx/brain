@@ -46,6 +46,10 @@ fn startup_sync_plan(sync_configured: bool, suppress_alert: bool) -> StartupSync
     }
 }
 
+const fn periodic_pull_enabled(sync_configured: bool) -> bool {
+    sync_configured
+}
+
 /// Turn off mouse *motion* reporting (DECSET 1002 button-drag + 1003 any-event)
 /// that `EnableMouseCapture` also enables, keeping only button + wheel
 /// reporting. With motion reporting on, iTerm2 won't let ⌘-hover / ⌘-click reach
@@ -262,6 +266,8 @@ pub fn run_tui(
     } else {
         None
     };
+    let periodic_puller = periodic_pull_enabled(sync_configured)
+        .then(|| crate::sync::periodic::spawn_periodic_puller(command_context.workspace.clone()));
     let result = event_loop(&mut terminal, &mut app, &server_lease);
 
     if let Err(error) = server_lease.shutdown() {
@@ -269,9 +275,7 @@ pub fn run_tui(
     }
     app.shutdown_agent_controllers();
 
-    // Local changes are already pushed by the watcher. Exit performs no pull
-    // or timer-driven reconciliation; downstream sync happens only at startup
-    // or at the receiver's two-hour freshness gate.
+    drop(periodic_puller);
     drop(watcher);
 
     // Release our session lock so the next open (this shell or another)

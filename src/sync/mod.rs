@@ -17,6 +17,7 @@ pub mod freshness;
 pub mod identity;
 pub mod journal;
 pub mod lock;
+pub mod periodic;
 pub mod progress;
 pub mod remote;
 pub mod run;

@@ -312,7 +312,7 @@ workspace.
 | `default_agent_frontend` | workspace record | `claude` | Frontend the brain panel launches on **this machine** when no `--claude` / `--codex` / `--open-code` flag is passed. Exactly one of `claude`, `codex`, `opencode`; `brain env set` also accepts the flag's `open-code` spelling and stores it canonically, and rejects any other value. Machine-local because a machine that has only one frontend installed must not be dragged onto another by a peer machine. An unreadable stored value falls back to `claude` rather than failing the command. |
 | `skill_sessions` | workspace record | *(unset → daily triage only)* | The **skill sessions** this machine offers in the tasks-view command palette: a JSON array of `{title, prompt, command_label}`. Each runs its prompt in its own brain-panel tab and closes when the run signals completion; while it runs, its palette row disappears. `prompt` is required, `title` defaults to it, `command_label` defaults to `Run <title>`. Daily triage is **builtin** (offered while `enable_daily_triage_check` is on) and is neither listed nor removable here. Machine-local because a definition names a skill that must actually be installed on *this* machine. `brain env set skill_sessions` with no value opens an add/edit/delete walkthrough. See [features.md](features.md) and [data-model.md](data-model.md). |
 | `agent_capabilities` | workspace record | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
-| `sync` | workspace record | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus the mandatory startup pull and change-triggered pushes; there is no periodic idle pull. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
+| `sync` | workspace record | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus mandatory startup and five-minute live-shell pulls, change-triggered pushes, and receiver completion pushes. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
 
 OpenCode launch configuration is supplied through `OPENCODE_CONFIG_CONTENT`.
 If that variable already exists, it must contain a JSON object. Brain preserves
@@ -476,13 +476,15 @@ runs neither startup pulls nor a filesystem watcher.
 `SyncConfig::watch_effective()` folds `is_configured()` into `watch`, so the
 watcher is on only when sync is actually configured *and* `watch` isn't
 explicitly `false`. These flags live in the `sync` block written by
-`brain sync setup`; `brain sync status` shows startup-pull, change-push, the
-debounce window, and the receiver's two-hour message-pull policy.
+`brain sync setup`; `brain sync status` shows startup-pull, the fixed
+five-minute periodic pull, change-push, the debounce window, and the receiver's
+two-hour message-pull policy.
 
-There is no idle timer and no exit sync. Remote changes are always pulled at startup,
-or immediately before an inbound SMS/email is dispatched when the most recent
-successful downstream sync is more than two hours old. Legacy `on_start`,
-`on_exit`, and `idle_pull_secs` keys in an existing JSON object are ignored.
+The five-minute pull interval is a fixed live-shell policy rather than another
+config field. Remote changes are also pulled at startup or immediately before
+an inbound SMS/email is dispatched when the most recent successful downstream
+sync is more than two hours old. There is no exit sync. Legacy `on_start`,
+`on_exit`, and `idle_pull_secs` keys in an existing JSON object remain ignored.
 See [features.md](features.md) for the user-facing behavior and
 [data-model.md](data-model.md) for the schema.
 
