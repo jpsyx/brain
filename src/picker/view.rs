@@ -1,6 +1,5 @@
 //! Rendering the search panel: header / input / separator / list / footer,
-//! plus the palette and confirmation overlays on top. Used both full-screen by
-//! the one-shot picker and inside a bordered sub-rect by the two-panel TUI.
+//! Used inside a bordered sub-rect by the persistent shell.
 
 use ratatui::{
     Frame,
@@ -8,17 +7,14 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::confirm;
-use crate::menu;
 use crate::render;
 
 use super::{App, DisplayRow};
 
 /// Render the search panel into `area`.
 ///
-/// Draws header / input / separator / list / footer, plus the palette
-/// overlay. Used both full-screen by the one-shot picker and inside a
-/// bordered sub-rect by the persistent two-panel TUI.
+/// Draws header / input / separator / list / footer. Shell overlays are drawn
+/// by `tui::draw` after both panels.
 pub fn draw_into(f: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -49,15 +45,6 @@ pub fn draw_into(f: &mut Frame, app: &mut App, area: Rect) {
     draw_list(f, app, chunks[3]);
 
     f.render_widget(Paragraph::new(render::footer_line()), chunks[4]);
-
-    // The command palette draws on top of the picker; the confirmation modal
-    // draws last of all so it sits above even the palette.
-    if let Some(palette) = &app.palette {
-        menu::draw_modal(f, palette, area);
-    }
-    if let Some(c) = &app.confirm {
-        confirm::draw_modal(f, c, area);
-    }
 }
 
 fn draw_list(f: &mut Frame, app: &mut App, area: Rect) {

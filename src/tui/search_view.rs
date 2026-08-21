@@ -1,9 +1,9 @@
 //! The brain-directory (fuzzy search) main view's key handling and actions.
 //!
 //! Ported from the pre-merge standalone brain shell. Drives the embedded
-//! `picker::App` (`app.search`) — its query, navigation, in-place file
-//! opening, PDF/delete confirmations, and its own command-palette overlay
-//! (`menu::MenuApp`). Only invoked while `main_view == MainView::BrainSearch`
+//! `picker::App` (`app.search`) — its query, navigation, and in-place file
+//! opening. Search palette and confirmation data live in the shell's single
+//! overlay slot. Only invoked while `main_view == MainView::BrainSearch`
 //! and the main panel is focused; the app-level chords (view switching,
 //! brain-panel open/close/new, `Alt+S` help, `Ctrl+Q` quit) are intercepted
 //! upstream in `event_loop` and never reach here.
@@ -12,7 +12,7 @@ use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use super::App;
+use super::{App, Overlay, close_overlay, open_overlay, replace_overlay};
 use crate::entry::{self, Bucket};
 use crate::main_view::MainView;
 use crate::menu::{self, Choice};
@@ -59,16 +59,6 @@ fn single_bucket_root(brain_root: &Path, bucket: Bucket) -> Vec<(Bucket, std::pa
 /// Handle a keystroke while the brain-search view has focus. Returns `true`
 /// when the shell should quit (Esc / Ctrl+C from the picker).
 pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, alt: bool) -> bool {
-    // The picker's own overlays are captive while open.
-    if app.search.palette.is_some() {
-        route_search_palette(app, k);
-        return false;
-    }
-    if app.search.confirm.is_some() {
-        route_search_confirm(app, k);
-        return false;
-    }
-
     match k.code {
         KeyCode::Esc => return true,
         KeyCode::Char('c') if ctrl => return true,
@@ -89,13 +79,18 @@ pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, al
         // offered only when the panel is closed.
         KeyCode::Char('p') if ctrl => {
             app.refresh_receiver_enabled();
-            app.search
-                .open_palette(app.panel_side, app.brain.is_none(), app.receiver_enabled);
+            let palette = app.search.search_palette(
+                app.panel_side,
+                app.brain.is_none(),
+                app.receiver_enabled,
+            );
+            open_overlay(&mut app.overlay, Overlay::SearchPalette(palette));
         }
         // Ctrl-G: "Create PDF" confirmation for a highlighted markdown file.
         KeyCode::Char('g') if ctrl => {
             if let Some(path) = app.search.selected_markdown_path() {
-                app.search.open_confirm(path);
+                let confirm = picker::App::pdf_confirmation(path);
+                open_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
             }
         }
         // Ctrl-R: re-walk the scope, keeping the query.
@@ -103,7 +98,8 @@ pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, al
         // Ctrl-D: red "Delete" confirmation for the highlighted entry.
         KeyCode::Char('d') if ctrl => {
             if let Some(path) = app.search.selected_path() {
-                app.search.open_delete_confirm(path);
+                let confirm = picker::App::delete_confirmation(path);
+                open_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
             }
         }
 
@@ -126,34 +122,57 @@ pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, al
     false
 }
 
-fn route_search_palette(app: &mut App, k: &KeyEvent) {
-    let Some(palette) = app.search.palette.as_mut() else {
+pub(crate) fn route_search_palette(app: &mut App, k: &KeyEvent) {
+    let Some(Overlay::SearchPalette(palette)) = app.overlay.as_mut() else {
         return;
     };
     match menu::handle_key(palette, *k) {
         menu::Step::Continue => {}
-        menu::Step::Cancel => app.search.close_palette(),
+        menu::Step::Cancel => {
+            close_overlay(&mut app.overlay);
+        }
         menu::Step::Confirm(choice) => {
-            app.search.close_palette();
+            if choice == Choice::Delete {
+                if let Some(path) = app.search.selected_path() {
+                    let confirm = picker::App::delete_confirmation(path);
+                    replace_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
+                } else {
+                    close_overlay(&mut app.overlay);
+                }
+                return;
+            }
+            close_overlay(&mut app.overlay);
             dispatch_choice(app, choice);
         }
     }
 }
 
-fn route_search_confirm(app: &mut App, k: &KeyEvent) {
-    let step = match app.search.confirm.as_mut() {
-        Some(c) => confirm::handle_key(c, *k),
-        None => return,
+pub(crate) fn route_search_confirm(app: &mut App, k: &KeyEvent) {
+    let step = match app.overlay.as_mut() {
+        Some(Overlay::SearchConfirmation(confirm)) => confirm::handle_key(confirm, *k),
+        Some(
+            Overlay::TaskPalette(_)
+            | Overlay::BrainInput(_)
+            | Overlay::TaskConfirmation(_)
+            | Overlay::SearchPalette(_)
+            | Overlay::LinkPicker(_)
+            | Overlay::AssigneeFilter(_)
+            | Overlay::Help(_)
+            | Overlay::SyncLog(_),
+        )
+        | None => return,
     };
     match step {
         confirm::Step::Continue => {}
-        confirm::Step::Cancel => app.search.close_confirm(),
+        confirm::Step::Cancel => {
+            close_overlay(&mut app.overlay);
+        }
         confirm::Step::Accept => {
-            if let Some(c) = app.search.confirm.take() {
-                match c.kind {
-                    confirm::ConfirmKind::Pdf => create_pdf_inline(app, &c.path),
+            if let Some(Overlay::SearchConfirmation(confirm)) = close_overlay(&mut app.overlay) {
+                match confirm.kind {
+                    confirm::ConfirmKind::Pdf => create_pdf_inline(app, &confirm.path),
                     confirm::ConfirmKind::Delete => {
-                        let _ = open_target::move_to_trash(&c.path);
+                        let _ = open_target::move_to_trash(&confirm.path);
                     }
                 }
                 app.search_refresh();
@@ -180,11 +199,7 @@ fn dispatch_choice(app: &mut App, choice: Choice) {
                 reveal_in_finder(&path);
             }
         }
-        Choice::Delete => {
-            if let Some(path) = app.search.selected_path() {
-                app.search.open_delete_confirm(path);
-            }
-        }
+        Choice::Delete => {}
         // Open (or focus) the app-level brain panel.
         Choice::Msg => {
             app.open_or_focus_brain(None);

@@ -23,8 +23,8 @@
 //!   - `haystack`  — per-entry match preprocessing + highlight mapping
 //!   - `filter`    — constructors, `refilter`, section grouping
 //!   - `nav`       — query edits + cursor movement + scroll
-//!   - `selection` — the highlighted entry's path/filename/dir accessors,
-//!     the palette/confirm openers, and reldisplay helpers
+//!   - `selection` — the highlighted entry's path/filename/dir accessors and
+//!     shell-owned palette construction data
 //!   - `view`      — `draw_into` and its helpers
 
 mod filter;
@@ -37,9 +37,7 @@ use std::collections::BTreeSet;
 
 use nucleo_matcher::Matcher;
 
-use crate::confirm::Confirm;
 use crate::entry::{Bucket, Entry};
-use crate::menu;
 
 use haystack::HaystackBuf;
 
@@ -84,11 +82,4 @@ pub struct App {
     /// cursor never scrolls off-screen and the section header above the
     /// selected match stays visible.
     top: usize,
-    /// The command-palette overlay, when open (`Ctrl-p`). While `Some`, all
-    /// keys route to it; Esc closes it back to the picker.
-    pub(crate) palette: Option<menu::MenuApp>,
-    /// The confirmation overlay, when open: "Create PDF" (`Ctrl-G` on a
-    /// markdown file) or "Delete" (`Ctrl-D` on any entry). Takes routing
-    /// precedence over the palette; Esc/No closes it back to the picker.
-    pub(crate) confirm: Option<Confirm>,
 }

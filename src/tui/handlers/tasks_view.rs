@@ -95,14 +95,17 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
         // aliasing, so it works on every terminal regardless of the kitty
         // keyboard protocol.
         KeyCode::Char('d') if ctrl => {
-            // Clone fields before mutating self.confirm to drop the
+            // Clone fields before opening the overlay to drop the
             // shared borrow on visible_tasks first.
             let target = app
                 .selected_task
                 .and_then(|i| app.visible_tasks.get(i))
                 .map(|t| (t.id.clone(), t.name.clone()));
             if let Some((id, label)) = target {
-                app.confirm = Some(ConfirmState::mark_complete(id, label));
+                open_overlay(
+                    &mut app.overlay,
+                    Overlay::TaskConfirmation(ConfirmState::mark_complete(id, label)),
+                );
             }
         }
 
@@ -121,7 +124,10 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
                 .and_then(|i| app.visible_tasks.get(i))
                 .map(|t| (t.id.clone(), t.name.clone()));
             if let Some((id, label)) = target {
-                app.confirm = Some(ConfirmState::remove(id, label));
+                open_overlay(
+                    &mut app.overlay,
+                    Overlay::TaskConfirmation(ConfirmState::remove(id, label)),
+                );
             }
         }
 
@@ -133,7 +139,7 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
         // actions modal without leaving the search input.
         KeyCode::Enter => {
             // Clone (id, name) up front so the shared borrow on
-            // visible_tasks ends before we mutate app.palette.
+            // visible_tasks ends before we open the palette overlay.
             let target = app
                 .selected_task
                 .and_then(|i| app.visible_tasks.get(i))
@@ -143,16 +149,19 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
                 let has_notes = app.current_has_notes();
                 let notes_expanded = app.current_notes_expanded();
                 let link_kind = app.current_link_kind();
-                app.palette = Some(
-                    PaletteState::new_task_actions(
-                        id,
-                        label,
-                        is_habit,
-                        has_notes,
-                        notes_expanded,
-                        link_kind,
-                    )
-                    .with_assignment_mode(app.assignment.mode()),
+                open_overlay(
+                    &mut app.overlay,
+                    Overlay::TaskPalette(
+                        PaletteState::new_task_actions(
+                            id,
+                            label,
+                            is_habit,
+                            has_notes,
+                            notes_expanded,
+                            link_kind,
+                        )
+                        .with_assignment_mode(app.assignment.mode()),
+                    ),
                 );
             }
         }

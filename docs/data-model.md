@@ -83,23 +83,17 @@ enum DisplayRow { Header(Bucket, count), Match(usize) }
    `ensure_visible` keeps the section header directly above the selected
    match on screen.
 
-### Overlays: palette + Create-PDF confirm
+### Shell-owned search overlays
 
-`App` carries two optional modal overlays that take key routing before the
-picker itself:
-
-- `palette: Option<menu::MenuApp>` — the command palette (`Ctrl-p`). Its row
-  list is contextual: when the highlighted entry is a `.md` file, a leading
-  **"Create PDF for '…'"** row (`Choice::CreatePdf`) is added, keyed off
-  `App::selected_markdown_filename`; when any entry is highlighted, a trailing
-  **"Delete '…'"** row (`Choice::Delete`) is added, keyed off
-  `App::selected_filename`.
-- `confirm: Option<confirm::Confirm>` — the shared yes/no modal, holding the
-  target `path`, a `ConfirmKind` (`Pdf` → green, defaults Yes; `Delete` → red,
-  defaults No), and which button is highlighted. It routes **before** the
-  palette. On `Accept` (driven by `tui/search_view.rs`): Pdf converts the file
-  in place and Delete trashes the path, then the entry is dropped/refreshed and
-  the shell stays open.
+`picker::App` owns no modal state. Its selection helpers derive the contextual
+`menu::MenuApp` or `confirm::Confirm` data from the highlighted entry, and the
+persistent shell stores that value in its single `Option<Overlay>`. The palette
+still adds a leading **"Create PDF for '…'"** row for a selected markdown file
+and a trailing **"Delete '…'"** row for any selected entry. Search confirmation
+holds the target `path`, a `ConfirmKind` (`Pdf` → green, defaults Yes; `Delete`
+→ red, defaults No), and the highlighted button. On `Accept`, Pdf converts the
+file in place and Delete trashes it; the picker refreshes and the shell stays
+open.
 
 ## Workspace identity (`workspace/`)
 

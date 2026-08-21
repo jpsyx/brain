@@ -29,8 +29,6 @@ impl App {
             display_rows: Vec::new(),
             selected: 0,
             top: 0,
-            palette: None,
-            confirm: None,
         };
         app.refilter();
         app

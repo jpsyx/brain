@@ -679,7 +679,7 @@ The ratatui fuzzy picker. The `App` type lives in `picker/mod.rs` (so every
 submodule reaches its private fields); the impl is split into `haystack`
 (match preprocessing), `filter` (constructors + `refilter` + grouping), `nav`
 (query edits + cursor + scroll), `selection` (highlighted-entry accessors +
-palette/confirm openers), and `view` (`draw_into`). `App` **owns** its entries (so the persistent
+shell-owned palette/confirmation construction data), and `view` (`draw_into`). `App` **owns** its entries (so the persistent
 shell can `set_entries` to rescope a bucket in place), precomputed
 `HaystackBuf`s, the query, the current matches, and the interleaved
 header/match `display_rows`. `refilter()` runs nucleo substring matching,
@@ -687,10 +687,9 @@ sorts matches by bucket then score then walk order, and rebuilds the
 section-grouped rows. Navigation (`move_up`/`down`, `page_*`,
 `ensure_visible`) keeps the cursor and its section header on screen.
 Rendering is delegated to `render.rs` and exposed as `draw_into(f, app,
-area)` so `tui`'s embedded search panel paints it. `App` also holds an
-optional `palette: Option<menu::MenuApp>` overlay and an optional
-`confirm: Option<confirm::Confirm>` overlay (routed before the palette) that
-serves both the "Create PDF" and "Delete" confirmations. The `App` is driven
+area)` so `tui`'s embedded search panel paints it. It owns no modal state:
+`selection` returns the contextual `MenuApp` or `Confirm` data that the shell
+wraps in its one `Overlay` slot. The `App` is driven
 key-by-key by the search view (`tui/search_view.rs`): `Enter` opens the
 selection in place (a directory falls back to a Finder reveal), `Ctrl-Enter`
 reveals, `Ctrl-G` confirms a markdown→PDF conversion, `Ctrl-D` confirms a
@@ -728,7 +727,7 @@ panel and `ToggleLayout` swaps which side it sits on.
 
 ### `confirm.rs`
 The shared yes/no confirmation modal. Like `menu`, it has **no screen of its
-own**: the picker holds a `Confirm { path, kind, yes }` in its state, the host
+own**: the shell holds a `Confirm { path, kind, yes }` in its active overlay, the host
 drives its pure `handle_key` (returns `Continue`/`Cancel`/`Accept`), and paints
 it with `draw_modal` as a centered overlay. `ConfirmKind` selects the flavor:
 **Pdf** (green, defaults to Yes; opened by `Ctrl-G` on a `.md` file) and
@@ -1097,7 +1096,14 @@ The persistent shell, built from the ported tasks `tui/` and extended with the
 main-view axis. One `App` owns: the tasks-view state, the embedded
 `picker::App` (`search`, the brain-directory view), the app-level `brain`
 panel, `focus` (main panel vs brain panel), `main_view`, `panel_side`, and one
-startup-resolved task `AssignmentContext`. That context carries the effective
+startup-resolved task `AssignmentContext`. It also owns exactly one
+`overlay: Option<Overlay>`. The data-bearing variants cover the task palette,
+brain input, task confirmation, search palette, search confirmation, link
+picker, assignee filter, help, and sync log. This makes simultaneous modals
+unrepresentable; `overlay/mod.rs` owns the pure open, replace, route, and close
+transitions. Input routing and drawing exhaustively match that same enum, so no
+boolean precedence model can disagree with what is visible. The assignment
+context carries the effective
 actor, portable-member rows, and the one-person/shared visibility decision.
 `App` also owns the process-scoped assignee filter and its captive member
 picker. Startup validates `--assigned-to` against the assignment context and
@@ -1116,7 +1122,7 @@ panel focus/scroll, brain open/close/new, quit) → captive modal → brain pane
 brain-directory picker). `draw` renders the active main view in the main
 panel, the brain panel beside it (`panel_side`), and any modal over the top.
 `search_view.rs` is the brain-directory view's handler (its picker nav, in-place
-open, PDF/delete confirms, and its own `menu` palette). The remaining
+open, and the search-specific variants of the shell overlay). The remaining
 submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
 `app_*`, `shell`) are the tasks view's. The assignee picker has its own
 `draw_assignee` module so the shared-workspace overlay stays separate from the
@@ -1137,9 +1143,10 @@ while `launch.rs` keeps capability construction, transport selection, and the
 public app actions.
 `app_skill_session.rs` owns the ephemeral skill-session controllers and their
 tabs (open/close/select, the `BrainTab` / tab-slot resolution, and the
-`tick_skill_sessions` auto-close). The overlay-modal state
+`tick_skill_sessions` auto-close). The `Overlay` owner and transitions live in
+`overlay/mod.rs`. The per-variant state
 structs (`PaletteState`, `ConfirmState`, `BrainInputState`, `HelpState`,
-`LinkPickerState`, and the confirm enums) live in `modal_state.rs` with
+`SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; shared panel, tab, and deferred-gate types live in
 `model.rs`, while `mod.rs` keeps the `App` shell type, `filter_tasks`, re-exports,
 and module wiring. `status_warning.rs` validates receiver

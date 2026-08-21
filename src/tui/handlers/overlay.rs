@@ -7,12 +7,16 @@ use crate::tui::*;
 use crossterm::event::{KeyCode, KeyModifiers};
 
 pub(crate) fn handle_palette_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
-    let Some(palette) = app.palette.as_mut() else {
+    let Some(Overlay::TaskPalette(palette)) = app.overlay.as_mut() else {
         return;
     };
     match k.code {
-        KeyCode::Esc => app.palette = None,
-        KeyCode::Char('c') if ctrl => app.palette = None,
+        KeyCode::Esc => {
+            close_overlay(&mut app.overlay);
+        }
+        KeyCode::Char('c') if ctrl => {
+            close_overlay(&mut app.overlay);
+        }
         KeyCode::Enter => {
             if let Some(action) = palette.selected_action() {
                 app.execute_palette_action(action);
@@ -36,7 +40,9 @@ pub(crate) fn handle_palette_key(app: &mut App, k: &crossterm::event::KeyEvent, 
 /// Take the active confirm modal and dispatch its Yes path to the right
 /// action handler. No-op when no confirm is open.
 pub(crate) fn run_confirm_yes(app: &mut App) {
-    let Some(c) = app.confirm.take() else { return };
+    let Some(c) = take_task_confirmation(app) else {
+        return;
+    };
     match c.kind {
         ConfirmKind::MarkComplete => app.run_mark_complete(&c.task_id),
         ConfirmKind::Remove => app.run_remove(&c.task_id),
@@ -50,7 +56,9 @@ pub(crate) fn run_confirm_yes(app: &mut App) {
 /// this is a no-op for them (defensive — the key handler already gates
 /// `s` on `has_skip`).
 pub(crate) fn run_confirm_skip(app: &mut App) {
-    let Some(c) = app.confirm.take() else { return };
+    let Some(c) = take_task_confirmation(app) else {
+        return;
+    };
     if c.kind == ConfirmKind::RunTriage {
         app.skip_triage();
     }
@@ -61,43 +69,60 @@ pub(crate) fn run_confirm_skip(app: &mut App) {
 pub(crate) fn run_confirm_choice(app: &mut App, choice: ConfirmChoice) {
     match choice {
         ConfirmChoice::Yes => run_confirm_yes(app),
-        ConfirmChoice::No => app.confirm = None,
+        ConfirmChoice::No => {
+            close_overlay(&mut app.overlay);
+        }
         ConfirmChoice::Skip => run_confirm_skip(app),
     }
 }
 
 pub(crate) fn handle_confirm_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
-    if app.confirm.is_none() {
+    if !matches!(app.overlay, Some(Overlay::TaskConfirmation(_))) {
         return;
     }
     match k.code {
         // Cancel paths: Esc / Ctrl-C / N / explicit No-then-Enter (the
         // "Enter with No focused" case is handled below).
-        KeyCode::Esc | KeyCode::Char('n' | 'N') => app.confirm = None,
-        KeyCode::Char('c') if ctrl => app.confirm = None,
+        KeyCode::Esc | KeyCode::Char('n' | 'N') => {
+            close_overlay(&mut app.overlay);
+        }
+        KeyCode::Char('c') if ctrl => {
+            close_overlay(&mut app.overlay);
+        }
         // Y immediately confirms regardless of which button is focused.
         KeyCode::Char('y' | 'Y') => run_confirm_yes(app),
         // S immediately skips, but only on modals that offer a Skip button
         // (the daily-triage nudge). Ignored elsewhere.
-        KeyCode::Char('s' | 'S') if app.confirm.as_ref().is_some_and(ConfirmState::has_skip) => {
+        KeyCode::Char('s' | 'S') if matches!(app.overlay.as_ref(), Some(Overlay::TaskConfirmation(confirm)) if confirm.has_skip()) =>
+        {
             run_confirm_skip(app);
         }
         // Enter resolves with the currently-focused button.
         KeyCode::Enter => {
-            if let Some(choice) = app.confirm.as_ref().map(|c| c.focus) {
+            if let Some(choice) = app.overlay.as_ref().and_then(|overlay| match overlay {
+                Overlay::TaskConfirmation(confirm) => Some(confirm.focus),
+                Overlay::TaskPalette(_)
+                | Overlay::BrainInput(_)
+                | Overlay::SearchPalette(_)
+                | Overlay::SearchConfirmation(_)
+                | Overlay::LinkPicker(_)
+                | Overlay::AssigneeFilter(_)
+                | Overlay::Help(_)
+                | Overlay::SyncLog(_) => None,
+            }) {
                 run_confirm_choice(app, choice);
             }
         }
         // Button focus movement. Left group steps toward Yes; right group
         // steps toward No / Skip. Clamped at the ends.
         KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => {
-            if let Some(c) = app.confirm.as_mut() {
-                c.focus_prev();
+            if let Some(Overlay::TaskConfirmation(confirm)) = app.overlay.as_mut() {
+                confirm.focus_prev();
             }
         }
         KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => {
-            if let Some(c) = app.confirm.as_mut() {
-                c.focus_next();
+            if let Some(Overlay::TaskConfirmation(confirm)) = app.overlay.as_mut() {
+                confirm.focus_next();
             }
         }
         _ => {}
@@ -109,12 +134,16 @@ pub(crate) fn handle_confirm_key(app: &mut App, k: &crossterm::event::KeyEvent, 
 /// opens the highlighted link; Esc / Ctrl+C dismiss. Other keys are
 /// swallowed — the modal is captive until resolved.
 pub(crate) fn handle_link_picker_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
-    let Some(picker) = app.link_picker.as_mut() else {
+    let Some(Overlay::LinkPicker(picker)) = app.overlay.as_mut() else {
         return;
     };
     match k.code {
-        KeyCode::Esc => app.link_picker = None,
-        KeyCode::Char('c') if ctrl => app.link_picker = None,
+        KeyCode::Esc => {
+            close_overlay(&mut app.overlay);
+        }
+        KeyCode::Char('c') if ctrl => {
+            close_overlay(&mut app.overlay);
+        }
         KeyCode::Up => picker.move_up(),
         KeyCode::Down => picker.move_down(),
         KeyCode::Char('k' | 'K') if ctrl => picker.move_up(),
@@ -141,16 +170,16 @@ pub(crate) fn handle_assignee_filter_key(
     k: &crossterm::event::KeyEvent,
     ctrl: bool,
 ) {
-    let Some(picker) = app.assignee_filter.as_mut() else {
+    let Some(Overlay::AssigneeFilter(picker)) = app.overlay.as_mut() else {
         return;
     };
     let apply = match k.code {
         KeyCode::Esc => {
-            app.assignee_filter = None;
+            close_overlay(&mut app.overlay);
             return;
         }
         KeyCode::Char('c') if ctrl => {
-            app.assignee_filter = None;
+            close_overlay(&mut app.overlay);
             return;
         }
         KeyCode::Up => {
@@ -177,30 +206,34 @@ pub(crate) fn handle_assignee_filter_key(
     };
     if apply {
         let selected = picker.selected_user();
-        app.assignee_filter = None;
+        close_overlay(&mut app.overlay);
         app.set_assignment_filter(selected);
     }
 }
 
 pub(crate) fn handle_brain_input_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
-    if app.brain_input.is_none() {
+    if !matches!(app.overlay, Some(Overlay::BrainInput(_))) {
         return;
     }
     let alt = k.modifiers.contains(KeyModifiers::ALT);
     match k.code {
-        KeyCode::Esc => app.brain_input = None,
-        KeyCode::Char('c') if ctrl => app.brain_input = None,
+        KeyCode::Esc => {
+            close_overlay(&mut app.overlay);
+        }
+        KeyCode::Char('c') if ctrl => {
+            close_overlay(&mut app.overlay);
+        }
         // Alt+Enter inserts a newline instead of sending, so the user can
         // compose a multiline message. See `enter_inserts_newline` for why
         // Alt+Enter rather than Shift+Enter.
         KeyCode::Enter if enter_inserts_newline(alt) => {
-            if let Some(state) = app.brain_input.as_mut() {
+            if let Some(Overlay::BrainInput(state)) = app.overlay.as_mut() {
                 state.buffer.push('\n');
             }
         }
         KeyCode::Enter => {
             // Take ownership so `finalize` can move the buffer + context.
-            let Some(state) = app.brain_input.take() else {
+            let Some(Overlay::BrainInput(state)) = close_overlay(&mut app.overlay) else {
                 return;
             };
             if let Some(message) = state.finalize() {
@@ -210,17 +243,17 @@ pub(crate) fn handle_brain_input_key(app: &mut App, k: &crossterm::event::KeyEve
             }
         }
         KeyCode::Char('u') if ctrl => {
-            if let Some(state) = app.brain_input.as_mut() {
+            if let Some(Overlay::BrainInput(state)) = app.overlay.as_mut() {
                 state.buffer.clear();
             }
         }
         KeyCode::Backspace => {
-            if let Some(state) = app.brain_input.as_mut() {
+            if let Some(Overlay::BrainInput(state)) = app.overlay.as_mut() {
                 state.buffer.pop();
             }
         }
         KeyCode::Char(c) if !ctrl => {
-            if let Some(state) = app.brain_input.as_mut() {
+            if let Some(Overlay::BrainInput(state)) = app.overlay.as_mut() {
                 state.buffer.push(c);
             }
         }
@@ -232,12 +265,16 @@ pub(crate) fn handle_brain_input_key(app: &mut App, k: &crossterm::event::KeyEve
 /// scroll the (possibly long) list; `g`/`G` jump to the ends; `?` / `q` /
 /// `Esc` / `Ctrl+C` dismiss it. Captive while open.
 pub(crate) fn handle_help_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
-    let Some(help) = app.help.as_mut() else {
+    let Some(Overlay::Help(help)) = app.overlay.as_mut() else {
         return;
     };
     match k.code {
-        KeyCode::Char('q' | 'Q' | '?') | KeyCode::Esc => app.help = None,
-        KeyCode::Char('c') if ctrl => app.help = None,
+        KeyCode::Char('q' | 'Q' | '?') | KeyCode::Esc => {
+            close_overlay(&mut app.overlay);
+        }
+        KeyCode::Char('c') if ctrl => {
+            close_overlay(&mut app.overlay);
+        }
         KeyCode::Char('j') | KeyCode::Down => help.scroll = help.scroll.saturating_add(1),
         KeyCode::Char('k') | KeyCode::Up => help.scroll = help.scroll.saturating_sub(1),
         KeyCode::Char('g') | KeyCode::Home => help.scroll = 0,
@@ -253,11 +290,13 @@ pub(crate) fn handle_help_key(app: &mut App, k: &crossterm::event::KeyEvent, ctr
 /// last page when drawn), so `k` steps back through history and `G` returns to
 /// following.
 pub(crate) fn handle_sync_log_key(app: &mut App, k: &crossterm::event::KeyEvent) {
-    let Some(log) = app.sync_log.as_mut() else {
+    let Some(Overlay::SyncLog(log)) = app.overlay.as_mut() else {
         return;
     };
     match k.code {
-        KeyCode::Char('q' | 'Q') | KeyCode::Esc => app.sync_log = None,
+        KeyCode::Char('q' | 'Q') | KeyCode::Esc => {
+            close_overlay(&mut app.overlay);
+        }
         KeyCode::Char('j') | KeyCode::Down => log.scroll = log.scroll.saturating_add(1),
         KeyCode::Char('k') | KeyCode::Up => log.scroll = log.scroll.saturating_sub(1),
         KeyCode::Char('g') | KeyCode::Home => log.scroll = 0,
@@ -265,5 +304,15 @@ pub(crate) fn handle_sync_log_key(app: &mut App, k: &crossterm::event::KeyEvent)
         KeyCode::PageDown => log.scroll = log.scroll.saturating_add(10),
         KeyCode::PageUp => log.scroll = log.scroll.saturating_sub(10),
         _ => {}
+    }
+}
+
+fn take_task_confirmation(app: &mut App) -> Option<ConfirmState> {
+    match close_overlay(&mut app.overlay) {
+        Some(Overlay::TaskConfirmation(confirm)) => Some(confirm),
+        other => {
+            app.overlay = other;
+            None
+        }
     }
 }

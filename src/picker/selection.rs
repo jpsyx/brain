@@ -1,6 +1,7 @@
 //! Everything about the *highlighted* entry: the path/filename/directory
 //! accessors that feed the contextual palette rows and confirmations, the
-//! palette/confirm overlay openers, and the pure bucket-relative path helpers.
+//! shell-owned palette construction data, and the pure bucket-relative path
+//! helpers.
 
 use std::path::PathBuf;
 
@@ -10,12 +11,12 @@ use crate::open_target;
 use super::App;
 
 impl App {
-    pub(crate) fn open_palette(
-        &mut self,
+    pub(crate) fn search_palette(
+        &self,
         side: crate::state::PanelSide,
         include_msg: bool,
         receiver_enabled: bool,
-    ) {
+    ) -> menu::MenuApp {
         let targets = menu::Targets {
             receiver_enabled: Some(receiver_enabled),
             pdf: self.selected_markdown_filename(),
@@ -23,11 +24,7 @@ impl App {
             open_dir: self.selected_dir_reldisplay(),
             delete: self.selected_filename(),
         };
-        self.palette = Some(menu::MenuApp::new(side, include_msg, &targets));
-    }
-
-    pub(crate) fn close_palette(&mut self) {
-        self.palette = None;
+        menu::MenuApp::new(side, include_msg, &targets)
     }
 
     /// The absolute path of the highlighted entry when it is a markdown file,
@@ -80,18 +77,14 @@ impl App {
         })
     }
 
-    /// Open the "Create PDF" confirmation overlay for `path`.
-    pub(crate) fn open_confirm(&mut self, path: PathBuf) {
-        self.confirm = Some(crate::confirm::Confirm::pdf(path));
+    /// Build the "Create PDF" confirmation data for shell ownership.
+    pub(crate) fn pdf_confirmation(path: PathBuf) -> crate::confirm::Confirm {
+        crate::confirm::Confirm::pdf(path)
     }
 
-    /// Open the (red) "Delete" confirmation overlay for `path`.
-    pub(crate) fn open_delete_confirm(&mut self, path: PathBuf) {
-        self.confirm = Some(crate::confirm::Confirm::delete(path));
-    }
-
-    pub(crate) fn close_confirm(&mut self) {
-        self.confirm = None;
+    /// Build the red "Delete" confirmation data for shell ownership.
+    pub(crate) fn delete_confirmation(path: PathBuf) -> crate::confirm::Confirm {
+        crate::confirm::Confirm::delete(path)
     }
 
     pub(crate) fn selected_path(&self) -> Option<PathBuf> {

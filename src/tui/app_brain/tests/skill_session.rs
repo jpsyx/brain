@@ -140,15 +140,14 @@ fn skip_button_marks_managed_daily_triage_done_without_launching_an_agent() {
         .expect("reload after seeding the managed habit");
 
     // Press Skip on the daily-triage nudge.
-    app.confirm = Some(crate::tui::ConfirmState::run_triage(
-        "H35".to_owned(),
-        "Morning Triage".to_owned(),
+    app.overlay = Some(crate::tui::Overlay::TaskConfirmation(
+        crate::tui::ConfirmState::run_triage("H35".to_owned(), "Morning Triage".to_owned()),
     ));
     crate::tui::handlers::run_confirm_skip(&mut app);
 
     // The modal is dismissed and no agent panel was launched — Skip is a pure
     // in-process CSV mutation.
-    assert!(app.confirm.is_none(), "modal should be dismissed");
+    assert!(app.overlay.is_none(), "modal should be dismissed");
     assert!(
         app.brain.is_none(),
         "Skip must not launch the main brain panel"

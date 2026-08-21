@@ -69,14 +69,16 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
         calls: Arc::clone(&calls),
         fail: false,
     });
-    app.palette = Some(crate::tui::PaletteState::new(
-        None,
-        false,
-        false,
-        false,
-        crate::tui::LinkKind::None,
-        false,
-        false,
+    app.overlay = Some(crate::tui::Overlay::TaskPalette(
+        crate::tui::PaletteState::new(
+            None,
+            false,
+            false,
+            false,
+            crate::tui::LinkKind::None,
+            false,
+            false,
+        ),
     ));
     for character in "enable receiver".chars() {
         crate::tui::handle_palette_key(&mut app, &plain_key(KeyCode::Char(character)), false);
@@ -93,17 +95,14 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
         calls: Arc::clone(&calls),
         fail: true,
     });
-    app.search
-        .open_palette(app.panel_side, false, app.receiver_enabled);
+    app.overlay = Some(crate::tui::Overlay::SearchPalette(
+        app.search
+            .search_palette(app.panel_side, false, app.receiver_enabled),
+    ));
     for character in "disable receiver".chars() {
-        crate::tui::handle_search_view_key(
-            &mut app,
-            &plain_key(KeyCode::Char(character)),
-            false,
-            false,
-        );
+        crate::tui::route_search_palette(&mut app, &plain_key(KeyCode::Char(character)));
     }
-    crate::tui::handle_search_view_key(&mut app, &plain_key(KeyCode::Enter), false, false);
+    crate::tui::route_search_palette(&mut app, &plain_key(KeyCode::Enter));
 
     assert!(!app.receiver_enabled);
     assert!(matches!(

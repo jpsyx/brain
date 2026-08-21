@@ -61,18 +61,37 @@ without cluttering the screen. `Ctrl-p` is the palette hotkey (matching the
 `tasks` TUI), which is why it is no longer an up-motion alias in the picker (up
 is `↑` / `Ctrl-k`).
 
+## Why the shell owns one overlay enum
+
+Modal state belongs to the persistent shell, not to either main view. Keeping a
+separate `Option` for each task modal plus palette and confirmation fields in
+`picker::App` made impossible combinations representable and forced input and
+drawing to maintain matching precedence chains. The shell now owns one
+`Option<Overlay>` whose data-bearing variants cover every existing modal.
+Opening, replacing, routing, and closing are explicit transitions, and both the
+key router and draw pass exhaustively match the same enum. Task and search
+confirmations remain distinct variants because their accepted actions are
+different; the single owner does not unify their behavior.
+
+The picker therefore owns search, matching, navigation, and selection only. It
+returns the contextual palette or confirmation data that the shell places in
+the overlay. A captive modal still swallows the same keys, `Esc` and cancel
+still return to the unchanged underlying view, and confirmed actions retain
+their existing effects, but there is no hidden second modal waiting behind the
+visible one.
+
 ## Why the palette is a modal overlay, not its own screen
 
-The palette is drawn as a modal **overlay inside the picker's event loop**
-(`menu::draw_modal` over the picker, `menu::MenuApp` driven by the picker's
-`handle_key`), rather than a separate full-screen TUI the way it started.
+The palette is drawn as a modal **overlay inside the persistent shell**
+(`menu::draw_modal` over the active view, `menu::MenuApp` driven by the shell's
+overlay route), rather than a separate full-screen TUI the way it started.
 The reason is `Esc`: a separate screen would have to *exit* on `Esc`,
 dropping the user all the way back to the shell and losing the search they
 were in. As an overlay, `Esc` just closes the box and the picker is still
 right there underneath — the same back-out-of-a-modal behavior the `tasks`
 TUI has. This is why `menu/` has no `run()`/event loop of its own; it
 exposes pure state (`MenuApp`, `handle_key`) plus `draw_modal`, and the
-search view owns the loop. A confirmed row returns a `Choice`, which
+shell owns the loop. A confirmed row returns a `Choice`, which
 `tui/search_view.rs` runs in place (rescope, message brain, open tasks,
 PDF/delete) without leaving the shell.
 

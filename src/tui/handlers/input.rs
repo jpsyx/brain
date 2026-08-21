@@ -31,11 +31,7 @@ pub(crate) fn handle_mouse(app: &mut App, me: crossterm::event::MouseEvent) {
     use crossterm::event::MouseEventKind;
 
     // True modal overlays are captive — swallow the wheel entirely.
-    if app.palette.is_some()
-        || app.brain_input.is_some()
-        || app.confirm.is_some()
-        || app.help.is_some()
-    {
+    if app.overlay.is_some() {
         return;
     }
 

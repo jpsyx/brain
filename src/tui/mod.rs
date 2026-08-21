@@ -22,12 +22,13 @@
 //!
 //! Module layout:
 //! - This file owns the [`App`] shell type (and `Panel`) so every submodule
-//!   can reach its fields; `modal_state` owns the overlay-modal state structs.
+//!   can reach its fields; `overlay` owns the exclusive modal state enum and
+//!   `modal_state` owns its task-view state structs.
 //! - `palette` / `modals` — the command-palette and confirm / brain-input /
 //!   help modal state + behavior.
 //! - `app_state` / `app_actions` / `app_brain` — the `App` impl, split by
 //!   concern.
-//! - `event_loop` — terminal setup ([`run_tui`]), the event loop, and modal
+//! - `event_loop` — terminal setup ([`run_tui`]), the event loop, and overlay
 //!   key routing.
 //! - `handlers` / `keymap` — per-modal key handlers and the pure key-decision
 //!   helpers.
@@ -55,6 +56,7 @@ mod links;
 mod logs_view;
 mod modal_state;
 mod modals;
+mod overlay;
 mod palette;
 mod receiver_state;
 mod search_view;
@@ -72,12 +74,8 @@ pub(crate) use launch::TuiLaunch;
 // Re-export every submodule's items into the `tui` root so each submodule's
 // `use super::*;` can reach its siblings' free functions and shared types
 // (the `App` impl is split across files; the handlers / draw / keymap fns
-// call across module boundaries). `event_loop` can't be glob-imported (its
-// `event_loop` fn would shadow the module name), so its shared modal-routing
-// types are re-exported by name.
-// The modal-routing types are referenced within `event_loop` directly; the
-// only out-of-module consumer is the unit-test module, so the re-export is
-// test-only.
+// call across module boundaries). `event_loop` can't be glob-imported because
+// its `event_loop` fn would shadow the module name.
 pub(crate) use app_state::AppInit;
 pub(crate) use app_sync::*;
 pub(crate) use draw::*;
@@ -86,13 +84,12 @@ pub(crate) use draw_help::*;
 pub(crate) use draw_modals::*;
 pub(crate) use draw_palette::*;
 pub(crate) use draw_sync_log::*;
-#[cfg(test)]
-pub(crate) use event_loop::{ActiveModals, ModalInput, modal_input_target};
 pub(crate) use handlers::*;
 pub(crate) use keymap::*;
 pub(crate) use links::*;
 pub(crate) use logs_view::*;
 pub(crate) use modal_state::*;
+pub(crate) use overlay::*;
 pub(crate) use palette::*;
 pub(crate) use search_view::*;
 pub(crate) use shell::*;
@@ -268,7 +265,7 @@ pub(crate) struct App {
     /// is active.
     pub(crate) logs_view: Option<LogsView>,
     /// The brain-directory (fuzzy-search) main view's picker state — entries,
-    /// query, matches, and its own palette / confirm overlays. Only receives
+    /// query, and matches. Only receives
     /// keys while `main_view == MainView::BrainSearch` and the main panel is
     /// focused; drawn in the main panel area then.
     search: crate::picker::App,
@@ -303,17 +300,9 @@ pub(crate) struct App {
     /// session to resume — starting a new chat"). Cleared on the first focus
     /// switch.
     alert: Option<String>,
-    /// Active modal overlay. At most one is open at a time; the event
-    /// loop short-circuits to its handler when any is `Some`.
-    palette: Option<PaletteState>,
-    brain_input: Option<BrainInputState>,
-    confirm: Option<ConfirmState>,
-    link_picker: Option<LinkPickerState>,
-    assignee_filter: Option<AssigneeFilterState>,
-    /// Keyboard-shortcuts help modal (opened with `?`).
-    help: Option<HelpState>,
-    /// The live sync-log modal, when open.
-    sync_log: Option<SyncLogState>,
+    /// The shell's one modal slot. Its enum drives both input and drawing, so
+    /// simultaneous overlays are unrepresentable.
+    overlay: Option<Overlay>,
 
     /// Transient status line (success / error) shown until the next key
     /// press. Set by palette actions; cleared at the top of the event

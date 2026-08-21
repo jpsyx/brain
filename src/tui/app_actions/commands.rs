@@ -78,7 +78,10 @@ impl App {
                 // Don't surface the raw error — the only meaningful
                 // failure mode here is "no markdown in /tmp/", which the
                 // modal addresses directly.
-                self.confirm = Some(ConfirmState::generate_agenda());
+                open_overlay(
+                    &mut self.overlay,
+                    Overlay::TaskConfirmation(ConfirmState::generate_agenda()),
+                );
             }
         }
     }
@@ -120,7 +123,10 @@ impl App {
             }
             _ => {
                 let id = task.id.clone();
-                self.link_picker = Some(LinkPickerState::new(id, links));
+                open_overlay(
+                    &mut self.overlay,
+                    Overlay::LinkPicker(LinkPickerState::new(id, links)),
+                );
             }
         }
     }
@@ -129,15 +135,25 @@ impl App {
     /// when no picker is open or it somehow has no selection.
     pub(crate) fn open_selected_link(&mut self) {
         let Some(url) = self
-            .link_picker
+            .overlay
             .as_ref()
-            .and_then(LinkPickerState::selected_url)
+            .and_then(|overlay| match overlay {
+                Overlay::LinkPicker(picker) => picker.selected_url(),
+                Overlay::TaskPalette(_)
+                | Overlay::BrainInput(_)
+                | Overlay::TaskConfirmation(_)
+                | Overlay::SearchPalette(_)
+                | Overlay::SearchConfirmation(_)
+                | Overlay::AssigneeFilter(_)
+                | Overlay::Help(_)
+                | Overlay::SyncLog(_) => None,
+            })
             .map(str::to_owned)
         else {
             return;
         };
         self.flash = Some(open_url(self.open_runner.as_ref(), &url));
-        self.link_picker = None;
+        close_overlay(&mut self.overlay);
     }
 
     /// Yes-path for the no-agenda confirm modal. Hands off to the brain
@@ -164,7 +180,7 @@ impl App {
     }
 
     pub(crate) fn execute_palette_action(&mut self, action: PaletteAction) {
-        self.palette = None;
+        close_overlay(&mut self.overlay);
         match action {
             PaletteAction::SendBrainMessage => {
                 // Open / focus the persistent brain panel; the user types into it.
@@ -184,14 +200,17 @@ impl App {
                 self.show_logs_view(LogKind::Receiver);
             }
             PaletteAction::MessageBrainAboutTask => {
-                // Clone (id, name) before mutating self.brain_input so
+                // Clone (id, name) before opening the brain-input overlay so
                 // the borrow on visible_tasks ends first.
                 let target = self
                     .selected_task
                     .and_then(|i| self.visible_tasks.get(i))
                     .map(|t| (t.id.clone(), t.name.clone()));
                 if let Some((id, label)) = target {
-                    self.brain_input = Some(BrainInputState::about(id, label));
+                    open_overlay(
+                        &mut self.overlay,
+                        Overlay::BrainInput(BrainInputState::about(id, label)),
+                    );
                 }
             }
             PaletteAction::MarkTaskComplete => {
@@ -204,7 +223,10 @@ impl App {
                     .and_then(|i| self.visible_tasks.get(i))
                     .map(|t| (t.id.clone(), t.name.clone()));
                 if let Some((id, label)) = target {
-                    self.confirm = Some(ConfirmState::mark_complete(id, label));
+                    open_overlay(
+                        &mut self.overlay,
+                        Overlay::TaskConfirmation(ConfirmState::mark_complete(id, label)),
+                    );
                 }
             }
             PaletteAction::DeferTask(days) => {
@@ -228,7 +250,10 @@ impl App {
                     .and_then(|i| self.visible_tasks.get(i))
                     .map(|t| (t.id.clone(), t.name.clone()));
                 if let Some((id, label)) = target {
-                    self.confirm = Some(ConfirmState::remove(id, label));
+                    open_overlay(
+                        &mut self.overlay,
+                        Overlay::TaskConfirmation(ConfirmState::remove(id, label)),
+                    );
                 }
             }
             PaletteAction::ReassignTask => {
@@ -239,10 +264,13 @@ impl App {
                 self.send_brain_prompt(&message);
             }
             PaletteAction::ChooseAssigneeFilter => {
-                self.assignee_filter = Some(AssigneeFilterState::new(
-                    self.assignment.users(),
-                    self.assignment_filter.as_ref(),
-                ));
+                open_overlay(
+                    &mut self.overlay,
+                    Overlay::AssigneeFilter(AssigneeFilterState::new(
+                        self.assignment.users(),
+                        self.assignment_filter.as_ref(),
+                    )),
+                );
             }
             PaletteAction::OpenHabitsInBrowser => {
                 self.run_open_habits();
@@ -263,7 +291,10 @@ impl App {
                 crate::logging::log("palette request sync status");
                 // A modal, not a flash: the interesting thing about a running
                 // sync is the transcript, and the status line stays a one-liner.
-                self.sync_log = Some(SyncLogState { scroll: u16::MAX });
+                open_overlay(
+                    &mut self.overlay,
+                    Overlay::SyncLog(SyncLogState { scroll: u16::MAX }),
+                );
             }
             PaletteAction::OpenAgenda => {
                 self.run_open_agenda();

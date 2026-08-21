@@ -106,10 +106,13 @@ impl App {
             &self.config.daily_triage_name_pattern,
             self.today,
         ) {
-            self.confirm = Some(ConfirmState::run_triage(
-                habit.id.clone(),
-                habit.name.clone(),
-            ));
+            open_overlay(
+                &mut self.overlay,
+                Overlay::TaskConfirmation(ConfirmState::run_triage(
+                    habit.id.clone(),
+                    habit.name.clone(),
+                )),
+            );
         }
     }
 
@@ -127,22 +130,25 @@ impl App {
             &self.config.daily_triage_name_pattern,
             self.today,
         );
-        let nudge_is_open = self
-            .confirm
-            .as_ref()
-            .is_some_and(|confirm| confirm.kind == ConfirmKind::RunTriage);
+        let nudge_is_open = matches!(
+            self.overlay.as_ref(),
+            Some(Overlay::TaskConfirmation(confirm)) if confirm.kind == ConfirmKind::RunTriage
+        );
         match resolve_triage_alert(target.is_some(), nudge_is_open) {
             TriageAlertResolution::Open => {
                 if let Some(habit) = target {
-                    self.confirm = Some(ConfirmState::run_triage(
-                        habit.id.clone(),
-                        habit.name.clone(),
-                    ));
+                    open_overlay(
+                        &mut self.overlay,
+                        Overlay::TaskConfirmation(ConfirmState::run_triage(
+                            habit.id.clone(),
+                            habit.name.clone(),
+                        )),
+                    );
                 }
             }
             TriageAlertResolution::Dismiss => {
                 crate::logging::log("daily triage nudge withdrawn: sync showed it already done");
-                self.confirm = None;
+                close_overlay(&mut self.overlay);
                 self.flash = Some(FlashKind::Info(
                     "daily triage was already done on another machine".to_owned(),
                 ));
