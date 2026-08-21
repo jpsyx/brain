@@ -221,6 +221,14 @@ workspace singleton until the runtime drops. `Drop` invokes the same sequence
 as a best-effort fallback, so an early return cannot bypass cleanup. Controller
 and session-release failures are logged while later teardown stages continue.
 
+Partial startup needs a narrower ownership rule because registration makes the
+shared server advertise the job socket. One production boundary therefore owns
+the heartbeat lease before the socket through all later fallible preparation,
+including terminal and application setup, the initial panel, and startup
+workers. Its ordinary field destruction performs the required unregister-before-
+socket-removal rollback without another cleanup implementation. Socket ownership
+moves into the App only in the final infallible assembly step.
+
 The recurring coordinator similarly names the current order without moving
 feature decisions out of their owners. Sync and triage still decide internally
 whether task data needs refreshing. Logical-day advancement remains part of the

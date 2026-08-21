@@ -1225,6 +1225,13 @@ stage then wires a detached pull-biased startup sync and retains the optional
 watcher and periodic puller. The runtime owns the `App`, `TerminalSession`,
 workspace singleton, heartbeat worker, watcher, periodic puller, shell instance
 identity, and the App state that holds the session lock and receiver job socket.
+From successful server registration through final runtime assembly, one partial-
+startup owner retains the heartbeat lease before the bound job socket. Assignment
+resolution, terminal acquisition, DB/config/model construction, initial-panel
+launch, startup workers, and the lifecycle-completeness check all run inside that
+boundary. Any fallible return therefore unwinds its newer resources, unregisters
+and drops the server lease, and only then removes the job socket. The socket moves
+into the App only during the final infallible runtime assembly.
 
 One runtime tick coordinates the established order: close an exited agent panel
 and refresh tasks if needed, drain heartbeat/server-health events, tick skill

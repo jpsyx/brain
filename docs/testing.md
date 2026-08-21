@@ -669,8 +669,11 @@ first move is a failing test that reproduces it, *then* the fix.
 
 - **The interactive event loop.** `TuiRuntime` opens `/dev/tty`, toggles raw
   mode, pushes kitty flags, spawns the selected agent PTY, and runs the panel
-  loop. We test its lifecycle and recurring order through pure stage models,
-  its terminal lifecycle through injected headless operations, and the pure
+  loop. We test its lifecycle and recurring order through pure stage models. An
+  injected post-registration application-setup failure uses the production
+  partial-start owner and proves server-lease teardown precedes job-socket
+  removal without a terminal or sleep. We test the terminal lifecycle through
+  injected headless operations, and the pure
   application logic it calls (`handle_key`, `App::*`, `focus_*`,
   `panel_borders`, `key_to_bytes`, the render helpers); we don't drive a real
   terminal or a live Claude/Codex/OpenCode provider process.

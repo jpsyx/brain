@@ -605,6 +605,12 @@ worker, assignment, terminal, App/session state, initial agent panel, startup
 sync, watcher, and periodic puller. If the selected generation exits between discovery and
 registration, the handshake re-enters election and registers with the winner;
 an authoritative workspace rejection returns immediately.
+After registration, a partial-start boundary retains the heartbeat lease before
+the bound job socket across every remaining fallible stage: assignment and
+terminal setup, DB/config/App initialization, initial-panel launch, and startup
+workers. A startup error drops and unregisters the lease before removing the
+socket. Only an otherwise-complete runtime installs the socket into the App, and
+that transfer has no fallible work after it.
 The worker sends one heartbeat per second. Missing transport, a stale
 generation, or a lost lease triggers bounded election/reuse and re-registration;
 concurrent TUIs use the same election path so only one replacement wins.

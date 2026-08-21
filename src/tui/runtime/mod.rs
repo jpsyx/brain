@@ -14,7 +14,7 @@ mod shutdown;
 pub(crate) mod terminal;
 pub(super) mod tick;
 
-use self::shutdown::{AcquisitionStage, RuntimeLifecycle, ShutdownStage};
+use self::shutdown::{AcquisitionStage, RuntimeLifecycle, ShutdownStage, StartupResources};
 use self::terminal::TerminalSession;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,6 +164,14 @@ struct RuntimeBuilder {
     lifecycle: RuntimeLifecycle,
 }
 
+struct PreparedRuntime {
+    terminal: TerminalSession,
+    app: App,
+    watcher: Option<WatcherHandle>,
+    periodic_puller: Option<PeriodicPullHandle>,
+    instance: String,
+}
+
 impl RuntimeBuilder {
     const fn new(launch: TuiLaunch) -> Self {
         Self {
@@ -176,24 +184,48 @@ impl RuntimeBuilder {
         let singleton = self.acquire_workspace_boundary()?;
         let job_socket = self.bind_receiver_endpoint()?;
         let server_lease = self.start_server_lease()?;
+        let startup_resources = StartupResources::new(server_lease, job_socket);
+        let prepared =
+            startup_resources.prepare(|server_lease| self.prepare_runtime(server_lease))?;
+        let lifecycle = self.lifecycle;
+        Ok(prepared.finish(|prepared, server_lease, job_socket| {
+            let PreparedRuntime {
+                terminal,
+                mut app,
+                watcher,
+                periodic_puller,
+                instance,
+            } = prepared;
+            app.receiver.install_socket(job_socket);
+            TuiRuntime {
+                terminal,
+                app,
+                server_lease: Some(server_lease),
+                watcher,
+                periodic_puller,
+                instance,
+                lifecycle,
+                singleton,
+            }
+        }))
+    }
+
+    fn prepare_runtime(&mut self, server_lease: &HeartbeatWorker) -> Result<PreparedRuntime> {
         let assignment = self.prepare_assignment()?;
         let terminal = self.acquire_terminal()?;
-        let (mut app, instance) = self.build_application(job_socket, &server_lease, assignment)?;
+        let (mut app, instance) = self.build_application(server_lease, assignment)?;
         Self::launch_initial_agent_panel(&mut app);
         let (watcher, periodic_puller) = self.start_sync_services(&mut app)?;
         anyhow::ensure!(
             self.lifecycle.is_running(),
             "TUI runtime startup is incomplete"
         );
-        Ok(TuiRuntime {
+        Ok(PreparedRuntime {
             terminal,
             app,
-            server_lease: Some(server_lease),
             watcher,
             periodic_puller,
             instance,
-            lifecycle: self.lifecycle,
-            singleton,
         })
     }
 
@@ -254,7 +286,6 @@ impl RuntimeBuilder {
 
     fn build_application(
         &mut self,
-        job_socket: JobSocket,
         server_lease: &HeartbeatWorker,
         assignment: (
             crate::tasks::task::AssignmentContext,
@@ -290,8 +321,7 @@ impl RuntimeBuilder {
                 crate::logging::log(format!("receiver intent load failed: {error:#}"));
                 false
             });
-        let mut receiver = crate::tui::receiver::ReceiverRuntime::new(receiver_enabled);
-        receiver.install_socket(job_socket);
+        let receiver = crate::tui::receiver::ReceiverRuntime::new(receiver_enabled);
         let app = App::new(AppInit {
             command_context,
             view,
