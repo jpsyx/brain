@@ -25,6 +25,18 @@ fn event_loop_error_still_runs_terminal_restoration() {
 }
 
 #[test]
+fn required_terminal_restoration_error_supersedes_event_loop_error() {
+    let result = restore_after_event_loop(Err(anyhow::anyhow!("event loop failed")), || {
+        Err(anyhow::anyhow!("required restoration failed"))
+    });
+
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "required restoration failed"
+    );
+}
+
+#[test]
 fn periodic_pull_runs_only_for_a_sync_configured_shell() {
     assert!(periodic_pull_enabled(true));
     assert!(!periodic_pull_enabled(false));

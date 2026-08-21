@@ -74,7 +74,9 @@ impl<O: TerminalOps> ManagedTerminal<O> {
         if self.enabled.keyboard_enhancement {
             match self.ops.pop_keyboard_enhancement() {
                 Ok(()) => self.enabled.keyboard_enhancement = false,
-                Err(error) => first_error = Some(error),
+                Err(error) => crate::logging::log(format!(
+                    "best-effort terminal keyboard restoration failed: {error:#}"
+                )),
             }
         }
         if self.enabled.raw {
@@ -114,6 +116,14 @@ impl<O: TerminalOps> Drop for ManagedTerminal<O> {
             ));
         }
     }
+}
+
+pub(crate) fn restore_after_event_loop(
+    event_loop_result: Result<()>,
+    restore: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    restore()?;
+    event_loop_result
 }
 
 #[derive(Default)]
@@ -228,11 +238,12 @@ impl TerminalSession {
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    use std::collections::VecDeque;
     use std::rc::Rc;
 
     use anyhow::{Result, anyhow};
 
-    use super::{ManagedTerminal, TerminalOps};
+    use super::{ManagedTerminal, TerminalOps, restore_after_event_loop};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Operation {
@@ -248,28 +259,28 @@ mod tests {
         ShowCursor,
     }
 
+    type Operations = Rc<RefCell<Vec<Operation>>>;
+    type FailureScript = Rc<RefCell<VecDeque<Operation>>>;
+
     struct RecordingOps {
-        operations: Rc<RefCell<Vec<Operation>>>,
-        fail_on: Option<Operation>,
+        operations: Operations,
+        failures: FailureScript,
         keyboard_enabled: bool,
     }
 
     impl RecordingOps {
-        fn new(
-            operations: Rc<RefCell<Vec<Operation>>>,
-            fail_on: Option<Operation>,
-            keyboard_enabled: bool,
-        ) -> Self {
+        fn new(operations: Operations, failures: FailureScript, keyboard_enabled: bool) -> Self {
             Self {
                 operations,
-                fail_on,
+                failures,
                 keyboard_enabled,
             }
         }
 
         fn record(&self, operation: Operation) -> Result<()> {
             self.operations.borrow_mut().push(operation);
-            if self.fail_on == Some(operation) {
+            if self.failures.borrow().front() == Some(&operation) {
+                self.failures.borrow_mut().pop_front();
                 Err(anyhow!("injected {operation:?} failure"))
             } else {
                 Ok(())
@@ -321,13 +332,19 @@ mod tests {
     }
 
     fn recorder(
-        fail_on: Option<Operation>,
+        failures: impl IntoIterator<Item = Operation>,
         keyboard_enabled: bool,
-    ) -> (RecordingOps, Rc<RefCell<Vec<Operation>>>) {
+    ) -> (RecordingOps, Operations, FailureScript) {
         let operations = Rc::new(RefCell::new(Vec::new()));
+        let failures = Rc::new(RefCell::new(failures.into_iter().collect()));
         (
-            RecordingOps::new(Rc::clone(&operations), fail_on, keyboard_enabled),
+            RecordingOps::new(
+                Rc::clone(&operations),
+                Rc::clone(&failures),
+                keyboard_enabled,
+            ),
             operations,
+            failures,
         )
     }
 
@@ -370,7 +387,7 @@ mod tests {
         ];
 
         for (failure, expected) in cases {
-            let (ops, operations) = recorder(Some(failure), true);
+            let (ops, operations, _) = recorder([failure], true);
 
             let result = ManagedTerminal::acquire(ops);
 
@@ -381,7 +398,7 @@ mod tests {
 
     #[test]
     fn orderly_restore_preserves_the_existing_terminal_teardown_sequence() {
-        let (ops, operations) = recorder(None, true);
+        let (ops, operations, _) = recorder([], true);
         let mut terminal = ManagedTerminal::acquire(ops).unwrap();
         operations.borrow_mut().clear();
 
@@ -400,7 +417,7 @@ mod tests {
 
     #[test]
     fn restore_omits_keyboard_pop_when_keyboard_enhancement_was_not_enabled() {
-        let (ops, operations) = recorder(None, false);
+        let (ops, operations, _) = recorder([], false);
         let mut terminal = ManagedTerminal::acquire(ops).unwrap();
         operations.borrow_mut().clear();
 
@@ -418,7 +435,7 @@ mod tests {
 
     #[test]
     fn repeated_restore_is_idempotent() {
-        let (ops, operations) = recorder(None, true);
+        let (ops, operations, _) = recorder([], true);
         let mut terminal = ManagedTerminal::acquire(ops).unwrap();
         operations.borrow_mut().clear();
 
@@ -427,5 +444,104 @@ mod tests {
         terminal.restore().unwrap();
 
         assert_eq!(*operations.borrow(), after_first_restore);
+    }
+
+    #[test]
+    fn required_restore_error_supersedes_loop_after_all_steps_then_only_failures_retry() {
+        let (ops, operations, failures) = recorder([], true);
+        let mut terminal = ManagedTerminal::acquire(ops).unwrap();
+        operations.borrow_mut().clear();
+        failures.borrow_mut().extend([
+            Operation::PopKeyboard,
+            Operation::DisableRaw,
+            Operation::DisableMouseAndLeaveAlternateScreen,
+        ]);
+
+        let first_result =
+            restore_after_event_loop(Err(anyhow!("event loop failed")), || terminal.restore());
+
+        assert_eq!(
+            first_result.unwrap_err().to_string(),
+            "injected DisableRaw failure"
+        );
+        assert_eq!(
+            *operations.borrow(),
+            [
+                Operation::PopKeyboard,
+                Operation::DisableRaw,
+                Operation::DisableMouseAndLeaveAlternateScreen,
+                Operation::ShowCursor,
+            ]
+        );
+
+        operations.borrow_mut().clear();
+        terminal.restore().unwrap();
+
+        assert_eq!(
+            *operations.borrow(),
+            [
+                Operation::PopKeyboard,
+                Operation::DisableRaw,
+                Operation::DisableMouseAndLeaveAlternateScreen,
+            ]
+        );
+
+        operations.borrow_mut().clear();
+        terminal.restore().unwrap();
+
+        assert!(operations.borrow().is_empty());
+    }
+
+    #[test]
+    fn optional_keyboard_pop_failure_does_not_supersede_loop_error_and_only_it_is_retried() {
+        let (ops, operations, failures) = recorder([], true);
+        let mut terminal = ManagedTerminal::acquire(ops).unwrap();
+        operations.borrow_mut().clear();
+        failures.borrow_mut().push_back(Operation::PopKeyboard);
+
+        let result =
+            restore_after_event_loop(Err(anyhow!("event loop failed")), || terminal.restore());
+
+        assert_eq!(result.unwrap_err().to_string(), "event loop failed");
+        assert_eq!(
+            *operations.borrow(),
+            [
+                Operation::PopKeyboard,
+                Operation::DisableRaw,
+                Operation::DisableMouseAndLeaveAlternateScreen,
+                Operation::ShowCursor,
+            ]
+        );
+
+        operations.borrow_mut().clear();
+        terminal.restore().unwrap();
+
+        assert_eq!(*operations.borrow(), [Operation::PopKeyboard]);
+    }
+
+    #[test]
+    fn drop_continues_best_effort_restoration_without_panicking() {
+        let (ops, operations, failures) = recorder([], true);
+        let terminal = ManagedTerminal::acquire(ops).unwrap();
+        operations.borrow_mut().clear();
+        failures.borrow_mut().extend([
+            Operation::PopKeyboard,
+            Operation::DisableRaw,
+            Operation::DisableMouseAndLeaveAlternateScreen,
+            Operation::ShowCursor,
+        ]);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(terminal)));
+
+        assert!(result.is_ok());
+        assert_eq!(
+            *operations.borrow(),
+            [
+                Operation::PopKeyboard,
+                Operation::DisableRaw,
+                Operation::DisableMouseAndLeaveAlternateScreen,
+                Operation::ShowCursor,
+            ]
+        );
     }
 }

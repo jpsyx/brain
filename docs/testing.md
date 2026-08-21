@@ -35,9 +35,13 @@ first move is a failing test that reproduces it, *then* the fix.
   operations seam. Failure injection covers rollback at every fallible setup
   boundary, including a possibly partial alternate-screen/mouse write. The
   tests pin normal cleanup order, optional keyboard-pop omission, cursor
-  restoration, and idempotent repeated restoration. A setup test injects an
-  event-loop error and proves restoration still runs while the original loop
-  error is retained. None opens `/dev/tty`.
+  restoration, and idempotent repeated restoration. Scripted fail-once cleanup
+  failures prove restoration continues through every armed step, returns the
+  first required error, clears successes, and retries only failed capabilities.
+  They also prove optional keyboard-pop failure stays best-effort and cannot
+  replace an event-loop error, required cleanup retains its prior precedence
+  when both paths fail, and `Drop` completes without panicking. None opens
+  `/dev/tty`.
 - **Workspace CLI decisions.** Clap and binary tests cover every placement of
   the raw `--workspace/-w` selector, including after delegated task positionals,
   the long equals form, the `--` terminator, and duplicate/missing-value errors,

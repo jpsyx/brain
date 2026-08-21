@@ -1203,7 +1203,9 @@ mouse-motion adjustment, optional keyboard enhancement, and cursor-restoration
 ownership in one guard. A later startup or event-loop error therefore restores
 the terminal through the same path as an orderly return. Acquisition failure
 rolls back every mode that may already have been enabled. Explicit restoration
-is idempotent; `Drop` retries remaining cleanup best-effort and logs a failure
+is idempotent. An optional keyboard-pop failure is logged and retained for a
+best-effort retry without replacing an event-loop or required-cleanup result;
+`Drop` retries every remaining capability and logs required cleanup failure
 without panicking.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`

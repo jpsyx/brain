@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use crate::config::Config;
 use crate::state::Db;
-use crate::tui::runtime::terminal::TerminalSession;
+use crate::tui::runtime::terminal::{TerminalSession, restore_after_event_loop};
 use crate::tui::*;
 
 use super::run::event_loop;
@@ -72,14 +72,6 @@ fn register_server_lease(
         client,
         registration,
     ))
-}
-
-fn restore_after_event_loop(
-    event_loop_result: Result<()>,
-    restore: impl FnOnce() -> Result<()>,
-) -> Result<()> {
-    restore()?;
-    event_loop_result
 }
 
 pub(crate) fn run_tui(launch: TuiLaunch) -> Result<()> {

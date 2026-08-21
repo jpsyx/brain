@@ -195,6 +195,14 @@ both harmless inverse commands are already armed. Tests pin this order through
 a headless terminal-operations seam; production still writes the same commands
 to `/dev/tty` and adds no capability probe.
 
+Keyboard enhancement remains optional in teardown as well as setup. A failed
+pop is logged and stays armed for a later explicit or `Drop` retry, but it is
+never returned in place of an event-loop error or a required cleanup failure.
+Required cleanup continues through every armed capability, returns its first
+error, clears each successful capability, and retries only failures. When both
+the event loop and required cleanup fail, the required cleanup error retains
+the pre-refactor precedence established by the teardown `?` sequence.
+
 ## Why we push the kitty protocol unconditionally (and avoid the probe)
 
 Distinguishing `Ctrl-Enter` (reveal in Finder) from `Enter` (open file)
