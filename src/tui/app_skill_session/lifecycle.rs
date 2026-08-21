@@ -14,13 +14,13 @@ use crate::agent::{AgentSession, HookMetadata, LaunchRequest, SessionPlan};
 use crate::pty_pane::PtyPane;
 
 #[cfg(not(test))]
-fn session_done_url(app: &App<'_>) -> anyhow::Result<String> {
+fn session_done_url(app: &App) -> anyhow::Result<String> {
     let record = crate::server::lifecycle::ServerClient::default().connect_existing()?;
     Ok(app.session_done_url_for_port(record.port))
 }
 
 #[cfg(test)]
-fn session_done_url(app: &mut App<'_>) -> anyhow::Result<String> {
+fn session_done_url(app: &mut App) -> anyhow::Result<String> {
     if let Some(url) = app.session_done_url_override.take() {
         return Ok(url);
     }
@@ -29,19 +29,19 @@ fn session_done_url(app: &mut App<'_>) -> anyhow::Result<String> {
 }
 
 #[cfg(not(test))]
-fn session_transport(_app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+fn session_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
     Box::new(PtyPane::new(24, 80))
 }
 
 #[cfg(test)]
-fn session_transport(app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+fn session_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
     if let Some(transport) = app.session_transport_override.take() {
         return transport;
     }
     Box::new(PtyPane::new(24, 80))
 }
 
-impl App<'_> {
+impl App {
     /// Start the builtin daily-triage skill session. The Yes-path of the startup
     /// nudge; equivalent to its command-palette row.
     pub(crate) fn open_triage_tab(&mut self) {

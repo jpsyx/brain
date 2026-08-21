@@ -26,7 +26,7 @@ use crate::skill_session::{SkillSessionKey, SkillSessionSpec};
 /// row shows (its `command_label` when starting, its tab `title` when focusing).
 pub(crate) type SkillSessionRows = Vec<(SkillSessionKey, String)>;
 
-impl App<'_> {
+impl App {
     pub(crate) fn session_done_url_for_port(&self, port: u16) -> String {
         crate::server::url(
             port,

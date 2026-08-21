@@ -5,7 +5,7 @@ pub(crate) fn live_panel(root: &Path) -> PtyPane {
     PtyPane::spawn_shell_command_with_env("cat", &[], root, 24, 80).expect("spawn panel")
 }
 
-pub(crate) fn panel_controller(app: &App<'_>, panel: PtyPane) -> AgentController {
+pub(crate) fn panel_controller(app: &App, panel: PtyPane) -> AgentController {
     AgentController::configured(
         &app.command_context,
         app.agent_kind,

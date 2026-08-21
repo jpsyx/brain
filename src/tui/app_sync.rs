@@ -75,7 +75,7 @@ impl ReceiverSyncRuntime for SystemReceiverSyncRuntime {
     }
 }
 
-impl App<'_> {
+impl App {
     pub(crate) fn tick_sync_status(&mut self) {
         let now = self.receiver_sync_runtime.monotonic_now();
         if now < self.sync_status_next_poll {

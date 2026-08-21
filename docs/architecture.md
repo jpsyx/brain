@@ -114,7 +114,10 @@ metadata, initializes the portable config, task stores, lookup CSVs, counters,
 and PARA directories, then publishes the initialized tree with a configured
 push before the task CSVs are loaded.
 
-tui::run_tui(command_context, view, cli, …) (the persistent shell)
+tui::run_tui(TuiLaunch) (the persistent shell)
+ ├─→ command::tasks::browse converts the task clap DTO once into owned
+ │   TaskViewOptions, then moves the resolved view, task rows, selector state,
+ │   and workspace context into TuiLaunch
  ├─→ command_context.workspace.root()       (immutable selected root snapshot)
  ├─→ build_search(brain_root)                (entry::collect over all buckets → picker::App)
  └─→ App event loop (tasks view + search view + agent PTY)
@@ -1148,9 +1151,10 @@ the transient palette flash.
 the UUID-scoped `jobs.sock`, completes a bounded connect/elect/register
 handshake with the machine-wide server, and starts its heartbeat worker. The
 handshake retries only stale or missing generations, while authoritative
-workspace rejection ends startup. Only then does it open the state DB, build
-the brain-search picker
-(`build_search`), and constructs the `App` from the selected `CommandContext`.
+workspace rejection ends startup. Only then does it open the state DB, resolve
+assignment state, build the brain-search picker (`build_search`), and assemble
+one internal `AppInit` request. `App::new(AppInit)` initializes the
+lifetime-free shell model from that owned request.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
 then launches the selected frontend through an `AgentController`

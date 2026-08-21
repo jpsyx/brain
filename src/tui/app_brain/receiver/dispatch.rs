@@ -2,7 +2,7 @@
 
 use crate::tui::*;
 
-impl App<'_> {
+impl App {
     /// Drain jobs received on the UUID-local socket. Active agent work is
     /// never interrupted; the queue is consumed when the panel is available.
     pub(crate) fn tick_receiver(&mut self) {

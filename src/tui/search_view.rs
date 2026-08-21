@@ -19,7 +19,7 @@ use crate::menu::{self, Choice};
 use crate::open_target;
 use crate::{confirm, picker};
 
-impl App<'_> {
+impl App {
     /// Re-walk `roots` into the search picker, clearing the query (a scope
     /// switch from the brain-search palette).
     pub(crate) fn search_rescope(&mut self, roots: &[(Bucket, std::path::PathBuf)]) {
@@ -58,12 +58,7 @@ fn single_bucket_root(brain_root: &Path, bucket: Bucket) -> Vec<(Bucket, std::pa
 
 /// Handle a keystroke while the brain-search view has focus. Returns `true`
 /// when the shell should quit (Esc / Ctrl+C from the picker).
-pub(crate) fn handle_search_view_key(
-    app: &mut App<'_>,
-    k: &KeyEvent,
-    ctrl: bool,
-    alt: bool,
-) -> bool {
+pub(crate) fn handle_search_view_key(app: &mut App, k: &KeyEvent, ctrl: bool, alt: bool) -> bool {
     // The picker's own overlays are captive while open.
     if app.search.palette.is_some() {
         route_search_palette(app, k);
@@ -131,7 +126,7 @@ pub(crate) fn handle_search_view_key(
     false
 }
 
-fn route_search_palette(app: &mut App<'_>, k: &KeyEvent) {
+fn route_search_palette(app: &mut App, k: &KeyEvent) {
     let Some(palette) = app.search.palette.as_mut() else {
         return;
     };
@@ -145,7 +140,7 @@ fn route_search_palette(app: &mut App<'_>, k: &KeyEvent) {
     }
 }
 
-fn route_search_confirm(app: &mut App<'_>, k: &KeyEvent) {
+fn route_search_confirm(app: &mut App, k: &KeyEvent) {
     let step = match app.search.confirm.as_mut() {
         Some(c) => confirm::handle_key(c, *k),
         None => return,
@@ -167,7 +162,7 @@ fn route_search_confirm(app: &mut App<'_>, k: &KeyEvent) {
     }
 }
 
-fn dispatch_choice(app: &mut App<'_>, choice: Choice) {
+fn dispatch_choice(app: &mut App, choice: Choice) {
     match choice {
         Choice::CreatePdf => {
             if let Some(path) = app.search.selected_markdown_path() {
@@ -224,7 +219,7 @@ fn dispatch_choice(app: &mut App<'_>, choice: Choice) {
     }
 }
 
-fn create_pdf_inline(app: &App<'_>, md: &Path) {
+fn create_pdf_inline(app: &App, md: &Path) {
     if let Ok(pdf) = open_target::create_pdf(&app.command_context, md) {
         let _ = open_target::open_with_system(&pdf);
     }

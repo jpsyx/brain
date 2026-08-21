@@ -53,7 +53,7 @@ fn reinstall_lifecycle_after_pull(workspace: &crate::workspace::WorkspaceContext
     }
 }
 
-impl App<'_> {
+impl App {
     /// Yes-path for the startup daily-triage modal. Opens the daily-triage pass
     /// in its own ephemeral brain-panel tab (`Alt+2`) seeded with `/triage`, so
     /// the (often long, often interactive) pass runs in the background and the
@@ -213,14 +213,17 @@ impl App<'_> {
                             view.selector(self.today)
                         });
                     let spec = crate::tasks::view::build_view(
-                        self.cli,
+                        &self.task_options,
                         &selector,
                         self.active_view,
                         self.data_for_view(self.active_view),
                         self.today,
                     );
-                    self.header =
-                        crate::tasks::render::header_lines(&spec, self.cli, self.active_view);
+                    self.header = crate::tasks::render::header_lines(
+                        &spec,
+                        &self.task_options,
+                        self.active_view,
+                    );
                     self.base_tasks = spec.tasks;
                     self.rebuild_body();
                     // The nudge was already raised at startup, so this is a

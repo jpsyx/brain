@@ -13,7 +13,7 @@ use ratatui::{
 use crate::tasks::render::{compact_footer_line, search_bar_line, search_footer_line};
 use crate::tui::*;
 
-pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App<'_>, area: Rect) {
+pub(crate) fn draw_tasks(f: &mut Frame, app: &mut App, area: Rect) {
     let mut header = tasks_header_lines(
         &app.header,
         app.assignment.users(),

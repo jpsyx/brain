@@ -4,7 +4,7 @@ use crate::tui::*;
 
 use crate::agent::SessionStore;
 
-impl App<'_> {
+impl App {
     pub(in crate::tui::app_brain) fn close_receiver_panel(&mut self, restore_interactive: bool) {
         let resume_session = self
             .interactive_agent_session_id

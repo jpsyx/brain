@@ -10,3 +10,5 @@ mod construct;
 mod nav;
 mod selection_query;
 mod view;
+
+pub(crate) use construct::AppInit;

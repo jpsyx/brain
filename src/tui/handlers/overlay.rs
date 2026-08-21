@@ -6,7 +6,7 @@ use crate::tui::*;
 
 use crossterm::event::{KeyCode, KeyModifiers};
 
-pub(crate) fn handle_palette_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent, ctrl: bool) {
+pub(crate) fn handle_palette_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
     let Some(palette) = app.palette.as_mut() else {
         return;
     };
@@ -35,7 +35,7 @@ pub(crate) fn handle_palette_key(app: &mut App<'_>, k: &crossterm::event::KeyEve
 
 /// Take the active confirm modal and dispatch its Yes path to the right
 /// action handler. No-op when no confirm is open.
-pub(crate) fn run_confirm_yes(app: &mut App<'_>) {
+pub(crate) fn run_confirm_yes(app: &mut App) {
     let Some(c) = app.confirm.take() else { return };
     match c.kind {
         ConfirmKind::MarkComplete => app.run_mark_complete(&c.task_id),
@@ -49,7 +49,7 @@ pub(crate) fn run_confirm_yes(app: &mut App<'_>) {
 /// daily-triage modal offers Skip; other kinds have no Skip button, so
 /// this is a no-op for them (defensive — the key handler already gates
 /// `s` on `has_skip`).
-pub(crate) fn run_confirm_skip(app: &mut App<'_>) {
+pub(crate) fn run_confirm_skip(app: &mut App) {
     let Some(c) = app.confirm.take() else { return };
     if c.kind == ConfirmKind::RunTriage {
         app.skip_triage();
@@ -58,7 +58,7 @@ pub(crate) fn run_confirm_skip(app: &mut App<'_>) {
 
 /// Resolve the confirm modal by the button the user landed on: `Yes` runs
 /// the action, `No` cancels, `Skip` runs the skip path.
-pub(crate) fn run_confirm_choice(app: &mut App<'_>, choice: ConfirmChoice) {
+pub(crate) fn run_confirm_choice(app: &mut App, choice: ConfirmChoice) {
     match choice {
         ConfirmChoice::Yes => run_confirm_yes(app),
         ConfirmChoice::No => app.confirm = None,
@@ -66,7 +66,7 @@ pub(crate) fn run_confirm_choice(app: &mut App<'_>, choice: ConfirmChoice) {
     }
 }
 
-pub(crate) fn handle_confirm_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent, ctrl: bool) {
+pub(crate) fn handle_confirm_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
     if app.confirm.is_none() {
         return;
     }
@@ -108,11 +108,7 @@ pub(crate) fn handle_confirm_key(app: &mut App<'_>, k: &crossterm::event::KeyEve
 /// move the selection; a digit jumps to and opens that numbered row; Enter
 /// opens the highlighted link; Esc / Ctrl+C dismiss. Other keys are
 /// swallowed — the modal is captive until resolved.
-pub(crate) fn handle_link_picker_key(
-    app: &mut App<'_>,
-    k: &crossterm::event::KeyEvent,
-    ctrl: bool,
-) {
+pub(crate) fn handle_link_picker_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
     let Some(picker) = app.link_picker.as_mut() else {
         return;
     };
@@ -141,7 +137,7 @@ pub(crate) fn handle_link_picker_key(
 /// link picker, but choosing a row changes the in-process task filter instead
 /// of opening a URL.
 pub(crate) fn handle_assignee_filter_key(
-    app: &mut App<'_>,
+    app: &mut App,
     k: &crossterm::event::KeyEvent,
     ctrl: bool,
 ) {
@@ -186,11 +182,7 @@ pub(crate) fn handle_assignee_filter_key(
     }
 }
 
-pub(crate) fn handle_brain_input_key(
-    app: &mut App<'_>,
-    k: &crossterm::event::KeyEvent,
-    ctrl: bool,
-) {
+pub(crate) fn handle_brain_input_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
     if app.brain_input.is_none() {
         return;
     }
@@ -239,7 +231,7 @@ pub(crate) fn handle_brain_input_key(
 /// Handle a keystroke for the keyboard-shortcuts help modal. `j`/`k`/arrows
 /// scroll the (possibly long) list; `g`/`G` jump to the ends; `?` / `q` /
 /// `Esc` / `Ctrl+C` dismiss it. Captive while open.
-pub(crate) fn handle_help_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent, ctrl: bool) {
+pub(crate) fn handle_help_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) {
     let Some(help) = app.help.as_mut() else {
         return;
     };
@@ -260,7 +252,7 @@ pub(crate) fn handle_help_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent,
 /// The modal follows the tail by default (`scroll: u16::MAX` is clamped to the
 /// last page when drawn), so `k` steps back through history and `G` returns to
 /// following.
-pub(crate) fn handle_sync_log_key(app: &mut App<'_>, k: &crossterm::event::KeyEvent) {
+pub(crate) fn handle_sync_log_key(app: &mut App, k: &crossterm::event::KeyEvent) {
     let Some(log) = app.sync_log.as_mut() else {
         return;
     };

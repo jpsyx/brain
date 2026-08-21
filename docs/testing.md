@@ -25,6 +25,11 @@ first move is a failing test that reproduces it, *then* the fix.
   (text vs blob, case-insensitivity, extensionless), `finder_target`,
   `open_target::is_markdown` (strictly `.md`) and `pdf_output_path`
   (colocated same-stem `.pdf`).
+- **Command-to-runtime ownership.** `TaskViewOptions::from(&Cli)` is tested
+  after mutating and dropping the source clap DTO, proving task-view filters
+  and display state are owned runtime data. `tests/tui_construction_boundary.rs`
+  rejects an `App` lifetime, a retained task clap DTO, the obsolete receiver
+  launch parameter, or any `run_tui` shape other than one owned `TuiLaunch`.
 - **Workspace CLI decisions.** Clap and binary tests cover every placement of
   the raw `--workspace/-w` selector, including after delegated task positionals,
   the long equals form, the `--` terminator, and duplicate/missing-value errors,
@@ -638,6 +643,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | --- | --- |
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
+| `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, and no obsolete receiver launch argument. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

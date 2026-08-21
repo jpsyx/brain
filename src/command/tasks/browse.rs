@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 
 use crate::tasks::cli::Cli as TasksCli;
 use crate::tasks::selector::{Selector, parse_selector};
-use crate::tasks::view::View;
+use crate::tasks::view::{TaskViewOptions, View};
 
 pub(super) enum Initial {
     View(View),
@@ -34,7 +34,6 @@ pub(super) fn run(
     context: &crate::workspace::CommandContext,
     today: NaiveDate,
     agent_kind: crate::session::AgentKind,
-    with_receiver: bool,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
     crate::logging::log("tasks browse");
@@ -68,7 +67,9 @@ pub(super) fn run(
         initial_data.len(),
         cli.display.no_tui,
     ));
-    let mut view = crate::tasks::view::build_view(cli, &selector, start_view, initial_data, today);
+    let task_options = TaskViewOptions::from(&*cli);
+    let mut view =
+        crate::tasks::view::build_view(&task_options, &selector, start_view, initial_data, today);
     if cli.display.no_tui {
         if cli.filters.assigned_to.is_some() {
             let assignment = crate::tasks::task::assignment_context_for_workspace(
@@ -95,20 +96,19 @@ pub(super) fn run(
     } else {
         crate::logging::set_stdout_enabled(false);
         crate::logging::log("enter tui");
-        crate::tui::run_tui(
-            context,
-            &view,
-            cli,
+        crate::tui::run_tui(crate::tui::TuiLaunch {
+            command_context: context.clone(),
+            view,
+            task_options,
             agent_kind,
             today,
             csv_path,
             all_tasks,
-            habits,
-            start_view,
+            all_habits: habits,
+            active_view: start_view,
             initial_search,
-            with_receiver,
             skip_daily_triage_check,
-        )?;
+        })?;
     }
     Ok(())
 }

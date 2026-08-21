@@ -10,7 +10,7 @@
 
 use crate::tui::*;
 
-impl App<'_> {
+impl App {
     pub(in crate::tui::app_brain) fn send_email_reply(&self, action: &'static str, message: &str) {
         let recipients = crate::server::delivery::trusted_response_recipients(
             self.receiver_response_email.as_deref(),

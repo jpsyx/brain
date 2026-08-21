@@ -23,7 +23,11 @@ fn startup_header() -> Vec<ratatui::text::Line<'static>> {
         tasks: Vec::new(),
         total: 0,
     };
-    crate::tasks::render::header_lines(&view, &cli, None)
+    crate::tasks::render::header_lines(
+        &view,
+        &crate::tasks::view::TaskViewOptions::from(&cli),
+        None,
+    )
 }
 
 fn header_text(filter: Option<&UserId>) -> String {

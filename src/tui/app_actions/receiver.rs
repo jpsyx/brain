@@ -2,7 +2,7 @@
 
 use crate::tui::{App, FlashKind};
 
-impl App<'_> {
+impl App {
     pub(crate) fn refresh_receiver_enabled(&mut self) {
         match crate::command::server::receiver_enabled(&self.command_context) {
             Ok(enabled) => self.receiver_enabled = enabled,

@@ -157,7 +157,6 @@ pub fn run(
             TasksCli::parse_from(["brain"]),
             context,
             agent_kind,
-            cli.with_receiver,
             skip_daily_triage_check,
         ),
         Some(Cmd::Tasks(ref mut args)) => {
@@ -171,7 +170,6 @@ pub fn run(
                 TasksCli::parse_from(rewritten),
                 context,
                 agent_kind,
-                cli.with_receiver,
                 skip_daily_triage_check,
             )
         }

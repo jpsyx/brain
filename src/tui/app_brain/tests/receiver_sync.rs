@@ -81,7 +81,7 @@ impl crate::tui::ReceiverSyncRuntime for TestReceiverSyncRuntime {
     }
 }
 
-fn configure_receiver_sync(app: &App<'_>) {
+fn configure_receiver_sync(app: &App) {
     let selected_name = app.command_context.workspace.name().clone();
     app.command_context
         .registry_store

@@ -113,8 +113,10 @@ fn local_keystrokes_do_not_reach_a_pty_that_is_answering_a_remote_message() {
         "a locked-out Enter must not be recorded as starting a turn"
     );
 
-    let interrupt =
-        crossterm::event::KeyEvent::new(KeyCode::Char('c'), crossterm::event::KeyModifiers::CONTROL);
+    let interrupt = crossterm::event::KeyEvent::new(
+        KeyCode::Char('c'),
+        crossterm::event::KeyModifiers::CONTROL,
+    );
     handle_brain_key(&mut app, &interrupt, true);
     assert_eq!(
         recording.inputs(),

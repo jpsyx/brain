@@ -8,7 +8,7 @@ fn logs_quit_action(code: KeyCode, ctrl: bool) -> bool {
     matches!(code, KeyCode::Char('q' | 'Q')) || (ctrl && matches!(code, KeyCode::Char('c' | 'C')))
 }
 
-pub(crate) fn handle_logs_key(app: &mut App<'_>, code: KeyCode, ctrl: bool) -> bool {
+pub(crate) fn handle_logs_key(app: &mut App, code: KeyCode, ctrl: bool) -> bool {
     if logs_quit_action(code, ctrl) {
         app.main_view = crate::main_view::MainView::Tasks;
         return false;

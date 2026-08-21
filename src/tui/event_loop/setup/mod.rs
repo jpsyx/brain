@@ -2,10 +2,9 @@
 //! alternate screen with mouse capture and the kitty keyboard protocol, builds
 //! the `App`, runs the event loop, then restores the terminal on the way out.
 
-use std::{fs::OpenOptions, path::PathBuf};
+use std::fs::OpenOptions;
 
 use anyhow::Result;
-use chrono::NaiveDate;
 use crossterm::{
     event::{
         DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
@@ -17,11 +16,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::config::Config;
-use crate::session::AgentKind;
 use crate::state::Db;
-use crate::tasks::cli::Cli;
-use crate::tasks::task::Task;
-use crate::tasks::view::{View, ViewSpec};
 use crate::tui::*;
 
 use super::run::event_loop;
@@ -100,40 +95,37 @@ fn register_server_lease(
     ))
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn run_tui(
-    command_context: &crate::workspace::CommandContext,
-    view: &ViewSpec,
-    cli: &Cli,
-    agent_kind: AgentKind,
-    today: NaiveDate,
-    csv_path: PathBuf,
-    all_tasks: Vec<Task>,
-    all_habits: Vec<Task>,
-    active_view: Option<View>,
-    initial_search: Option<String>,
-    _with_receiver: bool,
-    skip_daily_triage_check: bool,
-) -> Result<()> {
+pub(crate) fn run_tui(launch: TuiLaunch) -> Result<()> {
+    let TuiLaunch {
+        command_context,
+        view,
+        task_options,
+        agent_kind,
+        today,
+        csv_path,
+        all_tasks,
+        all_habits,
+        active_view,
+        initial_search,
+        skip_daily_triage_check,
+    } = launch;
     let _singleton = acquire_singleton_then_refresh(
         &command_context.workspace,
         crate::command::server::refresh_agent_hooks,
     )?;
-    crate::skills::migrate_global_skills_for_all_workspaces(Some(
-        command_context.workspace.root(),
-    ));
+    crate::skills::migrate_global_skills_for_all_workspaces(Some(command_context.workspace.root()));
     // Reconcile embedded and user-authored project skills once, before any
     // app action can launch the brain panel's agent frontend.
     crate::skills::sync_for_startup(&command_context.workspace);
     let job_socket = crate::tui::singleton::JobSocket::bind(&command_context.workspace)?;
-    let mut server_lease = register_server_lease(command_context)?;
+    let mut server_lease = register_server_lease(&command_context)?;
     let assignment = crate::tasks::task::assignment_context_for_workspace(
         &command_context.workspace,
         &command_context.actor,
     )?;
     let assignment_filter = crate::tasks::task::assignment_filter_for_startup(
         &assignment,
-        cli.filters.assigned_to.as_deref(),
+        task_options.assigned_to.as_deref(),
     )?;
 
     enable_raw_mode()?;
@@ -182,10 +174,10 @@ pub fn run_tui(
 
     let panel_side = db.get_panel_side();
     let search = build_search(&brain_root);
-    let mut app = App::new(
-        command_context.clone(),
+    let mut app = App::new(AppInit {
+        command_context: command_context.clone(),
         view,
-        cli,
+        task_options,
         today,
         csv_path,
         all_tasks,
@@ -194,20 +186,20 @@ pub fn run_tui(
         assignment_filter,
         active_view,
         initial_search,
-        Box::new(ZshFunctionRunner::new("agenda")),
+        agenda_runner: Box::new(ZshFunctionRunner::new("agenda")),
         // The opener's stored command is unused — its `open(url)` default
         // shells `/usr/bin/open <url>` directly.
-        Box::new(ZshFunctionRunner::new("")),
+        open_runner: Box::new(ZshFunctionRunner::new("")),
         config,
         agent_kind,
-        instance.clone(),
+        instance: instance.clone(),
         db,
         search,
         panel_side,
         skip_daily_triage_check,
-        server_lease.ingress_id(),
-        server_lease.lease_id(),
-    );
+        server_ingress: server_lease.ingress_id(),
+        server_local_capability: server_lease.lease_id(),
+    });
     crate::logging::log("workspace job socket and shared-server lease ready");
     app.receiver_control = Some(job_socket);
     // The brain panel opens at startup (resuming the latest session), but focus
@@ -219,7 +211,7 @@ pub fn run_tui(
     // Auto-sync triggers (C4). All best-effort; none blocks the event loop.
     // Gated on `is_configured` so an unconfigured brain spawns neither a
     // startup child nor a watcher thread.
-    let sync_cfg = crate::sync::config::SyncConfig::load(command_context);
+    let sync_cfg = crate::sync::config::SyncConfig::load(&command_context);
     let sync_configured = sync_cfg.is_configured();
     let startup_plan = startup_sync_plan(sync_configured, skip_daily_triage_check);
 

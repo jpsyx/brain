@@ -3,8 +3,32 @@
 //! first body.
 
 use crate::tasks::render::header_lines;
-use crate::tasks::view::ViewSpec;
 use crate::tui::*;
+
+pub(crate) struct AppInit {
+    pub(crate) command_context: crate::workspace::CommandContext,
+    pub(crate) view: crate::tasks::view::ViewSpec,
+    pub(crate) task_options: crate::tasks::view::TaskViewOptions,
+    pub(crate) today: NaiveDate,
+    pub(crate) csv_path: PathBuf,
+    pub(crate) all_tasks: Vec<Task>,
+    pub(crate) all_habits: Vec<Task>,
+    pub(crate) assignment: crate::tasks::task::AssignmentContext,
+    pub(crate) assignment_filter: Option<crate::users::UserId>,
+    pub(crate) active_view: Option<View>,
+    pub(crate) initial_search: Option<String>,
+    pub(crate) agenda_runner: Box<dyn ShellRunner>,
+    pub(crate) open_runner: Box<dyn ShellRunner>,
+    pub(crate) config: Config,
+    pub(crate) agent_kind: AgentKind,
+    pub(crate) instance: String,
+    pub(crate) db: Db,
+    pub(crate) search: crate::picker::App,
+    pub(crate) panel_side: PanelSide,
+    pub(crate) skip_daily_triage_check: bool,
+    pub(crate) server_ingress: crate::server::IngressId,
+    pub(crate) server_local_capability: crate::server::lifecycle::LeaseId,
+}
 
 fn app_workspace_paths(command_context: &crate::workspace::CommandContext) -> (PathBuf, PathBuf) {
     (
@@ -24,32 +48,32 @@ fn reconcile_triage_startup(
     Ok((tasks, habits))
 }
 
-impl<'a> App<'a> {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        command_context: crate::workspace::CommandContext,
-        view: &ViewSpec,
-        cli: &'a Cli,
-        today: NaiveDate,
-        csv_path: PathBuf,
-        all_tasks: Vec<Task>,
-        all_habits: Vec<Task>,
-        assignment: crate::tasks::task::AssignmentContext,
-        assignment_filter: Option<crate::users::UserId>,
-        active_view: Option<View>,
-        initial_search: Option<String>,
-        agenda_runner: Box<dyn ShellRunner>,
-        open_runner: Box<dyn ShellRunner>,
-        config: Config,
-        agent_kind: AgentKind,
-        instance: String,
-        db: Db,
-        search: crate::picker::App,
-        panel_side: PanelSide,
-        skip_daily_triage_check: bool,
-        server_ingress: crate::server::IngressId,
-        server_local_capability: crate::server::lifecycle::LeaseId,
-    ) -> Self {
+impl App {
+    pub(crate) fn new(init: AppInit) -> Self {
+        let AppInit {
+            command_context,
+            view,
+            task_options,
+            today,
+            csv_path,
+            all_tasks,
+            all_habits,
+            assignment,
+            assignment_filter,
+            active_view,
+            initial_search,
+            agenda_runner,
+            open_runner,
+            config,
+            agent_kind,
+            instance,
+            db,
+            search,
+            panel_side,
+            skip_daily_triage_check,
+            server_ingress,
+            server_local_capability,
+        } = init;
         let (brain_root, db_path) = app_workspace_paths(&command_context);
         // A signal left behind by a run whose shell died must never close a tab
         // opened later, so this shell starts with none pending.
@@ -81,6 +105,7 @@ impl<'a> App<'a> {
         let sync_status_next_poll = receiver_sync_runtime.monotonic_now();
         let last_seen_downstream_id = receiver_sync_runtime
             .latest_successful_downstream_id(command_context.workspace.paths());
+        let header = header_lines(&view, &task_options, active_view);
         let mut app = Self {
             tag_styles: crate::personalization::load_tag_styles(&command_context.workspace),
             command_context,
@@ -98,21 +123,21 @@ impl<'a> App<'a> {
             config,
             agent_kind,
             agent_command,
-            full_notes: cli.display.full_notes,
+            full_notes: task_options.full_notes,
             expanded_notes: HashSet::new(),
-            cli,
+            task_options,
             csv_path,
             all_tasks,
             all_habits,
             active_view,
-            header: header_lines(view, cli, active_view),
+            header,
             body_lines: Vec::new(),
             visual_row_offsets: vec![0],
             visible_tasks: Vec::new(),
             task_line_ranges: Vec::new(),
             selected_task: None,
             pending_count: None,
-            base_tasks: view.tasks.clone(),
+            base_tasks: view.tasks,
             query,
             in_search,
             matcher: SkimMatcherV2::default().ignore_case(),

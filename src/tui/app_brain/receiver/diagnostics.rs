@@ -22,7 +22,7 @@ fn screen_digest(screen: &str) -> u64 {
     hasher.finish()
 }
 
-impl App<'_> {
+impl App {
     /// The last non-blank `lines` rows the panel is showing, flattened for the log.
     pub(crate) fn panel_tail(&self, lines: usize) -> Option<String> {
         let screen = self.brain.as_ref()?.snapshot().ok()?;
@@ -97,7 +97,8 @@ impl App<'_> {
             elapsed,
             self.brain_turn_active,
             self.receiver_session_id.as_deref().unwrap_or("<none>"),
-            self.panel_tail(14).unwrap_or_else(|| "<no panel>".to_owned())
+            self.panel_tail(14)
+                .unwrap_or_else(|| "<no panel>".to_owned())
         ));
         let next = fired.saturating_add(1);
         self.receiver_probe = self

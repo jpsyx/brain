@@ -274,12 +274,8 @@ fn whole_shell_shutdown_explicitly_stops_every_agent_controller_once() {
     assert_eq!(triage_recording.shutdowns(), 1);
 }
 
-fn run_new_session_plugin_bridge(app: &App<'_>) {
-    let hook_directory = app
-        .command_context
-        .workspace
-        .root()
-        .join(".brain/hooks");
+fn run_new_session_plugin_bridge(app: &App) {
+    let hook_directory = app.command_context.workspace.root().join(".brain/hooks");
     std::fs::create_dir_all(&hook_directory).expect("generic hook directory");
     for name in ["agent_session_start_hook.py", "agent_session_stop_hook.py"] {
         std::fs::copy(

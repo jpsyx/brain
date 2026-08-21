@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::AppInit;
 
 mod session_support;
 pub(crate) use session_support::*;
@@ -10,11 +11,12 @@ const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 pub(super) const ACCEPTED_INGRESS: &str = "57b162df-983a-45c3-ac7e-bad94eb27a99";
 pub(super) const ACCEPTED_LOCAL_CAPABILITY: &str = "57b162df-983a-45c3-ac7e-bad94eb27a99";
 
-pub(super) fn test_app<'a>(
+pub(super) fn test_app(
     temporary: &tempfile::TempDir,
-    cli: &'a Cli,
+    task_options: impl Into<crate::tasks::view::TaskViewOptions>,
     agent_kind: AgentKind,
-) -> App<'a> {
+) -> App {
+    let task_options = task_options.into();
     let root = temporary.path().join("family");
     std::fs::create_dir_all(root.join("tasks")).expect("create task directory");
     std::fs::create_dir_all(root.join(".config")).expect("create config directory");
@@ -72,37 +74,46 @@ pub(super) fn test_app<'a>(
         .expect("write test registry");
     let context = CommandContext::for_test(Arc::new(workspace), registry_store, "pablo");
     let today = NaiveDate::from_ymd_opt(2026, 8, 4).expect("valid date");
-    let view = build_view(cli, &Selector::All, Some(View::All), Vec::new(), today);
+    let view = build_view(
+        &task_options,
+        &Selector::All,
+        Some(View::All),
+        Vec::new(),
+        today,
+    );
     let assignment = AssignmentContext::legacy(&context.actor);
     let db = Db::open(&context.workspace).expect("state db");
-    App::new(
-        context,
-        &view,
-        cli,
+    App::new(AppInit {
+        command_context: context,
+        view,
+        task_options,
         today,
-        root.join("tasks/tasks.csv"),
-        Vec::new(),
-        Vec::new(),
+        csv_path: root.join("tasks/tasks.csv"),
+        all_tasks: Vec::new(),
+        all_habits: Vec::new(),
         assignment,
-        None,
-        Some(View::All),
-        None,
-        Box::new(ZshFunctionRunner::new("")),
-        Box::new(ZshFunctionRunner::new("")),
-        Config {
+        assignment_filter: None,
+        active_view: Some(View::All),
+        initial_search: None,
+        agenda_runner: Box::new(ZshFunctionRunner::new("")),
+        open_runner: Box::new(ZshFunctionRunner::new("")),
+        config: Config {
             enable_triage_habits: false,
             ..Config::default()
         },
         agent_kind,
-        "shell-under-test".to_owned(),
+        instance: "shell-under-test".to_owned(),
         db,
-        crate::picker::App::new(&[], ""),
-        PanelSide::Right,
-        true,
-        crate::server::IngressId::parse(ACCEPTED_INGRESS).expect("valid accepted ingress"),
-        crate::server::lifecycle::LeaseId::parse(ACCEPTED_LOCAL_CAPABILITY)
-            .expect("valid local capability"),
-    )
+        search: crate::picker::App::new(&[], ""),
+        panel_side: PanelSide::Right,
+        skip_daily_triage_check: true,
+        server_ingress: crate::server::IngressId::parse(ACCEPTED_INGRESS)
+            .expect("valid accepted ingress"),
+        server_local_capability: crate::server::lifecycle::LeaseId::parse(
+            ACCEPTED_LOCAL_CAPABILITY,
+        )
+        .expect("valid local capability"),
+    })
 }
 
 pub(super) fn sms_actor() -> crate::actor::ActorContext {
@@ -154,7 +165,7 @@ pub(super) fn email_actor() -> crate::actor::ActorContext {
 }
 
 pub(super) fn assert_workspace_only_launch_spec(
-    app: &App<'_>,
+    app: &App,
     spec: &LaunchSpec,
     kind: AgentKind,
     actor: &crate::actor::ActorContext,

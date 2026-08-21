@@ -5,7 +5,7 @@
 use crate::tasks::render::{build_body_lines_with_ranges, no_matches_lines};
 use crate::tui::*;
 
-impl App<'_> {
+impl App {
     pub(crate) fn has_active_filter(&self) -> bool {
         !self.query.is_empty() || self.assignment_filter.is_some()
     }

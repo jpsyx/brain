@@ -12,10 +12,12 @@
 //! - [`sort`] — the `--sort` strategies and the priority-rank key.
 
 mod build;
+mod options;
 mod sort;
 
 pub(crate) use build::apply_assignment_filter;
-pub use build::build_view;
+pub(crate) use build::build_view;
+pub(crate) use options::TaskViewOptions;
 
 use chrono::{Datelike, Duration, NaiveDate};
 
@@ -135,12 +137,42 @@ pub struct ViewSpec {
 
 #[cfg(test)]
 mod tests {
-    use super::{View, view_filter};
+    use super::{TaskViewOptions, View, view_filter};
     use crate::tasks::task::test_task;
     use chrono::NaiveDate;
+    use clap::Parser;
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    #[test]
+    fn runtime_options_own_task_view_values_after_cli_changes() {
+        let mut cli = crate::tasks::cli::Cli::parse_from([
+            "tasks",
+            "--status",
+            "waiting",
+            "--priority",
+            "p1",
+            "--sort",
+            "due",
+            "--reverse",
+            "--full-notes",
+        ]);
+        let options = TaskViewOptions::from(&cli);
+
+        cli.filters.status = Some("done".to_owned());
+        cli.filters.priority = Some("p4".to_owned());
+        cli.display.sort = "created".to_owned();
+        cli.display.reverse = false;
+        cli.display.full_notes = false;
+        drop(cli);
+
+        assert_eq!(options.status.as_deref(), Some("waiting"));
+        assert_eq!(options.priority.as_deref(), Some("p1"));
+        assert_eq!(options.sort, "due");
+        assert!(options.reverse);
+        assert!(options.full_notes);
     }
 
     #[test]

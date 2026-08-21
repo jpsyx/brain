@@ -21,7 +21,7 @@ use crate::main_view::MainView;
 use crate::state::PanelSide;
 use crate::tui::*;
 
-pub(crate) fn draw(f: &mut Frame, app: &mut App<'_>) {
+pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
     // Top-level split: if the brain panel is open, it takes half the width on

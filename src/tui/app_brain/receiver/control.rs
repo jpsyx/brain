@@ -10,7 +10,7 @@
 use crate::server::receiver::{ControlCommand, InboundJob, parse_control_command};
 use crate::tui::*;
 
-impl App<'_> {
+impl App {
     /// Reply to one specific job, rather than to whatever is in flight.
     ///
     /// The receiver's usual reply path answers the message currently being

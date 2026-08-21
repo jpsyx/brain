@@ -10,7 +10,7 @@ use crate::tasks::task;
 use crate::tasks::view;
 use crate::tui::*;
 
-impl App<'_> {
+impl App {
     /// Data source for a given view: habits.csv for `View::Habits`,
     /// tasks.csv for everything else (including the `None` "custom
     /// selector" case).
@@ -30,13 +30,13 @@ impl App<'_> {
         self.query.clear();
         self.in_search = false;
         let spec = view::build_view(
-            self.cli,
+            &self.task_options,
             &view.selector(self.today),
             Some(view),
             self.data_for_view(Some(view)),
             self.today,
         );
-        self.header = header_lines(&spec, self.cli, Some(view));
+        self.header = header_lines(&spec, &self.task_options, Some(view));
         self.base_tasks = spec.tasks;
         // Switching views is a fresh context — start selection at the top
         // rather than carrying the previous index across an unrelated list.
@@ -56,13 +56,13 @@ impl App<'_> {
             .active_view
             .map_or(Selector::All, |v| v.selector(self.today));
         let spec = view::build_view(
-            self.cli,
+            &self.task_options,
             &selector,
             self.active_view,
             self.data_for_view(self.active_view),
             self.today,
         );
-        self.header = header_lines(&spec, self.cli, self.active_view);
+        self.header = header_lines(&spec, &self.task_options, self.active_view);
         self.base_tasks = spec.tasks;
         // Keep the current `selected_task` index — when a completed task
         // disappears, the same index now points at what was the next task.

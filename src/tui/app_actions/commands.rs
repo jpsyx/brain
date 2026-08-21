@@ -29,7 +29,7 @@ fn protect_removal(
     })
 }
 
-impl App<'_> {
+impl App {
     pub(crate) fn show_logs_view(&mut self, kind: LogKind) {
         crate::logging::log(format!("open logs view kind={kind:?}"));
         self.logs_view = Some(LogsView::load(kind, self.log_path.as_deref()));

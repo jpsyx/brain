@@ -9,16 +9,19 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::tasks::cli::Cli;
 use crate::tasks::shortcuts;
-use crate::tasks::view::{View, ViewSpec};
+use crate::tasks::view::{TaskViewOptions, View, ViewSpec};
 
 use super::style::{
     ACCENT_CYAN, ACCENT_PURPLE, DUE_TODAY, TEXT_DIM, TEXT_PRIMARY, TEXT_VERY_DIM, sep, very_dim,
 };
 
 #[must_use]
-pub fn header_lines(view: &ViewSpec, cli: &Cli, active_view: Option<View>) -> Vec<Line<'static>> {
+pub(crate) fn header_lines(
+    view: &ViewSpec,
+    options: &TaskViewOptions,
+    active_view: Option<View>,
+) -> Vec<Line<'static>> {
     let title_style = Style::new().fg(ACCENT_PURPLE).add_modifier(Modifier::BOLD);
     let primary_style = Style::new().fg(TEXT_PRIMARY).add_modifier(Modifier::BOLD);
     let dim_style = Style::new().fg(TEXT_DIM);
@@ -41,7 +44,7 @@ pub fn header_lines(view: &ViewSpec, cli: &Cli, active_view: Option<View>) -> Ve
 
     let mut lines = vec![Line::from(top)];
     lines.push(view_strip_line(active_view));
-    let chips = active_filter_chips(cli);
+    let chips = active_filter_chips(options);
     if !chips.is_empty() {
         lines.push(Line::from(vec![
             Span::raw(" "),
@@ -72,52 +75,51 @@ fn view_strip_line(active: Option<View>) -> Line<'static> {
     Line::from(spans)
 }
 
-fn active_filter_chips(cli: &Cli) -> Vec<String> {
-    let f = &cli.filters;
+fn active_filter_chips(options: &TaskViewOptions) -> Vec<String> {
     let mut chips: Vec<String> = Vec::new();
-    if let Some(v) = f.hard_deadline {
+    if let Some(v) = options.hard_deadline {
         chips.push(format!("hard_deadline={v}"));
     }
-    if let Some(v) = &f.status {
+    if let Some(v) = &options.status {
         chips.push(format!("status={v}"));
     }
-    if let Some(v) = &f.priority {
+    if let Some(v) = &options.priority {
         chips.push(format!("priority={v}"));
     }
-    if let Some(v) = &f.task_type {
+    if let Some(v) = &options.task_type {
         chips.push(format!("type={v}"));
     }
-    if let Some(v) = &f.project {
+    if let Some(v) = &options.project {
         chips.push(format!("project={v}"));
     }
-    if let Some(v) = &f.energy {
+    if let Some(v) = &options.energy {
         chips.push(format!("energy={v}"));
     }
-    if let Some(v) = &f.context {
+    if let Some(v) = &options.context {
         chips.push(format!("context={v}"));
     }
-    if f.past_due {
+    if options.past_due {
         chips.push("past-due".into());
     }
-    if f.mit {
+    if options.mit {
         chips.push("mit".into());
     }
-    if f.stale {
+    if options.stale {
         chips.push("stale".into());
     }
-    if f.no_due {
+    if options.no_due {
         chips.push("no-due".into());
     }
-    if f.blocked {
+    if options.blocked {
         chips.push("blocked".into());
     }
-    if f.include_done {
+    if options.include_done {
         chips.push("+done".into());
     }
-    if f.include_deferred {
+    if options.include_deferred {
         chips.push("+deferred".into());
     }
-    if let Some(q) = &f.search {
+    if let Some(q) = &options.search {
         chips.push(format!("search '{q}'"));
     }
     chips

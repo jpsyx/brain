@@ -124,7 +124,7 @@ fn opencode_receiver_restore_falls_back_fresh_when_the_session_disappeared() {
     assert!(!specs[0].command.contains("--session"));
 }
 
-fn seed_free_opencode_session(app: &App<'_>, session_id: &str) {
+fn seed_free_opencode_session(app: &App, session_id: &str) {
     let scope = SessionScope::new(
         AgentKind::OpenCode,
         app.command_context.workspace.id(),

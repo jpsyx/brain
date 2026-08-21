@@ -4,7 +4,7 @@
 
 use crate::tui::*;
 
-impl App<'_> {
+impl App {
     pub(crate) fn current_task_id(&self) -> Option<String> {
         self.selected_task
             .and_then(|i| self.visible_tasks.get(i))

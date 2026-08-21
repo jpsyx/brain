@@ -4,7 +4,7 @@ use crate::tui::*;
 
 use crate::agent::SessionStore;
 
-impl App<'_> {
+impl App {
     /// Close the brain panel: explicitly shut down its `AgentController`,
     /// release the session lock so a later open (or another shell) can resume
     /// it via recency, hand the screen back to full-width tasks, and reload so

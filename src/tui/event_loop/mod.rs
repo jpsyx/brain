@@ -7,7 +7,7 @@ mod modal_route;
 mod run;
 mod setup;
 
-pub use setup::run_tui;
+pub(crate) use setup::run_tui;
 
 // The modal-routing types are referenced within `run` directly; the only
 // out-of-module consumer is the unit-test module, so the re-export is

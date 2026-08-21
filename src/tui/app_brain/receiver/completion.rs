@@ -2,7 +2,7 @@
 
 use crate::tui::*;
 
-impl App<'_> {
+impl App {
     /// A Stop hook marks the end of an interactive turn without killing the
     /// persistent panel. If remote work is waiting, close only after that
     /// completion signal so the active turn is never interrupted.
@@ -68,7 +68,8 @@ impl App<'_> {
         // The panel is the only witness to why a turn never finished.
         crate::logging::log(format!(
             "receiver abandoned panel showed: {}",
-            self.panel_tail(14).unwrap_or_else(|| "<no panel>".to_owned())
+            self.panel_tail(14)
+                .unwrap_or_else(|| "<no panel>".to_owned())
         ));
         let nothing_queued = self.receiver_queue.is_empty();
         self.close_receiver_panel(nothing_queued);

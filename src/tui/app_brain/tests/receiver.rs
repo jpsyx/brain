@@ -16,7 +16,7 @@ impl crate::command::server::ReceiverIntentRefresher for RecordingReceiverRefres
     }
 }
 
-fn seed_receiver_registry(app: &App<'_>) -> WorkspaceName {
+fn seed_receiver_registry(app: &App) -> WorkspaceName {
     let selected_name = app.command_context.workspace.name().clone();
     let peer_name = WorkspaceName::parse("personal").unwrap();
     let selected = crate::workspace::WorkspaceRecord {

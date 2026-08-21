@@ -241,7 +241,7 @@ impl AgentTransport for LaunchRecordingTransport {
 }
 
 pub(crate) fn recording_controller(
-    app: &App<'_>,
+    app: &App,
     alive: bool,
     snapshot: &str,
 ) -> (AgentController, ControllerRecording) {
@@ -249,7 +249,7 @@ pub(crate) fn recording_controller(
 }
 
 pub(crate) fn recording_controller_for_actor(
-    app: &App<'_>,
+    app: &App,
     actor: crate::actor::ActorContext,
     alive: bool,
     snapshot: &str,

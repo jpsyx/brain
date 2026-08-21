@@ -27,7 +27,7 @@ pub(crate) fn half_page_step(visible_rows: u16) -> usize {
 /// tasks panel moves its selection (mirroring j/k); the brain panel scrolls
 /// its vt100 scrollback. Modals are captive, so wheel events are ignored
 /// while any overlay is open.
-pub(crate) fn handle_mouse(app: &mut App<'_>, me: crossterm::event::MouseEvent) {
+pub(crate) fn handle_mouse(app: &mut App, me: crossterm::event::MouseEvent) {
     use crossterm::event::MouseEventKind;
 
     // True modal overlays are captive — swallow the wheel entirely.
@@ -69,11 +69,7 @@ pub(crate) fn handle_mouse(app: &mut App<'_>, me: crossterm::event::MouseEvent) 
 /// upstream in `event_loop` and never reach here. When the child has
 /// exited, a Ctrl-C / q / Esc closes the panel instead of being forwarded
 /// (there's no process to receive it).
-pub(crate) fn handle_brain_key(
-    app: &mut App<'_>,
-    k: &crossterm::event::KeyEvent,
-    ctrl: bool,
-) -> bool {
+pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) -> bool {
     let mut alive = app
         .brain
         .as_ref()
@@ -143,7 +139,7 @@ pub(crate) fn handle_brain_key(
 /// When that session has exited, a Ctrl-C / Esc / q closes the tab so the user
 /// can get back to the main session.
 pub(crate) fn handle_skill_session_key(
-    app: &mut App<'_>,
+    app: &mut App,
     k: &crossterm::event::KeyEvent,
     ctrl: bool,
 ) -> bool {

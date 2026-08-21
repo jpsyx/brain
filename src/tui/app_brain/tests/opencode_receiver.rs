@@ -113,7 +113,7 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
     assert!(log.exists(), "provider boundary was not invoked");
 }
 
-fn configure_fake_twilio(app: &App<'_>) {
+fn configure_fake_twilio(app: &App) {
     let mut registry = RegistryStore::load_from(app.command_context.registry_store.path())
         .expect("workspace registry");
     let environment = &mut registry

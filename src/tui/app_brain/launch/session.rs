@@ -6,7 +6,7 @@ use crate::tui::*;
 
 use super::brain_transport;
 
-impl App<'_> {
+impl App {
     /// Open the brain panel (or focus it if already open). Resume the
     /// most-recently-active free session whose transcript still exists on
     /// disk and lock it; otherwise start a fresh session with a tasks-chosen

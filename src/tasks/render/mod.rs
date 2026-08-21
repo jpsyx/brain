@@ -22,7 +22,7 @@ mod markdown;
 mod style;
 
 pub use card::build_body_lines_with_ranges;
-pub use chrome::{
+pub(crate) use chrome::{
     compact_footer_line, header_lines, no_matches_lines, search_bar_line, search_footer_line,
 };
 pub use style::{status_label, truncate, type_label};

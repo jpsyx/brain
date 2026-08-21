@@ -50,6 +50,7 @@ mod event_loop;
 mod filter_tasks;
 mod handlers;
 mod keymap;
+mod launch;
 mod links;
 mod logs_view;
 mod modal_state;
@@ -64,8 +65,9 @@ mod status_warning;
 #[cfg(test)]
 mod tests;
 
-pub use event_loop::run_tui;
+pub(crate) use event_loop::run_tui;
 use filter_tasks::filter_tasks;
+pub(crate) use launch::TuiLaunch;
 
 // Re-export every submodule's items into the `tui` root so each submodule's
 // `use super::*;` can reach its siblings' free functions and shared types
@@ -76,6 +78,7 @@ use filter_tasks::filter_tasks;
 // The modal-routing types are referenced within `event_loop` directly; the
 // only out-of-module consumer is the unit-test module, so the re-export is
 // test-only.
+pub(crate) use app_state::AppInit;
 pub(crate) use app_sync::*;
 pub(crate) use draw::*;
 pub(crate) use draw_assignee::*;
@@ -109,9 +112,8 @@ use crate::config::Config;
 use crate::main_view::MainView;
 use crate::session::AgentKind;
 use crate::state::{Db, PanelSide};
-use crate::tasks::cli::Cli;
 use crate::tasks::task::{AssignmentContext, Task};
-use crate::tasks::view::View;
+use crate::tasks::view::{TaskViewOptions, View};
 use crate::users::UserId;
 
 use shell::ShellRunner;
@@ -124,7 +126,7 @@ mod model;
 
 pub(crate) use model::*;
 
-pub(crate) struct App<'a> {
+pub(crate) struct App {
     command_context: crate::workspace::CommandContext,
     /// Workspace ingress verified and accepted with this TUI's live lease.
     server_ingress: crate::server::IngressId,
@@ -161,7 +163,7 @@ pub(crate) struct App<'a> {
     /// "Expand notes" palette action). Effective expansion is
     /// `full_notes || expanded_notes.contains(id)`.
     expanded_notes: HashSet<String>,
-    cli: &'a Cli,
+    task_options: TaskViewOptions,
     /// Path to the tasks CSV, held so palette actions can reload after
     /// mutating it.
     csv_path: PathBuf,

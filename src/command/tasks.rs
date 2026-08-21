@@ -11,7 +11,6 @@ pub fn launch(
     mut cli: TasksCli,
     context: &crate::workspace::CommandContext,
     agent_kind: crate::session::AgentKind,
-    with_receiver: bool,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
     if !matches!(cli.command, Some(TasksCommand::Doctor)) {
@@ -116,7 +115,6 @@ pub fn launch(
         context,
         today,
         agent_kind,
-        with_receiver,
         skip_daily_triage_check,
     )
 }

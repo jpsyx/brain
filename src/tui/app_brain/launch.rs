@@ -8,18 +8,18 @@ use crate::agent::{AgentController, SessionStore};
 use crate::pty_pane::PtyPane;
 
 #[cfg(not(test))]
-fn brain_transport(_app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+fn brain_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
     Box::new(PtyPane::new(24, 80))
 }
 
 #[cfg(test)]
-fn brain_transport(app: &mut App<'_>) -> Box<dyn crate::agent::AgentTransport> {
+fn brain_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
     app.brain_transport_override
         .take()
         .unwrap_or_else(|| Box::new(PtyPane::new(24, 80)))
 }
 
-impl App<'_> {
+impl App {
     pub(in crate::tui) fn launch_capability_plan(
         &self,
     ) -> anyhow::Result<Option<crate::access::CapabilityPlan>> {

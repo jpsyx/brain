@@ -36,7 +36,7 @@ pub(in crate::tui::app_actions) fn should_check_daily_triage(
         }
 }
 
-impl App<'_> {
+impl App {
     /// Write the live daily-triage-alert state to portable config.
     ///
     /// The palette row is the same decision as `brain config set

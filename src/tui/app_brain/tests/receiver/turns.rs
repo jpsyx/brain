@@ -232,7 +232,7 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
 }
 
 /// One inbound job, so a control-command test reads as the message it is.
-fn sms_job(app: &App<'_>, actor: &crate::actor::ActorContext, prompt: &str) -> InboundJob {
+fn sms_job(app: &App, actor: &crate::actor::ActorContext, prompt: &str) -> InboundJob {
     InboundJob {
         job_id: uuid::Uuid::new_v4(),
         workspace_id: app.command_context.workspace.id(),

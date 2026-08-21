@@ -16,7 +16,7 @@ use super::modal_route::route_modal_key;
 
 pub(crate) fn event_loop<B: Backend>(
     terminal: &mut Terminal<B>,
-    app: &mut App<'_>,
+    app: &mut App,
     server_lease: &crate::server::control::HeartbeatWorker,
 ) -> Result<()> {
     // Poll often enough that PTY output appears responsive without burning

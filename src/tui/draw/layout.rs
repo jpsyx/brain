@@ -50,7 +50,7 @@ pub(crate) fn visual_range(
 /// selected or the selection is entirely off-screen (scrolled away).
 /// Works in visual (wrapped) rows so a task sitting after a wrapped note
 /// still highlights the right band.
-pub(crate) fn selection_band_rect(app: &App<'_>, content_area: Rect) -> Option<Rect> {
+pub(crate) fn selection_band_rect(app: &App, content_area: Rect) -> Option<Rect> {
     let sel = app.selected_task?;
     let range = app.task_line_ranges.get(sel)?;
     let vis = visual_range(&app.visual_row_offsets, range.clone());

@@ -62,7 +62,7 @@ impl LogsView {
     }
 }
 
-pub(crate) fn draw_logs(f: &mut Frame, app: &App<'_>, area: Rect) {
+pub(crate) fn draw_logs(f: &mut Frame, app: &App, area: Rect) {
     let Some(logs) = app.logs_view.as_ref() else {
         return;
     };

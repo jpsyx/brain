@@ -3,16 +3,15 @@
 
 use chrono::{Datelike, Duration, NaiveDate};
 
-use crate::tasks::cli::{Cli, Filters};
 use crate::tasks::selector::{self, Selector};
 use crate::tasks::task::Task;
 
 use super::sort::sort_tasks;
-use super::{View, ViewSpec, view_filter};
+use super::{TaskViewOptions, View, ViewSpec, view_filter};
 
 #[must_use]
-pub fn build_view(
-    cli: &Cli,
+pub(crate) fn build_view(
+    options: &TaskViewOptions,
     selector: &Selector,
     active_view: Option<View>,
     all_tasks: Vec<Task>,
@@ -24,12 +23,12 @@ pub fn build_view(
         .into_iter()
         .filter(|t| selector::matches(selector, t, today))
         .filter(|t| active_view.is_none_or(|v| view_filter(v, t, today)))
-        .filter(|t| keeps_visibility(t, &cli.filters, today))
-        .filter(|t| keeps_filters(t, &cli.filters, today))
+        .filter(|t| keeps_visibility(t, options, today))
+        .filter(|t| keeps_filters(t, options, today))
         .collect();
 
-    sort_tasks(&mut filtered, &cli.display.sort);
-    if cli.display.reverse {
+    sort_tasks(&mut filtered, &options.sort);
+    if options.reverse {
         filtered.reverse();
     }
 
@@ -37,7 +36,7 @@ pub fn build_view(
         || selector::titles(selector, today),
         |v| view_titles(v, today),
     );
-    if let Some(q) = &cli.filters.search {
+    if let Some(q) = &options.search {
         title = format!("{title} · search '{q}'");
     }
     ViewSpec {
@@ -81,45 +80,57 @@ fn view_titles(view: View, today: NaiveDate) -> (String, String) {
 }
 
 /// "Visibility" = the show-by-default rules (hide done + deferred unless opt-in).
-fn keeps_visibility(t: &Task, f: &Filters, today: NaiveDate) -> bool {
-    (f.include_done || !t.is_done()) && (f.include_deferred || !t.is_deferred(today))
+fn keeps_visibility(t: &Task, options: &TaskViewOptions, today: NaiveDate) -> bool {
+    (options.include_done || !t.is_done()) && (options.include_deferred || !t.is_deferred(today))
 }
 
 /// All explicit `--flag` filters. Returns true when the task should be kept.
-fn keeps_filters(t: &Task, f: &Filters, today: NaiveDate) -> bool {
-    f.hard_deadline.is_none_or(|want| t.hard_deadline == want)
-        && f.status
+fn keeps_filters(t: &Task, options: &TaskViewOptions, today: NaiveDate) -> bool {
+    options
+        .hard_deadline
+        .is_none_or(|want| t.hard_deadline == want)
+        && options
+            .status
             .as_deref()
             .is_none_or(|w| t.status.eq_ignore_ascii_case(w))
-        && f.priority
+        && options
+            .priority
             .as_deref()
             .is_none_or(|w| t.priority.eq_ignore_ascii_case(w))
-        && f.task_type
+        && options
+            .task_type
             .as_deref()
             .is_none_or(|w| t.types.iter().any(|x| x.eq_ignore_ascii_case(w)))
-        && f.project
+        && options
+            .project
             .as_deref()
             .is_none_or(|w| t.project.eq_ignore_ascii_case(w))
-        && f.energy
+        && options
+            .energy
             .as_deref()
             .is_none_or(|w| t.energy.eq_ignore_ascii_case(w))
-        && f.context
+        && options
+            .context
             .as_deref()
             .is_none_or(|w| t.context.eq_ignore_ascii_case(w))
-        && (!f.past_due || t.is_past_due(today))
-        && (!f.mit || t.is_mit())
-        && (!f.stale || t.is_stale(today))
-        && (!f.no_due || t.due_date.is_none())
-        && (!f.blocked || !t.blocked_by.is_empty())
-        && f.linear_issue
+        && (!options.past_due || t.is_past_due(today))
+        && (!options.mit || t.is_mit())
+        && (!options.stale || t.is_stale(today))
+        && (!options.no_due || t.due_date.is_none())
+        && (!options.blocked || !t.blocked_by.is_empty())
+        && options
+            .linear_issue
             .as_deref()
             .is_none_or(|w| t.linear_issue.eq_ignore_ascii_case(w.trim()))
-        && f.search.as_deref().is_none_or(|q| t.matches_search(q))
+        && options
+            .search
+            .as_deref()
+            .is_none_or(|q| t.matches_search(q))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_assignment_filter, build_view};
+    use super::{TaskViewOptions, apply_assignment_filter, build_view as build_view_with_options};
     use crate::tasks::cli::Cli;
     use crate::tasks::selector::Selector;
     use crate::tasks::task::test_task;
@@ -136,6 +147,22 @@ mod tests {
         // filters, no display flags, no search). Cleaner than handrolling
         // defaults for every flatten group.
         Cli::parse_from(["tasks"])
+    }
+
+    fn build_view(
+        cli: &Cli,
+        selector: &Selector,
+        active_view: Option<View>,
+        all_tasks: Vec<crate::tasks::task::Task>,
+        today: NaiveDate,
+    ) -> crate::tasks::view::ViewSpec {
+        build_view_with_options(
+            &TaskViewOptions::from(cli),
+            selector,
+            active_view,
+            all_tasks,
+            today,
+        )
     }
 
     #[test]

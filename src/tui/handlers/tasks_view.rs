@@ -27,7 +27,7 @@ pub(crate) const fn normal_escape_action(has_active_filter: bool) -> EscapeActio
 /// d / u jump half a screen of tasks, PgDn / PgUp move a full
 /// screen, and g / G jump to the first / last task. Scroll follows the
 /// selection automatically via `ensure_selected_visible`.
-pub(crate) fn handle_normal_key(app: &mut App<'_>, code: KeyCode, ctrl: bool) -> bool {
+pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> bool {
     // Vim-style count prefix: bare digits accumulate into `pending_count`
     // and wait for a motion key. Every other keystroke consumes (and thus
     // clears) the pending count below via `.take()`.
@@ -198,7 +198,7 @@ pub(crate) fn handle_normal_key(app: &mut App<'_>, code: KeyCode, ctrl: bool) ->
 }
 
 /// Returns `true` when the loop should exit.
-pub(crate) fn handle_search_key(app: &mut App<'_>, code: KeyCode, ctrl: bool) -> bool {
+pub(crate) fn handle_search_key(app: &mut App, code: KeyCode, ctrl: bool) -> bool {
     if search_delegates_ctrl_chord(code, ctrl) {
         return handle_normal_key(app, code, ctrl);
     }
