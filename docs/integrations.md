@@ -921,6 +921,11 @@ each stage; App executes it and feeds completion, dispatch, diagnostic, or sync
 results back through semantic runtime methods. This preserves the historical
 ordering while ensuring controller, filesystem, provider, process, task, and
 sync effects never move into the runtime.
+The production executor also returns a semantic effect outcome. The pure tick
+coordinator maps it to advance, stop, or repeat-current-stage control: a pending
+freshness pull stops the tick, a consumed `/new` rechecks only `/new`, and a
+completed `/restart` advances so the same tick can see a post-command queue
+survivor. No raw sync boolean or effect-variant inspection carries this policy.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.

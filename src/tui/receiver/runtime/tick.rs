@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use super::{ReceiverRuntime, RemoteCompletionTarget};
 use crate::tui::receiver::decision::{
-    ReceiverDecision, ReceiverTickContext, StageDecision, TickFacts, TickStage, plan_tick,
+    ReceiverDecision, ReceiverTickContext, StageDecision, TickFacts, TickStage, decide_stage,
 };
 use crate::tui::receiver::effect::{ReceiverEffect, ReceiverEffectKind};
 
@@ -15,7 +15,7 @@ impl ReceiverRuntime {
         now: Instant,
     ) -> ReceiverDecision {
         let facts = self.tick_facts(context, now);
-        match plan_tick(facts).decision(stage) {
+        match decide_stage(stage, facts) {
             StageDecision::Continue => {
                 if stage == TickStage::Retry {
                     self.retry_at = None;
@@ -48,8 +48,6 @@ impl ReceiverRuntime {
             restart_requested: self.queue.has_restart(),
             retry_waiting: !crate::tui::receiver_state::retry_ready(self.retry_at, now),
             queued_channel,
-            #[cfg(test)]
-            sync_ready: true,
             new_session_requested: self.queue.has_new_session(),
             panel_open: context.panel_open,
             reusable_channel,

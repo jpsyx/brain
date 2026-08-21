@@ -503,13 +503,18 @@ first move is a failing test that reproduces it, *then* the fix.
   prepared/commit/stage/accepted/finalize transaction and failed-final-ack
   rollback.
   Table-driven pure tests in `tui/receiver/decision_tests.rs` characterize each
-  receiver lifecycle condition and the exact effect order, including matching
-  and replacement channels, control-message precedence, retry and sync halts,
-  and completion, timeout, lease, and dispatch transitions. Receiver App tests
-  exercise the same coordinator through Claude, Codex, and OpenCode. Runtime
-  tests verify semantic dispatch, completion, lease, and sync-gate feedback
-  without giving the runtime a controller, filesystem, provider, process, task,
-  or sync adapter.
+  receiver lifecycle decision, including symmetric SMS/email warm-panel reuse
+  and replacement plus completion, timeout, lease, control, retry, sync, and
+  dispatch transitions. Separate tests call the production tick coordinator
+  and pin the complete 14-stage traversal, repeat-current-stage behavior, the
+  stop cut before every later stage, and the semantic effect-outcome mapping.
+  An App-level restart test exercises the real queue and coordinator together:
+  work before `/restart` is dropped while a post-command survivor is dispatched
+  in the same tick. Receiver launch integration covers SMS and email through
+  `AgentController` for Claude, Codex, and OpenCode. Runtime tests verify
+  semantic dispatch, completion, lease, and sync-gate feedback without giving
+  the runtime a controller, filesystem, provider, process, task, or sync
+  adapter.
   Exact status tests distinguish a
   live disabled lease from an accepting lease. Actual parsed CLI start/stop and
   startup `--with-receiver -b` paths, plus keyboard-driven tasks and search
@@ -699,7 +704,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/multi_workspace_acceptance.rs` + `tests/multi_workspace_acceptance/` | One hermetic personal-plus-family scenario covering selector/default policy, UUID caches and locks, one shared server, authenticated wife assignment through the real task script, deterministic display-ID reconciliation, disabled family triage, registered-frontend advisory capability parity, family unavailability, personal continuity, and final server shutdown. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `agent::codex::sessions` + `agent::codex::frontend_tests` | Codex resume validation against a temporary rollout tree: an exact trailing-segment id match, refusal of prefix collisions and of ids not following a `-`, unrelated filenames, a missing sessions directory, day-tree search including older days, and no descent past the day level. The frontend half proves the interactive and response-channel predicates agree, that no resolvable home means nothing is resumable, and that a validated id becomes `codex resume '<id>'`. |
-| `tui::receiver::decision_tests` ordered tick policy | Every receiver lifecycle condition and exact effect order is table-driven, including SMS/email channel parity, warm-panel reuse and replacement, completion and timeout precedence, control-message cuts, retry and sync halts, and dispatch eligibility. App integration tests exercise the coordinator for Claude, Codex, and OpenCode. |
+| `tui::receiver::decision_tests` ordered tick policy | Direct decision tables cover every receiver lifecycle condition and symmetric SMS/email warm-panel reuse/replacement. Production-coordinator tests pin the complete 14-stage traversal plus typed advance/stop/repeat control. The App restart test proves the real queue cut preserves and dispatches a post-command survivor; receiver launch integration covers both channels through `AgentController` for Claude, Codex, and OpenCode. |
 | `workspace::templates` tests | The seeded `AGENTS.md` / `README.md`: written when absent, never overwriting an edited copy, idempotent, cross-referencing each other, carrying nothing instance-specific (no `~/brain`, absolute paths, private skills directory, or personal names), and naming only skills Brain actually bundles — checked in passages that discuss skills, so an example project slug is not mistaken for one. |
 | `tests/empty_workspace_initialization.rs` | First-run scaffolding through the compiled binary: an empty workspace still counts as empty after automatic lifecycle installation, then gets PARA + CSVs + counters + a schema document declaring v2/`task_uuid`; a sync subcommand seeds the document it needs (sync dispatches before the workspace gate); and **a first sync that fails still leaves the whole task store in place**, since seeding it afterwards left a joining machine merging as `Legacy` against a `Current` remote with an empty `tasks/`. |
 | `sync::csv_merge::remote_csvs` + `sync::csv_sync::tests_sections::remote_schema_publication` + `sync::setup` schema_preflight | Remote task-schema generation decided by CSV *content*: absent/current/legacy classification (header-only current CSVs are current, whitespace proves nothing, one legacy CSV makes the remote legacy), a remote missing only its schema document is healed by publishing it, a failed publication is surfaced rather than assumed healed, and genuinely legacy remote rows still refuse while naming `brain workspace migrate`. Setup's guard refuses on legacy rows instead of on mere CSV existence. |

@@ -2,7 +2,7 @@
 
 use crate::server::receiver::Channel;
 
-use super::effect::{ReceiverEffect, ReceiverEffectKind};
+use super::effect::{ReceiverEffect, ReceiverEffectKind, ReceiverEffectOutcome};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ReceiverTickContext {
@@ -55,6 +55,34 @@ impl TickStage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReceiverTickControl {
+    AdvanceStage,
+    StopTick,
+    RepeatCurrentStage,
+}
+
+#[must_use]
+pub(crate) const fn control_after_effect(outcome: ReceiverEffectOutcome) -> ReceiverTickControl {
+    match outcome {
+        ReceiverEffectOutcome::Completed => ReceiverTickControl::AdvanceStage,
+        ReceiverEffectOutcome::FreshnessPending => ReceiverTickControl::StopTick,
+        ReceiverEffectOutcome::NewSessionApplied => ReceiverTickControl::RepeatCurrentStage,
+    }
+}
+
+pub(crate) fn run_receiver_tick(mut execute_stage: impl FnMut(TickStage) -> ReceiverTickControl) {
+    for stage in TickStage::ORDERED {
+        loop {
+            match execute_stage(stage) {
+                ReceiverTickControl::AdvanceStage => break,
+                ReceiverTickControl::StopTick => return,
+                ReceiverTickControl::RepeatCurrentStage => {}
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StageDecision {
     Continue,
     Stop,
@@ -75,8 +103,6 @@ pub(crate) struct TickFacts {
     pub(crate) restart_requested: bool,
     pub(crate) retry_waiting: bool,
     pub(crate) queued_channel: Option<Channel>,
-    #[cfg(test)]
-    pub(crate) sync_ready: bool,
     pub(crate) new_session_requested: bool,
     pub(crate) panel_open: bool,
     pub(crate) reusable_channel: Option<Channel>,
@@ -172,60 +198,4 @@ const fn effect_if(condition: bool, effect: ReceiverEffectKind) -> StageDecision
     } else {
         StageDecision::Continue
     }
-}
-
-pub(crate) struct TickPlan {
-    facts: TickFacts,
-}
-
-impl TickPlan {
-    #[must_use]
-    pub(crate) fn decision(&self, stage: TickStage) -> StageDecision {
-        decide_stage(stage, self.facts)
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn effects(self) -> Vec<ReceiverEffectKind> {
-        let mut facts = self.facts;
-        let mut effects = Vec::new();
-        for stage in TickStage::ORDERED {
-            match decide_stage(stage, facts) {
-                StageDecision::Continue => {}
-                StageDecision::Stop => break,
-                StageDecision::Effect(effect) => {
-                    effects.push(effect);
-                    match effect {
-                        ReceiverEffectKind::AbandonTimedOutTurn => {
-                            facts.remote_turn_active = false;
-                            facts.remote_completion_tracked = false;
-                            facts.panel_open = false;
-                        }
-                        ReceiverEffectKind::ExpireWarmLease
-                        | ReceiverEffectKind::CloseIdlePanel => {
-                            facts.panel_open = false;
-                            facts.reusable_channel = None;
-                        }
-                        ReceiverEffectKind::ApplyRestart => {
-                            facts.restart_requested = false;
-                            facts.queued_channel = None;
-                            facts.new_session_requested = false;
-                        }
-                        ReceiverEffectKind::CheckSyncFreshness if !facts.sync_ready => break,
-                        ReceiverEffectKind::ApplyNewSession => {
-                            facts.new_session_requested = false;
-                            facts.queued_channel = None;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-        effects
-    }
-}
-
-#[must_use]
-pub(crate) const fn plan_tick(facts: TickFacts) -> TickPlan {
-    TickPlan { facts }
 }

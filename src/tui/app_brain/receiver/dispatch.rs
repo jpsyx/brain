@@ -6,28 +6,26 @@ use crate::tui::*;
 impl App {
     /// Plan and execute one pass over the receiver's ordered lifecycle stages.
     pub(crate) fn tick_receiver(&mut self) {
-        for stage in crate::tui::receiver::TickStage::ORDERED {
-            loop {
-                let context = self.receiver_tick_context();
-                let decision =
-                    self.receiver
-                        .plan_tick_stage(stage, context, std::time::Instant::now());
-                match decision {
-                    crate::tui::receiver::ReceiverDecision::Continue => break,
-                    crate::tui::receiver::ReceiverDecision::Stop => return,
-                    crate::tui::receiver::ReceiverDecision::Effect(effect) => {
-                        let repeat_stage = matches!(
-                            &effect,
-                            crate::tui::receiver::ReceiverEffect::ApplyNewSession(_)
-                        );
-                        if !self.execute_receiver_effect(effect) {
-                            return;
-                        }
-                        if !repeat_stage {
-                            break;
-                        }
-                    }
-                }
+        crate::tui::receiver::run_receiver_tick(|stage| self.execute_receiver_tick_stage(stage));
+    }
+
+    fn execute_receiver_tick_stage(
+        &mut self,
+        stage: crate::tui::receiver::TickStage,
+    ) -> crate::tui::receiver::ReceiverTickControl {
+        let context = self.receiver_tick_context();
+        match self
+            .receiver
+            .plan_tick_stage(stage, context, std::time::Instant::now())
+        {
+            crate::tui::receiver::ReceiverDecision::Continue => {
+                crate::tui::receiver::ReceiverTickControl::AdvanceStage
+            }
+            crate::tui::receiver::ReceiverDecision::Stop => {
+                crate::tui::receiver::ReceiverTickControl::StopTick
+            }
+            crate::tui::receiver::ReceiverDecision::Effect(effect) => {
+                crate::tui::receiver::control_after_effect(self.execute_receiver_effect(effect))
             }
         }
     }
@@ -44,7 +42,10 @@ impl App {
         }
     }
 
-    fn execute_receiver_effect(&mut self, effect: crate::tui::receiver::ReceiverEffect) -> bool {
+    fn execute_receiver_effect(
+        &mut self,
+        effect: crate::tui::receiver::ReceiverEffect,
+    ) -> crate::tui::receiver::ReceiverEffectOutcome {
         match effect {
             crate::tui::receiver::ReceiverEffect::PollRemoteCompletion(target) => {
                 self.poll_completed_remote_response(target);
@@ -81,6 +82,7 @@ impl App {
             }
             crate::tui::receiver::ReceiverEffect::ApplyNewSession(job) => {
                 self.apply_receiver_new_session(&job);
+                return crate::tui::receiver::ReceiverEffectOutcome::NewSessionApplied;
             }
             crate::tui::receiver::ReceiverEffect::CloseIdlePanel { receiver_panel } => {
                 self.close_idle_panel_for_receiver_dispatch(receiver_panel);
@@ -89,7 +91,7 @@ impl App {
                 self.dispatch_receiver_message(&message);
             }
         }
-        true
+        crate::tui::receiver::ReceiverEffectOutcome::Completed
     }
 
     fn dispatch_receiver_message(&mut self, message: &InboundJob) {

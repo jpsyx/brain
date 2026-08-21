@@ -3,6 +3,7 @@
 use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
 use crate::sync::journal::Journal;
+use crate::tui::receiver::ReceiverEffectOutcome;
 use crate::tui::{App, FlashKind};
 
 pub(crate) trait ReceiverSyncRuntime: Send {
@@ -112,10 +113,10 @@ impl App {
         }
     }
 
-    pub(crate) fn execute_receiver_sync_freshness_effect(&mut self) -> bool {
+    pub(crate) fn execute_receiver_sync_freshness_effect(&mut self) -> ReceiverEffectOutcome {
         let config = SyncConfig::load(&self.command_context);
         if !config.is_configured() {
-            return true;
+            return ReceiverEffectOutcome::Completed;
         }
 
         if self.receiver.sync_gate_is_armed() {
@@ -133,12 +134,14 @@ impl App {
                 .poll_sync_gate(observation)
                 .expect("an armed receiver sync gate must accept an observation");
             match poll {
-                crate::tui::receiver::SyncGatePoll::Waiting => return false,
+                crate::tui::receiver::SyncGatePoll::Waiting => {
+                    return ReceiverEffectOutcome::FreshnessPending;
+                }
                 crate::tui::receiver::SyncGatePoll::Completed => {
                     crate::logging::log("receiver freshness pull completed; dispatch may continue");
                     self.sync_status = None;
                     let _ = self.reload_tasks();
-                    return true;
+                    return ReceiverEffectOutcome::Completed;
                 }
                 crate::tui::receiver::SyncGatePoll::Exhausted => {
                     crate::logging::log(
@@ -149,7 +152,7 @@ impl App {
                         "receiver sync could not start; processing with local brain state"
                             .to_owned(),
                     ));
-                    return true;
+                    return ReceiverEffectOutcome::Completed;
                 }
                 crate::tui::receiver::SyncGatePoll::Retry(attempts) => {
                     return self.launch_receiver_pull(attempts);
@@ -164,7 +167,7 @@ impl App {
             if state.direction != "push" {
                 self.arm_receiver_sync_gate(0);
             }
-            return false;
+            return ReceiverEffectOutcome::FreshnessPending;
         }
 
         let last_downstream = self
@@ -174,12 +177,12 @@ impl App {
             last_downstream.as_deref(),
             self.receiver_sync_runtime.utc_now(),
         ) {
-            return true;
+            return ReceiverEffectOutcome::Completed;
         }
         self.launch_receiver_pull(1)
     }
 
-    fn launch_receiver_pull(&mut self, attempts: u8) -> bool {
+    fn launch_receiver_pull(&mut self, attempts: u8) -> ReceiverEffectOutcome {
         crate::logging::log(format!(
             "receiver message waiting for downstream freshness pull attempt={attempts}"
         ));
@@ -191,10 +194,10 @@ impl App {
             self.flash = Some(FlashKind::Error(
                 "receiver sync could not start; processing with local brain state".to_owned(),
             ));
-            return true;
+            return ReceiverEffectOutcome::Completed;
         }
         self.arm_receiver_sync_gate(attempts);
-        false
+        ReceiverEffectOutcome::FreshnessPending
     }
 
     fn arm_receiver_sync_gate(&mut self, attempts: u8) {

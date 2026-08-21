@@ -21,6 +21,13 @@ pub(crate) enum ReceiverEffectKind {
     Dispatch,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReceiverEffectOutcome {
+    Completed,
+    FreshnessPending,
+    NewSessionApplied,
+}
+
 pub(crate) enum ReceiverEffect {
     PollRemoteCompletion(RemoteCompletionTarget),
     PollInteractiveCompletion { response_id: String },

@@ -2377,8 +2377,13 @@ delay, panel activity, activity probe, turn timeout, warm-lease expiry, socket
 polling, `/restart`, retry readiness, sync freshness, `/new`, idle-panel
 selection, and dispatch. `/new` may repeat within its own stage to consume
 consecutive control messages, and a waiting retry or sync gate halts the
-remaining stages. This is sequencing policy, not a second mutable receiver
-state machine.
+remaining stages. The production effect executor reports semantic outcomes and
+the pure coordinator maps those outcomes to advance, stop, or repeat-current-
+stage control. Consequently App neither interprets a raw sync boolean nor
+special-cases an effect variant to choose control flow. `/restart` completes
+normally: later stages re-snapshot the real queue and can dispatch a job that
+survived the restart cut in the same tick. This is sequencing policy, not a
+second mutable receiver state machine.
 
 Webhook verification follows provider replay guidance: HMAC comparisons are
 constant-time and Resend timestamps have a five-minute tolerance. Provider

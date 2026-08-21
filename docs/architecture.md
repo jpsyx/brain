@@ -970,6 +970,13 @@ Each receiver tick walks one explicit ordered stage list. The runtime
 re-snapshots receiver-local facts before each stage and returns a typed effect,
 so a completed effect can change a later decision without replaying a one-shot
 timeout, lease, control, or dispatch transition.
+The App-owned executor returns a semantic `ReceiverEffectOutcome`; the pure
+tick coordinator converts that outcome into `AdvanceStage`, `StopTick`, or
+`RepeatCurrentStage`. Sync waiting therefore stops production execution and a
+consumed `/new` repeats only its current stage without either rule depending on
+a raw boolean or an App-side effect-variant check. A completed `/restart`
+advances normally, so later stages observe and can dispatch work that survived
+the restart queue cut.
 `tui/app_sync.rs` passes those observations into the runtime and owns the
 cross-feature sync launch, task reload, footer, and warning effects at the exact queued-job
 consumption boundary. It
