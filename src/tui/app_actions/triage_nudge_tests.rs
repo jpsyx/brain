@@ -123,40 +123,62 @@ fn surfaces_due_today_over_other_matches() {
 
 #[test]
 fn an_outstanding_triage_with_no_nudge_up_raises_one() {
-    use super::{TriageAlertResolution, resolve_triage_alert};
+    use super::{TriageAlertOccupancy, TriageAlertResolution, resolve_triage_alert};
 
     assert_eq!(
-        resolve_triage_alert(true, false),
+        resolve_triage_alert(true, TriageAlertOccupancy::Empty),
         TriageAlertResolution::Open
     );
 }
 
 #[test]
 fn a_nudge_the_sync_proved_stale_is_withdrawn() {
-    use super::{TriageAlertResolution, resolve_triage_alert};
+    use super::{TriageAlertOccupancy, TriageAlertResolution, resolve_triage_alert};
 
     // Triage was completed on another machine while the modal was on screen.
     // Leaving it up invites the user to answer a question already answered — and
     // re-run a pass that already ran.
     assert_eq!(
-        resolve_triage_alert(false, true),
+        resolve_triage_alert(false, TriageAlertOccupancy::TriageNudge),
         TriageAlertResolution::Dismiss
     );
 }
 
 #[test]
 fn an_already_correct_screen_is_left_alone() {
-    use super::{TriageAlertResolution, resolve_triage_alert};
+    use super::{TriageAlertOccupancy, TriageAlertResolution, resolve_triage_alert};
 
     // Outstanding and already asking: leave the user's modal untouched rather
     // than rebuilding it under them.
     assert_eq!(
-        resolve_triage_alert(true, true),
+        resolve_triage_alert(true, TriageAlertOccupancy::TriageNudge),
         TriageAlertResolution::Leave
     );
     // Nothing outstanding and nothing showing.
     assert_eq!(
-        resolve_triage_alert(false, false),
+        resolve_triage_alert(false, TriageAlertOccupancy::Empty),
         TriageAlertResolution::Leave
+    );
+}
+
+#[test]
+fn startup_sync_under_help_waits_for_dismissal_then_displays_triage() {
+    use super::{
+        TriageAlertOccupancy, TriageAlertResolution, resolve_triage_alert,
+        triage_reconciliation_pending,
+    };
+
+    let while_help_is_open = resolve_triage_alert(true, TriageAlertOccupancy::OtherOverlay);
+    assert_eq!(while_help_is_open, TriageAlertResolution::Defer);
+    assert!(
+        triage_reconciliation_pending(while_help_is_open),
+        "sync completion must remain pending while Help owns the overlay slot"
+    );
+
+    let after_help_is_dismissed = resolve_triage_alert(true, TriageAlertOccupancy::Empty);
+    assert_eq!(after_help_is_dismissed, TriageAlertResolution::Open);
+    assert!(
+        !triage_reconciliation_pending(after_help_is_dismissed),
+        "opening the triage nudge completes the deferred startup decision"
     );
 }

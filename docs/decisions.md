@@ -2037,8 +2037,7 @@ defers the check: the shell is fully usable at once (no modal to dismiss), and
 sync completes successfully (detected by a newer clean downstream sync-journal
 row). Before evaluating the modal, Brain reloads portable config, applies the
 incoming managed-triage policy under the task-store owner, and reloads both
-task tables. The modal then appears
-only if triage is genuinely still due; if
+task tables. The modal then appears only if triage is genuinely still due; if
 another machine handled it, it never appears. The gate keys on the journal's
 row id rather than the `current.json` in-flight marker specifically to avoid the
 "sync hasn't written its marker yet" start-gap: a new journal row is an
@@ -2053,6 +2052,12 @@ after a successful refresh, Brain consults the live field against refreshed
 config and task state. Disabling it again before completion therefore remains
 suppressed, while enabling it cannot create a modal from stale pre-sync data.
 Refresh failures still surface as errors and never evaluate the alert.
+If another captive overlay owns the shell's exclusive modal slot when refresh
+finishes, the gate keeps the refreshed alert decision pending. It does not
+repeat the sync refresh; after the user dismisses that overlay, the next event
+loop tick displays the triage nudge. An already-visible triage confirmation is
+still reconciled immediately and withdrawn when the refreshed habits prove it
+stale.
 
 ## Why all task writers share one workspace-scoped owner
 

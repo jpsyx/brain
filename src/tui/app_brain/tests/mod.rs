@@ -32,8 +32,10 @@ mod launch;
 mod lifecycle;
 mod opencode_launch;
 mod opencode_receiver;
+mod overlay_draw;
 mod receiver;
 mod receiver_sync;
 mod skill_session;
+mod triage_overlay;
 
 use fixtures::*;

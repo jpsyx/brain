@@ -1120,7 +1120,9 @@ a one-actor compatibility context with hidden assignment controls.
 panel focus/scroll, brain open/close/new, quit) → captive modal → brain panel
 (forward bytes) → active main view (`handlers` for tasks, `search_view` for the
 brain-directory picker). `draw` renders the active main view in the main
-panel, the brain panel beside it (`panel_side`), and any modal over the top.
+panel and the brain panel beside it (`panel_side`). Task and app-level overlays
+span that composed shell; search palette and confirmation variants stay
+centered inside the search `main_area`, matching the picker's pre-shell render.
 `search_view.rs` is the brain-directory view's handler (its picker nav, in-place
 open, and the search-specific variants of the shell overlay). The remaining
 submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
@@ -1182,7 +1184,10 @@ Once a newer clean pull/both/resync row appears, it strictly reloads portable
 config, reconciles managed policy under the workspace task-store owner, reloads
 both synced CSVs, and evaluates the live process-scoped alert state. Palette
 re-enable while this gate is armed defers its check to that refreshed state;
-the gate does not cache the launch-time alert value. Reload or
+the gate does not cache the launch-time alert value. If another overlay owns
+the exclusive slot after refresh, the gate retains only the refreshed alert
+decision and retries delivery after that overlay closes; it does not reload or
+reconcile the sync twice. Reload or
 reconciliation errors are logged and shown in the TUI rather than discarded,
 so the modal reflects post-sync completion state (pure `triage_gate_resolved`
 decides resolution). `enable_daily_triage_check=false` disables only the final alert;

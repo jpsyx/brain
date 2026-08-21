@@ -143,10 +143,10 @@ pub(crate) struct App {
     /// logical day differs from this, so the modal fires at most once per
     /// day even across a multi-day session.
     triage_day: NaiveDate,
-    /// While a startup background sync is still in flight, config and task
-    /// refresh are deferred so the shell is usable immediately. `Some` means
-    /// "waiting for that sync to land". Alert evaluation reads the live
-    /// process-scoped toggle only after the refresh succeeds.
+    /// While a startup background sync is in flight, config and task refresh
+    /// are deferred so the shell is usable immediately. After refresh, this
+    /// remains `Some` only while an outstanding alert waits for the exclusive
+    /// overlay slot. Alert evaluation reads the live process-scoped toggle.
     triage_gate: Option<TriageGate>,
     /// Process-scoped opt-out: when true the daily-triage startup nudge is
     /// never evaluated for this run, so the modal can't appear. Seeded from the

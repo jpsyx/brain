@@ -60,8 +60,10 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
         Some(Overlay::TaskPalette(state)) => draw_palette(f, state, area),
         Some(Overlay::BrainInput(state)) => draw_brain_input(f, state, area),
         Some(Overlay::TaskConfirmation(state)) => draw_confirm(f, state, area),
-        Some(Overlay::SearchPalette(state)) => crate::menu::draw_modal(f, state, area),
-        Some(Overlay::SearchConfirmation(state)) => crate::confirm::draw_modal(f, state, area),
+        Some(Overlay::SearchPalette(state)) => crate::menu::draw_modal(f, state, main_area),
+        Some(Overlay::SearchConfirmation(state)) => {
+            crate::confirm::draw_modal(f, state, main_area);
+        }
         Some(Overlay::LinkPicker(state)) => draw_link_picker(f, state, area),
         Some(Overlay::AssigneeFilter(state)) => draw_assignee_filter(f, state, area),
         Some(Overlay::Help(state)) => draw_help(f, state, area),

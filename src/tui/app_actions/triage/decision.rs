@@ -67,8 +67,19 @@ pub(crate) enum TriageAlertResolution {
     /// The sync proved triage is already done (another machine, or a peer) while
     /// the nudge was on screen: take it away.
     Dismiss,
+    /// Triage is outstanding, but another captive overlay owns the one modal
+    /// slot. Keep the startup decision pending until that overlay closes.
+    Defer,
     /// Nothing to change.
     Leave,
+}
+
+/// How the shell's exclusive overlay slot relates to the triage nudge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TriageAlertOccupancy {
+    Empty,
+    TriageNudge,
+    OtherOverlay,
 }
 
 /// Reconcile the on-screen nudge with what the completed sync actually showed.
@@ -81,13 +92,20 @@ pub(crate) enum TriageAlertResolution {
 #[must_use]
 pub(crate) const fn resolve_triage_alert(
     triage_outstanding: bool,
-    nudge_is_open: bool,
+    occupancy: TriageAlertOccupancy,
 ) -> TriageAlertResolution {
-    match (triage_outstanding, nudge_is_open) {
-        (true, false) => TriageAlertResolution::Open,
-        (false, true) => TriageAlertResolution::Dismiss,
+    match (triage_outstanding, occupancy) {
+        (true, TriageAlertOccupancy::Empty) => TriageAlertResolution::Open,
+        (true, TriageAlertOccupancy::OtherOverlay) => TriageAlertResolution::Defer,
+        (false, TriageAlertOccupancy::TriageNudge) => TriageAlertResolution::Dismiss,
         _ => TriageAlertResolution::Leave,
     }
+}
+
+/// Whether the startup gate must remain alive for a later overlay-free tick.
+#[must_use]
+pub(crate) const fn triage_reconciliation_pending(resolution: TriageAlertResolution) -> bool {
+    matches!(resolution, TriageAlertResolution::Defer)
 }
 
 /// Gate the daily-triage nudge on the process-scoped opt-out (seeded from

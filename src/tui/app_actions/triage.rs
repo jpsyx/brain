@@ -122,7 +122,7 @@ impl App {
     /// startup sync lands: the nudge may already be up (raised before the sync
     /// finished), and the synced habits may now show that triage was completed on
     /// another machine.
-    pub(crate) fn reconcile_daily_triage_alert(&mut self) {
+    pub(crate) fn reconcile_daily_triage_alert(&mut self) -> TriageAlertResolution {
         let target = triage_modal_target(
             self.config.enable_triage_habits,
             self.skip_daily_triage_check,
@@ -130,11 +130,15 @@ impl App {
             &self.config.daily_triage_name_pattern,
             self.today,
         );
-        let nudge_is_open = matches!(
-            self.overlay.as_ref(),
-            Some(Overlay::TaskConfirmation(confirm)) if confirm.kind == ConfirmKind::RunTriage
-        );
-        match resolve_triage_alert(target.is_some(), nudge_is_open) {
+        let occupancy = match self.overlay.as_ref() {
+            Some(Overlay::TaskConfirmation(confirm)) if confirm.kind == ConfirmKind::RunTriage => {
+                TriageAlertOccupancy::TriageNudge
+            }
+            Some(_) => TriageAlertOccupancy::OtherOverlay,
+            None => TriageAlertOccupancy::Empty,
+        };
+        let resolution = resolve_triage_alert(target.is_some(), occupancy);
+        match resolution {
             TriageAlertResolution::Open => {
                 if let Some(habit) = target {
                     open_overlay(
@@ -153,8 +157,9 @@ impl App {
                     "daily triage was already done on another machine".to_owned(),
                 ));
             }
-            TriageAlertResolution::Leave => {}
+            TriageAlertResolution::Defer | TriageAlertResolution::Leave => {}
         }
+        resolution
     }
 
     /// Record the logical day the startup triage check ran for. Called once
@@ -181,6 +186,7 @@ impl App {
             seen_journal_id,
             // Allow an immediate first poll (a very fast sync may already be done).
             next_poll: now,
+            refresh_complete: false,
         });
     }
 
@@ -193,11 +199,26 @@ impl App {
     /// is *still* incomplete for today. Journal polling is throttled off the
     /// 50ms loop via `next_poll`.
     pub(crate) fn tick_triage_gate(&mut self) {
-        let Some(gate) = self.triage_gate.as_ref() else {
+        let Some((seen_journal_id, next_poll, refresh_complete)) = self
+            .triage_gate
+            .as_ref()
+            .map(|gate| (gate.seen_journal_id, gate.next_poll, gate.refresh_complete))
+        else {
             return;
         };
+        if refresh_complete {
+            let pending = should_check_daily_triage(
+                TriageAlertEvent::RefreshSucceeded,
+                false,
+                self.skip_daily_triage_check,
+            ) && triage_reconciliation_pending(self.reconcile_daily_triage_alert());
+            if !pending {
+                self.triage_gate = None;
+            }
+            return;
+        }
         let now = std::time::Instant::now();
-        if now < gate.next_poll {
+        if now < next_poll {
             return;
         }
         let latest = crate::sync::journal::Journal::open(
@@ -206,8 +227,7 @@ impl App {
         .ok()
         .and_then(|j| j.latest_successful_downstream_id().ok())
         .flatten();
-        if triage_gate_resolved(gate.seen_journal_id, latest) {
-            self.triage_gate = None;
+        if triage_gate_resolved(seen_journal_id, latest) {
             match refresh_after_successful_startup_sync(&self.command_context.workspace) {
                 Ok(refreshed) => {
                     self.config = refreshed.config;
@@ -236,15 +256,22 @@ impl App {
                     // reconciliation, not a first look: open it if the synced
                     // state now says triage is outstanding, and withdraw a stale
                     // one if the sync proved it was already done elsewhere.
-                    if should_check_daily_triage(
-                        TriageAlertEvent::RefreshSucceeded,
-                        false,
-                        self.skip_daily_triage_check,
-                    ) {
-                        self.reconcile_daily_triage_alert();
+                    let pending =
+                        should_check_daily_triage(
+                            TriageAlertEvent::RefreshSucceeded,
+                            false,
+                            self.skip_daily_triage_check,
+                        ) && triage_reconciliation_pending(self.reconcile_daily_triage_alert());
+                    if pending {
+                        if let Some(gate) = self.triage_gate.as_mut() {
+                            gate.refresh_complete = true;
+                        }
+                    } else {
+                        self.triage_gate = None;
                     }
                 }
                 Err(error) => {
+                    self.triage_gate = None;
                     crate::logging::log(format!("post-sync triage refresh failed: {error:#}"));
                     self.flash = Some(FlashKind::Error(format!(
                         "post-sync task refresh failed: {error}"

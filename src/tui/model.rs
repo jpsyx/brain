@@ -39,7 +39,8 @@ pub(crate) struct SkillSessionTab {
 }
 
 /// Deferral state for the startup daily-triage nudge while a background sync is
-/// still running. See `App::triage_gate` and `App::tick_triage_gate`.
+/// running or its refreshed decision is waiting for the overlay slot. See
+/// `App::triage_gate` and `App::tick_triage_gate`.
 pub(crate) struct TriageGate {
     /// Newest sync-journal row id when the gate was armed; the gate resolves
     /// once a strictly-newer row appears (a background sync finished). `None`
@@ -48,6 +49,9 @@ pub(crate) struct TriageGate {
     /// Next instant we're allowed to poll the journal, to throttle the DB reads
     /// down from the 50ms event-loop tick.
     pub(crate) next_poll: Instant,
+    /// The sync result and refreshed task state have already been applied. A
+    /// true value means only delivery of an outstanding nudge remains.
+    pub(crate) refresh_complete: bool,
 }
 
 pub(crate) struct ReceiverSyncGate {

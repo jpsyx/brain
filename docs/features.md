@@ -973,8 +973,10 @@ brain does **not** show the triage modal at open: the shell is usable
 immediately, with no modal to dismiss. It waits for the startup sync to finish,
 reloads the synced tasks/habits, and only *then* shows the "run today's triage?"
 modal — and only if triage is still not done for today. If another machine
-already handled it, no modal ever appears. With sync unconfigured, the check
-runs immediately at open as before.
+already handled it, no modal ever appears. If Help, a palette, or another
+captive overlay is open when the sync finishes, Brain keeps the refreshed
+decision pending and shows the triage modal as soon as that overlay closes.
+With sync unconfigured, the check runs immediately at open as before.
 
 **The nudge never waits for the sync.** It is evaluated as soon as the shell
 opens, so on a sync-configured workspace it appears immediately rather than after
