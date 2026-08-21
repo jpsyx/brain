@@ -121,7 +121,7 @@ impl JobSocket {
     pub fn poll_jobs(
         &self,
         workspace_id: crate::workspace::WorkspaceId,
-        queue: &mut Vec<crate::server::receiver::InboundJob>,
+        queue: &mut crate::tui::receiver::InboundQueue,
     ) {
         loop {
             match self.listener.accept() {
@@ -149,13 +149,13 @@ impl JobSocket {
 fn process_job_stream(
     stream: &mut (impl Read + Write),
     workspace_id: crate::workspace::WorkspaceId,
-    queue: &mut Vec<crate::server::receiver::InboundJob>,
+    queue: &mut crate::tui::receiver::InboundQueue,
 ) {
     let response = read_job(stream).and_then(|job| {
         if job.workspace_id != workspace_id {
             anyhow::bail!("inbound job targets another workspace");
         }
-        if queue.len() >= crate::server::receiver::INBOUND_QUEUE_CAPACITY {
+        if !queue.can_stage() {
             anyhow::bail!("inbound queue is full");
         }
         stream
@@ -163,21 +163,23 @@ fn process_job_stream(
             .context("acknowledging staged job")?;
         let command = read_admission_command(stream)?;
         anyhow::ensure!(command == "commit", "job admission was cancelled");
-        queue.push(job);
-        Ok(())
+        queue.stage(job).map_err(anyhow::Error::from)
     });
-    let accepted = response.is_ok();
-    let message = if accepted {
-        "accepted\n".to_owned()
-    } else {
-        let error = response.expect_err("checked error");
-        format!("rejected: {error:#}\n").replace(['\r', '\n'], " ")
-    };
-    if let Err(error) = stream.write_all(message.as_bytes()) {
-        if accepted {
-            queue.pop();
+    match response {
+        Ok(staged) => {
+            if let Err(error) = stream.write_all(b"accepted\n") {
+                let _ = queue.rollback(staged);
+                crate::logging::log(format!("workspace job acknowledgment failed: {error}"));
+            } else if !queue.finalize(staged) {
+                crate::logging::log("workspace job finalization lost its staged admission");
+            }
         }
-        crate::logging::log(format!("workspace job acknowledgment failed: {error}"));
+        Err(error) => {
+            let message = format!("rejected: {error:#}\n").replace(['\r', '\n'], " ");
+            if let Err(error) = stream.write_all(message.as_bytes()) {
+                crate::logging::log(format!("workspace job acknowledgment failed: {error}"));
+            }
+        }
     }
 }
 
@@ -340,7 +342,7 @@ mod tests {
             writes: Vec::new(),
             write_count: 0,
         };
-        let mut queue = Vec::new();
+        let mut queue = crate::tui::receiver::InboundQueue::default();
 
         process_job_stream(&mut stream, workspace_id, &mut queue);
 

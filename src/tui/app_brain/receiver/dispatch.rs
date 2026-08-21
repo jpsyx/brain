@@ -57,7 +57,7 @@ impl App {
         if !self.brain_turn_active && self.receiver_started.is_none() {
             while self.apply_queued_new_session() {}
         }
-        let queued = self.receiver_queue.first();
+        let queued = self.receiver_queue.head();
         let queued_channel = queued.map(|message| message.channel);
         let reusable_channel = self.receiver_lease.and_then(|lease| {
             (queued.is_some_and(|message| self.session_actor.as_ref() == Some(&message.actor)))
@@ -85,7 +85,9 @@ impl App {
             crate::tui::receiver_state::DispatchAction::ReuseReceiverPanel
             | crate::tui::receiver_state::DispatchAction::StartNext => {}
         }
-        let message = self.receiver_queue[0].clone();
+        let Some(message) = self.receiver_queue.head().cloned() else {
+            return;
+        };
         let label = match message.channel {
             crate::server::receiver::Channel::Sms => "SMS",
             crate::server::receiver::Channel::Email => "email",
@@ -166,7 +168,7 @@ impl App {
             ));
         }
         let launched = self.open_or_focus_brain(Some(&(prompt + &attachments)));
-        let _ = crate::tui::receiver_state::commit_dispatch(&mut self.receiver_queue, launched);
+        let _ = self.receiver_queue.commit_head(launched);
         if launched {
             self.receiver_retry_at = None;
             self.receiver_sender = Some(message.authenticated_sender.clone());

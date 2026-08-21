@@ -8,9 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
-use brain::server::receiver::{
-    Channel, INBOUND_QUEUE_CAPACITY, execute_pipeline, forward_job, forward_or_unavailable,
-};
+use brain::server::receiver::{Channel, execute_pipeline, forward_job, forward_or_unavailable};
 use brain::tui::singleton::JobSocket;
 use receiver_workspace_support::{
     DualWorkspaceReceiverFixture, FAMILY_ID, PERSONAL_ID, RecordingPipeline, RevocationPipeline,
@@ -159,7 +157,7 @@ fn absent_shared_process_stays_absent_and_has_no_responder() {
 fn signed_sms_routes_through_shared_process_into_exact_live_tui() {
     let mut fixture = SharedReceiverFixture::start();
     let response_rx = fixture.post_sms_async("SM-task-five", "hello from shared HTTP");
-    let mut queue = Vec::new();
+    let mut queue = brain::tui::receiver::InboundQueue::default();
     poll_until(Instant::now() + Duration::from_secs(3), || {
         fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
         if queue.is_empty()
@@ -173,9 +171,10 @@ fn signed_sms_routes_through_shared_process_into_exact_live_tui() {
 
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     assert_eq!(queue.len(), 1);
-    assert_eq!(queue[0].workspace_id, fixture.workspace.id());
-    assert_eq!(queue[0].actor.user_id().as_str(), "personal-member");
-    assert_eq!(queue[0].prompt, "hello from shared HTTP");
+    let queued = queue.snapshot();
+    assert_eq!(queued[0].workspace_id, fixture.workspace.id());
+    assert_eq!(queued[0].actor.user_id().as_str(), "personal-member");
+    assert_eq!(queued[0].prompt, "hello from shared HTTP");
     fixture.shutdown();
 }
 
@@ -188,7 +187,7 @@ fn signed_unknown_sender_is_rejected_without_enqueuing() {
         "must not enter the queue",
         "+12125550999",
     );
-    let mut queue = Vec::new();
+    let mut queue = brain::tui::receiver::InboundQueue::default();
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
 
     assert!(response.starts_with("HTTP/1.1 403"), "{response}");
@@ -201,7 +200,7 @@ fn accepted_receiver_route_rejects_body_over_one_mib_before_authentication() {
     let mut fixture = SharedReceiverFixture::start();
 
     let response = fixture.post_oversized_sms();
-    let mut queue = Vec::new();
+    let mut queue = brain::tui::receiver::InboundQueue::default();
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
 
     assert!(response.starts_with("HTTP/1.1 413"), "{response}");
@@ -215,7 +214,7 @@ fn missing_email_target_returns_one_json_unavailable_and_enqueues_nothing() {
     fixture.unregister_target();
 
     let response = fixture.post_email_without_credentials();
-    let mut queue = Vec::new();
+    let mut queue = brain::tui::receiver::InboundQueue::default();
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
 
     assert!(response.starts_with("HTTP/1.1 401"), "{response}");
@@ -228,7 +227,7 @@ fn authenticated_non_received_email_event_returns_accepted_without_enqueue() {
     let mut fixture = SharedReceiverFixture::start();
 
     let response = fixture.post_ignored_email_event();
-    let mut queue = Vec::new();
+    let mut queue = brain::tui::receiver::InboundQueue::default();
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
 
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
@@ -248,7 +247,7 @@ fn repeated_resend_discard_outcomes_ack_without_enqueue_or_retry() {
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         assert!(!response.contains("queued\":true"), "{response}");
     }
-    let mut queue = Vec::new();
+    let mut queue = brain::tui::receiver::InboundQueue::default();
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
     assert!(queue.is_empty());
     fixture.shutdown();
@@ -276,7 +275,7 @@ fn signed_resend_event_unavailable_before_credentials_is_rejected_on_live_replay
     let unavailable = fixture.post_received_email_event();
     fixture.register_target();
     let replay = fixture.post_received_email_event();
-    let mut queue = Vec::new();
+    let mut queue = brain::tui::receiver::InboundQueue::default();
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
 
     assert!(unavailable.starts_with("HTTP/1.1 200"), "{unavailable}");
@@ -308,7 +307,7 @@ fn job_socket_acknowledges_only_the_matching_workspace_enqueue() {
         result_tx.send(forward_job(&path, &personal_job)).unwrap();
     });
 
-    let mut queue = Vec::new();
+    let mut queue = brain::tui::receiver::InboundQueue::default();
     poll_until(Instant::now() + Duration::from_secs(1), || {
         socket.poll_jobs(personal.id(), &mut queue);
         !queue.is_empty()
@@ -319,10 +318,11 @@ fn job_socket_acknowledges_only_the_matching_workspace_enqueue() {
         .unwrap()
         .unwrap();
     assert_eq!(queue.len(), 1);
-    assert_eq!(queue[0].workspace_id, personal.id());
-    assert_eq!(queue[0].prompt, "hello personal");
-    assert_ne!(queue[0].workspace_id, family.id());
-    assert!(queue.len() <= INBOUND_QUEUE_CAPACITY);
+    let queued = queue.snapshot();
+    assert_eq!(queued[0].workspace_id, personal.id());
+    assert_eq!(queued[0].prompt, "hello personal");
+    assert_ne!(queued[0].workspace_id, family.id());
+    assert!(queue.len() <= 64);
 
     let family_job = job(&family, "must stay in family");
     let personal_path = personal.paths().job_socket();
@@ -344,7 +344,13 @@ fn full_tui_queue_rejects_and_returns_one_unavailable_response_without_retry() {
     let temp = tempfile::tempdir().unwrap();
     let personal = workspace(&temp, PERSONAL_ID, "personal");
     let socket = JobSocket::bind(&personal).unwrap();
-    let mut queue = vec![job(&personal, "already queued"); INBOUND_QUEUE_CAPACITY];
+    let mut queue = brain::tui::receiver::InboundQueue::default();
+    for _ in 0..64 {
+        let staged = queue
+            .stage(job(&personal, "already queued"))
+            .expect("queue has room through its boundary");
+        assert!(queue.finalize(staged));
+    }
     let path = personal.paths().job_socket();
     let rejected_job = job(&personal, "discard when full");
     let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
@@ -365,5 +371,5 @@ fn full_tui_queue_rejects_and_returns_one_unavailable_response_without_retry() {
         })
     });
 
-    assert_eq!(queue.len(), INBOUND_QUEUE_CAPACITY);
+    assert_eq!(queue.len(), 64);
 }

@@ -171,6 +171,7 @@ rule applies across the large runtime families:
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/mod.rs` and the existing app coordinators | `model.rs` owns shared panel/tab/gate state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| Live receiver queue | `tui/receiver/mod.rs` | `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, FIFO head commits, and receiver control mutations; socket, dispatch, completion, and tests consume semantic operations or read-only snapshots |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -1460,10 +1461,13 @@ offline queue or launches an agent.
 
 The shared HTTP process resolves receiver ingress availability before loading
 credentials, users, prompt data, or the workspace job socket. A request is
-accepted only after provider authentication, actor resolution, and an
+accepted only after provider authentication, actor resolution, and a
 committed staged handoff to the exact live TUI's 64-entry in-memory queue. The
-mode-`0600` UUID-local socket bounds serialized frames at 1 MiB and holds the
-decoded job outside the queue until final authority commits. Failed, full, disabled,
+mode-`0600` UUID-local socket bounds serialized frames at 1 MiB. After final
+authority commits, `InboundQueue` stages the decoded job under an opaque token,
+the socket writes `accepted`, and only then does the queue finalize the job for
+dispatch. If that write fails, the token can roll back only its exact staged
+append. Failed, full, disabled,
 and missing targets receive one channel-specific unavailable response and are
 not retained or retried. Provider IDs are retained only after an enqueue ack;
 the accepted cache is bounded at 1024 keys scoped by workspace and channel.

@@ -488,6 +488,15 @@ first move is a failing test that reproduces it, *then* the fix.
   after lock acquisition. Its commit probe requires both the COMMITTED state
   and the still-held mutex, making pre-lock clock and post-unlock CAS mutations
   fail.
+  `tests/inbound_queue.rs` specifies the live-TUI queue as FIFO at the exact
+  64-job boundary, including staged-token finalization and exact rollback,
+  launch-success head commit, restart and new-session controls, and read-only
+  snapshots. `tests/tui_receiver_queue_architecture.rs` walks every Rust file
+  under `src/tui/` and rejects raw `InboundJob` collection ownership or direct
+  push, pop, indexing, front removal, and split mutations outside
+  `tui/receiver/queue.rs`. Socket characterization separately proves the
+  prepared/commit/stage/accepted/finalize transaction and failed-final-ack
+  rollback.
   Exact status tests distinguish a
   live disabled lease from an accepting lease. Actual parsed CLI start/stop and
   startup `--with-receiver -b` paths, plus keyboard-driven tasks and search

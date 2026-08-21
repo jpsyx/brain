@@ -24,6 +24,11 @@ use crate::workspace::{
     CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
 };
 
+fn enqueue_receiver_job(app: &mut App, job: InboundJob) {
+    let staged = app.receiver_queue.stage(job).expect("receiver queue room");
+    assert!(app.receiver_queue.finalize(staged));
+}
+
 use super::launch::register_fresh_before_launch;
 
 mod fixtures;

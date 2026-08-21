@@ -56,21 +56,25 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
     let recording = TransportRecording::default();
     app.brain_transport_override = Some(recording.transport());
     let actor = sms_actor();
-    app.receiver_queue.push(InboundJob {
-        job_id: uuid::Uuid::new_v4(),
-        workspace_id: app.command_context.workspace.id(),
-        actor: actor.clone(),
-        channel: Channel::Sms,
-        prompt: "authenticated request".to_owned(),
-        authenticated_sender: "+15551234567".to_owned(),
-        attachments: Vec::new(),
-        received_at_unix_ms: 1,
-        provider_id: Some("provider-message-1".to_owned()),
-        thread_participants: vec!["+15551234567".to_owned()],
-        response_email: None,
-        allowed_response_recipients: Vec::new(),
-        email_reply: None,
-    });
+    let workspace_id = app.command_context.workspace.id();
+    enqueue_receiver_job(
+        &mut app,
+        InboundJob {
+            job_id: uuid::Uuid::new_v4(),
+            workspace_id,
+            actor: actor.clone(),
+            channel: Channel::Sms,
+            prompt: "authenticated request".to_owned(),
+            authenticated_sender: "+15551234567".to_owned(),
+            attachments: Vec::new(),
+            received_at_unix_ms: 1,
+            provider_id: Some("provider-message-1".to_owned()),
+            thread_participants: vec!["+15551234567".to_owned()],
+            response_email: None,
+            allowed_response_recipients: Vec::new(),
+            email_reply: None,
+        },
+    );
 
     app.tick_receiver();
     let response_id = app

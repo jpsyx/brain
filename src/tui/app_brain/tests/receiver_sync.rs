@@ -127,21 +127,25 @@ fn receiver_job_consumption_waits_for_this_workspace_freshness_pull() {
     let runtime = TestReceiverSyncRuntime::new();
     app.receiver_sync_runtime = Box::new(runtime.clone());
     let actor = app.interactive_actor.clone();
-    app.receiver_queue.push(InboundJob {
-        job_id: uuid::Uuid::new_v4(),
-        workspace_id: app.command_context.workspace.id(),
-        actor,
-        channel: Channel::Sms,
-        prompt: "wait for the remote brain".to_owned(),
-        authenticated_sender: "+15551234567".to_owned(),
-        attachments: Vec::new(),
-        received_at_unix_ms: 1,
-        provider_id: Some("provider-message-1".to_owned()),
-        thread_participants: vec!["+15551234567".to_owned()],
-        response_email: None,
-        allowed_response_recipients: Vec::new(),
-        email_reply: None,
-    });
+    let workspace_id = app.command_context.workspace.id();
+    enqueue_receiver_job(
+        &mut app,
+        InboundJob {
+            job_id: uuid::Uuid::new_v4(),
+            workspace_id,
+            actor,
+            channel: Channel::Sms,
+            prompt: "wait for the remote brain".to_owned(),
+            authenticated_sender: "+15551234567".to_owned(),
+            attachments: Vec::new(),
+            received_at_unix_ms: 1,
+            provider_id: Some("provider-message-1".to_owned()),
+            thread_participants: vec!["+15551234567".to_owned()],
+            response_email: None,
+            allowed_response_recipients: Vec::new(),
+            email_reply: None,
+        },
+    );
 
     app.tick_receiver();
 

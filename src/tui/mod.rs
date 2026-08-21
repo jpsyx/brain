@@ -59,6 +59,7 @@ mod modal_state;
 mod modals;
 mod overlay;
 mod palette;
+pub mod receiver;
 mod receiver_state;
 mod search_view;
 mod shell;
@@ -332,7 +333,7 @@ pub(crate) struct App {
     /// Persistent receiver intent for this exact selected workspace.
     pub(crate) receiver_enabled: bool,
     receiver_intent_refresher: Box<dyn crate::command::server::ReceiverIntentRefresher>,
-    pub(crate) receiver_queue: Vec<crate::server::receiver::InboundJob>,
+    pub(crate) receiver_queue: crate::tui::receiver::InboundQueue,
     /// Channels whose next receiver message must open a fresh conversation.
     ///
     /// Set by a `/new` command and consumed by the launch that follows it, so

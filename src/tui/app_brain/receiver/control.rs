@@ -7,7 +7,7 @@
 //! *where* it falls, so it waits its turn in the queue and is applied only
 //! between messages.
 
-use crate::server::receiver::{ControlCommand, InboundJob, parse_control_command};
+use crate::server::receiver::InboundJob;
 use crate::tui::*;
 
 impl App {
@@ -65,9 +65,7 @@ impl App {
     /// *because* they are stuck behind something, so making the command wait
     /// for the thing it is meant to escape would leave it useless.
     pub(crate) fn apply_queued_restart(&mut self) {
-        let Some(plan) = crate::server::receiver::take_restart(&mut self.receiver_queue, |job| {
-            parse_control_command(&job.prompt) == Some(ControlCommand::Restart)
-        }) else {
+        let Some(plan) = self.receiver_queue.take_restart() else {
             return;
         };
         crate::logging::log(format!(
@@ -98,13 +96,9 @@ impl App {
     /// Returns `true` when one was consumed, so the caller can re-enter rather
     /// than dispatch a command as if it were a prompt.
     pub(crate) fn apply_queued_new_session(&mut self) -> bool {
-        let Some(job) = self.receiver_queue.first() else {
+        let Some(job) = self.receiver_queue.take_new_session() else {
             return false;
         };
-        if parse_control_command(&job.prompt) != Some(ControlCommand::NewSession) {
-            return false;
-        }
-        let job = self.receiver_queue.remove(0);
         self.receiver_new_session.insert(job.channel);
         crate::logging::log(format!(
             "receiver control /new for channel={:?}; next message opens a fresh session",

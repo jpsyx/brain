@@ -130,16 +130,6 @@ fn queued_message_replaces_a_warm_panel_for_a_different_channel() {
 }
 
 #[test]
-fn failed_agent_launch_keeps_the_message_queued_for_retry() {
-    let mut queue = vec!["first", "second"];
-    commit_dispatch(&mut queue, false);
-    assert_eq!(queue, vec!["first", "second"]);
-
-    commit_dispatch(&mut queue, true);
-    assert_eq!(queue, vec!["second"]);
-}
-
-#[test]
 fn failed_launch_retry_waits_for_its_backoff_deadline() {
     let now = Instant::now();
     assert!(retry_ready(None, now));

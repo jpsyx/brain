@@ -234,7 +234,7 @@ fn run_late_revocation(revocation: LateRevocation) {
             .expect("report dispatch result");
     });
 
-    let queue = Arc::new(Mutex::new(Vec::new()));
+    let queue = Arc::new(Mutex::new(crate::tui::receiver::InboundQueue::default()));
     let stop_polling = Arc::new(AtomicBool::new(false));
     let poller_queue = Arc::clone(&queue);
     let poller_stop = Arc::clone(&stop_polling);

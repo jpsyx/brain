@@ -47,24 +47,6 @@ pub struct RestartPlan<T> {
     pub dropped: Vec<T>,
 }
 
-/// Split a queue around the first restart command in it, leaving the survivors.
-///
-/// Everything queued *ahead* of the restart is dropped: that is the backlog the
-/// sender is asking to be rid of. Everything behind it is kept, because it was
-/// sent after the decision to restart and dropping it would lose a message
-/// nobody asked to abandon. Returns `None` when no restart is queued, leaving
-/// the queue untouched.
-pub fn take_restart<T>(
-    queue: &mut Vec<T>,
-    is_restart: impl Fn(&T) -> bool,
-) -> Option<RestartPlan<T>> {
-    let at = queue.iter().position(is_restart)?;
-    let survivors = queue.split_off(at + 1);
-    let command = queue.pop().expect("the restart sits at the end of the split");
-    let dropped = std::mem::replace(queue, survivors);
-    Some(RestartPlan { command, dropped })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,55 +92,5 @@ mod tests {
     fn each_command_reports_the_literal_a_sender_types() {
         assert_eq!(ControlCommand::NewSession.literal(), "/new");
         assert_eq!(ControlCommand::Restart.literal(), "/restart");
-    }
-
-    /// A sender who restarts is clearing the backlog they are stuck behind.
-    /// Anything they sent *after* deciding that is new work they still expect
-    /// an answer to, so the restart is a cut through the queue, not a wipe.
-    #[test]
-    fn a_restart_drops_the_backlog_ahead_of_it_and_keeps_what_came_after() {
-        let mut queue = vec!["first", "second", "/restart", "later"];
-        let plan = take_restart(&mut queue, |job| *job == "/restart")
-            .expect("a queued restart must be found");
-
-        assert_eq!(plan.command, "/restart");
-        assert_eq!(
-            plan.dropped,
-            vec!["first", "second"],
-            "the backlog is what the sender is stuck behind"
-        );
-        assert_eq!(
-            queue,
-            vec!["later"],
-            "work sent after the restart is still owed an answer"
-        );
-    }
-
-    /// The common case is no restart at all, and it must not disturb the queue.
-    #[test]
-    fn a_queue_with_no_restart_is_left_exactly_as_it_was() {
-        let mut queue = vec!["first", "second"];
-        assert!(take_restart(&mut queue, |job| *job == "/restart").is_none());
-        assert_eq!(queue, vec!["first", "second"]);
-    }
-
-    /// A restart that arrives with nothing waiting still has to acknowledge its
-    /// own sender, and must not report phantom casualties.
-    #[test]
-    fn a_restart_with_an_empty_backlog_drops_nothing() {
-        let mut queue = vec!["/restart"];
-        let plan = take_restart(&mut queue, |job| *job == "/restart").expect("found");
-        assert!(plan.dropped.is_empty());
-        assert!(queue.is_empty());
-    }
-
-    /// Two restarts in one backlog: the first one wins and the second becomes
-    /// ordinary queued work, which the next pass handles.
-    #[test]
-    fn only_the_first_restart_is_taken_in_one_pass() {
-        let mut queue = vec!["a", "/restart", "b", "/restart"];
-        let plan = take_restart(&mut queue, |job| *job == "/restart").expect("found");
-        assert_eq!(plan.dropped, vec!["a"]);
-        assert_eq!(queue, vec!["b", "/restart"]);
     }
 }

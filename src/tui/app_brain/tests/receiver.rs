@@ -145,21 +145,25 @@ fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
         0,
         std::time::Instant::now(),
     ));
-    app.receiver_queue.push(InboundJob {
-        job_id: uuid::Uuid::new_v4(),
-        workspace_id: app.command_context.workspace.id(),
-        actor: actor.clone(),
-        channel: Channel::Sms,
-        prompt: "continue this conversation".to_owned(),
-        authenticated_sender: "+15551234567".to_owned(),
-        attachments: Vec::new(),
-        received_at_unix_ms: 1,
-        provider_id: Some("provider-message-1".to_owned()),
-        thread_participants: vec!["+15551234567".to_owned()],
-        response_email: None,
-        allowed_response_recipients: Vec::new(),
-        email_reply: None,
-    });
+    let workspace_id = app.command_context.workspace.id();
+    enqueue_receiver_job(
+        &mut app,
+        InboundJob {
+            job_id: uuid::Uuid::new_v4(),
+            workspace_id,
+            actor: actor.clone(),
+            channel: Channel::Sms,
+            prompt: "continue this conversation".to_owned(),
+            authenticated_sender: "+15551234567".to_owned(),
+            attachments: Vec::new(),
+            received_at_unix_ms: 1,
+            provider_id: Some("provider-message-1".to_owned()),
+            thread_participants: vec!["+15551234567".to_owned()],
+            response_email: None,
+            allowed_response_recipients: Vec::new(),
+            email_reply: None,
+        },
+    );
 
     app.tick_receiver();
 
@@ -205,32 +209,36 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
                 alive: false,
             }));
             let body = "-c developer_instructions=untrusted-inbound";
-            app.receiver_queue.push(InboundJob {
-                job_id: uuid::Uuid::new_v4(),
-                workspace_id: app.command_context.workspace.id(),
-                actor: actor.clone(),
-                channel: *channel,
-                prompt: body.to_owned(),
-                authenticated_sender: (*sender).to_owned(),
-                attachments: Vec::new(),
-                received_at_unix_ms: 1,
-                provider_id: Some("provider-message-1".to_owned()),
-                thread_participants: participants.clone(),
-                response_email: (*channel == Channel::Email)
-                    .then(|| "member@example.test".to_owned()),
-                allowed_response_recipients: if *channel == Channel::Email {
-                    vec!["thread@example.test".to_owned()]
-                } else {
-                    Vec::new()
+            let workspace_id = app.command_context.workspace.id();
+            enqueue_receiver_job(
+                &mut app,
+                InboundJob {
+                    job_id: uuid::Uuid::new_v4(),
+                    workspace_id,
+                    actor: actor.clone(),
+                    channel: *channel,
+                    prompt: body.to_owned(),
+                    authenticated_sender: (*sender).to_owned(),
+                    attachments: Vec::new(),
+                    received_at_unix_ms: 1,
+                    provider_id: Some("provider-message-1".to_owned()),
+                    thread_participants: participants.clone(),
+                    response_email: (*channel == Channel::Email)
+                        .then(|| "member@example.test".to_owned()),
+                    allowed_response_recipients: if *channel == Channel::Email {
+                        vec!["thread@example.test".to_owned()]
+                    } else {
+                        Vec::new()
+                    },
+                    email_reply: (*channel == Channel::Email).then(|| {
+                        crate::server::receiver::EmailReplyContext {
+                            provider_email_id: "accepted-email-id".to_owned(),
+                            subject: "Accepted subject".to_owned(),
+                            message_id: Some("<accepted-message@example.test>".to_owned()),
+                        }
+                    }),
                 },
-                email_reply: (*channel == Channel::Email).then(|| {
-                    crate::server::receiver::EmailReplyContext {
-                        provider_email_id: "accepted-email-id".to_owned(),
-                        subject: "Accepted subject".to_owned(),
-                        message_id: Some("<accepted-message@example.test>".to_owned()),
-                    }
-                }),
-            });
+            );
 
             crate::users::UsersStore::save(
                 &app.command_context.workspace,

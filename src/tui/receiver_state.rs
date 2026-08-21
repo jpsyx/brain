@@ -64,10 +64,6 @@ pub const fn should_poll_interactive_completion(
     turn_active && !remote_job_active
 }
 
-pub fn commit_dispatch<T>(queue: &mut Vec<T>, launch_succeeded: bool) -> Option<T> {
-    (launch_succeeded && !queue.is_empty()).then(|| queue.remove(0))
-}
-
 #[must_use]
 pub fn retry_ready(deadline: Option<Instant>, now: Instant) -> bool {
     deadline.is_none_or(|deadline| now >= deadline)

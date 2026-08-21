@@ -19,7 +19,7 @@ pub(super) fn finish_pipeline(
     result_rx: std::sync::mpsc::Receiver<anyhow::Result<InboundJob>>,
     stop_polling: std::sync::Arc<std::sync::atomic::AtomicBool>,
     poller: std::thread::JoinHandle<()>,
-    queue: std::sync::Arc<std::sync::Mutex<Vec<InboundJob>>>,
+    queue: std::sync::Arc<std::sync::Mutex<crate::tui::receiver::InboundQueue>>,
 ) {
     let deadline = Instant::now() + Duration::from_secs(1);
     let result = loop {
@@ -33,12 +33,23 @@ pub(super) fn finish_pipeline(
     poller.join().expect("job socket poller");
     if matches!(revocation, LateRevocation::CommitLinearizesUnderControl) {
         result.expect("live authority should commit under the control mutex");
-        assert_eq!(queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len(), 1,
-            "committed work did not reach the real live-TUI queue");
+        assert_eq!(
+            queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len(),
+            1,
+            "committed work did not reach the real live-TUI queue"
+        );
     } else {
         result.expect_err("revoked authority must reject before the real job-socket handoff");
-        assert!(queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty(),
-            "revoked work reached the live TUI queue");
+        assert!(
+            queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty(),
+            "revoked work reached the live TUI queue"
+        );
     }
 }
 

@@ -895,10 +895,13 @@ The receiver handoff endpoint is the selected workspace's mode-`0600`
 `<workspace-cache>/jobs.sock`. One bounded serialized `InboundJob` carries the
 workspace UUID, immutable actor and channel, normalized sender, prompt, stable
 provider email/attachment IDs, provider ID, and acceptance-time response
-metadata. The TUI stages the decoded job, returns `prepared`, and adds it to its
-64-entry memory queue only after the server's exact-revision admission commits.
-If the final `accepted` write fails, it removes that just-appended job before
-the event-loop poll releases its exclusive queue borrow.
+metadata. The TUI returns `prepared`, then after the server's exact-revision
+admission commits, `InboundQueue` stages the decoded job under an opaque token
+in its private 64-entry memory queue. The socket writes final `accepted` before
+the queue finalizes that job for dispatch. If the write fails, token-scoped
+rollback removes only that exact staged append before the event-loop poll
+releases its exclusive queue borrow. The queue remains live-TUI-only and has no
+durable backing or headless consumer.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.

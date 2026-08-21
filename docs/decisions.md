@@ -2335,10 +2335,20 @@ applying fixed read and write timeouts. Some platforms can otherwise surface
 TUI into an intermittent unavailable response. Bounded deadline polling in the
 integration suite exercises this boundary without fixed sleeps.
 
-If the TUI appends after `commit` but cannot write its final `accepted`
-acknowledgment, it removes that exact staged tail item before releasing its
-exclusive queue borrow. The server therefore treats the handoff as failed and
-never commits an ID for work the TUI did not acknowledge.
+The live queue is represented by `InboundQueue`, not by a collection exposed
+through `App`. It alone owns the 64-entry `VecDeque` and every mutation:
+admission staging/finalization/rollback, successful FIFO head commit, and the
+two control-command cuts. Keeping those decisions together prevents socket,
+dispatch, completion, and control callers from depending on representation or
+silently changing FIFO semantics. Tests receive only an owned read-only
+snapshot.
+
+If the TUI stages after `commit` but cannot write its final `accepted`
+acknowledgment, an opaque admission token removes only that exact staged tail
+item before releasing the exclusive queue borrow. A successful write finalizes
+the same token and makes the job dispatchable. The server therefore treats the
+failed handoff as unavailable and never commits an ID for work the TUI did not
+acknowledge.
 
 Webhook verification follows provider replay guidance: HMAC comparisons are
 constant-time and Resend timestamps have a five-minute tolerance. Provider

@@ -42,21 +42,25 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
     ));
     app.receiver_panel_sampled_at = Some(std::time::Instant::now());
     app.brain_turn_active = true;
-    app.receiver_queue.push(InboundJob {
-        job_id: uuid::Uuid::new_v4(),
-        workspace_id: app.command_context.workspace.id(),
-        actor,
-        channel: Channel::Sms,
-        prompt: "when did I last pick up lexapro?".to_owned(),
-        authenticated_sender: "+15551234567".to_owned(),
-        attachments: Vec::new(),
-        received_at_unix_ms: 1,
-        provider_id: Some("provider-message-2".to_owned()),
-        thread_participants: vec!["+15551234567".to_owned()],
-        response_email: None,
-        allowed_response_recipients: Vec::new(),
-        email_reply: None,
-    });
+    let workspace_id = app.command_context.workspace.id();
+    enqueue_receiver_job(
+        &mut app,
+        InboundJob {
+            job_id: uuid::Uuid::new_v4(),
+            workspace_id,
+            actor,
+            channel: Channel::Sms,
+            prompt: "when did I last pick up lexapro?".to_owned(),
+            authenticated_sender: "+15551234567".to_owned(),
+            attachments: Vec::new(),
+            received_at_unix_ms: 1,
+            provider_id: Some("provider-message-2".to_owned()),
+            thread_participants: vec!["+15551234567".to_owned()],
+            response_email: None,
+            allowed_response_recipients: Vec::new(),
+            email_reply: None,
+        },
+    );
 
     app.tick_receiver();
 
@@ -110,21 +114,25 @@ fn warm_panel_reuse_delivers_a_closed_paste_and_a_submit_key_to_the_real_pty() {
         0,
         std::time::Instant::now(),
     ));
-    app.receiver_queue.push(InboundJob {
-        job_id: uuid::Uuid::new_v4(),
-        workspace_id: app.command_context.workspace.id(),
-        actor,
-        channel: Channel::Sms,
-        prompt: "How many projects do we have open?".to_owned(),
-        authenticated_sender: "+15551234567".to_owned(),
-        attachments: Vec::new(),
-        received_at_unix_ms: 1,
-        provider_id: Some("provider-message-1".to_owned()),
-        thread_participants: vec!["+15551234567".to_owned()],
-        response_email: None,
-        allowed_response_recipients: Vec::new(),
-        email_reply: None,
-    });
+    let workspace_id = app.command_context.workspace.id();
+    enqueue_receiver_job(
+        &mut app,
+        InboundJob {
+            job_id: uuid::Uuid::new_v4(),
+            workspace_id,
+            actor,
+            channel: Channel::Sms,
+            prompt: "How many projects do we have open?".to_owned(),
+            authenticated_sender: "+15551234567".to_owned(),
+            attachments: Vec::new(),
+            received_at_unix_ms: 1,
+            provider_id: Some("provider-message-1".to_owned()),
+            thread_participants: vec!["+15551234567".to_owned()],
+            response_email: None,
+            allowed_response_recipients: Vec::new(),
+            email_reply: None,
+        },
+    );
 
     app.tick_receiver();
     assert!(app.receiver_queue.is_empty(), "message was not dispatched");
@@ -270,7 +278,7 @@ fn a_restart_command_clears_the_backlog_and_is_never_sent_to_the_agent() {
         "sent after the restart",
     ] {
         let job = sms_job(&app, &actor, prompt);
-        app.receiver_queue.push(job);
+        enqueue_receiver_job(&mut app, job);
     }
 
     app.tick_receiver();
@@ -326,7 +334,7 @@ fn a_new_command_retires_the_channel_session_without_becoming_a_prompt() {
     }));
     for prompt in ["/NEW", "what is on today?"] {
         let job = sms_job(&app, &actor, prompt);
-        app.receiver_queue.push(job);
+        enqueue_receiver_job(&mut app, job);
     }
 
     app.tick_receiver();

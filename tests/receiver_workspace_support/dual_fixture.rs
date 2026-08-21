@@ -3,6 +3,7 @@ use std::process::Child;
 use std::time::{Duration, Instant};
 
 use brain::server::receiver::InboundJob;
+use brain::tui::receiver::InboundQueue;
 use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
@@ -15,8 +16,8 @@ pub struct DualWorkspaceReceiverFixture {
     pub family: WorkspaceContext,
     personal_socket: Option<JobSocket>,
     family_socket: Option<JobSocket>,
-    personal_jobs: Vec<InboundJob>,
-    family_jobs: Vec<InboundJob>,
+    personal_jobs: InboundQueue,
+    family_jobs: InboundQueue,
     personal_guard: Option<brain::tui::singleton::Guard>,
     family_guard: Option<brain::tui::singleton::Guard>,
     client: brain::server::control::ServerClient,
@@ -94,8 +95,8 @@ impl DualWorkspaceReceiverFixture {
             family,
             personal_socket: Some(personal_socket),
             family_socket: Some(family_socket),
-            personal_jobs: Vec::new(),
-            family_jobs: Vec::new(),
+            personal_jobs: InboundQueue::default(),
+            family_jobs: InboundQueue::default(),
             personal_guard: Some(personal_guard),
             family_guard: Some(family_guard),
             client,
@@ -159,14 +160,14 @@ impl DualWorkspaceReceiverFixture {
         if let Some(socket) = &self.personal_socket {
             socket.poll_jobs(self.personal.id(), &mut self.personal_jobs);
         }
-        self.personal_jobs.clone()
+        self.personal_jobs.snapshot()
     }
 
     pub fn family_jobs(&mut self) -> Vec<InboundJob> {
         if let Some(socket) = &self.family_socket {
             socket.poll_jobs(self.family.id(), &mut self.family_jobs);
         }
-        self.family_jobs.clone()
+        self.family_jobs.snapshot()
     }
 
     pub fn poll_both_jobs(&mut self) -> (Vec<InboundJob>, Vec<InboundJob>) {
@@ -181,7 +182,7 @@ impl DualWorkspaceReceiverFixture {
                 .poll_jobs(self.family.id(), &mut self.family_jobs);
             !self.personal_jobs.is_empty() && !self.family_jobs.is_empty()
         });
-        (self.personal_jobs.clone(), self.family_jobs.clone())
+        (self.personal_jobs.snapshot(), self.family_jobs.snapshot())
     }
 
     pub fn poll_personal_jobs(&mut self, expected: usize) -> Vec<InboundJob> {
@@ -192,7 +193,7 @@ impl DualWorkspaceReceiverFixture {
                 .poll_jobs(self.personal.id(), &mut self.personal_jobs);
             self.personal_jobs.len() >= expected
         });
-        self.personal_jobs.clone()
+        self.personal_jobs.snapshot()
     }
 
     pub fn shutdown(&mut self) {

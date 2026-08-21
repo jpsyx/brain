@@ -176,7 +176,7 @@ impl App {
             receiver_control: None,
             receiver_enabled,
             receiver_intent_refresher: Box::new(crate::server::control::ServerClient::default()),
-            receiver_queue: Vec::new(),
+            receiver_queue: crate::tui::receiver::InboundQueue::default(),
             receiver_new_session: std::collections::HashSet::new(),
             receiver_force_fresh: false,
             requested_receiver_actor: None,
