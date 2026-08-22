@@ -202,7 +202,9 @@ first move is a failing test that reproduces it, *then* the fix.
   clamping, wrapping versus saturating movement, each surface's established
   Ctrl/Alt handling, Enter confirmation, and Esc/Ctrl-c cancellation. Catalog
   guards prove shared task/search application rows wrap the same `GlobalAction`
-  and preserve their exact shared or contextual label/shortcut metadata.
+  and preserve their exact shared or contextual label/shortcut metadata. Task
+  palette tests also pin globally scoped habits and agenda rows to
+  `GlobalAction`, preventing them from bypassing the one global executor.
   Search structural guards keep the layout toggle last and ensure every
   `SearchAction` appears exactly once when applicable (including `CreatePdf`
   when a markdown target is present). The two contextual rows: "Create PDF"
@@ -385,17 +387,20 @@ first move is a failing test that reproduces it, *then* the fix.
   the tab whose token arrives closes, and its start row returns), a declared
   required output holds a tab open until it exists, and neither a stale signal from
   a dead shell nor a signal for another tab closes a freshly-opened one.
-- **Receiver dispatch state.** `tui/receiver_state.rs` proves that an idle
-  open panel switches to queued receiver work, an active submitted turn waits,
-  a same-channel warm panel is reused, a different channel replaces it, and a
-  warm receiver lease never hides interactive bridge completion. Failed
-  launches retain their message and retry backoff deadlines are honored.
+- **Receiver dispatch state.** `tui/receiver/decision_tests.rs` proves that an
+  idle open panel switches to queued receiver work, an active submitted turn
+  waits, a same-channel warm panel is reused, a different channel replaces it,
+  and a warm receiver lease never hides interactive bridge completion.
   `tui/receiver/runtime_tests.rs` constructs the single receiver owner and
   exercises dispatch commit, delivery context, completion, warm-lease expiry,
-  and force-fresh consumption at session selection. `tests/tui_receiver_runtime_architecture.rs`
-  rejects the former receiver field bag on `App` and direct representation
-  access outside `tui/receiver/`. Its runtime effect scan includes the receiver
-  facade as well as `runtime.rs` and its children.
+  and force-fresh consumption at session selection. Focused
+  `tui/receiver_state.rs` tests cover timeout, activity-probe, retry, and
+  keystroke-lock helpers. `tests/tui_receiver_runtime_architecture.rs` rejects
+  the former receiver field bag on `App`, direct representation access outside
+  `tui/receiver/`, and cross-feature refresher/sync adapters or IO inside the
+  runtime. It also pins the intent refresher behind the semantic `AppServices`
+  receiver-action operation; its runtime scan includes the receiver facade as
+  well as `runtime.rs` and its children.
   `sync/freshness.rs` tests the strict two-hour message threshold;
   `sync/journal.rs` proves push-only/aborted rows do not refresh it.
   `server/delivery.rs` verifies that provider delivery is dispatched off the
@@ -762,7 +767,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; self-fixtures cover each forbidden spelling and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
-| `tests/tui_receiver_queue_architecture.rs` | Queue representation seam: the `VecDeque<InboundJob>` representation and its mutation stay in `receiver/queue.rs`. Tokenized self-fixtures cover qualified generic types, whitespace variations, direct field mutation, and renamed mutable aliases. |
+| `tests/tui_receiver_queue_architecture.rs` | Queue representation seam: the `VecDeque<InboundJob>` representation and its mutation stay in `receiver/queue.rs`. Tokenized positive and negative self-fixtures cover `Vec` and `VecDeque`, qualified generic types, whitespace variations, direct `push_back`/`pop_front`/`pop_back`/`drain`/`split_off` mutation, renamed mutable aliases, comments, literals, and calls through the owned queue API. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

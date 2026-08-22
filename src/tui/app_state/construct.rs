@@ -147,6 +147,7 @@ impl App {
             agenda_runner,
             open_runner,
             db,
+            receiver_intent_refresher: Box::new(crate::server::control::ServerClient::default()),
             receiver_sync_runtime,
         });
         let status = StatusState::new(StatusStateInit {

@@ -10,8 +10,8 @@ mod setup;
 mod url;
 
 pub(crate) use enablement::{
-    ReceiverIntentRefresher, apply_receiver_action_with, apply_startup_receiver_flag,
-    read_receiver_status, receiver_enabled,
+    ReceiverActionOutcome, ReceiverIntentRefresher, apply_receiver_action_with,
+    apply_startup_receiver_flag, read_receiver_status, receiver_enabled,
 };
 use enablement::{print_receiver_change, print_receiver_status};
 

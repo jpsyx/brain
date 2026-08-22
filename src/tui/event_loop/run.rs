@@ -10,6 +10,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 
 use crate::main_view::{self, MainView};
 use crate::tui::App;
+use crate::tui::action::GlobalAction;
 use crate::tui::handlers::{
     TaskSearchEffect, handle_brain_key, handle_logs_key, handle_mouse, handle_normal_key,
     handle_search_key, handle_skill_session_key,
@@ -279,7 +280,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
         && app.shell.focus() == Panel::Tasks
         && app.shell.main_view() == MainView::Tasks
     {
-        app.run_open_agenda();
+        app.execute_global_action(GlobalAction::OpenAgenda);
         return false;
     }
 

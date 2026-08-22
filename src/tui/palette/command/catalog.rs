@@ -140,7 +140,7 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         label: "Open habits in browser",
-        action: TaskAction::OpenHabitsInBrowser,
+        action: TaskAction::Global(GlobalAction::OpenHabits),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
@@ -161,7 +161,7 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         label: "Open today's agenda",
-        action: TaskAction::OpenAgenda,
+        action: TaskAction::Global(GlobalAction::OpenAgenda),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,

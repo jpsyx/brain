@@ -83,11 +83,12 @@ visible one.
 ## Why shared application actions use a closed enum
 
 The task, log, and brain-search catalogs are contextual views over one
-application. Commands such as Message brain and Toggle receiver therefore use
-one `GlobalAction` identity and one `App::execute_global_action` mediator,
-while `TaskAction` and `SearchAction` retain task IDs, selected paths, and other
-feature-only semantics. Each feature enum wraps `GlobalAction` explicitly, so
-catalogs stay statically typed without trait objects or erased callbacks.
+application. Commands such as Message brain, Toggle receiver, Open habits, and
+Open agenda therefore use one `GlobalAction` identity and one
+`App::execute_global_action` mediator, while `TaskAction` and `SearchAction`
+retain task IDs, selected paths, and other feature-only semantics. Each feature
+enum wraps `GlobalAction` explicitly, so catalogs stay statically typed without
+trait objects or erased callbacks.
 
 Both surfaces build the same reusable `PaletteRow<A>` and
 `CommandPalette<A>` state. The model centralizes numbering, filtering,

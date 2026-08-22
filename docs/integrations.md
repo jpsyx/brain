@@ -404,7 +404,7 @@ and cannot broaden recipients.
 ### Skill-session tabs and their completion signal
 
 A **skill session** runs one prompt in its own ephemeral brain-panel tab
-(`BrainPanelState`, `app_skill_session.rs`) rather than typing that prompt
+(`BrainPanelState`, `tui/app_skill_session/`) rather than typing that prompt
 into the main session. Daily triage is the builtin definition (the nudge's **Yes**
 path); the rest come from the machine-local `skill_sessions` env array. Each is
 launched through an `AgentController` and a fresh `LaunchRequest`, with three

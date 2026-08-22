@@ -1,6 +1,6 @@
 //! The main draw entry plus the tasks / brain panels and small draw helpers:
 //!   - `tasks_panel` — the tasks main-view panel
-//!   - `brain_panel` — the `claude` PTY panel
+//!   - `brain_panel`: the selected agent frontend's PTY panel
 //!   - `layout`      — wrapped-row offsets, selection band, brighten, flash,
 //!     modal centering
 

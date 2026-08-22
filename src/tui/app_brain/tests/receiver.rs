@@ -62,8 +62,8 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let peer_name = seed_receiver_registry(&app);
     let calls = Arc::new(Mutex::new(Vec::new()));
-    app.receiver
-        .replace_intent_refresher(Box::new(RecordingReceiverRefresh {
+    app.services
+        .replace_receiver_intent_refresher(Box::new(RecordingReceiverRefresh {
             calls: Arc::clone(&calls),
             fail: false,
         }));
@@ -93,8 +93,8 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
     assert!(!saved.workspaces[&peer_name].receiver_enabled);
     assert_eq!(*calls.lock().unwrap(), [app.context.workspace().id()]);
 
-    app.receiver
-        .replace_intent_refresher(Box::new(RecordingReceiverRefresh {
+    app.services
+        .replace_receiver_intent_refresher(Box::new(RecordingReceiverRefresh {
             calls: Arc::clone(&calls),
             fail: true,
         }));

@@ -14,10 +14,9 @@ impl App {
     }
 
     pub(crate) fn toggle_receiver(&mut self) {
-        match crate::command::server::apply_receiver_action_with(
+        match self.services.apply_receiver_action(
             self.context.command(),
             crate::workspace::ReceiverAction::Toggle,
-            self.receiver.intent_refresher(),
         ) {
             Ok(outcome) => {
                 self.receiver.record_intent(outcome.enabled());

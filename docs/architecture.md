@@ -20,8 +20,8 @@ execution surfaces are a persistent TUI and short-lived command families:
   process owns the terminal until you quit and keeps UUID-scoped SQLite state
   for frontend sessions, completion delivery, and panel layout. Claude may
   resume an eligible transcript, OpenCode may resume an eligible live root
-  session from the exact selected workspace, and Codex may resume a session whose
-  rollout Codex still holds on disk. See
+  session from the exact selected workspace, and Codex always starts fresh.
+  See
   [glossary.md](glossary.md) for the main-view / sub-view / panel vocabulary.
 - **Short-lived command families** cover non-TUI task utilities, config, env,
   workspace, portable users, sync, personalization, skills, server/receiver,
@@ -132,9 +132,10 @@ tui::run_tui(TuiLaunch) (thin persistent-shell facade)
        │    └─ PtyPane clears inherited env, spawns the complete spec, and carries bytes
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
        ├─ Ctrl+P opens a contextual command palette backed by tui::palette::CommandPalette
-       │    ├─ task/log rows carry feature-owned TaskAction values
+       │    ├─ task/log rows wrap app commands (including habits and agenda) in GlobalAction
+       │    │  and keep only task-specific operations in TaskAction
        │    ├─ search rows carry feature-owned SearchAction values
-       │    └─ shared app commands wrap one closed GlobalAction and run through App::execute_global_action
+       │    └─ every app command wraps one closed GlobalAction and runs through App::execute_global_action
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
        └─ quit → the loop just returns (no plan, no wrapper handoff)
 ```
@@ -402,11 +403,12 @@ session-discovery, and lifecycle rules. `registry` is the exhaustive table of
 frontend constructors, command metadata, lifecycle installations, exact health
 checks, capability evidence, and compatibility probes. Shared command, doctor,
 and setup code consume that table instead of switching on concrete frontends.
-`PtyPane` implements `AgentTransport`. The main panel and ephemeral skill-session tabs
-are both stored as `Option<AgentController>`; keyboard, receiver, draw, scroll,
-close, and event-loop code call controller semantics and never construct
-frontend keystrokes. Busy-turn follow-up is one controller operation; each
-adapter returns the complete native text and final-key sequence.
+`PtyPane` implements `AgentTransport`. The main panel stores an
+`Option<AgentController>` because it may be closed; every live ephemeral
+skill-session tab owns one `AgentController` directly. Keyboard, receiver,
+draw, scroll, close, and event-loop code call controller semantics and never
+construct frontend keystrokes. Busy-turn follow-up is one controller operation;
+each adapter returns the complete native text and final-key sequence.
 `opencode` merges Brain's reserved inline configuration, performs isolated
 feature and schema probes, discovers resumable sessions for the exact selected
 root, and translates semantic controller actions to OpenCode's native input.
@@ -1125,9 +1127,9 @@ TuiRuntime (process lifetime)
     ├── BrainPanelState  controllers, tabs, actors, turn state, and skill sessions
     ├── ShellState       main view, focus, layout, search, logs, and selected tab
     ├── Overlay          the one active cross-feature modal
-    ├── AppServices      runners, state DB, session store, and receiver sync effects
+    ├── AppServices      runners, state DB, session store, receiver intent refresh, and sync effects
     ├── StatusState      triage gate, live toggle, messages, and sync status
-    └── ReceiverRuntime  queue, socket, intent refresh, and receiver-local decisions
+    └── ReceiverRuntime  queue, socket, enabled intent, and receiver-local decisions
 ```
 
 The context is replaced as a complete immutable snapshot when portable config
@@ -1144,9 +1146,11 @@ shut down.
 `Overlay` remains a top-level field because it mediates mutually exclusive
 modals spanning tasks, search, status, and the brain panel. `ReceiverRuntime`
 also remains top-level because its ordered decisions coordinate brain, task,
-status, delivery, and sync effects while its queue, socket, persisted-intent
-refresher, and retry state stay one natural owner. Cross-feature launch,
-database, receiver takeover, task refresh, and focus changes remain App
+status, delivery, and sync effects while its queue, socket, enabled intent, and
+retry state stay one natural owner. The injected receiver intent refresher is a
+cross-feature server-control effect owned behind `AppServices`; App invokes its
+semantic receiver-action operation without obtaining the adapter. Cross-feature
+launch, database, receiver takeover, task refresh, and focus changes remain App
 operations; neither focused owner receives the whole App.
 Immutable context and brain queries are consumed through their focused owners
 instead of being mirrored as App accessors. App methods remain only where an
@@ -1640,12 +1644,15 @@ dedup state remains correct. Successful byte progress cannot renew it. Provider 
 run while the control mutex is held.
 
 Queued inbound work is never allowed to interrupt an active agent turn.
-`tui/receiver_state.rs`
-distinguishes a submitted turn from an idle open PTY, so an idle startup panel
-can switch to the receiver session even when a modal is on screen. It also
-distinguishes active receiver work from a three-minute warm channel lease:
-interactive lifecycle completions are still polled, a same-channel message
-reuses the warm PTY, and another channel replaces it only after work finishes.
+`tui/receiver/decision.rs` orders the pure dispatch stages, and
+`tui/receiver/runtime.rs` combines those decisions with the queue, active-turn,
+and warm-lease facts. Together they distinguish a submitted turn from an idle
+open PTY, so an idle startup panel can switch to the receiver session even when
+a modal is on screen. They also distinguish active receiver work from a
+three-minute warm channel lease: interactive lifecycle completions are still
+polled, a same-channel message reuses the warm PTY, and another channel replaces
+it only after work finishes. `tui/receiver_state.rs` retains only focused
+timeout, activity-probe, retry, and keystroke-lock helpers.
 `tui/app_sync.rs` holds inbound dispatch behind a pull when downstream state is
 more than two hours old and exposes current sync state to the footer and
 palette. The common receiver prompt classifies task-capture requests as task
@@ -1718,7 +1725,7 @@ anyhow), the persistent shell pulls in four crates, all mirroring the `tasks`
 sibling so the two projects share a stack:
 
 - `portable-pty` + `vt100` + `tui-term` — spawn, parse, and render the
-  embedded `claude` PTY.
+  selected agent frontend's embedded PTY.
 - `rusqlite` (`bundled`) — the WAL state DB shared with the SessionStart
   hook; `bundled` avoids a system libsqlite dependency.
 - `uuid` (`v4`, `v5`): fresh runtime/workspace/task identities plus

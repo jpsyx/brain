@@ -4,7 +4,6 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use crate::actor::ActorContext;
-use crate::command::server::ReceiverIntentRefresher;
 use crate::server::receiver::{Channel, EmailReplyContext, InboundJob};
 
 use super::InboundQueue;
@@ -71,7 +70,6 @@ pub(crate) struct ReceiverProbe {
 pub(crate) struct ReceiverRuntime {
     socket: Option<crate::tui::singleton::JobSocket>,
     enabled: bool,
-    intent_refresher: Box<dyn ReceiverIntentRefresher>,
     queue: InboundQueue,
     new_session_channels: HashSet<Channel>,
     force_fresh: bool,
@@ -101,7 +99,6 @@ impl ReceiverRuntime {
         Self {
             socket: None,
             enabled,
-            intent_refresher: Box::new(crate::server::control::ServerClient::default()),
             queue: InboundQueue::default(),
             new_session_channels: HashSet::new(),
             force_fresh: false,
@@ -143,16 +140,6 @@ impl ReceiverRuntime {
 
     pub(crate) fn record_intent(&mut self, enabled: bool) {
         self.enabled = enabled;
-    }
-
-    #[must_use]
-    pub(crate) fn intent_refresher(&self) -> &dyn ReceiverIntentRefresher {
-        self.intent_refresher.as_ref()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn replace_intent_refresher(&mut self, refresher: Box<dyn ReceiverIntentRefresher>) {
-        self.intent_refresher = refresher;
     }
 
     #[must_use]

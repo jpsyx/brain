@@ -1,15 +1,18 @@
 use anyhow::Result;
 
 use crate::agent::{AgentSession, CompletionStatus, SessionScope, SessionStore};
+use crate::command::server::{ReceiverActionOutcome, ReceiverIntentRefresher};
 use crate::state::{Db, PanelSide};
 use crate::sync::args::Direction;
 use crate::tui::app_sync::ReceiverSyncRuntime;
 use crate::tui::shell::ShellRunner;
+use crate::workspace::{CommandContext, ReceiverAction};
 
 pub(crate) struct AppServicesInit {
     pub(crate) agenda_runner: Box<dyn ShellRunner>,
     pub(crate) open_runner: Box<dyn ShellRunner>,
     pub(crate) db: Db,
+    pub(crate) receiver_intent_refresher: Box<dyn ReceiverIntentRefresher>,
     pub(crate) receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
 }
 
@@ -17,6 +20,7 @@ pub(crate) struct AppServices {
     agenda_runner: Box<dyn ShellRunner>,
     open_runner: Box<dyn ShellRunner>,
     db: Db,
+    receiver_intent_refresher: Box<dyn ReceiverIntentRefresher>,
     receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
 }
 
@@ -26,6 +30,7 @@ impl AppServices {
             agenda_runner: init.agenda_runner,
             open_runner: init.open_runner,
             db: init.db,
+            receiver_intent_refresher: init.receiver_intent_refresher,
             receiver_sync_runtime: init.receiver_sync_runtime,
         }
     }
@@ -40,6 +45,18 @@ impl AppServices {
 
     pub(crate) fn save_panel_side(&self, side: PanelSide) -> Result<()> {
         self.db.set_panel_side(side)
+    }
+
+    pub(crate) fn apply_receiver_action(
+        &self,
+        context: &CommandContext,
+        action: ReceiverAction,
+    ) -> Result<ReceiverActionOutcome> {
+        crate::command::server::apply_receiver_action_with(
+            context,
+            action,
+            self.receiver_intent_refresher.as_ref(),
+        )
     }
 
     #[must_use]
@@ -104,6 +121,14 @@ impl AppServices {
     #[cfg(test)]
     pub(crate) fn replace_receiver_sync_runtime(&mut self, runtime: Box<dyn ReceiverSyncRuntime>) {
         self.receiver_sync_runtime = runtime;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_receiver_intent_refresher(
+        &mut self,
+        refresher: Box<dyn ReceiverIntentRefresher>,
+    ) {
+        self.receiver_intent_refresher = refresher;
     }
 }
 
@@ -243,6 +268,7 @@ mod tests {
             agenda_runner: Box::new(agenda.clone()),
             open_runner: Box::new(opener.clone()),
             db: crate::state::Db::open_in_memory().expect("state db"),
+            receiver_intent_refresher: Box::new(crate::server::control::ServerClient::default()),
             receiver_sync_runtime: Box::new(FixedSyncRuntime { now }),
         });
 

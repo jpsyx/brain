@@ -38,7 +38,7 @@ it (split) or closed (main view full-width).
 | **logs view** | The scrollable diagnostic-log surface reached through the palette or the three-view cycle. | `MainView::Logs`; `tui::state::ShellState`; `src/tui/logs_view.rs` |
 | **brain panel** | The live agent chat session in a PTY. Claude is the default; `--codex` / `-cx` selects Codex and `--open-code` / `-oc` selects OpenCode. App-level: the panel does **not** belong to a main view and stays open across a view switch. (Formerly called the *claude panel* in the `tasks` project.) | `src/agent/controller/` (`AgentController`); `src/pty_pane.rs` (`PtyPane` transport); controller ownership in `tui::state::BrainPanelState`; frontend configuration in `tui::state::AppContext` |
 | **brain-panel tab** | Which session the brain panel is showing: the main session (`BrainTab::Main`) or one of the open **skill sessions** (`BrainTab::Session(SessionTabId)`), selected with `Alt+1` and `Alt+<n>`. A skill-session tab exists only while its run is in flight and is never tracked in the session DB. | skill-session ownership in `tui::state::BrainPanelState`; active identity in `tui::state::ShellState`; `src/tui/app_skill_session/` |
-| **skill session** | A dedicated ephemeral agent session for **one prompt**, run in its own brain-panel tab and auto-closed when the run signals completion. Daily triage is the builtin one; a workspace declares its own in the `skill_sessions` env array (`title`, `prompt`, `command_label`). Nothing requires the prompt to be a skill — that is just the intent. | `src/skill_session/` (`SkillSessionSpec`, `SkillSessionKey`, `signal`, `prompt`); `src/tui/app_skill_session.rs` |
+| **skill session** | A dedicated ephemeral agent session for **one prompt**, run in its own brain-panel tab and auto-closed when the run signals completion. Daily triage is the builtin one; a workspace declares its own in the `skill_sessions` env array (`title`, `prompt`, `command_label`). Nothing requires the prompt to be a skill; that is just the intent. | `src/skill_session/` (`SkillSessionSpec`, `SkillSessionKey`, `signal`, `prompt`); `src/tui/app_skill_session/` |
 | **panel** | Generic term; in this app the only panel is the brain panel. | — |
 | **sub-view** | One of the tabbed modes *inside* the tasks view (`today`, `mit`, `past_due`, `week`, `habits`, `backlog`, `all`). These were called "views" in the old `tasks` project. `Tab` / `Shift+Tab` cycle them; only meaningful in the tasks view. | `view::View` + `View::CYCLE` (`src/tasks/view/`) |
 | **focus** | Which surface receives keystrokes: the active main view, or the brain panel. `Alt+H`/`Alt+L` move focus between the spatial left/right halves. | `tui::state::ShellState` |
@@ -57,8 +57,8 @@ These are deliberately distinct and use different modifiers:
 
 | Plain English | What it is | Code |
 | --- | --- | --- |
-| **command palette** | The filterable list of every command, opened with `Ctrl+P`. | `tui::palette` / `PaletteState` |
-| **task actions modal** | The per-task command list opened with `Enter` on a task. | `PaletteState::new_task_actions` |
+| **command palette** | The filterable list of every command, opened with `Ctrl+P`. | `tui::palette::CommandPalette`; `menu::SearchPalette`; `tui::modal_state::TaskPalette` |
+| **task actions modal** | The per-task command list opened with `Enter` on a task. | `tui::modal_state::TaskPalette::new_task_actions` |
 | **shortcuts modal** / **help** | The `Alt+S` keyboard-shortcuts reference. (Was bare `?` in `tasks`.) | `shortcuts::ALL`, `tui::draw_help` |
 | **status line `?` hint** | The dim `Alt+S  all shortcuts` pointer at the end of the compact footer. | `shortcuts::footer_subset`, footer renderer |
 | **confirm modal** | The Yes/No (or Yes/No/Skip) overlay for destructive or expensive actions. | `confirm` / `ConfirmState` |

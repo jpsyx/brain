@@ -85,9 +85,10 @@ enum DisplayRow { Header(Bucket, count), Match(usize) }
 
 ### Shell-owned search overlays
 
-`picker::App` owns no modal state. Its selection helpers derive the contextual
-`menu::MenuApp` or `confirm::Confirm` data from the highlighted entry, and the
-persistent shell stores that value in its single `Option<Overlay>`. The palette
+`picker::App` owns no modal state. `ShellState` derives the contextual
+`menu::SearchPalette` or `confirm::Confirm` data from the highlighted picker
+entry, and the persistent shell stores that value in its single
+`Option<Overlay>`. The palette
 still adds a leading **"Create PDF for '…'"** row for a selected markdown file
 and a trailing **"Delete '…'"** row for any selected entry. Search confirmation
 holds the target `path`, a `ConfirmKind` (`Pdf` → green, defaults Yes; `Delete`
@@ -260,11 +261,11 @@ target means one unavailable response and no retained work. A `/restart`
 command removes every queued entry ahead of it from that same memory queue,
 which is the only way work leaves it unanswered other than the abandon timeout.
 
-Session retirement has no model of its own. `/new` records nothing durable: it
-adds a channel to `App::receiver_new_session`, which the next launch consumes as
-the one-shot `App::receiver_force_fresh` to skip resume candidates. The retired
-session's row is left exactly as it was and simply stops being the most recent
-one for its (frontend, workspace, actor) scope.
+Session retirement has no model of its own. `/new` records nothing durable:
+`ReceiverRuntime` consumes the queued control job, remembers its channel, and
+turns that channel into a one-shot force-fresh session-selection request at the
+next launch. The retired session's row is left exactly as it was and simply
+stops being the most recent one for its (frontend, workspace, actor) scope.
 
 After the process-wide startup migration boundary, status uses a separate
 `ReadOnlyWorkspace` bootstrap policy. It reads an

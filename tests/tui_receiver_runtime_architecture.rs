@@ -19,6 +19,14 @@ fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
         services.contains("receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>"),
         "AppServices must own receiver sync effects"
     );
+    assert!(
+        services.contains("receiver_intent_refresher: Box<dyn ReceiverIntentRefresher>"),
+        "AppServices must own the injected receiver intent refresher"
+    );
+    assert!(
+        services.contains("pub(crate) fn apply_receiver_action"),
+        "AppServices must expose a semantic receiver action operation"
+    );
     for forbidden in [
         "receiver_control:",
         "receiver_enabled:",
@@ -63,7 +71,7 @@ fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
 }
 
 #[test]
-fn receiver_runtime_contains_no_sync_effect_adapters_or_io() {
+fn receiver_runtime_contains_no_cross_feature_effect_adapters_or_io() {
     let receiver_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui/receiver");
     let mut sources = vec![
         receiver_root.join("mod.rs"),
@@ -85,6 +93,8 @@ fn receiver_runtime_contains_no_sync_effect_adapters_or_io() {
     for path in sources {
         let source = std::fs::read_to_string(&path).expect("read receiver runtime source");
         for forbidden in [
+            "ReceiverIntentRefresher",
+            "intent_refresher",
             "ReceiverSyncRuntime",
             "SystemReceiverSyncRuntime",
             "WorkspacePaths",

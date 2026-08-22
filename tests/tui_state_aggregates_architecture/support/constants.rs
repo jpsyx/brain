@@ -136,6 +136,7 @@ pub(crate) const SERVICE_FIELDS: &[&str] = &[
     "agenda_runner",
     "open_runner",
     "db",
+    "receiver_intent_refresher",
     "receiver_sync_runtime",
 ];
 

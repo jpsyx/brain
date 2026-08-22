@@ -62,9 +62,8 @@ enum DisplayRow {
 }
 
 pub struct App {
-    /// Owned so the persistent two-panel TUI can rescope the search to a
-    /// different bucket set in place (`set_entries`). The one-shot picker
-    /// clones the caller's slice once at startup.
+    /// Owned so the persistent TUI can rescope the search to a different
+    /// bucket set in place with `set_entries`.
     entries: Vec<Entry>,
     /// `~/brain/...` display strings precomputed as `Utf32String` buffers
     /// for nucleo. Same indexing as `entries`.

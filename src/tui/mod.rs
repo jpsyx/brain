@@ -11,13 +11,14 @@
 //!     task shortcuts like Ctrl+Enter still fire on the highlighted row
 //!     without leaving `/`.
 //!
-//! Ctrl+M opens (or focuses) the persistent brain panel — an interactive
-//! `claude` PTY rendered via `tui-term` that resumes the shell's
-//! most-recently-active session. Alt+L focuses it, Alt+H focuses the tasks
+//! Ctrl+M opens (or focuses) the persistent brain panel: an interactive agent
+//! PTY rendered via `tui-term` and launched through
+//! [`AgentController`](crate::agent::AgentController) for the selected
+//! frontend. Alt+L focuses it, Alt+H focuses the current main-view
 //! panel. When the brain panel is focused, key events are forwarded to the
-//! PTY's stdin as raw bytes — Alt+H is the reliable way to pop focus back to
-//! tasks from there. (We deliberately avoid a Space leader and Alt+arrow
-//! chords: both collide with editing inside Claude's input.) Ctrl+X closes
+//! PTY's stdin as raw bytes. Alt+H is the reliable way to return focus to the
+//! main view. (We deliberately avoid a Space leader and Alt+arrow chords:
+//! both collide with agent input.) Ctrl+X closes
 //! the panel and ends its agent session.
 //!
 //! Module layout:

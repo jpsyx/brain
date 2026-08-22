@@ -10,8 +10,10 @@ pub(crate) enum GlobalAction {
     ShowReceiverServerStatus,
     ShowReceiverServerLogs,
     ShowBrainLogs,
+    OpenHabits,
     SyncBrainNow,
     ShowSyncStatus,
+    OpenAgenda,
     ToggleDailyTriageAlert,
     ShowMainBrainSession,
     RunSkillSession(SkillSessionKey),
@@ -24,6 +26,8 @@ impl GlobalAction {
             Self::MessageBrain => Some("^M"),
             Self::CloseBrain => Some("^X"),
             Self::ShowTasks => Some("^T"),
+            Self::OpenHabits => Some("^H"),
+            Self::OpenAgenda => Some("^A"),
             Self::ToggleReceiver
             | Self::ToggleLayout
             | Self::ShowReceiverServerStatus

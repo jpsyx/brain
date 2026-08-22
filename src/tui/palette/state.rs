@@ -198,8 +198,6 @@ impl TaskPalette {
             TaskAction::OpenLinks
             | TaskAction::AddTask
             | TaskAction::ChooseAssigneeFilter
-            | TaskAction::OpenHabitsInBrowser
-            | TaskAction::OpenAgenda
             | TaskAction::ToggleNotes
             | TaskAction::Global(_) => cmd.label.to_owned(),
         }

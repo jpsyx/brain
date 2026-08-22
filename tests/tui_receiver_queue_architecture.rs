@@ -31,33 +31,62 @@ fn inbound_queue_representation_and_mutation_stay_inside_queue_module() {
 
 #[test]
 fn queue_guard_recognizes_qualified_types_spacing_and_renamed_aliases() {
-    for source in [
+    let fixtures = [
         "struct Runtime { jobs: std::vec::Vec < crate::server::receiver::InboundJob > }",
+        "struct Runtime { jobs: std::collections::VecDeque < crate::server::receiver::InboundJob > }",
         "fn leak(runtime: &mut Runtime, job: InboundJob) { let pending = &mut runtime.queue; pending.push(job); }",
         "fn leak(runtime: &mut Runtime) { runtime.queue . remove ( 0 ); }",
-    ] {
-        assert!(
-            !queue_boundary_violations(source).is_empty(),
-            "queue guard missed realistic representation fixture: {source}"
-        );
-    }
+        "fn leak(runtime: &mut Runtime, job: InboundJob) { runtime.jobs.push_back(job); }",
+        "fn leak(runtime: &mut Runtime) { let pending = &mut runtime.jobs; pending.pop_front(); }",
+        "fn leak(runtime: &mut Runtime) { runtime.receiver_queue.pop_back(); }",
+        "fn leak(runtime: &mut Runtime) { runtime.jobs.drain(..); }",
+        "fn leak(runtime: &mut Runtime) { let pending = &mut runtime.receiver_queue; pending.split_off(1); }",
+    ];
+    let missed = fixtures
+        .into_iter()
+        .filter(|source| queue_boundary_violations(source).is_empty())
+        .collect::<Vec<_>>();
+
+    assert!(
+        missed.is_empty(),
+        "queue guard missed realistic representation fixtures:\n{}",
+        missed.join("\n")
+    );
+}
+
+#[test]
+fn queue_guard_ignores_comments_literals_and_owned_api_calls() {
+    let source = r#"
+        // VecDeque<InboundJob> and runtime.jobs.push_back(job)
+        const EXAMPLE: &str = "runtime.queue.pop_front()";
+        fn stage(runtime: &mut ReceiverRuntime, job: InboundJob) {
+            let _ = EXAMPLE;
+            runtime.queue.stage(job);
+        }
+    "#;
+
+    assert!(queue_boundary_violations(source).is_empty());
 }
 
 fn queue_boundary_violations(source: &str) -> Vec<&'static str> {
     let tokens = rust_tokens(source);
     let mut violations = Vec::new();
     if tokens.iter().enumerate().any(|(index, token)| {
-        token == "Vec"
+        matches!(token.as_str(), "Vec" | "VecDeque")
             && tokens.get(index + 1).is_some_and(|token| token == "<")
             && tokens[index + 2..]
                 .iter()
                 .take_while(|token| token.as_str() != ">")
                 .any(|token| token == "InboundJob")
     }) {
-        violations.push("Vec<...InboundJob...>");
+        violations.push("queue collection containing InboundJob");
     }
 
-    let mut aliases = vec!["queue".to_owned(), "receiver_queue".to_owned()];
+    let mut aliases = vec![
+        "jobs".to_owned(),
+        "queue".to_owned(),
+        "receiver_queue".to_owned(),
+    ];
     for (let_index, _) in tokens
         .iter()
         .enumerate()
@@ -69,9 +98,10 @@ fn queue_boundary_violations(source: &str) -> Vec<&'static str> {
             .map_or(tokens.len(), |relative| let_index + relative);
         let statement = &tokens[let_index..end];
         if let Some(equals) = statement.iter().position(|token| token == "=")
-            && statement[equals + 1..]
-                .windows(2)
-                .any(|window| window == [".", "queue"])
+            && statement[equals + 1..].windows(2).any(|window| {
+                window[0] == "."
+                    && matches!(window[1].as_str(), "jobs" | "queue" | "receiver_queue")
+            })
             && let Some(alias) =
                 statement.get(usize::from(statement.get(1).is_some_and(|token| token == "mut")) + 1)
         {
@@ -81,7 +111,17 @@ fn queue_boundary_violations(source: &str) -> Vec<&'static str> {
     if tokens.windows(3).any(|window| {
         aliases.contains(&window[0])
             && ((window[1] == "."
-                && matches!(window[2].as_str(), "push" | "pop" | "remove" | "split_off"))
+                && matches!(
+                    window[2].as_str(),
+                    "push"
+                        | "pop"
+                        | "remove"
+                        | "split_off"
+                        | "push_back"
+                        | "pop_front"
+                        | "pop_back"
+                        | "drain"
+                ))
                 || window[1] == "[")
     }) {
         violations.push("queue representation mutation");

@@ -116,15 +116,6 @@ pub(crate) enum TaskAction {
     ReassignTask,
     /// Open the native portable-member picker that filters the current view.
     ChooseAssigneeFilter,
-    /// Open today's habits page in the browser, served by the bundled brain
-    /// server already attached to the live TUI.
-    /// Global.
-    OpenHabitsInBrowser,
-    /// Open today's agenda — same code path as the `Ctrl+A` shortcut.
-    /// Routes through the `agenda` zsh function, which generates the
-    /// PDF if needed and opens it. On failure (no markdown for today)
-    /// surfaces the GenerateAgenda confirm modal. Global.
-    OpenAgenda,
     /// Toggle the selected entry's notes between a single-line preview and
     /// the full markdown-rendered body. Task-specific; only offered when
     /// the entry actually has notes. Works on habits too.
@@ -153,8 +144,6 @@ pub(crate) const fn shortcut_for(action: TaskAction) -> Option<&'static str> {
         TaskAction::MarkTaskComplete => Some("^D"),
         TaskAction::RemoveTask => Some("^⌫"),
         TaskAction::MessageBrainAboutTask => Some("^⇧M"),
-        TaskAction::OpenHabitsInBrowser => Some("^H"),
-        TaskAction::OpenAgenda => Some("^A"),
         TaskAction::ToggleNotes => Some("l"),
         TaskAction::OpenLinks => Some("^O"),
         // No per-command hint: the tab switch is a cycle (`Alt+[` / `Alt+]`),

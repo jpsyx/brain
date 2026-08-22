@@ -42,6 +42,7 @@ impl App {
                 crate::logging::log("palette request brain TUI logs");
                 self.show_logs_view(LogKind::Brain);
             }
+            GlobalAction::OpenHabits => self.run_open_habits(),
             GlobalAction::SyncBrainNow => {
                 if crate::sync::trigger::spawn_detached_sync(
                     self.context.workspace(),
@@ -63,6 +64,7 @@ impl App {
                     Overlay::SyncLog(SyncLogState { scroll: u16::MAX }),
                 );
             }
+            GlobalAction::OpenAgenda => self.run_open_agenda(),
             GlobalAction::ToggleDailyTriageAlert => self.toggle_daily_triage_alert(),
             GlobalAction::ShowMainBrainSession => {
                 self.select_brain_tab(BrainTab::Main);
@@ -145,7 +147,7 @@ impl App {
     /// `flash` instead of a modal so the user isn't asked to dismiss a
     /// popup just to look at the agenda window that already opened on
     /// top of the tasks shell.
-    pub(crate) fn run_open_agenda(&mut self) {
+    fn run_open_agenda(&mut self) {
         match self.services.run_agenda() {
             Ok(()) => {
                 self.status
@@ -166,7 +168,7 @@ impl App {
     /// "Open habits page" palette entry. Uses the already-attached shared
     /// process, then opens this workspace's ingress-scoped habits page
     /// through the injected `open_runner`, flashing success / error.
-    pub(crate) fn run_open_habits(&mut self) {
+    fn run_open_habits(&mut self) {
         let flash = match crate::server::lifecycle::ServerClient::default().connect_existing() {
             Ok(record) => {
                 let url = self.context.habits_url(record.port);
@@ -321,12 +323,6 @@ impl App {
                         self.tasks.assignment_snapshot().filter,
                     )),
                 );
-            }
-            TaskAction::OpenHabitsInBrowser => {
-                self.run_open_habits();
-            }
-            TaskAction::OpenAgenda => {
-                self.run_open_agenda();
             }
             TaskAction::ToggleNotes => {
                 self.tasks.toggle_notes();
