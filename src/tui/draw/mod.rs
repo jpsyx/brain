@@ -27,7 +27,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     // Top-level split: if the brain panel is open, it takes half the width on
     // its configured side; the active main view fills the rest. Closed → the
     // main view owns the full width.
-    let (main_area, brain_area) = if app.any_brain_panel_visible() {
+    let (main_area, brain_area) = if app.brain.any_panel_visible() {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -47,7 +47,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     match app.shell.main_view() {
         MainView::Tasks => {
             let context = TasksPanelContext {
-                split_pane_open: app.any_brain_panel_visible(),
+                split_pane_open: app.brain.any_panel_visible(),
                 focused: app.shell.focus() == Panel::Tasks,
                 flash: app.status.flash(),
                 sync_status: app.status.sync_status(),
@@ -66,7 +66,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
         let alert = app.status.alert().map(str::to_owned);
         let mut context = BrainPanelContext {
             focused: app.shell.focus() == Panel::Brain,
-            tab_titles: app.brain_tab_titles(),
+            tab_titles: app.brain.tab_titles(),
             active_tab: app.effective_brain_tab(),
             active_index: app.active_brain_tab_index(),
             workspace_name,

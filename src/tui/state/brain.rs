@@ -30,6 +30,17 @@ pub(crate) struct SkillSessionObservation {
     pub(crate) exited: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SkillSessionTabIdExhausted;
+
+impl std::fmt::Display for SkillSessionTabIdExhausted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("skill-session tab identity exhausted")
+    }
+}
+
+impl std::error::Error for SkillSessionTabIdExhausted {}
+
 pub(crate) struct BrainPanelState {
     main: Option<AgentController>,
     brain_turn_active: bool,
@@ -77,9 +88,9 @@ impl BrainPanelState {
         self.main.as_mut()
     }
 
-    pub(crate) fn install_main(&mut self, controller: AgentController, actor: ActorContext) {
+    pub(crate) fn install_main(&mut self, controller: AgentController) {
+        self.session_actor = Some(controller.actor().clone());
         self.main = Some(controller);
-        self.session_actor = Some(actor);
         self.brain_turn_active = false;
     }
 
@@ -115,11 +126,6 @@ impl BrainPanelState {
     #[must_use]
     pub(crate) const fn session_actor(&self) -> Option<&ActorContext> {
         self.session_actor.as_ref()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_session_actor(&mut self, actor: ActorContext) {
-        self.session_actor = Some(actor);
     }
 
     pub(crate) fn clear_session(&mut self) {
@@ -201,10 +207,13 @@ impl BrainPanelState {
         key: SkillSessionKey,
         title: String,
         token: String,
-        controller: AgentController,
-    ) -> SessionTabId {
+        mut controller: AgentController,
+    ) -> Result<SessionTabId, SkillSessionTabIdExhausted> {
+        let next_id = self.next_session_tab_id.checked_add(1).ok_or_else(|| {
+            let _ = controller.shutdown();
+            SkillSessionTabIdExhausted
+        })?;
         let id = SessionTabId(self.next_session_tab_id);
-        self.next_session_tab_id = self.next_session_tab_id.wrapping_add(1);
         self.skill_sessions.push(SkillSessionTab {
             id,
             key,
@@ -212,7 +221,8 @@ impl BrainPanelState {
             token,
             controller,
         });
-        id
+        self.next_session_tab_id = next_id;
+        Ok(id)
     }
 
     pub(crate) fn remove_skill_session(&mut self, id: SessionTabId) -> Option<RemovedSkillSession> {
@@ -318,6 +328,7 @@ impl BrainPanelState {
 mod tests {
     use std::path::Path;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use crate::agent::{AgentController, AgentError, AgentKind, AgentTransport, InputSequence};
     use crate::skill_session::SkillSessionKey;
@@ -347,6 +358,30 @@ mod tests {
         fn shutdown(&mut self) {}
     }
 
+    struct ShutdownRecordingTransport(Arc<AtomicBool>);
+
+    impl AgentTransport for ShutdownRecordingTransport {
+        fn spawn(&mut self, _spec: &crate::agent::LaunchSpec) -> Result<(), AgentError> {
+            Ok(())
+        }
+
+        fn send(&mut self, _input: InputSequence) -> Result<(), AgentError> {
+            Ok(())
+        }
+
+        fn snapshot(&self) -> String {
+            String::new()
+        }
+
+        fn is_alive(&self) -> bool {
+            true
+        }
+
+        fn shutdown(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
     fn workspace() -> Arc<WorkspaceContext> {
         Arc::new(
             WorkspaceContext::new(
@@ -362,11 +397,15 @@ mod tests {
     }
 
     fn controller(kind: AgentKind) -> AgentController {
+        controller_for_actor(kind, crate::actor::test_actor("tester"))
+    }
+
+    fn controller_for_actor(kind: AgentKind, actor: crate::actor::ActorContext) -> AgentController {
         AgentController::for_workspace_with_command(
             workspace(),
             kind,
             kind.as_str().to_owned(),
-            crate::actor::test_actor("tester"),
+            actor,
             Box::new(DormantTransport),
         )
     }
@@ -376,18 +415,28 @@ mod tests {
         let actor = crate::actor::test_actor("tester");
         let mut brain = BrainPanelState::new(BrainPanelStateInit {
             instance: "shell-under-test".to_owned(),
-            interactive_actor: actor.clone(),
+            interactive_actor: actor,
             configured_skill_sessions: None,
         });
 
-        brain.install_main(controller(AgentKind::Codex), actor.clone());
+        let controller = controller_for_actor(
+            AgentKind::Codex,
+            crate::actor::test_actor("remote-controller"),
+        );
+        let controller_actor = controller.actor().clone();
+        brain.install_main(controller);
         brain.mark_turn_started();
 
         assert_eq!(
             brain.main_controller().map(AgentController::kind),
             Some(AgentKind::Codex)
         );
-        assert_eq!(brain.session_actor(), Some(&actor));
+        assert_eq!(brain.session_actor(), Some(&controller_actor));
+        assert_eq!(
+            brain.session_actor(),
+            brain.main_controller().map(AgentController::actor),
+            "session completion identity must be derived from the installed controller"
+        );
         assert!(brain.turn_active());
         assert_eq!(brain.instance(), "shell-under-test");
 
@@ -406,19 +455,23 @@ mod tests {
             configured_skill_sessions: None,
         });
 
-        let first = brain.add_skill_session(
-            SkillSessionKey::DailyTriage,
-            "Daily triage".to_owned(),
-            "token-one".to_owned(),
-            controller(AgentKind::Claude),
-        );
+        let first = brain
+            .add_skill_session(
+                SkillSessionKey::DailyTriage,
+                "Daily triage".to_owned(),
+                "token-one".to_owned(),
+                controller(AgentKind::Claude),
+            )
+            .expect("first tab identity");
         let removed = brain.remove_skill_session(first).expect("first tab");
-        let second = brain.add_skill_session(
-            SkillSessionKey::Custom(0),
-            "Inbox".to_owned(),
-            "token-two".to_owned(),
-            controller(AgentKind::OpenCode),
-        );
+        let second = brain
+            .add_skill_session(
+                SkillSessionKey::Custom(0),
+                "Inbox".to_owned(),
+                "token-two".to_owned(),
+                controller(AgentKind::OpenCode),
+            )
+            .expect("second tab identity");
 
         assert_ne!(first, second, "a closed tab id must never be reused");
         assert_eq!(removed.token, "token-one");
@@ -426,6 +479,55 @@ mod tests {
         assert_eq!(
             brain.running_skill_session_keys(),
             [SkillSessionKey::Custom(0)]
+        );
+    }
+
+    #[test]
+    fn skill_tab_id_exhaustion_is_fallible_and_does_not_mutate_state() {
+        let mut brain = BrainPanelState::new(BrainPanelStateInit {
+            instance: "shell-under-test".to_owned(),
+            interactive_actor: crate::actor::test_actor("tester"),
+            configured_skill_sessions: None,
+        });
+        brain.next_session_tab_id = u32::MAX - 1;
+        let final_id = brain
+            .add_skill_session(
+                SkillSessionKey::Custom(0),
+                "Final identity".to_owned(),
+                "token-final".to_owned(),
+                controller(AgentKind::OpenCode),
+            )
+            .expect("the final representable allocation");
+        assert_eq!(final_id, crate::tui::SessionTabId(u32::MAX - 1));
+        brain
+            .remove_skill_session(final_id)
+            .expect("remove final representable tab");
+        assert_eq!(brain.next_session_tab_id, u32::MAX);
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let controller = AgentController::for_workspace_with_command(
+            workspace(),
+            AgentKind::Claude,
+            AgentKind::Claude.as_str().to_owned(),
+            crate::actor::test_actor("tester"),
+            Box::new(ShutdownRecordingTransport(Arc::clone(&shutdown))),
+        );
+
+        let error = brain
+            .add_skill_session(
+                SkillSessionKey::DailyTriage,
+                "Daily triage".to_owned(),
+                "token-one".to_owned(),
+                controller,
+            )
+            .expect_err("an exhausted identity space must reject the tab");
+
+        assert_eq!(error.to_string(), "skill-session tab identity exhausted");
+        assert!(brain.skill_session_tab_ids().is_empty());
+        assert_eq!(brain.next_session_tab_id, u32::MAX);
+        assert!(
+            shutdown.load(Ordering::SeqCst),
+            "a launched controller rejected by tab allocation must be shut down"
         );
     }
 }

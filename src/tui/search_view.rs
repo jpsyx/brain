@@ -76,9 +76,10 @@ pub(crate) fn apply_search_view_effect(app: &mut App, effect: SearchEffect) -> b
         SearchEffect::Reveal(path) => reveal_in_finder(&path),
         SearchEffect::OpenPalette => {
             app.refresh_receiver_enabled();
-            let palette = app
-                .shell
-                .search_palette(!app.brain_panel_open(), app.receiver.is_enabled());
+            let palette = app.shell.search_palette(
+                app.brain.main_controller().is_none(),
+                app.receiver.is_enabled(),
+            );
             open_overlay(&mut app.overlay, Overlay::SearchPalette(palette));
         }
         SearchEffect::ConfirmPdf(path) => {

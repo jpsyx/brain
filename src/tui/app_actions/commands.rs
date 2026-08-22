@@ -160,16 +160,12 @@ impl App {
     pub(crate) fn run_open_habits(&mut self) {
         let flash = match crate::server::lifecycle::ServerClient::default().connect_existing() {
             Ok(record) => {
-                let url = self.habits_url_for_port(record.port);
+                let url = self.context.habits_url(record.port);
                 self.open_url(&url)
             }
             Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
         };
         self.status.set_flash(flash);
-    }
-
-    pub(crate) fn habits_url_for_port(&self, port: u16) -> String {
-        self.context.habits_url(port)
     }
 
     /// Ctrl+O / "open link" entry point. Collects the selected entry's

@@ -6,10 +6,18 @@ pub(crate) fn live_panel(root: &Path) -> PtyPane {
 }
 
 pub(crate) fn panel_controller(app: &App, panel: PtyPane) -> AgentController {
+    panel_controller_for_actor(app, app.brain.interactive_actor().clone(), panel)
+}
+
+pub(crate) fn panel_controller_for_actor(
+    app: &App,
+    actor: crate::actor::ActorContext,
+    panel: PtyPane,
+) -> AgentController {
     AgentController::configured(
         app.context.command(),
         app.context.agent_kind(),
-        app.brain.interactive_actor().clone(),
+        actor,
         Box::new(panel),
     )
 }

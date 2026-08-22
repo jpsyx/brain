@@ -134,7 +134,7 @@ fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
     SessionStore::mark_completed(&app.services, &session, &scope).expect("complete session");
     let live = live_panel(app.context.workspace().root());
     let controller = panel_controller(&app, live);
-    app.brain.install_main(controller, actor.clone());
+    app.brain.install_main(controller);
     let warm_job = receiver_job(&app, actor.clone(), Channel::Sms, "previous message");
     warm_receiver_session(
         &mut app,

@@ -8,9 +8,8 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
     for agent_kind in AgentKind::ALL {
         let mut app = test_app(&temporary, &cli, agent_kind);
         let capture = capture_panel(app.context.workspace().root());
-        let actor = app.brain.interactive_actor().clone();
         let controller = panel_controller(&app, capture);
-        app.brain.install_main(controller, actor);
+        app.brain.install_main(controller);
         assert!(
             wait_for_panel_contents(app.brain.main_controller().expect("panel"), "READY"),
             "capture panel did not become ready"
@@ -43,8 +42,7 @@ fn ctrl_n_targets_the_active_main_or_skill_session_controller_including_session_
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let (main, main_recording) = recording_controller(&app, true, "main");
     let (triage, triage_recording) = recording_controller(&app, true, "triage");
-    let actor = app.brain.interactive_actor().clone();
-    app.brain.install_main(main, actor);
+    app.brain.install_main(main);
     let session_tab = app.insert_test_skill_session(
         crate::skill_session::SkillSessionKey::DailyTriage,
         "Daily triage",

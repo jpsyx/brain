@@ -16,7 +16,7 @@ use crate::pty_pane::PtyPane;
 #[cfg(not(test))]
 fn session_done_url(app: &App) -> anyhow::Result<String> {
     let record = crate::server::lifecycle::ServerClient::default().connect_existing()?;
-    Ok(app.session_done_url_for_port(record.port))
+    Ok(app.context.session_done_url(record.port))
 }
 
 #[cfg(test)]
@@ -25,7 +25,7 @@ fn session_done_url(app: &mut App) -> anyhow::Result<String> {
         return Ok(url);
     }
     let record = crate::server::lifecycle::ServerClient::default().connect_existing()?;
-    Ok(app.session_done_url_for_port(record.port))
+    Ok(app.context.session_done_url(record.port))
 }
 
 #[cfg(not(test))]
@@ -128,10 +128,26 @@ impl App {
             self.controller_for_transport(self.brain.interactive_actor().clone(), transport);
         match controller.launch(&request) {
             Ok(()) => {
-                let id =
-                    self.brain
-                        .add_skill_session(spec.key, spec.title.clone(), token, controller);
-                let open = self.skill_session_tab_ids();
+                let id = match self.brain.add_skill_session(
+                    spec.key,
+                    spec.title.clone(),
+                    token.clone(),
+                    controller,
+                ) {
+                    Ok(id) => id,
+                    Err(error) => {
+                        crate::logging::log(format!(
+                            "skill session tab allocation failed: {error}"
+                        ));
+                        crate::skill_session::signal::clear(self.context.workspace(), &token);
+                        self.status.set_flash(FlashKind::Error(format!(
+                            "{} could not open: {error}",
+                            spec.title
+                        )));
+                        return;
+                    }
+                };
+                let open = self.brain.skill_session_tab_ids();
                 self.shell
                     .select_brain_tab(BrainTab::Session(id), &open, true);
                 self.status.clear_alert();
@@ -169,7 +185,7 @@ impl App {
         };
         crate::skill_session::signal::clear(self.context.workspace(), &removed.token);
         if was_showing {
-            let open = self.skill_session_tab_ids();
+            let open = self.brain.skill_session_tab_ids();
             self.shell.select_brain_tab(
                 BrainTab::Main,
                 &open,
@@ -201,8 +217,9 @@ impl App {
     ) -> SessionTabId {
         let id = self
             .brain
-            .add_skill_session(key, title.to_owned(), token.to_owned(), controller);
-        let open = self.skill_session_tab_ids();
+            .add_skill_session(key, title.to_owned(), token.to_owned(), controller)
+            .expect("test skill-session tab identity");
+        let open = self.brain.skill_session_tab_ids();
         self.shell
             .select_brain_tab(BrainTab::Session(id), &open, true);
         id
@@ -213,18 +230,6 @@ impl App {
     #[cfg(test)]
     pub(crate) fn set_test_configured_skill_sessions(&mut self, configured: serde_json::Value) {
         self.brain.set_configured_skill_sessions(configured);
-    }
-
-    /// One open tab's completion token (tests only).
-    #[cfg(test)]
-    pub(crate) fn skill_session_token(&self, key: SkillSessionKey) -> Option<String> {
-        self.brain.skill_session_token(key)
-    }
-
-    /// Whether a skill session for `key` is open (tests only).
-    #[cfg(test)]
-    pub(crate) fn has_skill_session(&self, key: SkillSessionKey) -> bool {
-        self.brain.has_skill_session(key)
     }
 
     /// One event-loop tick of the skill-session auto-close. No-op with no tabs

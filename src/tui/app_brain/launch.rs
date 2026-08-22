@@ -47,15 +47,10 @@ impl App {
         )
     }
 
-    /// Whether the brain panel is on screen (a live agent PTY).
-    pub(crate) fn brain_panel_open(&self) -> bool {
-        self.brain.main_controller().is_some()
-    }
-
     /// Handle the Ctrl-N shortcut before normal key forwarding. Returning
     /// `true` tells the event loop that the chord was consumed.
     pub(crate) fn handle_new_session_shortcut(&mut self, code: KeyCode, ctrl: bool) -> bool {
-        if ctrl && matches!(code, KeyCode::Char('n' | 'N')) && self.any_brain_panel_visible() {
+        if ctrl && matches!(code, KeyCode::Char('n' | 'N')) && self.brain.any_panel_visible() {
             let active_tab = self.effective_brain_tab();
             self.focus_brain();
             let started = self
@@ -70,7 +65,7 @@ impl App {
     }
 
     pub(crate) fn focus_brain(&mut self) {
-        if self.any_brain_panel_visible() {
+        if self.brain.any_panel_visible() {
             self.status.clear_alert();
             self.shell.focus_brain();
         }

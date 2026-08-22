@@ -192,7 +192,7 @@ impl App {
         ]);
         let mut request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.context.command().workspace),
-            actor.clone(),
+            actor,
             session_plan,
             prompt.map(str::to_owned),
             self.context.access_mode(),
@@ -216,7 +216,7 @@ impl App {
         };
         match launch_result {
             Ok(()) => {
-                self.brain.install_main(controller, actor);
+                self.brain.install_main(controller);
                 if prompt.is_some_and(|value| !value.trim().is_empty()) {
                     self.mark_brain_turn_started();
                 }

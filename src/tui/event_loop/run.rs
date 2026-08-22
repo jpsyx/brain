@@ -106,7 +106,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
     // the brain panel is focused. No-op when no panel is open. 0x18, so
     // no kitty-protocol dependency. On a skill-session tab it closes only
     // that ephemeral session, leaving the main session untouched.
-    if ctrl && matches!(k.code, KeyCode::Char('x' | 'X')) && app.any_brain_panel_visible() {
+    if ctrl && matches!(k.code, KeyCode::Char('x' | 'X')) && app.brain.any_panel_visible() {
         if matches!(app.effective_brain_tab(), BrainTab::Session(_)) {
             app.close_active_skill_session();
         } else {
@@ -223,7 +223,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
                 has_notes,
                 notes_expanded,
                 link_kind,
-                app.brain_panel_open(),
+                app.brain.main_controller().is_some(),
                 app.context.log_path().is_some(),
             )
             .with_assignment_mode(app.tasks.assignment_snapshot().mode)

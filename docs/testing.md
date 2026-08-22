@@ -323,7 +323,9 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Focused TUI state owners** (`tui/state/`). `AppContext` tests pin immutable
   workspace, path, config, and frontend identity, including whole-snapshot
   config replacement. `BrainPanelState` tests pin main-controller and
-  skill-session ownership, actor/turn transitions, and controller shutdown.
+  skill-session ownership, controller-derived completion actor identity,
+  actor/turn transitions, controller shutdown, monotonic tab identity, and
+  checked exhaustion with unchanged state.
   `AppServices` tests use focused runner and sync seams to pin semantic effects,
   and `StatusState` tests separate transient and persistent messages while
   covering triage-gate, live-toggle, and sync-poll transitions. Standalone
@@ -347,7 +349,10 @@ first move is a failing test that reproduces it, *then* the fix.
   dataflow scan rejects direct or aliased representation access, propagates
   aggregate taint through intermediate lets, resolves local raw/reference
   return aliases, and rejects raw `App` forwarding through multiline typed or
-  parenthesized bodies. Synthetic fixtures pressure-test each guard branch.
+  parenthesized bodies. A separate structural scan rejects immutable App
+  methods whose entire body merely forwards a context or brain query to one
+  owner, while allowing explicit cross-owner mediation. Synthetic renamed
+  forwarders and cross-owner fixtures pressure-test each guard branch.
 - **Skill sessions** (`skill_session/`, `tui/app_skill_session/`,
   `tui/app_brain/tests/skill_session.rs`). The pure half is unit-tested directly:
   what the workspace offers (`available`: the builtin daily triage only while the

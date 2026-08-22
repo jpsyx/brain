@@ -9,13 +9,13 @@ fn local_workspace_urls_use_the_ingress_accepted_at_registration() {
     let app = test_app(&temporary, &cli, AgentKind::Claude);
 
     assert_eq!(
-        app.habits_url_for_port(4773),
+        app.context.habits_url(4773),
         format!(
             "http://127.0.0.1:4773/local/{ACCEPTED_LOCAL_CAPABILITY}/w/{ACCEPTED_INGRESS}/habits"
         )
     );
     assert_eq!(
-        app.session_done_url_for_port(4773),
+        app.context.session_done_url(4773),
         format!(
             "http://127.0.0.1:4773/local/{ACCEPTED_LOCAL_CAPABILITY}/w/{ACCEPTED_INGRESS}/session/done"
         )
@@ -48,7 +48,7 @@ fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
             .active_brain_controller()
             .expect("skill session controller");
         assert_eq!(controller.kind(), kind);
-        assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
+        assert!(app.brain.has_skill_session(SkillSessionKey::DailyTriage));
         assert!(matches!(app.effective_brain_tab(), BrainTab::Session(_)));
         assert_eq!(app.shell.focus(), Panel::Brain);
         let spec = {
@@ -107,6 +107,7 @@ fn opencode_triage_completion_cleans_up_the_ephemeral_transport_and_signal_once(
 
     app.open_triage_tab();
     let token = app
+        .brain
         .skill_session_token(SkillSessionKey::DailyTriage)
         .expect("session token");
     crate::skill_session::signal::record_done(app.context.workspace(), &token, &[])
@@ -115,7 +116,7 @@ fn opencode_triage_completion_cleans_up_the_ephemeral_transport_and_signal_once(
     app.tick_skill_sessions();
     app.tick_skill_sessions();
 
-    assert!(!app.has_skill_session(SkillSessionKey::DailyTriage));
+    assert!(!app.brain.has_skill_session(SkillSessionKey::DailyTriage));
     assert_eq!(app.effective_brain_tab(), BrainTab::Main);
     assert_eq!(app.shell.focus(), Panel::Tasks);
     assert_eq!(recording.shutdowns(), 1);
@@ -155,7 +156,7 @@ fn skip_button_marks_managed_daily_triage_done_without_launching_an_agent() {
         "Skip must not launch the main brain panel"
     );
     assert!(
-        !app.has_skill_session(SkillSessionKey::DailyTriage),
+        !app.brain.has_skill_session(SkillSessionKey::DailyTriage),
         "Skip must not open a triage tab"
     );
 
@@ -224,7 +225,7 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
 
         app.open_triage_tab();
 
-        assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
+        assert!(app.brain.has_skill_session(SkillSessionKey::DailyTriage));
         let specs = recording.0.lock().expect("launch recording");
         assert_eq!(specs.len(), 1);
         assert!(!specs[0].command.contains("--mcp-config"));

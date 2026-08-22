@@ -22,9 +22,9 @@ fn a_configured_skill_session_launches_its_own_prompt_under_its_own_title() {
 
     app.run_skill_session(SkillSessionKey::Custom(0));
 
-    assert!(app.has_skill_session(SkillSessionKey::Custom(0)));
+    assert!(app.brain.has_skill_session(SkillSessionKey::Custom(0)));
     assert_eq!(
-        app.brain_tab_titles(),
+        app.brain.tab_titles(),
         vec!["Brain".to_owned(), "Email triage".to_owned()]
     );
     let specs = recording.launch_specs();
@@ -68,7 +68,7 @@ fn two_skill_sessions_run_as_separate_tabs_and_complete_independently() {
 
     // Both run at once, each with its own tab in open order.
     assert_eq!(
-        app.brain_tab_titles(),
+        app.brain.tab_titles(),
         vec![
             "Brain".to_owned(),
             "Daily triage".to_owned(),
@@ -84,14 +84,15 @@ fn two_skill_sessions_run_as_separate_tabs_and_complete_independently() {
 
     // Only the session whose token arrives closes; the other keeps running.
     let email_token = app
+        .brain
         .skill_session_token(SkillSessionKey::Custom(0))
         .expect("email session token");
     crate::skill_session::signal::record_done(app.context.workspace(), &email_token, &[])
         .expect("completion signal");
     app.tick_skill_sessions();
 
-    assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
-    assert!(!app.has_skill_session(SkillSessionKey::Custom(0)));
+    assert!(app.brain.has_skill_session(SkillSessionKey::DailyTriage));
+    assert!(!app.brain.has_skill_session(SkillSessionKey::Custom(0)));
     assert_eq!(email_recording.shutdowns(), 1);
     assert_eq!(triage_recording.shutdowns(), 0);
     // With it closed, its start row is offered again.
@@ -112,6 +113,7 @@ fn a_declared_required_output_holds_the_tab_open_until_it_exists() {
     app.open_triage_tab();
 
     let token = app
+        .brain
         .skill_session_token(SkillSessionKey::DailyTriage)
         .expect("session token");
     let required = temporary.path().join("declared-output.pdf");
@@ -124,13 +126,13 @@ fn a_declared_required_output_holds_the_tab_open_until_it_exists() {
 
     app.tick_skill_sessions();
     assert!(
-        app.has_skill_session(SkillSessionKey::DailyTriage),
+        app.brain.has_skill_session(SkillSessionKey::DailyTriage),
         "a premature signal must not close the tab before declared outputs land"
     );
 
     std::fs::write(&required, b"output").expect("write declared output");
     app.tick_skill_sessions();
-    assert!(!app.has_skill_session(SkillSessionKey::DailyTriage));
+    assert!(!app.brain.has_skill_session(SkillSessionKey::DailyTriage));
 }
 
 #[test]
@@ -166,7 +168,7 @@ fn a_stale_signal_from_a_dead_shell_cannot_close_a_freshly_opened_tab() {
     app.open_triage_tab();
     app.tick_skill_sessions();
 
-    assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
+    assert!(app.brain.has_skill_session(SkillSessionKey::DailyTriage));
     assert_eq!(recording.shutdowns(), 0);
 }
 
@@ -192,6 +194,7 @@ fn closing_one_session_leaves_another_tab_selected_rather_than_jumping_to_main()
     app.select_brain_tab_slot(1);
     let watched = app.effective_brain_tab();
     let email_token = app
+        .brain
         .skill_session_token(SkillSessionKey::Custom(0))
         .expect("email session token");
     crate::skill_session::signal::record_done(app.context.workspace(), &email_token, &[])
@@ -225,9 +228,9 @@ fn a_failed_start_leaves_you_on_the_tab_you_were_reading() {
     inject_skill_session_transport(&mut app, Box::new(FailingSpawnTransport));
     app.run_skill_session(SkillSessionKey::Custom(0));
 
-    assert!(!app.has_skill_session(SkillSessionKey::Custom(0)));
+    assert!(!app.brain.has_skill_session(SkillSessionKey::Custom(0)));
     assert_eq!(app.effective_brain_tab(), watched);
-    assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
+    assert!(app.brain.has_skill_session(SkillSessionKey::DailyTriage));
     assert!(matches!(
         app.status.flash(),
         Some(crate::tui::FlashKind::Error(_))

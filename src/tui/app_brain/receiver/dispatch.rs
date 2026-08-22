@@ -37,7 +37,7 @@ impl App {
             .is_some_and(|job| self.brain.session_actor() == Some(&job.actor));
         crate::tui::receiver::ReceiverTickContext {
             brain_turn_active: self.brain.turn_active(),
-            panel_open: self.brain_panel_open(),
+            panel_open: self.brain.main_controller().is_some(),
             queued_actor_matches_session,
         }
     }
@@ -140,7 +140,7 @@ impl App {
         // resume, which is what retires the old conversation.
         self.receiver.prepare_channel_launch(message.channel);
         let reusing_receiver_panel =
-            self.receiver.has_receiver_session() && self.brain_panel_open();
+            self.receiver.has_receiver_session() && self.brain.main_controller().is_some();
         if reusing_receiver_panel {
             if let Some(session_id) = self.receiver.receiver_response_id() {
                 let response_path = self

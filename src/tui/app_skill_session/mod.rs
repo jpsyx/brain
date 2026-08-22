@@ -27,27 +27,6 @@ use crate::skill_session::{SkillSessionKey, SkillSessionSpec};
 pub(crate) type SkillSessionRows = Vec<(SkillSessionKey, String)>;
 
 impl App {
-    pub(crate) fn session_done_url_for_port(&self, port: u16) -> String {
-        self.context.session_done_url(port)
-    }
-
-    /// Whether the brain panel is on screen with *either* the main session or a
-    /// skill session (the panel occupies its half whenever one is present).
-    pub(crate) fn any_brain_panel_visible(&self) -> bool {
-        self.brain.any_panel_visible()
-    }
-
-    /// The identities of the open skill-session tabs, in tab order.
-    pub(crate) fn skill_session_tab_ids(&self) -> Vec<SessionTabId> {
-        self.brain.skill_session_tab_ids()
-    }
-
-    /// Which skill sessions are running right now, for the palette's
-    /// hide-while-running gate.
-    pub(crate) fn running_skill_session_keys(&self) -> Vec<SkillSessionKey> {
-        self.brain.running_skill_session_keys()
-    }
-
     /// Every skill session this workspace offers: the builtin daily triage
     /// (only while the daily-triage check is enabled) plus the workspace's own
     /// `skill_sessions` definitions.
@@ -63,7 +42,7 @@ impl App {
     /// each).
     pub(crate) fn skill_session_palette_rows(&self) -> (SkillSessionRows, SkillSessionRows) {
         let available = self.available_skill_sessions();
-        let running = self.running_skill_session_keys();
+        let running = self.brain.running_skill_session_keys();
         let runnable = crate::skill_session::runnable(&available, &running)
             .into_iter()
             .map(|spec| (spec.key, spec.command_label.clone()))
@@ -75,12 +54,16 @@ impl App {
     /// The tab actually showable right now: a `Session` only while a tab with
     /// that identity exists, else `Main`.
     pub(crate) fn effective_brain_tab(&self) -> BrainTab {
-        self.shell.active_brain_tab(&self.skill_session_tab_ids())
+        self.shell
+            .active_brain_tab(&self.brain.skill_session_tab_ids())
     }
 
     /// The controller behind the currently-active tab, if any.
     pub(crate) fn active_brain_controller(&self) -> Option<&AgentController> {
-        self.brain.active_controller(self.effective_brain_tab())
+        let tab = self
+            .shell
+            .active_brain_tab(&self.brain.skill_session_tab_ids());
+        self.brain.active_controller(tab)
     }
 
     /// Mutable counterpart of [`Self::active_brain_controller`] used by the
@@ -92,18 +75,15 @@ impl App {
 
     /// The active tab's title, used by the panel border.
     pub(crate) fn active_brain_tab_title(&self) -> Option<&str> {
-        self.brain.active_tab_title(self.effective_brain_tab())
-    }
-
-    /// The tab strip's labels, in tab order: the main session first, then each
-    /// open skill session's title.
-    pub(crate) fn brain_tab_titles(&self) -> Vec<String> {
-        self.brain.tab_titles()
+        let tab = self
+            .shell
+            .active_brain_tab(&self.brain.skill_session_tab_ids());
+        self.brain.active_tab_title(tab)
     }
 
     /// Where the active tab sits in the tab strip (`0` = the main session).
     pub(crate) fn active_brain_tab_index(&self) -> usize {
-        let ids = self.skill_session_tab_ids();
+        let ids = self.brain.skill_session_tab_ids();
         self.shell.active_brain_tab_index(&ids)
     }
 
@@ -111,10 +91,10 @@ impl App {
     /// Selecting a skill session is a no-op when that tab isn't open; selecting
     /// any tab when the panel is closed does nothing.
     pub(crate) fn select_brain_tab(&mut self, tab: BrainTab) -> bool {
-        let open = self.skill_session_tab_ids();
+        let open = self.brain.skill_session_tab_ids();
         let selected = self
             .shell
-            .select_brain_tab(tab, &open, self.any_brain_panel_visible());
+            .select_brain_tab(tab, &open, self.brain.any_panel_visible());
         if selected {
             self.status.clear_alert();
         }
@@ -126,10 +106,10 @@ impl App {
     /// selected, so the caller can let an unclaimed keystroke carry on being
     /// ordinary input instead of swallowing it.
     pub(crate) fn select_brain_tab_slot(&mut self, slot: usize) -> bool {
-        let ids = self.skill_session_tab_ids();
+        let ids = self.brain.skill_session_tab_ids();
         let selected = self
             .shell
-            .select_brain_tab_slot(slot, &ids, self.any_brain_panel_visible());
+            .select_brain_tab_slot(slot, &ids, self.brain.any_panel_visible());
         if selected {
             self.status.clear_alert();
         }
@@ -149,10 +129,10 @@ impl App {
     /// Ordered `[Main, …sessions]` so `next` from Main lands on the first skill
     /// session.
     pub(crate) fn cycle_brain_tab(&mut self, forward: bool) {
-        let open = self.skill_session_tab_ids();
+        let open = self.brain.skill_session_tab_ids();
         if self
             .shell
-            .cycle_brain_tab(&open, forward, self.any_brain_panel_visible())
+            .cycle_brain_tab(&open, forward, self.brain.any_panel_visible())
         {
             self.status.clear_alert();
         }

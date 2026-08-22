@@ -1134,7 +1134,12 @@ The context is replaced as a complete immutable snapshot when portable config
 is refreshed. It never owns the mutable triage or task materialization days:
 `StatusState` and `TasksState` own those values respectively. `AppServices`
 exposes semantic effects instead of one getter per injected object, and
-`BrainPanelState` keeps every frontend behind `AgentController`.
+`BrainPanelState` keeps every frontend behind `AgentController`. Installing a
+main controller derives the completion actor from that controller, so the live
+controller and its response-validation identity cannot diverge. Skill-session
+tab identities advance monotonically with checked exhaustion; a rejected tab
+does not mutate the tab collection or counter and its launched controller is
+shut down.
 
 `Overlay` remains a top-level field because it mediates mutually exclusive
 modals spanning tasks, search, status, and the brain panel. `ReceiverRuntime`
@@ -1143,6 +1148,9 @@ status, delivery, and sync effects while its queue, socket, persisted-intent
 refresher, and retry state stay one natural owner. Cross-feature launch,
 database, receiver takeover, task refresh, and focus changes remain App
 operations; neither focused owner receives the whole App.
+Immutable context and brain queries are consumed through their focused owners
+instead of being mirrored as App accessors. App methods remain only where an
+operation actually coordinates multiple owners.
 
 `TasksState`
 owns task/habit source rows, view materialization, assignment and query
@@ -1225,7 +1233,9 @@ while `launch.rs` keeps capability construction, transport selection, and the
 public app actions.
 `BrainPanelState` owns the ephemeral skill-session controllers and tab data;
 `app_skill_session/` coordinates their lifecycle (open/close/select and the
-`tick_skill_sessions` auto-close). The `Overlay` owner and transitions live in
+`tick_skill_sessions` auto-close). Tab IDs are lifetime-monotonic and allocated
+with checked exhaustion before the tab collection or counter changes. The
+`Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
 structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with

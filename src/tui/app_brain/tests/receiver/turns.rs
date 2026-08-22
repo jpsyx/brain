@@ -12,7 +12,7 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
     let actor = app.brain.interactive_actor().clone();
     let live = live_panel(app.context.workspace().root());
     let controller = panel_controller(&app, live);
-    app.brain.install_main(controller, actor.clone());
+    app.brain.install_main(controller);
     let relaunch = LaunchRecording::default();
     app.brain
         .replace_brain_transport(Box::new(LaunchRecordingTransport {
@@ -94,7 +94,7 @@ fn warm_panel_reuse_delivers_a_closed_paste_and_a_submit_key_to_the_real_pty() {
     )
     .expect("spawn capture panel");
     let controller = panel_controller(&app, panel);
-    app.brain.install_main(controller, actor.clone());
+    app.brain.install_main(controller);
     assert!(
         wait_for_panel_contents(app.brain.main_controller().expect("panel"), "READY"),
         "capture panel never became ready"
@@ -171,9 +171,8 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
         let cli = Cli::parse_from(["tasks"]);
         let mut app = test_app(&temporary, &cli, agent_kind);
         let live = live_panel(app.context.workspace().root());
-        let actor = app.brain.interactive_actor().clone();
         let controller = panel_controller(&app, live);
-        app.brain.install_main(controller, actor);
+        app.brain.install_main(controller);
         let start = std::time::Instant::now();
         // The turn has been open far longer than the deadline, so only the
         // panel decides whether it is still working.

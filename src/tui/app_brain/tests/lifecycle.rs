@@ -15,8 +15,7 @@ fn controller_drives_interactive_submit_queued_work_and_single_shutdown() {
         .expect("register session");
     SessionStore::mark_completed(&app.services, &session, &scope).expect("complete session");
     let (controller, recording) = recording_controller(&app, true, "final snapshot");
-    let actor = app.brain.interactive_actor().clone();
-    app.brain.install_main(controller, actor);
+    app.brain.install_main(controller);
     app.shell.focus_brain();
 
     let enter =
@@ -158,7 +157,10 @@ fn agent_exit_closes_only_the_panel_and_returns_to_the_live_tui() {
     assert!(app.close_exited_brain_panel());
 
     assert!(app.brain.main_controller().is_none());
-    assert!(app.has_skill_session(crate::skill_session::SkillSessionKey::DailyTriage));
+    assert!(
+        app.brain
+            .has_skill_session(crate::skill_session::SkillSessionKey::DailyTriage)
+    );
     assert_eq!(app.shell.focus(), Panel::Tasks);
     assert_eq!(main_recording.shutdowns(), 1);
     assert_eq!(triage_recording.shutdowns(), 0);
@@ -176,8 +178,7 @@ fn close_delivers_transport_snapshot_with_the_initiating_actor_and_channel() {
         false,
         "remote transport snapshot",
     );
-    let interactive_actor = app.brain.interactive_actor().clone();
-    app.brain.install_main(controller, interactive_actor);
+    app.brain.install_main(controller);
     let job = receiver_job(
         &app,
         initiating_actor.clone(),
@@ -221,8 +222,7 @@ fn close_brain_releases_each_frontend_session_for_the_next_shell() {
             .expect("register locked session");
         let live = live_panel(app.context.workspace().root());
         let controller = panel_controller(&app, live);
-        let actor = app.brain.interactive_actor().clone();
-        app.brain.install_main(controller, actor);
+        app.brain.install_main(controller);
         app.shell.focus_brain();
 
         app.close_brain();
@@ -243,8 +243,7 @@ fn half_page_scroll_targets_the_visible_skill_session_controller() {
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let (main, main_recording) = recording_controller(&app, true, "main");
     let (triage, triage_recording) = recording_controller(&app, true, "triage");
-    let actor = app.brain.interactive_actor().clone();
-    app.brain.install_main(main, actor);
+    app.brain.install_main(main);
     app.insert_test_skill_session(
         crate::skill_session::SkillSessionKey::DailyTriage,
         "Daily triage",
@@ -303,8 +302,7 @@ fn whole_shell_shutdown_returns_controller_errors_instead_of_swallowing_them() {
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
     let controller = unavailable_recording_controller(&app);
-    let actor = app.brain.interactive_actor().clone();
-    app.brain.install_main(controller, actor);
+    app.brain.install_main(controller);
 
     let errors = app.shutdown_agent_controllers();
 

@@ -304,7 +304,10 @@ fn receiver_completion_immediately_publishes_agent_created_changes() {
     app.services
         .replace_receiver_sync_runtime(Box::new(runtime.clone()));
     let actor = sms_actor();
-    app.brain.set_session_actor(actor.clone());
+    let panel = live_panel(app.context.workspace().root());
+    let controller = panel_controller_for_actor(&app, actor.clone(), panel);
+    app.brain.install_main(controller);
+    assert_eq!(app.brain.session_actor(), Some(&actor));
     let job = receiver_job(&app, actor.clone(), Channel::Sms, "capture this task");
     begin_receiver_turn(
         &mut app,

@@ -325,8 +325,7 @@ fn receiver_restore_uses_the_frontend_session_id_not_the_response_artifact_id() 
     SessionStore::release(&app.services, "prior-shell").unwrap();
     let _transcript = ClaudeTranscript::create(app.context.workspace().root(), frontend_session_id);
     let (controller, _) = recording_controller(&app, true, "receiver");
-    let actor = app.brain.interactive_actor().clone();
-    app.brain.install_main(controller, actor);
+    app.brain.install_main(controller);
     app.receiver
         .record_receiver_session("receiver-response-artifact".to_owned());
     app.receiver.record_interactive_session(

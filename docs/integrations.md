@@ -139,6 +139,9 @@ Finder/editor for files, `markdown-to-pdf` for conversions).
 The persistent shell's `BrainPanelState` owns the main and skill-session
 `AgentController`s. The App mediator assembles launch context, while each
 controller spawns the selected agent frontend inside a PTY (`pty_pane.rs`).
+`BrainPanelState` derives the completion actor from the controller at install
+time; callers cannot supply a second actor that disagrees with the controller
+used for launch and completion validation.
 
 ```text
 TuiRuntime
@@ -438,6 +441,10 @@ deliberate differences from the main panel:
   `triage:daily-required-outputs` hook), and an empty list closes immediately, so
   the generic core (and any fork) behaves exactly as before. If a session's child
   exits on its own, the same tick closes its tab regardless.
+  Tab identities are lifetime-monotonic within the App. Checked allocation
+  refuses exhaustion without changing the counter or open-tab collection,
+  shuts down the controller that cannot be installed, clears its pending
+  completion token, and reports the launch failure in the TUI.
 
 `brain server`'s route table therefore includes
 `POST /local/<lease>/w/<ingress>/session/done` (see `server/router.rs` plus

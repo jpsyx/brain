@@ -315,6 +315,12 @@ fn aggregate_representation_does_not_leak_outside_its_owner() {
         if has_raw_aggregate_forwarder(&source) {
             leaks.push(format!("{}: raw App aggregate forwarder", path.display()));
         }
+        if has_pure_direct_aggregate_forwarder(&source) {
+            leaks.push(format!(
+                "{}: pure direct App aggregate forwarder",
+                path.display()
+            ));
+        }
     }
 
     assert!(
@@ -616,6 +622,37 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
         }
     ";
     assert!(has_raw_aggregate_forwarder(aliased_raw_return));
+
+    let renamed_context_forwarder = r"
+        impl App {
+            fn endpoint(&self, port: u16) -> String {
+                self.context.session_done_url(port)
+            }
+        }
+    ";
+    assert!(has_pure_direct_aggregate_forwarder(
+        renamed_context_forwarder
+    ));
+
+    let chained_brain_forwarder = r"
+        impl App {
+            fn panel_open(&self) -> bool {
+                self.brain.main_controller().is_some()
+            }
+        }
+    ";
+    assert!(has_pure_direct_aggregate_forwarder(chained_brain_forwarder));
+
+    let cross_aggregate_mediator = r"
+        impl App {
+            fn active_tab(&self) -> BrainTab {
+                self.shell.active_brain_tab(&self.brain.skill_session_tab_ids())
+            }
+        }
+    ";
+    assert!(!has_pure_direct_aggregate_forwarder(
+        cross_aggregate_mediator
+    ));
 }
 
 fn directly_accesses_field(source: &str, aggregate: &str, field: &str) -> bool {
@@ -790,6 +827,56 @@ fn has_raw_aggregate_forwarder(source: &str) -> bool {
                     }
                     forwarded_expression(last, aggregate, &aliases)
                 })
+            })
+    })
+}
+
+fn has_pure_direct_aggregate_forwarder(source: &str) -> bool {
+    const APP_OWNERS: &[&str] = &[
+        "context", "tasks", "brain", "shell", "overlay", "services", "status", "receiver",
+    ];
+    const GUARDED_OWNERS: &[&str] = &["context", "brain"];
+
+    let masked = mask_non_code(source);
+    impl_app_ranges(&masked).into_iter().any(|(open, close)| {
+        method_ranges(&masked, open, close)
+            .into_iter()
+            .any(|(fn_start, body_open, body_close)| {
+                let signature = code_tokens(&source[fn_start..body_open]);
+                if !signature.windows(2).any(|window| window == ["&", "self"])
+                    || signature
+                        .windows(3)
+                        .any(|window| window == ["&", "mut", "self"])
+                {
+                    return false;
+                }
+                let body_tokens = code_tokens(&source[body_open + 1..body_close]);
+                let statements = top_level_statements(&body_tokens);
+                let [expression] = statements.as_slice() else {
+                    return false;
+                };
+                let mut start = usize::from(expression.first() == Some(&"return"));
+                while matches!(expression.get(start), Some(&"(")) {
+                    start += 1;
+                }
+                if expression.get(start) != Some(&"self")
+                    || expression.get(start + 1) != Some(&".")
+                    || !expression
+                        .get(start + 2)
+                        .is_some_and(|field| GUARDED_OWNERS.contains(field))
+                {
+                    return false;
+                }
+                let aggregates = expression
+                    .windows(3)
+                    .filter_map(|window| {
+                        (window[0] == "self" && window[1] == "." && APP_OWNERS.contains(&window[2]))
+                            .then_some(window[2])
+                    })
+                    .collect::<Vec<_>>();
+                aggregates
+                    .first()
+                    .is_some_and(|first| aggregates.iter().all(|field| field == first))
             })
     })
 }

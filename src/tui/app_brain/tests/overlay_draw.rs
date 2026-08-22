@@ -30,8 +30,7 @@ fn rendered_modal_right_edge(overlay: Overlay, title: &str) -> u16 {
         .show_main_view(crate::main_view::MainView::BrainSearch);
     app.overlay = Some(overlay);
     let (brain, _) = recording_controller(&app, true, "brain panel");
-    let actor = app.brain.interactive_actor().clone();
-    app.brain.install_main(brain, actor);
+    app.brain.install_main(brain);
 
     let backend = TestBackend::new(WIDTH, HEIGHT);
     let mut terminal = Terminal::new(backend).expect("test terminal");

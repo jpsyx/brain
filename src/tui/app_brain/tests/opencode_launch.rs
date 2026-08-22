@@ -83,8 +83,8 @@ fn opencode_receiver_restore_resumes_only_a_session_that_still_exists() {
     let current_transport = TransportRecording::default();
     current_transport.set_alive(true);
     let actor = sms_actor();
-    let controller = app.controller_for_transport(actor.clone(), current_transport.transport());
-    app.brain.install_main(controller, actor);
+    let controller = app.controller_for_transport(actor, current_transport.transport());
+    app.brain.install_main(controller);
     app.receiver
         .record_receiver_session("receiver-response".to_owned());
     app.receiver
@@ -113,8 +113,8 @@ fn opencode_receiver_restore_falls_back_fresh_when_the_session_disappeared() {
     let current_transport = TransportRecording::default();
     current_transport.set_alive(true);
     let actor = sms_actor();
-    let controller = app.controller_for_transport(actor.clone(), current_transport.transport());
-    app.brain.install_main(controller, actor);
+    let controller = app.controller_for_transport(actor, current_transport.transport());
+    app.brain.install_main(controller);
     app.receiver
         .record_receiver_session("receiver-response".to_owned());
     app.receiver
