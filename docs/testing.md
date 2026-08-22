@@ -325,7 +325,11 @@ first move is a failing test that reproduces it, *then* the fix.
   config replacement. `BrainPanelState` tests pin main-controller and
   skill-session ownership, controller-derived completion actor identity,
   actor/turn transitions, controller shutdown, monotonic tab identity, and
-  checked exhaustion with unchanged state.
+  checked exhaustion with unchanged state. A focused App launch-boundary test
+  forces the exhausted state through a test-only owner fixture, drives the real
+  `open_skill_session` transaction, and proves the rejected controller and
+  completion signal are cleaned up while the selected tab and tab collection
+  stay unchanged and the error is reported.
   `AppServices` tests use focused runner and sync seams to pin semantic effects,
   and `StatusState` tests separate transient and persistent messages while
   covering triage-gate, live-toggle, and sync-poll transitions. Standalone
@@ -351,8 +355,10 @@ first move is a failing test that reproduces it, *then* the fix.
   return aliases, and rejects raw `App` forwarding through multiline typed or
   parenthesized bodies. A separate structural scan rejects immutable App
   methods whose entire body merely forwards a context or brain query to one
-  owner, while allowing explicit cross-owner mediation. Synthetic renamed
-  forwarders and cross-owner fixtures pressure-test each guard branch.
+  owner, propagating owner taint through transparent local aliases, including
+  typed and parenthesized chains, while allowing explicit cross-owner
+  mediation. Synthetic renamed forwarders, alias chains, and cross-owner
+  fixtures pressure-test each guard branch.
 - **Skill sessions** (`skill_session/`, `tui/app_skill_session/`,
   `tui/app_brain/tests/skill_session.rs`). The pure half is unit-tested directly:
   what the workspace offers (`available`: the builtin daily triage only while the
@@ -741,7 +747,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, and no obsolete receiver launch argument. |
-| `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and expression-only App forwarding are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, aliasing, and forwarding evasions. |
+| `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transparent local aliases are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, and forwarding evasions without rejecting cross-owner mediation. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |

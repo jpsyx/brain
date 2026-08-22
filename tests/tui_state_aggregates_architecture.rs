@@ -643,6 +643,31 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
     ";
     assert!(has_pure_direct_aggregate_forwarder(chained_brain_forwarder));
 
+    let aliased_context_forwarder = r"
+        impl App {
+            fn endpoint(&self, port: u16) -> String {
+                let context = &self.context;
+                context.session_done_url(port)
+            }
+        }
+    ";
+    assert!(has_pure_direct_aggregate_forwarder(
+        aliased_context_forwarder
+    ));
+
+    let propagated_typed_parenthesized_brain_forwarder = r"
+        impl App {
+            fn panel_open(&self) -> bool {
+                let state: &BrainPanelState = ((&self.brain));
+                let controller = (state.main_controller());
+                ((controller.is_some()))
+            }
+        }
+    ";
+    assert!(has_pure_direct_aggregate_forwarder(
+        propagated_typed_parenthesized_brain_forwarder
+    ));
+
     let cross_aggregate_mediator = r"
         impl App {
             fn active_tab(&self) -> BrainTab {
@@ -652,6 +677,19 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
     ";
     assert!(!has_pure_direct_aggregate_forwarder(
         cross_aggregate_mediator
+    ));
+
+    let aliased_cross_aggregate_mediator = r"
+        impl App {
+            fn active_tab(&self) -> BrainTab {
+                let shell = &self.shell;
+                let brain: &BrainPanelState = ((&self.brain));
+                shell.active_brain_tab(&brain.skill_session_tab_ids())
+            }
+        }
+    ";
+    assert!(!has_pure_direct_aggregate_forwarder(
+        aliased_cross_aggregate_mediator
     ));
 }
 
@@ -852,33 +890,110 @@ fn has_pure_direct_aggregate_forwarder(source: &str) -> bool {
                 }
                 let body_tokens = code_tokens(&source[body_open + 1..body_close]);
                 let statements = top_level_statements(&body_tokens);
-                let [expression] = statements.as_slice() else {
+                let Some((expression, preceding)) = statements.split_last() else {
                     return false;
                 };
-                let mut start = usize::from(expression.first() == Some(&"return"));
-                while matches!(expression.get(start), Some(&"(")) {
-                    start += 1;
+                let mut aliases = Vec::new();
+                let mut method_taint = 0_u16;
+                for statement in preceding {
+                    let Some((alias, taint)) =
+                        aggregate_tainted_alias_from_let(statement, APP_OWNERS, &aliases)
+                    else {
+                        return false;
+                    };
+                    method_taint |= taint;
+                    aliases.push((alias, taint));
                 }
-                if expression.get(start) != Some(&"self")
-                    || expression.get(start + 1) != Some(&".")
-                    || !expression
-                        .get(start + 2)
-                        .is_some_and(|field| GUARDED_OWNERS.contains(field))
-                {
+                if !simple_aggregate_forward_expression(expression, APP_OWNERS, &aliases) {
                     return false;
                 }
-                let aggregates = expression
-                    .windows(3)
-                    .filter_map(|window| {
-                        (window[0] == "self" && window[1] == "." && APP_OWNERS.contains(&window[2]))
-                            .then_some(window[2])
+                let expression_taint = aggregate_owner_taint(expression, APP_OWNERS, &aliases);
+                method_taint |= expression_taint;
+                expression_taint != 0
+                    && method_taint.is_power_of_two()
+                    && GUARDED_OWNERS.iter().any(|owner| {
+                        APP_OWNERS
+                            .iter()
+                            .position(|field| field == owner)
+                            .and_then(owner_bit)
+                            == Some(method_taint)
                     })
-                    .collect::<Vec<_>>();
-                aggregates
-                    .first()
-                    .is_some_and(|first| aggregates.iter().all(|field| field == first))
             })
     })
+}
+
+fn aggregate_tainted_alias_from_let<'a>(
+    statement: &[&'a str],
+    owners: &[&str],
+    aliases: &[(&str, u16)],
+) -> Option<(&'a str, u16)> {
+    if statement.first() != Some(&"let") {
+        return None;
+    }
+    let mut alias_index = 1;
+    if statement.get(alias_index) == Some(&"mut") {
+        alias_index += 1;
+    }
+    let alias = *statement.get(alias_index)?;
+    if !is_identifier(alias) {
+        return None;
+    }
+    let equals = statement.iter().position(|token| *token == "=")?;
+    let expression = &statement[equals + 1..];
+    if !simple_aggregate_forward_expression(expression, owners, aliases) {
+        return None;
+    }
+    Some((alias, aggregate_owner_taint(expression, owners, aliases)))
+}
+
+fn simple_aggregate_forward_expression(
+    tokens: &[&str],
+    owners: &[&str],
+    aliases: &[(&str, u16)],
+) -> bool {
+    let mut start = usize::from(tokens.first() == Some(&"return"));
+    while matches!(tokens.get(start), Some(&"(" | &"&" | &"mut")) {
+        start += 1;
+    }
+    let rooted_in_owner = (tokens.get(start) == Some(&"self")
+        && tokens.get(start + 1) == Some(&".")
+        && tokens
+            .get(start + 2)
+            .is_some_and(|owner| owners.contains(owner)))
+        || tokens
+            .get(start)
+            .is_some_and(|candidate| aliases.iter().any(|(alias, _)| alias == candidate));
+    rooted_in_owner
+        && tokens.iter().all(|token| {
+            is_identifier(token)
+                || token.chars().all(|character| character.is_ascii_digit())
+                || matches!(*token, "." | "(" | ")" | "," | "&")
+        })
+}
+
+fn aggregate_owner_taint(tokens: &[&str], owners: &[&str], aliases: &[(&str, u16)]) -> u16 {
+    let direct = tokens.windows(3).fold(0_u16, |taint, window| {
+        if window[0] != "self" || window[1] != "." {
+            return taint;
+        }
+        owners
+            .iter()
+            .position(|owner| *owner == window[2])
+            .and_then(owner_bit)
+            .map_or(taint, |owner| taint | owner)
+    });
+    tokens.iter().fold(direct, |taint, token| {
+        aliases
+            .iter()
+            .find(|(alias, _)| alias == token)
+            .map_or(taint, |(_, owner)| taint | owner)
+    })
+}
+
+fn owner_bit(index: usize) -> Option<u16> {
+    u32::try_from(index)
+        .ok()
+        .and_then(|shift| 1_u16.checked_shl(shift))
 }
 
 fn representation_like_return(source: &str, returned: &str) -> bool {

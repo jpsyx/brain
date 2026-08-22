@@ -2,6 +2,84 @@ use super::*;
 
 use crate::skill_session::SkillSessionKey;
 
+#[derive(Default)]
+struct ExhaustedLaunchObservation {
+    token: Option<String>,
+    shutdowns: usize,
+}
+
+#[derive(Clone)]
+struct CompletionSignalLaunchProbe {
+    workspace: Arc<WorkspaceContext>,
+    observation: Arc<Mutex<ExhaustedLaunchObservation>>,
+}
+
+impl CompletionSignalLaunchProbe {
+    fn new(app: &App) -> Self {
+        Self {
+            workspace: Arc::clone(&app.context.command().workspace),
+            observation: Arc::new(Mutex::new(ExhaustedLaunchObservation::default())),
+        }
+    }
+
+    fn transport(&self) -> Box<dyn AgentTransport> {
+        Box::new(self.clone())
+    }
+
+    fn token(&self) -> String {
+        self.observation
+            .lock()
+            .expect("exhausted launch observation")
+            .token
+            .clone()
+            .expect("skill-session completion token")
+    }
+
+    fn shutdowns(&self) -> usize {
+        self.observation
+            .lock()
+            .expect("exhausted launch observation")
+            .shutdowns
+    }
+}
+
+impl AgentTransport for CompletionSignalLaunchProbe {
+    fn spawn(&mut self, spec: &LaunchSpec) -> Result<(), AgentError> {
+        let token = spec
+            .environment
+            .iter()
+            .find(|(name, _)| name == crate::skill_session::prompt::TOKEN_ENV)
+            .map(|(_, value)| value.clone())
+            .ok_or_else(|| AgentError::Transport("missing completion token".to_owned()))?;
+        crate::skill_session::signal::record_done(&self.workspace, &token, &[])
+            .map_err(|error| AgentError::Transport(error.to_string()))?;
+        self.observation
+            .lock()
+            .expect("exhausted launch observation")
+            .token = Some(token);
+        Ok(())
+    }
+
+    fn send(&mut self, _input: InputSequence) -> Result<(), AgentError> {
+        Ok(())
+    }
+
+    fn snapshot(&self) -> String {
+        String::new()
+    }
+
+    fn is_alive(&self) -> bool {
+        true
+    }
+
+    fn shutdown(&mut self) {
+        self.observation
+            .lock()
+            .expect("exhausted launch observation")
+            .shutdowns += 1;
+    }
+}
+
 #[test]
 fn local_workspace_urls_use_the_ingress_accepted_at_registration() {
     let cli = Cli::parse_from(["tasks"]);
@@ -121,6 +199,42 @@ fn opencode_triage_completion_cleans_up_the_ephemeral_transport_and_signal_once(
     assert_eq!(app.shell.focus(), Panel::Tasks);
     assert_eq!(recording.shutdowns(), 1);
     assert!(crate::skill_session::signal::read_signal(app.context.workspace(), &token).is_none());
+}
+
+#[test]
+fn exhausted_skill_tab_ids_leave_the_current_tab_and_clean_up_the_rejected_launch() {
+    let cli = Cli::parse_from(["tasks"]);
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let (watched_controller, _) = recording_controller(&app, true, "watched tab");
+    let watched = app.insert_test_skill_session(
+        SkillSessionKey::Custom(0),
+        "Watched session",
+        "watched-token",
+        watched_controller,
+    );
+    let tabs_before = app.brain.skill_session_tab_ids();
+    crate::tui::state::exhaust_skill_session_tab_ids(&mut app.brain);
+    let launch = CompletionSignalLaunchProbe::new(&app);
+    app.brain
+        .replace_session_done_url("http://127.0.0.1:4773/session/done".to_owned());
+    app.brain.replace_session_transport(launch.transport());
+
+    app.open_triage_tab();
+
+    let token = launch.token();
+    assert_eq!(app.brain.skill_session_tab_ids(), tabs_before);
+    assert!(!app.brain.has_skill_session(SkillSessionKey::DailyTriage));
+    assert_eq!(app.effective_brain_tab(), BrainTab::Session(watched));
+    assert_eq!(launch.shutdowns(), 1);
+    assert!(crate::skill_session::signal::read_signal(app.context.workspace(), &token).is_none());
+    let Some(crate::tui::FlashKind::Error(message)) = app.status.flash() else {
+        panic!("tab allocation exhaustion must be reported as an error flash");
+    };
+    assert_eq!(
+        message,
+        "Daily triage could not open: skill-session tab identity exhausted"
+    );
 }
 
 #[test]

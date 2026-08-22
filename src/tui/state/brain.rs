@@ -5,6 +5,9 @@ use crate::agent::{AgentController, AgentError};
 use crate::skill_session::SkillSessionKey;
 use crate::tui::{BrainTab, SessionTabId};
 
+#[cfg(test)]
+pub(super) mod exhausted_tab_ids;
+
 pub(crate) struct BrainPanelStateInit {
     pub(crate) instance: String,
     pub(crate) interactive_actor: ActorContext,
