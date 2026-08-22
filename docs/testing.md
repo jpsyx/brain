@@ -584,13 +584,20 @@ first move is a failing test that reproduces it, *then* the fix.
   snapshots. `tests/tui_receiver_queue_architecture.rs` walks every Rust file
   under `src/tui/` and rejects any persistent type, type alias, `const`, or
   `static` item that owns raw `InboundJob` storage outside
-  `tui/receiver/queue.rs`. This structural rule is independent of collection,
-  field, imported or type-alias name, and mutation vocabulary. Its tokenizer
-  distinguishes lifetimes from character literals and skips ordinary and raw
-  string contents without hiding following items. It permits local transient
-  job values, use of the opaque `InboundQueue` API, and the explicitly typed
-  one-shot payload shapes only in the real
-  `tui/receiver/effect.rs::ReceiverEffect` definition. Socket characterization
+  `tui/receiver/queue.rs`. A dev-only `syn` AST walk covers full struct, enum,
+  and union syntax, module/associated/free/foreign const and static types and
+  initializers, and resolved direct, grouped, self-import, qualified, and
+  chained type aliases. This structural rule is independent of collection,
+  field, alias, and mutation vocabulary. Opaque item macros and unsupported
+  attribute macros on persistent items are rejected. Fixtures include nested
+  comments, Unicode identifiers and lifetimes, where-clause function types,
+  const-generic braces, generic defaults, ordinary/raw/byte/C literals, and
+  macro-generated storage. The guard permits local transient job values, use
+  of the opaque `InboundQueue` API, and the explicitly typed one-shot payload
+  shapes only in the top-level item at the exact
+  `src/tui/receiver/effect.rs` path. `syn` does not perform procedural
+  expansion, and declared types cannot reveal type-erased runtime contents;
+  these remain manual branch-review limits. Socket characterization
   separately proves the
   prepared/commit/stage/accepted/finalize transaction and failed-final-ack
   rollback.
@@ -784,7 +791,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
-| `tests/tui_receiver_queue_architecture.rs` + `tests/tui_receiver_queue_architecture/` | Queue ownership seam: no persistent type, type alias, `const`, or `static` item outside `receiver/queue.rs` may own raw `InboundJob` storage. Tokenized positive and negative self-fixtures vary direct fields, collections, field and imported/type-alias names, mutation vocabulary, qualified generic types, whitespace, lifetimes, character/ordinary/raw-string literals, comments, transient `let` values, and calls through the opaque owned queue API. The only persistent exception is the exact typed one-shot payload shape in the real `receiver/effect.rs::ReceiverEffect` definition. |
+| `tests/tui_receiver_queue_architecture.rs` + `tests/tui_receiver_queue_architecture/` | Queue ownership seam: a dev-only `syn` AST walk rejects source-declared persistent item types and initializers that mention raw `InboundJob` or a resolved import/type alias outside `receiver/queue.rs`. Full declaration, alias, literal, comment, Unicode, macro, attribute, transient-`let`, and semantic queue-API fixtures pin the boundary without collection, field, or mutator vocabulary. Opaque item macros and unsupported attribute macros are rejected. The only persistent exception is the exact named one-shot payload shape in the top-level `ReceiverEffect` item at the exact real source path; procedural expansion and type-erased runtime contents remain manual-review limits. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

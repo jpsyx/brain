@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "brain"
-version = "0.71.34"
+version = "0.71.35"
 dependencies = [
  "anyhow",
  "base64",
@@ -160,6 +160,7 @@ dependencies = [
  "sha1",
  "sha2",
  "signal-hook",
+ "syn",
  "tempfile",
  "tui-term",
  "uuid",

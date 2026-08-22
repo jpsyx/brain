@@ -1,0 +1,83 @@
+use std::collections::HashSet;
+
+use syn::visit::{self, Visit};
+use syn::{Expr, Field, Generics, ItemType, Type, Variant};
+
+use super::is_cfg_test;
+
+pub(super) struct MentionVisitor<'aliases> {
+    aliases: &'aliases HashSet<String>,
+    found: bool,
+}
+
+impl<'aliases> MentionVisitor<'aliases> {
+    pub(super) fn new(aliases: &'aliases HashSet<String>) -> Self {
+        Self {
+            aliases,
+            found: false,
+        }
+    }
+
+    pub(super) fn found(&self) -> bool {
+        self.found
+    }
+
+    fn inspect_path(&mut self, path: &syn::Path) {
+        self.found |= path
+            .segments
+            .iter()
+            .any(|segment| self.aliases.contains(&segment.ident.to_string()));
+    }
+}
+
+impl<'ast> Visit<'ast> for MentionVisitor<'_> {
+    fn visit_expr_path(&mut self, item: &'ast syn::ExprPath) {
+        self.inspect_path(&item.path);
+        if !self.found {
+            visit::visit_expr_path(self, item);
+        }
+    }
+
+    fn visit_field(&mut self, field: &'ast Field) {
+        if !is_cfg_test(&field.attrs) {
+            visit::visit_field(self, field);
+        }
+    }
+
+    fn visit_type_path(&mut self, item: &'ast syn::TypePath) {
+        self.inspect_path(&item.path);
+        if !self.found {
+            visit::visit_type_path(self, item);
+        }
+    }
+
+    fn visit_variant(&mut self, variant: &'ast Variant) {
+        if !is_cfg_test(&variant.attrs) {
+            visit::visit_variant(self, variant);
+        }
+    }
+}
+
+pub(super) fn item_type_mentions_alias(item: &ItemType, aliases: &HashSet<String>) -> bool {
+    let mut visitor = MentionVisitor::new(aliases);
+    visitor.visit_item_type(item);
+    visitor.found()
+}
+
+pub(super) fn mentions_generics(generics: &Generics, aliases: &HashSet<String>) -> bool {
+    let mut visitor = MentionVisitor::new(aliases);
+    visitor.visit_generics(generics);
+    visitor.found()
+}
+
+pub(super) fn mentions_expr(expression: &Expr, aliases: &HashSet<String>) -> bool {
+    let mut visitor = MentionVisitor::new(aliases);
+    visitor.visit_expr(expression);
+    visitor.found()
+}
+
+pub(super) fn mentions_type(ty: &Type, aliases: &HashSet<String>) -> bool {
+    let mut visitor = MentionVisitor::new(aliases);
+    visitor.visit_type(ty);
+    visitor.found()
+}

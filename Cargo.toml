@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.71.34"
+version = "0.71.35"
 edition = "2024"
 rust-version = "1.85"
 description = "Multi-workspace terminal dispatch for notes, tasks, sync, and agent sessions."
@@ -72,6 +72,9 @@ vt100 = "0.15"
 walkdir = "2"
 
 [dev-dependencies]
+# Full Rust AST traversal keeps architecture guards structural without adding
+# parser code or a parser dependency to the shipped binary.
+syn = { version = "2", features = ["full", "visit"] }
 tempfile = "3"
 
 [lints.rust]

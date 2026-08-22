@@ -2420,12 +2420,24 @@ silently changing FIFO semantics. Tests receive only an owned read-only
 snapshot.
 
 The architecture guard enforces the ownership boundary structurally: outside
-`receiver/queue.rs`, no persistent TUI type or type alias may own raw
-`InboundJob` storage, regardless of field, collection, alias, or mutator names.
-The token scan distinguishes Rust lifetimes from character literals. Local
-transient values and the exact typed one-shot payload shapes in the real
-`receiver/effect.rs::ReceiverEffect` definition remain valid; neither creates
-a second queue owner. A same-named type elsewhere receives no exception.
+`receiver/queue.rs`, no source-declared persistent TUI item type, initializer,
+or resolved import/type alias may mention `InboundJob`. A dev-only `syn` AST
+walk covers complete struct, enum, and union declarations plus module,
+associated, free, and foreign const/static forms. It does not depend on field,
+collection, alias, or mutation names. Opaque item macros and non-builtin
+attributes on persistent items are rejected because either could generate
+storage outside that declared AST surface. Local transient values and calls
+through the semantic `InboundQueue` API remain valid.
+
+The sole exception is the top-level `ReceiverEffect` item at the exact
+manifest-relative `src/tui/receiver/effect.rs` path, and only its named direct
+one-shot payload shapes. A nested or same-named item, suffix-matching path,
+collection, tuple, or different payload variant receives no exception. `syn`
+parses source but does not perform procedural expansion, and a type-erased
+runtime value does not expose its concrete contents in a declared item type.
+Those two cases remain explicit manual-review limitations. Blocking opaque
+item macros and unsupported attribute macros prevents them from silently
+bypassing the source-declared ownership surface.
 
 If the TUI stages after `commit` but cannot write its final `accepted`
 acknowledgment, an opaque admission token bound to its issuing queue identity

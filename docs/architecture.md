@@ -1765,6 +1765,12 @@ sibling so the two projects share a stack:
   `reply/plain_text/` pass, which is intentionally not a parser — see
   `docs/decisions.md`.
 
+Architecture tests depend directly on `syn` with its `full` and `visit`
+features. The receiver-queue ownership guard needs a complete Rust syntax tree
+for persistent item declarations, aliases, attributes, and item macros. `syn`
+is a dev dependency only, so this parser contract adds nothing to the shipped
+binary.
+
 `brain sync` also depends on **`rclone`**, but as an external command it
 shells out to (`src/sync/run.rs`), not a Cargo crate: brain builds the argv
 and an env-var-only remote config and lets the user's own `rclone` install do
