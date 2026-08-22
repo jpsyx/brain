@@ -1,6 +1,6 @@
 //! Cross-boundary work requested by receiver-local decisions.
 
-use crate::server::receiver::{Channel, InboundJob, RestartPlan};
+use crate::server::receiver::Channel;
 
 use super::runtime::{DeliveryTarget, ReceiverProbe, RemoteCompletionTarget};
 
@@ -30,16 +30,26 @@ pub(crate) enum ReceiverEffectOutcome {
 
 pub(crate) enum ReceiverEffect {
     PollRemoteCompletion(RemoteCompletionTarget),
-    PollInteractiveCompletion { response_id: String },
+    PollInteractiveCompletion {
+        response_id: String,
+    },
     DeliverProcessingDelay(DeliveryTarget),
-    SamplePanelActivity { sampled_at: std::time::Instant },
+    SamplePanelActivity {
+        sampled_at: std::time::Instant,
+    },
     LogActivityProbe(ReceiverProbe),
     AbandonTimedOutTurn,
-    ExpireWarmLease { channel: Channel },
+    ExpireWarmLease {
+        channel: Channel,
+    },
     PollInboundJobs,
-    ApplyRestart(Box<RestartPlan<InboundJob>>),
+    ApplyRestart(
+        std::boxed::Box<crate::server::receiver::RestartPlan<crate::server::receiver::InboundJob>>,
+    ),
     CheckSyncFreshness,
-    ApplyNewSession(Box<InboundJob>),
-    CloseIdlePanel { receiver_panel: bool },
-    Dispatch(Box<InboundJob>),
+    ApplyNewSession(std::boxed::Box<crate::server::receiver::InboundJob>),
+    CloseIdlePanel {
+        receiver_panel: bool,
+    },
+    Dispatch(std::boxed::Box<crate::server::receiver::InboundJob>),
 }

@@ -1766,10 +1766,11 @@ sibling so the two projects share a stack:
   `docs/decisions.md`.
 
 Architecture tests depend directly on `syn` with its `full` and `visit`
-features. The receiver-queue ownership guard needs a complete Rust syntax tree
-for persistent item declarations, aliases, attributes, and item macros. `syn`
-is a dev dependency only, so this parser contract adds nothing to the shipped
-binary.
+features and on `proc-macro2`. The receiver-queue ownership guard needs a
+complete Rust syntax tree for persistent item declarations, aliases,
+attributes, and item macros; its macro boundary also recursively inspects
+`proc-macro2` token trees for resolved job aliases. Both are dev dependencies,
+so this parser contract adds nothing to the shipped binary.
 
 `brain sync` also depends on **`rclone`**, but as an external command it
 shells out to (`src/sync/run.rs`), not a Cargo crate: brain builds the argv

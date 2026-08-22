@@ -1,21 +1,73 @@
 use std::collections::HashSet;
 
-use syn::{Item, UseTree};
+use syn::{ImplItem, Item, TraitItem, UseTree};
 
-use super::item_is_cfg_test;
-use super::visitors::item_type_mentions_alias;
+use super::cfg::{is_cfg_test, item_is_cfg_test};
+use super::visitors::{
+    impl_item_type_mentions_alias, item_type_mentions_alias, trait_item_type_mentions_alias,
+};
 
 pub(super) fn resolve_aliases(items: &[Item], inherited: &HashSet<String>) -> HashSet<String> {
+    let items = items.iter().collect::<Vec<_>>();
+    resolve_item_aliases(&items, inherited)
+}
+
+pub(super) fn resolve_item_aliases(
+    items: &[&Item],
+    inherited: &HashSet<String>,
+) -> HashSet<String> {
     let mut aliases = inherited.clone();
     loop {
         let before = aliases.len();
-        for item in items.iter().filter(|item| !item_is_cfg_test(item)) {
+        for item in items.iter().copied().filter(|item| !item_is_cfg_test(item)) {
             match item {
                 Item::Type(item) if item_type_mentions_alias(item, &aliases) => {
                     aliases.insert(item.ident.to_string());
                 }
                 Item::Use(item) => collect_import_aliases(&item.tree, &[], &mut aliases),
                 _ => {}
+            }
+        }
+        if aliases.len() == before {
+            return aliases;
+        }
+    }
+}
+
+pub(super) fn resolve_impl_aliases(
+    items: &[ImplItem],
+    inherited: &HashSet<String>,
+) -> HashSet<String> {
+    let mut aliases = inherited.clone();
+    loop {
+        let before = aliases.len();
+        for item in items {
+            if let ImplItem::Type(item) = item
+                && !is_cfg_test(&item.attrs)
+                && impl_item_type_mentions_alias(item, &aliases)
+            {
+                aliases.insert(item.ident.to_string());
+            }
+        }
+        if aliases.len() == before {
+            return aliases;
+        }
+    }
+}
+
+pub(super) fn resolve_trait_aliases(
+    items: &[TraitItem],
+    inherited: &HashSet<String>,
+) -> HashSet<String> {
+    let mut aliases = inherited.clone();
+    loop {
+        let before = aliases.len();
+        for item in items {
+            if let TraitItem::Type(item) = item
+                && !is_cfg_test(&item.attrs)
+                && trait_item_type_mentions_alias(item, &aliases)
+            {
+                aliases.insert(item.ident.to_string());
             }
         }
         if aliases.len() == before {

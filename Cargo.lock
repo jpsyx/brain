@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "brain"
-version = "0.71.35"
+version = "0.71.36"
 dependencies = [
  "anyhow",
  "base64",
@@ -151,6 +151,7 @@ dependencies = [
  "notify",
  "nucleo-matcher",
  "portable-pty",
+ "proc-macro2",
  "pulldown-cmark",
  "ratatui",
  "regex",

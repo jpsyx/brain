@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
 use syn::visit::{self, Visit};
-use syn::{Expr, Field, Generics, ItemType, Type, Variant};
+use syn::{Expr, Field, Generics, ImplItemType, ItemType, TraitItemType, Type, Variant};
 
-use super::is_cfg_test;
+use super::cfg::is_cfg_test;
+use super::macros::tokens_mention_alias;
 
 pub(super) struct MentionVisitor<'aliases> {
     aliases: &'aliases HashSet<String>,
@@ -44,6 +45,10 @@ impl<'ast> Visit<'ast> for MentionVisitor<'_> {
         }
     }
 
+    fn visit_macro(&mut self, item: &'ast syn::Macro) {
+        self.found |= tokens_mention_alias(&item.tokens, self.aliases);
+    }
+
     fn visit_type_path(&mut self, item: &'ast syn::TypePath) {
         self.inspect_path(&item.path);
         if !self.found {
@@ -61,6 +66,24 @@ impl<'ast> Visit<'ast> for MentionVisitor<'_> {
 pub(super) fn item_type_mentions_alias(item: &ItemType, aliases: &HashSet<String>) -> bool {
     let mut visitor = MentionVisitor::new(aliases);
     visitor.visit_item_type(item);
+    visitor.found()
+}
+
+pub(super) fn impl_item_type_mentions_alias(
+    item: &ImplItemType,
+    aliases: &HashSet<String>,
+) -> bool {
+    let mut visitor = MentionVisitor::new(aliases);
+    visitor.visit_impl_item_type(item);
+    visitor.found()
+}
+
+pub(super) fn trait_item_type_mentions_alias(
+    item: &TraitItemType,
+    aliases: &HashSet<String>,
+) -> bool {
+    let mut visitor = MentionVisitor::new(aliases);
+    visitor.visit_trait_item_type(item);
     visitor.found()
 }
 

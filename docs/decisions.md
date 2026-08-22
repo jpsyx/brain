@@ -2422,22 +2422,30 @@ snapshot.
 The architecture guard enforces the ownership boundary structurally: outside
 `receiver/queue.rs`, no source-declared persistent TUI item type, initializer,
 or resolved import/type alias may mention `InboundJob`. A dev-only `syn` AST
-walk covers complete struct, enum, and union declarations plus module,
-associated, free, and foreign const/static forms. It does not depend on field,
-collection, alias, or mutation names. Opaque item macros and non-builtin
-attributes on persistent items are rejected because either could generate
-storage outside that declared AST surface. Local transient values and calls
-through the semantic `InboundQueue` API remain valid.
+walk covers complete struct, enum, union, type-alias, const, and static items
+in module, associated, foreign, function-local, and arbitrarily nested block
+scopes. Import and type aliases resolve in their lexical item scope, including
+associated aliases. It does not depend on field, collection, alias, or mutation
+names. Item macros and all opaque `Verbatim` item forms fail closed. Statement
+macros remain valid only when recursive `proc-macro2` token-tree inspection
+finds no raw or resolved job alias. Non-builtin attributes on persistent items
+are rejected because they could generate storage outside the declared AST
+surface. Local transient values and calls through the semantic `InboundQueue`
+API remain valid. `cfg(test)`, `cfg(all(test, ...))`, and only other conditions
+that logically imply `test` are excluded; mixed production conditions are
+scanned conservatively.
 
 The sole exception is the top-level `ReceiverEffect` item at the exact
 manifest-relative `src/tui/receiver/effect.rs` path, and only its named direct
-one-shot payload shapes. A nested or same-named item, suffix-matching path,
-collection, tuple, or different payload variant receives no exception. `syn`
-parses source but does not perform procedural expansion, and a type-erased
-runtime value does not expose its concrete contents in a declared item type.
-Those two cases remain explicit manual-review limitations. Blocking opaque
-item macros and unsupported attribute macros prevents them from silently
-bypassing the source-declared ownership surface.
+one-shot payload shapes using canonical `std::boxed::Box` and
+`crate::server::receiver` paths. A generic, nested, or same-named item,
+suffix-matching path, shadowable import, collection, tuple, or different
+payload variant receives no exception. `syn` parses source but does not perform
+procedural expansion, and a type-erased runtime value does not expose its
+concrete contents in a declared item type. Those two cases remain explicit
+manual-review limitations. Blocking opaque item macros and unsupported
+attribute macros prevents them from silently bypassing the source-declared
+ownership surface.
 
 If the TUI stages after `commit` but cannot write its final `accepted`
 acknowledgment, an opaque admission token bound to its issuing queue identity

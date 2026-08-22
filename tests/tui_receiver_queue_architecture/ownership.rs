@@ -2,22 +2,25 @@
 mod aliases;
 #[path = "ownership/attributes.rs"]
 mod attributes;
+#[path = "ownership/cfg.rs"]
+mod cfg;
+#[path = "ownership/macros.rs"]
+mod macros;
+#[path = "ownership/persistent.rs"]
+mod persistent;
 #[path = "ownership/receiver_effect.rs"]
 mod receiver_effect;
+#[path = "ownership/scopes.rs"]
+mod scopes;
 #[path = "ownership/visitors.rs"]
 mod visitors;
 
 use std::collections::HashSet;
 use std::path::{Component, Path};
 
-use aliases::resolve_aliases;
 use attributes::AttributeAudit;
+use persistent::PersistentItem;
 use receiver_effect::receiver_effect_payloads_are_one_shot;
-use syn::visit::Visit;
-use syn::{
-    Attribute, ForeignItem, ForeignItemStatic, ImplItem, ImplItemConst, Item, ItemConst, ItemEnum,
-    ItemStatic, ItemStruct, ItemType, ItemUnion, TraitItem, TraitItemConst,
-};
 use visitors::MentionVisitor;
 
 const EFFECT_PATH: &str = "src/tui/receiver/effect.rs";
@@ -51,96 +54,6 @@ struct OwnershipGuard {
 }
 
 impl OwnershipGuard {
-    fn inspect_scope(
-        &mut self,
-        items: &[Item],
-        inherited_aliases: &HashSet<String>,
-        top_level: bool,
-    ) {
-        let aliases = resolve_aliases(items, inherited_aliases);
-        for item in items.iter().filter(|item| !item_is_cfg_test(item)) {
-            match item {
-                Item::Const(item) => {
-                    self.inspect_persistent(PersistentItem::Const(item), &aliases, top_level);
-                }
-                Item::Enum(item) => {
-                    self.inspect_persistent(PersistentItem::Enum(item), &aliases, top_level);
-                }
-                Item::ForeignMod(item) => self.inspect_foreign_items(item, &aliases),
-                Item::Impl(item) => {
-                    for impl_item in &item.items {
-                        if let ImplItem::Const(item) = impl_item
-                            && !is_cfg_test(&item.attrs)
-                        {
-                            self.inspect_persistent(
-                                PersistentItem::ImplConst(item),
-                                &aliases,
-                                false,
-                            );
-                        }
-                    }
-                }
-                Item::Macro(item) => {
-                    self.violations.push(format!(
-                        "opaque module-level item macro {} can generate persistent storage",
-                        path_name(&item.mac.path)
-                    ));
-                }
-                Item::Mod(item) => {
-                    if let Some((_, nested)) = &item.content {
-                        self.inspect_scope(nested, &aliases, false);
-                    }
-                }
-                Item::Static(item) => {
-                    self.inspect_persistent(PersistentItem::Static(item), &aliases, top_level);
-                }
-                Item::Struct(item) => {
-                    self.inspect_persistent(PersistentItem::Struct(item), &aliases, top_level);
-                }
-                Item::Trait(item) => {
-                    for trait_item in &item.items {
-                        if let TraitItem::Const(item) = trait_item
-                            && !is_cfg_test(&item.attrs)
-                        {
-                            self.inspect_persistent(
-                                PersistentItem::TraitConst(item),
-                                &aliases,
-                                false,
-                            );
-                        }
-                    }
-                }
-                Item::Type(item) => {
-                    self.inspect_persistent(PersistentItem::Type(item), &aliases, top_level);
-                }
-                Item::Union(item) => {
-                    self.inspect_persistent(PersistentItem::Union(item), &aliases, top_level);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn inspect_foreign_items(&mut self, item: &syn::ItemForeignMod, aliases: &HashSet<String>) {
-        for foreign in &item.items {
-            match foreign {
-                ForeignItem::Static(item) if !is_cfg_test(&item.attrs) => {
-                    self.inspect_persistent(PersistentItem::ForeignStatic(item), aliases, false);
-                }
-                ForeignItem::Macro(item) if !is_cfg_test(&item.attrs) => {
-                    self.violations.push(format!(
-                        "opaque foreign item macro {} can generate persistent storage",
-                        path_name(&item.mac.path)
-                    ));
-                }
-                ForeignItem::Verbatim(_) => self
-                    .violations
-                    .push("opaque foreign item syntax can declare persistent storage".to_owned()),
-                _ => {}
-            }
-        }
-    }
-
     fn inspect_persistent(
         &mut self,
         item: PersistentItem<'_>,
@@ -176,94 +89,9 @@ impl OwnershipGuard {
                 item.name()
             ));
         }
+
+        self.inspect_nested_persistent_syntax(item, aliases);
     }
-}
-
-#[derive(Clone, Copy)]
-enum PersistentItem<'ast> {
-    Const(&'ast ItemConst),
-    Enum(&'ast ItemEnum),
-    ForeignStatic(&'ast ForeignItemStatic),
-    ImplConst(&'ast ImplItemConst),
-    Static(&'ast ItemStatic),
-    Struct(&'ast ItemStruct),
-    TraitConst(&'ast TraitItemConst),
-    Type(&'ast ItemType),
-    Union(&'ast ItemUnion),
-}
-
-impl<'ast> PersistentItem<'ast> {
-    fn visit<V: Visit<'ast>>(self, visitor: &mut V) {
-        match self {
-            Self::Const(item) => visitor.visit_item_const(item),
-            Self::Enum(item) => visitor.visit_item_enum(item),
-            Self::ForeignStatic(item) => visitor.visit_foreign_item_static(item),
-            Self::ImplConst(item) => visitor.visit_impl_item_const(item),
-            Self::Static(item) => visitor.visit_item_static(item),
-            Self::Struct(item) => visitor.visit_item_struct(item),
-            Self::TraitConst(item) => visitor.visit_trait_item_const(item),
-            Self::Type(item) => visitor.visit_item_type(item),
-            Self::Union(item) => visitor.visit_item_union(item),
-        }
-    }
-
-    fn kind(self) -> &'static str {
-        match self {
-            Self::Const(_) | Self::ImplConst(_) | Self::TraitConst(_) => "const",
-            Self::Enum(_) => "enum",
-            Self::ForeignStatic(_) | Self::Static(_) => "static",
-            Self::Struct(_) => "struct",
-            Self::Type(_) => "type alias",
-            Self::Union(_) => "union",
-        }
-    }
-
-    fn name(self) -> String {
-        match self {
-            Self::Const(item) => item.ident.to_string(),
-            Self::Enum(item) => item.ident.to_string(),
-            Self::ForeignStatic(item) => item.ident.to_string(),
-            Self::ImplConst(item) => item.ident.to_string(),
-            Self::Static(item) => item.ident.to_string(),
-            Self::Struct(item) => item.ident.to_string(),
-            Self::TraitConst(item) => item.ident.to_string(),
-            Self::Type(item) => item.ident.to_string(),
-            Self::Union(item) => item.ident.to_string(),
-        }
-    }
-}
-
-pub(super) fn item_is_cfg_test(item: &Item) -> bool {
-    match item {
-        Item::Const(item) => is_cfg_test(&item.attrs),
-        Item::Enum(item) => is_cfg_test(&item.attrs),
-        Item::ExternCrate(item) => is_cfg_test(&item.attrs),
-        Item::Fn(item) => is_cfg_test(&item.attrs),
-        Item::ForeignMod(item) => is_cfg_test(&item.attrs),
-        Item::Impl(item) => is_cfg_test(&item.attrs),
-        Item::Macro(item) => is_cfg_test(&item.attrs),
-        Item::Mod(item) => is_cfg_test(&item.attrs),
-        Item::Static(item) => is_cfg_test(&item.attrs),
-        Item::Struct(item) => is_cfg_test(&item.attrs),
-        Item::Trait(item) => is_cfg_test(&item.attrs),
-        Item::TraitAlias(item) => is_cfg_test(&item.attrs),
-        Item::Type(item) => is_cfg_test(&item.attrs),
-        Item::Union(item) => is_cfg_test(&item.attrs),
-        Item::Use(item) => is_cfg_test(&item.attrs),
-        _ => false,
-    }
-}
-
-pub(super) fn is_cfg_test(attributes: &[Attribute]) -> bool {
-    attributes.iter().any(|attribute| {
-        let syn::Meta::List(meta) = &attribute.meta else {
-            return false;
-        };
-        meta.path.is_ident("cfg")
-            && syn::parse2::<syn::Meta>(meta.tokens.clone()).is_ok_and(
-                |nested| matches!(nested, syn::Meta::Path(path) if path.is_ident("test")),
-            )
-    })
 }
 
 fn is_test_source(path: &Path) -> bool {

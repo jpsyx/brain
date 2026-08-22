@@ -2,6 +2,8 @@ use std::path::Path;
 
 #[path = "tui_receiver_queue_architecture/ownership.rs"]
 mod ownership;
+#[path = "tui_receiver_queue_architecture/scope_tests.rs"]
+mod scope_tests;
 
 use ownership::{queue_boundary_violations, queue_boundary_violations_at};
 
@@ -144,9 +146,9 @@ fn queue_guard_ignores_comments_literals_and_owned_api_calls() {
 fn queue_guard_allows_only_typed_one_shot_receiver_effect_payloads() {
     let source = r"
         enum ReceiverEffect {
-            ApplyRestart(Box<RestartPlan<InboundJob>>),
-            ApplyNewSession(Box<InboundJob>),
-            Dispatch(Box<InboundJob>),
+            ApplyRestart(std::boxed::Box<crate::server::receiver::RestartPlan<crate::server::receiver::InboundJob>>),
+            ApplyNewSession(std::boxed::Box<crate::server::receiver::InboundJob>),
+            Dispatch(std::boxed::Box<crate::server::receiver::InboundJob>),
         }
     ";
 

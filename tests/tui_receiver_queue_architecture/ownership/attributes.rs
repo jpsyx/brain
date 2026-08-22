@@ -1,7 +1,8 @@
 use syn::visit::{self, Visit};
 use syn::{Attribute, Field, Variant};
 
-use super::{is_cfg_test, path_name};
+use super::cfg::{cfg_condition_implies_test, is_cfg_test, parse_conditions};
+use super::path_name;
 
 #[derive(Default)]
 pub(super) struct AttributeAudit {
@@ -48,12 +49,16 @@ fn unsupported_attribute_meta(meta: &syn::Meta) -> Option<String> {
         let syn::Meta::List(list) = meta else {
             return Some(name);
         };
-        let Ok(nested) = list.parse_args_with(
-            syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
-        ) else {
+        let Some(nested) = parse_conditions(list) else {
             return Some(name);
         };
-        return nested.iter().skip(1).find_map(unsupported_attribute_meta);
+        let Some((condition, attributes)) = nested.split_first() else {
+            return Some(name);
+        };
+        if cfg_condition_implies_test(condition) {
+            return None;
+        }
+        return attributes.iter().find_map(unsupported_attribute_meta);
     }
     if matches!(
         name.as_str(),
