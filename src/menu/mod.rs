@@ -3,7 +3,7 @@
 //! It is **not** a standalone screen. The picker / two-panel TUI opens it
 //! with `Ctrl-p` and renders it as a modal overlay (`draw_modal`) on top of
 //! the current search. The shell drives the shared
-//! [`crate::tui::CommandPalette`] state with feature-owned [`SearchAction`]
+//! [`crate::tui::palette::CommandPalette`] state with feature-owned [`SearchAction`]
 //! values. Esc closes the overlay; Enter confirms an action the host runs.
 //!
 //! The palette doubles as a text input: typing filters the rows. Each row's

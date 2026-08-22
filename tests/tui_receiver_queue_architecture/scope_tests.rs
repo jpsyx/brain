@@ -195,3 +195,72 @@ fn cfg_implication_ignores_only_test_only_items_and_attributes() {
             .all(|source| !queue_boundary_violations(source).is_empty())
     );
 }
+
+#[test]
+fn queue_guard_canonicalizes_raw_identifiers_at_every_alias_boundary() {
+    let fixtures = [
+        (
+            "raw direct job path",
+            "struct Runtime { current: r#InboundJob }",
+        ),
+        (
+            "raw type alias identity",
+            "type r#WorkItem = r#InboundJob; struct Runtime { current: r#WorkItem }",
+        ),
+        (
+            "raw direct import alias",
+            "use crate::server::receiver::r#InboundJob as r#WorkItem; struct Runtime { current: r#WorkItem }",
+        ),
+        (
+            "raw grouped import alias",
+            "use crate::server::receiver::{r#InboundJob as r#WorkItem}; struct Runtime { current: r#WorkItem }",
+        ),
+        (
+            "raw macro token",
+            "static JOB: Erased = store!(r#InboundJob);",
+        ),
+    ];
+
+    assert_rejected_fixtures(&fixtures, "raw identifier aliases");
+
+    let effect = r"
+        enum r#ReceiverEffect {
+            r#Dispatch(std::boxed::Box<crate::server::receiver::r#InboundJob>),
+        }
+    ";
+    assert!(
+        queue_boundary_violations_at(Path::new("src/tui/receiver/effect.rs"), effect).is_empty(),
+        "raw spellings must preserve the exact one-shot receiver-effect exception"
+    );
+}
+
+#[test]
+fn visible_renamed_job_reexports_are_rejected_at_the_declaring_module() {
+    let api = "pub(crate) use crate::server::receiver::InboundJob as WorkItem;";
+    let owner = "use crate::api::WorkItem; struct Runtime { current: WorkItem }";
+
+    assert!(
+        !queue_boundary_violations_at(Path::new("src/tui/api.rs"), api).is_empty(),
+        "the public alias declaration must violate even though a sibling import cannot recover its origin"
+    );
+    assert!(
+        queue_boundary_violations_at(Path::new("src/tui/owner.rs"), owner).is_empty(),
+        "the enforceable invariant belongs to the visible re-export declaration"
+    );
+
+    for visibility in ["pub", "pub(crate)", "pub(super)", "pub(in crate::tui)"] {
+        let source =
+            format!("{visibility} use crate::server::receiver::r#InboundJob as r#WorkItem;");
+        assert!(
+            !queue_boundary_violations_at(Path::new("src/tui/api.rs"), &source).is_empty(),
+            "{visibility} raw rename must be rejected"
+        );
+    }
+
+    let private =
+        "use crate::server::receiver::InboundJob as WorkItem; struct Runtime { current: WorkItem }";
+    assert!(
+        !queue_boundary_violations_at(Path::new("src/tui/private.rs"), private).is_empty(),
+        "private same-scope aliases remain resolved through their persistent use"
+    );
+}

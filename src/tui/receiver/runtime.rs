@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use crate::actor::ActorContext;
 use crate::server::receiver::{Channel, EmailReplyContext, InboundJob};
 
-use super::InboundQueue;
+use super::{InboundQueue, policy};
 
 #[cfg(test)]
 use super::StageError;
@@ -231,7 +231,7 @@ impl ReceiverRuntime {
         self.generation = self.generation.saturating_add(1);
         self.started = Some(dispatched_at);
         self.delay_sent = false;
-        self.probe = crate::tui::receiver_state::next_probe(0, dispatched_at).map(|due| (due, 0));
+        self.probe = policy::next_probe(0, dispatched_at).map(|due| (due, 0));
         self.renew_lease(job.channel, dispatched_at);
         committed
     }

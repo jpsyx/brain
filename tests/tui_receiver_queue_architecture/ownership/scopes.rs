@@ -51,6 +51,7 @@ impl OwnershipGuard {
             Item::Type(item) => {
                 self.inspect_persistent(PersistentItem::Type(item), aliases, top_level);
             }
+            Item::Use(item) => self.inspect_visible_job_reexport(item, aliases),
             Item::Union(item) => {
                 self.inspect_persistent(PersistentItem::Union(item), aliases, top_level);
             }

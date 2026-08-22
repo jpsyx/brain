@@ -208,7 +208,10 @@ first move is a failing test that reproduces it, *then* the fix.
   guards prove shared task/search application rows wrap the same `GlobalAction`
   and preserve their exact shared or contextual label/shortcut metadata. Task
   palette tests also pin globally scoped habits and agenda rows to
-  `GlobalAction`, preventing them from bypassing the one global executor.
+  `GlobalAction`, preventing them from bypassing the one global executor. A
+  direct-shortcut architecture guard requires Close brain, Show tasks, Message
+  brain, and Open agenda to enter `App::execute_global_action`, while preserving
+  the active skill-session close route.
   Search structural guards keep the layout toggle last and ensure every
   `SearchAction` appears exactly once when applicable (including `CreatePdf`
   when a markdown target is present). The two contextual rows: "Create PDF"
@@ -398,7 +401,7 @@ first move is a failing test that reproduces it, *then* the fix.
   `tui/receiver/runtime_tests.rs` constructs the single receiver owner and
   exercises dispatch commit, delivery context, completion, warm-lease expiry,
   and force-fresh consumption at session selection. Focused
-  `tui/receiver_state.rs` tests cover timeout, activity-probe, retry, and
+  `tui/receiver/policy.rs` tests cover timeout, activity-probe, retry, and
   keystroke-lock helpers. `tests/tui_receiver_runtime_architecture.rs` rejects
   the former receiver field bag on `App`, direct representation access outside
   `tui/receiver/`, and cross-feature refresher/sync adapters or IO inside the
@@ -587,8 +590,12 @@ first move is a failing test that reproduces it, *then* the fix.
   `tui/receiver/queue.rs`. A dev-only `syn` AST walk covers full struct, enum,
   union, type-alias, const, and static syntax across module, associated,
   foreign, function-local, and nested block scopes, plus resolved direct,
-  grouped, self-import, qualified, associated, and chained aliases. This
-  structural rule is independent of collection, field, alias, and mutation
+  grouped, self-import, qualified, associated, and chained aliases. Identifier
+  comparisons canonicalize Rust raw identifiers with `IdentExt::unraw`.
+  Because files are scanned independently, the declaration-side rule rejects
+  every visible renamed re-export of a resolved `InboundJob` alias outside
+  `queue.rs`; private same-scope renamed imports remain resolvable and valid.
+  This structural rule is independent of collection, field, alias, and mutation
   vocabulary. Item macros, opaque item syntax, and unsupported attribute
   macros on persistent items are rejected. Statement macros recursively scan
   `proc-macro2` token trees for job aliases. Fixtures include nested comments,
@@ -792,8 +799,8 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
-| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
-| `tests/tui_receiver_queue_architecture.rs` + `tests/tui_receiver_queue_architecture/` | Queue ownership seam: a dev-only `syn` AST walk rejects source-declared persistent item types and initializers that mention raw `InboundJob` or a resolved import/type alias outside `receiver/queue.rs`, including declarations in function-local and nested block scopes. Full declaration, alias, literal, comment, Unicode, cfg, macro-token, attribute, transient-`let`, and semantic queue-API fixtures pin the boundary without collection, field, or mutator vocabulary. Item macros, opaque item syntax, and unsupported attribute macros are rejected. The only persistent exception is the exact canonical-path one-shot payload shape in the non-generic top-level `ReceiverEffect` item at the exact real source path; procedural expansion and type-erased runtime contents remain manual-review limits. |
+| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `receiver/policy.rs` owns pure timeout, probe, retry, and input-lock policy beneath the thin facade. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
+| `tests/tui_receiver_queue_architecture.rs` + `tests/tui_receiver_queue_architecture/` | Queue ownership seam: a dev-only `syn` AST walk rejects source-declared persistent item types and initializers that mention raw `InboundJob` or a resolved import/type alias outside `receiver/queue.rs`, including declarations in function-local and nested block scopes. It canonicalizes raw identifiers and rejects visible renamed re-exports of resolved job aliases at their declaration, while preserving private same-scope alias resolution. Full declaration, alias, literal, comment, Unicode, cfg, macro-token, attribute, transient-`let`, and semantic queue-API fixtures pin the boundary without collection, field, or mutator vocabulary. Item macros, opaque item syntax, and unsupported attribute macros are rejected. The only persistent exception is the exact canonical-path one-shot payload shape in the non-generic top-level `ReceiverEffect` item at the exact real source path; procedural expansion and type-erased runtime contents remain manual-review limits. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

@@ -1,25 +1,16 @@
-//! The `tasks` shell: an interactive ratatui frontend — alternate-screen
-//! setup, event loop, drawing.
+//! Brain's persistent ratatui shell.
 //!
-//! Two input modes:
-//!   - **Normal**: scroll keys (j/k/d/u/Space/b/g/G), `/` enters search
-//!     mode, q quits, Esc clears an active filter (or quits if none).
-//!   - **Search mode**: typing edits the query and live-filters the body.
-//!     Esc cancels the filter; Enter exits search mode but keeps the
-//!     filter so the user can scroll the results. Ctrl-modified chords
-//!     (other than Ctrl+C/Ctrl+U) fall through to normal-mode handling so
-//!     task shortcuts like Ctrl+Enter still fire on the highlighted row
-//!     without leaving `/`.
+//! The shell owns three main views (tasks, brain-directory search, and logs)
+//! plus one app-level brain panel. The panel persists while the main view
+//! changes and every frontend interaction crosses
+//! [`AgentController`](crate::agent::AgentController).
 //!
-//! Ctrl+M opens (or focuses) the persistent brain panel: an interactive agent
-//! PTY rendered via `tui-term` and launched through
-//! [`AgentController`](crate::agent::AgentController) for the selected
-//! frontend. Alt+L focuses it, Alt+H focuses the current main-view
-//! panel. When the brain panel is focused, key events are forwarded to the
-//! PTY's stdin as raw bytes. Alt+H is the reliable way to return focus to the
-//! main view. (We deliberately avoid a Space leader and Alt+arrow chords:
-//! both collide with agent input.) Ctrl+X closes
-//! the panel and ends its agent session.
+//! Runtime ownership is explicit:
+//! - `runtime/builder.rs` acquires startup resources and assembles the app;
+//! - `runtime/terminal.rs` owns `/dev/tty`, terminal modes, and restoration;
+//! - `runtime/mod.rs` owns process-lifetime resources and orderly shutdown;
+//! - `event_loop` handles interaction after calling the runtime's tick and
+//!   draw boundaries.
 //!
 //! Module layout:
 //! - This file owns the [`App`] composition root; focused state owners keep
@@ -28,8 +19,7 @@
 //!   help modal state + behavior.
 //! - `app_state` / `app_actions` / `app_brain` — the `App` impl, split by
 //!   concern.
-//! - `event_loop`: terminal setup ([`run_tui`]), the event loop, and overlay
-//!   key routing.
+//! - `event_loop`: application event dispatch and overlay key routing.
 //! - `handlers` / `keymap` — per-modal key handlers and the pure key-decision
 //!   helpers.
 //! - `draw` / `draw_palette` / `draw_modals` / `draw_help` — the rendering of
@@ -59,7 +49,6 @@ mod modals;
 mod overlay;
 pub(crate) mod palette;
 pub mod receiver;
-mod receiver_state;
 mod runtime;
 mod search_view;
 mod shell;

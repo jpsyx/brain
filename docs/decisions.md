@@ -90,6 +90,12 @@ retain task IDs, selected paths, and other feature-only semantics. Each feature
 enum wraps `GlobalAction` explicitly, so catalogs stay statically typed without
 trait objects or erased callbacks.
 
+Direct key routes obey the same boundary as palette rows. Close brain, Show
+tasks, Message brain, and Open agenda all enter
+`App::execute_global_action`; the active skill-session form of Close remains a
+feature-local tab operation. A structural test inventories these shortcut
+routes so adding a direct bypass cannot silently create a second executor.
+
 Both surfaces build the same reusable `PaletteRow<A>` and
 `CommandPalette<A>` state. The model centralizes numbering, filtering,
 selection, cancellation, and confirmation, while a small controls value keeps
@@ -2425,8 +2431,15 @@ or resolved import/type alias may mention `InboundJob`. A dev-only `syn` AST
 walk covers complete struct, enum, union, type-alias, const, and static items
 in module, associated, foreign, function-local, and arbitrarily nested block
 scopes. Import and type aliases resolve in their lexical item scope, including
-associated aliases. It does not depend on field, collection, alias, or mutation
-names. Item macros and all opaque `Verbatim` item forms fail closed. Statement
+associated aliases, and every identifier comparison canonicalizes raw Rust
+identifiers with `IdentExt::unraw`. The guard scans source files independently,
+so the declared-item/export invariant also rejects every visible renamed
+re-export of a resolved `InboundJob` alias outside `receiver/queue.rs`. This
+makes a cross-module rename fail at its declaration even though a sibling's
+plain-name import cannot be linked across separate ASTs. Private same-scope
+renamed imports remain resolved and valid. The guard does not depend on field,
+collection, alias, or mutation names. Item macros and all opaque `Verbatim`
+item forms fail closed. Statement
 macros remain valid only when recursive `proc-macro2` token-tree inspection
 finds no raw or resolved job alias. Non-builtin attributes on persistent items
 are rejected because they could generate storage outside the declared AST
@@ -2446,6 +2459,13 @@ concrete contents in a declared item type. Those two cases remain explicit
 manual-review limitations. Blocking opaque item macros and unsupported
 attribute macros prevents them from silently bypassing the source-declared
 ownership surface.
+
+The original architecture spec and implementation plan said no dependency
+would be added. The implemented guard accepts a narrower rule: no new shipped
+or runtime dependency. Direct dev-only `syn` and `proc-macro2` declarations are
+intentional because both crates were already transitive dependencies and they
+replace the unsound handwritten source parser. Making them direct test
+dependencies keeps the AST contract explicit without changing the binary.
 
 If the TUI stages after `commit` but cannot write its final `accepted`
 acknowledgment, an opaque admission token bound to its issuing queue identity
@@ -2475,6 +2495,11 @@ then feeds semantic completion, dispatch, diagnostic, or freshness results
 back to the runtime. Re-snapshotting prevents duplicate state transitions and
 allows an earlier effect, such as a timeout or `/restart`, to change all later
 decisions in the same tick.
+
+The receiver facade owns `receiver::policy`, whose pure timeout,
+activity-probe, retry, and input-lock decisions support that runtime. Keeping
+the policy below `receiver/mod.rs` makes the facade's ownership explicit and
+does not introduce a second receiver-state owner.
 
 The fixed order remains remote completion, interactive completion, processing
 delay, panel activity, activity probe, turn timeout, warm-lease expiry, socket

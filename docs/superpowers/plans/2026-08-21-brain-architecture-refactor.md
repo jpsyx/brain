@@ -19,7 +19,16 @@ receiver, and feature-state ownership while preserving behavior.
 **Starting point:** `82d0da9` on `refactor/arch`, crate version `0.71.3`.
 
 **Tech stack:** Rust 2024, clap, ratatui, crossterm, `VecDeque`, existing
-workspace and agent abstractions, and the current test suite. Add no dependency.
+workspace and agent abstractions, and the current test suite. Add no shipped or
+runtime dependency.
+
+**Accepted implementation deviation:** The original plan said "Add no
+dependency." Direct dev-only `syn` and `proc-macro2` declarations are allowed
+for the queue-ownership architecture guard. Both crates were already
+transitive dependencies, neither ships in the binary, and the AST/token-tree
+guard replaces an unsound handwritten Rust parser. This is an explicit change
+to the original acceptance wording, not an assertion that no manifest entry
+was added.
 
 ## Global constraints
 
@@ -41,7 +50,8 @@ These constraints bind every task and must be copied into each task review:
   workspace TUI. Do not add persistence or headless dispatch.
 - Keep pure decisions separate from terminal, filesystem, process, database,
   sync, and provider-delivery effects.
-- Add no dependency. Use standard library and existing crates.
+- Add no shipped or runtime dependency. Direct dev-only `syn` and
+  `proc-macro2` are the accepted architecture-test exception described above.
 - Keep production Rust files under the repository's modularity review
   threshold and split only on semantic seams. Test files and support files are
   subject to the same review.
@@ -279,7 +289,7 @@ feature owned.
 - Modify: `src/tui/receiver/mod.rs` or create it if the current receiver module
   shape differs
 - Modify: `src/tui/singleton.rs`
-- Modify: `src/tui/receiver_state.rs`
+- Modify: `src/tui/receiver/policy.rs`
 - Modify: receiver dispatch, control, completion, and tests under
   `src/tui/app_brain/receiver/**`
 - Modify: socket and receiver tests
@@ -332,7 +342,7 @@ scoped to the staged job.
 - Modify: `src/tui/mod.rs`
 - Modify: `src/tui/app_state/construct.rs`
 - Modify: `src/tui/app_brain/receiver/**`
-- Modify: `src/tui/receiver_state.rs`
+- Modify: `src/tui/receiver/policy.rs`
 - Modify: `src/tui/singleton.rs`
 - Modify: receiver-related TUI tests and fixtures
 - Modify: `docs/architecture.md`

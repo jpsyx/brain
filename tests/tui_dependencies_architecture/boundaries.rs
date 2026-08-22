@@ -1,4 +1,7 @@
+use std::collections::BTreeSet;
 use std::path::Path;
+
+use syn::visit::Visit;
 
 use super::source::production_tui_sources;
 use super::tokens::{
@@ -72,4 +75,74 @@ fn final_tui_entry_and_state_boundaries_remain_owned() {
         vec![1],
         "run_tui must have one definition accepting one request"
     );
+}
+
+#[test]
+fn direct_global_shortcuts_cross_the_application_mediator() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source = std::fs::read_to_string(root.join("src/tui/event_loop/run.rs"))
+        .expect("read event loop source");
+    let file = syn::parse_file(&source).expect("parse event loop source");
+    let mut audit = DirectShortcutAudit::default();
+    audit.visit_file(&file);
+
+    assert!(
+        audit.bypasses.is_empty(),
+        "direct GlobalAction shortcuts bypass App::execute_global_action:\n{}",
+        audit.bypasses.join("\n")
+    );
+    assert_eq!(
+        audit.mediated,
+        BTreeSet::from([
+            "CloseBrain".to_owned(),
+            "MessageBrain".to_owned(),
+            "OpenAgenda".to_owned(),
+            "ShowTasks".to_owned(),
+        ]),
+        "every direct GlobalAction shortcut must appear at the event-loop mediator boundary"
+    );
+}
+
+#[derive(Default)]
+struct DirectShortcutAudit {
+    mediated: BTreeSet<String>,
+    bypasses: Vec<String>,
+}
+
+impl<'ast> Visit<'ast> for DirectShortcutAudit {
+    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        let method = call.method.to_string();
+        if matches!(method.as_str(), "close_brain" | "open_or_focus_brain") {
+            self.bypasses.push(method.clone());
+        }
+        if method == "show_main_view" && call.args.iter().any(expr_names_tasks_view) {
+            self.bypasses.push("show_main_view(Tasks)".to_owned());
+        }
+        if method == "execute_global_action"
+            && let Some(action) = call.args.first().and_then(global_action_variant)
+        {
+            self.mediated.insert(action);
+        }
+        syn::visit::visit_expr_method_call(self, call);
+    }
+}
+
+fn expr_names_tasks_view(expression: &syn::Expr) -> bool {
+    let syn::Expr::Path(path) = expression else {
+        return false;
+    };
+    path.path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "Tasks")
+}
+
+fn global_action_variant(expression: &syn::Expr) -> Option<String> {
+    let syn::Expr::Path(path) = expression else {
+        return None;
+    };
+    let mut segments = path.path.segments.iter().rev();
+    let variant = segments.next()?;
+    let owner = segments.next()?;
+    (owner.ident == "GlobalAction").then(|| variant.ident.to_string())
 }

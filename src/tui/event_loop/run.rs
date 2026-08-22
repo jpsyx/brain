@@ -124,7 +124,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
         if matches!(app.effective_brain_tab(), BrainTab::Session(_)) {
             app.close_active_skill_session();
         } else {
-            app.close_brain();
+            app.execute_global_action(GlobalAction::CloseBrain);
         }
         return false;
     }
@@ -209,7 +209,10 @@ fn update_application(app: &mut App, event: &Event) -> bool {
             return false;
         }
         if let Some(mv) = main_view::ctrl_jumps_view(k.code, ctrl) {
-            app.shell.show_main_view(mv);
+            match mv {
+                MainView::Tasks => app.execute_global_action(GlobalAction::ShowTasks),
+                MainView::BrainSearch | MainView::Logs => app.shell.show_main_view(mv),
+            }
             return false;
         }
     }
@@ -264,7 +267,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
     // Shift-modified sibling Ctrl+Shift+M is the task-scoped message
     // (handled below).
     if ctrl_opens_brain(k.code, ctrl, shift) && app.shell.focus() == Panel::Tasks {
-        app.open_or_focus_brain(None);
+        app.execute_global_action(GlobalAction::MessageBrain);
         return false;
     }
 

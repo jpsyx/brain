@@ -963,7 +963,8 @@ without a manual `brain skills sync`.
   is the only evidence available since Codex exposes no machine-readable session
   listing. The id must occupy the whole trailing filename segment, so no session
   can be resumed by prefix collision, and the search descends only to the day
-  level so one check cannot become a full-disk walk.
+  level so one check cannot become a full-disk walk. Brain starts Codex fresh
+  when no exact rollout remains.
 - `SessionStore::claim` → lock a free session in the exact composite scope to this
   shell's PID (loses cleanly if another shell grabbed that scoped row first).
 - `SessionStore::register` inserts a fresh placeholder for any registered frontend with

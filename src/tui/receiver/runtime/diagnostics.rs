@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use super::{ReceiverProbe, ReceiverRuntime};
+use crate::tui::receiver::policy;
 
 impl ReceiverRuntime {
     pub(crate) fn note_panel_sample(&mut self, now: Instant, digest: Option<u64>) {
@@ -39,11 +40,7 @@ impl ReceiverRuntime {
 
     #[must_use]
     pub(crate) fn should_abandon_turn(&self, now: Instant) -> bool {
-        crate::tui::receiver_state::abandons_stalled_turn(
-            self.started,
-            self.last_panel_change(),
-            now,
-        )
+        policy::abandons_stalled_turn(self.started, self.last_panel_change(), now)
     }
 
     #[must_use]
@@ -58,7 +55,7 @@ impl ReceiverRuntime {
             response_id: self.receiver_response_id.clone(),
         };
         let next = fired.saturating_add(1);
-        self.probe = crate::tui::receiver_state::next_probe(next, started).map(|due| (due, next));
+        self.probe = policy::next_probe(next, started).map(|due| (due, next));
         Some(event)
     }
 

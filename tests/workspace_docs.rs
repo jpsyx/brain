@@ -207,6 +207,40 @@ fn project_agent_contract_lists_current_command_and_output_families() {
 }
 
 #[test]
+fn current_docs_describe_codex_rollout_based_resume() {
+    for path in [
+        "AGENTS.md",
+        "docs/architecture.md",
+        "docs/config.md",
+        "docs/data-model.md",
+        "docs/decisions.md",
+        "docs/features.md",
+        "docs/glossary.md",
+        "docs/integrations.md",
+        "docs/keybindings.md",
+    ] {
+        let doc = read_doc_normalized(path);
+        let lower = doc.to_lowercase();
+        assert!(
+            doc.contains("Codex") && lower.contains("rollout") && lower.contains("resume"),
+            "{path} must describe Codex's rollout-based resume contract"
+        );
+        for stale in [
+            "Codex starts fresh.",
+            "Codex always starts fresh",
+            "Codex panels currently launch fresh",
+            "Codex currently rejects every resume candidate",
+            "Current panels launch fresh",
+        ] {
+            assert!(
+                !doc.contains(stale),
+                "{path} contains stale claim {stale:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn invalid_commands_write_clap_errors_only_to_stderr() {
     let Output {
         status,

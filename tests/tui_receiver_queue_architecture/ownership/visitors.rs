@@ -4,6 +4,7 @@ use syn::visit::{self, Visit};
 use syn::{Expr, Field, Generics, ImplItemType, ItemType, TraitItemType, Type, Variant};
 
 use super::cfg::is_cfg_test;
+use super::identifiers::canonical_ident;
 use super::macros::tokens_mention_alias;
 
 pub(super) struct MentionVisitor<'aliases> {
@@ -27,7 +28,7 @@ impl<'aliases> MentionVisitor<'aliases> {
         self.found |= path
             .segments
             .iter()
-            .any(|segment| self.aliases.contains(&segment.ident.to_string()));
+            .any(|segment| self.aliases.contains(&canonical_ident(&segment.ident)));
     }
 }
 

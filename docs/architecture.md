@@ -20,7 +20,9 @@ execution surfaces are a persistent TUI and short-lived command families:
   process owns the terminal until you quit and keeps UUID-scoped SQLite state
   for frontend sessions, completion delivery, and panel layout. Claude may
   resume an eligible transcript, OpenCode may resume an eligible live root
-  session from the exact selected workspace, and Codex always starts fresh.
+  session from the exact selected workspace, and Codex may resume when its
+  exact rollout remains on disk. Each frontend starts fresh when its evidence
+  is missing.
   See
   [glossary.md](glossary.md) for the main-view / sub-view / panel vocabulary.
 - **Short-lived command families** cover non-TUI task utilities, config, env,
@@ -1295,8 +1297,10 @@ best-effort retry without replacing an event-loop or required-cleanup result;
 without panicking.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
-then launches the selected frontend through an `AgentController`
-(Claude or OpenCode resume-vs-fresh; Codex fresh) and `focus_tasks()`
+then launches the selected frontend through an `AgentController`. Claude
+validates transcripts, OpenCode validates exact-root live sessions, and Codex
+validates its exact on-disk rollout; each resumes or starts fresh from that
+adapter-owned evidence. `focus_tasks()`
 returns focus to the tasks main view so `j`/`k` work at once. The sync-services
 stage then wires a detached pull-biased startup sync and retains the optional
 watcher and periodic puller. The runtime owns the `App`, `TerminalSession`,
@@ -1653,8 +1657,14 @@ open PTY, so an idle startup panel can switch to the receiver session even when
 a modal is on screen. They also distinguish active receiver work from a
 three-minute warm channel lease: interactive lifecycle completions are still
 polled, a same-channel message reuses the warm PTY, and another channel replaces
-it only after work finishes. `tui/receiver_state.rs` retains only focused
-timeout, activity-probe, retry, and keystroke-lock helpers.
+it only after work finishes. `tui/receiver/policy.rs` owns the pure timeout,
+activity-probe, retry, and keystroke-lock policy beneath the receiver facade.
+The queue architecture guard canonicalizes raw identifiers before resolving
+`InboundJob` names and aliases. Its files are scanned independently, so the
+declared-item/export invariant rejects every visible renamed re-export of a
+resolved job alias outside `receiver/queue.rs`; private same-scope renamed
+imports remain resolvable. A cross-module alias therefore fails at its public
+rename declaration instead of depending on unavailable sibling-file context.
 `tui/app_sync.rs` holds inbound dispatch behind a pull when downstream state is
 more than two hours old and exposes current sync state to the footer and
 palette. The common receiver prompt classifies task-capture requests as task
@@ -1700,7 +1710,10 @@ rebuild:
 - **Every `SearchAction` has exactly one applicable palette row** (guarded by
   tests on `items(side, …)`) so the search catalog cannot silently drop an
   action. Shared task/search rows also assert the same `GlobalAction` while
-  preserving each surface's contextual label and direct-key metadata.
+  preserving each surface's contextual label and direct-key metadata. Every
+  direct shortcut for a `GlobalAction`, including Close brain, Show tasks,
+  Message brain, and Open agenda, enters `App::execute_global_action`; closing
+  an active skill-session tab remains a skill-session operation.
 - **The brain panel is open at startup but closeable.** `tui` launches the
   selected controller at startup and is two-panel; when its agent
   exits the panel **closes** (search goes full-width) — it does not quit the
@@ -1770,7 +1783,10 @@ features and on `proc-macro2`. The receiver-queue ownership guard needs a
 complete Rust syntax tree for persistent item declarations, aliases,
 attributes, and item macros; its macro boundary also recursively inspects
 `proc-macro2` token trees for resolved job aliases. Both are dev dependencies,
-so this parser contract adds nothing to the shipped binary.
+so this parser contract adds nothing to the shipped binary. This is the
+accepted implementation deviation from the refactor's original
+"no new dependency" wording: both crates were already transitive, and direct
+dev declarations replace the unsound handwritten Rust parser.
 
 `brain sync` also depends on **`rclone`**, but as an external command it
 shells out to (`src/sync/run.rs`), not a Cargo crate: brain builds the argv

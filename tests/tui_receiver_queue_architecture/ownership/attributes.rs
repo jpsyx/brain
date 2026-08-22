@@ -2,6 +2,7 @@ use syn::visit::{self, Visit};
 use syn::{Attribute, Field, Variant};
 
 use super::cfg::{cfg_condition_implies_test, is_cfg_test, parse_conditions};
+use super::identifiers::canonical_ident;
 use super::path_name;
 
 #[derive(Default)]
@@ -44,7 +45,7 @@ fn unsupported_attribute_meta(meta: &syn::Meta) -> Option<String> {
     if path.segments.len() != 1 {
         return Some(path_name(path));
     }
-    let name = path.segments.first()?.ident.to_string();
+    let name = canonical_ident(&path.segments.first()?.ident);
     if name == "cfg_attr" {
         let syn::Meta::List(list) = meta else {
             return Some(name);

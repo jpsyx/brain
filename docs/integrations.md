@@ -186,7 +186,7 @@ lifecycle bridges. Selecting more than one frontend exits with
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
 | Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `<claude_cmd> [--mcp-config <cache-json> --strict-mcp-config] --resume <id>` or `--session-id <id>` |
-| Codex | `codex_cmd` in brain env, default `codex` | Current panels launch fresh as `<codex_cmd> --dangerously-bypass-hook-trust [-c <capability-override>...]`; the adapter retains `resume <id>` for a future validated resume source |
+| Codex | `codex_cmd` in brain env, default `codex` | `<codex_cmd> --dangerously-bypass-hook-trust [-c <capability-override>...] resume <id>` when the exact session rollout remains on disk; otherwise the same base launch without `resume <id>` starts fresh |
 | OpenCode | `opencode_cmd` in brain env, default `opencode` | `<opencode_cmd> --agent brain [--session <validated-id>] [--prompt <initial-prompt>]`; lifecycle uses the workspace Brain plugin. |
 
 The crate-private `agent::ClaudeFrontend`, `agent::CodexFrontend`, and
@@ -686,8 +686,9 @@ Which session to run is decided by the **lock + recency** model in
    `session list --format json` in the selected root and accepts only live,
    non-archived, non-deleted root sessions whose reported directory resolves
    to that exact root. Child sessions and another workspace's IDs are never
-   resume evidence. Codex currently rejects every resume candidate. If Brain
-   claims a valid candidate it uses the adapter's resume shape; otherwise it
+   resume evidence. Codex accepts a candidate only when its exact rollout
+   remains on disk. If Brain claims a valid candidate it uses the adapter's
+   resume shape; otherwise it
    starts fresh and, if it skipped a stale candidate, shows a status-line alert:
    *"couldn't find a session to resume; starting a new brain chat"*.
 2. brain passes the selected workspace's `BRAIN_WORKSPACE_ID`,
@@ -771,7 +772,7 @@ Which session to run is decided by the **lock + recency** model in
    and removes or restores only the file owned by that attempt. A concurrent
    SessionStart rotation serializes at the transaction boundary, so a stale
    Stop event cannot complete the prior lineage. The stable response ID is
-   independent of the frontend session ID, which gives fresh Codex turns the
+   independent of the frontend session ID, which gives Codex turns the
    same completion path as Claude and OpenCode. The artifact includes frontend, workspace,
    session, response, actor, channel, and completion status. The
    TUI discards it unless both match the launched session context.

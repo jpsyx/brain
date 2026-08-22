@@ -4,6 +4,8 @@ mod aliases;
 mod attributes;
 #[path = "ownership/cfg.rs"]
 mod cfg;
+#[path = "ownership/identifiers.rs"]
+mod identifiers;
 #[path = "ownership/macros.rs"]
 mod macros;
 #[path = "ownership/persistent.rs"]
@@ -18,7 +20,9 @@ mod visitors;
 use std::collections::HashSet;
 use std::path::{Component, Path};
 
+use aliases::visible_job_reexport_renames;
 use attributes::AttributeAudit;
+use identifiers::{canonical_ident, ident_is};
 use persistent::PersistentItem;
 use receiver_effect::receiver_effect_payloads_are_one_shot;
 use visitors::MentionVisitor;
@@ -74,7 +78,7 @@ impl OwnershipGuard {
         if let PersistentItem::Enum(effect) = item
             && self.effect_owner
             && top_level
-            && effect.ident == "ReceiverEffect"
+            && ident_is(&effect.ident, "ReceiverEffect")
             && receiver_effect_payloads_are_one_shot(effect, aliases)
         {
             return;
@@ -91,6 +95,14 @@ impl OwnershipGuard {
         }
 
         self.inspect_nested_persistent_syntax(item, aliases);
+    }
+
+    fn inspect_visible_job_reexport(&mut self, item: &syn::ItemUse, aliases: &HashSet<String>) {
+        for (source, rename) in visible_job_reexport_renames(item, aliases) {
+            self.violations.push(format!(
+                "visible re-export renames raw InboundJob alias {source} as {rename}"
+            ));
+        }
     }
 }
 
@@ -119,7 +131,7 @@ fn manifest_relative(path: &Path) -> Option<&Path> {
 pub(super) fn path_name(path: &syn::Path) -> String {
     path.segments
         .iter()
-        .map(|segment| segment.ident.to_string())
+        .map(|segment| canonical_ident(&segment.ident))
         .collect::<Vec<_>>()
         .join("::")
 }

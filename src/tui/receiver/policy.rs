@@ -1,4 +1,4 @@
-//! Pure timing and channel-selection rules for remote message sessions.
+//! Pure timeout, activity-probe, retry, and input-lock policy for receiver sessions.
 
 use std::time::{Duration, Instant};
 
@@ -11,9 +11,9 @@ pub const REMOTE_TURN_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long the panel must sit completely unchanged before the turn behind it
 /// counts as stalled rather than slow.
 ///
-/// Every frontend renders *something* while it works — a spinner, an elapsed
-/// counter, streaming output — so a panel that has not changed in this long is
-/// waiting on a person, not on a model. Deliberately generous: the cost of
+/// Every frontend renders *something* while it works (a spinner, an elapsed
+/// counter, or streaming output), so a panel that has not changed in this long
+/// is waiting on a person, not on a model. Deliberately generous: the cost of
 /// calling a working turn stalled is killing a good answer, while the cost of
 /// waiting another minute on a truly wedged one is only that minute.
 pub const ACTIVE_WORK_IDLE: Duration = Duration::from_secs(90);

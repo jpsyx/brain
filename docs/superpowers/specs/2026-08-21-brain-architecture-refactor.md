@@ -72,8 +72,12 @@ The implementation must preserve these laws throughout the migration:
 8. **The existing receiver policy stays intact.** Incoming jobs remain bounded
    to 64, in memory, and owned by the live workspace TUI. There is no durable
    or headless queue in this project.
-9. **No new dependency.** The standard library and existing crates are
-   sufficient.
+9. **No new shipped or runtime dependency.** The original design said "No new
+   dependency." Implementation accepted one explicit deviation: direct
+   dev-only `syn` and `proc-macro2` declarations are allowed because both were
+   already transitive dependencies and they replace an unsound handwritten
+   Rust parser in the queue-ownership architecture guard. Neither enters the
+   shipped binary.
 10. **Every production change follows red, green, refactor TDD.** Structural
     moves are protected by characterization or architecture tests before the
     move.
@@ -583,7 +587,10 @@ The refactor is complete when all of the following are true:
 16. No numbered test fragments remain.
 17. Agent frontend behavior, receiver policy, task behavior, sync behavior,
     keybindings, and terminal presentation remain unchanged.
-18. No new dependency is added.
+18. No new shipped or runtime dependency is added. The accepted change from
+    the original no-dependency wording permits direct dev-only `syn` and
+    `proc-macro2` declarations for the AST architecture guard; both were
+    already transitive and replace the handwritten parser.
 19. `rust-loc`, release tests, release Clippy with warnings denied, privacy
     checks, docs checks, and diff checks are green.
 

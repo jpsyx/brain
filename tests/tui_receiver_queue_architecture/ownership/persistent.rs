@@ -4,6 +4,8 @@ use syn::{
     ItemType, ItemUnion, TraitItemConst, TraitItemType,
 };
 
+use super::identifiers::canonical_ident;
+
 #[derive(Clone, Copy)]
 pub(super) enum PersistentItem<'ast> {
     Const(&'ast ItemConst),
@@ -49,17 +51,17 @@ impl<'ast> PersistentItem<'ast> {
 
     pub(super) fn name(self) -> String {
         match self {
-            Self::Const(item) => item.ident.to_string(),
-            Self::Enum(item) => item.ident.to_string(),
-            Self::ForeignStatic(item) => item.ident.to_string(),
-            Self::ImplConst(item) => item.ident.to_string(),
-            Self::ImplType(item) => item.ident.to_string(),
-            Self::Static(item) => item.ident.to_string(),
-            Self::Struct(item) => item.ident.to_string(),
-            Self::TraitConst(item) => item.ident.to_string(),
-            Self::TraitType(item) => item.ident.to_string(),
-            Self::Type(item) => item.ident.to_string(),
-            Self::Union(item) => item.ident.to_string(),
+            Self::Const(item) => canonical_ident(&item.ident),
+            Self::Enum(item) => canonical_ident(&item.ident),
+            Self::ForeignStatic(item) => canonical_ident(&item.ident),
+            Self::ImplConst(item) => canonical_ident(&item.ident),
+            Self::ImplType(item) => canonical_ident(&item.ident),
+            Self::Static(item) => canonical_ident(&item.ident),
+            Self::Struct(item) => canonical_ident(&item.ident),
+            Self::TraitConst(item) => canonical_ident(&item.ident),
+            Self::TraitType(item) => canonical_ident(&item.ident),
+            Self::Type(item) => canonical_ident(&item.ident),
+            Self::Union(item) => canonical_ident(&item.ident),
         }
     }
 }

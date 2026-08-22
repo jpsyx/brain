@@ -1,5 +1,7 @@
 use syn::{Attribute, Item, Meta};
 
+use super::identifiers::ident_is;
+
 pub(super) fn item_is_cfg_test(item: &Item) -> bool {
     match item {
         Item::Const(item) => is_cfg_test(&item.attrs),
@@ -26,7 +28,7 @@ pub(super) fn is_cfg_test(attributes: &[Attribute]) -> bool {
         let Meta::List(cfg) = &attribute.meta else {
             return false;
         };
-        cfg.path.is_ident("cfg")
+        path_is(&cfg.path, "cfg")
             && syn::parse2::<Meta>(cfg.tokens.clone())
                 .is_ok_and(|condition| cfg_condition_implies_test(&condition))
     })
@@ -34,13 +36,21 @@ pub(super) fn is_cfg_test(attributes: &[Attribute]) -> bool {
 
 pub(super) fn cfg_condition_implies_test(condition: &Meta) -> bool {
     match condition {
-        Meta::Path(path) => path.is_ident("test"),
-        Meta::List(list) if list.path.is_ident("all") => parse_conditions(list)
+        Meta::Path(path) => path_is(path, "test"),
+        Meta::List(list) if path_is(&list.path, "all") => parse_conditions(list)
             .is_some_and(|conditions| conditions.iter().any(cfg_condition_implies_test)),
-        Meta::List(list) if list.path.is_ident("any") => parse_conditions(list)
+        Meta::List(list) if path_is(&list.path, "any") => parse_conditions(list)
             .is_some_and(|conditions| conditions.iter().all(cfg_condition_implies_test)),
         Meta::List(_) | Meta::NameValue(_) => false,
     }
+}
+
+fn path_is(path: &syn::Path, expected: &str) -> bool {
+    path.segments.len() == 1
+        && path
+            .segments
+            .first()
+            .is_some_and(|segment| ident_is(&segment.ident, expected))
 }
 
 pub(super) fn parse_conditions(list: &syn::MetaList) -> Option<Vec<Meta>> {

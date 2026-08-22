@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use syn::{Fields, GenericArgument, ItemEnum, PathArguments, Type, Variant};
 
 use super::cfg::is_cfg_test;
+use super::identifiers::{canonical_ident, ident_is};
 use super::visitors::{mentions_expr, mentions_generics, mentions_type};
 
 pub(super) fn receiver_effect_payloads_are_one_shot(
@@ -47,7 +48,7 @@ fn receiver_variant_is_valid(variant: &Variant, aliases: &HashSet<String>) -> bo
         return false;
     }
     let payload = &fields.unnamed[0].ty;
-    match variant.ident.to_string().as_str() {
+    match canonical_ident(&variant.ident).as_str() {
         "ApplyRestart" => is_boxed_restart_plan(payload),
         "ApplyNewSession" | "Dispatch" => is_boxed_job(payload),
         _ => false,
@@ -77,7 +78,7 @@ fn generic_type_argument<'ast>(ty: &'ast Type, expected: &[&str]) -> Option<&'as
         return None;
     }
     for (segment, expected) in path.path.segments.iter().zip(expected) {
-        if segment.ident != *expected {
+        if !ident_is(&segment.ident, expected) {
             return None;
         }
     }
@@ -116,6 +117,7 @@ fn is_job_type(ty: &Type) -> bool {
             .iter()
             .zip(["crate", "server", "receiver", "InboundJob"])
             .all(|(segment, expected)| {
-                segment.ident == expected && matches!(segment.arguments, PathArguments::None)
+                ident_is(&segment.ident, expected)
+                    && matches!(segment.arguments, PathArguments::None)
             })
 }

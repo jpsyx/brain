@@ -164,7 +164,8 @@ any other machine on the workspace launches.
 The adapters use `codex_cmd`, `opencode_cmd`, and `claude_cmd` from brain env.
 Codex
 participates in the same frontend/workspace/actor/channel session store but
-currently rejects resume candidates, so live Codex panels start fresh. Every
+resumes when the exact session rollout remains on disk and starts fresh when
+that rollout is missing. Every
 ordinary Brain command refreshes the registry-declared lifecycle artifacts in
 all existing configured workspaces before bootstrap, so remote prompts and
 completion delivery use the same current protocol. When brain

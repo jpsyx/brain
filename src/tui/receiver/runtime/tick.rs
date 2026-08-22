@@ -5,6 +5,7 @@ use crate::tui::receiver::decision::{
     ReceiverDecision, ReceiverTickContext, StageDecision, TickFacts, TickStage, decide_stage,
 };
 use crate::tui::receiver::effect::{ReceiverEffect, ReceiverEffectKind};
+use crate::tui::receiver::policy;
 
 impl ReceiverRuntime {
     #[must_use]
@@ -46,7 +47,7 @@ impl ReceiverRuntime {
             timeout_due: self.should_abandon_turn(now),
             warm_lease_expired: self.warm_lease_expired(now).is_some(),
             restart_requested: self.queue.has_restart(),
-            retry_waiting: !crate::tui::receiver_state::retry_ready(self.retry_at, now),
+            retry_waiting: !policy::retry_ready(self.retry_at, now),
             queued_channel,
             new_session_requested: self.queue.has_new_session(),
             panel_open: context.panel_open,

@@ -22,12 +22,12 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
     // In flight for longer than any answer is allowed to take, with no
     // completion artifact ever written.
     let started = std::time::Instant::now()
-        .checked_sub(crate::tui::receiver_state::REMOTE_TURN_TIMEOUT)
+        .checked_sub(crate::tui::receiver::policy::REMOTE_TURN_TIMEOUT)
         .expect("a deadline already in the past");
     let wedged_job = receiver_job(&app, actor.clone(), Channel::Sms, "wedged request");
     begin_receiver_turn(&mut app, &wedged_job, "wedged-session", started);
     let quiet = std::time::Instant::now()
-        .checked_sub(crate::tui::receiver_state::ACTIVE_WORK_IDLE)
+        .checked_sub(crate::tui::receiver::policy::ACTIVE_WORK_IDLE)
         .expect("a panel that went quiet");
     app.receiver.note_panel_sample(quiet, Some(0));
     app.receiver
@@ -60,9 +60,9 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
         "the wedged turn must not still be pinning the panel"
     );
     assert!(
-        app.receiver.remote_started_at().is_none_or(
-            |started| started.elapsed() < crate::tui::receiver_state::REMOTE_TURN_TIMEOUT
-        ),
+        app.receiver.remote_started_at().is_none_or(|started| {
+            started.elapsed() < crate::tui::receiver::policy::REMOTE_TURN_TIMEOUT
+        }),
         "the abandoned turn's deadline must be cleared or replaced by a fresh dispatch"
     );
 
@@ -218,7 +218,7 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
         // Long past the deadline, but the panel moved a moment ago: this turn
         // is slow, not stalled, and must be left to finish.
         assert!(
-            !crate::tui::receiver_state::abandons_stalled_turn(
+            !crate::tui::receiver::policy::abandons_stalled_turn(
                 app.receiver.remote_started_at(),
                 app.last_panel_change(),
                 later + std::time::Duration::from_secs(10),
@@ -226,10 +226,10 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
             "{agent_kind:?} abandoned a turn that was still working"
         );
         assert!(
-            crate::tui::receiver_state::abandons_stalled_turn(
+            crate::tui::receiver::policy::abandons_stalled_turn(
                 app.receiver.remote_started_at(),
                 app.last_panel_change(),
-                later + crate::tui::receiver_state::ACTIVE_WORK_IDLE,
+                later + crate::tui::receiver::policy::ACTIVE_WORK_IDLE,
             ),
             "{agent_kind:?} never gave up on a panel that went quiet"
         );

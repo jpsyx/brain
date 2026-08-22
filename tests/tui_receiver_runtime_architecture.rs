@@ -60,7 +60,6 @@ fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
         "Box<dyn crate::command::server::ReceiverIntentRefresher>",
         "crate::tui::receiver::InboundQueue",
         "std::collections::HashSet<crate::server::receiver::Channel>",
-        "Option<receiver_state::Lease>",
         "Option<ReceiverSyncGate>",
     ] {
         assert!(
@@ -112,6 +111,27 @@ fn receiver_runtime_contains_no_cross_feature_effect_adapters_or_io() {
             );
         }
     }
+}
+
+#[test]
+fn receiver_pure_policy_is_owned_by_the_receiver_module() {
+    let tui_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui");
+    let receiver_root = tui_root.join("receiver");
+
+    assert!(
+        !tui_root.join("receiver_state.rs").exists(),
+        "receiver timeout, probe, retry, and input-lock policy must not remain at the TUI root"
+    );
+    assert!(
+        receiver_root.join("policy.rs").exists(),
+        "receiver-owned pure policy must live at src/tui/receiver/policy.rs"
+    );
+    let facade =
+        std::fs::read_to_string(receiver_root.join("mod.rs")).expect("read receiver facade");
+    assert!(
+        facade.contains("mod policy;"),
+        "the receiver facade must declare its policy owner"
+    );
 }
 
 #[test]
