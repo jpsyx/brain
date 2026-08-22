@@ -1,6 +1,6 @@
 //! The daily-triage nudge: the Yes/Skip handoffs to the brain, the startup +
-//! per-refresh check for an uncompleted triage habit, and the pure
-//! name-match / logical-day / rollover helpers (with their unit tests).
+//! per-refresh check for an uncompleted triage habit, and the pure logical-day
+//! and rollover helpers (with their unit tests).
 
 use crate::tasks::task::Task;
 use crate::tui::*;
@@ -72,7 +72,7 @@ impl App {
     /// dismisses the nudge. Contrast the Yes path (`run_triage`) and agenda
     /// generation, which are agent-driven because they involve judgement.
     pub(crate) fn skip_triage(&mut self) {
-        let today = self.tasks.triage_snapshot().today;
+        let today = self.tasks.daily_triage_date();
         let outcome = crate::tasks::triage_habits::complete_managed_triage(
             &self.command_context.workspace,
             crate::tasks::triage_habits::ManagedTriageKind::Daily,
@@ -98,21 +98,18 @@ impl App {
     /// config disables the check (empty `daily_triage_name_pattern`), the
     /// pattern is an invalid regex, or no habit matches it — a silent skip
     /// is the right failure mode here because the modal is a nudge, not a
-    /// blocker. See [`triage_nudge_target`] for the matching logic.
+    /// blocker. `TasksState` owns the habit matching policy.
     pub(crate) fn check_daily_triage(&mut self) {
-        let triage = self.tasks.triage_snapshot();
-        if let Some(habit) = triage_modal_target(
+        if let Some(nudge) = self.tasks.daily_triage_nudge(
             self.config.enable_triage_habits,
             self.skip_daily_triage_check,
-            triage.habits,
             &self.config.daily_triage_name_pattern,
-            triage.today,
         ) {
             open_overlay(
                 &mut self.overlay,
                 Overlay::TaskConfirmation(ConfirmState::run_triage(
-                    habit.id.clone(),
-                    habit.name.clone(),
+                    nudge.task_id,
+                    nudge.task_label,
                 )),
             );
         }
@@ -125,13 +122,10 @@ impl App {
     /// finished), and the synced habits may now show that triage was completed on
     /// another machine.
     pub(crate) fn reconcile_daily_triage_alert(&mut self) -> TriageAlertResolution {
-        let triage = self.tasks.triage_snapshot();
-        let target = triage_modal_target(
+        let target = self.tasks.daily_triage_nudge(
             self.config.enable_triage_habits,
             self.skip_daily_triage_check,
-            triage.habits,
             &self.config.daily_triage_name_pattern,
-            triage.today,
         );
         let occupancy = match self.overlay.as_ref() {
             Some(Overlay::TaskConfirmation(confirm)) if confirm.kind == ConfirmKind::RunTriage => {
@@ -143,12 +137,12 @@ impl App {
         let resolution = resolve_triage_alert(target.is_some(), occupancy);
         match resolution {
             TriageAlertResolution::Open => {
-                if let Some(habit) = target {
+                if let Some(nudge) = target {
                     open_overlay(
                         &mut self.overlay,
                         Overlay::TaskConfirmation(ConfirmState::run_triage(
-                            habit.id.clone(),
-                            habit.name.clone(),
+                            nudge.task_id,
+                            nudge.task_label,
                         )),
                     );
                 }
@@ -299,8 +293,8 @@ pub(super) use decision::{TriageAlertEvent, should_check_daily_triage};
 #[path = "triage_rollover_tests.rs"]
 mod rollover_tests;
 #[cfg(test)]
+#[path = "triage_alert_tests.rs"]
+mod triage_alert_tests;
+#[cfg(test)]
 #[path = "triage_gate_tests.rs"]
 mod triage_gate_tests;
-#[cfg(test)]
-#[path = "triage_nudge_tests.rs"]
-mod triage_nudge_tests;

@@ -327,13 +327,16 @@ first move is a failing test that reproduces it, *then* the fix.
   clamping. Standalone `ShellState` tests cover construction, main-view and
   focus transitions, panel side and hit-test layout, embedded search, logs, and
   active-tab selection against the set of open session identities. Call-site
-  tests use semantic transitions, typed effects, snapshots, or render
-  projections, never aggregate field representation.
+  tests use semantic transitions, owner-side policy decisions, typed effect
+  plans, or the iterator-backed task panel model, never aggregate field
+  representation.
   `tests/tui_state_aggregates_architecture.rs` extracts the exact three owner
-  struct bodies, requires one private declaration for every owned field,
-  rejects duplicates across visibility forms, and scans for direct or aliased
-  representation access plus expression-only `App` forwarding. Synthetic
-  fixtures pressure-test each guard branch.
+  struct bodies, pins the exact private owner-field types, requires one private
+  declaration for every owned field, and rejects duplicates across visibility
+  forms. Its positive API and projection allowlists pin the focused consumer
+  signatures; a tokenized scan rejects direct or aliased representation access
+  plus raw `App` forwarding through multiline typed aliases or multistatement
+  method bodies. Synthetic fixtures pressure-test each guard branch.
 - **Skill sessions** (`skill_session/`, `tui/app_skill_session/`,
   `tui/app_brain/tests/skill_session.rs`). The pure half is unit-tested directly:
   what the workspace offers (`available`: the builtin daily triage only while the

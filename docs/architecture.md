@@ -1120,8 +1120,12 @@ filtering, selection, notes expansion, rendered body lines, and viewport
 layout. `ShellState` owns the active main view, panel focus and side, the brain
 panel's hit-test rectangle, the embedded brain-directory `picker::App`, the
 logs view, and the selected brain-tab identity. Both expose semantic
-transitions, purpose-specific snapshots, and render projections rather than
-their internal field representation. Advancing the task aggregate's logical
+transitions and purpose-specific results rather than their internal field
+representation. Task link selection, managed-task removal validation, and
+daily-triage matching stay inside `TasksState`; they return owned effect plans
+or decisions for `App` to execute. The task renderer consumes a narrow,
+iterator-backed panel model whose storage remains private to the aggregate.
+Advancing the task aggregate's logical
 day rematerializes its date-relative view immediately from its owned rows, so
 a later CSV reload failure cannot leave the new date paired with an old body.
 Task fuzzy matching lives under `state/tasks/filter.rs`. Immutable
@@ -1142,7 +1146,7 @@ assignment context and seeds the task state; view materialization retains the
 complete base set so
 body rebuilding can switch members or clear to all before fuzzy matching. Plain
 output instead applies assignment as a final render filter. Header composition
-renders assignment only from the focused task render projection, while non-assignment CLI
+renders assignment only from the focused task panel model, while non-assignment CLI
 filters remain in the static chip row. The context's
 detail mode controls task-card rendering, and its create, reassign, and filter
 flags independently gate their palette rows. A missing portable registry uses

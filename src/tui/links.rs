@@ -1,13 +1,10 @@
-//! Openable links for a task: the Linear issue URL (when present) plus any
-//! `http(s)` URLs scraped from the task's free-text notes. The Ctrl+O open
-//! action and the link-picker modal both consume [`task_links`].
+//! Link effect types plus URL extraction. `TasksState` owns the selected-task
+//! link policy; the App only executes its resulting open-or-choose plan.
 
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use regex::Regex;
-
-use crate::tasks::task::Task;
 
 /// One openable destination. `label` is what the picker shows; `url` is
 /// what gets handed to `/usr/bin/open`.
@@ -29,19 +26,6 @@ pub(crate) enum LinkKind {
     SingleNotes,
     /// Two or more links — opening raises the picker.
     Multiple,
-}
-
-/// Classify `task`'s `links` (as built by [`task_links`]) for labeling. A
-/// lone link is the Linear issue when the task carries one (Linear is always
-/// listed first), otherwise it's a notes URL.
-#[must_use]
-pub(crate) fn classify_links(task: &Task, links: &[Link]) -> LinkKind {
-    match links.len() {
-        0 => LinkKind::None,
-        1 if task.has_linear() => LinkKind::SingleLinear,
-        1 => LinkKind::SingleNotes,
-        _ => LinkKind::Multiple,
-    }
 }
 
 fn url_regex() -> &'static Regex {
@@ -74,33 +58,4 @@ pub(crate) fn extract_urls(text: &str) -> Vec<String> {
         }
     }
     out
-}
-
-/// All openable links for `task`, Linear issue first (when it carries an
-/// identifier and `base` derives a URL), then URLs scraped from the task's
-/// detail fields — `see_also` (the `↪` reference link) followed by `notes` —
-/// in document order. Duplicates (including a detail URL equal to the Linear
-/// URL) are dropped so nothing is listed twice.
-#[must_use]
-pub(crate) fn task_links(task: &Task, base: &str) -> Vec<Link> {
-    let mut links: Vec<Link> = Vec::new();
-    if let Some(url) = task.linear_url(base) {
-        links.push(Link {
-            label: format!("Linear {}", task.linear_issue.trim()),
-            url,
-        });
-    }
-    let detail_urls = extract_urls(&task.see_also)
-        .into_iter()
-        .chain(extract_urls(&task.notes));
-    for url in detail_urls {
-        if links.iter().any(|l| l.url == url) {
-            continue;
-        }
-        links.push(Link {
-            label: url.clone(),
-            url,
-        });
-    }
-    links
 }

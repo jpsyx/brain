@@ -11,24 +11,6 @@ use crate::tui::*;
 
 use super::triage::{TriageAlertEvent, should_check_daily_triage};
 
-fn task_for_id<'a>(tasks: &'a [Task], habits: &'a [Task], raw_id: &str) -> Option<&'a Task> {
-    tasks
-        .iter()
-        .chain(habits)
-        .find(|task| task.id.eq_ignore_ascii_case(raw_id))
-}
-
-fn protect_removal(
-    tasks: &[Task],
-    habits: &[Task],
-    raw_id: &str,
-    config: &Config,
-) -> Result<(), crate::tasks::triage_habits::ManagedTaskError> {
-    task_for_id(tasks, habits, raw_id).map_or(Ok(()), |task| {
-        crate::tasks::triage_habits::can_remove(task, config)
-    })
-}
-
 impl App {
     pub(crate) fn execute_global_action(&mut self, action: GlobalAction) {
         match action {
@@ -132,8 +114,7 @@ impl App {
     /// a decision when there are preservable links — keeps the no-impact
     /// case from costing the user a back-and-forth.
     pub(crate) fn run_remove(&mut self, raw_id: &str) {
-        let rows = self.tasks.rows_snapshot();
-        if let Err(error) = protect_removal(rows.tasks, rows.habits, raw_id, &self.config) {
+        if let Err(error) = self.tasks.validate_removal(raw_id, &self.config) {
             self.flash = Some(FlashKind::Error(format!("⚠ {error}")));
             return;
         }
@@ -193,31 +174,21 @@ impl App {
     /// `open_runner`; multiple links raise the picker modal so the user can
     /// choose. The picker is bound to the task's id at open time.
     pub(crate) fn run_open_links(&mut self) {
-        let Some(task) = self.tasks.selected_task() else {
-            return;
-        };
-        let links = task_links(task, &self.config.linear_base_url());
-        match links.len() {
-            0 => {}
-            1 => {
-                self.flash = Some(open_url(self.open_runner.as_ref(), &links[0].url));
+        match self
+            .tasks
+            .selected_links_plan(&self.config.linear_base_url())
+        {
+            TaskLinksPlan::None => {}
+            TaskLinksPlan::Open { url } => {
+                self.flash = Some(open_url(self.open_runner.as_ref(), &url));
             }
-            _ => {
-                let id = task.id.clone();
+            TaskLinksPlan::Choose { task_id, links } => {
                 open_overlay(
                     &mut self.overlay,
-                    Overlay::LinkPicker(LinkPickerState::new(id, links)),
+                    Overlay::LinkPicker(LinkPickerState::new(task_id, links)),
                 );
             }
         }
-    }
-
-    pub(crate) fn current_link_kind(&self) -> LinkKind {
-        let Some(task) = self.tasks.selected_task() else {
-            return LinkKind::None;
-        };
-        let links = task_links(task, &self.config.linear_base_url());
-        classify_links(task, &links)
     }
 
     /// Open the link-picker's highlighted URL and close the modal. No-op
@@ -369,10 +340,6 @@ impl App {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "managed_triage_tests.rs"]
-mod managed_triage_tests;
 
 /// Build the "start task" brain prompt, interpolating the configured brain root
 /// so it never hardcodes `~/brain`. Pure, so the root-authority behavior is

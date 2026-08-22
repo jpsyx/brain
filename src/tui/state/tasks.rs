@@ -14,8 +14,13 @@ use crate::users::UserId;
 
 mod filter;
 mod interaction;
+mod links;
+mod panel;
+mod policy;
+mod triage;
 
 use filter::filter_tasks;
+pub(crate) use links::TaskLinksPlan;
 
 pub(crate) struct TasksStateInit {
     pub(crate) view: ViewSpec,
@@ -55,31 +60,6 @@ pub(crate) struct TasksState {
     scroll: u16,
     last_inner_height: u16,
     last_content_rows: u16,
-}
-
-pub(crate) struct TasksRenderState<'a> {
-    pub(crate) header: &'a [Line<'static>],
-    pub(crate) assignment_users: &'a [crate::tasks::task::AssignmentUser],
-    pub(crate) assignment_filter: Option<&'a UserId>,
-    pub(crate) show_search_bar: bool,
-    pub(crate) in_search: bool,
-    pub(crate) query: &'a str,
-    pub(crate) visible_count: usize,
-    pub(crate) base_count: usize,
-    pub(crate) body_lines: &'a [Line<'static>],
-    pub(crate) scroll: u16,
-    pub(crate) max_scroll: u16,
-    pub(crate) pending_count: Option<usize>,
-}
-
-pub(crate) struct TaskRowsSnapshot<'a> {
-    pub(crate) tasks: &'a [Task],
-    pub(crate) habits: &'a [Task],
-}
-
-pub(crate) struct TaskTriageSnapshot<'a> {
-    pub(crate) today: NaiveDate,
-    pub(crate) habits: &'a [Task],
 }
 
 pub(crate) struct TaskAssignmentSnapshot<'a> {
@@ -146,7 +126,7 @@ impl TasksState {
         self.rematerialize_active_view();
     }
 
-    pub(crate) fn selected_task(&self) -> Option<&Task> {
+    fn selected_task(&self) -> Option<&Task> {
         self.selected_task
             .and_then(|index| self.visible_tasks.get(index))
     }
@@ -161,23 +141,9 @@ impl TasksState {
         self.visible_tasks.len()
     }
 
-    pub(crate) fn rows_snapshot(&self) -> TaskRowsSnapshot<'_> {
-        TaskRowsSnapshot {
-            tasks: &self.all_tasks,
-            habits: &self.all_habits,
-        }
-    }
-
     #[cfg(test)]
     pub(crate) fn query_text(&self) -> &str {
         &self.query
-    }
-
-    pub(crate) fn triage_snapshot(&self) -> TaskTriageSnapshot<'_> {
-        TaskTriageSnapshot {
-            today: self.today,
-            habits: &self.all_habits,
-        }
     }
 
     pub(crate) fn assignment_snapshot(&self) -> TaskAssignmentSnapshot<'_> {
@@ -207,23 +173,6 @@ impl TasksState {
 
     pub(crate) fn has_active_filter(&self) -> bool {
         !self.query.is_empty() || self.assignment_filter.is_some()
-    }
-
-    pub(crate) fn render_state(&self) -> TasksRenderState<'_> {
-        TasksRenderState {
-            header: &self.header,
-            assignment_users: self.assignment.users(),
-            assignment_filter: self.assignment_filter.as_ref(),
-            show_search_bar: self.in_search || !self.query.is_empty(),
-            in_search: self.in_search,
-            query: &self.query,
-            visible_count: self.visible_tasks.len(),
-            base_count: self.base_tasks.len(),
-            body_lines: &self.body_lines,
-            scroll: self.scroll,
-            max_scroll: self.max_scroll(),
-            pending_count: self.pending_count,
-        }
     }
 
     pub(crate) fn set_view(&mut self, active_view: View) {
@@ -259,6 +208,11 @@ impl TasksState {
         self.all_tasks = all_tasks;
         self.all_habits = all_habits;
         self.rematerialize_active_view();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn contains_task_named(&self, name: &str) -> bool {
+        self.all_tasks.iter().any(|task| task.name == name)
     }
 
     fn rematerialize_active_view(&mut self) {
@@ -348,7 +302,7 @@ mod tests {
     use chrono::NaiveDate;
     use clap::Parser;
 
-    use super::{TasksState, TasksStateInit};
+    use super::{TaskLinksPlan, TasksState, TasksStateInit};
     use crate::personalization::tags::TagStyles;
     use crate::tasks::cli::Cli;
     use crate::tasks::selector::Selector;
@@ -363,6 +317,8 @@ mod tests {
         let mut first = test_task("T1", "not_started");
         first.name = "Alpha plan".to_owned();
         first.notes = "A detailed first note\nwith a second line".to_owned();
+        first.see_also = "https://reference.example/alpha".to_owned();
+        first.linear_issue = "OPS-17".to_owned();
         first.assigned_to = "alice".to_owned();
         first.due_date = Some(today);
         let mut second = test_task("T2", "not_started");
@@ -371,6 +327,8 @@ mod tests {
         second.due_date = today.succ_opt();
         let all_tasks = vec![first, second];
         let mut habit = test_task("H1", "not_started");
+        habit.name = "Morning Triage".to_owned();
+        habit.system_key = crate::tasks::triage_habits::DAILY_SYSTEM_KEY.to_owned();
         habit.due_date = Some(today);
         let all_habits = vec![habit];
         let view = build_view(
@@ -426,14 +384,14 @@ mod tests {
     #[test]
     fn notes_body_layout_and_scrolling_remain_one_pure_state_transition() {
         let mut state = state();
-        let collapsed_lines = state.render_state().body_lines.len();
+        let collapsed_lines = state.panel_model().content().len();
 
         state.toggle_notes();
         assert!(state.current_notes_expanded());
-        assert!(state.render_state().body_lines.len() > collapsed_lines);
+        assert!(state.panel_model().content().len() > collapsed_lines);
 
         state.select_next(1);
-        let line_heights = vec![1; state.render_state().body_lines.len()];
+        let line_heights = vec![1; state.panel_model().content().len()];
         state.update_body_layout(1, &line_heights);
 
         assert_eq!(
@@ -470,13 +428,80 @@ mod tests {
 
         state.advance_day(NaiveDate::from_ymd_opt(2026, 8, 22).expect("valid date"));
 
-        assert_eq!(state.render_state().visible_count, 2);
+        assert_eq!(state.panel_model().visible_count(), 2);
         assert!(
             state
-                .render_state()
-                .body_lines
-                .iter()
+                .panel_model()
+                .content()
                 .any(|line| line.to_string().contains("Beta follow-up"))
         );
+    }
+
+    #[test]
+    fn selected_link_planning_keeps_task_policy_inside_the_owner() {
+        let state = state();
+
+        assert_eq!(
+            state.selected_link_kind("https://linear.example/issue/"),
+            crate::tui::LinkKind::Multiple
+        );
+        let TaskLinksPlan::Choose { task_id, links } =
+            state.selected_links_plan("https://linear.example/issue/")
+        else {
+            panic!("the selected task has two destinations");
+        };
+        assert_eq!(task_id, "T1");
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| link.url.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "https://linear.example/issue/OPS-17",
+                "https://reference.example/alpha"
+            ]
+        );
+    }
+
+    #[test]
+    fn removal_validation_searches_owned_tasks_and_habits_without_row_escape() {
+        let state = state();
+        let config = crate::config::Config {
+            enable_triage_habits: true,
+            ..crate::config::Config::default()
+        };
+
+        assert!(state.validate_removal("H1", &config).is_err());
+        assert!(state.validate_removal("missing", &config).is_ok());
+    }
+
+    #[test]
+    fn daily_triage_planning_returns_only_the_modal_target() {
+        let state = state();
+
+        let target = state
+            .daily_triage_nudge(true, false, "morning triage")
+            .expect("outstanding triage target");
+        assert_eq!(target.task_id, "H1");
+        assert_eq!(target.task_label, "Morning Triage");
+        assert_eq!(
+            state.daily_triage_date(),
+            NaiveDate::from_ymd_opt(2026, 8, 21).expect("valid date")
+        );
+        assert!(
+            state
+                .daily_triage_nudge(true, true, "morning triage")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn panel_model_streams_render_content_without_exposing_the_owned_collection() {
+        let state = state();
+        let panel = state.panel_model();
+
+        let content = panel.content().map(ToString::to_string).collect::<Vec<_>>();
+        assert!(content.iter().any(|line| line.contains("Alpha plan")));
+        assert_eq!(panel.visible_count(), 2);
     }
 }

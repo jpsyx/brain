@@ -27,14 +27,20 @@ pub(crate) fn draw_tasks(
     context: &TasksPanelContext<'_>,
     area: Rect,
 ) {
-    let render = tasks.render_state();
-    let mut header = tasks_header_lines(
-        render.header,
-        render.assignment_users,
-        render.assignment_filter,
-    );
+    let (mut header, show_search, panel_lines) = {
+        let panel = tasks.panel_model();
+        (
+            tasks_header_lines(
+                panel.title(),
+                panel.assignment_users(),
+                panel.assignment_filter(),
+            ),
+            panel.shows_search(),
+            panel.content().cloned().collect::<Vec<_>>(),
+        )
+    };
     let header_h = tasks_header_height(header.len());
-    let search_h: u16 = u16::from(render.show_search_bar);
+    let search_h: u16 = u16::from(show_search);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -93,9 +99,7 @@ pub(crate) fn draw_tasks(
     // matches the rows it ultimately paints. Recomputed every frame because
     // the width changes whenever the brain panel splits the screen.
     let wrap_width = content_area.width.max(1);
-    let heights: Vec<u16> = tasks
-        .render_state()
-        .body_lines
+    let heights: Vec<u16> = panel_lines
         .iter()
         .map(|line| {
             let measured = Paragraph::new(line.clone())
@@ -118,10 +122,10 @@ pub(crate) fn draw_tasks(
         );
     }
 
-    let render = tasks.render_state();
-    let body = Paragraph::new(render.body_lines.to_vec())
+    let panel = tasks.panel_model();
+    let body = Paragraph::new(panel_lines)
         .wrap(Wrap { trim: false })
-        .scroll((render.scroll, 0));
+        .scroll((panel.scroll(), 0));
     f.render_widget(body, content_area);
 
     // Second pass: brighten the fg of every cell inside the selection band
@@ -132,8 +136,8 @@ pub(crate) fn draw_tasks(
     }
 
     // Scrollbar
-    let max_offset = usize::from(render.max_scroll);
-    let mut scroll_state = ScrollbarState::new(max_offset).position(usize::from(render.scroll));
+    let max_offset = usize::from(panel.max_scroll());
+    let mut scroll_state = ScrollbarState::new(max_offset).position(usize::from(panel.scroll()));
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
         .style(Style::default().fg(Color::DarkGray));
     let scrollbar_area = Rect {
@@ -147,15 +151,19 @@ pub(crate) fn draw_tasks(
     // Search bar (only when search-mode active or filter is set).
     if search_h > 0 {
         let bar_area = chunks[2];
-        let bar = search_bar_line(render.query, render.visible_count, render.base_count);
+        let bar = search_bar_line(
+            panel.query(),
+            panel.visible_count(),
+            panel.unfiltered_count(),
+        );
         f.render_widget(Paragraph::new(bar), bar_area);
 
         // Only show the tasks-panel cursor when the tasks panel has focus;
         // when the brain panel is focused, the cursor belongs over there.
-        if render.in_search && context.focused {
+        if panel.is_searching() && context.focused {
             // Cursor goes after " / " (3 cols) + the query glyphs.
             let prefix: u16 = 3;
-            let q_len = u16::try_from(render.query.chars().count()).unwrap_or(u16::MAX);
+            let q_len = u16::try_from(panel.query().chars().count()).unwrap_or(u16::MAX);
             let max_x = bar_area.x + bar_area.width.saturating_sub(1);
             let cx = bar_area
                 .x
@@ -175,10 +183,10 @@ pub(crate) fn draw_tasks(
         context.persistent_warning,
     )
     .unwrap_or_else(|| {
-        if render.in_search {
+        if panel.is_searching() {
             search_footer_line()
         } else {
-            compact_footer_line(chunks[3].width, render.pending_count)
+            compact_footer_line(chunks[3].width, panel.pending_count())
         }
     });
     f.render_widget(Paragraph::new(vec![footer]), chunks[3]);
@@ -188,15 +196,15 @@ pub(crate) fn tasks_header_height(line_count: usize) -> u16 {
     u16::try_from(line_count).unwrap_or(u16::MAX).max(1)
 }
 
-pub(crate) fn tasks_header_lines(
-    static_header: &[Line<'static>],
-    users: &[crate::tasks::task::AssignmentUser],
+pub(crate) fn tasks_header_lines<'a>(
+    static_header: impl IntoIterator<Item = &'a Line<'static>>,
+    users: impl IntoIterator<Item = &'a crate::tasks::task::AssignmentUser>,
     assignment_filter: Option<&crate::users::UserId>,
 ) -> Vec<Line<'static>> {
-    let mut header = static_header.to_vec();
+    let mut header = static_header.into_iter().cloned().collect::<Vec<_>>();
     if let Some(user_id) = assignment_filter {
         let name = users
-            .iter()
+            .into_iter()
             .find(|user| &user.id == user_id)
             .map_or_else(|| user_id.as_str(), |user| user.name.as_str());
         header.push(assignee_filter_line(name, user_id.as_str()));

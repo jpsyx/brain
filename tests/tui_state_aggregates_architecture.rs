@@ -1,5 +1,64 @@
 use std::path::Path;
 
+const TASKS_STATE_API: &[&str] = &[
+    "active_view",
+    "advance_day",
+    "append_query",
+    "assignment_snapshot",
+    "clear_active_filters",
+    "clear_count",
+    "clear_query",
+    "collapse_notes",
+    "contains_task_named",
+    "current_has_notes",
+    "current_is_habit",
+    "current_notes_expanded",
+    "current_task_id",
+    "cycle_view_next",
+    "cycle_view_prev",
+    "daily_triage_date",
+    "daily_triage_nudge",
+    "enter_search",
+    "expand_notes",
+    "has_active_filter",
+    "is_searching",
+    "leave_search",
+    "max_scroll",
+    "new",
+    "panel_model",
+    "pop_query",
+    "push_count_digit",
+    "query_is_empty",
+    "query_text",
+    "replace_rows",
+    "scroll_offset",
+    "select_first",
+    "select_last",
+    "select_next",
+    "select_prev",
+    "selected_identity",
+    "selected_link_kind",
+    "selected_links_plan",
+    "selection_band_rect",
+    "set_assignment_filter",
+    "set_view",
+    "take_count",
+    "tasks_per_page",
+    "toggle_notes",
+    "update_body_layout",
+    "validate_removal",
+    "visible_count",
+];
+
+const TASKS_STATE_TYPES: &[&str] = &[
+    "DailyTriageNudge",
+    "TaskAssignmentSnapshot",
+    "TaskLinksPlan",
+    "TasksPanelModel",
+    "TasksState",
+    "TasksStateInit",
+];
+
 const TASK_FIELDS: &[&str] = &[
     "tag_styles",
     "today",
@@ -53,6 +112,8 @@ fn app_owns_focused_task_and_shell_aggregates_instead_of_flat_state() {
     assert_eq!(field_declaration_count(app_body, "shell"), 1);
     assert!(field_is_private(app_body, "tasks"));
     assert!(field_is_private(app_body, "shell"));
+    assert_eq!(field_type(app_body, "tasks"), Some("TasksState".to_owned()));
+    assert_eq!(field_type(app_body, "shell"), Some("ShellState".to_owned()));
 
     for field in TASK_FIELDS {
         assert_eq!(
@@ -128,11 +189,8 @@ fn aggregate_representation_does_not_leak_outside_its_owner() {
                 path.display()
             ));
         }
-        if has_simple_aggregate_forwarder(&source) {
-            leaks.push(format!(
-                "{}: simple App aggregate forwarder",
-                path.display()
-            ));
+        if has_raw_aggregate_forwarder(&source) {
+            leaks.push(format!("{}: raw App aggregate forwarder", path.display()));
         }
     }
 
@@ -154,6 +212,116 @@ fn aggregate_surfaces_and_consumers_stay_focused() {
     let brain_renderer =
         std::fs::read_to_string(root.join("src/tui/draw/brain_panel.rs")).expect("brain renderer");
 
+    let mut task_state_source = tasks.clone();
+    for entry in walkdir::WalkDir::new(root.join("src/tui/state/tasks")) {
+        let entry = entry.expect("walk task state source");
+        if entry.file_type().is_file()
+            && entry
+                .path()
+                .extension()
+                .and_then(|extension| extension.to_str())
+                == Some("rs")
+        {
+            task_state_source.push('\n');
+            task_state_source.push_str(
+                &std::fs::read_to_string(entry.path()).expect("read task state child source"),
+            );
+        }
+    }
+
+    let mut api = public_impl_method_names(&task_state_source, "TasksState");
+    api.sort_unstable();
+    let mut expected_api = TASKS_STATE_API.to_vec();
+    expected_api.sort_unstable();
+    assert_eq!(api, expected_api, "TasksState semantic API drifted");
+
+    let mut types = public_state_type_names(&task_state_source);
+    types.sort_unstable();
+    let mut expected_types = TASKS_STATE_TYPES.to_vec();
+    expected_types.sort_unstable();
+    assert_eq!(
+        types, expected_types,
+        "task state added or removed a public projection without guard review"
+    );
+
+    let panel_body =
+        extract_struct_body(&task_state_source, "TasksPanelModel").expect("TasksPanelModel body");
+    assert!(field_is_private(panel_body, "state"));
+    assert_eq!(
+        field_type(panel_body, "state"),
+        Some("&'aTasksState".to_owned())
+    );
+    let assignment_body = extract_struct_body(&task_state_source, "TaskAssignmentSnapshot")
+        .expect("TaskAssignmentSnapshot body");
+    for (field, expected) in [
+        ("mode", "AssignmentUiMode"),
+        ("actor_id", "&'aUserId"),
+        ("users", "&'a[AssignmentUser]"),
+        ("filter", "Option<&'aUserId>"),
+    ] {
+        assert_eq!(
+            field_type(assignment_body, field),
+            Some(expected.to_owned()),
+            "TaskAssignmentSnapshot.{field}"
+        );
+    }
+    let nudge_body =
+        extract_struct_body(&task_state_source, "DailyTriageNudge").expect("nudge body");
+    assert_eq!(field_type(nudge_body, "task_id"), Some("String".to_owned()));
+    assert_eq!(
+        field_type(nudge_body, "task_label"),
+        Some("String".to_owned())
+    );
+    let links_body =
+        extract_named_body(&task_state_source, "enum", "TaskLinksPlan").expect("links plan body");
+    let expected_links_plan = [
+        "None,Open",
+        "{",
+        "url:String",
+        "},Choose",
+        "{",
+        "task_id:String,links:Vec<Link>",
+        "},",
+    ]
+    .concat();
+    assert_eq!(compact_tokens(links_body), expected_links_plan);
+
+    for signature in public_impl_method_signatures(&task_state_source, "TasksState") {
+        let Some((_, returned)) = signature.split_once("->") else {
+            continue;
+        };
+        assert!(
+            !returned.contains("&Task")
+                && !returned.contains("&[Task]")
+                && !returned.contains("&[Line")
+                && !returned.contains("TasksRenderState")
+                && !returned.contains("TaskRowsSnapshot")
+                && !returned.contains("TaskTriageSnapshot"),
+            "TasksState returns raw representation: {signature}"
+        );
+    }
+    for (name, expected) in [
+        (
+            "selected_links_plan",
+            "fnselected_links_plan(&self,linear_base:&str)->TaskLinksPlan",
+        ),
+        (
+            "daily_triage_nudge",
+            "fndaily_triage_nudge(&self,enabled:bool,disabled:bool,pattern:&str)->Option<DailyTriageNudge>",
+        ),
+        ("panel_model", "fnpanel_model(&self)->TasksPanelModel<'_>"),
+    ] {
+        assert_eq!(
+            compact_signature(function_signature(&task_state_source, name)),
+            expected,
+            "unexpected focused signature for {name}"
+        );
+    }
+    assert_eq!(
+        compact_signature(function_signature(&task_state_source, "content")),
+        "fncontent(&self)->implExactSizeIterator<Item=&'aLine<'static>>"
+    );
+
     for getter in [
         "search_mut",
         "source_rows",
@@ -171,17 +339,17 @@ fn aggregate_surfaces_and_consumers_stay_focused() {
         root.join("src/tui/state/tasks/filter.rs").is_file(),
         "task matching must live beneath TasksState"
     );
-    assert!(
-        !function_signature(&logs, "handle_logs_key").contains("App"),
-        "log handling must accept ShellState"
+    assert_eq!(
+        compact_signature(function_signature(&logs, "handle_logs_key")),
+        "fnhandle_logs_key(shell:&mutShellState,code:KeyCode,ctrl:bool)->bool"
     );
-    assert!(
-        !function_signature(&task_handler, "handle_search_key").contains("App"),
-        "task-search handling must accept TasksState"
+    assert_eq!(
+        compact_signature(function_signature(&task_handler, "handle_search_key")),
+        "fnhandle_search_key(tasks:&mutTasksState,code:KeyCode,ctrl:bool)->TaskSearchEffect"
     );
-    assert!(
-        !function_signature(&brain_renderer, "draw_brain").contains("App"),
-        "brain rendering must accept a focused projection"
+    assert_eq!(
+        compact_signature(function_signature(&brain_renderer, "draw_brain")),
+        "fndraw_brain(f:&mutFrame,context:&mutBrainPanelContext<'_>,area:Rect)"
     );
 }
 
@@ -195,6 +363,7 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
     let body = extract_struct_body(alternate_visibility, "App").expect("App body");
     assert_eq!(field_declaration_count(body, "query"), 1);
     assert!(!field_is_private(body, "query"));
+    assert_eq!(field_type(body, "query"), Some("String".to_owned()));
 
     let duplicate_visibility = r"
         struct App {
@@ -219,12 +388,36 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
     ";
     assert!(has_aliased_field_access(alias_leak, "tasks", &["query"]));
 
+    let multiline_typed_parenthesized_alias = r"
+        fn leak(app: &App) {
+            let local: &TasksState = (
+                &app.tasks
+            );
+            let _ = &local.query;
+        }
+    ";
+    assert!(has_aliased_field_access(
+        multiline_typed_parenthesized_alias,
+        "tasks",
+        &["query"]
+    ));
+
     let forwarding = r"
         impl App {
             fn query(&self) -> &str { self.tasks.query_text() }
         }
     ";
-    assert!(has_simple_aggregate_forwarder(forwarding));
+    assert!(has_raw_aggregate_forwarder(forwarding));
+
+    let multi_statement_forwarding = r"
+        impl App {
+            fn query(&self) -> &str {
+                let state: &TasksState = (&self.tasks);
+                state.query_text()
+            }
+        }
+    ";
+    assert!(has_raw_aggregate_forwarder(multi_statement_forwarding));
 }
 
 fn directly_accesses_field(source: &str, aggregate: &str, field: &str) -> bool {
@@ -242,15 +435,19 @@ fn directly_accesses_field(source: &str, aggregate: &str, field: &str) -> bool {
 }
 
 fn extract_struct_body<'a>(source: &'a str, name: &str) -> Option<&'a str> {
+    extract_named_body(source, "struct", name)
+}
+
+fn extract_named_body<'a>(source: &'a str, kind: &str, name: &str) -> Option<&'a str> {
     let masked = mask_non_code(source);
     let mut offset = 0;
-    while let Some(relative) = masked[offset..].find("struct") {
+    while let Some(relative) = masked[offset..].find(kind) {
         let start = offset + relative;
-        if !token_at(&masked, start, "struct") {
-            offset = start + "struct".len();
+        if !token_at(&masked, start, kind) {
+            offset = start + kind.len();
             continue;
         }
-        let mut cursor = start + "struct".len();
+        let mut cursor = start + kind.len();
         cursor += masked[cursor..].len() - masked[cursor..].trim_start().len();
         let end = masked[cursor..]
             .find(|character: char| !character.is_ascii_alphanumeric() && character != '_')
@@ -272,6 +469,30 @@ fn field_declaration_count(body: &str, field: &str) -> usize {
 fn field_is_private(body: &str, field: &str) -> bool {
     let declarations = field_declarations(body, field);
     declarations.len() == 1 && declarations[0] == field
+}
+
+fn field_type(body: &str, field: &str) -> Option<String> {
+    let masked = mask_non_code(body);
+    body.lines()
+        .zip(masked.lines())
+        .find_map(|(original, code)| {
+            let code = code.trim();
+            let colon = field_separator(code)?;
+            let left = &code[..colon];
+            if left.split_whitespace().next_back() != Some(field) {
+                return None;
+            }
+            let original = original.trim();
+            let original_colon = field_separator(original)?;
+            Some(
+                original[original_colon + 1..]
+                    .trim()
+                    .trim_end_matches(',')
+                    .chars()
+                    .filter(|character| !character.is_whitespace())
+                    .collect(),
+            )
+        })
 }
 
 fn field_declarations<'a>(body: &'a str, field: &str) -> Vec<&'a str> {
@@ -311,80 +532,272 @@ fn field_separator(code: &str) -> Option<usize> {
 }
 
 fn has_aliased_field_access(source: &str, aggregate: &str, fields: &[&str]) -> bool {
-    let masked = mask_non_code(source);
-    let mut aliases = Vec::new();
-    for line in masked.lines() {
-        let compact: String = line
-            .chars()
-            .filter(|character| !character.is_whitespace())
-            .collect();
-        let Some(rest) = compact.strip_prefix("let") else {
-            continue;
-        };
-        let Some((left, right)) = rest.split_once('=') else {
-            continue;
-        };
-        let alias = left.strip_prefix("mut").unwrap_or(left);
-        if !is_identifier(alias) {
-            continue;
-        }
-        let aggregate_ref = format!(".{aggregate}");
-        if right.contains(&aggregate_ref) && !right.contains(&format!(".{aggregate}.")) {
-            aliases.push(alias.to_owned());
-        }
-    }
-    let compact: String = masked
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .collect();
+    let tokens = code_tokens(source);
+    let aliases = aggregate_aliases(&tokens, aggregate);
     aliases.iter().any(|alias| {
-        fields.iter().any(|field| {
-            let needle = format!("{alias}.{field}");
-            compact.match_indices(&needle).any(|(at, _)| {
-                compact[at + needle.len()..]
-                    .chars()
-                    .next()
-                    .is_some_and(|next| next != '(' && !next.is_ascii_alphanumeric() && next != '_')
-            })
+        tokens.windows(3).enumerate().any(|(index, window)| {
+            window[0] == *alias
+                && window[1] == "."
+                && fields.contains(&window[2])
+                && tokens.get(index + 3) != Some(&"(")
         })
     })
 }
 
-fn has_simple_aggregate_forwarder(source: &str) -> bool {
+fn has_raw_aggregate_forwarder(source: &str) -> bool {
     let masked = mask_non_code(source);
     impl_app_ranges(&masked).into_iter().any(|(open, close)| {
-        method_body_ranges(&masked, open, close)
+        method_ranges(&masked, open, close)
             .into_iter()
-            .any(|(body_open, body_close)| {
-                let mut body: String = masked[body_open + 1..body_close]
-                    .chars()
-                    .filter(|character| !character.is_whitespace())
-                    .collect();
-                if let Some(returned) = body.strip_prefix("return") {
-                    body = returned.to_owned();
-                }
-                if body.ends_with(';') {
-                    body.pop();
-                }
-                if body.contains(';') || body.matches("self.").count() != 1 {
+            .any(|(fn_start, body_open, body_close)| {
+                let signature = compact_signature(&source[fn_start..body_open]);
+                let Some((_, returned)) = signature.split_once("->") else {
+                    return false;
+                };
+                if !returned.starts_with('&')
+                    && ![
+                        "Task",
+                        "Vec<Task>",
+                        "TasksRenderState",
+                        "TaskRowsSnapshot",
+                        "TaskTriageSnapshot",
+                    ]
+                    .iter()
+                    .any(|raw| returned.contains(raw))
+                {
                     return false;
                 }
-                let expression = body
-                    .strip_prefix("&mut")
-                    .or_else(|| body.strip_prefix('&'))
-                    .unwrap_or(&body);
-                expression.starts_with("self.tasks") || expression.starts_with("self.shell")
+                let body = &source[body_open + 1..body_close];
+                ["tasks", "shell"].into_iter().any(|aggregate| {
+                    let tokens = code_tokens(body);
+                    let statements = top_level_statements(&tokens);
+                    let Some((last, preceding)) = statements.split_last() else {
+                        return false;
+                    };
+                    let aliases = preceding
+                        .iter()
+                        .filter_map(|statement| aggregate_alias_from_let(statement, aggregate))
+                        .collect::<Vec<_>>();
+                    aliases.len() == preceding.len()
+                        && forwarded_expression(last, aggregate, &aliases)
+                })
             })
     })
 }
 
+fn aggregate_aliases<'a>(tokens: &[&'a str], aggregate: &str) -> Vec<&'a str> {
+    let mut aliases = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if *token != "let" {
+            continue;
+        }
+        let end = tokens[index..]
+            .iter()
+            .position(|candidate| *candidate == ";")
+            .map_or(tokens.len(), |relative| index + relative);
+        if let Some(alias) = aggregate_alias_from_let(&tokens[index..end], aggregate) {
+            aliases.push(alias);
+        }
+    }
+    aliases
+}
+
+fn aggregate_alias_from_let<'a>(statement: &[&'a str], aggregate: &str) -> Option<&'a str> {
+    if statement.first() != Some(&"let") {
+        return None;
+    }
+    let mut alias_index = 1;
+    if statement.get(alias_index) == Some(&"mut") {
+        alias_index += 1;
+    }
+    let alias = *statement.get(alias_index)?;
+    if !is_identifier(alias) {
+        return None;
+    }
+    let equals = statement.iter().position(|token| *token == "=")?;
+    member_reference(&statement[equals + 1..], aggregate).then_some(alias)
+}
+
+fn member_reference(tokens: &[&str], aggregate: &str) -> bool {
+    tokens.windows(2).any(|window| window == [".", aggregate])
+}
+
+fn top_level_statements<'a>(tokens: &'a [&'a str]) -> Vec<&'a [&'a str]> {
+    let mut statements = Vec::new();
+    let mut start = 0_usize;
+    let mut depth = 0_usize;
+    for (index, token) in tokens.iter().enumerate() {
+        match *token {
+            "(" | "[" | "{" => depth += 1,
+            ")" | "]" | "}" => depth = depth.saturating_sub(1),
+            ";" if depth == 0 => {
+                if start < index {
+                    statements.push(&tokens[start..index]);
+                }
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    if start < tokens.len() {
+        statements.push(&tokens[start..]);
+    }
+    statements
+}
+
+fn forwarded_expression(tokens: &[&str], aggregate: &str, aliases: &[&str]) -> bool {
+    let mut start = 0_usize;
+    if tokens.get(start) == Some(&"return") {
+        start += 1;
+    }
+    while matches!(tokens.get(start), Some(&"(" | &"&" | &"mut")) {
+        start += 1;
+    }
+    (tokens.get(start) == Some(&"self")
+        && tokens.get(start + 1) == Some(&".")
+        && tokens.get(start + 2) == Some(&aggregate))
+        || (tokens
+            .get(start)
+            .is_some_and(|candidate| aliases.contains(candidate))
+            && tokens.get(start + 1) == Some(&".")
+            && tokens
+                .get(start + 2)
+                .is_some_and(|name| is_identifier(name)))
+}
+
 fn function_signature<'a>(source: &'a str, name: &str) -> &'a str {
-    let start = source
-        .find(&format!("fn {name}"))
-        .expect("function declaration");
-    let rest = &source[start..];
-    let end = rest.find('{').expect("function body");
-    &rest[..end]
+    let masked = mask_non_code(source);
+    for (start, _) in masked.match_indices("fn") {
+        if !token_at(&masked, start, "fn") {
+            continue;
+        }
+        let after_fn = start + 2;
+        let rest = masked[after_fn..].trim_start();
+        let name_start = after_fn + (masked[after_fn..].len() - rest.len());
+        let Some(after_name) = rest.strip_prefix(name) else {
+            continue;
+        };
+        if !after_name
+            .chars()
+            .next()
+            .is_some_and(|character| character == '(' || character == '<')
+        {
+            continue;
+        }
+        let end = masked[name_start + name.len()..]
+            .find('{')
+            .map(|relative| name_start + name.len() + relative)
+            .expect("function body");
+        return &source[start..end];
+    }
+    panic!("function declaration: {name}")
+}
+
+fn compact_signature(signature: &str) -> String {
+    let mut compact = signature
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    while compact.contains(",)") {
+        compact = compact.replace(",)", ")");
+    }
+    compact
+        .strip_prefix("pub(crate)")
+        .unwrap_or(&compact)
+        .to_owned()
+}
+
+fn compact_tokens(source: &str) -> String {
+    code_tokens(source).concat()
+}
+
+fn public_impl_method_names<'a>(source: &'a str, type_name: &str) -> Vec<&'a str> {
+    public_impl_method_signatures_with_names(source, type_name)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
+fn public_impl_method_signatures(source: &str, type_name: &str) -> Vec<String> {
+    public_impl_method_signatures_with_names(source, type_name)
+        .into_iter()
+        .map(|(_, signature)| compact_signature(signature))
+        .collect()
+}
+
+fn public_impl_method_signatures_with_names<'a>(
+    source: &'a str,
+    type_name: &str,
+) -> Vec<(&'a str, &'a str)> {
+    let masked = mask_non_code(source);
+    let mut methods = Vec::new();
+    for (impl_open, impl_close) in impl_ranges(&masked, type_name) {
+        let mut declaration_start = impl_open + 1;
+        for (fn_start, body_open, body_close) in method_ranges(&masked, impl_open, impl_close) {
+            let visibility: String = masked[declaration_start..fn_start]
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect();
+            declaration_start = body_close + 1;
+            if !visibility.contains("pub(crate)") {
+                continue;
+            }
+            let after_fn = &masked[fn_start + 2..body_open];
+            let trimmed = after_fn.trim_start();
+            let name_len = trimmed
+                .find(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+                .expect("method name terminator");
+            let name_offset = source[fn_start + 2..body_open].find(trimmed).unwrap();
+            let name_start = fn_start + 2 + name_offset;
+            methods.push((
+                &source[name_start..name_start + name_len],
+                &source[fn_start..body_open],
+            ));
+        }
+    }
+    methods
+}
+
+fn public_state_type_names(source: &str) -> Vec<&str> {
+    let tokens = code_tokens(source);
+    let mut names = Vec::new();
+    for window in tokens.windows(6) {
+        if window[0] == "pub"
+            && window[1] == "("
+            && window[2] == "crate"
+            && window[3] == ")"
+            && matches!(window[4], "struct" | "enum")
+        {
+            names.push(window[5]);
+        }
+    }
+    names
+}
+
+fn code_tokens(source: &str) -> Vec<&str> {
+    let masked = mask_non_code(source);
+    let bytes = masked.as_bytes();
+    let mut tokens = Vec::new();
+    let mut cursor = 0_usize;
+    while cursor < bytes.len() {
+        if bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        } else if bytes[cursor].is_ascii_alphabetic() || bytes[cursor] == b'_' {
+            let start = cursor;
+            cursor += 1;
+            while cursor < bytes.len()
+                && (bytes[cursor].is_ascii_alphanumeric() || bytes[cursor] == b'_')
+            {
+                cursor += 1;
+            }
+            tokens.push(&source[start..cursor]);
+        } else {
+            let start = cursor;
+            cursor += 1;
+            tokens.push(&source[start..cursor]);
+        }
+    }
+    tokens
 }
 
 fn declares_function(source: &str, name: &str) -> bool {
@@ -404,6 +817,10 @@ fn declares_function(source: &str, name: &str) -> bool {
 }
 
 fn impl_app_ranges(masked: &str) -> Vec<(usize, usize)> {
+    impl_ranges(masked, "App")
+}
+
+fn impl_ranges(masked: &str, type_name: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
     for (start, _) in masked.match_indices("impl") {
         if !token_at(masked, start, "impl") {
@@ -411,8 +828,8 @@ fn impl_app_ranges(masked: &str) -> Vec<(usize, usize)> {
         }
         let rest_start = start + 4;
         let rest = masked[rest_start..].trim_start();
-        if !rest.starts_with("App")
-            || rest[3..]
+        if !rest.starts_with(type_name)
+            || rest[type_name.len()..]
                 .chars()
                 .next()
                 .is_some_and(|character| character.is_ascii_alphanumeric() || character == '_')
@@ -427,7 +844,7 @@ fn impl_app_ranges(masked: &str) -> Vec<(usize, usize)> {
     ranges
 }
 
-fn method_body_ranges(masked: &str, impl_open: usize, impl_close: usize) -> Vec<(usize, usize)> {
+fn method_ranges(masked: &str, impl_open: usize, impl_close: usize) -> Vec<(usize, usize, usize)> {
     let mut ranges = Vec::new();
     let mut cursor = impl_open + 1;
     let mut depth = 0_usize;
@@ -441,7 +858,7 @@ fn method_body_ranges(masked: &str, impl_open: usize, impl_close: usize) -> Vec<
                 };
                 let open = cursor + 2 + relative_open;
                 if let Some(close) = matching_brace(masked, open) {
-                    ranges.push((open, close));
+                    ranges.push((cursor, open, close));
                     cursor = close;
                 }
             }

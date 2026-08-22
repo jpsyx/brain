@@ -216,7 +216,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
             let is_habit = app.tasks.current_is_habit();
             let has_notes = app.tasks.current_has_notes();
             let notes_expanded = app.tasks.current_notes_expanded();
-            let link_kind = app.current_link_kind();
+            let link_kind = app.tasks.selected_link_kind(&app.config.linear_base_url());
             TaskPalette::new(
                 task_id,
                 is_habit,

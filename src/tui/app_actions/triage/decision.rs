@@ -1,6 +1,3 @@
-use regex::RegexBuilder;
-
-use crate::tasks::task::Task;
 use crate::tui::App;
 
 /// Whether the deferred triage gate should resolve now.
@@ -106,73 +103,6 @@ pub(crate) const fn resolve_triage_alert(
 #[must_use]
 pub(crate) const fn triage_reconciliation_pending(resolution: TriageAlertResolution) -> bool {
     matches!(resolution, TriageAlertResolution::Defer)
-}
-
-/// Gate the daily-triage nudge on the process-scoped opt-out (seeded from
-/// `enable_daily_triage_check`, flipped by the palette) before consulting
-/// [`triage_nudge_target`]. When `disabled` is set the
-/// modal never fires this run regardless of habit state; this is a per-process
-/// flag, not a persistent config change. Pure so the opt-out is unit-tested
-/// without constructing an `App`.
-pub(super) fn triage_modal_target<'h>(
-    enable_triage_habits: bool,
-    disabled: bool,
-    habits: &'h [Task],
-    pattern: &str,
-    today: chrono::NaiveDate,
-) -> Option<&'h Task> {
-    if !enable_triage_habits || disabled {
-        return None;
-    }
-    triage_nudge_target(habits, pattern, today)
-}
-
-/// Decide whether the startup triage nudge should fire, and for which habit.
-///
-/// Returns `Some(habit)` — the occurrence to surface in the modal — when the
-/// `pattern` matches at least one habit by name but *no* matched occurrence
-/// is completed today. Returns `None` (no nudge) when the pattern is
-/// empty/blank, is an invalid regex, matches no habit at all, or some matched
-/// occurrence is already completed today.
-///
-/// Matching by a case-insensitive name regex (rather than a fixed ID) is what
-/// makes this correct across recurrence: the triage habit gets a fresh ID
-/// each cycle, but its name is stable, so "is today's triage done?" reduces to
-/// "does any occurrence of the named habit carry today's `completed_date`?".
-///
-/// When a nudge is warranted, the surfaced occurrence is the one due today if
-/// present, otherwise the latest-dated match — the row the user is most likely
-/// to recognize as "the current one".
-pub(super) fn triage_nudge_target<'h>(
-    habits: &'h [Task],
-    pattern: &str,
-    today: chrono::NaiveDate,
-) -> Option<&'h Task> {
-    let pattern = pattern.trim();
-    if pattern.is_empty() {
-        return None;
-    }
-    let re = RegexBuilder::new(pattern)
-        .case_insensitive(true)
-        .build()
-        .ok()?;
-
-    let matched: Vec<&Task> = habits.iter().filter(|h| re.is_match(&h.name)).collect();
-    if matched.is_empty() {
-        // Habit not installed (or pattern doesn't match anything) — the
-        // nudge is optional, so stay silent rather than guess.
-        return None;
-    }
-    if matched.iter().any(|h| h.is_completed_today(today)) {
-        // Triage already done for today's cycle.
-        return None;
-    }
-
-    matched
-        .iter()
-        .find(|h| h.due_date == Some(today))
-        .or_else(|| matched.iter().max_by_key(|h| h.due_date))
-        .copied()
 }
 
 /// The "logical day" a local instant belongs to for triage purposes. The
