@@ -668,6 +668,33 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
         propagated_typed_parenthesized_brain_forwarder
     ));
 
+    let dead_aliases_before_context_forwarder = r"
+        impl App {
+            fn endpoint(&self, port: u16) -> String {
+                let unused_tasks = &self.tasks;
+                let unused_shell = &self.shell;
+                let context = &self.context;
+                context.session_done_url(port)
+            }
+        }
+    ";
+    assert!(has_pure_direct_aggregate_forwarder(
+        dead_aliases_before_context_forwarder
+    ));
+
+    let shadowed_alias_uses_the_last_binding = r"
+        impl App {
+            fn endpoint(&self, port: u16) -> String {
+                let owner = &self.brain;
+                let owner: &AppContext = ((&self.context));
+                owner.session_done_url(port)
+            }
+        }
+    ";
+    assert!(has_pure_direct_aggregate_forwarder(
+        shadowed_alias_uses_the_last_binding
+    ));
+
     let cross_aggregate_mediator = r"
         impl App {
             fn active_tab(&self) -> BrainTab {
@@ -894,29 +921,25 @@ fn has_pure_direct_aggregate_forwarder(source: &str) -> bool {
                     return false;
                 };
                 let mut aliases = Vec::new();
-                let mut method_taint = 0_u16;
                 for statement in preceding {
                     let Some((alias, taint)) =
                         aggregate_tainted_alias_from_let(statement, APP_OWNERS, &aliases)
                     else {
                         return false;
                     };
-                    method_taint |= taint;
                     aliases.push((alias, taint));
                 }
                 if !simple_aggregate_forward_expression(expression, APP_OWNERS, &aliases) {
                     return false;
                 }
                 let expression_taint = aggregate_owner_taint(expression, APP_OWNERS, &aliases);
-                method_taint |= expression_taint;
-                expression_taint != 0
-                    && method_taint.is_power_of_two()
+                expression_taint.is_power_of_two()
                     && GUARDED_OWNERS.iter().any(|owner| {
                         APP_OWNERS
                             .iter()
                             .position(|field| field == owner)
                             .and_then(owner_bit)
-                            == Some(method_taint)
+                            == Some(expression_taint)
                     })
             })
     })
@@ -985,6 +1008,7 @@ fn aggregate_owner_taint(tokens: &[&str], owners: &[&str], aliases: &[(&str, u16
     tokens.iter().fold(direct, |taint, token| {
         aliases
             .iter()
+            .rev()
             .find(|(alias, _)| alias == token)
             .map_or(taint, |(_, owner)| taint | owner)
     })
