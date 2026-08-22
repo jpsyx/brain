@@ -333,10 +333,12 @@ first move is a failing test that reproduces it, *then* the fix.
   `tests/tui_state_aggregates_architecture.rs` extracts the exact three owner
   struct bodies, pins the exact private owner-field types, requires one private
   declaration for every owned field, and rejects duplicates across visibility
-  forms. Its positive API and projection allowlists pin the focused consumer
-  signatures; a tokenized scan rejects direct or aliased representation access
-  plus raw `App` forwarding through multiline typed aliases or multistatement
-  method bodies. Synthetic fixtures pressure-test each guard branch.
+  forms. Its positive API allowlist, exact tokenized projection shapes, and
+  focused consumer signatures pin the permitted aggregate surface. A tokenized
+  dataflow scan rejects direct or aliased representation access, propagates
+  aggregate taint through intermediate lets, resolves local raw/reference
+  return aliases, and rejects raw `App` forwarding through multiline typed or
+  parenthesized bodies. Synthetic fixtures pressure-test each guard branch.
 - **Skill sessions** (`skill_session/`, `tui/app_skill_session/`,
   `tui/app_brain/tests/skill_session.rs`). The pure half is unit-tested directly:
   what the workspace offers (`available`: the builtin daily triage only while the

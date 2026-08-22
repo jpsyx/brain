@@ -244,47 +244,33 @@ fn aggregate_surfaces_and_consumers_stay_focused() {
         "task state added or removed a public projection without guard review"
     );
 
-    let panel_body =
-        extract_struct_body(&task_state_source, "TasksPanelModel").expect("TasksPanelModel body");
-    assert!(field_is_private(panel_body, "state"));
-    assert_eq!(
-        field_type(panel_body, "state"),
-        Some("&'aTasksState".to_owned())
-    );
-    let assignment_body = extract_struct_body(&task_state_source, "TaskAssignmentSnapshot")
-        .expect("TaskAssignmentSnapshot body");
-    for (field, expected) in [
-        ("mode", "AssignmentUiMode"),
-        ("actor_id", "&'aUserId"),
-        ("users", "&'a[AssignmentUser]"),
-        ("filter", "Option<&'aUserId>"),
+    for (kind, name, expected) in [
+        ("struct", "TasksPanelModel", "state:&'aTasksState,"),
+        (
+            "struct",
+            "TaskAssignmentSnapshot",
+            "pub(crate)mode:AssignmentUiMode,pub(crate)actor_id:&'aUserId,pub(crate)users:&'a[AssignmentUser],pub(crate)filter:Option<&'aUserId>,",
+        ),
+        (
+            "struct",
+            "DailyTriageNudge",
+            "pub(crate)task_id:String,pub(crate)task_label:String,",
+        ),
     ] {
-        assert_eq!(
-            field_type(assignment_body, field),
-            Some(expected.to_owned()),
-            "TaskAssignmentSnapshot.{field}"
+        assert!(
+            has_exact_named_shape(&task_state_source, kind, name, expected),
+            "{name} fields, visibility, or types drifted"
         );
     }
-    let nudge_body =
-        extract_struct_body(&task_state_source, "DailyTriageNudge").expect("nudge body");
-    assert_eq!(field_type(nudge_body, "task_id"), Some("String".to_owned()));
-    assert_eq!(
-        field_type(nudge_body, "task_label"),
-        Some("String".to_owned())
+    assert!(
+        has_exact_named_shape(
+            &task_state_source,
+            "enum",
+            "TaskLinksPlan",
+            &expected_links_plan_shape()
+        ),
+        "TaskLinksPlan variants, fields, or types drifted"
     );
-    let links_body =
-        extract_named_body(&task_state_source, "enum", "TaskLinksPlan").expect("links plan body");
-    let expected_links_plan = [
-        "None,Open",
-        "{",
-        "url:String",
-        "},Choose",
-        "{",
-        "task_id:String,links:Vec<Link>",
-        "},",
-    ]
-    .concat();
-    assert_eq!(compact_tokens(links_body), expected_links_plan);
 
     for signature in public_impl_method_signatures(&task_state_source, "TasksState") {
         let Some((_, returned)) = signature.split_once("->") else {
@@ -374,6 +360,57 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
     let body = extract_struct_body(duplicate_visibility, "App").expect("App body");
     assert_eq!(field_declaration_count(body, "query"), 2);
 
+    let exact_panel = r"
+        pub(crate) struct TasksPanelModel<'a> {
+            state: &'a TasksState,
+        }
+    ";
+    let extra_panel_field = r"
+        pub(crate) struct TasksPanelModel<'a> {
+            state: &'a TasksState,
+            count: usize,
+        }
+    ";
+    let raw_nudge_field = r"
+        pub(crate) struct DailyTriageNudge {
+            pub(crate) task_id: String,
+            pub(crate) task_label: String,
+            pub(crate) habit: Task,
+        }
+    ";
+    let extra_links_variant = r"
+        pub(crate) enum TaskLinksPlan {
+            None,
+            Open { url: String },
+            Choose { task_id: String, links: Vec<Link> },
+            Raw(Task),
+        }
+    ";
+    assert!(has_exact_named_shape(
+        exact_panel,
+        "struct",
+        "TasksPanelModel",
+        "state:&'aTasksState,"
+    ));
+    assert!(!has_exact_named_shape(
+        extra_panel_field,
+        "struct",
+        "TasksPanelModel",
+        "state:&'aTasksState,"
+    ));
+    assert!(!has_exact_named_shape(
+        raw_nudge_field,
+        "struct",
+        "DailyTriageNudge",
+        "pub(crate)task_id:String,pub(crate)task_label:String,"
+    ));
+    assert!(!has_exact_named_shape(
+        extra_links_variant,
+        "enum",
+        "TaskLinksPlan",
+        &expected_links_plan_shape()
+    ));
+
     assert!(directly_accesses_field(
         "fn leak(app: &App) { let _ = &app.tasks.query; }",
         "tasks",
@@ -418,6 +455,29 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
         }
     ";
     assert!(has_raw_aggregate_forwarder(multi_statement_forwarding));
+
+    let intermediate_forwarding = r"
+        impl App {
+            fn query(&self) -> &str {
+                let state: &TasksState = (&self.tasks);
+                let value: &str = ((state.query_text()));
+                ((value))
+            }
+        }
+    ";
+    assert!(has_raw_aggregate_forwarder(intermediate_forwarding));
+
+    let aliased_raw_return = r"
+        type BorrowedValue<'a> = &'a str;
+        type RenamedValue<'a> = BorrowedValue<'a>;
+
+        impl App {
+            fn query(&self) -> RenamedValue<'_> {
+                self.tasks.query_text()
+            }
+        }
+    ";
+    assert!(has_raw_aggregate_forwarder(aliased_raw_return));
 }
 
 fn directly_accesses_field(source: &str, aggregate: &str, field: &str) -> bool {
@@ -554,17 +614,7 @@ fn has_raw_aggregate_forwarder(source: &str) -> bool {
                 let Some((_, returned)) = signature.split_once("->") else {
                     return false;
                 };
-                if !returned.starts_with('&')
-                    && ![
-                        "Task",
-                        "Vec<Task>",
-                        "TasksRenderState",
-                        "TaskRowsSnapshot",
-                        "TaskTriageSnapshot",
-                    ]
-                    .iter()
-                    .any(|raw| returned.contains(raw))
-                {
+                if !representation_like_return(source, returned) {
                     return false;
                 }
                 let body = &source[body_open + 1..body_close];
@@ -574,14 +624,92 @@ fn has_raw_aggregate_forwarder(source: &str) -> bool {
                     let Some((last, preceding)) = statements.split_last() else {
                         return false;
                     };
-                    let aliases = preceding
-                        .iter()
-                        .filter_map(|statement| aggregate_alias_from_let(statement, aggregate))
-                        .collect::<Vec<_>>();
-                    aliases.len() == preceding.len()
-                        && forwarded_expression(last, aggregate, &aliases)
+                    let mut aliases = Vec::new();
+                    for statement in preceding {
+                        let Some(alias) = tainted_alias_from_let(statement, aggregate, &aliases)
+                        else {
+                            return false;
+                        };
+                        aliases.push(alias);
+                    }
+                    forwarded_expression(last, aggregate, &aliases)
                 })
             })
+    })
+}
+
+fn representation_like_return(source: &str, returned: &str) -> bool {
+    let aliases = representation_type_aliases(source);
+    type_exposes_representation(&code_tokens(returned), &aliases)
+}
+
+fn representation_type_aliases(source: &str) -> Vec<&str> {
+    let tokens = code_tokens(source);
+    let declarations = type_alias_declarations(&tokens);
+    let mut aliases = Vec::new();
+    loop {
+        let mut added = false;
+        for (name, value) in &declarations {
+            if !aliases.contains(name) && type_exposes_representation(value, &aliases) {
+                aliases.push(*name);
+                added = true;
+            }
+        }
+        if !added {
+            return aliases;
+        }
+    }
+}
+
+fn type_alias_declarations<'tokens, 'source>(
+    tokens: &'tokens [&'source str],
+) -> Vec<(&'source str, &'tokens [&'source str])> {
+    let mut declarations = Vec::new();
+    let mut cursor = 0_usize;
+    while cursor < tokens.len() {
+        if tokens[cursor] != "type" || tokens.get(cursor.wrapping_sub(1)) == Some(&".") {
+            cursor += 1;
+            continue;
+        }
+        let Some(name) = tokens
+            .get(cursor + 1)
+            .copied()
+            .filter(|name| is_identifier(name))
+        else {
+            cursor += 1;
+            continue;
+        };
+        let end = tokens[cursor + 2..]
+            .iter()
+            .position(|token| *token == ";")
+            .map_or(tokens.len(), |relative| cursor + 2 + relative);
+        let Some(equals) = tokens[cursor + 2..end]
+            .iter()
+            .position(|token| *token == "=")
+            .map(|relative| cursor + 2 + relative)
+        else {
+            cursor = end.saturating_add(1);
+            continue;
+        };
+        declarations.push((name, &tokens[equals + 1..end]));
+        cursor = end.saturating_add(1);
+    }
+    declarations
+}
+
+fn type_exposes_representation(tokens: &[&str], aliases: &[&str]) -> bool {
+    tokens.iter().any(|token| {
+        *token == "&"
+            || aliases.contains(token)
+            || matches!(
+                *token,
+                "Task"
+                    | "Habit"
+                    | "Line"
+                    | "TasksRenderState"
+                    | "TaskRowsSnapshot"
+                    | "TaskTriageSnapshot"
+            )
     })
 }
 
@@ -616,6 +744,26 @@ fn aggregate_alias_from_let<'a>(statement: &[&'a str], aggregate: &str) -> Optio
     }
     let equals = statement.iter().position(|token| *token == "=")?;
     member_reference(&statement[equals + 1..], aggregate).then_some(alias)
+}
+
+fn tainted_alias_from_let<'a>(
+    statement: &[&'a str],
+    aggregate: &str,
+    aliases: &[&str],
+) -> Option<&'a str> {
+    if statement.first() != Some(&"let") {
+        return None;
+    }
+    let mut alias_index = 1;
+    if statement.get(alias_index) == Some(&"mut") {
+        alias_index += 1;
+    }
+    let alias = *statement.get(alias_index)?;
+    if !is_identifier(alias) {
+        return None;
+    }
+    let equals = statement.iter().position(|token| *token == "=")?;
+    forwarded_expression(&statement[equals + 1..], aggregate, aliases).then_some(alias)
 }
 
 fn member_reference(tokens: &[&str], aggregate: &str) -> bool {
@@ -656,13 +804,9 @@ fn forwarded_expression(tokens: &[&str], aggregate: &str, aliases: &[&str]) -> b
     (tokens.get(start) == Some(&"self")
         && tokens.get(start + 1) == Some(&".")
         && tokens.get(start + 2) == Some(&aggregate))
-        || (tokens
+        || tokens
             .get(start)
             .is_some_and(|candidate| aliases.contains(candidate))
-            && tokens.get(start + 1) == Some(&".")
-            && tokens
-                .get(start + 2)
-                .is_some_and(|name| is_identifier(name)))
 }
 
 fn function_signature<'a>(source: &'a str, name: &str) -> &'a str {
@@ -709,6 +853,23 @@ fn compact_signature(signature: &str) -> String {
 
 fn compact_tokens(source: &str) -> String {
     code_tokens(source).concat()
+}
+
+fn has_exact_named_shape(source: &str, kind: &str, name: &str, expected: &str) -> bool {
+    extract_named_body(source, kind, name).is_some_and(|body| compact_tokens(body) == expected)
+}
+
+fn expected_links_plan_shape() -> String {
+    [
+        "None,Open",
+        "{",
+        "url:String",
+        "},Choose",
+        "{",
+        "task_id:String,links:Vec<Link>",
+        "},",
+    ]
+    .concat()
 }
 
 fn public_impl_method_names<'a>(source: &'a str, type_name: &str) -> Vec<&'a str> {
