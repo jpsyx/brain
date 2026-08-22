@@ -8,11 +8,14 @@ use ratatui::text::Line;
 use crate::personalization::tags::TagStyles;
 use crate::tasks::render::{build_body_lines_with_ranges, header_lines, no_matches_lines};
 use crate::tasks::selector::Selector;
-use crate::tasks::task::{AssignmentContext, Task};
+use crate::tasks::task::{AssignmentContext, AssignmentUiMode, AssignmentUser, Task};
 use crate::tasks::view::{self, TaskViewOptions, View, ViewSpec};
 use crate::users::UserId;
 
+mod filter;
 mod interaction;
+
+use filter::filter_tasks;
 
 pub(crate) struct TasksStateInit {
     pub(crate) view: ViewSpec,
@@ -69,6 +72,23 @@ pub(crate) struct TasksRenderState<'a> {
     pub(crate) pending_count: Option<usize>,
 }
 
+pub(crate) struct TaskRowsSnapshot<'a> {
+    pub(crate) tasks: &'a [Task],
+    pub(crate) habits: &'a [Task],
+}
+
+pub(crate) struct TaskTriageSnapshot<'a> {
+    pub(crate) today: NaiveDate,
+    pub(crate) habits: &'a [Task],
+}
+
+pub(crate) struct TaskAssignmentSnapshot<'a> {
+    pub(crate) mode: AssignmentUiMode,
+    pub(crate) actor_id: &'a UserId,
+    pub(crate) users: &'a [AssignmentUser],
+    pub(crate) filter: Option<&'a UserId>,
+}
+
 impl TasksState {
     pub(crate) fn new(init: TasksStateInit) -> Self {
         let TasksStateInit {
@@ -121,12 +141,9 @@ impl TasksState {
         self.active_view
     }
 
-    pub(crate) const fn today(&self) -> NaiveDate {
-        self.today
-    }
-
-    pub(crate) fn set_today(&mut self, today: NaiveDate) {
+    pub(crate) fn advance_day(&mut self, today: NaiveDate) {
         self.today = today;
+        self.rematerialize_active_view();
     }
 
     pub(crate) fn selected_task(&self) -> Option<&Task> {
@@ -144,12 +161,11 @@ impl TasksState {
         self.visible_tasks.len()
     }
 
-    pub(crate) fn source_rows(&self) -> (&[Task], &[Task]) {
-        (&self.all_tasks, &self.all_habits)
-    }
-
-    pub(crate) fn all_habits(&self) -> &[Task] {
-        &self.all_habits
+    pub(crate) fn rows_snapshot(&self) -> TaskRowsSnapshot<'_> {
+        TaskRowsSnapshot {
+            tasks: &self.all_tasks,
+            habits: &self.all_habits,
+        }
     }
 
     #[cfg(test)]
@@ -157,16 +173,20 @@ impl TasksState {
         &self.query
     }
 
-    pub(crate) fn body_lines(&self) -> &[Line<'static>] {
-        &self.body_lines
+    pub(crate) fn triage_snapshot(&self) -> TaskTriageSnapshot<'_> {
+        TaskTriageSnapshot {
+            today: self.today,
+            habits: &self.all_habits,
+        }
     }
 
-    pub(crate) const fn assignment(&self) -> &AssignmentContext {
-        &self.assignment
-    }
-
-    pub(crate) fn assignment_filter(&self) -> Option<&UserId> {
-        self.assignment_filter.as_ref()
+    pub(crate) fn assignment_snapshot(&self) -> TaskAssignmentSnapshot<'_> {
+        TaskAssignmentSnapshot {
+            mode: self.assignment.mode(),
+            actor_id: self.assignment.actor_id(),
+            users: self.assignment.users(),
+            filter: self.assignment_filter.as_ref(),
+        }
     }
 
     pub(crate) const fn is_searching(&self) -> bool {
@@ -266,7 +286,7 @@ impl TasksState {
     }
 
     fn rebuild_body(&mut self) {
-        let visible = crate::tui::filter_tasks(
+        let visible = filter_tasks(
             &self.base_tasks,
             &self.query,
             self.assignment_filter.as_ref(),
@@ -344,9 +364,11 @@ mod tests {
         first.name = "Alpha plan".to_owned();
         first.notes = "A detailed first note\nwith a second line".to_owned();
         first.assigned_to = "alice".to_owned();
+        first.due_date = Some(today);
         let mut second = test_task("T2", "not_started");
         second.name = "Beta follow-up".to_owned();
         second.assigned_to = "teammate".to_owned();
+        second.due_date = today.succ_opt();
         let all_tasks = vec![first, second];
         let mut habit = test_task("H1", "not_started");
         habit.due_date = Some(today);
@@ -404,14 +426,14 @@ mod tests {
     #[test]
     fn notes_body_layout_and_scrolling_remain_one_pure_state_transition() {
         let mut state = state();
-        let collapsed_lines = state.body_lines().len();
+        let collapsed_lines = state.render_state().body_lines.len();
 
         state.toggle_notes();
         assert!(state.current_notes_expanded());
-        assert!(state.body_lines().len() > collapsed_lines);
+        assert!(state.render_state().body_lines.len() > collapsed_lines);
 
         state.select_next(1);
-        let line_heights = vec![1; state.body_lines().len()];
+        let line_heights = vec![1; state.render_state().body_lines.len()];
         state.update_body_layout(1, &line_heights);
 
         assert_eq!(
@@ -434,6 +456,27 @@ mod tests {
             state.selected_task().map(|task| task.id.as_str()),
             Some("H1")
         );
-        assert_eq!(state.assignment().actor_id().as_str(), "alice");
+        assert_eq!(state.assignment_snapshot().actor_id.as_str(), "alice");
+    }
+
+    #[test]
+    fn advancing_the_day_rematerializes_date_relative_rows_without_io() {
+        let mut state = state();
+        state.set_view(View::Today);
+        assert_eq!(
+            state.selected_task().map(|task| task.id.as_str()),
+            Some("T1")
+        );
+
+        state.advance_day(NaiveDate::from_ymd_opt(2026, 8, 22).expect("valid date"));
+
+        assert_eq!(state.render_state().visible_count, 2);
+        assert!(
+            state
+                .render_state()
+                .body_lines
+                .iter()
+                .any(|line| line.to_string().contains("Beta follow-up"))
+        );
     }
 }

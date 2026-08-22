@@ -49,7 +49,6 @@ mod draw_modals;
 mod draw_palette;
 mod draw_sync_log;
 mod event_loop;
-mod filter_tasks;
 mod handlers;
 mod keymap;
 mod launch;
@@ -72,7 +71,6 @@ mod status_warning;
 mod tests;
 
 pub(crate) use event_loop::run_tui;
-use filter_tasks::filter_tasks;
 pub(crate) use launch::TuiLaunch;
 
 // Re-export every submodule's items into the `tui` root so each submodule's
@@ -105,8 +103,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use chrono::NaiveDate;
-#[cfg(test)]
-use fuzzy_matcher::skim::SkimMatcherV2;
 use ratatui::style::Color;
 
 use crate::agent::AgentController;
@@ -253,7 +249,3 @@ pub(crate) struct App {
     pub(crate) sync_status_next_poll: Instant,
     pub(crate) last_seen_downstream_id: Option<i64>,
 }
-
-#[cfg(test)]
-#[path = "assignment_filter_tests.rs"]
-mod assignment_filter_tests;

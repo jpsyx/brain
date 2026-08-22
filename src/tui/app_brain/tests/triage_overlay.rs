@@ -41,8 +41,9 @@ fn completed_startup_sync_waits_for_help_to_close_before_showing_triage() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    let today = app.tasks.today();
-    let all_tasks = app.tasks.source_rows().0.to_vec();
+    let snapshot = app.tasks.triage_snapshot();
+    let today = snapshot.today;
+    let all_tasks = app.tasks.rows_snapshot().tasks.to_vec();
     app.tasks
         .replace_rows(all_tasks, vec![triage_habit(today, false)]);
     app.config.enable_triage_habits = true;
@@ -77,8 +78,9 @@ fn completed_startup_sync_still_withdraws_an_open_stale_triage_nudge() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    let today = app.tasks.today();
-    let all_tasks = app.tasks.source_rows().0.to_vec();
+    let snapshot = app.tasks.triage_snapshot();
+    let today = snapshot.today;
+    let all_tasks = app.tasks.rows_snapshot().tasks.to_vec();
     app.tasks
         .replace_rows(all_tasks, vec![triage_habit(today, true)]);
     app.config.enable_triage_habits = true;

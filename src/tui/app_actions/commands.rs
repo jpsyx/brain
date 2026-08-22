@@ -71,7 +71,9 @@ impl App {
                 );
             }
             GlobalAction::ToggleDailyTriageAlert => self.toggle_daily_triage_alert(),
-            GlobalAction::ShowMainBrainSession => self.select_brain_tab(BrainTab::Main),
+            GlobalAction::ShowMainBrainSession => {
+                self.select_brain_tab(BrainTab::Main);
+            }
             GlobalAction::RunSkillSession(key) => self.run_skill_session(key),
             GlobalAction::ShowSkillSession(key) => self.select_skill_session(key),
         }
@@ -130,8 +132,8 @@ impl App {
     /// a decision when there are preservable links — keeps the no-impact
     /// case from costing the user a back-and-forth.
     pub(crate) fn run_remove(&mut self, raw_id: &str) {
-        let (all_tasks, all_habits) = self.tasks.source_rows();
-        if let Err(error) = protect_removal(all_tasks, all_habits, raw_id, &self.config) {
+        let rows = self.tasks.rows_snapshot();
+        if let Err(error) = protect_removal(rows.tasks, rows.habits, raw_id, &self.config) {
             self.flash = Some(FlashKind::Error(format!("⚠ {error}")));
             return;
         }
@@ -271,7 +273,7 @@ impl App {
         match action {
             TaskAction::Global(action) => self.execute_global_action(action),
             TaskAction::AddTask => {
-                let message = add_task_prompt(self.tasks.assignment().actor_id().as_str());
+                let message = add_task_prompt(self.tasks.assignment_snapshot().actor_id.as_str());
                 self.send_brain_prompt(&message);
             }
             TaskAction::MessageBrainAboutTask => {
@@ -333,8 +335,8 @@ impl App {
                 open_overlay(
                     &mut self.overlay,
                     Overlay::AssigneeFilter(AssigneeFilterState::new(
-                        self.tasks.assignment().users(),
-                        self.tasks.assignment_filter(),
+                        self.tasks.assignment_snapshot().users,
+                        self.tasks.assignment_snapshot().filter,
                     )),
                 );
             }

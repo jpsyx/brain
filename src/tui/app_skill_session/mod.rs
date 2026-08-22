@@ -133,23 +133,21 @@ impl App {
     /// Where the active tab sits in the tab strip (`0` = the main session).
     pub(crate) fn active_brain_tab_index(&self) -> usize {
         let ids = self.skill_session_tab_ids();
-        tab_order(&ids)
-            .iter()
-            .position(|tab| *tab == self.effective_brain_tab())
-            .unwrap_or(0)
+        self.shell.active_brain_tab_index(&ids)
     }
 
     /// Select a brain-panel tab (`Alt+1` / `Alt+<n>`) and focus the brain panel.
     /// Selecting a skill session is a no-op when that tab isn't open; selecting
     /// any tab when the panel is closed does nothing.
-    pub(crate) fn select_brain_tab(&mut self, tab: BrainTab) {
+    pub(crate) fn select_brain_tab(&mut self, tab: BrainTab) -> bool {
         let open = self.skill_session_tab_ids();
-        if self
+        let selected = self
             .shell
-            .select_brain_tab(tab, &open, self.any_brain_panel_visible())
-        {
+            .select_brain_tab(tab, &open, self.any_brain_panel_visible());
+        if selected {
             self.alert = None;
         }
+        selected
     }
 
     /// Select a tab by its `Alt+<digit>` slot: slot 0 is the main session, slot
@@ -158,13 +156,13 @@ impl App {
     /// ordinary input instead of swallowing it.
     pub(crate) fn select_brain_tab_slot(&mut self, slot: usize) -> bool {
         let ids = self.skill_session_tab_ids();
-        let Some(tab) = tab_for_slot(slot, &ids) else {
-            return false;
-        };
-        let before = self.effective_brain_tab();
-        self.select_brain_tab(tab);
-        // `select_brain_tab` no-ops with the panel closed; report that honestly.
-        self.effective_brain_tab() == tab && (self.any_brain_panel_visible() || before == tab)
+        let selected = self
+            .shell
+            .select_brain_tab_slot(slot, &ids, self.any_brain_panel_visible());
+        if selected {
+            self.alert = None;
+        }
+        selected
     }
 
     /// Focus a running skill session by definition (the palette's counterpart to
@@ -192,65 +190,5 @@ impl App {
         {
             self.alert = None;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{resolve_active_tab, tab_for_slot, tab_order};
-    use crate::tui::{BrainTab, SessionTabId};
-
-    const FIRST: SessionTabId = SessionTabId(0);
-    const SECOND: SessionTabId = SessionTabId(1);
-
-    #[test]
-    fn a_session_tab_is_shown_only_while_it_is_open() {
-        assert_eq!(
-            resolve_active_tab(BrainTab::Session(FIRST), &[FIRST]),
-            BrainTab::Session(FIRST)
-        );
-        assert_eq!(
-            resolve_active_tab(BrainTab::Session(FIRST), &[SECOND]),
-            BrainTab::Main
-        );
-        assert_eq!(
-            resolve_active_tab(BrainTab::Session(FIRST), &[]),
-            BrainTab::Main
-        );
-    }
-
-    #[test]
-    fn main_stays_main_regardless_of_open_sessions() {
-        assert_eq!(resolve_active_tab(BrainTab::Main, &[FIRST]), BrainTab::Main);
-        assert_eq!(resolve_active_tab(BrainTab::Main, &[]), BrainTab::Main);
-    }
-
-    #[test]
-    fn the_tab_strip_leads_with_the_main_session() {
-        assert_eq!(tab_order(&[]), vec![BrainTab::Main]);
-        assert_eq!(
-            tab_order(&[FIRST, SECOND]),
-            vec![
-                BrainTab::Main,
-                BrainTab::Session(FIRST),
-                BrainTab::Session(SECOND)
-            ]
-        );
-    }
-
-    #[test]
-    fn alt_digit_slots_count_from_the_main_session() {
-        assert_eq!(tab_for_slot(0, &[FIRST]), Some(BrainTab::Main));
-        assert_eq!(
-            tab_for_slot(1, &[FIRST, SECOND]),
-            Some(BrainTab::Session(FIRST))
-        );
-        assert_eq!(
-            tab_for_slot(2, &[FIRST, SECOND]),
-            Some(BrainTab::Session(SECOND))
-        );
-        // A digit past the last open tab does nothing rather than wrapping.
-        assert_eq!(tab_for_slot(2, &[FIRST]), None);
-        assert_eq!(tab_for_slot(1, &[]), None);
     }
 }

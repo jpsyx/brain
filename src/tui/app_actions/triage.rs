@@ -72,11 +72,12 @@ impl App {
     /// dismisses the nudge. Contrast the Yes path (`run_triage`) and agenda
     /// generation, which are agent-driven because they involve judgement.
     pub(crate) fn skip_triage(&mut self) {
+        let today = self.tasks.triage_snapshot().today;
         let outcome = crate::tasks::triage_habits::complete_managed_triage(
             &self.command_context.workspace,
             crate::tasks::triage_habits::ManagedTriageKind::Daily,
             self.config.enable_triage_habits,
-            self.tasks.today(),
+            today,
         );
         match outcome {
             Ok(_) => {
@@ -99,12 +100,13 @@ impl App {
     /// is the right failure mode here because the modal is a nudge, not a
     /// blocker. See [`triage_nudge_target`] for the matching logic.
     pub(crate) fn check_daily_triage(&mut self) {
+        let triage = self.tasks.triage_snapshot();
         if let Some(habit) = triage_modal_target(
             self.config.enable_triage_habits,
             self.skip_daily_triage_check,
-            self.tasks.all_habits(),
+            triage.habits,
             &self.config.daily_triage_name_pattern,
-            self.tasks.today(),
+            triage.today,
         ) {
             open_overlay(
                 &mut self.overlay,
@@ -123,12 +125,13 @@ impl App {
     /// finished), and the synced habits may now show that triage was completed on
     /// another machine.
     pub(crate) fn reconcile_daily_triage_alert(&mut self) -> TriageAlertResolution {
+        let triage = self.tasks.triage_snapshot();
         let target = triage_modal_target(
             self.config.enable_triage_habits,
             self.skip_daily_triage_check,
-            self.tasks.all_habits(),
+            triage.habits,
             &self.config.daily_triage_name_pattern,
-            self.tasks.today(),
+            triage.today,
         );
         let occupancy = match self.overlay.as_ref() {
             Some(Overlay::TaskConfirmation(confirm)) if confirm.kind == ConfirmKind::RunTriage => {
@@ -278,7 +281,7 @@ impl App {
     pub(crate) fn advance_triage_day(&mut self, now: chrono::NaiveDateTime) -> bool {
         match triage_rollover(self.triage_day, now, self.config.day_rollover_hour) {
             Some(day) => {
-                self.tasks.set_today(day);
+                self.tasks.advance_day(day);
                 self.triage_day = day;
                 true
             }

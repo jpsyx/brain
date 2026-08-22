@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::alt_selects_brain_tab_slot;
 
 #[test]
 fn a_configured_skill_session_launches_its_own_prompt_under_its_own_title() {
@@ -255,4 +256,26 @@ fn an_unoccupied_tab_slot_selects_nothing_so_its_keystroke_stays_ordinary_input(
     assert!(!app.select_brain_tab_slot(8));
     // The selection did not move off the tab that is open.
     assert_eq!(app.active_brain_tab_index(), 1);
+}
+
+#[test]
+fn option_one_falls_through_when_slot_zero_has_no_visible_panel() {
+    let cli = Cli::parse_from(["tasks"]);
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let option_one = alt_selects_brain_tab_slot(
+        KeyCode::Char('\u{00a1}'),
+        crossterm::event::KeyModifiers::NONE,
+    )
+    .expect("Option+1 slot");
+
+    let consumed = app.select_brain_tab_slot(option_one.index) || option_one.from_chord;
+
+    assert_eq!(option_one.index, 0);
+    assert!(!option_one.from_chord);
+    assert!(
+        !consumed,
+        "a typeable Option glyph must reach ordinary input"
+    );
+    assert_eq!(app.shell.focus(), Panel::Tasks);
 }

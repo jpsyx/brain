@@ -280,8 +280,8 @@ fn a_successful_downstream_sync_reloads_tasks_without_a_manual_refresh() {
     assert_eq!(app.last_seen_downstream_id, Some(4));
     assert!(
         app.tasks
-            .source_rows()
-            .0
+            .rows_snapshot()
+            .tasks
             .iter()
             .any(|task| task.name == "Review synced task"),
         "the live TUI stayed stale after a successful downstream sync"

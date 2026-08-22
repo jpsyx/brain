@@ -56,12 +56,23 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
             draw_tasks(f, &mut app.tasks, &context, main_area);
         }
         MainView::BrainSearch => {
-            crate::picker::draw_into(f, app.shell.search_mut(), main_area);
+            app.shell.render_search(f, main_area);
         }
         MainView::Logs => draw_logs(f, app.shell.logs_view(), main_area),
     }
     if let Some(brain_rect) = brain_area {
-        draw_brain(f, app, brain_rect);
+        let mut context = BrainPanelContext {
+            focused: app.shell.focus() == Panel::Brain,
+            tab_titles: app.brain_tab_titles(),
+            active_tab: app.effective_brain_tab(),
+            active_index: app.active_brain_tab_index(),
+            workspace_name: app.command_context.workspace.name().as_str().to_owned(),
+            session_title: app.active_brain_tab_title().map(str::to_owned),
+            agent: app.agent_kind.label().to_owned(),
+            alert: app.alert.clone(),
+            controller: app.active_brain_controller_mut(),
+        };
+        draw_brain(f, &mut context, brain_rect);
     }
 
     // The same enum that routes input selects the one modal drawn over both

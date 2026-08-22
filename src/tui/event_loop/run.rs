@@ -226,7 +226,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
                 app.brain_panel_open(),
                 app.log_path.is_some(),
             )
-            .with_assignment_mode(app.tasks.assignment().mode())
+            .with_assignment_mode(app.tasks.assignment_snapshot().mode)
         };
         let receiver_enabled = app.receiver.is_enabled();
         let daily_triage_alert_disabled = app.skip_daily_triage_check;
@@ -306,9 +306,17 @@ fn update_application(app: &mut App, event: &Event) -> bool {
         // tasks view has its own normal/search modes; the brain-directory
         // view is an always-filtering picker.
         Panel::Tasks => match app.shell.main_view() {
-            MainView::BrainSearch => handle_search_view_key(app, &k, ctrl, alt),
-            MainView::Logs => handle_logs_key(app, k.code, ctrl),
-            MainView::Tasks if app.tasks.is_searching() => handle_search_key(app, k.code, ctrl),
+            MainView::BrainSearch => {
+                let effect = handle_search_view_key(&mut app.shell, &k, ctrl, alt);
+                apply_search_view_effect(app, effect)
+            }
+            MainView::Logs => handle_logs_key(&mut app.shell, k.code, ctrl),
+            MainView::Tasks if app.tasks.is_searching() => {
+                match handle_search_key(&mut app.tasks, k.code, ctrl) {
+                    TaskSearchEffect::None => false,
+                    TaskSearchEffect::DelegateNormal => handle_normal_key(app, k.code, ctrl),
+                }
+            }
             MainView::Tasks => handle_normal_key(app, k.code, ctrl),
         },
     }

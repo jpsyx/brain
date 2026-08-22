@@ -2,25 +2,25 @@
 
 use crossterm::event::KeyCode;
 
-use crate::tui::App;
+use crate::tui::ShellState;
 
 fn logs_quit_action(code: KeyCode, ctrl: bool) -> bool {
     matches!(code, KeyCode::Char('q' | 'Q')) || (ctrl && matches!(code, KeyCode::Char('c' | 'C')))
 }
 
-pub(crate) fn handle_logs_key(app: &mut App, code: KeyCode, ctrl: bool) -> bool {
+pub(crate) fn handle_logs_key(shell: &mut ShellState, code: KeyCode, ctrl: bool) -> bool {
     if logs_quit_action(code, ctrl) {
-        app.shell.show_main_view(crate::main_view::MainView::Tasks);
+        shell.show_main_view(crate::main_view::MainView::Tasks);
         return false;
     }
     match code {
-        KeyCode::Esc => app.shell.show_main_view(crate::main_view::MainView::Tasks),
-        KeyCode::Char('j') | KeyCode::Down => app.shell.scroll_logs(3),
-        KeyCode::Char('k') | KeyCode::Up => app.shell.scroll_logs(-3),
-        KeyCode::PageDown => app.shell.scroll_logs(20),
-        KeyCode::PageUp => app.shell.scroll_logs(-20),
-        KeyCode::Char('g') => app.shell.scroll_logs_to_start(),
-        KeyCode::Char('G') => app.shell.scroll_logs_to_end(),
+        KeyCode::Esc => shell.show_main_view(crate::main_view::MainView::Tasks),
+        KeyCode::Char('j') | KeyCode::Down => shell.scroll_logs(3),
+        KeyCode::Char('k') | KeyCode::Up => shell.scroll_logs(-3),
+        KeyCode::PageDown => shell.scroll_logs(20),
+        KeyCode::PageUp => shell.scroll_logs(-20),
+        KeyCode::Char('g') => shell.scroll_logs_to_start(),
+        KeyCode::Char('G') => shell.scroll_logs_to_end(),
         _ => {}
     }
     false

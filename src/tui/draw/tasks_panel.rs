@@ -94,7 +94,8 @@ pub(crate) fn draw_tasks(
     // the width changes whenever the brain panel splits the screen.
     let wrap_width = content_area.width.max(1);
     let heights: Vec<u16> = tasks
-        .body_lines()
+        .render_state()
+        .body_lines
         .iter()
         .map(|line| {
             let measured = Paragraph::new(line.clone())

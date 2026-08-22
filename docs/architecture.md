@@ -1120,8 +1120,12 @@ filtering, selection, notes expansion, rendered body lines, and viewport
 layout. `ShellState` owns the active main view, panel focus and side, the brain
 panel's hit-test rectangle, the embedded brain-directory `picker::App`, the
 logs view, and the selected brain-tab identity. Both expose semantic
-transitions and render projections rather than their internal field
-representation. Immutable workspace/runtime identity, CSV IO, agent and
+transitions, purpose-specific snapshots, and render projections rather than
+their internal field representation. Advancing the task aggregate's logical
+day rematerializes its date-relative view immediately from its owned rows, so
+a later CSV reload failure cannot leave the new date paired with an old body.
+Task fuzzy matching lives under `state/tasks/filter.rs`. Immutable
+workspace/runtime identity, CSV IO, agent and
 skill-session controllers, the state DB, receiver runtime, sync effects, and
 cross-feature coordination remain on `App`. `App` also owns exactly one
 `overlay: Option<Overlay>`. The data-bearing variants cover the task palette,
@@ -1150,7 +1154,12 @@ panel focus/scroll, brain open/close/new, quit) → captive modal → brain pane
 brain-directory picker). `draw` renders the active main view in the main
 panel and the brain panel beside it (`ShellState::panel_side`). The task
 renderer accepts `&mut TasksState` plus a small cross-feature chrome context;
-the logs renderer accepts only the selected `LogsView`. Task and app-level overlays
+the log handler accepts `&mut ShellState`, and task-search handling accepts
+`&mut TasksState`. Shell search input mutates the embedded picker locally and
+returns a closed `SearchEffect` for file, overlay, or refresh work that `App`
+must coordinate. The brain renderer accepts a `BrainPanelContext` assembled by
+the top-level mediator from display values and the active controller; it never
+receives `App`. The logs renderer accepts only the selected `LogsView`. Task and app-level overlays
 span that composed shell; search palette and confirmation variants stay
 centered inside the search `main_area`, matching the picker's pre-shell render.
 `search_view.rs` is the brain-directory view's handler (its picker nav, in-place
@@ -1179,7 +1188,7 @@ and completion delivery;
 while `launch.rs` keeps capability construction, transport selection, and the
 public app actions.
 `app_skill_session/` owns the ephemeral skill-session controllers and their
-tabs (open/close/select, the `BrainTab` / tab-slot resolution, and the
+tab lifecycle (open/close/select and the
 `tick_skill_sessions` auto-close). The `Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
 structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
@@ -1187,7 +1196,7 @@ structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `pub(super)` fields; shared panel, tab, and deferred-gate types live in
 `model.rs`, while `mod.rs` keeps the coordinating `App` type, its private
 `TasksState` and `ShellState` owners, one private `ReceiverRuntime`, the
-App-owned receiver sync effect adapter, `filter_tasks`,
+App-owned receiver sync effect adapter,
 re-exports, and module wiring. Receiver
 representation is private to `receiver/runtime.rs` and its focused child
 modules. `receiver/decision.rs` maps independent facts onto the fixed tick

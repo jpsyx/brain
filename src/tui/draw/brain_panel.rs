@@ -11,16 +11,30 @@ use ratatui::{
 };
 use tui_term::widget::PseudoTerminal;
 
+use crate::agent::AgentController;
 use crate::tui::*;
 
-pub(crate) fn draw_brain(f: &mut Frame, app: &mut App, area: Rect) {
-    let focused = app.shell.focus() == Panel::Brain;
-    let tab_titles = app.brain_tab_titles();
+pub(crate) struct BrainPanelContext<'a> {
+    pub(super) focused: bool,
+    pub(super) tab_titles: Vec<String>,
+    pub(super) active_tab: BrainTab,
+    pub(super) active_index: usize,
+    pub(super) workspace_name: String,
+    pub(super) session_title: Option<String>,
+    pub(super) agent: String,
+    pub(super) alert: Option<String>,
+    pub(super) controller: Option<&'a mut AgentController>,
+}
+
+pub(crate) fn draw_brain(f: &mut Frame, context: &mut BrainPanelContext<'_>, area: Rect) {
+    let focused = context.focused;
+    let tab_titles = &context.tab_titles;
     let has_tabs = tab_titles.len() > 1;
-    let active_tab = app.effective_brain_tab();
-    let active_index = app.active_brain_tab_index();
-    let alive = app
-        .active_brain_controller()
+    let active_tab = context.active_tab;
+    let active_index = context.active_index;
+    let alive = context
+        .controller
+        .as_ref()
         .is_some_and(|controller| controller.is_alive().unwrap_or(false));
 
     let border_color = if focused {
@@ -28,10 +42,10 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         Color::Rgb(78, 92, 122) // very dim
     };
-    let agent = app.agent_kind.label();
+    let agent = context.agent.as_str();
     let title_status = panel_title(
-        app.command_context.workspace.name().as_str(),
-        app.active_brain_tab_title(),
+        &context.workspace_name,
+        context.session_title.as_deref(),
         agent,
         alive,
     );
@@ -64,7 +78,7 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App, area: Rect) {
             height: 1,
         };
         f.render_widget(
-            Paragraph::new(vec![tab_bar_line(&tab_titles, active_index)]),
+            Paragraph::new(vec![tab_bar_line(tab_titles, active_index)]),
             tab_area,
         );
         term_y = term_y.saturating_add(1);
@@ -87,14 +101,15 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Resize the active PTY + parser to match the inner terminal area. No-op
     // when dimensions match, so this is safe to call every frame.
-    if let Some(controller) = app.active_brain_controller_mut() {
+    if let Some(controller) = context.controller.as_mut() {
         if term_area.height > 0 && term_area.width > 0 {
             let _ = controller.resize(term_area.height, term_area.width);
         }
     }
 
-    if let Some(screen) = app
-        .active_brain_controller()
+    if let Some(screen) = context
+        .controller
+        .as_ref()
         .and_then(|controller| controller.terminal_screen().ok().flatten())
     {
         if let Ok(parser) = screen.read() {
@@ -119,7 +134,7 @@ pub(crate) fn draw_brain(f: &mut Frame, app: &mut App, area: Rect) {
         .fg(Color::Rgb(192, 202, 245))
         .add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(Color::Rgb(122, 134, 173));
-    let footer = match &app.alert {
+    let footer = match &context.alert {
         Some(alert) => Line::from(Span::styled(
             format!(" {alert}"),
             Style::default()

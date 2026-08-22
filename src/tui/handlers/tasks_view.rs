@@ -22,6 +22,12 @@ pub(crate) const fn normal_escape_action(has_active_filter: bool) -> EscapeActio
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskSearchEffect {
+    None,
+    DelegateNormal,
+}
+
 /// Returns `true` when the loop should exit. Navigation operates on the
 /// selected task rather than on raw lines: j / k / ↓ / ↑ move one task,
 /// d / u jump half a screen of tasks, PgDn / PgUp move a full
@@ -153,7 +159,7 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
                             notes_expanded,
                             link_kind,
                         )
-                        .with_assignment_mode(app.tasks.assignment().mode()),
+                        .with_assignment_mode(app.tasks.assignment_snapshot().mode),
                     ),
                 );
             }
@@ -199,41 +205,44 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
     false
 }
 
-/// Returns `true` when the loop should exit.
-pub(crate) fn handle_search_key(app: &mut App, code: KeyCode, ctrl: bool) -> bool {
+pub(crate) fn handle_search_key(
+    tasks: &mut TasksState,
+    code: KeyCode,
+    ctrl: bool,
+) -> TaskSearchEffect {
     if search_delegates_ctrl_chord(code, ctrl) {
-        return handle_normal_key(app, code, ctrl);
+        return TaskSearchEffect::DelegateNormal;
     }
     // Esc and Ctrl+C both back out of `/`: leave search mode and drop the
     // filter. Ctrl+C used to quit the whole shell here — it now mirrors Esc.
     if search_key_abandons_filter(code, ctrl) {
-        app.tasks.leave_search();
-        app.tasks.clear_query();
-        return false;
+        tasks.leave_search();
+        tasks.clear_query();
+        return TaskSearchEffect::None;
     }
     // Backspace and Ctrl+U edit the query, but on an empty query they back
     // out of search instead (a second Ctrl+U after clearing leaves `/`).
-    if search_edit_key_exits_when_empty(code, ctrl) && app.tasks.query_is_empty() {
-        app.tasks.leave_search();
-        return false;
+    if search_edit_key_exits_when_empty(code, ctrl) && tasks.query_is_empty() {
+        tasks.leave_search();
+        return TaskSearchEffect::None;
     }
     match code {
-        KeyCode::Enter => app.tasks.leave_search(),
-        KeyCode::Backspace => app.tasks.pop_query(),
-        KeyCode::Char('u') if ctrl => app.tasks.clear_query(),
-        KeyCode::Char(c) if !ctrl => app.tasks.append_query(c),
+        KeyCode::Enter => tasks.leave_search(),
+        KeyCode::Backspace => tasks.pop_query(),
+        KeyCode::Char('u') if ctrl => tasks.clear_query(),
+        KeyCode::Char(c) if !ctrl => tasks.append_query(c),
 
         // Arrow keys move the selection (j / k are typed into the query
         // since this is text input). Useful when narrowing the list and
         // picking a result for a palette action.
-        KeyCode::Down => app.tasks.select_next(1),
-        KeyCode::Up => app.tasks.select_prev(1),
-        KeyCode::PageDown => app.tasks.select_next(app.tasks.tasks_per_page().max(1)),
-        KeyCode::PageUp => app.tasks.select_prev(app.tasks.tasks_per_page().max(1)),
-        KeyCode::Home => app.tasks.select_first(),
-        KeyCode::End => app.tasks.select_last(),
+        KeyCode::Down => tasks.select_next(1),
+        KeyCode::Up => tasks.select_prev(1),
+        KeyCode::PageDown => tasks.select_next(tasks.tasks_per_page().max(1)),
+        KeyCode::PageUp => tasks.select_prev(tasks.tasks_per_page().max(1)),
+        KeyCode::Home => tasks.select_first(),
+        KeyCode::End => tasks.select_last(),
 
         _ => {}
     }
-    false
+    TaskSearchEffect::None
 }
