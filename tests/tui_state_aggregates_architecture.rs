@@ -365,6 +365,15 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
             state: &'a TasksState,
         }
     ";
+    let raw_assignment_field = r"
+        pub(crate) struct TaskAssignmentSnapshot<'a> {
+            pub(crate) mode: AssignmentUiMode,
+            pub(crate) actor_id: &'a UserId,
+            pub(crate) users: &'a [AssignmentUser],
+            pub(crate) filter: Option<&'a UserId>,
+            pub(crate) task: &'a Task,
+        }
+    ";
     let extra_panel_field = r"
         pub(crate) struct TasksPanelModel<'a> {
             state: &'a TasksState,
@@ -391,6 +400,12 @@ fn guard_helpers_cover_visibility_duplicates_aliases_and_forwarders() {
         "struct",
         "TasksPanelModel",
         "state:&'aTasksState,"
+    ));
+    assert!(!has_exact_named_shape(
+        raw_assignment_field,
+        "struct",
+        "TaskAssignmentSnapshot",
+        "pub(crate)mode:AssignmentUiMode,pub(crate)actor_id:&'aUserId,pub(crate)users:&'a[AssignmentUser],pub(crate)filter:Option<&'aUserId>,"
     ));
     assert!(!has_exact_named_shape(
         extra_panel_field,
