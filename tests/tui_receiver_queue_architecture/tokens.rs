@@ -20,6 +20,15 @@ pub(super) fn rust_tokens(source: &str) -> Vec<String> {
                 .map_or(bytes.len(), |relative| index + relative + 4);
             continue;
         }
+        if bytes[index] == b'r'
+            && bytes
+                .get(index + 1)
+                .is_some_and(|byte| *byte == b'"' || *byte == b'#')
+            && let Some(end) = skip_raw_string(bytes, index)
+        {
+            index = end;
+            continue;
+        }
         if bytes[index] == b'"' {
             index += 1;
             while index < bytes.len() {
@@ -71,6 +80,27 @@ pub(super) fn rust_tokens(source: &str) -> Vec<String> {
         tokens.push(source[start..index].to_owned());
     }
     tokens
+}
+
+fn skip_raw_string(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut quote = start + 1;
+    while bytes.get(quote) == Some(&b'#') {
+        quote += 1;
+    }
+    if bytes.get(quote) != Some(&b'"') {
+        return None;
+    }
+    let hashes = quote - start - 1;
+    let mut index = quote + 1;
+    while index < bytes.len() {
+        if bytes[index] == b'"'
+            && bytes.get(index + 1..index + 1 + hashes) == Some(&bytes[start + 1..quote])
+        {
+            return Some(index + 1 + hashes);
+        }
+        index += 1;
+    }
+    Some(bytes.len())
 }
 
 fn lifetime_end(bytes: &[u8], apostrophe: usize) -> Option<usize> {
