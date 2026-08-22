@@ -54,9 +54,9 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
     configure_fake_twilio(&app);
     let recording = TransportRecording::default();
-    app.brain_transport_override = Some(recording.transport());
+    app.brain.replace_brain_transport(recording.transport());
     let actor = sms_actor();
-    let workspace_id = app.command_context.workspace.id();
+    let workspace_id = app.context.workspace().id();
     enqueue_receiver_job(
         &mut app,
         InboundJob {
@@ -83,8 +83,8 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
         .map(str::to_owned)
         .expect("receiver response id");
     let response_path = app
-        .command_context
-        .workspace
+        .context
+        .workspace()
         .paths()
         .responses_dir()
         .join(format!("{response_id}.json"));
@@ -109,7 +109,10 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
     );
     assert!(!app.receiver.remote_turn_in_flight());
     assert!(app.receiver.active_delivery_target().is_none());
-    assert!(app.brain.is_some(), "completed receiver panel stays warm");
+    assert!(
+        app.brain.main_controller().is_some(),
+        "completed receiver panel stays warm"
+    );
     let log = PathBuf::from(std::env::var_os("BRAIN_FAKE_CURL_LOG").expect("fake curl log"));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while !log.exists() && std::time::Instant::now() < deadline {
@@ -119,11 +122,11 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
 }
 
 fn configure_fake_twilio(app: &App) {
-    let mut registry = RegistryStore::load_from(app.command_context.registry_store.path())
+    let mut registry = RegistryStore::load_from(app.context.command().registry_store.path())
         .expect("workspace registry");
     let environment = &mut registry
         .workspaces
-        .get_mut(app.command_context.workspace.name())
+        .get_mut(app.context.workspace().name())
         .expect("selected workspace")
         .env;
     for (name, value) in [
@@ -133,7 +136,8 @@ fn configure_fake_twilio(app: &App) {
     ] {
         environment.insert(name.to_owned(), serde_json::json!(value));
     }
-    app.command_context
+    app.context
+        .command()
         .registry_store
         .replace(&registry)
         .expect("save fake provider configuration");

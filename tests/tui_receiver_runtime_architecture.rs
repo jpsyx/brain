@@ -4,14 +4,20 @@ use std::path::Path;
 fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let app = std::fs::read_to_string(root.join("src/tui/mod.rs")).expect("read App source");
+    let services = std::fs::read_to_string(root.join("src/tui/state/services.rs"))
+        .expect("read AppServices source");
 
     assert!(
         app.contains("receiver: crate::tui::receiver::ReceiverRuntime"),
         "App must own one ReceiverRuntime"
     );
     assert!(
-        app.contains("receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>"),
-        "App must coordinate receiver sync effects"
+        app.contains("services: AppServices"),
+        "App must compose one AppServices owner"
+    );
+    assert!(
+        services.contains("receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>"),
+        "AppServices must own receiver sync effects"
     );
     for forbidden in [
         "receiver_control:",

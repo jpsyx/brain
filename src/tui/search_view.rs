@@ -23,7 +23,7 @@ impl App {
     /// Re-walk `roots` into the search picker, clearing the query (a scope
     /// switch from the brain-search palette).
     pub(crate) fn search_rescope(&mut self, roots: &[(Bucket, std::path::PathBuf)]) {
-        if let Ok(entries) = entry::collect(&self.brain_root, roots) {
+        if let Ok(entries) = entry::collect(self.context.workspace_root(), roots) {
             self.shell.replace_search_entries(&entries);
         }
     }
@@ -31,7 +31,10 @@ impl App {
     /// Re-walk the full bucket set into the search picker, keeping the query
     /// (`Ctrl-R`, or after a PDF is created / an entry is trashed).
     pub(crate) fn search_refresh(&mut self) {
-        if let Ok(entries) = entry::collect(&self.brain_root, &all_bucket_roots(&self.brain_root)) {
+        if let Ok(entries) = entry::collect(
+            self.context.workspace_root(),
+            &all_bucket_roots(self.context.workspace_root()),
+        ) {
             self.shell.reload_search_entries(&entries);
         }
     }
@@ -75,7 +78,7 @@ pub(crate) fn apply_search_view_effect(app: &mut App, effect: SearchEffect) -> b
             app.refresh_receiver_enabled();
             let palette = app
                 .shell
-                .search_palette(app.brain.is_none(), app.receiver.is_enabled());
+                .search_palette(!app.brain_panel_open(), app.receiver.is_enabled());
             open_overlay(&mut app.overlay, Overlay::SearchPalette(palette));
         }
         SearchEffect::ConfirmPdf(path) => {
@@ -172,23 +175,23 @@ impl App {
             }
             SearchAction::Delete => {}
             SearchAction::SearchProjects => {
-                let roots = single_bucket_root(&self.brain_root, Bucket::Projects);
+                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Projects);
                 self.search_rescope(&roots);
             }
             SearchAction::SearchAreas => {
-                let roots = single_bucket_root(&self.brain_root, Bucket::Areas);
+                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Areas);
                 self.search_rescope(&roots);
             }
             SearchAction::SearchResources => {
-                let roots = single_bucket_root(&self.brain_root, Bucket::Resources);
+                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Resources);
                 self.search_rescope(&roots);
             }
             SearchAction::SearchArchive => {
-                let roots = single_bucket_root(&self.brain_root, Bucket::Archive);
+                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Archive);
                 self.search_rescope(&roots);
             }
             SearchAction::GlobalSearch => {
-                let roots = all_bucket_roots(&self.brain_root);
+                let roots = all_bucket_roots(self.context.workspace_root());
                 self.search_rescope(&roots);
             }
         }
@@ -196,7 +199,7 @@ impl App {
 }
 
 fn create_pdf_inline(app: &App, md: &Path) {
-    if let Ok(pdf) = open_target::create_pdf(&app.command_context, md) {
+    if let Ok(pdf) = open_target::create_pdf(app.context.command(), md) {
         let _ = open_target::open_with_system(&pdf);
     }
 }

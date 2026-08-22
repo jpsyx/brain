@@ -78,14 +78,14 @@ impl ReceiverSyncRuntime for SystemReceiverSyncRuntime {
 
 impl App {
     pub(crate) fn tick_sync_status(&mut self) {
-        let now = self.receiver_sync_runtime.monotonic_now();
-        if now < self.sync_status_next_poll {
+        let now = self.services.monotonic_now();
+        if !self.status.sync_poll_due(now) {
             return;
         }
-        self.sync_status_next_poll = now + crate::sync::freshness::STATUS_POLL_INTERVAL;
-        self.sync_status = self
-            .receiver_sync_runtime
-            .live_sync_state(self.command_context.workspace.paths())
+        self.status.schedule_next_sync_poll(now);
+        let sync_status = self
+            .services
+            .live_sync_state(self.context.workspace().paths())
             .map(|state| {
                 if self.receiver.sync_gate_is_armed() {
                     format!(
@@ -96,17 +96,19 @@ impl App {
                     format!("↻ syncing brain ({})…", state.direction)
                 }
             });
-        if self.sync_status.is_none() && self.receiver.sync_gate_is_armed() {
-            self.sync_status = Some("↻ preparing receiver message sync…".to_owned());
+        self.status.set_sync_status(sync_status);
+        if self.status.sync_status().is_none() && self.receiver.sync_gate_is_armed() {
+            self.status
+                .set_sync_status(Some("↻ preparing receiver message sync…".to_owned()));
         }
         let latest = self
-            .receiver_sync_runtime
-            .latest_successful_downstream_id(self.command_context.workspace.paths());
-        if journal_advanced(self.last_seen_downstream_id, latest) {
-            self.last_seen_downstream_id = latest;
+            .services
+            .latest_successful_downstream_id(self.context.workspace().paths());
+        if journal_advanced(self.status.last_seen_downstream_id(), latest) {
+            self.status.record_downstream_id(latest);
             if let Err(error) = self.reload_tasks() {
                 crate::logging::log(format!("post-sync task refresh failed: {error:#}"));
-                self.flash = Some(FlashKind::Error(format!(
+                self.status.set_flash(FlashKind::Error(format!(
                     "post-sync task refresh failed: {error}"
                 )));
             }
@@ -114,20 +116,18 @@ impl App {
     }
 
     pub(crate) fn execute_receiver_sync_freshness_effect(&mut self) -> ReceiverEffectOutcome {
-        let config = SyncConfig::load(&self.command_context);
+        let config = SyncConfig::load(self.context.command());
         if !config.is_configured() {
             return ReceiverEffectOutcome::Completed;
         }
 
         if self.receiver.sync_gate_is_armed() {
-            let workspace = std::sync::Arc::clone(&self.command_context.workspace);
+            let workspace = std::sync::Arc::clone(&self.context.command().workspace);
             let observation = crate::tui::receiver::SyncGateObservation::new(
-                self.receiver_sync_runtime.monotonic_now(),
-                self.receiver_sync_runtime
+                self.services.monotonic_now(),
+                self.services
                     .latest_successful_downstream_id(workspace.paths()),
-                self.receiver_sync_runtime
-                    .live_sync_state(workspace.paths())
-                    .is_some(),
+                self.services.live_sync_state(workspace.paths()).is_some(),
             );
             let poll = self
                 .receiver
@@ -139,7 +139,7 @@ impl App {
                 }
                 crate::tui::receiver::SyncGatePoll::Completed => {
                     crate::logging::log("receiver freshness pull completed; dispatch may continue");
-                    self.sync_status = None;
+                    self.status.set_sync_status(None);
                     let _ = self.reload_tasks();
                     return ReceiverEffectOutcome::Completed;
                 }
@@ -147,8 +147,8 @@ impl App {
                     crate::logging::log(
                         "receiver freshness pull did not start after three attempts; dispatching with local state",
                     );
-                    self.sync_status = None;
-                    self.flash = Some(FlashKind::Error(
+                    self.status.set_sync_status(None);
+                    self.status.set_flash(FlashKind::Error(
                         "receiver sync could not start; processing with local brain state"
                             .to_owned(),
                     ));
@@ -161,8 +161,8 @@ impl App {
         }
 
         if let Some(state) = self
-            .receiver_sync_runtime
-            .live_sync_state(self.command_context.workspace.paths())
+            .services
+            .live_sync_state(self.context.workspace().paths())
         {
             if state.direction != "push" {
                 self.arm_receiver_sync_gate(0);
@@ -171,11 +171,11 @@ impl App {
         }
 
         let last_downstream = self
-            .receiver_sync_runtime
-            .latest_downstream_completion(self.command_context.workspace.paths());
+            .services
+            .latest_downstream_completion(self.context.workspace().paths());
         if !crate::sync::freshness::message_pull_due(
             last_downstream.as_deref(),
-            self.receiver_sync_runtime.utc_now(),
+            self.services.utc_now(),
         ) {
             return ReceiverEffectOutcome::Completed;
         }
@@ -187,11 +187,11 @@ impl App {
             "receiver message waiting for downstream freshness pull attempt={attempts}"
         ));
         if self
-            .receiver_sync_runtime
-            .spawn_detached_sync(&self.command_context.workspace, Direction::Pull)
+            .services
+            .spawn_detached_sync(self.context.workspace(), Direction::Pull)
             .is_none()
         {
-            self.flash = Some(FlashKind::Error(
+            self.status.set_flash(FlashKind::Error(
                 "receiver sync could not start; processing with local brain state".to_owned(),
             ));
             return ReceiverEffectOutcome::Completed;
@@ -201,12 +201,13 @@ impl App {
     }
 
     fn arm_receiver_sync_gate(&mut self, attempts: u8) {
-        let now = self.receiver_sync_runtime.monotonic_now();
+        let now = self.services.monotonic_now();
         let seen_journal_id = self
-            .receiver_sync_runtime
-            .latest_successful_downstream_id(self.command_context.workspace.paths());
+            .services
+            .latest_successful_downstream_id(self.context.workspace().paths());
         self.receiver.arm_sync_gate(now, seen_journal_id, attempts);
-        self.sync_status = Some("↻ preparing receiver message sync…".to_owned());
+        self.status
+            .set_sync_status(Some("↻ preparing receiver message sync…".to_owned()));
     }
 }
 

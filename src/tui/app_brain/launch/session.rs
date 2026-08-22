@@ -20,13 +20,13 @@ impl App {
         // conversation. We never spawn a second session while one is up.
         if self
             .brain
-            .as_ref()
+            .main_controller()
             .is_some_and(|controller| controller.is_alive().unwrap_or(false))
         {
             self.shell.focus_brain();
-            self.alert = None;
+            self.status.clear_alert();
             if let Some(p) = prompt {
-                if let Some(controller) = self.brain.as_mut()
+                if let Some(controller) = self.brain.main_controller_mut()
                     && let Err(error) = controller.queue_after_active_turn(p)
                 {
                     crate::logging::log(format!("brain prompt queue failed: {error}"));
@@ -39,7 +39,7 @@ impl App {
         // A panel whose agent died (between the loop's auto-close tick and
         // this call) is torn down first so we don't type into a dead PTY;
         // the resume path below picks the same session back up.
-        if self.brain.is_some() {
+        if self.brain.main_controller().is_some() {
             self.close_brain();
         }
 
@@ -49,8 +49,8 @@ impl App {
             Ok(plan) => plan,
             Err(error) => {
                 crate::logging::log(format!("brain panel capability resolution failed: {error}"));
-                self.session_actor = None;
-                self.flash = Some(FlashKind::Error(format!(
+                self.brain.clear_session();
+                self.status.set_flash(FlashKind::Error(format!(
                     "agent capabilities are invalid: {error}"
                 )));
                 return false;
@@ -58,19 +58,19 @@ impl App {
         };
 
         let pid = i32::try_from(std::process::id()).unwrap_or(0);
-        let actor = launch
-            .requested_actor
-            .unwrap_or_else(|| crate::actor::ActorContext::follow_up(&self.interactive_actor));
+        let actor = launch.requested_actor.unwrap_or_else(|| {
+            crate::actor::ActorContext::follow_up(self.brain.interactive_actor())
+        });
         let transport = brain_transport(self);
         let mut controller = self.controller_for_transport(actor.clone(), transport);
         if let Err(error) = controller.ensure_available() {
             crate::logging::log(format!("brain panel frontend unavailable: {error}"));
-            self.flash = Some(FlashKind::Error(error.to_string()));
+            self.status.set_flash(FlashKind::Error(error.to_string()));
             return false;
         }
         let scope = crate::state::SessionScope::new(
-            self.agent_kind,
-            self.command_context.workspace.id(),
+            self.context.agent_kind(),
+            self.context.workspace().id(),
             actor.clone(),
         );
         let selection = self.receiver.begin_session_selection();
@@ -84,7 +84,7 @@ impl App {
                 Vec::new()
             } else {
                 selection.resume_override.map_or_else(
-                    || SessionStore::sessions_by_recency(&self.db, &scope),
+                    || SessionStore::sessions_by_recency(&self.services, &scope),
                     |id| vec![id],
                 )
             };
@@ -105,13 +105,19 @@ impl App {
                         crate::logging::log(format!(
                             "brain panel response identity failed: {error}"
                         ));
-                        self.session_actor = None;
-                        self.flash = Some(FlashKind::Error(error.to_string()));
+                        self.brain.clear_session();
+                        self.status.set_flash(FlashKind::Error(error.to_string()));
                         return false;
                     }
                 };
-                if SessionStore::claim(&self.db, &candidate, &self.instance, pid, &scope)
-                    .unwrap_or(false)
+                if SessionStore::claim(
+                    &self.services,
+                    &candidate,
+                    self.brain.instance(),
+                    pid,
+                    &scope,
+                )
+                .unwrap_or(false)
                 {
                     resume = Some((id, response_id));
                     break;
@@ -133,8 +139,8 @@ impl App {
                 Ok(response_id) => response_id,
                 Err(error) => {
                     crate::logging::log(format!("brain panel response identity failed: {error}"));
-                    self.session_actor = None;
-                    self.flash = Some(FlashKind::Error(error.to_string()));
+                    self.brain.clear_session();
+                    self.status.set_flash(FlashKind::Error(error.to_string()));
                     return false;
                 }
             },
@@ -143,38 +149,41 @@ impl App {
             .record_session_started(receiver_request, response_id.clone(), session_id);
         if receiver_request {
             let response_path = self
-                .command_context
-                .workspace
+                .context
+                .workspace()
                 .paths()
                 .responses_dir()
                 .join(format!("{response_id}.json"));
             let _ = std::fs::remove_file(response_path);
         }
         let fresh_session = matches!(plan, Plan::Fresh(_));
-        self.alert = if fresh_session {
+        self.status.set_alert(if fresh_session {
             skipped_missing.then(|| {
                 "⚠ couldn't find a session to resume; starting a new brain chat".to_owned()
             })
         } else {
             None
-        };
+        });
 
         let session_plan = match plan {
             Plan::Resume(_) => crate::agent::SessionPlan::resume(agent_session),
             Plan::Fresh(_) => crate::agent::SessionPlan::fresh(agent_session),
         };
         let hooks = HookMetadata::new(vec![
-            ("BRAIN_INSTANCE_ID".to_owned(), self.instance.clone()),
+            (
+                "BRAIN_INSTANCE_ID".to_owned(),
+                self.brain.instance().to_owned(),
+            ),
             ("BRAIN_PID".to_owned(), pid.to_string()),
             (
                 "BRAIN_STATE_DB".to_owned(),
-                self.db_path.display().to_string(),
+                self.context.state_db_path().display().to_string(),
             ),
             ("BRAIN_RESPONSE_ID".to_owned(), response_id),
             (
                 "BRAIN_RESPONSE_DIR".to_owned(),
-                self.command_context
-                    .workspace
+                self.context
+                    .workspace()
                     .paths()
                     .responses_dir()
                     .display()
@@ -182,11 +191,11 @@ impl App {
             ),
         ]);
         let mut request = LaunchRequest::from_trusted_context(
-            Arc::clone(&self.command_context.workspace),
+            Arc::clone(&self.context.command().workspace),
             actor.clone(),
             session_plan,
             prompt.map(str::to_owned),
-            self.config.access_mode,
+            self.context.access_mode(),
         );
         if let Some(plan) = capability_plan {
             request = request.with_capability_plan(plan);
@@ -195,9 +204,9 @@ impl App {
         // Placeholder size; the first draw resizes the PTY to the real panel.
         let launch_result = if fresh_session {
             register_fresh_before_launch(
-                &self.db,
+                &self.services,
                 request.session_plan().session(),
-                &self.instance,
+                self.brain.instance(),
                 pid,
                 &scope,
                 || controller.launch(&request),
@@ -207,33 +216,30 @@ impl App {
         };
         match launch_result {
             Ok(()) => {
-                self.brain = Some(controller);
-                self.session_actor = Some(actor);
-                self.brain_turn_active = false;
+                self.brain.install_main(controller, actor);
                 if prompt.is_some_and(|value| !value.trim().is_empty()) {
                     self.mark_brain_turn_started();
                 }
                 self.shell.focus_brain();
                 crate::logging::log(format!(
                     "brain panel started agent={} turn_active={}",
-                    self.agent_kind.label(),
-                    self.brain_turn_active
+                    self.context.agent_kind().label(),
+                    self.brain.turn_active()
                 ));
                 true
             }
             Err(error) => {
                 crate::logging::log(format!(
                     "brain panel start failed agent={} error={error:#}",
-                    self.agent_kind.label()
+                    self.context.agent_kind().label()
                 ));
-                self.brain = None;
-                self.brain_turn_active = false;
+                let _ = self.brain.take_main();
                 self.receiver.record_session_launch_failed(receiver_request);
-                self.session_actor = None;
-                let _ = SessionStore::release(&self.db, &self.instance);
-                self.flash = Some(FlashKind::Error(format!(
+                self.brain.clear_session();
+                let _ = SessionStore::release(&self.services, self.brain.instance());
+                self.status.set_flash(FlashKind::Error(format!(
                     "{} could not start: {error}",
-                    self.agent_kind.label()
+                    self.context.agent_kind().label()
                 )));
                 false
             }

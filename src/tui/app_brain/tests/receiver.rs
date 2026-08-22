@@ -17,29 +17,26 @@ impl crate::command::server::ReceiverIntentRefresher for RecordingReceiverRefres
 }
 
 fn seed_receiver_registry(app: &App) -> WorkspaceName {
-    let selected_name = app.command_context.workspace.name().clone();
+    let selected_name = app.context.workspace().name().clone();
     let peer_name = WorkspaceName::parse("personal").unwrap();
     let selected = crate::workspace::WorkspaceRecord {
-        workspace_id: app.command_context.workspace.id(),
-        root: app.command_context.workspace.root().to_path_buf(),
+        workspace_id: app.context.workspace().id(),
+        root: app.context.workspace().root().to_path_buf(),
         aliases: std::collections::BTreeSet::new(),
-        local_user_id: app.command_context.workspace.local_user_id().to_owned(),
+        local_user_id: app.context.workspace().local_user_id().to_owned(),
         receiver_enabled: false,
         env: serde_json::Map::new(),
     };
     let peer = crate::workspace::WorkspaceRecord {
         workspace_id: WorkspaceId::parse("e806258e-491a-436d-9db4-a5ca9903e0d4").unwrap(),
-        root: app
-            .command_context
-            .workspace
-            .root()
-            .with_file_name("personal"),
+        root: app.context.workspace().root().with_file_name("personal"),
         aliases: std::collections::BTreeSet::new(),
         local_user_id: "peer".to_owned(),
         receiver_enabled: false,
         env: serde_json::Map::new(),
     };
-    app.command_context
+    app.context
+        .command()
         .registry_store
         .replace(&crate::workspace::MachineRegistry {
             schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
@@ -87,10 +84,10 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
     crate::tui::handle_palette_key(&mut app, &plain_key(KeyCode::Enter), false);
 
     assert!(app.receiver.is_enabled());
-    let saved = RegistryStore::load_from(app.command_context.registry_store.path()).unwrap();
-    assert!(saved.workspaces[app.command_context.workspace.name()].receiver_enabled);
+    let saved = RegistryStore::load_from(app.context.command().registry_store.path()).unwrap();
+    assert!(saved.workspaces[app.context.workspace().name()].receiver_enabled);
     assert!(!saved.workspaces[&peer_name].receiver_enabled);
-    assert_eq!(*calls.lock().unwrap(), [app.command_context.workspace.id()]);
+    assert_eq!(*calls.lock().unwrap(), [app.context.workspace().id()]);
 
     app.receiver
         .replace_intent_refresher(Box::new(RecordingReceiverRefresh {
@@ -107,19 +104,16 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
 
     assert!(!app.receiver.is_enabled());
     assert!(matches!(
-        app.flash.as_ref(),
+        app.status.flash(),
         Some(crate::tui::FlashKind::Error(message))
             if message.contains("receiver disabled; warning:")
     ));
-    let saved = RegistryStore::load_from(app.command_context.registry_store.path()).unwrap();
-    assert!(!saved.workspaces[app.command_context.workspace.name()].receiver_enabled);
+    let saved = RegistryStore::load_from(app.context.command().registry_store.path()).unwrap();
+    assert!(!saved.workspaces[app.context.workspace().name()].receiver_enabled);
     assert!(!saved.workspaces[&peer_name].receiver_enabled);
     assert_eq!(
         *calls.lock().unwrap(),
-        [
-            app.command_context.workspace.id(),
-            app.command_context.workspace.id(),
-        ]
+        [app.context.workspace().id(), app.context.workspace().id(),]
     );
 }
 
@@ -128,18 +122,19 @@ fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    let actor = app.interactive_actor.clone();
+    let actor = app.brain.interactive_actor().clone();
     let scope = SessionScope::new(
         AgentKind::Claude,
-        app.command_context.workspace.id(),
+        app.context.workspace().id(),
         actor.clone(),
     );
     let session = AgentSession::new("warm-receiver-session").expect("session");
-    SessionStore::register(&app.db, &session, &app.instance, 42, &scope).expect("register session");
-    SessionStore::mark_completed(&app.db, &session, &scope).expect("complete session");
-    let live = live_panel(app.command_context.workspace.root());
-    app.brain = Some(panel_controller(&app, live));
-    app.session_actor = Some(actor.clone());
+    SessionStore::register(&app.services, &session, app.brain.instance(), 42, &scope)
+        .expect("register session");
+    SessionStore::mark_completed(&app.services, &session, &scope).expect("complete session");
+    let live = live_panel(app.context.workspace().root());
+    let controller = panel_controller(&app, live);
+    app.brain.install_main(controller, actor.clone());
     let warm_job = receiver_job(&app, actor.clone(), Channel::Sms, "previous message");
     warm_receiver_session(
         &mut app,
@@ -147,7 +142,7 @@ fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
         "receiver-session",
         std::time::Instant::now(),
     );
-    let workspace_id = app.command_context.workspace.id();
+    let workspace_id = app.context.workspace().id();
     enqueue_receiver_job(
         &mut app,
         InboundJob {
@@ -174,11 +169,11 @@ fn receiver_queue_reuses_the_matching_warm_session_through_app_dispatch() {
         app.receiver.receiver_response_id(),
         Some("receiver-session")
     );
-    assert_eq!(app.session_actor.as_ref(), Some(&actor));
+    assert_eq!(app.brain.session_actor(), Some(&actor));
     assert!(app.receiver.remote_turn_in_flight());
-    assert!(app.brain_turn_active);
+    assert!(app.brain.turn_active());
     assert_eq!(
-        SessionStore::completion_status(&app.db, &session, &scope),
+        SessionStore::completion_status(&app.services, &session, &scope),
         Some(crate::agent::CompletionStatus::Active)
     );
 }
@@ -207,14 +202,17 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
         for (channel, actor, sender, participants, label) in &cases {
             let temporary = tempfile::tempdir().expect("temporary directory");
             let mut app = test_app(&temporary, &cli, kind);
-            app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+            let mut config = app.context.config().clone();
+            config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+            app.context = app.context.replacing_config(config);
             let recording = LaunchRecording::default();
-            app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-                recording: recording.clone(),
-                alive: false,
-            }));
+            app.brain
+                .replace_brain_transport(Box::new(LaunchRecordingTransport {
+                    recording: recording.clone(),
+                    alive: false,
+                }));
             let body = "-c developer_instructions=untrusted-inbound";
-            let workspace_id = app.command_context.workspace.id();
+            let workspace_id = app.context.workspace().id();
             enqueue_receiver_job(
                 &mut app,
                 InboundJob {
@@ -246,7 +244,7 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
             );
 
             crate::users::UsersStore::save(
-                &app.command_context.workspace,
+                app.context.workspace(),
                 &crate::users::Users {
                     schema_version: crate::users::USERS_SCHEMA_VERSION,
                     users: vec![crate::users::User {
@@ -266,21 +264,21 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
             )
             .unwrap();
             let current = crate::workspace::RegistryStore::load_from(
-                app.command_context.registry_store.path(),
+                app.context.command().registry_store.path(),
             )
             .unwrap();
             let mut environment = serde_json::Map::from_iter([(
                 "resend_from_email".to_owned(),
                 serde_json::json!("other-workspace@example.test"),
             )]);
-            if let Some(command) = current.workspaces[app.command_context.workspace.name()]
+            if let Some(command) = current.workspaces[app.context.workspace().name()]
                 .env
                 .get("opencode_cmd")
             {
                 environment.insert("opencode_cmd".to_owned(), command.clone());
             }
             std::fs::write(
-                app.command_context.registry_store.path(),
+                app.context.command().registry_store.path(),
                 serde_json::to_vec(&serde_json::json!({
                     "schema_version": crate::workspace::REGISTRY_SCHEMA_VERSION,
                     "default_workspace": "family",
@@ -336,12 +334,12 @@ fn receiver_sms_and_email_launches_carry_authenticated_actor_policy_for_every_fr
                     specs.len(),
                     1,
                     "kind={kind:?} channel={channel:?} alert={:?}",
-                    app.alert
+                    app.status.alert()
                 );
                 specs[0].clone()
             };
             assert_workspace_only_launch_spec(&app, &spec, kind, actor, &prompt);
-            assert_eq!(app.session_actor.as_ref(), Some(actor));
+            assert_eq!(app.brain.session_actor(), Some(actor));
             assert_eq!(app.receiver.active_channel(), Some(*channel));
         }
     }

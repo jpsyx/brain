@@ -1,6 +1,12 @@
 use super::*;
 use crate::tui::alt_selects_brain_tab_slot;
 
+fn inject_skill_session_transport(app: &mut App, transport: Box<dyn crate::agent::AgentTransport>) {
+    app.brain
+        .replace_session_done_url("http://127.0.0.1:4773/session/done".to_owned());
+    app.brain.replace_session_transport(transport);
+}
+
 #[test]
 fn a_configured_skill_session_launches_its_own_prompt_under_its_own_title() {
     let cli = Cli::parse_from(["tasks"]);
@@ -12,8 +18,7 @@ fn a_configured_skill_session_launches_its_own_prompt_under_its_own_title() {
         "command_label": "Run email triage",
     }]));
     let recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(recording.transport());
+    inject_skill_session_transport(&mut app, recording.transport());
 
     app.run_skill_session(SkillSessionKey::Custom(0));
 
@@ -54,13 +59,11 @@ fn two_skill_sessions_run_as_separate_tabs_and_complete_independently() {
     }]));
 
     let triage_recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(triage_recording.transport());
+    inject_skill_session_transport(&mut app, triage_recording.transport());
     app.open_triage_tab();
 
     let email_recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(email_recording.transport());
+    inject_skill_session_transport(&mut app, email_recording.transport());
     app.run_skill_session(SkillSessionKey::Custom(0));
 
     // Both run at once, each with its own tab in open order.
@@ -83,7 +86,7 @@ fn two_skill_sessions_run_as_separate_tabs_and_complete_independently() {
     let email_token = app
         .skill_session_token(SkillSessionKey::Custom(0))
         .expect("email session token");
-    crate::skill_session::signal::record_done(&app.command_context.workspace, &email_token, &[])
+    crate::skill_session::signal::record_done(app.context.workspace(), &email_token, &[])
         .expect("completion signal");
     app.tick_skill_sessions();
 
@@ -105,8 +108,7 @@ fn a_declared_required_output_holds_the_tab_open_until_it_exists() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(recording.transport());
+    inject_skill_session_transport(&mut app, recording.transport());
     app.open_triage_tab();
 
     let token = app
@@ -114,7 +116,7 @@ fn a_declared_required_output_holds_the_tab_open_until_it_exists() {
         .expect("session token");
     let required = temporary.path().join("declared-output.pdf");
     crate::skill_session::signal::record_done(
-        &app.command_context.workspace,
+        app.context.workspace(),
         &token,
         &[required.display().to_string()],
     )
@@ -136,7 +138,7 @@ fn the_builtin_daily_triage_session_is_offered_only_while_the_check_is_enabled()
     let cli = Cli::parse_from(["tasks"]);
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.skip_daily_triage_check = false;
+    app.status.set_daily_triage_check_disabled(false);
 
     let keys: Vec<_> = app
         .available_skill_sessions()
@@ -147,7 +149,7 @@ fn the_builtin_daily_triage_session_is_offered_only_while_the_check_is_enabled()
 
     // Silencing the daily-triage check (config-seeded, palette-toggled) also
     // withdraws its builtin session — the workspace has turned the feature off.
-    app.skip_daily_triage_check = true;
+    app.status.set_daily_triage_check_disabled(true);
     assert!(app.available_skill_sessions().is_empty());
 }
 
@@ -156,16 +158,11 @@ fn a_stale_signal_from_a_dead_shell_cannot_close_a_freshly_opened_tab() {
     let cli = Cli::parse_from(["tasks"]);
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    crate::skill_session::signal::record_done(
-        &app.command_context.workspace,
-        "abandoned-token",
-        &[],
-    )
-    .expect("stale signal");
+    crate::skill_session::signal::record_done(app.context.workspace(), "abandoned-token", &[])
+        .expect("stale signal");
 
     let recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(recording.transport());
+    inject_skill_session_transport(&mut app, recording.transport());
     app.open_triage_tab();
     app.tick_skill_sessions();
 
@@ -185,12 +182,10 @@ fn closing_one_session_leaves_another_tab_selected_rather_than_jumping_to_main()
     ]));
 
     let triage_recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(triage_recording.transport());
+    inject_skill_session_transport(&mut app, triage_recording.transport());
     app.open_triage_tab();
     let email_recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(email_recording.transport());
+    inject_skill_session_transport(&mut app, email_recording.transport());
     app.run_skill_session(SkillSessionKey::Custom(0));
 
     // Watching daily triage (tab 2) while email triage (tab 3) completes.
@@ -199,7 +194,7 @@ fn closing_one_session_leaves_another_tab_selected_rather_than_jumping_to_main()
     let email_token = app
         .skill_session_token(SkillSessionKey::Custom(0))
         .expect("email session token");
-    crate::skill_session::signal::record_done(&app.command_context.workspace, &email_token, &[])
+    crate::skill_session::signal::record_done(app.context.workspace(), &email_token, &[])
         .expect("completion signal");
 
     app.tick_skill_sessions();
@@ -223,19 +218,20 @@ fn a_failed_start_leaves_you_on_the_tab_you_were_reading() {
         {"title": "Email triage", "prompt": "/email-triage"},
     ]));
     let triage_recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(triage_recording.transport());
+    inject_skill_session_transport(&mut app, triage_recording.transport());
     app.open_triage_tab();
     let watched = app.effective_brain_tab();
 
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(Box::new(FailingSpawnTransport));
+    inject_skill_session_transport(&mut app, Box::new(FailingSpawnTransport));
     app.run_skill_session(SkillSessionKey::Custom(0));
 
     assert!(!app.has_skill_session(SkillSessionKey::Custom(0)));
     assert_eq!(app.effective_brain_tab(), watched);
     assert!(app.has_skill_session(SkillSessionKey::DailyTriage));
-    assert!(matches!(app.flash, Some(crate::tui::FlashKind::Error(_))));
+    assert!(matches!(
+        app.status.flash(),
+        Some(crate::tui::FlashKind::Error(_))
+    ));
 }
 
 #[test]
@@ -247,8 +243,7 @@ fn an_unoccupied_tab_slot_selects_nothing_so_its_keystroke_stays_ordinary_input(
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(recording.transport());
+    inject_skill_session_transport(&mut app, recording.transport());
     app.open_triage_tab();
 
     assert!(app.select_brain_tab_slot(1), "the open session tab selects");

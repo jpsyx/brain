@@ -27,7 +27,7 @@ impl App {
         match job.channel {
             crate::server::receiver::Channel::Sms => {
                 crate::server::delivery::send_sms_background(
-                    self.command_context.clone(),
+                    self.context.command().clone(),
                     action,
                     job.authenticated_sender.clone(),
                     crate::server::reply::sms(message).text,
@@ -47,7 +47,7 @@ impl App {
                 let reply = crate::server::reply::email(message);
                 let html = crate::server::reply::email_html(&reply.text);
                 crate::server::delivery::send_email_background(
-                    self.command_context.clone(),
+                    self.context.command().clone(),
                     action,
                     recipients,
                     crate::server::delivery::reply_subject(job.email_reply.as_ref()),

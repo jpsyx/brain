@@ -8,8 +8,8 @@ impl App {
     /// completion signal so the active turn is never interrupted.
     pub(super) fn poll_completed_interactive_turn(&mut self, session_id: &str) {
         let path = self
-            .command_context
-            .workspace
+            .context
+            .workspace()
             .paths()
             .responses_dir()
             .join(format!("{session_id}.json"));
@@ -19,13 +19,13 @@ impl App {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
             return;
         };
-        if !crate::server::reply::completion_matches_actor(&value, &self.interactive_actor) {
+        if !crate::server::reply::completion_matches_actor(&value, self.brain.interactive_actor()) {
             let _ = std::fs::remove_file(path);
             crate::logging::log("interactive completion actor mismatch discarded");
             return;
         }
         let _ = std::fs::remove_file(path);
-        self.brain_turn_active = false;
+        self.brain.clear_turn();
         crate::logging::log("interactive brain turn completed");
         if self.receiver.has_pending_work() {
             crate::logging::log("interactive turn complete; switching to queued receiver work");
@@ -69,7 +69,7 @@ impl App {
         match channel {
             crate::server::receiver::Channel::Sms => {
                 crate::server::delivery::send_sms_background(
-                    self.command_context.clone(),
+                    self.context.command().clone(),
                     "delayed SMS notice",
                     target.sender,
                     notice.text,
@@ -89,8 +89,8 @@ impl App {
         let channel = target.channel;
         let sender = target.sender;
         let path = self
-            .command_context
-            .workspace
+            .context
+            .workspace()
             .paths()
             .responses_dir()
             .join(format!("{session_id}.json"));
@@ -101,8 +101,8 @@ impl App {
             return;
         };
         if self
-            .session_actor
-            .as_ref()
+            .brain
+            .session_actor()
             .is_none_or(|actor| !crate::server::reply::completion_matches_actor(&value, actor))
         {
             let _ = std::fs::remove_file(path);
@@ -117,17 +117,16 @@ impl App {
         crate::logging::log(format!(
             "receiver agent response completed channel={channel:?}"
         ));
-        if crate::sync::config::SyncConfig::load(&self.command_context).is_configured() {
-            let _ = self.receiver_sync_runtime.spawn_detached_sync(
-                &self.command_context.workspace,
-                crate::sync::args::Direction::Push,
-            );
+        if crate::sync::config::SyncConfig::load(self.context.command()).is_configured() {
+            let _ = self
+                .services
+                .spawn_detached_sync(self.context.workspace(), crate::sync::args::Direction::Push);
         }
         match channel {
             crate::server::receiver::Channel::Sms => {
                 let reply = crate::server::reply::sms(message);
                 crate::server::delivery::send_sms_background(
-                    self.command_context.clone(),
+                    self.context.command().clone(),
                     "final SMS response",
                     sender,
                     reply.text,
@@ -137,7 +136,7 @@ impl App {
                 self.send_email_reply("final email response", message);
             }
         }
-        self.brain_turn_active = false;
+        self.brain.clear_turn();
         self.receiver
             .finish_remote_response(std::time::Instant::now());
         self.reload_after_brain();

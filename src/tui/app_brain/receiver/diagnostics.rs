@@ -20,7 +20,7 @@ fn screen_digest(screen: &str) -> u64 {
 impl App {
     /// The last non-blank `lines` rows the panel is showing, flattened for the log.
     pub(crate) fn panel_tail(&self, lines: usize) -> Option<String> {
-        let screen = self.brain.as_ref()?.snapshot().ok()?;
+        let screen = self.brain.main_controller()?.snapshot().ok()?;
         let tail = screen
             .lines()
             .map(str::trim_end)
@@ -41,7 +41,7 @@ impl App {
     pub(crate) fn sample_panel_activity(&mut self, now: std::time::Instant) {
         let digest = self
             .brain
-            .as_ref()
+            .main_controller()
             .and_then(|controller| controller.snapshot().ok())
             .map(|screen| screen_digest(&screen));
         self.receiver.note_panel_sample(now, digest);
@@ -57,7 +57,7 @@ impl App {
         crate::logging::log(format!(
             "receiver probe {}s after dispatch: turn_active={} awaiting_response_for={:?} panel={}",
             probe.elapsed_seconds,
-            self.brain_turn_active,
+            self.brain.turn_active(),
             probe.response_id.as_deref().unwrap_or("<none>"),
             self.panel_tail(14)
                 .unwrap_or_else(|| "<no panel>".to_owned())

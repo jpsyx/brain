@@ -4,7 +4,7 @@ use crate::tui::{App, FlashKind};
 
 impl App {
     pub(crate) fn refresh_receiver_enabled(&mut self) {
-        match crate::command::server::receiver_enabled(&self.command_context) {
+        match crate::command::server::receiver_enabled(self.context.command()) {
             Ok(enabled) => self.receiver.record_intent(enabled),
             Err(error) => crate::logging::log(format!(
                 "refreshing receiver palette state failed: {error:#}"
@@ -14,13 +14,13 @@ impl App {
 
     pub(crate) fn toggle_receiver(&mut self) {
         match crate::command::server::apply_receiver_action_with(
-            &self.command_context,
+            self.context.command(),
             crate::workspace::ReceiverAction::Toggle,
             self.receiver.intent_refresher(),
         ) {
             Ok(outcome) => {
                 self.receiver.record_intent(outcome.enabled());
-                self.flash = Some(outcome.refresh_warning().map_or_else(
+                self.status.set_flash(outcome.refresh_warning().map_or_else(
                     || {
                         FlashKind::Info(format!(
                             "receiver {}",
@@ -44,7 +44,7 @@ impl App {
                 ));
             }
             Err(error) => {
-                self.flash = Some(FlashKind::Error(format!(
+                self.status.set_flash(FlashKind::Error(format!(
                     "receiver enablement failed: {error:#}"
                 )));
             }
@@ -53,10 +53,10 @@ impl App {
 
     pub(super) fn show_receiver_status(&mut self) {
         crate::logging::log("palette request receiver server status");
-        match crate::command::server::read_receiver_status(&self.command_context) {
+        match crate::command::server::read_receiver_status(self.context.command()) {
             Ok(status) => {
                 self.receiver.record_intent(status.enabled);
-                self.flash = Some(FlashKind::Info(format!(
+                self.status.set_flash(FlashKind::Info(format!(
                     "receiver {}; TUI {}; server {}; accepting {}",
                     if status.enabled {
                         "enabled"
@@ -73,7 +73,7 @@ impl App {
                 )));
             }
             Err(error) => {
-                self.flash = Some(FlashKind::Error(format!(
+                self.status.set_flash(FlashKind::Error(format!(
                     "receiver status failed: {error:#}"
                 )));
             }

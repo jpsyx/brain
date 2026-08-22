@@ -1,7 +1,3 @@
-use std::time::Instant;
-
-use crate::agent::AgentController;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Panel {
     Tasks,
@@ -27,29 +23,3 @@ pub(crate) enum BrainTab {
 /// `skill_sessions` mid-session still resolves to the tab it opened.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct SessionTabId(pub(crate) u32);
-
-/// One open skill-session tab: which session it runs, what its tab is called,
-/// the one-time completion token brain matches, and its ephemeral controller.
-pub(crate) struct SkillSessionTab {
-    pub(crate) id: SessionTabId,
-    pub(crate) key: crate::skill_session::SkillSessionKey,
-    pub(crate) title: String,
-    pub(crate) token: String,
-    pub(crate) controller: AgentController,
-}
-
-/// Deferral state for the startup daily-triage nudge while a background sync is
-/// running or its refreshed decision is waiting for the overlay slot. See
-/// `App::triage_gate` and `App::tick_triage_gate`.
-pub(crate) struct TriageGate {
-    /// Newest sync-journal row id when the gate was armed; the gate resolves
-    /// once a strictly-newer row appears (a background sync finished). `None`
-    /// when the journal was empty at arm time.
-    pub(crate) seen_journal_id: Option<i64>,
-    /// Next instant we're allowed to poll the journal, to throttle the DB reads
-    /// down from the 50ms event-loop tick.
-    pub(crate) next_poll: Instant,
-    /// The sync result and refreshed task state have already been applied. A
-    /// true value means only delivery of an outstanding nudge remains.
-    pub(crate) refresh_complete: bool,
-}

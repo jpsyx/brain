@@ -254,7 +254,7 @@ pub(crate) fn recording_controller(
     alive: bool,
     snapshot: &str,
 ) -> (AgentController, ControllerRecording) {
-    recording_controller_for_actor(app, app.interactive_actor.clone(), alive, snapshot)
+    recording_controller_for_actor(app, app.brain.interactive_actor().clone(), alive, snapshot)
 }
 
 pub(crate) fn recording_controller_for_actor(
@@ -265,10 +265,10 @@ pub(crate) fn recording_controller_for_actor(
 ) -> (AgentController, ControllerRecording) {
     let recording = ControllerRecording::default();
     let controller = AgentController::new(
-        Arc::clone(&app.command_context.workspace),
+        Arc::clone(&app.context.command().workspace),
         actor,
         Box::new(RecordingFrontend {
-            kind: app.agent_kind,
+            kind: app.context.agent_kind(),
             recording: recording.clone(),
             available: true,
         }),
@@ -284,10 +284,10 @@ pub(crate) fn recording_controller_for_actor(
 pub(crate) fn unavailable_recording_controller(app: &App) -> AgentController {
     let recording = ControllerRecording::default();
     AgentController::new(
-        Arc::clone(&app.command_context.workspace),
-        app.interactive_actor.clone(),
+        Arc::clone(&app.context.command().workspace),
+        app.brain.interactive_actor().clone(),
         Box::new(RecordingFrontend {
-            kind: app.agent_kind,
+            kind: app.context.agent_kind(),
             recording: recording.clone(),
             available: false,
         }),

@@ -1,12 +1,10 @@
 use super::*;
-use crate::tui::{HelpState, Overlay, TriageGate, close_overlay};
+use crate::tui::{HelpState, Overlay, close_overlay};
 
-fn completed_refresh_gate() -> TriageGate {
-    TriageGate {
-        seen_journal_id: Some(4),
-        next_poll: std::time::Instant::now(),
-        refresh_complete: true,
-    }
+fn arm_completed_refresh_gate(app: &mut App) {
+    app.status
+        .arm_triage_gate(Some(4), std::time::Instant::now());
+    app.status.mark_triage_refresh_complete();
 }
 
 fn triage_habit(today: chrono::NaiveDate, completed: bool) -> crate::tasks::task::Task {
@@ -44,16 +42,18 @@ fn completed_startup_sync_waits_for_help_to_close_before_showing_triage() {
     let today = app.tasks.daily_triage_date();
     app.tasks
         .replace_rows(Vec::new(), vec![triage_habit(today, false)]);
-    app.config.enable_triage_habits = true;
-    app.skip_daily_triage_check = false;
-    app.triage_gate = Some(completed_refresh_gate());
+    let mut config = app.context.config().clone();
+    config.enable_triage_habits = true;
+    app.context = app.context.replacing_config(config);
+    app.status.set_daily_triage_check_disabled(false);
+    arm_completed_refresh_gate(&mut app);
     app.overlay = Some(Overlay::Help(HelpState { scroll: 0 }));
 
     app.tick_triage_gate();
 
     assert!(matches!(app.overlay, Some(Overlay::Help(_))));
     assert!(
-        app.triage_gate.is_some(),
+        app.status.triage_gate_is_armed(),
         "the refreshed triage decision must survive while Help is active"
     );
 
@@ -66,7 +66,7 @@ fn completed_startup_sync_waits_for_help_to_close_before_showing_triage() {
             if confirmation.kind == crate::tui::ConfirmKind::RunTriage
     ));
     assert!(
-        app.triage_gate.is_none(),
+        !app.status.triage_gate_is_armed(),
         "displaying the triage nudge completes the startup gate"
     );
 }
@@ -79,9 +79,11 @@ fn completed_startup_sync_still_withdraws_an_open_stale_triage_nudge() {
     let today = app.tasks.daily_triage_date();
     app.tasks
         .replace_rows(Vec::new(), vec![triage_habit(today, true)]);
-    app.config.enable_triage_habits = true;
-    app.skip_daily_triage_check = false;
-    app.triage_gate = Some(completed_refresh_gate());
+    let mut config = app.context.config().clone();
+    config.enable_triage_habits = true;
+    app.context = app.context.replacing_config(config);
+    app.status.set_daily_triage_check_disabled(false);
+    arm_completed_refresh_gate(&mut app);
     app.overlay = Some(Overlay::TaskConfirmation(
         crate::tui::ConfirmState::run_triage("H1".to_owned(), "Morning Triage".to_owned()),
     ));
@@ -90,7 +92,7 @@ fn completed_startup_sync_still_withdraws_an_open_stale_triage_nudge() {
 
     assert!(app.overlay.is_none(), "the stale triage nudge must close");
     assert!(
-        app.triage_gate.is_none(),
+        !app.status.triage_gate_is_armed(),
         "reconciliation completes the gate"
     );
 }

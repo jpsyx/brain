@@ -8,15 +8,15 @@ fn fresh_session_registration_failure_prevents_agent_launch() {
     let session = AgentSession::new("fresh-session").expect("session");
     let scope = SessionScope::new(
         AgentKind::Claude,
-        app.command_context.workspace.id(),
-        app.interactive_actor.clone(),
+        app.context.workspace().id(),
+        app.brain.interactive_actor().clone(),
     );
     let launched = std::cell::Cell::new(false);
 
     let result = register_fresh_before_launch(
         &FailingSessionStore,
         &session,
-        &app.instance,
+        app.brain.instance(),
         42,
         &scope,
         || {
@@ -42,13 +42,16 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_every_fr
     for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
-        app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
-        let actor = app.interactive_actor.clone();
+        let mut config = app.context.config().clone();
+        config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+        app.context = app.context.replacing_config(config);
+        let actor = app.brain.interactive_actor().clone();
         let recording = LaunchRecording::default();
-        app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-            recording: recording.clone(),
-            alive: false,
-        }));
+        app.brain
+            .replace_brain_transport(Box::new(LaunchRecordingTransport {
+                recording: recording.clone(),
+                alive: false,
+            }));
 
         assert!(app.open_or_focus_brain(Some(prompt)));
 
@@ -85,26 +88,26 @@ fn app_main_refuses_malformed_portable_capability_configuration() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    let mut config = app.context.config().clone();
+    config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    app.context = app.context.replacing_config(config);
     std::fs::write(
-        app.command_context
-            .workspace
-            .root()
-            .join(".config/config.json"),
+        app.context.workspace().root().join(".config/config.json"),
         r#"{"access_mode":"workspace_only","allowed_skills":"todo"}"#,
     )
     .expect("malformed capability config");
     let recording = LaunchRecording::default();
-    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-        recording: recording.clone(),
-        alive: false,
-    }));
+    app.brain
+        .replace_brain_transport(Box::new(LaunchRecordingTransport {
+            recording: recording.clone(),
+            alive: false,
+        }));
 
     assert!(!app.open_or_focus_brain(None));
 
     assert!(recording.0.lock().expect("launch recording").is_empty());
     assert!(matches!(
-        app.flash.as_ref(),
+        app.status.flash(),
         Some(crate::tui::FlashKind::Error(message))
             if message.contains("agent capabilities are invalid")
     ));
@@ -115,39 +118,38 @@ fn capability_failure_leaves_a_resumable_session_free_and_clears_response_identi
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    let mut config = app.context.config().clone();
+    config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    app.context = app.context.replacing_config(config);
     app.receiver.record_interactive_session(
         "stale-interactive-response".to_owned(),
         "stale-interactive-agent".to_owned(),
     );
     let scope = SessionScope::new(
         AgentKind::Claude,
-        app.command_context.workspace.id(),
-        app.interactive_actor.clone(),
+        app.context.workspace().id(),
+        app.brain.interactive_actor().clone(),
     );
     let session = AgentSession::new("free-after-prelaunch-failure").unwrap();
-    SessionStore::register(&app.db, &session, "prior-shell", 42, &scope).unwrap();
-    SessionStore::release(&app.db, "prior-shell").unwrap();
-    let _transcript =
-        ClaudeTranscript::create(app.command_context.workspace.root(), session.as_str());
+    SessionStore::register(&app.services, &session, "prior-shell", 42, &scope).unwrap();
+    SessionStore::release(&app.services, "prior-shell").unwrap();
+    let _transcript = ClaudeTranscript::create(app.context.workspace().root(), session.as_str());
     std::fs::write(
-        app.command_context
-            .workspace
-            .root()
-            .join(".config/config.json"),
+        app.context.workspace().root().join(".config/config.json"),
         r#"{"access_mode":"workspace_only","allowed_skills":"todo"}"#,
     )
     .expect("malformed capability config");
     let recording = LaunchRecording::default();
-    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-        recording: recording.clone(),
-        alive: false,
-    }));
+    app.brain
+        .replace_brain_transport(Box::new(LaunchRecordingTransport {
+            recording: recording.clone(),
+            alive: false,
+        }));
 
     assert!(!app.open_or_focus_brain(None));
 
     assert_eq!(
-        SessionStore::sessions_by_recency(&app.db, &scope),
+        SessionStore::sessions_by_recency(&app.services, &scope),
         [session.as_str()],
         "fallible prelaunch work must finish before claiming the candidate"
     );
@@ -164,20 +166,20 @@ fn app_main_unrestricted_launch_does_not_parse_malformed_capability_configuratio
     for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
-        app.config.access_mode = crate::access::AccessMode::Unrestricted;
+        let mut config = app.context.config().clone();
+        config.access_mode = crate::access::AccessMode::Unrestricted;
+        app.context = app.context.replacing_config(config);
         std::fs::write(
-            app.command_context
-                .workspace
-                .root()
-                .join(".config/config.json"),
+            app.context.workspace().root().join(".config/config.json"),
             r#"{"access_mode":"unrestricted","allowed_skills":"malformed"}"#,
         )
         .expect("malformed unused capability config");
         let recording = LaunchRecording::default();
-        app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-            recording: recording.clone(),
-            alive: false,
-        }));
+        app.brain
+            .replace_brain_transport(Box::new(LaunchRecordingTransport {
+                recording: recording.clone(),
+                alive: false,
+            }));
 
         assert!(app.open_or_focus_brain(None));
 
@@ -194,23 +196,25 @@ fn app_main_claude_resume_keeps_trusted_policy_before_the_user_prompt() {
     let cli = Cli::parse_from(["tasks"]);
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
-    let actor = app.interactive_actor.clone();
+    let mut config = app.context.config().clone();
+    config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    app.context = app.context.replacing_config(config);
+    let actor = app.brain.interactive_actor().clone();
     let scope = SessionScope::new(
         AgentKind::Claude,
-        app.command_context.workspace.id(),
+        app.context.workspace().id(),
         actor.clone(),
     );
     let session = AgentSession::new("trusted-resume").unwrap();
-    SessionStore::register(&app.db, &session, "prior-shell", 42, &scope).unwrap();
-    SessionStore::release(&app.db, "prior-shell").unwrap();
-    let _transcript =
-        ClaudeTranscript::create(app.command_context.workspace.root(), session.as_str());
+    SessionStore::register(&app.services, &session, "prior-shell", 42, &scope).unwrap();
+    SessionStore::release(&app.services, "prior-shell").unwrap();
+    let _transcript = ClaudeTranscript::create(app.context.workspace().root(), session.as_str());
     let recording = LaunchRecording::default();
-    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-        recording: recording.clone(),
-        alive: false,
-    }));
+    app.brain
+        .replace_brain_transport(Box::new(LaunchRecordingTransport {
+            recording: recording.clone(),
+            alive: false,
+        }));
     let prompt = "--append-system-prompt untrusted-resume-prompt";
 
     assert!(app.open_or_focus_brain(Some(prompt)));
@@ -231,23 +235,24 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
     let mut resume_app = test_app(&resume_temporary, &cli, AgentKind::Claude);
     let resume_scope = SessionScope::new(
         AgentKind::Claude,
-        resume_app.command_context.workspace.id(),
-        resume_app.interactive_actor.clone(),
+        resume_app.context.workspace().id(),
+        resume_app.brain.interactive_actor().clone(),
     );
     let valid_id = "valid-resume";
     let missing_id = "missing-resume";
     for id in [valid_id, missing_id] {
-        resume_app
-            .db
-            .register_scoped_fresh(id, "prior-shell", 42, &resume_scope)
-            .expect("register candidate");
-        resume_app
-            .db
-            .release("prior-shell")
-            .expect("release candidate");
+        let session = AgentSession::new(id).expect("candidate session");
+        SessionStore::register(
+            &resume_app.services,
+            &session,
+            "prior-shell",
+            42,
+            &resume_scope,
+        )
+        .expect("register candidate");
+        SessionStore::release(&resume_app.services, "prior-shell").expect("release candidate");
     }
-    let _transcript =
-        ClaudeTranscript::create(resume_app.command_context.workspace.root(), valid_id);
+    let _transcript = ClaudeTranscript::create(resume_app.context.workspace().root(), valid_id);
 
     assert!(resume_app.open_or_focus_brain(None));
 
@@ -255,9 +260,9 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
         resume_app.receiver.interactive_response_id(),
         Some(valid_id)
     );
-    assert!(resume_app.alert.is_none());
+    assert!(resume_app.status.alert().is_none());
     assert_eq!(
-        resume_app.db.sessions_by_recency(&resume_scope),
+        SessionStore::sessions_by_recency(&resume_app.services, &resume_scope),
         [missing_id]
     );
 
@@ -265,17 +270,19 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
     let mut fresh_app = test_app(&fresh_temporary, &cli, AgentKind::Claude);
     let fresh_scope = SessionScope::new(
         AgentKind::Claude,
-        fresh_app.command_context.workspace.id(),
-        fresh_app.interactive_actor.clone(),
+        fresh_app.context.workspace().id(),
+        fresh_app.brain.interactive_actor().clone(),
     );
-    fresh_app
-        .db
-        .register_scoped_fresh(missing_id, "prior-shell", 42, &fresh_scope)
-        .expect("register missing candidate");
-    fresh_app
-        .db
-        .release("prior-shell")
-        .expect("release missing candidate");
+    let missing_session = AgentSession::new(missing_id).expect("missing session");
+    SessionStore::register(
+        &fresh_app.services,
+        &missing_session,
+        "prior-shell",
+        42,
+        &fresh_scope,
+    )
+    .expect("register missing candidate");
+    SessionStore::release(&fresh_app.services, "prior-shell").expect("release missing candidate");
 
     assert!(fresh_app.open_or_focus_brain(None));
 
@@ -285,11 +292,14 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
     );
     assert!(
         fresh_app
-            .alert
-            .as_deref()
+            .status
+            .alert()
             .is_some_and(|message| message.contains("couldn't find a session to resume"))
     );
-    assert_eq!(fresh_app.db.sessions_by_recency(&fresh_scope), [missing_id]);
+    assert_eq!(
+        SessionStore::sessions_by_recency(&fresh_app.services, &fresh_scope),
+        [missing_id]
+    );
 }
 
 #[test]
@@ -300,23 +310,23 @@ fn receiver_restore_uses_the_frontend_session_id_not_the_response_artifact_id() 
     let frontend_session_id = "frontend-session-id";
     let interactive_scope = SessionScope::new(
         AgentKind::Claude,
-        app.command_context.workspace.id(),
-        app.interactive_actor.clone(),
+        app.context.workspace().id(),
+        app.brain.interactive_actor().clone(),
     );
     let frontend_session = AgentSession::new(frontend_session_id).unwrap();
     SessionStore::register(
-        &app.db,
+        &app.services,
         &frontend_session,
         "prior-shell",
         42,
         &interactive_scope,
     )
     .unwrap();
-    SessionStore::release(&app.db, "prior-shell").unwrap();
-    let _transcript =
-        ClaudeTranscript::create(app.command_context.workspace.root(), frontend_session_id);
+    SessionStore::release(&app.services, "prior-shell").unwrap();
+    let _transcript = ClaudeTranscript::create(app.context.workspace().root(), frontend_session_id);
     let (controller, _) = recording_controller(&app, true, "receiver");
-    app.brain = Some(controller);
+    let actor = app.brain.interactive_actor().clone();
+    app.brain.install_main(controller, actor);
     app.receiver
         .record_receiver_session("receiver-response-artifact".to_owned());
     app.receiver.record_interactive_session(
@@ -324,10 +334,11 @@ fn receiver_restore_uses_the_frontend_session_id_not_the_response_artifact_id() 
         frontend_session_id.to_owned(),
     );
     let launches = LaunchRecording::default();
-    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-        recording: launches.clone(),
-        alive: false,
-    }));
+    app.brain
+        .replace_brain_transport(Box::new(LaunchRecordingTransport {
+            recording: launches.clone(),
+            alive: false,
+        }));
 
     app.close_receiver_panel(true);
 

@@ -80,7 +80,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
 
     // Any keystroke clears a transient flash from the previous action,
     // so the status line never lingers across user interactions.
-    app.flash = None;
+    app.status.clear_flash();
 
     // The vim-style count prefix only survives between consecutive
     // digit keystrokes and the `j`/`k`/↓/↑ motion that consumes them,
@@ -216,7 +216,7 @@ fn update_application(app: &mut App, event: &Event) -> bool {
             let is_habit = app.tasks.current_is_habit();
             let has_notes = app.tasks.current_has_notes();
             let notes_expanded = app.tasks.current_notes_expanded();
-            let link_kind = app.tasks.selected_link_kind(&app.config.linear_base_url());
+            let link_kind = app.tasks.selected_link_kind(&app.context.linear_base_url());
             TaskPalette::new(
                 task_id,
                 is_habit,
@@ -224,12 +224,12 @@ fn update_application(app: &mut App, event: &Event) -> bool {
                 notes_expanded,
                 link_kind,
                 app.brain_panel_open(),
-                app.log_path.is_some(),
+                app.context.log_path().is_some(),
             )
             .with_assignment_mode(app.tasks.assignment_snapshot().mode)
         };
         let receiver_enabled = app.receiver.is_enabled();
-        let daily_triage_alert_disabled = app.skip_daily_triage_check;
+        let daily_triage_alert_disabled = app.status.daily_triage_check_disabled();
         let (runnable_sessions, open_sessions) = app.skill_session_palette_rows();
         let palette = palette.with_runtime_context(
             receiver_enabled,

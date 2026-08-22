@@ -28,27 +28,24 @@ pub(crate) type SkillSessionRows = Vec<(SkillSessionKey, String)>;
 
 impl App {
     pub(crate) fn session_done_url_for_port(&self, port: u16) -> String {
-        crate::server::url(
-            port,
-            &crate::server::session_done_path(self.server_ingress, self.server_local_capability),
-        )
+        self.context.session_done_url(port)
     }
 
     /// Whether the brain panel is on screen with *either* the main session or a
     /// skill session (the panel occupies its half whenever one is present).
     pub(crate) fn any_brain_panel_visible(&self) -> bool {
-        self.brain.is_some() || !self.skill_sessions.is_empty()
+        self.brain.any_panel_visible()
     }
 
     /// The identities of the open skill-session tabs, in tab order.
     pub(crate) fn skill_session_tab_ids(&self) -> Vec<SessionTabId> {
-        self.skill_sessions.iter().map(|tab| tab.id).collect()
+        self.brain.skill_session_tab_ids()
     }
 
     /// Which skill sessions are running right now, for the palette's
     /// hide-while-running gate.
     pub(crate) fn running_skill_session_keys(&self) -> Vec<SkillSessionKey> {
-        self.skill_sessions.iter().map(|tab| tab.key).collect()
+        self.brain.running_skill_session_keys()
     }
 
     /// Every skill session this workspace offers: the builtin daily triage
@@ -56,8 +53,8 @@ impl App {
     /// `skill_sessions` definitions.
     pub(crate) fn available_skill_sessions(&self) -> Vec<SkillSessionSpec> {
         crate::skill_session::available(
-            !self.skip_daily_triage_check,
-            self.configured_skill_sessions.as_ref(),
+            !self.status.daily_triage_check_disabled(),
+            self.brain.configured_skill_sessions(),
         )
     }
 
@@ -71,11 +68,7 @@ impl App {
             .into_iter()
             .map(|spec| (spec.key, spec.command_label.clone()))
             .collect();
-        let open = self
-            .skill_sessions
-            .iter()
-            .map(|tab| (tab.key, tab.title.clone()))
-            .collect();
+        let open = self.brain.skill_session_rows();
         (runnable, open)
     }
 
@@ -87,47 +80,25 @@ impl App {
 
     /// The controller behind the currently-active tab, if any.
     pub(crate) fn active_brain_controller(&self) -> Option<&AgentController> {
-        match self.effective_brain_tab() {
-            BrainTab::Session(id) => self
-                .skill_sessions
-                .iter()
-                .find(|tab| tab.id == id)
-                .map(|tab| &tab.controller),
-            BrainTab::Main => self.brain.as_ref(),
-        }
+        self.brain.active_controller(self.effective_brain_tab())
     }
 
     /// Mutable counterpart of [`Self::active_brain_controller`] used by the
     /// per-frame terminal resize.
     pub(crate) fn active_brain_controller_mut(&mut self) -> Option<&mut AgentController> {
-        match self.effective_brain_tab() {
-            BrainTab::Session(id) => self
-                .skill_sessions
-                .iter_mut()
-                .find(|tab| tab.id == id)
-                .map(|tab| &mut tab.controller),
-            BrainTab::Main => self.brain.as_mut(),
-        }
+        let tab = self.effective_brain_tab();
+        self.brain.active_controller_mut(tab)
     }
 
     /// The active tab's title, used by the panel border.
     pub(crate) fn active_brain_tab_title(&self) -> Option<&str> {
-        match self.effective_brain_tab() {
-            BrainTab::Session(id) => self
-                .skill_sessions
-                .iter()
-                .find(|tab| tab.id == id)
-                .map(|tab| tab.title.as_str()),
-            BrainTab::Main => None,
-        }
+        self.brain.active_tab_title(self.effective_brain_tab())
     }
 
     /// The tab strip's labels, in tab order: the main session first, then each
     /// open skill session's title.
     pub(crate) fn brain_tab_titles(&self) -> Vec<String> {
-        let mut titles = vec!["Brain".to_owned()];
-        titles.extend(self.skill_sessions.iter().map(|tab| tab.title.clone()));
-        titles
+        self.brain.tab_titles()
     }
 
     /// Where the active tab sits in the tab strip (`0` = the main session).
@@ -145,7 +116,7 @@ impl App {
             .shell
             .select_brain_tab(tab, &open, self.any_brain_panel_visible());
         if selected {
-            self.alert = None;
+            self.status.clear_alert();
         }
         selected
     }
@@ -160,7 +131,7 @@ impl App {
             .shell
             .select_brain_tab_slot(slot, &ids, self.any_brain_panel_visible());
         if selected {
-            self.alert = None;
+            self.status.clear_alert();
         }
         selected
     }
@@ -168,12 +139,7 @@ impl App {
     /// Focus a running skill session by definition (the palette's counterpart to
     /// its `Alt+<n>`). No-op when that session isn't open.
     pub(crate) fn select_skill_session(&mut self, key: SkillSessionKey) {
-        if let Some(id) = self
-            .skill_sessions
-            .iter()
-            .find(|tab| tab.key == key)
-            .map(|tab| tab.id)
-        {
+        if let Some(id) = self.brain.skill_session_id(key) {
             self.select_brain_tab(BrainTab::Session(id));
         }
     }
@@ -188,7 +154,7 @@ impl App {
             .shell
             .cycle_brain_tab(&open, forward, self.any_brain_panel_visible())
         {
-            self.alert = None;
+            self.status.clear_alert();
         }
     }
 }

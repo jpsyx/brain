@@ -29,14 +29,18 @@ fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
     for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
-        app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
-        let actor = app.interactive_actor.clone();
+        let mut config = app.context.config().clone();
+        config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+        app.context = app.context.replacing_config(config);
+        let actor = app.brain.interactive_actor().clone();
         let recording = LaunchRecording::default();
-        app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-        app.session_transport_override = Some(Box::new(LaunchRecordingTransport {
-            recording: recording.clone(),
-            alive: false,
-        }));
+        app.brain
+            .replace_session_done_url("http://127.0.0.1:4773/session/done".to_owned());
+        app.brain
+            .replace_session_transport(Box::new(LaunchRecordingTransport {
+                recording: recording.clone(),
+                alive: false,
+            }));
 
         app.open_triage_tab();
 
@@ -82,7 +86,8 @@ fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
                 "an ephemeral skill session must omit {forbidden}"
             );
         }
-        let connection = rusqlite::Connection::open(&app.db_path).expect("state database");
+        let connection =
+            rusqlite::Connection::open(app.context.state_db_path()).expect("state database");
         let registered: i64 = connection
             .query_row("SELECT COUNT(*) FROM brain_sessions", [], |row| row.get(0))
             .expect("session count");
@@ -96,14 +101,15 @@ fn opencode_triage_completion_cleans_up_the_ephemeral_transport_and_signal_once(
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
     let recording = TransportRecording::default();
-    app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-    app.session_transport_override = Some(recording.transport());
+    app.brain
+        .replace_session_done_url("http://127.0.0.1:4773/session/done".to_owned());
+    app.brain.replace_session_transport(recording.transport());
 
     app.open_triage_tab();
     let token = app
         .skill_session_token(SkillSessionKey::DailyTriage)
         .expect("session token");
-    crate::skill_session::signal::record_done(&app.command_context.workspace, &token, &[])
+    crate::skill_session::signal::record_done(app.context.workspace(), &token, &[])
         .expect("completion signal");
 
     app.tick_skill_sessions();
@@ -113,9 +119,7 @@ fn opencode_triage_completion_cleans_up_the_ephemeral_transport_and_signal_once(
     assert_eq!(app.effective_brain_tab(), BrainTab::Main);
     assert_eq!(app.shell.focus(), Panel::Tasks);
     assert_eq!(recording.shutdowns(), 1);
-    assert!(
-        crate::skill_session::signal::read_signal(&app.command_context.workspace, &token).is_none()
-    );
+    assert!(crate::skill_session::signal::read_signal(app.context.workspace(), &token).is_none());
 }
 
 #[test]
@@ -123,13 +127,11 @@ fn skip_button_marks_managed_daily_triage_done_without_launching_an_agent() {
     let cli = Cli::parse_from(["tasks"]);
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.config.enable_triage_habits = true;
+    let mut config = app.context.config().clone();
+    config.enable_triage_habits = true;
+    app.context = app.context.replacing_config(config);
 
-    let habits_path = app
-        .command_context
-        .workspace
-        .root()
-        .join("tasks/habits.csv");
+    let habits_path = app.context.workspace().root().join("tasks/habits.csv");
     std::fs::write(
         &habits_path,
         "task_uuid,task_id,task_name,status,due_date,recur_interval,recur_unit,created_date,completed_date,last_touched,assigned_to,system_key\n\
@@ -149,7 +151,7 @@ fn skip_button_marks_managed_daily_triage_done_without_launching_an_agent() {
     // in-process CSV mutation.
     assert!(app.overlay.is_none(), "modal should be dismissed");
     assert!(
-        app.brain.is_none(),
+        app.brain.main_controller().is_none(),
         "Skip must not launch the main brain panel"
     );
     assert!(
@@ -177,10 +179,12 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
     for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let mut app = test_app(&temporary, &cli, kind);
-        app.config.access_mode = crate::access::AccessMode::Unrestricted;
-        let name = app.command_context.workspace.name().clone();
+        let mut config = app.context.config().clone();
+        config.access_mode = crate::access::AccessMode::Unrestricted;
+        app.context = app.context.replacing_config(config);
+        let name = app.context.workspace().name().clone();
         let mut environment =
-            crate::workspace::RegistryStore::load_from(app.command_context.registry_store.path())
+            crate::workspace::RegistryStore::load_from(app.context.command().registry_store.path())
                 .expect("current registry")
                 .workspaces[&name]
                 .env
@@ -189,7 +193,8 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
             "agent_capabilities".to_owned(),
             serde_json::json!({"mcps": "malformed"}),
         );
-        app.command_context
+        app.context
+            .command()
             .registry_store
             .replace(&crate::workspace::MachineRegistry {
                 schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
@@ -197,8 +202,8 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
                 workspaces: BTreeMap::from([(
                     name,
                     crate::workspace::WorkspaceRecord {
-                        workspace_id: app.command_context.workspace.id(),
-                        root: app.command_context.workspace.root().to_path_buf(),
+                        workspace_id: app.context.workspace().id(),
+                        root: app.context.workspace().root().to_path_buf(),
                         aliases: BTreeSet::new(),
                         local_user_id: "pablo".to_owned(),
                         receiver_enabled: false,
@@ -209,11 +214,13 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
             })
             .expect("malformed unused machine capabilities");
         let recording = LaunchRecording::default();
-        app.session_done_url_override = Some("http://127.0.0.1:4773/session/done".to_owned());
-        app.session_transport_override = Some(Box::new(LaunchRecordingTransport {
-            recording: recording.clone(),
-            alive: false,
-        }));
+        app.brain
+            .replace_session_done_url("http://127.0.0.1:4773/session/done".to_owned());
+        app.brain
+            .replace_session_transport(Box::new(LaunchRecordingTransport {
+                recording: recording.clone(),
+                alive: false,
+            }));
 
         app.open_triage_tab();
 

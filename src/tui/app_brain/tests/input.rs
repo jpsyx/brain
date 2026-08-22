@@ -7,24 +7,26 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
 
     for agent_kind in AgentKind::ALL {
         let mut app = test_app(&temporary, &cli, agent_kind);
-        let capture = capture_panel(app.command_context.workspace.root());
-        app.brain = Some(panel_controller(&app, capture));
+        let capture = capture_panel(app.context.workspace().root());
+        let actor = app.brain.interactive_actor().clone();
+        let controller = panel_controller(&app, capture);
+        app.brain.install_main(controller, actor);
         assert!(
-            wait_for_panel_contents(app.brain.as_ref().expect("panel"), "READY"),
+            wait_for_panel_contents(app.brain.main_controller().expect("panel"), "READY"),
             "capture panel did not become ready"
         );
 
         assert!(!app.handle_new_session_shortcut(KeyCode::Char('n'), false));
         assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
         assert_eq!(app.shell.focus(), Panel::Brain);
-        assert!(app.brain_turn_active);
+        assert!(app.brain.turn_active());
         let expected_bytes = match agent_kind {
             AgentKind::Claude | AgentKind::OpenCode => "2f 6e 65 77 0d",
             AgentKind::Codex => "2f 6e 65 77 09",
         };
         let panel = app
             .brain
-            .as_ref()
+            .main_controller()
             .expect("panel remains open until capture exits");
         assert!(
             wait_for_panel_contents(panel, expected_bytes),
@@ -41,7 +43,8 @@ fn ctrl_n_targets_the_active_main_or_skill_session_controller_including_session_
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let (main, main_recording) = recording_controller(&app, true, "main");
     let (triage, triage_recording) = recording_controller(&app, true, "triage");
-    app.brain = Some(main);
+    let actor = app.brain.interactive_actor().clone();
+    app.brain.install_main(main, actor);
     let session_tab = app.insert_test_skill_session(
         crate::skill_session::SkillSessionKey::DailyTriage,
         "Daily triage",
@@ -92,10 +95,10 @@ fn local_keystrokes_do_not_reach_a_pty_that_is_answering_a_remote_message() {
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let recording = TransportRecording::default();
-    app.brain_transport_override = Some(recording.transport());
+    app.brain.replace_brain_transport(recording.transport());
     assert!(app.open_or_focus_brain(None));
     app.shell.focus_brain();
-    let actor = app.interactive_actor.clone();
+    let actor = app.brain.interactive_actor().clone();
     let job = receiver_job(&app, actor, Channel::Sms, "remote request");
     begin_receiver_turn(&mut app, &job, "remote-response", std::time::Instant::now());
 
@@ -111,7 +114,7 @@ fn local_keystrokes_do_not_reach_a_pty_that_is_answering_a_remote_message() {
         "no local keystroke may join the remote conversation"
     );
     assert!(
-        !app.brain_turn_active,
+        !app.brain.turn_active(),
         "a locked-out Enter must not be recorded as starting a turn"
     );
 

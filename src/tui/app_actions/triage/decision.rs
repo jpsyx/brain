@@ -45,9 +45,9 @@ impl App {
     /// this exists to avoid.
     pub(crate) fn persist_daily_triage_check(&self) -> anyhow::Result<()> {
         crate::settings::set(
-            &self.command_context.workspace,
+            self.context.workspace(),
             "enable_daily_triage_check",
-            if self.skip_daily_triage_check {
+            if self.status.daily_triage_check_disabled() {
                 "false"
             } else {
                 "true"

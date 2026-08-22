@@ -7,9 +7,9 @@ pub(crate) fn live_panel(root: &Path) -> PtyPane {
 
 pub(crate) fn panel_controller(app: &App, panel: PtyPane) -> AgentController {
     AgentController::configured(
-        &app.command_context,
-        app.agent_kind,
-        app.interactive_actor.clone(),
+        app.context.command(),
+        app.context.agent_kind(),
+        app.brain.interactive_actor().clone(),
         Box::new(panel),
     )
 }

@@ -2,6 +2,15 @@
 //! task/habit lists, injected runners, and the session DB, then build the
 //! first body.
 
+use std::path::PathBuf;
+
+use chrono::NaiveDate;
+
+use crate::config::Config;
+use crate::session::AgentKind;
+use crate::state::Db;
+use crate::tasks::task::Task;
+use crate::tasks::view::View;
 use crate::tui::*;
 
 pub(crate) struct AppInit {
@@ -30,6 +39,7 @@ pub(crate) struct AppInit {
     pub(crate) receiver: crate::tui::receiver::ReceiverRuntime,
 }
 
+#[cfg(test)]
 fn app_workspace_paths(command_context: &crate::workspace::CommandContext) -> (PathBuf, PathBuf) {
     (
         command_context.workspace.root().to_path_buf(),
@@ -75,7 +85,6 @@ impl App {
             server_local_capability,
             receiver,
         } = init;
-        let (brain_root, db_path) = app_workspace_paths(&command_context);
         // A signal left behind by a run whose shell died must never close a tab
         // opened later, so this shell starts with none pending.
         crate::skill_session::signal::clear_all(&command_context.workspace);
@@ -112,53 +121,43 @@ impl App {
             tag_styles: crate::personalization::load_tag_styles(&command_context.workspace),
         });
         let shell = ShellState::new(search, panel_side);
-        Self {
-            command_context,
-            server_ingress,
-            server_local_capability,
-            // Seeded to the startup date; `run_tui` overwrites it with the
-            // current logical day right after the startup triage check so the
-            // first same-day refresh doesn't re-fire the nudge.
-            triage_day: today,
-            // Armed by `run_tui` only when a startup sync is pending; otherwise
-            // the triage check runs immediately and this stays None.
-            triage_gate: None,
-            skip_daily_triage_check,
+        let context = AppContext::new(AppContextInit {
+            command: command_context,
             config,
             agent_kind,
             agent_command,
             csv_path,
-            tasks,
-            brain: None,
-            #[cfg(test)]
-            brain_transport_override: None,
-            brain_turn_active: false,
-            skill_sessions: Vec::new(),
-            next_session_tab_id: 0,
-            configured_skill_sessions,
-            #[cfg(test)]
-            session_done_url_override: None,
-            #[cfg(test)]
-            session_transport_override: None,
-            shell,
+            log_path: crate::logging::path(),
+            server_ingress,
+            server_local_capability,
+        });
+        let brain = BrainPanelState::new(BrainPanelStateInit {
             instance,
             interactive_actor,
-            session_actor: None,
-            brain_root,
-            db_path,
-            log_path: crate::logging::path(),
-            alert: None,
-            overlay: None,
-            flash: None,
-            persistent_warning,
+            configured_skill_sessions,
+        });
+        let services = AppServices::new(AppServicesInit {
             agenda_runner,
             open_runner,
             db,
-            receiver,
             receiver_sync_runtime,
-            sync_status: None,
+        });
+        let status = StatusState::new(StatusStateInit {
+            triage_day: today,
+            skip_daily_triage_check,
+            persistent_warning,
             sync_status_next_poll,
             last_seen_downstream_id,
+        });
+        Self {
+            context,
+            tasks,
+            brain,
+            shell,
+            overlay: None,
+            services,
+            status,
+            receiver,
         }
     }
 }

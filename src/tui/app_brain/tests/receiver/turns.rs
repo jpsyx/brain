@@ -9,15 +9,16 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    let actor = app.interactive_actor.clone();
-    let live = live_panel(app.command_context.workspace.root());
-    app.brain = Some(panel_controller(&app, live));
+    let actor = app.brain.interactive_actor().clone();
+    let live = live_panel(app.context.workspace().root());
+    let controller = panel_controller(&app, live);
+    app.brain.install_main(controller, actor.clone());
     let relaunch = LaunchRecording::default();
-    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-        recording: relaunch,
-        alive: true,
-    }));
-    app.session_actor = Some(actor.clone());
+    app.brain
+        .replace_brain_transport(Box::new(LaunchRecordingTransport {
+            recording: relaunch,
+            alive: true,
+        }));
     // In flight for longer than any answer is allowed to take, with no
     // completion artifact ever written.
     let started = std::time::Instant::now()
@@ -31,8 +32,8 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
     app.receiver.note_panel_sample(quiet, Some(0));
     app.receiver
         .note_panel_sample(std::time::Instant::now(), None);
-    app.brain_turn_active = true;
-    let workspace_id = app.command_context.workspace.id();
+    app.brain.mark_turn_started();
+    let workspace_id = app.context.workspace().id();
     enqueue_receiver_job(
         &mut app,
         InboundJob {
@@ -55,7 +56,7 @@ fn a_stuck_remote_turn_is_abandoned_so_the_messages_behind_it_still_get_answered
     app.tick_receiver();
 
     assert!(
-        !app.brain_turn_active || app.receiver.remote_turn_in_flight(),
+        !app.brain.turn_active() || app.receiver.remote_turn_in_flight(),
         "the wedged turn must not still be pinning the panel"
     );
     assert!(
@@ -81,8 +82,8 @@ fn warm_panel_reuse_delivers_a_closed_paste_and_a_submit_key_to_the_real_pty() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    let actor = app.interactive_actor.clone();
-    let root = app.command_context.workspace.root().to_path_buf();
+    let actor = app.brain.interactive_actor().clone();
+    let root = app.context.workspace().root().to_path_buf();
     let captured = root.join("captured.bin");
     let panel = crate::pty_pane::PtyPane::spawn_shell_command_with_env(
         &format!("stty raw -echo; printf READY; cat > {}", captured.display()),
@@ -92,12 +93,12 @@ fn warm_panel_reuse_delivers_a_closed_paste_and_a_submit_key_to_the_real_pty() {
         80,
     )
     .expect("spawn capture panel");
-    app.brain = Some(panel_controller(&app, panel));
+    let controller = panel_controller(&app, panel);
+    app.brain.install_main(controller, actor.clone());
     assert!(
-        wait_for_panel_contents(app.brain.as_ref().expect("panel"), "READY"),
+        wait_for_panel_contents(app.brain.main_controller().expect("panel"), "READY"),
         "capture panel never became ready"
     );
-    app.session_actor = Some(actor.clone());
     let warm_job = receiver_job(&app, actor.clone(), Channel::Sms, "previous request");
     warm_receiver_session(
         &mut app,
@@ -105,7 +106,7 @@ fn warm_panel_reuse_delivers_a_closed_paste_and_a_submit_key_to_the_real_pty() {
         "warm-session",
         std::time::Instant::now(),
     );
-    let workspace_id = app.command_context.workspace.id();
+    let workspace_id = app.context.workspace().id();
     enqueue_receiver_job(
         &mut app,
         InboundJob {
@@ -169,15 +170,17 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let cli = Cli::parse_from(["tasks"]);
         let mut app = test_app(&temporary, &cli, agent_kind);
-        let live = live_panel(app.command_context.workspace.root());
-        app.brain = Some(panel_controller(&app, live));
+        let live = live_panel(app.context.workspace().root());
+        let actor = app.brain.interactive_actor().clone();
+        let controller = panel_controller(&app, live);
+        app.brain.install_main(controller, actor);
         let start = std::time::Instant::now();
         // The turn has been open far longer than the deadline, so only the
         // panel decides whether it is still working.
         let started = start
             .checked_sub(std::time::Duration::from_secs(3600))
             .expect("a turn opened an hour ago");
-        let actor = app.interactive_actor.clone();
+        let actor = app.brain.interactive_actor().clone();
         let job = receiver_job(&app, actor, Channel::Sms, "slow request");
         begin_receiver_turn(&mut app, &job, "slow-response", started);
 
@@ -197,12 +200,12 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
 
         // The agent renders something: that is work in progress.
         app.brain
-            .as_mut()
+            .main_controller_mut()
             .expect("panel")
             .type_text("working")
             .expect("render into the panel");
         assert!(
-            wait_for_panel_contents(app.brain.as_ref().expect("panel"), "working"),
+            wait_for_panel_contents(app.brain.main_controller().expect("panel"), "working"),
             "{agent_kind:?} panel never echoed"
         );
         let later = start + std::time::Duration::from_secs(8);
@@ -238,7 +241,7 @@ fn panel_activity_is_detected_the_same_way_for_every_frontend() {
 fn sms_job(app: &App, actor: &crate::actor::ActorContext, prompt: &str) -> InboundJob {
     InboundJob {
         job_id: uuid::Uuid::new_v4(),
-        workspace_id: app.command_context.workspace.id(),
+        workspace_id: app.context.workspace().id(),
         actor: actor.clone(),
         channel: Channel::Sms,
         prompt: prompt.to_owned(),
@@ -262,10 +265,11 @@ fn a_restart_command_clears_the_backlog_and_is_never_sent_to_the_agent() {
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let actor = sms_actor();
     let recording = LaunchRecording::default();
-    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-        recording: recording.clone(),
-        alive: false,
-    }));
+    app.brain
+        .replace_brain_transport(Box::new(LaunchRecordingTransport {
+            recording: recording.clone(),
+            alive: false,
+        }));
     for prompt in [
         "stuck one",
         "stuck two",
@@ -306,27 +310,28 @@ fn a_new_command_retires_the_channel_session_without_becoming_a_prompt() {
     let cli = Cli::parse_from(["tasks"]);
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    let mut config = app.context.config().clone();
+    config.access_mode = crate::access::AccessMode::WorkspaceOnly;
+    app.context = app.context.replacing_config(config);
     let actor = sms_actor();
     let scope = SessionScope::new(
         AgentKind::Claude,
-        app.command_context.workspace.id(),
+        app.context.workspace().id(),
         actor.clone(),
     );
     // A session that would otherwise be resumed: registered, released, and
     // backed by a transcript that really exists on disk.
     let session = AgentSession::new("previous-sms-conversation").unwrap();
-    SessionStore::register(&app.db, &session, "prior-shell", 42, &scope).unwrap();
-    SessionStore::release(&app.db, "prior-shell").unwrap();
-    let _transcript = ClaudeTranscript::create(
-        app.command_context.workspace.root(),
-        "previous-sms-conversation",
-    );
+    SessionStore::register(&app.services, &session, "prior-shell", 42, &scope).unwrap();
+    SessionStore::release(&app.services, "prior-shell").unwrap();
+    let _transcript =
+        ClaudeTranscript::create(app.context.workspace().root(), "previous-sms-conversation");
     let recording = LaunchRecording::default();
-    app.brain_transport_override = Some(Box::new(LaunchRecordingTransport {
-        recording: recording.clone(),
-        alive: false,
-    }));
+    app.brain
+        .replace_brain_transport(Box::new(LaunchRecordingTransport {
+            recording: recording.clone(),
+            alive: false,
+        }));
     for prompt in ["/NEW", "what is on today?"] {
         let job = sms_job(&app, &actor, prompt);
         enqueue_receiver_job(&mut app, job);

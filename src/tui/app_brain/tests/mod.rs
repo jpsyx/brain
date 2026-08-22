@@ -58,7 +58,7 @@ fn receiver_job(
 ) -> InboundJob {
     InboundJob {
         job_id: uuid::Uuid::new_v4(),
-        workspace_id: app.command_context.workspace.id(),
+        workspace_id: app.context.workspace().id(),
         actor,
         channel,
         prompt: prompt.to_owned(),

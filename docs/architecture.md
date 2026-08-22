@@ -125,7 +125,7 @@ tui::run_tui(TuiLaunch) (thin persistent-shell facade)
       ├─→ build_search(brain_root)            (entry::collect over all buckets → picker::App)
       └─→ tick → draw → poll/read → application update
        ├─ agent::SessionStore: reap dead locks, scoped resume / claim or register
-       ├─ App owns one AgentController per live main/triage panel
+       ├─ BrainPanelState owns one AgentController per live main/skill-session panel
        │    ├─ access::AccessPolicy snapshots trusted portable mode/root/actor
        │    ├─ agent::{ClaudeFrontend,CodexFrontend,OpenCodeFrontend} translate semantic operations
        │    ├─ agent::registry owns construction, lifecycle, health, and compatibility metadata
@@ -967,13 +967,14 @@ process-lifetime services. Its sync-services stage calls
 (when `watch_effective()`). Orderly shutdown drops that TUI's timer and watcher,
 which explicitly stop and join only their workers, and performs no exit sync.
 `ReceiverRuntime` owns the receiver freshness-gate state and its
-observation-driven pure poll transition. `App` owns the injected sync adapter
-that reads clocks, journals, and current process state and launches children.
+observation-driven pure poll transition. `AppServices` owns the injected sync
+adapter that reads clocks, journals, and current process state and launches
+children.
 Each receiver tick walks one explicit ordered stage list. The runtime
 re-snapshots receiver-local facts before each stage and returns a typed effect,
 so a completed effect can change a later decision without replaying a one-shot
 timeout, lease, control, or dispatch transition.
-The App-owned executor returns a semantic `ReceiverEffectOutcome`; the pure
+The App mediator returns a semantic `ReceiverEffectOutcome`; the pure
 tick coordinator converts that outcome into `AdvanceStage`, `StopTick`, or
 `RepeatCurrentStage`. Sync waiting therefore stops production execution and a
 consumed `/new` repeats only its current stage without either rule depending on
@@ -1114,7 +1115,36 @@ outcome; ordinary sync does not gain a second policy branch.
 
 ### `tui/` (the merged shell)
 The persistent shell, built from the ported tasks `tui/` and extended with the
-main-view axis. One `App` coordinates two focused state owners. `TasksState`
+main-view axis. `App` is an eight-field composition root:
+
+```text
+TuiRuntime (process lifetime)
+└── App (cross-feature mediator)
+    ├── AppContext       immutable command, workspace, config, frontend, and path identity
+    ├── TasksState       task materialization, filtering, selection, and logical day
+    ├── BrainPanelState  controllers, tabs, actors, turn state, and skill sessions
+    ├── ShellState       main view, focus, layout, search, logs, and selected tab
+    ├── Overlay          the one active cross-feature modal
+    ├── AppServices      runners, state DB, session store, and receiver sync effects
+    ├── StatusState      triage gate, live toggle, messages, and sync status
+    └── ReceiverRuntime  queue, socket, intent refresh, and receiver-local decisions
+```
+
+The context is replaced as a complete immutable snapshot when portable config
+is refreshed. It never owns the mutable triage or task materialization days:
+`StatusState` and `TasksState` own those values respectively. `AppServices`
+exposes semantic effects instead of one getter per injected object, and
+`BrainPanelState` keeps every frontend behind `AgentController`.
+
+`Overlay` remains a top-level field because it mediates mutually exclusive
+modals spanning tasks, search, status, and the brain panel. `ReceiverRuntime`
+also remains top-level because its ordered decisions coordinate brain, task,
+status, delivery, and sync effects while its queue, socket, persisted-intent
+refresher, and retry state stay one natural owner. Cross-feature launch,
+database, receiver takeover, task refresh, and focus changes remain App
+operations; neither focused owner receives the whole App.
+
+`TasksState`
 owns task/habit source rows, view materialization, assignment and query
 filtering, selection, notes expansion, rendered body lines, and viewport
 layout. `ShellState` owns the active main view, panel focus and side, the brain
@@ -1129,10 +1159,11 @@ Advancing the task aggregate's logical
 day rematerializes its date-relative view immediately from its owned rows, so
 a later CSV reload failure cannot leave the new date paired with an old body.
 Task fuzzy matching lives under `state/tasks/filter.rs`. Immutable
-workspace/runtime identity, CSV IO, agent and
-skill-session controllers, the state DB, receiver runtime, sync effects, and
-cross-feature coordination remain on `App`. `App` also owns exactly one
-`overlay: Option<Overlay>`. The data-bearing variants cover the task palette,
+workspace/runtime identity lives in `AppContext`; agent and skill-session
+controller state lives in `BrainPanelState`; injected runners, the state DB,
+and sync effects live in `AppServices`; and transient status lives in
+`StatusState`. Cross-feature coordination remains on `App`. `App` also owns
+exactly one `overlay: Option<Overlay>`. The data-bearing variants cover the task palette,
 brain input, task confirmation, search palette, search confirmation, link
 picker, assignee filter, help, and sync log. This makes simultaneous modals
 unrepresentable; `overlay/mod.rs` owns the pure open, replace, route, and close
@@ -1180,37 +1211,36 @@ owner), `action/` (the closed
 `GlobalAction` enum), `handlers/`
 (`overlay`/`tasks_view`/`input`), `event_loop/` (`setup`/`modal_route`/`run`),
 `draw/` (`tasks_panel`/`brain_panel`/`layout`, with the `draw` entry in
-`draw/mod.rs`), `state/` (`tasks`/`shell`), `palette/`
+`draw/mod.rs`), `state/`
+(`context`/`tasks`/`brain`/`shell`/`services`/`status`), `palette/`
 (`model`/`command`/`state`), `app_state/` (`construct`/`view`), `app_actions/`
 (`commands`/`receiver`/`triage`, with pure triage policy in
 `triage/decision.rs`), `app_brain/` (`launch`/`lifecycle` plus receiver
 `dispatch`/`completion`/`state` effect executors and focused tests), and
 `tests/` (split by
-area). `app_brain/` owns the main persistent controller, receiver dispatch,
-and completion delivery;
+area). `BrainPanelState` owns the main persistent controller, while
+`app_brain/` coordinates receiver dispatch and completion delivery;
 `app_brain/launch/session.rs` owns the full fresh-or-resume launch transaction,
 while `launch.rs` keeps capability construction, transport selection, and the
 public app actions.
-`app_skill_session/` owns the ephemeral skill-session controllers and their
-tab lifecycle (open/close/select and the
+`BrainPanelState` owns the ephemeral skill-session controllers and tab data;
+`app_skill_session/` coordinates their lifecycle (open/close/select and the
 `tick_skill_sessions` auto-close). The `Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
 structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with
-`pub(super)` fields; shared panel, tab, and deferred-gate types live in
-`model.rs`, while `mod.rs` keeps the coordinating `App` type, its private
-`TasksState` and `ShellState` owners, one private `ReceiverRuntime`, the
-App-owned receiver sync effect adapter,
+`pub(super)` fields; shared panel and tab types live in
+`model.rs`, while `mod.rs` keeps only the coordinating eight-field `App` type,
 re-exports, and module wiring. Receiver
 representation is private to `receiver/runtime.rs` and its focused child
 modules. `receiver/decision.rs` maps independent facts onto the fixed tick
-stages, while `receiver/effect.rs` carries only the data each App-owned effect
-needs. App coordinators execute those effects and feed semantic outcomes back
+stages, while `receiver/effect.rs` carries only the data each App mediator
+effect needs. App coordinators execute those effects and feed semantic outcomes back
 through completion, dispatch, diagnostic, and freshness-gate operations rather
 than mutating receiver fields. The runtime
 receives sync observations and never reads journals, files, or process state or
 launches sync children. Cross-feature
-work that touches the agent controller, task reloads, sync processes, response
+work that touches the brain aggregate, task reloads, sync processes, response
 files, or provider delivery remains in the existing App coordinators.
 `status_warning.rs` validates receiver
 phone configuration and renders persistent warning content independently from

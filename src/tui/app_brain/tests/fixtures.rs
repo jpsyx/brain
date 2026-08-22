@@ -11,68 +11,80 @@ const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 pub(super) const ACCEPTED_INGRESS: &str = "57b162df-983a-45c3-ac7e-bad94eb27a99";
 pub(super) const ACCEPTED_LOCAL_CAPABILITY: &str = "57b162df-983a-45c3-ac7e-bad94eb27a99";
 
+struct TestWorkspaceFixture {
+    root: PathBuf,
+    context: CommandContext,
+}
+
+impl TestWorkspaceFixture {
+    fn build(temporary: &tempfile::TempDir) -> Self {
+        let root = temporary.path().join("family");
+        std::fs::create_dir_all(root.join("tasks")).expect("create task directory");
+        std::fs::create_dir_all(root.join(".config")).expect("create config directory");
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .expect("write tasks");
+        std::fs::write(
+            root.join("tasks/habits.csv"),
+            "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
+        )
+        .expect("write habits");
+        let fake_opencode =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/opencode/fake_opencode.sh");
+        std::fs::write(
+            root.join(".config/config.json"),
+            serde_json::json!({
+                "claude_cmd": "sh -c 'sleep 30' #",
+                "codex_cmd": "codex-test",
+            })
+            .to_string(),
+        )
+        .expect("write test agent command");
+        let workspace = WorkspaceContext::new(
+            temporary.path(),
+            WorkspaceId::parse(WORKSPACE_ID).expect("valid workspace id"),
+            WorkspaceName::parse("family").expect("valid workspace name"),
+            &root,
+            "pablo",
+            temporary.path(),
+        )
+        .expect("workspace context");
+        let registry_store = RegistryStore::from_path(temporary.path().join("env.json"));
+        registry_store
+            .replace(&crate::workspace::MachineRegistry {
+                schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
+                default_workspace: workspace.name().clone(),
+                workspaces: std::collections::BTreeMap::from([(
+                    workspace.name().clone(),
+                    crate::workspace::WorkspaceRecord {
+                        workspace_id: workspace.id(),
+                        root: workspace.root().to_path_buf(),
+                        aliases: std::collections::BTreeSet::new(),
+                        local_user_id: "pablo".to_owned(),
+                        receiver_enabled: false,
+                        env: serde_json::Map::from_iter([(
+                            "opencode_cmd".to_owned(),
+                            serde_json::Value::String(fake_opencode.display().to_string()),
+                        )]),
+                    },
+                )]),
+                env: serde_json::Map::new(),
+            })
+            .expect("write test registry");
+        let context = CommandContext::for_test(Arc::new(workspace), registry_store, "pablo");
+        Self { root, context }
+    }
+}
+
 pub(super) fn test_app(
     temporary: &tempfile::TempDir,
     task_options: impl Into<crate::tasks::view::TaskViewOptions>,
     agent_kind: AgentKind,
 ) -> App {
     let task_options = task_options.into();
-    let root = temporary.path().join("family");
-    std::fs::create_dir_all(root.join("tasks")).expect("create task directory");
-    std::fs::create_dir_all(root.join(".config")).expect("create config directory");
-    std::fs::write(
-        root.join("tasks/tasks.csv"),
-        "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
-    )
-    .expect("write tasks");
-    std::fs::write(
-        root.join("tasks/habits.csv"),
-        "task_uuid,task_id,task_name,status,assigned_to,system_key\n",
-    )
-    .expect("write habits");
-    let fake_opencode =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/opencode/fake_opencode.sh");
-    std::fs::write(
-        root.join(".config/config.json"),
-        serde_json::json!({
-            "claude_cmd": "sh -c 'sleep 30' #",
-            "codex_cmd": "codex-test",
-        })
-        .to_string(),
-    )
-    .expect("write test agent command");
-    let workspace = WorkspaceContext::new(
-        temporary.path(),
-        WorkspaceId::parse(WORKSPACE_ID).expect("valid workspace id"),
-        WorkspaceName::parse("family").expect("valid workspace name"),
-        &root,
-        "pablo",
-        temporary.path(),
-    )
-    .expect("workspace context");
-    let registry_store = RegistryStore::from_path(temporary.path().join("env.json"));
-    registry_store
-        .replace(&crate::workspace::MachineRegistry {
-            schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
-            default_workspace: workspace.name().clone(),
-            workspaces: std::collections::BTreeMap::from([(
-                workspace.name().clone(),
-                crate::workspace::WorkspaceRecord {
-                    workspace_id: workspace.id(),
-                    root: workspace.root().to_path_buf(),
-                    aliases: std::collections::BTreeSet::new(),
-                    local_user_id: "pablo".to_owned(),
-                    receiver_enabled: false,
-                    env: serde_json::Map::from_iter([(
-                        "opencode_cmd".to_owned(),
-                        serde_json::Value::String(fake_opencode.display().to_string()),
-                    )]),
-                },
-            )]),
-            env: serde_json::Map::new(),
-        })
-        .expect("write test registry");
-    let context = CommandContext::for_test(Arc::new(workspace), registry_store, "pablo");
+    let TestWorkspaceFixture { root, context } = TestWorkspaceFixture::build(temporary);
     let today = NaiveDate::from_ymd_opt(2026, 8, 4).expect("valid date");
     let view = build_view(
         &task_options,
@@ -172,7 +184,7 @@ pub(super) fn assert_workspace_only_launch_spec(
     actor: &crate::actor::ActorContext,
     prompt: &str,
 ) {
-    let root = app.command_context.workspace.root();
+    let root = app.context.workspace().root();
     let policy = format!(
         "Brain workspace access policy (trusted launch context)\n\
          Access mode: workspace_only\n\

@@ -96,6 +96,129 @@ const SHELL_FIELDS: &[&str] = &[
     "active_brain_tab",
 ];
 
+const APP_COMPOSITION_FIELDS: &[(&str, &str)] = &[
+    ("context", "AppContext"),
+    ("tasks", "TasksState"),
+    ("brain", "BrainPanelState"),
+    ("shell", "ShellState"),
+    ("overlay", "Option<Overlay>"),
+    ("services", "AppServices"),
+    ("status", "StatusState"),
+    ("receiver", "crate::tui::receiver::ReceiverRuntime"),
+];
+
+const CONTEXT_FIELDS: &[&str] = &[
+    "command",
+    "config",
+    "agent_kind",
+    "agent_command",
+    "csv_path",
+    "brain_root",
+    "db_path",
+    "log_path",
+    "server_ingress",
+    "server_local_capability",
+];
+
+const BRAIN_FIELDS: &[&str] = &[
+    "main",
+    "brain_turn_active",
+    "skill_sessions",
+    "next_session_tab_id",
+    "configured_skill_sessions",
+    "instance",
+    "interactive_actor",
+    "session_actor",
+    "brain_transport_override",
+    "session_done_url_override",
+    "session_transport_override",
+];
+
+const SERVICE_FIELDS: &[&str] = &[
+    "agenda_runner",
+    "open_runner",
+    "db",
+    "receiver_sync_runtime",
+];
+
+const STATUS_FIELDS: &[&str] = &[
+    "triage_day",
+    "triage_gate",
+    "skip_daily_triage_check",
+    "flash",
+    "persistent_warning",
+    "alert",
+    "sync_status",
+    "sync_status_next_poll",
+    "last_seen_downstream_id",
+];
+
+#[test]
+fn app_is_an_eight_field_composition_root_with_one_owner_per_remaining_invariant() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let app = std::fs::read_to_string(root.join("src/tui/mod.rs")).expect("read App source");
+    let app_body = extract_struct_body(&app, "App").expect("App body");
+    let fields = struct_field_names(app_body);
+
+    assert!(
+        fields.len() <= 10,
+        "App must stay at or below ten intentional fields, found {}: {fields:?}",
+        fields.len()
+    );
+    assert_eq!(
+        fields,
+        APP_COMPOSITION_FIELDS
+            .iter()
+            .map(|(field, _)| (*field).to_owned())
+            .collect::<Vec<_>>(),
+        "App composition fields drifted"
+    );
+    for (field, expected_type) in APP_COMPOSITION_FIELDS {
+        assert!(
+            field_is_private(app_body, field),
+            "App.{field} must be private"
+        );
+        assert_eq!(
+            field_type(app_body, field),
+            Some((*expected_type).to_owned()),
+            "App.{field} owner type drifted"
+        );
+    }
+
+    for (path, owner, expected_fields) in [
+        ("src/tui/state/context.rs", "AppContext", CONTEXT_FIELDS),
+        ("src/tui/state/brain.rs", "BrainPanelState", BRAIN_FIELDS),
+        ("src/tui/state/services.rs", "AppServices", SERVICE_FIELDS),
+        ("src/tui/state/status.rs", "StatusState", STATUS_FIELDS),
+    ] {
+        let source = std::fs::read_to_string(root.join(path)).expect("read focused state owner");
+        let body = extract_struct_body(&source, owner).expect("focused state body");
+        assert_eq!(
+            struct_field_names(body),
+            expected_fields
+                .iter()
+                .map(|field| (*field).to_owned())
+                .collect::<Vec<_>>(),
+            "{owner} ownership drifted"
+        );
+        for field in expected_fields {
+            assert!(
+                field_is_private(body, field),
+                "{owner}.{field} must be private"
+            );
+            assert_eq!(
+                field_declaration_count(app_body, field),
+                usize::from(
+                    APP_COMPOSITION_FIELDS
+                        .iter()
+                        .any(|(app_field, _)| app_field == field)
+                ),
+                "{owner}.{field} was flattened back onto App"
+            );
+        }
+    }
+}
+
 #[test]
 fn app_owns_focused_task_and_shell_aggregates_instead_of_flat_state() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -539,6 +662,24 @@ fn extract_named_body<'a>(source: &'a str, kind: &str, name: &str) -> Option<&'a
 
 fn field_declaration_count(body: &str, field: &str) -> usize {
     field_declarations(body, field).len()
+}
+
+fn struct_field_names(body: &str) -> Vec<String> {
+    let masked = mask_non_code(body);
+    body.lines()
+        .zip(masked.lines())
+        .filter_map(|(_, code)| {
+            let code = code.trim();
+            if code.is_empty() || code.starts_with('#') {
+                return None;
+            }
+            let colon = field_separator(code)?;
+            code[..colon]
+                .split_whitespace()
+                .next_back()
+                .map(str::to_owned)
+        })
+        .collect()
 }
 
 fn field_is_private(body: &str, field: &str) -> bool {

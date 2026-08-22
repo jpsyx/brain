@@ -34,9 +34,9 @@ impl App {
         let queued_actor_matches_session = self
             .receiver
             .next_job()
-            .is_some_and(|job| self.session_actor.as_ref() == Some(&job.actor));
+            .is_some_and(|job| self.brain.session_actor() == Some(&job.actor));
         crate::tui::receiver::ReceiverTickContext {
-            brain_turn_active: self.brain_turn_active,
+            brain_turn_active: self.brain.turn_active(),
             panel_open: self.brain_panel_open(),
             queued_actor_matches_session,
         }
@@ -72,7 +72,7 @@ impl App {
                 self.close_receiver_panel(true);
             }
             crate::tui::receiver::ReceiverEffect::PollInboundJobs => {
-                self.receiver.poll_jobs(self.command_context.workspace.id());
+                self.receiver.poll_jobs(self.context.workspace().id());
             }
             crate::tui::receiver::ReceiverEffect::ApplyRestart(plan) => {
                 self.apply_receiver_restart(&plan);
@@ -108,8 +108,8 @@ impl App {
         };
         let _ = crate::server::reply::processing_notice(label);
         let staged = crate::server::receiver::stage_attachments(
-            &self.command_context.workspace,
-            &self.command_context,
+            self.context.workspace(),
+            self.context.command(),
             message,
         );
         let mut attachments = String::new();
@@ -144,8 +144,8 @@ impl App {
         if reusing_receiver_panel {
             if let Some(session_id) = self.receiver.receiver_response_id() {
                 let response_path = self
-                    .command_context
-                    .workspace
+                    .context
+                    .workspace()
                     .paths()
                     .responses_dir()
                     .join(format!("{session_id}.json"));

@@ -21,7 +21,7 @@ fn session_done_url(app: &App) -> anyhow::Result<String> {
 
 #[cfg(test)]
 fn session_done_url(app: &mut App) -> anyhow::Result<String> {
-    if let Some(url) = app.session_done_url_override.take() {
+    if let Some(url) = app.brain.take_session_done_url() {
         return Ok(url);
     }
     let record = crate::server::lifecycle::ServerClient::default().connect_existing()?;
@@ -35,7 +35,7 @@ fn session_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
 
 #[cfg(test)]
 fn session_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
-    if let Some(transport) = app.session_transport_override.take() {
+    if let Some(transport) = app.brain.take_session_transport() {
         return transport;
     }
     Box::new(PtyPane::new(24, 80))
@@ -68,12 +68,7 @@ impl App {
     /// session if the live completion route is unavailable, so the run still
     /// happens.
     pub(crate) fn open_skill_session(&mut self, spec: &SkillSessionSpec) {
-        if let Some(id) = self
-            .skill_sessions
-            .iter()
-            .find(|tab| tab.key == spec.key)
-            .map(|tab| tab.id)
-        {
+        if let Some(id) = self.brain.skill_session_id(spec.key) {
             self.select_brain_tab(BrainTab::Session(id));
             return;
         }
@@ -92,7 +87,7 @@ impl App {
         let token = uuid::Uuid::new_v4().to_string();
         // Drop any stale signal for this token's slot before the tab exists, so
         // nothing left behind can close the tab we're about to open.
-        crate::skill_session::signal::clear(&self.command_context.workspace, &token);
+        crate::skill_session::signal::clear(self.context.workspace(), &token);
 
         let session =
             AgentSession::new(uuid::Uuid::new_v4().to_string()).expect("generated session id");
@@ -102,18 +97,18 @@ impl App {
                 crate::logging::log(format!(
                     "skill session capability resolution failed: {error}"
                 ));
-                self.flash = Some(FlashKind::Error(format!(
+                self.status.set_flash(FlashKind::Error(format!(
                     "agent capabilities are invalid: {error}"
                 )));
                 return;
             }
         };
         let mut request = LaunchRequest::from_trusted_context(
-            Arc::clone(&self.command_context.workspace),
-            self.interactive_actor.clone(),
+            Arc::clone(&self.context.command().workspace),
+            self.brain.interactive_actor().clone(),
             SessionPlan::fresh(session),
             Some(crate::skill_session::prompt::launch_prompt(&spec.prompt)),
-            self.config.access_mode,
+            self.context.access_mode(),
         );
         if let Some(plan) = capability_plan {
             request = request.with_capability_plan(plan);
@@ -130,34 +125,28 @@ impl App {
         ]));
         let transport = session_transport(self);
         let mut controller =
-            self.controller_for_transport(self.interactive_actor.clone(), transport);
+            self.controller_for_transport(self.brain.interactive_actor().clone(), transport);
         match controller.launch(&request) {
             Ok(()) => {
-                let id = SessionTabId(self.next_session_tab_id);
-                self.next_session_tab_id = self.next_session_tab_id.wrapping_add(1);
-                self.skill_sessions.push(SkillSessionTab {
-                    id,
-                    key: spec.key,
-                    title: spec.title.clone(),
-                    token,
-                    controller,
-                });
+                let id =
+                    self.brain
+                        .add_skill_session(spec.key, spec.title.clone(), token, controller);
                 let open = self.skill_session_tab_ids();
                 self.shell
                     .select_brain_tab(BrainTab::Session(id), &open, true);
-                self.alert = None;
+                self.status.clear_alert();
                 crate::logging::log(format!(
                     "skill session opened title={} agent={}",
                     spec.title,
-                    self.agent_kind.label()
+                    self.context.agent_kind().label()
                 ));
             }
             Err(error) => {
                 // The tab was never added, so whatever is showing stays showing;
                 // only the flash reports the failure.
                 crate::logging::log(format!("skill session start failed: {error}"));
-                crate::skill_session::signal::clear(&self.command_context.workspace, &token);
-                self.flash = Some(FlashKind::Error(format!(
+                crate::skill_session::signal::clear(self.context.workspace(), &token);
+                self.status.set_flash(FlashKind::Error(format!(
                     "{} could not start: {error}",
                     spec.title
                 )));
@@ -174,18 +163,19 @@ impl App {
     /// session is open), while a background session finishing leaves the current
     /// tab and focus exactly where they were.
     pub(crate) fn close_skill_session(&mut self, id: SessionTabId) {
-        let Some(index) = self.skill_sessions.iter().position(|tab| tab.id == id) else {
+        let was_showing = self.effective_brain_tab() == BrainTab::Session(id);
+        let Some(removed) = self.brain.remove_skill_session(id) else {
             return;
         };
-        let was_showing = self.effective_brain_tab() == BrainTab::Session(id);
-        let mut tab = self.skill_sessions.remove(index);
-        let _ = tab.controller.shutdown();
-        crate::skill_session::signal::clear(&self.command_context.workspace, &tab.token);
+        crate::skill_session::signal::clear(self.context.workspace(), &removed.token);
         if was_showing {
             let open = self.skill_session_tab_ids();
-            self.shell
-                .select_brain_tab(BrainTab::Main, &open, self.brain.is_some());
-            if self.brain.is_none() {
+            self.shell.select_brain_tab(
+                BrainTab::Main,
+                &open,
+                self.brain.main_controller().is_some(),
+            );
+            if self.brain.main_controller().is_none() {
                 self.shell.focus_tasks();
             }
         }
@@ -209,15 +199,9 @@ impl App {
         token: &str,
         controller: AgentController,
     ) -> SessionTabId {
-        let id = SessionTabId(self.next_session_tab_id);
-        self.next_session_tab_id = self.next_session_tab_id.wrapping_add(1);
-        self.skill_sessions.push(SkillSessionTab {
-            id,
-            key,
-            title: title.to_owned(),
-            token: token.to_owned(),
-            controller,
-        });
+        let id = self
+            .brain
+            .add_skill_session(key, title.to_owned(), token.to_owned(), controller);
         let open = self.skill_session_tab_ids();
         self.shell
             .select_brain_tab(BrainTab::Session(id), &open, true);
@@ -228,22 +212,19 @@ impl App {
     /// only — the real value is read once at startup).
     #[cfg(test)]
     pub(crate) fn set_test_configured_skill_sessions(&mut self, configured: serde_json::Value) {
-        self.configured_skill_sessions = Some(configured);
+        self.brain.set_configured_skill_sessions(configured);
     }
 
     /// One open tab's completion token (tests only).
     #[cfg(test)]
     pub(crate) fn skill_session_token(&self, key: SkillSessionKey) -> Option<String> {
-        self.skill_sessions
-            .iter()
-            .find(|tab| tab.key == key)
-            .map(|tab| tab.token.clone())
+        self.brain.skill_session_token(key)
     }
 
     /// Whether a skill session for `key` is open (tests only).
     #[cfg(test)]
     pub(crate) fn has_skill_session(&self, key: SkillSessionKey) -> bool {
-        self.skill_sessions.iter().any(|tab| tab.key == key)
+        self.brain.has_skill_session(key)
     }
 
     /// One event-loop tick of the skill-session auto-close. No-op with no tabs
@@ -253,15 +234,14 @@ impl App {
     pub(crate) fn tick_skill_sessions(&mut self) {
         let mut exited = Vec::new();
         let mut completed = Vec::new();
-        for tab in &self.skill_sessions {
-            if tab.controller.is_alive().is_ok_and(|alive| !alive) {
-                exited.push((tab.id, tab.title.clone()));
+        for session in self.brain.skill_session_observations() {
+            if session.exited {
+                exited.push((session.id, session.title));
                 continue;
             }
-            let Some(signal) = crate::skill_session::signal::read_signal(
-                &self.command_context.workspace,
-                &tab.token,
-            ) else {
+            let Some(signal) =
+                crate::skill_session::signal::read_signal(self.context.workspace(), &session.token)
+            else {
                 continue;
             };
             // The token matches, but the run declared output artifacts (a
@@ -272,7 +252,7 @@ impl App {
             if crate::skill_session::signal::ready_to_close(&signal.require, |p| {
                 std::path::Path::new(p).exists()
             }) {
-                completed.push((tab.id, tab.title.clone()));
+                completed.push((session.id, session.title));
             }
         }
         for (id, title) in exited {
@@ -284,7 +264,7 @@ impl App {
                 "skill session {title}: completion signal received; closing"
             ));
             self.close_skill_session(id);
-            self.flash = Some(FlashKind::Info(format!(
+            self.status.set_flash(FlashKind::Info(format!(
                 "✓ {} complete",
                 title.to_lowercase()
             )));

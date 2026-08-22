@@ -135,7 +135,7 @@ impl TuiRuntime {
                 ShutdownStage::StopPeriodicPuller => drop(self.periodic_puller.take()),
                 ShutdownStage::StopWatcher => drop(self.watcher.take()),
                 ShutdownStage::ReleaseSessionLock => {
-                    if let Err(error) = self.app.db.release(&self.instance) {
+                    if let Err(error) = self.app.services.release_session_lock(&self.instance) {
                         crate::logging::log(format!("session lock release failed: {error:#}"));
                     }
                 }
@@ -362,10 +362,10 @@ impl RuntimeBuilder {
         &mut self,
         app: &mut App,
     ) -> Result<(Option<WatcherHandle>, Option<PeriodicPullHandle>)> {
-        let workspace = app.command_context.workspace.clone();
-        let sync_config = crate::sync::config::SyncConfig::load(&app.command_context);
+        let workspace = app.context.command().workspace.clone();
+        let sync_config = crate::sync::config::SyncConfig::load(app.context.command());
         let sync_configured = sync_config.is_configured();
-        let plan = startup_sync_plan(sync_configured, app.skip_daily_triage_check);
+        let plan = startup_sync_plan(sync_configured, app.status.daily_triage_check_disabled());
         let seen = plan.arm_refresh.then(|| {
             crate::sync::journal::Journal::open(&workspace.paths().sync_journal())
                 .ok()

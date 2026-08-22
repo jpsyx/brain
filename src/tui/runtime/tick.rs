@@ -38,7 +38,7 @@ pub(super) fn tick(app: &mut App, server_lease: &HeartbeatWorker) {
                         }
                         HeartbeatEvent::RecoveryFailed(error) => {
                             crate::logging::log(format!("shared server recovery failed: {error}"));
-                            app.flash = Some(FlashKind::Error(
+                            app.status.set_flash(FlashKind::Error(
                                 "shared server unavailable; reconnecting".to_owned(),
                             ));
                         }
@@ -85,15 +85,14 @@ pub(in crate::tui) fn refresh(app: &mut App) {
                 }
             }
             RefreshStage::ReportRefresh => {
-                app.flash = Some(
-                    match reload
-                        .take()
-                        .expect("the refresh coordinator reloads tasks before reporting")
-                    {
-                        Ok(()) => FlashKind::Info("✓ refreshed".to_owned()),
-                        Err(error) => FlashKind::Error(format!("⚠ reload failed: {error}")),
-                    },
-                );
+                let flash = match reload
+                    .take()
+                    .expect("the refresh coordinator reloads tasks before reporting")
+                {
+                    Ok(()) => FlashKind::Info("✓ refreshed".to_owned()),
+                    Err(error) => FlashKind::Error(format!("⚠ reload failed: {error}")),
+                };
+                app.status.set_flash(flash);
             }
         }
     }

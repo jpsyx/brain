@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::tasks::task::AssignmentUser;
+use crate::users::UserId;
 
 impl ConfirmState {
     pub(crate) fn mark_complete(task_id: String, task_label: String) -> Self {

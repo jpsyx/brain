@@ -136,8 +136,24 @@ Finder/editor for files, `markdown-to-pdf` for conversions).
 
 ## The Brain Panel: Claude, Codex, Or OpenCode
 
-The persistent shell's brain panel spawns the selected agent frontend itself,
-inside a PTY (`pty_pane.rs`).
+The persistent shell's `BrainPanelState` owns the main and skill-session
+`AgentController`s. The App mediator assembles launch context, while each
+controller spawns the selected agent frontend inside a PTY (`pty_pane.rs`).
+
+```text
+TuiRuntime
+└── App mediator
+    ├── AppContext (workspace, frontend, config, paths)
+    ├── BrainPanelState
+    │   └── AgentController
+    │       └── frontend registry -> Claude | Codex | OpenCode adapter -> transport
+    ├── AppServices (session DB, runners, receiver sync adapter)
+    └── ReceiverRuntime (receiver-local queue, intent, and decisions)
+```
+
+Launch, completion delivery, receiver takeover, and cross-feature focus stay
+on App. No one of those paths selects or invokes a concrete frontend outside
+`AgentController`.
 
 **Which frontend runs.** A selector flag wins; with none, the selected
 workspace's machine-local `default_agent_frontend` env value decides; with that
@@ -378,7 +394,7 @@ and cannot broaden recipients.
 ### Skill-session tabs and their completion signal
 
 A **skill session** runs one prompt in its own ephemeral brain-panel tab
-(`App::skill_sessions`, `app_skill_session.rs`) rather than typing that prompt
+(`BrainPanelState`, `app_skill_session.rs`) rather than typing that prompt
 into the main session. Daily triage is the builtin definition (the nudge's **Yes**
 path); the rest come from the machine-local `skill_sessions` env array. Each is
 launched through an `AgentController` and a fresh `LaunchRequest`, with three
@@ -408,7 +424,7 @@ deliberate differences from the main panel:
   `routes::session` handler records it to
   `<workspace-cache>/skill-sessions/<token>.json` via
   `crate::skill_session::signal::record_done`, and the TUI's per-tick
-  `App::tick_skill_sessions` reads each open tab's own token
+  `App::tick_skill_sessions` asks `BrainPanelState` for each open tab's token
   (`signal::read_signal`) and auto-closes that tab only when its token arrives
   **and** every path in `require` exists (`signal::ready_to_close`). One file per
   token is what lets several sessions run at once without one's completion
@@ -920,9 +936,9 @@ persisted-intent view, channel reset controls, sender and recipient context,
 interactive and remote session identity, lease and generation, activity and
 retry timing, and freshness-gate state. TUI callers use semantic operations for
 admission polling, dispatch commit, session launch, completion, warm-session
-expiry, diagnostics, and sync-gate polling. The App continues to coordinate
-agent controllers, response files, provider delivery, task reloads, and sync
-child launches across their feature boundaries.
+expiry, diagnostics, and sync-gate polling. The App mediator continues to
+coordinate agent controllers, response files, provider delivery, task reloads,
+and sync child launches across their feature boundaries.
 The tick coordinator walks these ordered stages: remote completion,
 interactive completion, processing delay, panel activity, activity probe,
 turn timeout, warm-lease expiry, socket polling, `/restart`, retry readiness,
@@ -1536,9 +1552,9 @@ outside-world touchpoints:
   direction. `ReceiverRuntime` owns the gate attempt and deadline state; its
   pure transition consumes caller-supplied clock, journal, and running-process
   observations. The tick exposes that transition as the sync-freshness effect.
-  The App-owned injected sync adapter performs those reads and the detached
-  child launch outside the receiver module, then returns readiness through the
-  runtime's semantic gate operations. The production policy gives a
+  The `AppServices`-owned injected sync adapter performs those reads and the
+  detached child launch outside the receiver module, then App returns readiness
+  through the runtime's semantic gate operations. The production policy gives a
   launched pull five seconds to appear and permits at most three attempts; if
   none starts, the TUI warns and processes the job with local state. The same
   status poll watches for successful downstream journal advancement and reloads

@@ -147,7 +147,7 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
                 let is_habit = app.tasks.current_is_habit();
                 let has_notes = app.tasks.current_has_notes();
                 let notes_expanded = app.tasks.current_notes_expanded();
-                let link_kind = app.tasks.selected_link_kind(&app.config.linear_base_url());
+                let link_kind = app.tasks.selected_link_kind(&app.context.linear_base_url());
                 open_overlay(
                     &mut app.overlay,
                     Overlay::TaskPalette(

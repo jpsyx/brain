@@ -1,6 +1,7 @@
 //! The `ShellRunner` injection boundary and the URL-open helper.
 
-use super::*;
+#[cfg(test)]
+use super::FlashKind;
 
 use anyhow::{Context, Result};
 
@@ -61,6 +62,7 @@ impl ShellRunner for ZshFunctionRunner {
 /// Factored out so the `ShellRunner::open` hand-off can be unit-tested
 /// against a recording fake. Used by both the single-link fast path and
 /// the link-picker's selection.
+#[cfg(test)]
 pub(crate) fn open_url(runner: &dyn ShellRunner, url: &str) -> FlashKind {
     match runner.open(url) {
         Ok(()) => FlashKind::Info(format!("✓ opened {url}")),

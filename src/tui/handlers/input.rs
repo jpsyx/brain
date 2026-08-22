@@ -68,7 +68,7 @@ pub(crate) fn handle_mouse(app: &mut App, me: crossterm::event::MouseEvent) {
 pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) -> bool {
     let mut alive = app
         .brain
-        .as_ref()
+        .main_controller()
         .is_some_and(|controller| controller.is_alive().unwrap_or(false));
     if !alive {
         // Child gone: close the panel on Ctrl-C / Esc / q so the user can
@@ -93,7 +93,7 @@ pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, ct
         app.receiver.remote_turn_in_flight(),
         ctrl && matches!(k.code, KeyCode::Char('c' | 'C')),
     ) {
-        app.flash = Some(FlashKind::Info(
+        app.status.set_flash(FlashKind::Info(
             "Brain is answering a received message — input is locked until it replies (Ctrl+C interrupts)".to_owned(),
         ));
         return false;
@@ -105,13 +105,13 @@ pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, ct
     app.leave_warm_receiver_for_interactive_input();
     alive = app
         .brain
-        .as_ref()
+        .main_controller()
         .is_some_and(|controller| controller.is_alive().unwrap_or(false));
     if !alive {
         return false;
     }
     let starts_turn = brain_key_starts_turn(k.code);
-    if let Some(controller) = app.brain.as_mut() {
+    if let Some(controller) = app.brain.main_controller_mut() {
         // Typing snaps back to the live tail so the prompt is always in
         // view, even if the user had scrolled up through history.
         let _ = controller.scroll_to_bottom();

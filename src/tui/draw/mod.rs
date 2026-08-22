@@ -49,9 +49,9 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
             let context = TasksPanelContext {
                 split_pane_open: app.any_brain_panel_visible(),
                 focused: app.shell.focus() == Panel::Tasks,
-                flash: app.flash.as_ref(),
-                sync_status: app.sync_status.as_deref(),
-                persistent_warning: app.persistent_warning.as_deref(),
+                flash: app.status.flash(),
+                sync_status: app.status.sync_status(),
+                persistent_warning: app.status.persistent_warning(),
             };
             draw_tasks(f, &mut app.tasks, &context, main_area);
         }
@@ -61,15 +61,18 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
         MainView::Logs => draw_logs(f, app.shell.logs_view(), main_area),
     }
     if let Some(brain_rect) = brain_area {
+        let workspace_name = app.context.workspace().name().as_str().to_owned();
+        let agent = app.context.agent_kind().label().to_owned();
+        let alert = app.status.alert().map(str::to_owned);
         let mut context = BrainPanelContext {
             focused: app.shell.focus() == Panel::Brain,
             tab_titles: app.brain_tab_titles(),
             active_tab: app.effective_brain_tab(),
             active_index: app.active_brain_tab_index(),
-            workspace_name: app.command_context.workspace.name().as_str().to_owned(),
+            workspace_name,
             session_title: app.active_brain_tab_title().map(str::to_owned),
-            agent: app.agent_kind.label().to_owned(),
-            alert: app.alert.clone(),
+            agent,
+            alert,
             controller: app.active_brain_controller_mut(),
         };
         draw_brain(f, &mut context, brain_rect);
@@ -91,7 +94,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
         Some(Overlay::Help(state)) => draw_help(f, state, area),
         Some(Overlay::SyncLog(state)) => {
             // Re-read every frame so the modal tails a running sync.
-            let live = crate::sync::current::live_log(app.command_context.workspace.paths());
+            let live = crate::sync::current::live_log(app.context.workspace().paths());
             draw_sync_log(f, state, live.as_deref(), area);
         }
         None => {}

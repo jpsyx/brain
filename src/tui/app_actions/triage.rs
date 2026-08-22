@@ -74,9 +74,9 @@ impl App {
     pub(crate) fn skip_triage(&mut self) {
         let today = self.tasks.daily_triage_date();
         let outcome = crate::tasks::triage_habits::complete_managed_triage(
-            &self.command_context.workspace,
+            self.context.workspace(),
             crate::tasks::triage_habits::ManagedTriageKind::Daily,
-            self.config.enable_triage_habits,
+            self.context.triage_habits_enabled(),
             today,
         );
         match outcome {
@@ -84,11 +84,13 @@ impl App {
                 if let Err(error) = self.reload_tasks() {
                     crate::logging::log(format!("reload after triage skip failed: {error:#}"));
                 }
-                self.flash = Some(FlashKind::Info("✓ daily triage skipped".to_owned()));
+                self.status
+                    .set_flash(FlashKind::Info("✓ daily triage skipped".to_owned()));
             }
             Err(error) => {
                 crate::logging::log(format!("triage skip failed: {error:#}"));
-                self.flash = Some(FlashKind::Error(format!("triage skip failed: {error}")));
+                self.status
+                    .set_flash(FlashKind::Error(format!("triage skip failed: {error}")));
             }
         }
     }
@@ -101,9 +103,9 @@ impl App {
     /// blocker. `TasksState` owns the habit matching policy.
     pub(crate) fn check_daily_triage(&mut self) {
         if let Some(nudge) = self.tasks.daily_triage_nudge(
-            self.config.enable_triage_habits,
-            self.skip_daily_triage_check,
-            &self.config.daily_triage_name_pattern,
+            self.context.triage_habits_enabled(),
+            self.status.daily_triage_check_disabled(),
+            self.context.daily_triage_pattern(),
         ) {
             open_overlay(
                 &mut self.overlay,
@@ -123,9 +125,9 @@ impl App {
     /// another machine.
     pub(crate) fn reconcile_daily_triage_alert(&mut self) -> TriageAlertResolution {
         let target = self.tasks.daily_triage_nudge(
-            self.config.enable_triage_habits,
-            self.skip_daily_triage_check,
-            &self.config.daily_triage_name_pattern,
+            self.context.triage_habits_enabled(),
+            self.status.daily_triage_check_disabled(),
+            self.context.daily_triage_pattern(),
         );
         let occupancy = match self.overlay.as_ref() {
             Some(Overlay::TaskConfirmation(confirm)) if confirm.kind == ConfirmKind::RunTriage => {
@@ -150,7 +152,7 @@ impl App {
             TriageAlertResolution::Dismiss => {
                 crate::logging::log("daily triage nudge withdrawn: sync showed it already done");
                 close_overlay(&mut self.overlay);
-                self.flash = Some(FlashKind::Info(
+                self.status.set_flash(FlashKind::Info(
                     "daily triage was already done on another machine".to_owned(),
                 ));
             }
@@ -164,7 +166,8 @@ impl App {
     /// only re-fires the nudge on a genuine day rollover, not on the first
     /// refresh of the same day.
     pub(crate) fn seed_triage_day(&mut self, now: chrono::NaiveDateTime) {
-        self.triage_day = logical_day(now, self.config.day_rollover_hour);
+        self.status
+            .set_triage_day(logical_day(now, self.context.day_rollover_hour()));
     }
 
     /// Defer the startup daily-triage nudge until a background sync lands.
@@ -179,12 +182,7 @@ impl App {
         seen_journal_id: Option<i64>,
         now: std::time::Instant,
     ) {
-        self.triage_gate = Some(TriageGate {
-            seen_journal_id,
-            // Allow an immediate first poll (a very fast sync may already be done).
-            next_poll: now,
-            refresh_complete: false,
-        });
+        self.status.arm_triage_gate(seen_journal_id, now);
     }
 
     /// One event-loop tick of the deferred triage gate.
@@ -196,10 +194,8 @@ impl App {
     /// is *still* incomplete for today. Journal polling is throttled off the
     /// 50ms loop via `next_poll`.
     pub(crate) fn tick_triage_gate(&mut self) {
-        let Some((seen_journal_id, next_poll, refresh_complete)) = self
-            .triage_gate
-            .as_ref()
-            .map(|gate| (gate.seen_journal_id, gate.next_poll, gate.refresh_complete))
+        let Some((seen_journal_id, next_poll, refresh_complete)) =
+            self.status.triage_gate_observation()
         else {
             return;
         };
@@ -207,10 +203,10 @@ impl App {
             let pending = should_check_daily_triage(
                 TriageAlertEvent::RefreshSucceeded,
                 false,
-                self.skip_daily_triage_check,
+                self.status.daily_triage_check_disabled(),
             ) && triage_reconciliation_pending(self.reconcile_daily_triage_alert());
             if !pending {
-                self.triage_gate = None;
+                self.status.clear_triage_gate();
             }
             return;
         }
@@ -218,16 +214,15 @@ impl App {
         if now < next_poll {
             return;
         }
-        let latest = crate::sync::journal::Journal::open(
-            &self.command_context.workspace.paths().sync_journal(),
-        )
-        .ok()
-        .and_then(|j| j.latest_successful_downstream_id().ok())
-        .flatten();
+        let latest =
+            crate::sync::journal::Journal::open(&self.context.workspace().paths().sync_journal())
+                .ok()
+                .and_then(|j| j.latest_successful_downstream_id().ok())
+                .flatten();
         if triage_gate_resolved(seen_journal_id, latest) {
-            match refresh_after_successful_startup_sync(&self.command_context.workspace) {
+            match refresh_after_successful_startup_sync(self.context.workspace()) {
                 Ok(refreshed) => {
-                    self.config = refreshed.config;
+                    self.context = self.context.replacing_config(refreshed.config);
                     self.tasks.replace_rows(refreshed.tasks, refreshed.habits);
                     // The nudge was already raised at startup, so this is a
                     // reconciliation, not a first look: open it if the synced
@@ -237,26 +232,25 @@ impl App {
                         should_check_daily_triage(
                             TriageAlertEvent::RefreshSucceeded,
                             false,
-                            self.skip_daily_triage_check,
+                            self.status.daily_triage_check_disabled(),
                         ) && triage_reconciliation_pending(self.reconcile_daily_triage_alert());
                     if pending {
-                        if let Some(gate) = self.triage_gate.as_mut() {
-                            gate.refresh_complete = true;
-                        }
+                        self.status.mark_triage_refresh_complete();
                     } else {
-                        self.triage_gate = None;
+                        self.status.clear_triage_gate();
                     }
                 }
                 Err(error) => {
-                    self.triage_gate = None;
+                    self.status.clear_triage_gate();
                     crate::logging::log(format!("post-sync triage refresh failed: {error:#}"));
-                    self.flash = Some(FlashKind::Error(format!(
+                    self.status.set_flash(FlashKind::Error(format!(
                         "post-sync task refresh failed: {error}"
                     )));
                 }
             }
-        } else if let Some(gate) = self.triage_gate.as_mut() {
-            gate.next_poll = now + std::time::Duration::from_millis(500);
+        } else {
+            self.status
+                .delay_triage_gate_poll(now + std::time::Duration::from_millis(500));
         }
     }
 
@@ -273,10 +267,14 @@ impl App {
     /// nudge sees the freshest completion state (triage may have been marked
     /// done elsewhere during the long-open session).
     pub(crate) fn advance_triage_day(&mut self, now: chrono::NaiveDateTime) -> bool {
-        match triage_rollover(self.triage_day, now, self.config.day_rollover_hour) {
+        match triage_rollover(
+            self.status.triage_day(),
+            now,
+            self.context.day_rollover_hour(),
+        ) {
             Some(day) => {
                 self.tasks.advance_day(day);
-                self.triage_day = day;
+                self.status.set_triage_day(day);
                 true
             }
             None => false,

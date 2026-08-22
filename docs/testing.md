@@ -320,7 +320,14 @@ first move is a failing test that reproduces it, *then* the fix.
   identity errors happen before a resumable claim and clear the attempted
   response identity. Fallback completion captures the transport snapshot with
   the controller's initiating actor/channel before teardown.
-- **Focused TUI state owners** (`tui/state/`). Standalone `TasksState` tests
+- **Focused TUI state owners** (`tui/state/`). `AppContext` tests pin immutable
+  workspace, path, config, and frontend identity, including whole-snapshot
+  config replacement. `BrainPanelState` tests pin main-controller and
+  skill-session ownership, actor/turn transitions, and controller shutdown.
+  `AppServices` tests use focused runner and sync seams to pin semantic effects,
+  and `StatusState` tests separate transient and persistent messages while
+  covering triage-gate, live-toggle, and sync-poll transitions. Standalone
+  `TasksState` tests
   cover construction, view source changes, assignment and query filtering,
   logical-day rematerialization, selection, notes expansion, body rebuilding,
   wrapped-row layout, and scroll
@@ -330,11 +337,13 @@ first move is a failing test that reproduces it, *then* the fix.
   tests use semantic transitions, owner-side policy decisions, typed effect
   plans, or the iterator-backed task panel model, never aggregate field
   representation.
-  `tests/tui_state_aggregates_architecture.rs` extracts the exact three owner
-  struct bodies, pins the exact private owner-field types, requires one private
-  declaration for every owned field, and rejects duplicates across visibility
-  forms. Its positive API allowlist, exact tokenized projection shapes, and
-  focused consumer signatures pin the permitted aggregate surface. A tokenized
+  `tests/tui_state_aggregates_architecture.rs` extracts every focused owner
+  struct body, pins the exact private owner-field types, and requires App to be
+  exactly the eight-field composition of context, tasks, brain, shell, overlay,
+  services, status, and receiver. It requires one private declaration for every
+  owned field and rejects duplicates or former flat declarations across
+  visibility forms. Its positive API allowlist, exact tokenized projection
+  shapes, and focused consumer signatures pin the permitted aggregate surface. A tokenized
   dataflow scan rejects direct or aliased representation access, propagates
   aggregate taint through intermediate lets, resolves local raw/reference
   return aliases, and rejects raw `App` forwarding through multiline typed or
@@ -667,8 +676,8 @@ first move is a failing test that reproduces it, *then* the fix.
   fail-closed compiled-binary bootstrap, concurrent different-workspace entry,
   and same-workspace coalescing/following use bounded channels without fixed
   sleeps. `sync/trigger.rs` verifies completed detached children are reaped.
-  App-owned injected receiver sync clocks/readers/runners deterministically
-  prove the 250ms status poll, journal-advance gate, five-second retry grace,
+  `AppServices`-owned injected receiver sync clocks/readers/runners
+  deterministically prove the 250ms status poll, journal-advance gate, five-second retry grace,
   three-attempt fallback, and completion push. A runtime unit test proves the
   gate transitions only from supplied observations. The clock-driven watcher-loop test proves stopping one workspace's
   watcher leaves its peer live; `tests/watch_local.rs` waits on callback
@@ -727,8 +736,8 @@ first move is a failing test that reproduces it, *then* the fix.
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, and no obsolete receiver launch argument. |
-| `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction requires one private declaration per task/shell field and rejects duplicates or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and expression-only App forwarding are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, aliasing, and forwarding evasions. |
-| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. The App retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
+| `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and expression-only App forwarding are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, aliasing, and forwarding evasions. |
+| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

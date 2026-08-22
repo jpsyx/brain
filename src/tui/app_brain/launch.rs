@@ -14,8 +14,8 @@ fn brain_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
 
 #[cfg(test)]
 fn brain_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
-    app.brain_transport_override
-        .take()
+    app.brain
+        .take_brain_transport()
         .unwrap_or_else(|| Box::new(PtyPane::new(24, 80)))
 }
 
@@ -23,12 +23,12 @@ impl App {
     pub(in crate::tui) fn launch_capability_plan(
         &self,
     ) -> anyhow::Result<Option<crate::access::CapabilityPlan>> {
-        if self.config.access_mode == crate::access::AccessMode::Unrestricted {
+        if self.context.access_mode() == crate::access::AccessMode::Unrestricted {
             return Ok(None);
         }
-        let mut config = crate::config::Config::try_load(&self.command_context.workspace)?;
-        config.access_mode = self.config.access_mode;
-        crate::access::capability_plan_for(&config, &self.command_context)
+        let mut config = crate::config::Config::try_load(self.context.workspace())?;
+        config.access_mode = self.context.access_mode();
+        crate::access::capability_plan_for(&config, self.context.command())
             .map(Some)
             .map_err(anyhow::Error::from)
     }
@@ -39,9 +39,9 @@ impl App {
         transport: Box<dyn crate::agent::AgentTransport>,
     ) -> AgentController {
         AgentController::configured_with_command(
-            &self.command_context,
-            self.agent_kind,
-            self.agent_command.clone(),
+            self.context.command(),
+            self.context.agent_kind(),
+            self.context.agent_command().to_owned(),
             actor,
             transport,
         )
@@ -49,7 +49,7 @@ impl App {
 
     /// Whether the brain panel is on screen (a live agent PTY).
     pub(crate) fn brain_panel_open(&self) -> bool {
-        self.brain.is_some()
+        self.brain.main_controller().is_some()
     }
 
     /// Handle the Ctrl-N shortcut before normal key forwarding. Returning
@@ -71,7 +71,7 @@ impl App {
 
     pub(crate) fn focus_brain(&mut self) {
         if self.any_brain_panel_visible() {
-            self.alert = None;
+            self.status.clear_alert();
             self.shell.focus_brain();
         }
     }
@@ -83,7 +83,7 @@ impl App {
     /// whatever changed while the user was over in the brain panel.
     pub(crate) fn focus_tasks(&mut self) {
         let was_on_brain = self.shell.focus() == Panel::Brain;
-        self.alert = None;
+        self.status.clear_alert();
         self.shell.focus_tasks();
         if was_on_brain {
             self.reload_after_brain();
@@ -114,29 +114,31 @@ impl App {
     }
 
     pub(crate) fn mark_brain_turn_started(&mut self) {
-        if let Some(controller) = self.brain.as_ref() {
+        if let Some(controller) = self.brain.main_controller() {
             let scope = crate::agent::SessionScope::new(
                 controller.kind(),
-                self.command_context.workspace.id(),
+                self.context.workspace().id(),
                 controller.actor().clone(),
             );
-            if let Err(error) = SessionStore::mark_active(&self.db, &self.instance, &scope) {
+            if let Err(error) =
+                SessionStore::mark_active(&self.services, self.brain.instance(), &scope)
+            {
                 crate::logging::log(format!("marking agent session active failed: {error:#}"));
             }
         }
         if let Some(session_id) = self.receiver.interactive_completion_to_clear() {
             let path = self
-                .command_context
-                .workspace
+                .context
+                .workspace()
                 .paths()
                 .responses_dir()
                 .join(format!("{session_id}.json"));
             let _ = std::fs::remove_file(path);
         }
-        if !self.brain_turn_active {
+        if !self.brain.turn_active() {
             crate::logging::log("brain turn started");
         }
-        self.brain_turn_active = true;
+        self.brain.mark_turn_started();
     }
     /// Send a prefilled prompt to the brain panel. Convenience wrapper that
     /// opens / focuses the panel (resuming the session) and seeds it with the

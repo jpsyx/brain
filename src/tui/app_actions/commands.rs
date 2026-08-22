@@ -21,7 +21,7 @@ impl App {
             GlobalAction::ToggleReceiver => self.toggle_receiver(),
             GlobalAction::ToggleLayout => {
                 self.shell.toggle_panel_side();
-                let _ = self.db.set_panel_side(self.shell.panel_side());
+                let _ = self.services.save_panel_side(self.shell.panel_side());
             }
             GlobalAction::ShowTasks => self.shell.show_main_view(crate::main_view::MainView::Tasks),
             GlobalAction::ShowReceiverServerStatus => self.show_receiver_status(),
@@ -35,14 +35,16 @@ impl App {
             }
             GlobalAction::SyncBrainNow => {
                 if crate::sync::trigger::spawn_detached_sync(
-                    &self.command_context.workspace,
+                    self.context.workspace(),
                     crate::sync::args::Direction::Both,
                 )
                 .is_some()
                 {
-                    self.flash = Some(FlashKind::Info("✓ sync started".to_owned()));
+                    self.status
+                        .set_flash(FlashKind::Info("✓ sync started".to_owned()));
                 } else {
-                    self.flash = Some(FlashKind::Error("sync could not start".to_owned()));
+                    self.status
+                        .set_flash(FlashKind::Error("sync could not start".to_owned()));
                 }
             }
             GlobalAction::ShowSyncStatus => {
@@ -62,11 +64,11 @@ impl App {
     }
 
     fn toggle_daily_triage_alert(&mut self) {
-        self.skip_daily_triage_check = !self.skip_daily_triage_check;
+        let disabled = self.status.toggle_daily_triage_check();
         let persisted = self.persist_daily_triage_check();
-        if self.skip_daily_triage_check {
+        if disabled {
             crate::logging::log("palette disabled daily triage alert");
-            self.flash = Some(FlashKind::Info(persisted.map_or_else(
+            self.status.set_flash(FlashKind::Info(persisted.map_or_else(
                 |error| {
                     format!(
                         "daily triage alert disabled for this session only; saving it failed: {error:#}"
@@ -76,7 +78,7 @@ impl App {
             )));
         } else {
             crate::logging::log("palette enabled daily triage alert");
-            self.flash = Some(FlashKind::Info(persisted.map_or_else(
+            self.status.set_flash(FlashKind::Info(persisted.map_or_else(
                 |error| {
                     format!(
                         "daily triage alert enabled for this session only; saving it failed: {error:#}"
@@ -86,8 +88,8 @@ impl App {
             )));
             if should_check_daily_triage(
                 TriageAlertEvent::PaletteEnabled,
-                self.triage_gate.is_some(),
-                self.skip_daily_triage_check,
+                self.status.triage_gate_is_armed(),
+                self.status.daily_triage_check_disabled(),
             ) {
                 self.check_daily_triage();
             }
@@ -97,16 +99,17 @@ impl App {
     pub(crate) fn show_logs_view(&mut self, kind: LogKind) {
         crate::logging::log(format!("open logs view kind={kind:?}"));
         self.shell
-            .show_logs(LogsView::load(kind, self.log_path.as_deref()));
+            .show_logs(LogsView::load(kind, self.context.log_path()));
     }
 
     /// Wrap `mark_task_complete` with flash-message setting so both the
     /// palette action and the confirm modal route through one place.
     pub(crate) fn run_mark_complete(&mut self, raw_id: &str) {
-        self.flash = Some(match self.mark_task_complete(raw_id) {
+        let flash = match self.mark_task_complete(raw_id) {
             Ok(()) => FlashKind::Info(format!("✓ {raw_id} marked complete")),
             Err(e) => FlashKind::Error(format!("⚠ {e}")),
-        });
+        };
+        self.status.set_flash(flash);
     }
 
     /// Hand the remove off to the brain agent. The prompt asks the agent
@@ -114,8 +117,9 @@ impl App {
     /// a decision when there are preservable links — keeps the no-impact
     /// case from costing the user a back-and-forth.
     pub(crate) fn run_remove(&mut self, raw_id: &str) {
-        if let Err(error) = self.tasks.validate_removal(raw_id, &self.config) {
-            self.flash = Some(FlashKind::Error(format!("⚠ {error}")));
+        if let Err(error) = self.tasks.validate_removal(raw_id, self.context.config()) {
+            self.status
+                .set_flash(FlashKind::Error(format!("⚠ {error}")));
             return;
         }
         let message = format!(
@@ -133,9 +137,10 @@ impl App {
     /// popup just to look at the agenda window that already opened on
     /// top of the tasks shell.
     pub(crate) fn run_open_agenda(&mut self) {
-        match self.agenda_runner.run() {
+        match self.services.run_agenda() {
             Ok(()) => {
-                self.flash = Some(FlashKind::Info("✓ opened agenda".to_owned()));
+                self.status
+                    .set_flash(FlashKind::Info("✓ opened agenda".to_owned()));
             }
             Err(_) => {
                 // Don't surface the raw error — the only meaningful
@@ -153,19 +158,18 @@ impl App {
     /// process, then opens this workspace's ingress-scoped habits page
     /// through the injected `open_runner`, flashing success / error.
     pub(crate) fn run_open_habits(&mut self) {
-        self.flash = Some(
-            match crate::server::lifecycle::ServerClient::default().connect_existing() {
-                Ok(record) => {
-                    let url = self.habits_url_for_port(record.port);
-                    open_url(self.open_runner.as_ref(), &url)
-                }
-                Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
-            },
-        );
+        let flash = match crate::server::lifecycle::ServerClient::default().connect_existing() {
+            Ok(record) => {
+                let url = self.habits_url_for_port(record.port);
+                self.open_url(&url)
+            }
+            Err(e) => FlashKind::Error(format!("⚠ habits failed: {e}")),
+        };
+        self.status.set_flash(flash);
     }
 
     pub(crate) fn habits_url_for_port(&self, port: u16) -> String {
-        crate::server::habits_url(port, self.server_ingress, self.server_local_capability)
+        self.context.habits_url(port)
     }
 
     /// Ctrl+O / "open link" entry point. Collects the selected entry's
@@ -176,11 +180,12 @@ impl App {
     pub(crate) fn run_open_links(&mut self) {
         match self
             .tasks
-            .selected_links_plan(&self.config.linear_base_url())
+            .selected_links_plan(&self.context.linear_base_url())
         {
             TaskLinksPlan::None => {}
             TaskLinksPlan::Open { url } => {
-                self.flash = Some(open_url(self.open_runner.as_ref(), &url));
+                let flash = self.open_url(&url);
+                self.status.set_flash(flash);
             }
             TaskLinksPlan::Choose { task_id, links } => {
                 open_overlay(
@@ -212,7 +217,8 @@ impl App {
         else {
             return;
         };
-        self.flash = Some(open_url(self.open_runner.as_ref(), &url));
+        let flash = self.open_url(&url);
+        self.status.set_flash(flash);
         close_overlay(&mut self.overlay);
     }
 
@@ -230,10 +236,10 @@ impl App {
     pub(crate) fn mark_task_complete(&mut self, raw_id: &str) -> Result<()> {
         let id = complete::normalize_id(raw_id)?;
         complete::complete_in_workspace_for_actor_with_today(
-            &self.command_context.workspace,
+            self.context.workspace(),
             &id,
             chrono::Local::now().date_naive(),
-            &self.command_context.actor,
+            &self.context.command().actor,
         )?;
         self.reload_tasks()?;
         Ok(())
@@ -334,9 +340,16 @@ impl App {
                 // help right now — drafting, research, code, etc. —
                 // so the next reply is actionable rather than just
                 // advisory.
-                let message = start_task_prompt(&id, &self.brain_root);
+                let message = start_task_prompt(&id, self.context.workspace_root());
                 self.send_brain_prompt(&message);
             }
+        }
+    }
+
+    fn open_url(&self, url: &str) -> FlashKind {
+        match self.services.open_url(url) {
+            Ok(()) => FlashKind::Info(format!("✓ opened {url}")),
+            Err(error) => FlashKind::Error(format!("⚠ open failed: {error}")),
         }
     }
 }
