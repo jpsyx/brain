@@ -221,7 +221,11 @@ pub fn run_sync(workspace: &crate::workspace::WorkspaceContext, root: Option<&Pa
         layout.frontends.len()
     ));
     let report = install::sync(&layout, &sources)?;
-    crate::logging::log(format!("skills sync installed={}", report.installed.len()));
+    crate::logging::log(format!(
+        "skills sync installed={} pruned={}",
+        report.installed.len(),
+        report.pruned.len()
+    ));
     // A real (non-sandbox) sync is an authoritative render, so record the brain
     // version that produced it — this is what the startup auto-resync checks.
     // A `--root` sandbox run is not the selected workspace, so it leaves no stamp.
@@ -233,6 +237,13 @@ pub fn run_sync(workspace: &crate::workspace::WorkspaceContext, root: Option<&Pa
         theme.success(&format!("synced {} skill(s):", report.installed.len())),
         theme.muted(&report.installed.join(", "))
     );
+    if !report.pruned.is_empty() {
+        println!(
+            "{} {}",
+            theme.warning(&format!("pruned {} removed skill(s):", report.pruned.len())),
+            theme.muted(&report.pruned.join(", "))
+        );
+    }
     Ok(())
 }
 
@@ -247,7 +258,7 @@ pub fn format_sync_plan(layout: &Layout, sources: &Sources, theme: crate::theme:
         .as_ref()
         .map_or_else(|| "none".to_owned(), |p| p.display().to_string());
     format!(
-        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
+        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
         theme.heading("Rendering and installing brain skills"),
         theme.muted("built:"),
         theme.value(&layout.built_dir.display().to_string()),
@@ -259,6 +270,8 @@ pub fn format_sync_plan(layout: &Layout, sources: &Sources, theme: crate::theme:
         theme.value(&extensions),
         theme.muted("plugins:"),
         theme.value(&plugins),
+        theme.muted("prune:"),
+        "remove rendered skills this sync no longer produces",
     )
 }
 
@@ -296,6 +309,10 @@ mod tests {
         );
         assert!(
             plan.contains("plugins: /tmp/brain-skills/plugins"),
+            "{plan}"
+        );
+        assert!(
+            plan.contains("prune: remove rendered skills this sync no longer produces"),
             "{plan}"
         );
     }

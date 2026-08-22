@@ -19,6 +19,7 @@ pub mod install;
 pub mod layout;
 pub mod model;
 pub mod plugin;
+pub mod prune;
 pub mod render;
 
 pub use install::WorkspaceCapabilityReport;
@@ -92,8 +93,9 @@ pub fn sync_for_startup(workspace: &crate::workspace::WorkspaceContext) {
         Ok(report) => {
             record_synced_version(workspace, current_version());
             crate::logging::log(format!(
-                "skills startup sync complete: {} skill(s)",
-                report.installed.len()
+                "skills startup sync complete: {} skill(s), {} pruned",
+                report.installed.len(),
+                report.pruned.len()
             ));
         }
         Err(error) => crate::logging::log(format!("skills startup sync failed: {error:#}")),
@@ -228,8 +230,9 @@ pub fn resync_on_version_change(workspace: &crate::workspace::WorkspaceContext) 
         Ok(report) => {
             record_synced_version(workspace, current);
             crate::logging::log(format!(
-                "skills version-resync complete: {} skill(s)",
-                report.installed.len()
+                "skills version-resync complete: {} skill(s), {} pruned",
+                report.installed.len(),
+                report.pruned.len()
             ));
         }
         // A failed resync must not block the command; the stamp is left
@@ -273,7 +276,7 @@ pub fn format_version_resync_plan(
         theme.muted("version:"),
         theme.value(&format!("{} -> {current}", previous.unwrap_or("(none)"))),
         theme.muted("plan:"),
-        "render bundled skills, apply extensions/plugins, and refresh project links",
+        "render bundled skills, apply extensions/plugins, prune removed skills, and refresh project links",
     )
 }
 
@@ -285,7 +288,7 @@ pub fn format_resync_plan(theme: crate::theme::Theme) -> String {
         theme.muted("reason:"),
         "config changed",
         theme.muted("plan:"),
-        "render bundled skills, apply extensions/plugins, and refresh project links",
+        "render bundled skills, apply extensions/plugins, prune removed skills, and refresh project links",
     )
 }
 

@@ -4364,3 +4364,18 @@ started before the upgrade can finish its session through the new generic
 workspace hook instead of failing on a deleted file. No current frontend
 setting points at these compatibility paths, and a later migration may remove
 them once the compatibility window is no longer needed.
+
+A skill sync reconciles rather than accumulates, and it recognizes its own
+output by a marker rather than by a manifest. Rendered skills share
+`.agents/skills` with skills the user writes there by hand, so an installer that
+only ever adds cannot tell a deleted plugin's leftover copy from a hand-written
+skill: the leftover is re-adopted as user-authored and relinked forever. Every
+rendered directory therefore carries a `.brain-rendered` marker file, and a sync
+deletes marked directories it no longer produces. A marker inside the directory
+was chosen over a manifest in the state DB because it survives a cache wipe,
+needs no extra path plumbing for the `--root` sandbox or the cross-workspace
+migration, and fails safe in the one direction that matters: anything brain did
+not render is unmarked, so the worst outcome of a lost marker is a leftover that
+stays, never a user's skill that is deleted. The same asymmetry rules the
+frontend sweep, which removes only symlinks that point into `.agents/skills` at
+a target that no longer exists.

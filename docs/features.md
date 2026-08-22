@@ -296,7 +296,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
-| `brain skills sync [--root <dir>]` | Render + install bundled skills into the selected brain root's `.agents/skills`, then link them into that root's `.claude/skills`, `.codex/skills`, and `.opencode/skills`. `--root` selects a sandbox workspace (see below). |
+| `brain skills sync [--root <dir>]` | Render + install bundled skills into the selected brain root's `.agents/skills`, then link them into that root's `.claude/skills`, `.codex/skills`, and `.opencode/skills`, and prune skills brain rendered before but no longer produces. `--root` selects a sandbox workspace (see below). |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
 
 After a Brain version update, the first ordinary invocation migrates the core
@@ -1292,6 +1292,17 @@ scoped to the selected brain root.
   **sandbox** root. Used for testing so a run never disturbs another workspace
   or any global frontend registry.
 
+**Removed skills are pruned automatically.** A sync is a full reconciliation,
+not just an install: when a plugin is deleted or renamed, or a bundled skill
+leaves the binary, the copy brain previously rendered into `.agents/skills` and
+its Claude/Codex/OpenCode links are removed in the same run, and the output says
+what it pruned. Frontend links left dangling by a skill that is gone are swept
+too. Brain only ever removes what it rendered — it recognizes its own output by
+a `.brain-rendered` marker file — so a skill you wrote by hand directly in
+`.agents/skills` is always kept and linked. (A skill rendered by a brain older
+than this reconciliation carries no marker, so it reads as hand-written until a
+sync re-renders it; delete such a leftover once by hand.)
+
 The skills are embedded in the binary, so a fresh clone needs no extra files.
 Installing is also triggered automatically in two cases when `skills_auto_sync`
 is `true` (the default since the B4 cutover; set it `false` to sync only on
@@ -1313,7 +1324,8 @@ sub-project B spec.
 
 Before writing anything, `brain skills sync` prints the built-skill directory,
 the shared registry directory, the number of frontend skill directories it will
-fan out to, and the extension/plugin source directories it will read. That
+fan out to, the extension/plugin source directories it will read, and the prune
+step. That
 progress trace is default output; `--verbose` remains only for detailed run
 logs. Automatic skill refresh after `brain config set` / `brain persona set`
 uses the same principle: it prints that installed skills are being refreshed

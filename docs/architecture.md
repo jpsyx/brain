@@ -635,10 +635,24 @@ content lands in a trailing "Personal extensions" section), `render` (base skill
 → installable files, injecting the extension into `SKILL.md`), `layout` (the
 workspace `.agents/skills` dir + frontend dirs, and the pure `link_ops` target
 computation), `install` (collect bundled + plugins, write workspace skills +
-create frontend symlinks; thin FS shell over `link_ops`), and `command`
+create frontend symlinks; thin FS shell over `link_ops`), `prune` (remove what a
+sync no longer produces, plus the `remove_existing` helper), and `command`
 (`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the workspace
-skills dir, frontend count, and extension/plugin sources before the FS shell
-runs; `brain skills status` reports capability selection and enforcement).
+skills dir, frontend count, extension/plugin sources, and the prune step before
+the FS shell runs; `brain skills status` reports capability selection and
+enforcement).
+
+**Pruning is part of every sync.** `install` writes a `.brain-rendered` marker
+into each skill directory it renders, so a later run can tell brain's own output
+apart from a skill the user wrote by hand in `.agents/skills`. After rendering
+the current set, `prune::run` deletes every *marked* directory the sync did not
+produce (a deleted or renamed plugin, a bundled skill dropped from the binary)
+together with its frontend links, then sweeps frontend symlinks left dangling by
+a skill that is gone. It runs **before** user-skill discovery so a leftover can
+never be re-adopted as user-authored. Both decisions — `stale_rendered` and
+`is_orphan_frontend_link` — are pure; `run` is the FS shell. An unmarked
+directory is the user's and is never removed, so skills rendered by a pre-prune
+brain are kept until a sync re-renders (and marks) them.
 For workspace-only launches, `layout` and `install` also render selected skills
 under the workspace UUID and actor cache without creating registry or frontend
 links. A machine skill is read only from its exact configured absolute

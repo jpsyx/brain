@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 
 use super::layout::{Layout, Link, WorkspaceCapabilityLayout, link_ops};
 use super::model::Skill;
+use super::prune::{self, remove_existing};
 use super::{embed, extension, plugin, render};
 
 /// Where the user's extensions and plugins are read from. Both optional; a
@@ -25,6 +26,9 @@ pub struct Sources {
 /// What a sync did.
 pub struct Report {
     pub installed: Vec<String>,
+    /// Rendered skills the sync no longer produces, removed from the workspace
+    /// and every frontend.
+    pub pruned: Vec<String>,
 }
 
 /// What one cache-local selected skill render produced.
@@ -66,6 +70,8 @@ pub fn sync(layout: &Layout, sources: &Sources) -> Result<Report> {
         }
         installed.push(skill.name.clone());
     }
+    // Before the leftovers can be mistaken for user-authored skills.
+    let pruned = prune::run(layout, &installed)?;
     let mut workspace_skills = plugin::discover_names(&layout.agents_dir);
     workspace_skills.retain(|name| !installed.iter().any(|installed| installed == name));
     for name in workspace_skills {
@@ -75,7 +81,7 @@ pub fn sync(layout: &Layout, sources: &Sources) -> Result<Report> {
         }
         installed.push(name);
     }
-    Ok(Report { installed })
+    Ok(Report { installed, pruned })
 }
 
 fn write_built(skill: &Skill, ext: Option<&extension::Extension>, layout: &Layout) -> Result<()> {
@@ -99,6 +105,10 @@ fn write_built_to(
         }
         fs::write(&path, &rf.contents).with_context(|| format!("writing {}", path.display()))?;
     }
+    fs::create_dir_all(&dest)?;
+    let marker = dest.join(prune::RENDERED_MARKER);
+    fs::write(&marker, format!("{}\n", super::current_version()))
+        .with_context(|| format!("writing {}", marker.display()))?;
     Ok(())
 }
 
@@ -175,18 +185,6 @@ fn create_symlink(link: &Link) -> Result<()> {
             link.target.display()
         )
     })
-}
-
-/// Remove whatever sits at `path` (symlink, file, or dir). `symlink_metadata`
-/// does not follow the link, so a dangling symlink is handled too.
-fn remove_existing(path: &Path) -> Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path)?,
-        Ok(_) => fs::remove_file(path)?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e.into()),
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -302,6 +300,84 @@ mod tests {
         let built = fs::read_to_string(layout.built_dir.join("hooked").join("SKILL.md")).unwrap();
         assert!(built.contains("INJECTED"));
         assert!(!built.contains("brain:ext"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sync_prunes_a_rendered_skill_whose_plugin_disappeared() {
+        let root = sandbox();
+        let plugins = root.join("plugins");
+        let gone = plugins.join("renamed-away");
+        fs::create_dir_all(&gone).unwrap();
+        fs::write(gone.join("SKILL.md"), "# old name").unwrap();
+
+        let layout = Layout::under_root(&root);
+        let sources = Sources {
+            plugins_dir: Some(plugins),
+            ..Sources::default()
+        };
+        sync(&layout, &sources).unwrap();
+        assert!(layout.agents_dir.join("renamed-away").is_dir());
+
+        fs::remove_dir_all(&gone).unwrap();
+        let report = sync(&layout, &sources).unwrap();
+
+        assert!(!report.installed.iter().any(|n| n == "renamed-away"));
+        assert!(report.pruned.iter().any(|n| n == "renamed-away"));
+        assert!(!layout.agents_dir.join("renamed-away").exists());
+        for frontend in &layout.frontends {
+            assert!(
+                fs::symlink_metadata(frontend.join("renamed-away")).is_err(),
+                "frontend link must be pruned too"
+            );
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prune_never_removes_a_user_authored_workspace_skill() {
+        let root = sandbox();
+        let mine = root.join(".agents/skills/hand-written");
+        fs::create_dir_all(&mine).unwrap();
+        fs::write(mine.join("SKILL.md"), "# mine").unwrap();
+        let plugins = root.join("plugins");
+        let gone = plugins.join("temporary");
+        fs::create_dir_all(&gone).unwrap();
+        fs::write(gone.join("SKILL.md"), "# temp").unwrap();
+
+        let layout = Layout::under_root(&root);
+        let sources = Sources {
+            plugins_dir: Some(plugins),
+            ..Sources::default()
+        };
+        sync(&layout, &sources).unwrap();
+        fs::remove_dir_all(&gone).unwrap();
+        let report = sync(&layout, &sources).unwrap();
+
+        assert!(report.installed.iter().any(|n| n == "hand-written"));
+        assert!(!report.pruned.iter().any(|n| n == "hand-written"));
+        assert_eq!(fs::read_to_string(mine.join("SKILL.md")).unwrap(), "# mine");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sync_sweeps_a_frontend_link_left_dangling_by_a_deleted_user_skill() {
+        let root = sandbox();
+        let mine = root.join(".agents/skills/short-lived");
+        fs::create_dir_all(&mine).unwrap();
+        fs::write(mine.join("SKILL.md"), "# mine").unwrap();
+
+        let layout = Layout::under_root(&root);
+        sync(&layout, &Sources::default()).unwrap();
+        fs::remove_dir_all(&mine).unwrap();
+        sync(&layout, &Sources::default()).unwrap();
+
+        for frontend in &layout.frontends {
+            assert!(
+                fs::symlink_metadata(frontend.join("short-lived")).is_err(),
+                "dangling frontend link must be swept"
+            );
+        }
         let _ = fs::remove_dir_all(&root);
     }
 
