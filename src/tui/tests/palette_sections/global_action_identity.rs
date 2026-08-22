@@ -7,7 +7,7 @@ fn application_rows_use_the_global_action_identity() {
     assert!(actions.contains(&TaskAction::Global(GlobalAction::OpenAgenda)));
     assert_eq!(
         shortcut_for(TaskAction::Global(GlobalAction::OpenHabits)),
-        Some("^H")
+        None
     );
     assert_eq!(
         shortcut_for(TaskAction::Global(GlobalAction::OpenAgenda)),

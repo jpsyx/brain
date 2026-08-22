@@ -1469,7 +1469,8 @@ brain-root lookup.
 ## Auto-sync triggers (startup, periodic, change, and receiver)
 
 The auto-sync layer (`src/sync/{lock,watch,periodic,trigger,freshness,current,follow}.rs`,
-wired into `src/tui/runtime/mod.rs` and `src/tui/app_sync.rs`) drives the
+wired into `src/tui/runtime/builder.rs`, `src/tui/runtime/mod.rs`, and
+`src/tui/app_sync.rs`) drives the
 rclone handoff automatically. Every automatic trigger runs the sync in a
 **detached background process**, never on a thread inside the shell, so a sync
 can neither write over the TUI nor be killed when the shell quits. Its own

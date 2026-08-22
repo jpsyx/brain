@@ -26,13 +26,13 @@ impl GlobalAction {
             Self::MessageBrain => Some("^M"),
             Self::CloseBrain => Some("^X"),
             Self::ShowTasks => Some("^T"),
-            Self::OpenHabits => Some("^H"),
             Self::OpenAgenda => Some("^A"),
             Self::ToggleReceiver
             | Self::ToggleLayout
             | Self::ShowReceiverServerStatus
             | Self::ShowReceiverServerLogs
             | Self::ShowBrainLogs
+            | Self::OpenHabits
             | Self::SyncBrainNow
             | Self::ShowSyncStatus
             | Self::ToggleDailyTriageAlert

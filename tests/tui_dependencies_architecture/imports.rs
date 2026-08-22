@@ -34,47 +34,49 @@ fn production_tui_dependencies_are_explicit() {
 }
 
 #[test]
-fn dependency_guard_recognizes_realistic_rust_forms() {
+fn dependency_guard_recognizes_grouped_tui_root_globs() {
     let ordinary = Path::new("src/tui/handlers/input.rs");
-    let root_module = Path::new("src/tui/mod.rs");
-
-    for source in [
+    let fixtures = [
         "use crate::tui::*;",
         "use crate::tui::{App, *};",
         "use\ncrate :: tui :: { App, * };",
-    ] {
-        assert_eq!(
-            dependency_violations(ordinary, source),
-            vec![DependencyViolation::TuiRootGlobImport],
-            "missed TUI-root glob fixture: {source}"
-        );
-    }
+        "use crate::{tui::*};",
+    ];
+    assert_fixture_violations(ordinary, &fixtures, DependencyViolation::TuiRootGlobImport);
+}
 
-    for source in [
+#[test]
+fn dependency_guard_recognizes_grouped_parent_globs() {
+    let ordinary = Path::new("src/tui/handlers/input.rs");
+    let fixtures = [
         "use super::*;",
         "use super::{App, *};",
         "use super::super::{Fixture, *};",
-    ] {
-        assert_eq!(
-            dependency_violations(ordinary, source),
-            vec![DependencyViolation::ParentGlobImport],
-            "missed parent glob fixture: {source}"
-        );
-    }
+        "use {super::*};",
+    ];
+    assert_fixture_violations(ordinary, &fixtures, DependencyViolation::ParentGlobImport);
+}
 
-    for source in [
+#[test]
+fn dependency_guard_recognizes_arbitrary_public_visibility() {
+    let root_module = Path::new("src/tui/mod.rs");
+    let fixtures = [
         "pub(crate) use action::*;",
+        "pub(in crate) use action::*;",
         "pub use state::{AppContext, *};",
         "pub(super) use\n draw :: { draw, * };",
         "#[cfg(test)] mod tests;\npub(crate) use action::*;\npub struct App {}",
-    ] {
-        assert_eq!(
-            dependency_violations(root_module, source),
-            vec![DependencyViolation::RootWildcardReexport],
-            "missed root wildcard re-export fixture: {source}"
-        );
-    }
+    ];
+    assert_fixture_violations(
+        root_module,
+        &fixtures,
+        DependencyViolation::RootWildcardReexport,
+    );
+}
 
+#[test]
+fn dependency_guard_ignores_explicit_and_test_only_imports() {
+    let ordinary = Path::new("src/tui/handlers/input.rs");
     let allowed = r#"
         use crate::tui::state::{AppContext, TasksState};
         use super::receiver::{ReceiverEffect, ReceiverRuntime};
@@ -86,6 +88,19 @@ fn dependency_guard_recognizes_realistic_rust_forms() {
         }
     "#;
     assert!(dependency_violations(ordinary, allowed).is_empty());
+}
+
+fn assert_fixture_violations(path: &Path, fixtures: &[&str], expected: DependencyViolation) {
+    let missed = fixtures
+        .iter()
+        .copied()
+        .filter(|source| dependency_violations(path, source) != vec![expected])
+        .collect::<Vec<_>>();
+    assert!(
+        missed.is_empty(),
+        "dependency guard missed fixtures for {expected:?}:\n{}",
+        missed.join("\n")
+    );
 }
 
 fn dependency_violations(path: &Path, source: &str) -> Vec<DependencyViolation> {
@@ -109,17 +124,19 @@ fn dependency_violations(path: &Path, source: &str) -> Vec<DependencyViolation> 
             .position(|candidate| candidate.text == ";")
             .map_or(tokens.len(), |relative| index + relative + 1);
         let statement = &tokens[index + 1..end];
-        if !statement.iter().any(|candidate| candidate.text == "*") {
+        let wildcard_paths = wildcard_paths(statement);
+        if wildcard_paths.is_empty() {
             continue;
         }
 
-        if starts_with_path(statement, &["crate", "::", "tui", "::"])
-            || starts_with_path(statement, &["crate", "::", "tui", "{"])
-        {
+        if wildcard_paths.iter().any(|path| {
+            path.first().is_some_and(|segment| segment == "crate")
+                && path.get(1).is_some_and(|segment| segment == "tui")
+        }) {
             violations.push(DependencyViolation::TuiRootGlobImport);
-        } else if statement
-            .first()
-            .is_some_and(|candidate| candidate.text == "super")
+        } else if wildcard_paths
+            .iter()
+            .any(|path| path.first().is_some_and(|segment| segment == "super"))
         {
             violations.push(DependencyViolation::ParentGlobImport);
         } else if path == Path::new("src/tui/mod.rs") && is_public_use(&tokens, index) {
@@ -130,22 +147,84 @@ fn dependency_violations(path: &Path, source: &str) -> Vec<DependencyViolation> 
     violations
 }
 
-fn starts_with_path(tokens: &[Token], expected: &[&str]) -> bool {
-    tokens.len() >= expected.len()
-        && tokens
-            .iter()
-            .map(|token| token.text.as_str())
-            .zip(expected.iter().copied())
-            .all(|(actual, expected)| actual == expected)
+fn wildcard_paths(tokens: &[Token]) -> Vec<Vec<String>> {
+    let mut paths = Vec::new();
+    collect_wildcard_paths(tokens, &[], &mut paths);
+    paths
+}
+
+fn collect_wildcard_paths(tokens: &[Token], prefix: &[String], paths: &mut Vec<Vec<String>>) {
+    let mut depth = 0_usize;
+    let mut start = 0_usize;
+    for (index, token) in tokens.iter().enumerate() {
+        match token.text.as_str() {
+            "{" => depth += 1,
+            "}" => depth = depth.saturating_sub(1),
+            "," if depth == 0 => {
+                collect_wildcard_branch(&tokens[start..index], prefix, paths);
+                start = index + 1;
+            }
+            ";" if depth == 0 => {
+                collect_wildcard_branch(&tokens[start..index], prefix, paths);
+                return;
+            }
+            _ => {}
+        }
+    }
+    collect_wildcard_branch(&tokens[start..], prefix, paths);
+}
+
+fn collect_wildcard_branch(tokens: &[Token], prefix: &[String], paths: &mut Vec<Vec<String>>) {
+    let mut path = prefix.to_vec();
+    let mut index = 0_usize;
+    while let Some(token) = tokens.get(index) {
+        match token.text.as_str() {
+            "*" => {
+                paths.push(path);
+                return;
+            }
+            "{" => {
+                let Some(close) = matching_token(tokens, index, "{", "}") else {
+                    return;
+                };
+                collect_wildcard_paths(&tokens[index + 1..close], &path, paths);
+                return;
+            }
+            "::" => {}
+            "as" | ";" => return,
+            segment => path.push(segment.to_owned()),
+        }
+        index += 1;
+    }
 }
 
 fn is_public_use(tokens: &[Token], use_index: usize) -> bool {
-    use_index
-        .checked_sub(1)
-        .is_some_and(|index| tokens[index].text == "pub")
-        || use_index
-            .checked_sub(4)
-            .is_some_and(|index| tokens[index].text == "pub")
+    let Some(previous) = use_index.checked_sub(1) else {
+        return false;
+    };
+    if tokens[previous].text == "pub" {
+        return true;
+    }
+    if tokens[previous].text != ")" {
+        return false;
+    }
+
+    let mut depth = 0_usize;
+    for index in (0..=previous).rev() {
+        match tokens[index].text.as_str() {
+            ")" => depth += 1,
+            "(" => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return index
+                        .checked_sub(1)
+                        .is_some_and(|before| tokens[before].text == "pub");
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 fn cfg_test_ranges(tokens: &[Token]) -> Vec<(usize, usize)> {

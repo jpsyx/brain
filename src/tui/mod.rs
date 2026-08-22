@@ -70,7 +70,6 @@ mod status_warning;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use crate::state::PanelSide;
 pub(crate) use event_loop::run_tui;
 pub(crate) use launch::TuiLaunch;
 

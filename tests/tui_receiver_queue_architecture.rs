@@ -1,7 +1,13 @@
+use std::collections::HashSet;
 use std::path::Path;
 
+#[path = "tui_receiver_queue_architecture/tokens.rs"]
+mod tokens;
+
+use tokens::rust_tokens;
+
 #[test]
-fn inbound_queue_representation_and_mutation_stay_inside_queue_module() {
+fn raw_inbound_job_storage_stays_inside_queue_module() {
     let tui_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui");
     let queue_path = tui_root.join("receiver/queue.rs");
     let mut leaks = Vec::new();
@@ -17,30 +23,26 @@ fn inbound_queue_representation_and_mutation_stay_inside_queue_module() {
         }
 
         let source = std::fs::read_to_string(path).expect("read TUI source");
-        for violation in queue_boundary_violations(&source) {
+        for violation in queue_boundary_violations_at(path, &source) {
             leaks.push(format!("{}: {violation}", path.display()));
         }
     }
 
     assert!(
         leaks.is_empty(),
-        "inbound queue representation or mutation leaked outside receiver/queue.rs:\n{}",
+        "persistent raw InboundJob storage leaked outside receiver/queue.rs:\n{}",
         leaks.join("\n")
     );
 }
 
 #[test]
-fn queue_guard_recognizes_qualified_types_spacing_and_renamed_aliases() {
+fn queue_guard_is_independent_of_field_collection_and_mutator_names() {
     let fixtures = [
         "struct Runtime { jobs: std::vec::Vec < crate::server::receiver::InboundJob > }",
         "struct Runtime { jobs: std::collections::VecDeque < crate::server::receiver::InboundJob > }",
-        "fn leak(runtime: &mut Runtime, job: InboundJob) { let pending = &mut runtime.queue; pending.push(job); }",
-        "fn leak(runtime: &mut Runtime) { runtime.queue . remove ( 0 ); }",
-        "fn leak(runtime: &mut Runtime, job: InboundJob) { runtime.jobs.push_back(job); }",
-        "fn leak(runtime: &mut Runtime) { let pending = &mut runtime.jobs; pending.pop_front(); }",
-        "fn leak(runtime: &mut Runtime) { runtime.receiver_queue.pop_back(); }",
-        "fn leak(runtime: &mut Runtime) { runtime.jobs.drain(..); }",
-        "fn leak(runtime: &mut Runtime) { let pending = &mut runtime.receiver_queue; pending.split_off(1); }",
+        "struct Runtime { pending_work: Ring<InboundJob> } fn leak(runtime: &mut Runtime, job: InboundJob) { runtime.pending_work.absorb(job); }",
+        "struct Runtime { envelopes: Store<InboundJob> } fn leak(runtime: &mut Runtime) { let alias = &mut runtime.envelopes; alias.rotate_anyhow(); }",
+        "type Backlog = vendor::NovelStore<InboundJob>; struct Runtime { arbitrary: Backlog }",
     ];
     let missed = fixtures
         .into_iter()
@@ -50,6 +52,35 @@ fn queue_guard_recognizes_qualified_types_spacing_and_renamed_aliases() {
     assert!(
         missed.is_empty(),
         "queue guard missed realistic representation fixtures:\n{}",
+        missed.join("\n")
+    );
+}
+
+#[test]
+fn queue_guard_rejects_any_second_persistent_inbound_job_owner() {
+    let fixtures = [
+        "struct Runtime { current: InboundJob }",
+        "struct Runtime { current: Box<InboundJob> }",
+        "struct Runtime { current: Option<InboundJob> }",
+        "struct Runtime { pending_work: std::collections::LinkedList<InboundJob> }",
+        "struct Runtime { backlog: std::collections::BTreeMap<u64, InboundJob> }",
+        "struct Runtime(std::collections::BinaryHeap<InboundJob>);",
+        "enum Runtime { Waiting(std::collections::LinkedList<InboundJob>) }",
+        "enum ReceiverEffect { Raw(InboundJob) }",
+        "enum ReceiverEffect { Buffered(Box<Vec<InboundJob>>) }",
+        "enum ReceiverEffect { Buffered(Box<[InboundJob; 4]>) }",
+        "enum ReceiverEffect { Buffered(Box<(InboundJob, InboundJob)>) }",
+        "type Backlog = std::collections::LinkedList<InboundJob>; struct Runtime { pending: Backlog }",
+        "type Job = InboundJob; type Backlog = Vec<Job>; struct Runtime { pending: Backlog }",
+    ];
+    let missed = fixtures
+        .into_iter()
+        .filter(|source| queue_boundary_violations(source).is_empty())
+        .collect::<Vec<_>>();
+
+    assert!(
+        missed.is_empty(),
+        "queue guard missed persistent InboundJob owners:\n{}",
         missed.join("\n")
     );
 }
@@ -68,119 +99,254 @@ fn queue_guard_ignores_comments_literals_and_owned_api_calls() {
     assert!(queue_boundary_violations(source).is_empty());
 }
 
-fn queue_boundary_violations(source: &str) -> Vec<&'static str> {
-    let tokens = rust_tokens(source);
-    let mut violations = Vec::new();
-    if tokens.iter().enumerate().any(|(index, token)| {
-        matches!(token.as_str(), "Vec" | "VecDeque")
-            && tokens.get(index + 1).is_some_and(|token| token == "<")
-            && tokens[index + 2..]
-                .iter()
-                .take_while(|token| token.as_str() != ">")
-                .any(|token| token == "InboundJob")
-    }) {
-        violations.push("queue collection containing InboundJob");
-    }
-
-    let mut aliases = vec![
-        "jobs".to_owned(),
-        "queue".to_owned(),
-        "receiver_queue".to_owned(),
-    ];
-    for (let_index, _) in tokens
-        .iter()
-        .enumerate()
-        .filter(|(_, token)| *token == "let")
-    {
-        let end = tokens[let_index..]
-            .iter()
-            .position(|token| token == ";")
-            .map_or(tokens.len(), |relative| let_index + relative);
-        let statement = &tokens[let_index..end];
-        if let Some(equals) = statement.iter().position(|token| token == "=")
-            && statement[equals + 1..].windows(2).any(|window| {
-                window[0] == "."
-                    && matches!(window[1].as_str(), "jobs" | "queue" | "receiver_queue")
-            })
-            && let Some(alias) =
-                statement.get(usize::from(statement.get(1).is_some_and(|token| token == "mut")) + 1)
-        {
-            aliases.push(alias.clone());
+#[test]
+fn queue_guard_allows_only_typed_one_shot_receiver_effect_payloads() {
+    let source = r"
+        enum ReceiverEffect {
+            ApplyRestart(Box<RestartPlan<InboundJob>>),
+            ApplyNewSession(Box<InboundJob>),
+            Dispatch(Box<InboundJob>),
         }
-    }
-    if tokens.windows(3).any(|window| {
-        aliases.contains(&window[0])
-            && ((window[1] == "."
-                && matches!(
-                    window[2].as_str(),
-                    "push"
-                        | "pop"
-                        | "remove"
-                        | "split_off"
-                        | "push_back"
-                        | "pop_front"
-                        | "pop_back"
-                        | "drain"
-                ))
-                || window[1] == "[")
-    }) {
-        violations.push("queue representation mutation");
-    }
-    violations
+    ";
+
+    assert!(
+        queue_boundary_violations_at(Path::new("src/tui/receiver/effect.rs"), source).is_empty()
+    );
 }
 
-fn rust_tokens(source: &str) -> Vec<String> {
-    let bytes = source.as_bytes();
-    let mut tokens = Vec::new();
-    let mut index = 0_usize;
-    while index < bytes.len() {
-        if bytes[index].is_ascii_whitespace() {
-            index += 1;
-            continue;
-        }
-        if bytes[index..].starts_with(b"//") {
-            index = source[index..]
-                .find('\n')
-                .map_or(bytes.len(), |relative| index + relative + 1);
-            continue;
-        }
-        if bytes[index..].starts_with(b"/*") {
-            index = bytes[index + 2..]
-                .windows(2)
-                .position(|window| window == b"*/")
-                .map_or(bytes.len(), |relative| index + relative + 4);
-            continue;
-        }
-        if bytes[index] == b'"' || bytes[index] == b'\'' {
-            let quote = bytes[index];
-            index += 1;
-            while index < bytes.len() {
-                if bytes[index] == b'\\' {
-                    index = (index + 2).min(bytes.len());
-                } else if bytes[index] == quote {
-                    index += 1;
-                    break;
-                } else {
-                    index += 1;
-                }
-            }
-            continue;
-        }
-        let start = index;
-        if bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_' {
-            index += 1;
-            while bytes
-                .get(index)
-                .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-            {
-                index += 1;
-            }
-        } else if bytes[index..].starts_with(b"::") {
-            index += 2;
-        } else {
-            index += 1;
-        }
-        tokens.push(source[start..index].to_owned());
+#[test]
+fn queue_guard_does_not_let_lifetimes_hide_persistent_storage() {
+    let source = "struct Runtime<'a> { pending: Vec<InboundJob>, marker: PhantomData<&'a ()> }";
+
+    assert!(!queue_boundary_violations(source).is_empty());
+    assert_eq!(rust_tokens("'a'"), Vec::<String>::new());
+    assert!(
+        rust_tokens("&'a ()")
+            .windows(2)
+            .any(|tokens| tokens == ["'", "a"])
+    );
+}
+
+#[test]
+fn receiver_effect_exception_is_scoped_to_its_real_owner() {
+    let source = "enum ReceiverEffect { Dispatch(Box<InboundJob>) }";
+
+    assert!(!queue_boundary_violations(source).is_empty());
+}
+
+fn queue_boundary_violations(source: &str) -> Vec<&'static str> {
+    queue_boundary_violations_at(Path::new("src/tui/unrelated.rs"), source)
+}
+
+fn queue_boundary_violations_at(path: &Path, source: &str) -> Vec<&'static str> {
+    let tokens = rust_tokens(source);
+    let owns_receiver_effect_boundary = path.ends_with("src/tui/receiver/effect.rs");
+    if declares_raw_inbound_job_storage(&tokens, owns_receiver_effect_boundary) {
+        vec!["persistent type owns raw InboundJob storage"]
+    } else {
+        Vec::new()
     }
+}
+
+fn declares_raw_inbound_job_storage(
+    tokens: &[String],
+    owns_receiver_effect_boundary: bool,
+) -> bool {
+    let (job_aliases, storage_aliases) = classify_job_aliases(tokens);
+    if job_aliases.len() > 1 || !storage_aliases.is_empty() {
+        return true;
+    }
+
+    tokens.iter().enumerate().any(|(index, token)| {
+        if !matches!(token.as_str(), "struct" | "enum" | "union") {
+            return false;
+        }
+        let Some(open) = tokens[index + 2..]
+            .iter()
+            .position(|candidate| matches!(candidate.as_str(), "{" | "(" | ";"))
+            .map(|relative| index + 2 + relative)
+        else {
+            return false;
+        };
+        if tokens[open] == ";" {
+            return false;
+        }
+        let closing = if tokens[open] == "{" { "}" } else { ")" };
+        matching_index(tokens, open, &tokens[open], closing).is_some_and(|close| {
+            let body = &tokens[open + 1..close];
+            if !contains_job_reference(body, &job_aliases, &storage_aliases) {
+                return false;
+            }
+            let declaration_name = tokens.get(index + 1).map(String::as_str);
+            !(owns_receiver_effect_boundary
+                && declaration_name == Some("ReceiverEffect")
+                && receiver_effect_payloads_are_one_shot(body, &job_aliases))
+        })
+    })
+}
+
+fn receiver_effect_payloads_are_one_shot(tokens: &[String], job_aliases: &HashSet<String>) -> bool {
     tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| job_aliases.contains(*token))
+        .all(|(job_index, _)| {
+            let wrappers = tokens
+                .iter()
+                .enumerate()
+                .filter_map(|(open, token)| {
+                    if token != "<" {
+                        return None;
+                    }
+                    let close = matching_index(tokens, open, "<", ">")?;
+                    (open < job_index && job_index < close).then(|| {
+                        tokens[..open]
+                            .iter()
+                            .rev()
+                            .find(|candidate| is_identifier(candidate))
+                            .map(String::as_str)
+                    })
+                })
+                .collect::<Option<Vec<_>>>();
+            if !matches!(wrappers.as_deref(), Some(["Box"] | ["Box", "RestartPlan"])) {
+                return false;
+            }
+            let Some((box_open, box_close)) =
+                tokens.iter().enumerate().find_map(|(open, token)| {
+                    if token != "<" {
+                        return None;
+                    }
+                    let close = matching_index(tokens, open, "<", ">")?;
+                    let outer = tokens[..open]
+                        .iter()
+                        .rev()
+                        .find(|candidate| is_identifier(candidate))?;
+                    (outer == "Box" && open < job_index && job_index < close)
+                        .then_some((open, close))
+                })
+            else {
+                return false;
+            };
+            let payload = &tokens[box_open + 1..box_close];
+            !payload
+                .iter()
+                .any(|token| matches!(token.as_str(), "[" | "]" | "(" | ")" | "," | ";"))
+                && payload
+                    .iter()
+                    .filter(|token| job_aliases.contains(*token))
+                    .count()
+                    == 1
+        })
+}
+
+fn classify_job_aliases(tokens: &[String]) -> (HashSet<String>, HashSet<String>) {
+    let mut job_aliases = HashSet::from(["InboundJob".to_owned()]);
+    let mut storage_aliases = HashSet::new();
+    loop {
+        let mut changed = false;
+        for (index, token) in tokens.iter().enumerate() {
+            if token != "type" {
+                continue;
+            }
+            let Some(name) = tokens.get(index + 1) else {
+                continue;
+            };
+            let Some(equals) = tokens[index + 2..]
+                .iter()
+                .position(|candidate| candidate == "=")
+                .map(|relative| index + 2 + relative)
+            else {
+                continue;
+            };
+            let end = tokens[equals + 1..]
+                .iter()
+                .position(|candidate| candidate == ";")
+                .map_or(tokens.len(), |relative| equals + 1 + relative);
+            let target = &tokens[equals + 1..end];
+            if contains_raw_job_storage(target, &job_aliases, &storage_aliases) {
+                changed |= storage_aliases.insert(name.clone());
+            } else if target
+                .iter()
+                .any(|candidate| job_aliases.contains(candidate))
+            {
+                changed |= job_aliases.insert(name.clone());
+            }
+        }
+        if !changed {
+            return (job_aliases, storage_aliases);
+        }
+    }
+}
+
+fn contains_raw_job_storage(
+    tokens: &[String],
+    job_aliases: &HashSet<String>,
+    storage_aliases: &HashSet<String>,
+) -> bool {
+    if tokens.iter().any(|token| storage_aliases.contains(token)) {
+        return true;
+    }
+
+    for (open, token) in tokens.iter().enumerate() {
+        if token == "["
+            && matching_index(tokens, open, "[", "]").is_some_and(|close| {
+                contains_job_reference(&tokens[open + 1..close], job_aliases, storage_aliases)
+            })
+        {
+            return true;
+        }
+        if token != "<" {
+            continue;
+        }
+        let Some(close) = matching_index(tokens, open, "<", ">") else {
+            continue;
+        };
+        let arguments = &tokens[open + 1..close];
+        if !contains_job_reference(arguments, job_aliases, storage_aliases) {
+            continue;
+        }
+        let outer = tokens[..open]
+            .iter()
+            .rev()
+            .find(|candidate| is_identifier(candidate))
+            .map(String::as_str);
+        if !matches!(outer, Some("Box" | "Option" | "RestartPlan"))
+            || contains_raw_job_storage(arguments, job_aliases, storage_aliases)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn contains_job_reference(
+    tokens: &[String],
+    job_aliases: &HashSet<String>,
+    storage_aliases: &HashSet<String>,
+) -> bool {
+    tokens
+        .iter()
+        .any(|token| job_aliases.contains(token) || storage_aliases.contains(token))
+}
+
+fn matching_index(tokens: &[String], open: usize, opening: &str, closing: &str) -> Option<usize> {
+    let mut depth = 0_usize;
+    for (index, token) in tokens.iter().enumerate().skip(open) {
+        if token == opening {
+            depth += 1;
+        } else if token == closing {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
+}
+
+fn is_identifier(token: &str) -> bool {
+    token
+        .as_bytes()
+        .first()
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
 }

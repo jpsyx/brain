@@ -30,15 +30,19 @@ first move is a failing test that reproduces it, *then* the fix.
   and display state are owned runtime data. `tests/tui_construction_boundary.rs`
   rejects an `App` lifetime, a retained task clap DTO, the obsolete receiver
   launch parameter, or any `run_tui` shape other than one owned `TuiLaunch`.
+  It also requires startup acquisition and assembly to live in
+  `runtime/builder.rs`, leaving `runtime/mod.rs` focused on execution and
+  teardown, and rejects a TUI-root `PanelSide` re-export.
 - **TUI dependency ownership.** `tests/tui_dependencies_architecture.rs`
   scans every production TUI source while identifying inline and external test
   modules. It rejects root `crate::tui::*` imports, production sibling
   `use super::*` imports, and
-  wildcard child re-exports from `tui/mod.rs`. It also pins the lifetime-free
-  App, sole overlay and receiver owners, and one-request `run_tui` boundary.
-  Synthetic fixtures exercise every rejected import shape and prove an
-  external `#[cfg(test)] mod tests;` is classified as test code rather than
-  production.
+  wildcard child re-exports from `tui/mod.rs`. The token-aware fixtures cover
+  direct and grouped use trees, arbitrary `pub(...)` visibility, whitespace,
+  and nested groups. They distinguish `App<'a>` lifetimes from character
+  literals. The suite also pins the lifetime-free App, sole overlay and
+  receiver owners, and one-request `run_tui` boundary, and proves an external
+  `#[cfg(test)] mod tests;` is classified as test code rather than production.
 - **Terminal lifecycle ownership.** `tui::runtime::terminal` drives the real
   acquisition and restoration state machine through a headless recording
   operations seam. Failure injection covers rollback at every fallible setup
@@ -578,9 +582,14 @@ first move is a failing test that reproduces it, *then* the fix.
   64-job boundary, including staged-token finalization and exact rollback,
   launch-success head commit, restart and new-session controls, and read-only
   snapshots. `tests/tui_receiver_queue_architecture.rs` walks every Rust file
-  under `src/tui/` and rejects raw `InboundJob` collection ownership or direct
-  push, pop, indexing, front removal, and split mutations outside
-  `tui/receiver/queue.rs`. Socket characterization separately proves the
+  under `src/tui/` and rejects a second persistent type that owns raw
+  `InboundJob` storage outside `tui/receiver/queue.rs`. This structural rule is
+  independent of collection, field, alias, and mutator names. Its tokenizer
+  distinguishes lifetimes from character literals. It permits local transient
+  job values, use of the opaque `InboundQueue` API, and the explicitly typed
+  one-shot payload shapes only in the real
+  `tui/receiver/effect.rs::ReceiverEffect` definition. Socket characterization
+  separately proves the
   prepared/commit/stage/accepted/finalize transaction and failed-final-ack
   rollback.
   Table-driven pure tests in `tui/receiver/decision_tests.rs` characterize each
@@ -749,13 +758,19 @@ first move is a failing test that reproduces it, *then* the fix.
   `"Projects"` — we keep one stability check, not a battery of getter
   tests.
 - **"Does it compile" smoke tests.** `cargo build` covers that.
-- **Personal data in bundled skills.** Keeping identity, private paths, and
-  private URLs out of `skills/` is a **review obligation**, not a test. A
+- **Personal data in repository changes.** Keeping identity, private paths,
+  private URLs, and user-specific context out of committed skills, source,
+  docs, scripts, tests, fixtures, and templates is a **review obligation**, not
+  a test. A
   substring-matching guard would have to commit the very personal data it
   protects into this public repo — see "Why there is no automated personal-data
-  guard test" in [decisions.md](decisions.md). Read the diff instead; if you
-  want automation, keep it outside the repo (a local pre-commit hook or a
-  private CI list).
+  guard test" in [decisions.md](decisions.md). For the exact reviewed branch
+  base, inspect the complete name-status list and every added line in the full
+  diff. Check names and identifiers, email and phone values, organizations and
+  customers, domains and internal hosts, private URLs, absolute home paths,
+  private product or project names, and user-specific prose. Confirm expected
+  examples are neutral fixtures. If automation is desired, keep the private
+  denylist outside the repo in a local hook or private CI secret.
 
 ## Test layout
 
@@ -763,11 +778,11 @@ first move is a failing test that reproduces it, *then* the fix.
 | --- | --- |
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
-| `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, and no obsolete receiver launch argument. |
-| `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; self-fixtures cover each forbidden spelling and external test-module classification. |
+| `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
+| `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
-| `tests/tui_receiver_queue_architecture.rs` | Queue representation seam: the `VecDeque<InboundJob>` representation and its mutation stay in `receiver/queue.rs`. Tokenized positive and negative self-fixtures cover `Vec` and `VecDeque`, qualified generic types, whitespace variations, direct `push_back`/`pop_front`/`pop_back`/`drain`/`split_off` mutation, renamed mutable aliases, comments, literals, and calls through the owned queue API. |
+| `tests/tui_receiver_queue_architecture.rs` | Queue ownership seam: no persistent type outside `receiver/queue.rs` may own raw `InboundJob` storage. Tokenized positive and negative self-fixtures vary direct fields, collections, field and alias names, mutator vocabulary, qualified generic types, whitespace, lifetimes, comments, literals, and calls through the opaque owned queue API. The only persistent exception is the exact typed one-shot payload shape in the real `receiver/effect.rs::ReceiverEffect` definition. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |
@@ -899,9 +914,13 @@ cargo test --release --test workspace_docs
 # strict lint (pedantic + nursery are on)
 cargo clippy --release --all-targets -- -D warnings
 
-# release/privacy/skill gates
-cargo test --release bundled_skills_carry_no_personal_data
+# skill-script gate
 python3 -m unittest discover -s skills/todo/scripts/tests
+
+# manual privacy gate (replace the value with the exact reviewed branch base)
+privacy_review_base=REVIEWED_BRANCH_BASE_SHA
+git diff --name-status "${privacy_review_base}..HEAD"
+git diff --unified=0 --no-ext-diff "${privacy_review_base}..HEAD"
 
 # Phase 5 composed and gated transport/lifecycle coverage
 cargo test --release --test multi_workspace_acceptance -- --nocapture

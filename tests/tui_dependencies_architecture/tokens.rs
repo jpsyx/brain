@@ -132,8 +132,26 @@ pub(super) fn rust_tokens(source: &str) -> Vec<Token> {
             index = end;
             continue;
         }
-        if bytes[index] == b'"' || bytes[index] == b'\'' {
+        if bytes[index] == b'"' {
             index = skip_quoted(bytes, index, bytes[index]);
+            continue;
+        }
+        if bytes[index] == b'\'' {
+            if let Some(end) = lifetime_end(bytes, index) {
+                tokens.push(Token {
+                    text: "'".to_owned(),
+                    start: index,
+                    end: index + 1,
+                });
+                tokens.push(Token {
+                    text: source[index + 1..end].to_owned(),
+                    start: index + 1,
+                    end,
+                });
+                index = end;
+            } else {
+                index = skip_quoted(bytes, index, bytes[index]);
+            }
             continue;
         }
         let start = index;
@@ -157,6 +175,21 @@ pub(super) fn rust_tokens(source: &str) -> Vec<Token> {
         });
     }
     tokens
+}
+
+fn lifetime_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let first = *bytes.get(start + 1)?;
+    if !first.is_ascii_alphabetic() && first != b'_' {
+        return None;
+    }
+    let mut end = start + 2;
+    while bytes
+        .get(end)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+    {
+        end += 1;
+    }
+    (bytes.get(end) != Some(&b'\'')).then_some(end)
 }
 
 fn skip_block_comment(bytes: &[u8], mut index: usize) -> usize {

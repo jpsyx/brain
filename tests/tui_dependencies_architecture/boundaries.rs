@@ -3,7 +3,18 @@ use std::path::Path;
 use super::source::production_tui_sources;
 use super::tokens::{
     contains_token_sequence, field_type_count, function_parameter_counts, named_braced_body,
+    rust_tokens,
 };
+
+#[test]
+fn lifetime_guard_distinguishes_app_lifetimes_from_character_literals() {
+    let lifetime = "struct App<'a> { value: &'a str }";
+    assert!(contains_token_sequence(lifetime, &["App", "<", "'"]));
+
+    let character = "struct App { value: char } fn sample() { let value = 'a'; }";
+    assert!(!contains_token_sequence(character, &["App", "<", "'"]));
+    assert!(rust_tokens(character).iter().all(|token| token.text != "'"));
+}
 
 #[test]
 fn final_tui_entry_and_state_boundaries_remain_owned() {

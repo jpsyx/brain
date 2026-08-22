@@ -6,10 +6,10 @@ use crate::workspace::{
     CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
 };
 
-use crate::tui::runtime::terminal::restore_after_event_loop;
-use crate::tui::runtime::{
+use crate::tui::runtime::builder::{
     acquire_singleton_then_refresh, load_startup_config, periodic_pull_enabled, startup_sync_plan,
 };
+use crate::tui::runtime::terminal::restore_after_event_loop;
 
 #[test]
 fn event_loop_error_still_runs_terminal_restoration() {

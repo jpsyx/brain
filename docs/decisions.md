@@ -2419,6 +2419,14 @@ dispatch, completion, and control callers from depending on representation or
 silently changing FIFO semantics. Tests receive only an owned read-only
 snapshot.
 
+The architecture guard enforces the ownership boundary structurally: outside
+`receiver/queue.rs`, no persistent TUI type or type alias may own raw
+`InboundJob` storage, regardless of field, collection, alias, or mutator names.
+The token scan distinguishes Rust lifetimes from character literals. Local
+transient values and the exact typed one-shot payload shapes in the real
+`receiver/effect.rs::ReceiverEffect` definition remain valid; neither creates
+a second queue owner. A same-named type elsewhere receives no exception.
+
 If the TUI stages after `commit` but cannot write its final `accepted`
 acknowledgment, an opaque admission token bound to its issuing queue identity
 and admission generation removes only that exact staged tail item before

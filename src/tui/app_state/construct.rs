@@ -8,9 +8,10 @@ use chrono::NaiveDate;
 
 use crate::config::Config;
 use crate::session::AgentKind;
-use crate::state::Db;
+use crate::state::{Db, PanelSide};
 use crate::tasks::task::Task;
 use crate::tasks::view::View;
+use crate::tui::App;
 use crate::tui::app_sync::{ReceiverSyncRuntime, SystemReceiverSyncRuntime};
 use crate::tui::shell::ShellRunner;
 use crate::tui::state::{
@@ -18,7 +19,6 @@ use crate::tui::state::{
     ShellState, StatusState, StatusStateInit, TasksState, TasksStateInit,
 };
 use crate::tui::status_warning::receiver_phone_warning;
-use crate::tui::{App, PanelSide};
 
 pub(crate) struct AppInit {
     pub(crate) command_context: crate::workspace::CommandContext,

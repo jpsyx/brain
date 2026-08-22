@@ -174,7 +174,7 @@ rule applies across the large runtime families:
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
-| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/mod.rs` owns process-lifetime startup and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` coordinates recurring feature boundaries; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` coordinates recurring feature boundaries; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
 | Live receiver runtime | `tui/receiver/{decision,effect,runtime}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
@@ -962,8 +962,10 @@ the IO/threads/`Command`:
   five-minute periodic, change-push, and message-pull policies in
   `brain sync status`.
 
-**The `TuiRuntime` lifecycle seam** (`src/tui/runtime/mod.rs`) owns startup and
-process-lifetime services. Its sync-services stage calls
+**The `TuiRuntime` lifecycle seam** separates ordered startup acquisition and
+application assembly in `src/tui/runtime/builder.rs` from process-lifetime
+execution and teardown ownership in `src/tui/runtime/mod.rs`. The builder's
+sync-services stage calls
 `trigger::spawn_detached_sync(Pull)` whenever sync is configured and retains a
 `periodic::spawn_periodic_puller` handle plus a `watch::spawn_watcher` handle
 (when `watch_effective()`). Orderly shutdown drops that TUI's timer and watcher,
