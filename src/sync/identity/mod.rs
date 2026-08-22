@@ -319,7 +319,7 @@ fn ensure_remote_identity_for_setup_with<'remote>(
 
 mod probe;
 
-use probe::*;
+use probe::{RemoteCommandOutput, probe_remote_identity_with, remote_manifest_arg};
 
 fn refuse<T>(decision: RemoteIdentityDecision) -> Result<T> {
     match decision {

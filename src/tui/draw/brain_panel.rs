@@ -12,7 +12,7 @@ use ratatui::{
 use tui_term::widget::PseudoTerminal;
 
 use crate::agent::AgentController;
-use crate::tui::*;
+use crate::tui::model::BrainTab;
 
 pub(crate) struct BrainPanelContext<'a> {
     pub(super) focused: bool,

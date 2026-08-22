@@ -65,7 +65,10 @@ fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
 #[test]
 fn receiver_runtime_contains_no_sync_effect_adapters_or_io() {
     let receiver_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui/receiver");
-    let mut sources = vec![receiver_root.join("runtime.rs")];
+    let mut sources = vec![
+        receiver_root.join("mod.rs"),
+        receiver_root.join("runtime.rs"),
+    ];
     sources.extend(
         walkdir::WalkDir::new(receiver_root.join("runtime"))
             .into_iter()
@@ -73,6 +76,10 @@ fn receiver_runtime_contains_no_sync_effect_adapters_or_io() {
             .filter(|entry| entry.file_type().is_file())
             .map(walkdir::DirEntry::into_path)
             .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("rs")),
+    );
+    assert!(
+        sources.contains(&receiver_root.join("mod.rs")),
+        "the receiver facade belongs to the runtime effect boundary"
     );
 
     for path in sources {

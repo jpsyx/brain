@@ -15,7 +15,7 @@ use crate::render;
 
 use super::SearchPalette;
 use super::model::SearchAction;
-use crate::tui::PaletteRow;
+use crate::tui::palette::PaletteRow;
 
 #[cfg(test)]
 use super::model::shortcut_for;
@@ -266,7 +266,9 @@ mod tests {
             9,
             "Message brain",
             false,
-            shortcut_for(SearchAction::Global(crate::tui::GlobalAction::MessageBrain)),
+            shortcut_for(SearchAction::Global(
+                crate::tui::action::GlobalAction::MessageBrain,
+            )),
         );
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("[^M]"), "got: {text}");

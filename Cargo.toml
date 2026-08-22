@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.71.30"
+version = "0.71.31"
 edition = "2024"
 rust-version = "1.85"
 description = "Multi-workspace terminal dispatch for notes, tasks, sync, and agent sessions."
@@ -87,15 +87,11 @@ struct_excessive_bools = "allow"
 # Tooling-binary; not a library surface that warrants exhaustive doc.
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
-# The tui/ App impl is deliberately split across sibling *private* submodules
-# that reach each other's items; `pub(crate)` + glob re-exports (see
-# `tui/mod.rs`) is the intended pattern, so these two fire pervasively by
-# design rather than flagging real problems.
+# The crate still has broad pre-existing private-module `pub(crate)` visibility;
+# removing that allowance is a separate repository-wide visibility migration.
 redundant_pub_crate = "allow"
-wildcard_imports = "allow"
-# Pre-existing style debt carried in from the ported tasks `tui/`; the code is
-# already tested and behavior-frozen, so these are not worth a risky refactor.
-# (`struct_excessive_bools` above is allowed for the same reason.)
+# Pre-existing style debt carried in from the ported tasks TUI remains tested
+# and behavior-frozen. (`struct_excessive_bools` above is allowed similarly.)
 missing_const_for_fn = "allow"
 too_many_lines = "allow"
 fn_params_excessive_bools = "allow"

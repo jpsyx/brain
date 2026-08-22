@@ -200,7 +200,7 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
 
 mod selection;
 
-use selection::*;
+use selection::{enforce_strict_selector, resolve_workspace_selector};
 
 const fn should_resync_skills(invocation: Invocation) -> bool {
     !matches!(invocation, Invocation::WorkspaceMigrate | Invocation::Tui)
@@ -375,7 +375,10 @@ fn bootstrap_with_io_and_hook(
 /// single-user workspace self-heals instead of failing with a follow-up command
 /// to run. A themed note (stderr) reports the one-time link.
 mod bootstrap_helpers;
-use bootstrap_helpers::*;
+use bootstrap_helpers::{
+    adopt_local_user, context_from_record, ensure_selected_registry_access_mode,
+    repair_interactively, repaired_context,
+};
 #[cfg(test)]
 #[path = "bootstrap/tests.rs"]
 mod tests;

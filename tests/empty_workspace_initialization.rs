@@ -79,7 +79,10 @@ fn a_nonempty_workspace_missing_its_task_store_still_gets_one() {
     ] {
         assert!(family.join(path).is_file(), "missing {path}");
     }
-    assert_eq!(std::fs::read(family.join("areas/note.md")).unwrap(), b"kept");
+    assert_eq!(
+        std::fs::read(family.join("areas/note.md")).unwrap(),
+        b"kept"
+    );
 }
 
 /// A machine joining a workspace must have its local task store before the

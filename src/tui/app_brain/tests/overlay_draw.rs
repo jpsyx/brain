@@ -1,7 +1,7 @@
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
 use super::*;
-use crate::tui::Overlay;
+use crate::tui::overlay::Overlay;
 
 const WIDTH: u16 = 120;
 const HEIGHT: u16 = 30;
@@ -35,7 +35,7 @@ fn rendered_modal_right_edge(overlay: Overlay, title: &str) -> u16 {
     let backend = TestBackend::new(WIDTH, HEIGHT);
     let mut terminal = Terminal::new(backend).expect("test terminal");
     terminal
-        .draw(|frame| crate::tui::draw(frame, &mut app))
+        .draw(|frame| crate::tui::draw::draw(frame, &mut app))
         .expect("draw split shell");
     let buffer = terminal.backend().buffer();
     let (title_x, title_y) = find_text(buffer, title).expect("modal title");
@@ -52,7 +52,7 @@ fn search_modals_stay_inside_the_search_half_when_the_brain_panel_is_open() {
                 "Command palette",
                 None,
                 crate::menu::items(PanelSide::Right, false, &crate::menu::Targets::default()),
-                crate::tui::PaletteControls::SEARCH,
+                crate::tui::palette::PaletteControls::SEARCH,
             )),
             "Command palette",
         ),

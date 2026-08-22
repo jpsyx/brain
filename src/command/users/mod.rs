@@ -269,6 +269,9 @@ fn set_local_user(store: &RegistryStore, workspace: &WorkspaceContext, id: &User
 }
 
 mod prompts;
-use prompts::*;
+use prompts::{
+    moved_summary, needs_prompt, normalized_emails, normalized_phones, normalized_response,
+    prompt_assignment_value, prompt_member, required_value, user_id,
+};
 #[cfg(test)]
 mod tests;

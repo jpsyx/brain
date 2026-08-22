@@ -1002,15 +1002,14 @@ bridge frees the instance's others on every start, handling `/new`). The
 because it's the persisted layout value.
 
 **Skill-session tabs are deliberately *absent* from this table.** Each ephemeral
-skill session (`App.skill_sessions`) is launched by an `AgentController` from a
+skill session in `BrainPanelState` is launched by an `AgentController` from a
 fresh `LaunchRequest`. Its hook metadata carries the session-done URL and token
 but no `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, or `BRAIN_RESPONSE_ID`. The
 session-start bridge no-ops without the tracking values, so no `brain_sessions`
 row is ever written and it is never a resume candidate. A tab lives only in
-process memory (`App.skill_sessions: Vec<SkillSessionTab>` — its `SessionTabId`,
-`SkillSessionKey`, tab title, completion token, and controller — plus
-`App.active_brain_tab: BrainTab`) and is torn down when its run completes or the
-shell exits.
+process memory: `BrainPanelState` owns its `SessionTabId`, `SkillSessionKey`, tab
+title, completion token, and controller, while `ShellState` owns the active
+`BrainTab`. It is torn down when its run completes or the shell exits.
 
 Both main and skill-session values are `AgentController` instances, not raw PTYs.
 Their shared semantic API owns launch, input, session, completion, terminal,

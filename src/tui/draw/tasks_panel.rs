@@ -11,7 +11,11 @@ use ratatui::{
 };
 
 use crate::tasks::render::{compact_footer_line, search_bar_line, search_footer_line};
-use crate::tui::*;
+use crate::tui::SELECTED_BG;
+use crate::tui::draw::layout::brighten_band_text;
+use crate::tui::modal_state::FlashKind;
+use crate::tui::state::TasksState;
+use crate::tui::status_warning::status_override_line;
 
 pub(crate) struct TasksPanelContext<'a> {
     pub(crate) split_pane_open: bool,

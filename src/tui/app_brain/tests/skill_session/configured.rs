@@ -1,5 +1,5 @@
 use super::*;
-use crate::tui::alt_selects_brain_tab_slot;
+use crate::tui::keymap::alt_selects_brain_tab_slot;
 
 fn inject_skill_session_transport(app: &mut App, transport: Box<dyn crate::agent::AgentTransport>) {
     app.brain
@@ -233,7 +233,7 @@ fn a_failed_start_leaves_you_on_the_tab_you_were_reading() {
     assert!(app.brain.has_skill_session(SkillSessionKey::DailyTriage));
     assert!(matches!(
         app.status.flash(),
-        Some(crate::tui::FlashKind::Error(_))
+        Some(crate::tui::modal_state::FlashKind::Error(_))
     ));
 }
 

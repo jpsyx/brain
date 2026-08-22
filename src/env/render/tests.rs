@@ -170,7 +170,11 @@ fn one_name_column_width_is_shared_by_every_section() {
     // so declaring a longer name shifts the column instead of failing this.
     let widest = value_columns
         .iter()
-        .filter_map(|line| line.trim_start().split_once("  ").map(|(name, _)| name.len()))
+        .filter_map(|line| {
+            line.trim_start()
+                .split_once("  ")
+                .map(|(name, _)| name.len())
+        })
         .max()
         .expect("at least one named row");
     for line in &value_columns {

@@ -6,6 +6,8 @@ use ratatui::{
 };
 
 use crate::config::Config;
+use crate::tui::draw::layout::flash_line;
+use crate::tui::modal_state::FlashKind;
 
 #[must_use]
 pub(crate) fn receiver_phone_warning(config: &Config, twilio_from: Option<&str>) -> Option<String> {
@@ -57,12 +59,12 @@ pub(crate) fn sync_status_line(message: &str) -> Line<'static> {
 
 #[must_use]
 pub(crate) fn status_override_line(
-    flash: Option<&super::FlashKind>,
+    flash: Option<&FlashKind>,
     sync_status: Option<&str>,
     persistent_warning: Option<&str>,
 ) -> Option<Line<'static>> {
     flash
-        .map(super::flash_line)
+        .map(flash_line)
         .or_else(|| sync_status.map(sync_status_line))
         .or_else(|| persistent_warning.map(persistent_warning_line))
 }
@@ -73,7 +75,7 @@ mod tests {
 
     use super::{persistent_warning_line, receiver_phone_warning, status_override_line};
     use crate::config::Config;
-    use crate::tui::FlashKind;
+    use crate::tui::modal_state::FlashKind;
 
     #[test]
     fn malformed_sms_number_produces_a_country_code_warning() {

@@ -87,9 +87,12 @@ fn an_empty_remote_leaves_the_registry_uuid_as_the_fallback() {
     std::fs::create_dir_all(&remote_root).unwrap();
     std::fs::create_dir_all(&joining_root).unwrap();
 
-    let adoption =
-        adopt_remote_manifest(&joining_root, WorkspaceId::new(), &local_remote(&remote_root))
-            .expect("an empty remote is not an error");
+    let adoption = adopt_remote_manifest(
+        &joining_root,
+        WorkspaceId::new(),
+        &local_remote(&remote_root),
+    )
+    .expect("an empty remote is not an error");
 
     assert_eq!(adoption, ManifestAdoption::RemoteHasNoManifest);
     assert!(!WorkspaceManifest::path(&joining_root).exists());

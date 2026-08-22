@@ -235,6 +235,22 @@ whether task data needs refreshing. Logical-day advancement remains part of the
 manual refresh path and only rechecks triage when the day rolled. This keeps the
 terminal loop structural: tick, draw, poll/read, then one application update.
 
+## Why TUI dependencies use explicit owner paths
+
+The TUI once let modules import the root namespace and inherit names from
+wildcard child re-exports. That made local code concise, but it hid which state
+owner or integration boundary supplied a dependency. Adding one root export
+could also change the usable names in many unrelated modules.
+
+The TUI root now owns only module wiring, the eight-field `App` composition,
+and the narrow command-layer entry surface. Production modules import explicit
+names from their declaring owner paths. A directory-wide architecture guard
+scans production files while recognizing external and inline test modules, and
+its synthetic fixtures prove that production wildcard imports and root
+re-exports are detected. Focused test modules may still inherit their parent
+fixture vocabulary. This makes production dependency direction reviewable
+without changing runtime behavior.
+
 ## Why we push the kitty protocol unconditionally (and avoid the probe)
 
 Distinguishing `Ctrl-Enter` (reveal in Finder) from `Enter` (open file)
@@ -2590,9 +2606,9 @@ where it is enforced: sessions are still not arbitrary — each one must be a
 **declared definition**, either the builtin daily triage or an entry in the
 workspace's `skill_sessions` env array, and a definition already running offers no
 way to start again. So the set of possible sessions stays finite, named, and
-inspectable, while `App.skill_sessions: Vec<SkillSessionTab>` allows the several
-*different* long runs a user really does want in parallel. Receiver and session
-state stay centered on the dedicated `App.brain` controller exactly as before.
+inspectable, while `BrainPanelState` allows the several *different* long runs a
+user really does want in parallel. Receiver and session state stay centered on
+the same aggregate's dedicated main controller exactly as before.
 
 **Why definitions are env, not portable config.** A skill session names a prompt
 whose skill must actually be installed on *this* machine (`/email-triage` is a

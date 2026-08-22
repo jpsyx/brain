@@ -1,6 +1,6 @@
 use super::TasksState;
 use crate::tasks::task::Task;
-use crate::tui::{Link, LinkKind, extract_urls};
+use crate::tui::links::{Link, LinkKind, extract_urls};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TaskLinksPlan {
@@ -71,7 +71,7 @@ fn links_for(task: &Task, linear_base: &str) -> Vec<Link> {
 mod tests {
     use super::{classify, links_for};
     use crate::tasks::task::test_task;
-    use crate::tui::LinkKind;
+    use crate::tui::links::LinkKind;
 
     const LINEAR_BASE: &str = "https://linear.example/issue/";
 

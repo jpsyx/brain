@@ -131,7 +131,7 @@ impl TasksState {
     }
 
     pub(crate) fn push_count_digit(&mut self, digit: u32) -> bool {
-        let Some(count) = crate::tui::accumulate_count(self.pending_count, digit) else {
+        let Some(count) = crate::tui::keymap::accumulate_count(self.pending_count, digit) else {
             return false;
         };
         self.pending_count = Some(count);

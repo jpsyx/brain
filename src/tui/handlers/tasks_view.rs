@@ -2,11 +2,17 @@
 //! navigation / view shortcuts / task actions) and `handle_search_key` (the
 //! `/` fuzzy-filter input mode, which delegates ctrl chords back to normal).
 
-use crate::tui::*;
-
 use crossterm::event::KeyCode;
 
 use crate::tasks::view::View;
+use crate::tui::App;
+use crate::tui::keymap::{
+    ctrl_opens_links, ctrl_removes_task, h_collapses_notes, search_delegates_ctrl_chord,
+    search_edit_key_exits_when_empty, search_key_abandons_filter, view_shortcut,
+};
+use crate::tui::modal_state::{ConfirmState, TaskPalette};
+use crate::tui::overlay::{Overlay, open_overlay};
+use crate::tui::state::TasksState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EscapeAction {

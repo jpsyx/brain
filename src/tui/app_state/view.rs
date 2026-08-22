@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 
 use crate::tasks::task;
-use crate::tui::*;
+use crate::tui::App;
 
 impl App {
     /// Re-read tasks.csv + habits.csv and rebuild the view in-place. Called

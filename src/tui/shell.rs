@@ -1,7 +1,7 @@
 //! The `ShellRunner` injection boundary and the URL-open helper.
 
 #[cfg(test)]
-use super::FlashKind;
+use crate::tui::modal_state::FlashKind;
 
 use anyhow::{Context, Result};
 

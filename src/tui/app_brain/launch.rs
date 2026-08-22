@@ -1,6 +1,8 @@
 //! Main-panel controller construction, session authorization, and semantic turns.
 
-use crate::tui::*;
+use crate::tui::App;
+use crate::tui::handlers::half_page_step;
+use crate::tui::model::{BrainTab, Panel};
 
 use crossterm::event::KeyCode;
 

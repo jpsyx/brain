@@ -21,14 +21,13 @@
 //! the panel and ends its agent session.
 //!
 //! Module layout:
-//! - This file owns the [`App`] shell type (and `Panel`) so every submodule
-//!   can reach its fields; `overlay` owns the exclusive modal state enum and
-//!   `modal_state` owns its task-view state structs.
+//! - This file owns the [`App`] composition root; focused state owners keep
+//!   their representations private and expose semantic operations.
 //! - `palette` / `modals` — the command-palette and confirm / brain-input /
 //!   help modal state + behavior.
 //! - `app_state` / `app_actions` / `app_brain` — the `App` impl, split by
 //!   concern.
-//! - `event_loop` — terminal setup ([`run_tui`]), the event loop, and overlay
+//! - `event_loop`: terminal setup ([`run_tui`]), the event loop, and overlay
 //!   key routing.
 //! - `handlers` / `keymap` — per-modal key handlers and the pure key-decision
 //!   helpers.
@@ -36,7 +35,7 @@
 //!   each surface.
 //! - `shell` — the [`ShellRunner`] injection boundary.
 
-mod action;
+pub(crate) mod action;
 mod app_actions;
 mod app_brain;
 mod app_skill_session;
@@ -52,12 +51,12 @@ mod event_loop;
 mod handlers;
 mod keymap;
 mod launch;
-mod links;
+pub(crate) mod links;
 mod logs_view;
-mod modal_state;
+pub(crate) mod modal_state;
 mod modals;
 mod overlay;
-mod palette;
+pub(crate) mod palette;
 pub mod receiver;
 mod receiver_state;
 mod runtime;
@@ -74,41 +73,16 @@ pub(crate) use crate::state::PanelSide;
 pub(crate) use event_loop::run_tui;
 pub(crate) use launch::TuiLaunch;
 
-// Re-export every submodule's items into the `tui` root so each submodule's
-// `use super::*;` can reach its siblings' free functions and shared types
-// (the `App` impl is split across files; the handlers / draw / keymap fns
-// call across module boundaries). `event_loop` can't be glob-imported because
-// its `event_loop` fn would shadow the module name.
-pub(crate) use action::*;
-pub(crate) use app_state::AppInit;
-pub(crate) use app_sync::*;
-pub(crate) use draw::*;
-pub(crate) use draw_assignee::*;
-pub(crate) use draw_help::*;
-pub(crate) use draw_modals::*;
-pub(crate) use draw_palette::*;
-pub(crate) use draw_sync_log::*;
-pub(crate) use handlers::*;
-pub(crate) use keymap::*;
-pub(crate) use links::*;
-pub(crate) use logs_view::*;
-pub(crate) use modal_state::*;
-pub(crate) use overlay::*;
-pub(crate) use palette::*;
-pub(crate) use search_view::*;
-pub(crate) use shell::*;
-pub(crate) use state::*;
-pub(crate) use status_warning::*;
-
 use ratatui::style::Color;
+
+use self::overlay::Overlay;
+use self::state::{AppContext, AppServices, BrainPanelState, ShellState, StatusState, TasksState};
 
 /// Subtle "elevation" background for the row(s) belonging to the currently
 /// selected task.
 const SELECTED_BG: Color = Color::Rgb(50, 56, 78);
 
 mod model;
-
-pub(crate) use model::*;
 
 pub(crate) struct App {
     context: AppContext,

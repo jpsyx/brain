@@ -3,8 +3,6 @@
 //! It's a captive centered overlay; the body scrolls when it's taller than
 //! the modal.
 
-use super::*;
-
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -14,6 +12,8 @@ use ratatui::{
 };
 
 use crate::tasks::shortcuts::{self, Group};
+use crate::tui::draw::layout::centered_rect;
+use crate::tui::modal_state::HelpState;
 
 const ACCENT: Color = Color::Rgb(187, 154, 247);
 const KEY: Color = Color::Rgb(255, 199, 119);

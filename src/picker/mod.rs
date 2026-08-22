@@ -23,7 +23,7 @@
 //!   - `haystack`  — per-entry match preprocessing + highlight mapping
 //!   - `filter`    — constructors, `refilter`, section grouping
 //!   - `nav`       — query edits + cursor movement + scroll
-//!   - `selection` — the highlighted entry's path/filename/dir accessors and
+//!   - `selection`: the highlighted entry's path/filename/dir accessors and
 //!     shell-owned palette construction data
 //!   - `view`      — `draw_into` and its helpers
 

@@ -84,13 +84,12 @@ fn heal_or_refuse(
         )));
     }
     let Some(document) = local_manifest else {
-        return Err(refuse("this machine has no task schema document to publish"));
+        return Err(refuse(
+            "this machine has no task schema document to publish",
+        ));
     };
-    let state = classify_remote_csvs(
-        remote_texts[0].as_deref(),
-        remote_texts[1].as_deref(),
-    )
-    .map_err(|error| CsvSyncError::Preflight(format!("remote task CSVs: {error:#}")))?;
+    let state = classify_remote_csvs(remote_texts[0].as_deref(), remote_texts[1].as_deref())
+        .map_err(|error| CsvSyncError::Preflight(format!("remote task CSVs: {error:#}")))?;
     if state == RemoteCsvState::Legacy {
         return Err(refuse(&format!(
             "the remote holds legacy task rows; run `{}` to reconcile them first",

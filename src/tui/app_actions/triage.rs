@@ -3,7 +3,9 @@
 //! and rollover helpers (with their unit tests).
 
 use crate::tasks::task::Task;
-use crate::tui::*;
+use crate::tui::App;
+use crate::tui::modal_state::{ConfirmKind, ConfirmState, FlashKind};
+use crate::tui::overlay::{Overlay, close_overlay, open_overlay};
 
 struct StartupTriageRefresh {
     config: crate::config::Config,
@@ -284,8 +286,11 @@ impl App {
 
 mod decision;
 
-use decision::*;
 pub(super) use decision::{TriageAlertEvent, should_check_daily_triage};
+use decision::{
+    TriageAlertOccupancy, TriageAlertResolution, logical_day, resolve_triage_alert,
+    triage_gate_resolved, triage_reconciliation_pending, triage_rollover,
+};
 
 #[cfg(test)]
 #[path = "triage_rollover_tests.rs"]

@@ -1,6 +1,6 @@
 //! Receiver panel ownership and warm-channel state.
 
-use crate::tui::*;
+use crate::tui::App;
 
 use crate::agent::SessionStore;
 

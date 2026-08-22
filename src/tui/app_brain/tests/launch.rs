@@ -108,7 +108,7 @@ fn app_main_refuses_malformed_portable_capability_configuration() {
     assert!(recording.0.lock().expect("launch recording").is_empty());
     assert!(matches!(
         app.status.flash(),
-        Some(crate::tui::FlashKind::Error(message))
+        Some(crate::tui::modal_state::FlashKind::Error(message))
             if message.contains("agent capabilities are invalid")
     ));
 }

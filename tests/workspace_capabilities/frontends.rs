@@ -279,12 +279,11 @@ fn installed_codex_parser_accepts_the_generated_per_invocation_overrides() {
     let spec = launch_spec(AgentKind::Codex, "codex", &request).expect("Codex launch spec");
     let parser_command = format!(
         "{} -- 'capability parser probe' >/dev/null",
-        spec.command
-            .replacen(
-                "codex --dangerously-bypass-hook-trust",
-                "codex debug prompt-input",
-                1,
-            )
+        spec.command.replacen(
+            "codex --dangerously-bypass-hook-trust",
+            "codex debug prompt-input",
+            1,
+        )
     );
 
     let output = Command::new("/bin/sh")

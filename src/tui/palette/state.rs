@@ -2,9 +2,12 @@
 //! command-palette state used by both TUI surfaces.
 
 use crate::tasks::task::AssignmentUiMode;
-use crate::tui::*;
+use crate::tui::action::GlobalAction;
+use crate::tui::links::LinkKind;
+use crate::tui::modal_state::TaskPalette;
 
-use super::{PALETTE_COMMANDS, PaletteRow, PaletteScope};
+use super::command::{PALETTE_COMMANDS, PaletteCommand, PaletteScope, TaskAction, shortcut_for};
+use super::model::{CommandPalette, PaletteControls, PaletteRow, PaletteStep};
 
 impl TaskPalette {
     /// Open the global command palette (global + any task-specific commands the

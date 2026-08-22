@@ -2,6 +2,7 @@ use super::{
     PaletteCommand, PaletteScope, TaskAction, always, if_assignment_create, if_assignment_filter,
     if_assignment_reassign, if_brain_open, if_has_links, if_has_notes, if_skill_session_open,
 };
+use crate::tui::action::GlobalAction;
 
 // Order here is the order shown in both palettes (`visible()` preserves
 // it). The task actions modal simply filters out the `Global` entries, so the
@@ -41,23 +42,23 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         label: "Message brain",
-        action: TaskAction::Global(crate::tui::GlobalAction::MessageBrain),
+        action: TaskAction::Global(GlobalAction::MessageBrain),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Close brain",
-        action: TaskAction::Global(crate::tui::GlobalAction::CloseBrain),
+        action: TaskAction::Global(GlobalAction::CloseBrain),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: if_brain_open,
     },
     // The workspace's skill-session rows (start / focus) are spliced in around
-    // this row at build time — see `TaskPalette::rows`.
+    // this row at build time; see `TaskPalette::rows`.
     PaletteCommand {
         label: "Show main brain session",
-        action: TaskAction::Global(crate::tui::GlobalAction::ShowMainBrainSession),
+        action: TaskAction::Global(GlobalAction::ShowMainBrainSession),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: if_skill_session_open,
@@ -65,21 +66,21 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         // Label is overridden at render time from persistent workspace intent.
         label: "Enable receiver",
-        action: TaskAction::Global(crate::tui::GlobalAction::ToggleReceiver),
+        action: TaskAction::Global(GlobalAction::ToggleReceiver),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Show receiver server status",
-        action: TaskAction::Global(crate::tui::GlobalAction::ShowReceiverServerStatus),
+        action: TaskAction::Global(GlobalAction::ShowReceiverServerStatus),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Show receiver logs",
-        action: TaskAction::Global(crate::tui::GlobalAction::ShowReceiverServerLogs),
+        action: TaskAction::Global(GlobalAction::ShowReceiverServerLogs),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
@@ -146,14 +147,14 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         label: "Sync brain now",
-        action: TaskAction::Global(crate::tui::GlobalAction::SyncBrainNow),
+        action: TaskAction::Global(GlobalAction::SyncBrainNow),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Show sync status",
-        action: TaskAction::Global(crate::tui::GlobalAction::ShowSyncStatus),
+        action: TaskAction::Global(GlobalAction::ShowSyncStatus),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
@@ -167,7 +168,7 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         label: "Show brain logs",
-        action: TaskAction::Global(crate::tui::GlobalAction::ShowBrainLogs),
+        action: TaskAction::Global(GlobalAction::ShowBrainLogs),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
@@ -177,14 +178,14 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         // `label_for` from the seeded `daily_triage_alert_disabled`; this
         // static is the fallback.
         label: "Disable daily triage alert",
-        action: TaskAction::Global(crate::tui::GlobalAction::ToggleDailyTriageAlert),
+        action: TaskAction::Global(GlobalAction::ToggleDailyTriageAlert),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
     },
     PaletteCommand {
         label: "Return to main view",
-        action: TaskAction::Global(crate::tui::GlobalAction::ShowTasks),
+        action: TaskAction::Global(GlobalAction::ShowTasks),
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,

@@ -3,8 +3,9 @@
 use crate::sync::args::Direction;
 use crate::sync::config::SyncConfig;
 use crate::sync::journal::Journal;
+use crate::tui::App;
+use crate::tui::modal_state::FlashKind;
 use crate::tui::receiver::ReceiverEffectOutcome;
-use crate::tui::{App, FlashKind};
 
 pub(crate) trait ReceiverSyncRuntime: Send {
     fn monotonic_now(&self) -> std::time::Instant;

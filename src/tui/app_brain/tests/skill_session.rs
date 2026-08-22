@@ -228,7 +228,7 @@ fn exhausted_skill_tab_ids_leave_the_current_tab_and_clean_up_the_rejected_launc
     assert_eq!(app.effective_brain_tab(), BrainTab::Session(watched));
     assert_eq!(launch.shutdowns(), 1);
     assert!(crate::skill_session::signal::read_signal(app.context.workspace(), &token).is_none());
-    let Some(crate::tui::FlashKind::Error(message)) = app.status.flash() else {
+    let Some(crate::tui::modal_state::FlashKind::Error(message)) = app.status.flash() else {
         panic!("tab allocation exhaustion must be reported as an error flash");
     };
     assert_eq!(
@@ -257,8 +257,11 @@ fn skip_button_marks_managed_daily_triage_done_without_launching_an_agent() {
         .expect("reload after seeding the managed habit");
 
     // Press Skip on the daily-triage nudge.
-    app.overlay = Some(crate::tui::Overlay::TaskConfirmation(
-        crate::tui::ConfirmState::run_triage("H35".to_owned(), "Morning Triage".to_owned()),
+    app.overlay = Some(crate::tui::overlay::Overlay::TaskConfirmation(
+        crate::tui::modal_state::ConfirmState::run_triage(
+            "H35".to_owned(),
+            "Morning Triage".to_owned(),
+        ),
     ));
     crate::tui::handlers::run_confirm_skip(&mut app);
 

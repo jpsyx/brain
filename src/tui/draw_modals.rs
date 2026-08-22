@@ -1,7 +1,5 @@
 //! Drawing the confirm + brain-input modals.
 
-use super::*;
-
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -9,6 +7,9 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
+
+use crate::tui::draw::layout::centered_rect;
+use crate::tui::modal_state::{BrainInputState, ConfirmChoice, ConfirmState, LinkPickerState};
 
 pub(crate) fn draw_confirm(f: &mut Frame, state: &ConfirmState, area: Rect) {
     // 60 wide leaves room for moderately long task names; the label is

@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    Arc, BootstrapContext, BufRead, CommandContext, Context, InteractionMode, Path, ReadinessField,
+    RegistryStore, Result, WorkspaceContext, WorkspaceManifest, Write, anyhow,
+    readiness_action_with_users,
+};
 
 pub(super) fn adopt_local_user(
     store: &RegistryStore,

@@ -1241,7 +1241,7 @@ structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; shared panel and tab types live in
 `model.rs`, while `mod.rs` keeps only the coordinating eight-field `App` type,
-re-exports, and module wiring. Receiver
+narrow shell entry exports, and module wiring. Receiver
 representation is private to `receiver/runtime.rs` and its focused child
 modules. `receiver/decision.rs` maps independent facts onto the fixed tick
 stages, while `receiver/effect.rs` carries only the data each App mediator
@@ -1255,6 +1255,14 @@ files, or provider delivery remains in the existing App coordinators.
 `status_warning.rs` validates receiver
 phone configuration and renders persistent warning content independently from
 the transient palette flash.
+
+`tui/mod.rs` is the composition boundary, not a shared name hub. It declares
+the module tree, owns `App`, and exposes only the narrow shell entry types used
+by the command layer. Child modules import production dependencies from their
+declaring owner modules with explicit names. They do not inherit sibling names
+through `use super::*`, import the TUI root as a wildcard, or rely on wildcard
+child re-exports. This keeps a dependency change visible at the consumer and
+prevents an unrelated owner from becoming an accidental public surface.
 
 ### Startup and shutdown (`TuiRuntime`)
 

@@ -1,5 +1,5 @@
 //! The pipeline that materializes a [`ViewSpec`] from a raw `Vec<Task>`:
-//! selector + per-view predicate + CLI filters, then sort, then titles.
+//! selector + per-view predicate + owned runtime filters, then sort, then titles.
 
 use chrono::{Datelike, Duration, NaiveDate};
 
@@ -84,7 +84,7 @@ fn keeps_visibility(t: &Task, options: &TaskViewOptions, today: NaiveDate) -> bo
     (options.include_done || !t.is_done()) && (options.include_deferred || !t.is_deferred(today))
 }
 
-/// All explicit `--flag` filters. Returns true when the task should be kept.
+/// All explicit filters captured for this run. Returns true when the task should be kept.
 fn keeps_filters(t: &Task, options: &TaskViewOptions, today: NaiveDate) -> bool {
     options
         .hard_deadline

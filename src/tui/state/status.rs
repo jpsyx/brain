@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use chrono::NaiveDate;
 
-use crate::tui::FlashKind;
+use crate::tui::modal_state::FlashKind;
 
 pub(crate) struct StatusStateInit {
     pub(crate) triage_day: NaiveDate,
@@ -190,7 +190,7 @@ impl StatusState {
 mod tests {
     use chrono::NaiveDate;
 
-    use crate::tui::FlashKind;
+    use crate::tui::modal_state::FlashKind;
 
     use super::{StatusState, StatusStateInit};
 

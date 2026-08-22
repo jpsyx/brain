@@ -384,4 +384,8 @@ impl Db {
         Ok(())
     }
 }
-use super::*;
+#[cfg(test)]
+use super::PidAlive;
+use super::{
+    Connection, Context, Db, PanelSide, Path, Result, SessionScope, system_clock, system_pid_alive,
+};

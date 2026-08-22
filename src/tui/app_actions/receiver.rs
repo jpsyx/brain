@@ -1,6 +1,7 @@
 //! Persistent receiver intent and status actions shared by both TUI palettes.
 
-use crate::tui::{App, FlashKind};
+use crate::tui::App;
+use crate::tui::modal_state::FlashKind;
 
 impl App {
     pub(crate) fn refresh_receiver_enabled(&mut self) {

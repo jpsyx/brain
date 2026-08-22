@@ -369,7 +369,7 @@ fn resolve_one_at(root: &Path, map: &Map<String, Value>, name: &str) -> Option<S
 mod path;
 
 pub(super) use path::flatten_map;
-use path::*;
+use path::{get_path, parse_value, path_segments, set_path};
 
 #[cfg(test)]
 mod tests;

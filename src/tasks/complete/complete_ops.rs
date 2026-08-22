@@ -388,4 +388,7 @@ pub(super) fn touch_row(row: &mut Row, today: &str) {
     row.insert("last_touched".to_owned(), today.to_owned());
 }
 
-use super::*;
+use super::{
+    CompletionKind, CompletionResult, CsvFile, Datelike, NaiveDate, Path, Result, Row, TaskUuid,
+    anyhow, bail, field, name, nonempty, normalize_id,
+};

@@ -1,5 +1,5 @@
 use super::*;
-use crate::tui::AppInit;
+use crate::tui::app_state::AppInit;
 
 mod session_support;
 pub(crate) use session_support::*;

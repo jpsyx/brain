@@ -30,6 +30,15 @@ first move is a failing test that reproduces it, *then* the fix.
   and display state are owned runtime data. `tests/tui_construction_boundary.rs`
   rejects an `App` lifetime, a retained task clap DTO, the obsolete receiver
   launch parameter, or any `run_tui` shape other than one owned `TuiLaunch`.
+- **TUI dependency ownership.** `tests/tui_dependencies_architecture.rs`
+  scans every production TUI source while identifying inline and external test
+  modules. It rejects root `crate::tui::*` imports, production sibling
+  `use super::*` imports, and
+  wildcard child re-exports from `tui/mod.rs`. It also pins the lifetime-free
+  App, sole overlay and receiver owners, and one-request `run_tui` boundary.
+  Synthetic fixtures exercise every rejected import shape and prove an
+  external `#[cfg(test)] mod tests;` is classified as test code rather than
+  production.
 - **Terminal lifecycle ownership.** `tui::runtime::terminal` drives the real
   acquisition and restoration state machine through a headless recording
   operations seam. Failure injection covers rollback at every fallible setup
@@ -385,7 +394,8 @@ first move is a failing test that reproduces it, *then* the fix.
   exercises dispatch commit, delivery context, completion, warm-lease expiry,
   and force-fresh consumption at session selection. `tests/tui_receiver_runtime_architecture.rs`
   rejects the former receiver field bag on `App` and direct representation
-  access outside `tui/receiver/`.
+  access outside `tui/receiver/`. Its runtime effect scan includes the receiver
+  facade as well as `runtime.rs` and its children.
   `sync/freshness.rs` tests the strict two-hour message threshold;
   `sync/journal.rs` proves push-only/aborted rows do not refresh it.
   `server/delivery.rs` verifies that provider delivery is dispatched off the
@@ -749,8 +759,10 @@ first move is a failing test that reproduces it, *then* the fix.
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
 | `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, and no obsolete receiver launch argument. |
+| `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; self-fixtures cover each forbidden spelling and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
+| `tests/tui_receiver_queue_architecture.rs` | Queue representation seam: the `VecDeque<InboundJob>` representation and its mutation stay in `receiver/queue.rs`. Tokenized self-fixtures cover qualified generic types, whitespace variations, direct field mutation, and renamed mutable aliases. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

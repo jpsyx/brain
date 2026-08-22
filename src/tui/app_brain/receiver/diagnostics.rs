@@ -6,7 +6,7 @@
 //! so a dispatched message is sampled on a schedule and the screen is written
 //! to the log.
 
-use crate::tui::*;
+use crate::tui::App;
 
 /// A cheap content fingerprint of the rendered screen.
 fn screen_digest(screen: &str) -> u64 {

@@ -1,7 +1,7 @@
 //! Ordered receiver decisions and application-owned effect execution.
 
 use crate::server::receiver::InboundJob;
-use crate::tui::*;
+use crate::tui::App;
 
 impl App {
     /// Plan and execute one pass over the receiver's ordered lifecycle stages.

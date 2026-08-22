@@ -158,6 +158,13 @@ Launch, completion delivery, receiver takeover, and cross-feature focus stay
 on App. No one of those paths selects or invokes a concrete frontend outside
 `AgentController`.
 
+TUI consumers name the owning agent, state, receiver, overlay, palette, or
+action module directly. The TUI root does not re-export child modules as a
+wildcard namespace, so importing an integration surface cannot silently grant
+access to unrelated frontend or runtime details. Receiver state remains live
+process state under `ReceiverRuntime`; only the established frontend-neutral
+session and completion records are durable.
+
 **Which frontend runs.** A selector flag wins; with none, the selected
 workspace's machine-local `default_agent_frontend` env value decides; with that
 unset (or holding an unreadable value), Claude runs. The flags are
@@ -641,7 +648,9 @@ The runtime tick drains health events before skill-session, receiver, sync, and
 triage work. Orderly exit stops the worker and unregisters before agent
 shutdown, periodic-puller and watcher drop, session-lock release, terminal
 restoration, and final singleton release. The receiver-owned `jobs.sock` stays
-inside the App for the complete live runtime.
+inside the App for the complete live runtime. Startup passes one owned
+`TuiLaunch` request to `run_tui`; the runtime converts it to one internal
+`AppInit` request, and the resulting `App` retains no borrowed launch data.
 
 The nudge's **Skip** button takes a different route entirely. Skipping is
 deterministic — it only marks today's protected Morning Triage occurrence done

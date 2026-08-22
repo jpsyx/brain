@@ -1,6 +1,6 @@
 //! Tests for the wrapped-row offset table.
 
-use crate::tui::*;
+use crate::tui::draw::layout::{visual_range, visual_row_offsets};
 
 // --- visual_row_offsets / visual_range: logical-line ↔ wrapped-row
 //     translation so selection + scroll survive wrapped notes ---

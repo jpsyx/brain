@@ -6,12 +6,16 @@
 //! completion protocol, tearing one down, and the per-tick poll that closes a tab
 //! when its run signals completion or its child exits.
 
-use super::*;
-
 use std::sync::Arc;
 
+#[cfg(test)]
+use crate::agent::AgentController;
 use crate::agent::{AgentSession, HookMetadata, LaunchRequest, SessionPlan};
 use crate::pty_pane::PtyPane;
+use crate::skill_session::{SkillSessionKey, SkillSessionSpec};
+use crate::tui::App;
+use crate::tui::modal_state::FlashKind;
+use crate::tui::model::{BrainTab, SessionTabId};
 
 #[cfg(not(test))]
 fn session_done_url(app: &App) -> anyhow::Result<String> {

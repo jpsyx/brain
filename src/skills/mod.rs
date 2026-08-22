@@ -108,9 +108,7 @@ pub fn sync_for_startup(workspace: &crate::workspace::WorkspaceContext) {
 /// user-authored skills. `skip_root` is used by startup callers because the
 /// selected workspace is synced immediately afterward (and receives its normal
 /// per-workspace version stamp).
-pub fn migrate_global_skills_for_all_workspaces(
-    skip_root: Option<&std::path::Path>,
-) {
+pub fn migrate_global_skills_for_all_workspaces(skip_root: Option<&std::path::Path>) {
     let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
         crate::logging::log("skills global migration skipped: HOME is not set");
         return;
@@ -176,9 +174,7 @@ pub fn needs_global_migration(stamped: Option<&str>, current: &str) -> bool {
 
 fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
     let canonical_left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
-    let canonical_right = right
-        .canonicalize()
-        .unwrap_or_else(|_| right.to_path_buf());
+    let canonical_right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
     canonical_left == canonical_right
 }
 

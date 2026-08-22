@@ -8,7 +8,7 @@
 //! final response, and the post-teardown fallback) through here keeps that
 //! outcome logged instead of silent.
 
-use crate::tui::*;
+use crate::tui::App;
 
 impl App {
     pub(in crate::tui::app_brain) fn send_email_reply(&self, action: &'static str, message: &str) {

@@ -1,9 +1,12 @@
 //! Raw input forwarding: mouse-wheel routing between the two panels and
 //! keystroke forwarding into the brain PTY's stdin.
 
-use crate::tui::*;
-
 use crossterm::event::KeyCode;
+
+use crate::tui::App;
+use crate::tui::keymap::{key_to_bytes, panel_at};
+use crate::tui::modal_state::FlashKind;
+use crate::tui::model::Panel;
 
 /// Number of tasks a single wheel notch moves the selection in the tasks
 /// panel, and the rows it scrolls the brain panel's history. Kept modest so

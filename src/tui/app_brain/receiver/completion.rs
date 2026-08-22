@@ -1,6 +1,6 @@
 //! Interactive and remote completion polling plus provider delivery.
 
-use crate::tui::*;
+use crate::tui::App;
 
 impl App {
     /// A Stop hook marks the end of an interactive turn without killing the

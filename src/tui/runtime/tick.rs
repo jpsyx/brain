@@ -1,5 +1,6 @@
 use crate::server::control::{HeartbeatEvent, HeartbeatWorker};
-use crate::tui::{App, FlashKind};
+use crate::tui::App;
+use crate::tui::modal_state::FlashKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RecurringStage {

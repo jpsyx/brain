@@ -10,7 +10,8 @@
 use ratatui::style::Color;
 
 use crate::tasks::task::{AssignmentUiMode, AssignmentUser};
-use crate::tui::{CommandPalette, Link, LinkKind, TaskAction};
+use crate::tui::links::{Link, LinkKind};
+use crate::tui::palette::{CommandPalette, TaskAction};
 
 /// One row in the command palette. See `palette` for the command table.
 pub(crate) struct TaskPalette {

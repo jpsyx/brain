@@ -12,11 +12,13 @@ use std::path::Path;
 
 use crossterm::event::KeyEvent;
 
-use super::{App, Overlay, SearchEffect, ShellState, close_overlay, open_overlay, replace_overlay};
 use crate::entry::{self, Bucket};
 use crate::menu::SearchAction;
 use crate::open_target;
-use crate::tui::PaletteStep;
+use crate::tui::App;
+use crate::tui::overlay::{Overlay, close_overlay, open_overlay, replace_overlay};
+use crate::tui::palette::PaletteStep;
+use crate::tui::state::{SearchEffect, ShellState};
 use crate::{confirm, picker};
 
 impl App {

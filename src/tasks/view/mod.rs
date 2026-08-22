@@ -2,8 +2,8 @@
 //!
 //! A [`View`] is which named view is active (today / mit / past_due /
 //! week / habits / backlog / all); Tab in the event loop cycles through
-//! [`View::CYCLE`]. [`build_view`] turns a raw `Vec<Task>` + CLI into a
-//! [`ViewSpec`] (the title/subtitle/list the renderer draws). Views that
+//! [`View::CYCLE`]. [`build_view`] turns a raw `Vec<Task>` plus owned runtime
+//! options into a [`ViewSpec`] (the title/subtitle/list the renderer draws). Views that
 //! aren't a pure `Selector` (`Mit`, `PastDue`) layer their extra filter
 //! on top via [`view_filter`].
 //!
@@ -107,7 +107,7 @@ impl View {
     }
 }
 
-/// Extra per-view predicate applied on top of the selector + cli filters.
+/// Extra per-view predicate applied on top of the selector and runtime filters.
 /// Returns `true` when the task should be kept.
 #[must_use]
 pub fn view_filter(view: View, t: &Task, today: NaiveDate) -> bool {

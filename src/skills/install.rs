@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::layout::{link_ops, Layout, Link, WorkspaceCapabilityLayout};
+use super::layout::{Layout, Link, WorkspaceCapabilityLayout, link_ops};
 use super::model::Skill;
 use super::{embed, extension, plugin, render};
 
@@ -213,9 +213,11 @@ mod tests {
 
         let built = layout.built_dir.join("article-summarizer").join("SKILL.md");
         assert!(built.is_file());
-        assert!(fs::read_to_string(&built)
-            .unwrap()
-            .contains("article-summarizer"));
+        assert!(
+            fs::read_to_string(&built)
+                .unwrap()
+                .contains("article-summarizer")
+        );
 
         for f in &layout.frontends {
             let fe = f.join("article-summarizer");
@@ -243,11 +245,13 @@ mod tests {
         };
         let report = sync(&layout, &sources).unwrap();
         assert!(report.installed.iter().any(|n| n == "my-plugin"));
-        assert!(layout
-            .agents_dir
-            .join("my-plugin")
-            .join("SKILL.md")
-            .is_file());
+        assert!(
+            layout
+                .agents_dir
+                .join("my-plugin")
+                .join("SKILL.md")
+                .is_file()
+        );
         let _ = fs::remove_dir_all(&root);
     }
 

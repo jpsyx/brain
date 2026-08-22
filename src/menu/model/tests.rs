@@ -276,7 +276,10 @@ fn only_msg_and_tasks_carry_shortcuts() {
 
 #[test]
 fn shared_catalog_rows_use_one_global_action_identity_and_metadata() {
-    use crate::tui::{GlobalAction, TaskAction, TaskPalette};
+    use crate::tui::action::GlobalAction;
+    use crate::tui::links::LinkKind;
+    use crate::tui::modal_state::TaskPalette;
+    use crate::tui::palette::TaskAction;
 
     let search = items(
         PanelSide::Right,
@@ -286,15 +289,7 @@ fn shared_catalog_rows_use_one_global_action_identity_and_metadata() {
             ..Targets::default()
         },
     );
-    let tasks = TaskPalette::new(
-        None,
-        false,
-        false,
-        false,
-        crate::tui::LinkKind::None,
-        false,
-        false,
-    );
+    let tasks = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
     let task_rows = tasks.rows();
     let cases = [
         (

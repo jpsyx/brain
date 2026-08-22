@@ -172,4 +172,8 @@ fn normalize_names(field: &'static str, names: &[String]) -> Result<Vec<String>,
     }
     Ok(normalized)
 }
-use super::*;
+use super::{
+    AccessMode, CapabilityEnforcement, CapabilityError, CapabilityPlan, CapabilityResolution,
+    Config, CredentialProvenance, HashSet, MachineCapabilityEnvironment, McpCapabilityPlan,
+    SkillCapabilityPlan, SkillSelection,
+};

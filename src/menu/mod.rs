@@ -18,7 +18,7 @@
 //!
 //! Layout:
 //!   - `labels` — pure elision for the contextual (filename/dir) row labels
-//!   - `model`  — `SearchAction`, `Targets`, the ordered row list,
+//!   - `model`: `SearchAction`, `Targets`, the ordered row list,
 //!     `shortcut_for`
 //!   - `view`   — `draw_modal` and its pure sizing/line builders
 
@@ -29,4 +29,4 @@ mod view;
 pub(crate) use model::{SearchAction, Targets, items};
 pub(crate) use view::draw_modal;
 
-pub(crate) type SearchPalette = crate::tui::CommandPalette<SearchAction>;
+pub(crate) type SearchPalette = crate::tui::palette::CommandPalette<SearchAction>;

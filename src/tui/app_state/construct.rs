@@ -1,6 +1,6 @@
-//! `App::new`: assemble the initial shell state from the parsed CLI, loaded
-//! task/habit lists, injected runners, and the session DB, then build the
-//! first body.
+//! `App::new`: assemble the initial shell state from the owned launch request,
+//! loaded task/habit lists, injected runners, and the session DB, then build
+//! the first body.
 
 use std::path::PathBuf;
 
@@ -11,7 +11,14 @@ use crate::session::AgentKind;
 use crate::state::Db;
 use crate::tasks::task::Task;
 use crate::tasks::view::View;
-use crate::tui::*;
+use crate::tui::app_sync::{ReceiverSyncRuntime, SystemReceiverSyncRuntime};
+use crate::tui::shell::ShellRunner;
+use crate::tui::state::{
+    AppContext, AppContextInit, AppServices, AppServicesInit, BrainPanelState, BrainPanelStateInit,
+    ShellState, StatusState, StatusStateInit, TasksState, TasksStateInit,
+};
+use crate::tui::status_warning::receiver_phone_warning;
+use crate::tui::{App, PanelSide};
 
 pub(crate) struct AppInit {
     pub(crate) command_context: crate::workspace::CommandContext,

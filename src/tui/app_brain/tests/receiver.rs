@@ -67,21 +67,25 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
             calls: Arc::clone(&calls),
             fail: false,
         }));
-    app.overlay = Some(crate::tui::Overlay::TaskPalette(
-        crate::tui::TaskPalette::new(
+    app.overlay = Some(crate::tui::overlay::Overlay::TaskPalette(
+        crate::tui::modal_state::TaskPalette::new(
             None,
             false,
             false,
             false,
-            crate::tui::LinkKind::None,
+            crate::tui::links::LinkKind::None,
             false,
             false,
         ),
     ));
     for character in "enable receiver".chars() {
-        crate::tui::handle_palette_key(&mut app, &plain_key(KeyCode::Char(character)), false);
+        crate::tui::handlers::handle_palette_key(
+            &mut app,
+            &plain_key(KeyCode::Char(character)),
+            false,
+        );
     }
-    crate::tui::handle_palette_key(&mut app, &plain_key(KeyCode::Enter), false);
+    crate::tui::handlers::handle_palette_key(&mut app, &plain_key(KeyCode::Enter), false);
 
     assert!(app.receiver.is_enabled());
     let saved = RegistryStore::load_from(app.context.command().registry_store.path()).unwrap();
@@ -94,18 +98,21 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
             calls: Arc::clone(&calls),
             fail: true,
         }));
-    app.overlay = Some(crate::tui::Overlay::SearchPalette(
+    app.overlay = Some(crate::tui::overlay::Overlay::SearchPalette(
         app.shell.search_palette(false, app.receiver.is_enabled()),
     ));
     for character in "disable receiver".chars() {
-        crate::tui::route_search_palette(&mut app, &plain_key(KeyCode::Char(character)));
+        crate::tui::search_view::route_search_palette(
+            &mut app,
+            &plain_key(KeyCode::Char(character)),
+        );
     }
-    crate::tui::route_search_palette(&mut app, &plain_key(KeyCode::Enter));
+    crate::tui::search_view::route_search_palette(&mut app, &plain_key(KeyCode::Enter));
 
     assert!(!app.receiver.is_enabled());
     assert!(matches!(
         app.status.flash(),
-        Some(crate::tui::FlashKind::Error(message))
+        Some(crate::tui::modal_state::FlashKind::Error(message))
             if message.contains("receiver disabled; warning:")
     ));
     let saved = RegistryStore::load_from(app.context.command().registry_store.path()).unwrap();

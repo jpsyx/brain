@@ -1,5 +1,6 @@
 use super::*;
-use crate::tui::{HelpState, Overlay, close_overlay};
+use crate::tui::modal_state::HelpState;
+use crate::tui::overlay::{Overlay, close_overlay};
 
 fn arm_completed_refresh_gate(app: &mut App) {
     app.status
@@ -63,7 +64,7 @@ fn completed_startup_sync_waits_for_help_to_close_before_showing_triage() {
     assert!(matches!(
         app.overlay,
         Some(Overlay::TaskConfirmation(ref confirmation))
-            if confirmation.kind == crate::tui::ConfirmKind::RunTriage
+            if confirmation.kind == crate::tui::modal_state::ConfirmKind::RunTriage
     ));
     assert!(
         !app.status.triage_gate_is_armed(),
@@ -85,7 +86,10 @@ fn completed_startup_sync_still_withdraws_an_open_stale_triage_nudge() {
     app.status.set_daily_triage_check_disabled(false);
     arm_completed_refresh_gate(&mut app);
     app.overlay = Some(Overlay::TaskConfirmation(
-        crate::tui::ConfirmState::run_triage("H1".to_owned(), "Morning Triage".to_owned()),
+        crate::tui::modal_state::ConfirmState::run_triage(
+            "H1".to_owned(),
+            "Morning Triage".to_owned(),
+        ),
     ));
 
     app.tick_triage_gate();

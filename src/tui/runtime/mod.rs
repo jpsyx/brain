@@ -7,8 +7,12 @@ use crate::server::control::HeartbeatWorker;
 use crate::state::Db;
 use crate::sync::periodic::PeriodicPullHandle;
 use crate::sync::watch::WatcherHandle;
+use crate::tui::app_state::AppInit;
+use crate::tui::draw::draw;
+use crate::tui::search_view::build_search;
+use crate::tui::shell::ZshFunctionRunner;
 use crate::tui::singleton::{Guard, JobSocket};
-use crate::tui::{App, AppInit, TuiLaunch, ZshFunctionRunner, build_search, draw};
+use crate::tui::{App, TuiLaunch};
 
 mod shutdown;
 pub(crate) mod terminal;

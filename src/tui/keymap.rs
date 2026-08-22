@@ -4,7 +4,7 @@ use crate::tasks::view::View;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Position, Rect};
 
-use super::Panel;
+use super::model::Panel;
 
 /// Which panel a mouse coordinate falls in. When a brain panel is open it
 /// owns the right half (`brain_rect`); a click/scroll inside it routes to

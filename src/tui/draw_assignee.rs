@@ -1,7 +1,5 @@
 //! Drawing the shared-workspace assignee filter picker.
 
-use super::*;
-
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -9,6 +7,9 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
+
+use crate::tui::draw::layout::centered_rect;
+use crate::tui::modal_state::AssigneeFilterState;
 
 pub(crate) fn draw_assignee_filter(f: &mut Frame, state: &AssigneeFilterState, area: Rect) {
     let rows = state.rows();

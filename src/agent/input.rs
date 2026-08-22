@@ -197,7 +197,11 @@ mod tests {
             "the paste and the submit key must not share a write"
         );
         assert_eq!(writes[0].bytes, b"\x1b[200~ask\x1b[201~".to_vec());
-        assert_eq!(writes[0].settle, Duration::ZERO, "the text goes out at once");
+        assert_eq!(
+            writes[0].settle,
+            Duration::ZERO,
+            "the text goes out at once"
+        );
         assert_eq!(writes[1].bytes, b"\r".to_vec());
         assert!(
             writes[1].settle >= Duration::from_millis(250),

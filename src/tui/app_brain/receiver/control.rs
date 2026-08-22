@@ -8,7 +8,7 @@
 //! between messages.
 
 use crate::server::receiver::InboundJob;
-use crate::tui::*;
+use crate::tui::App;
 
 impl App {
     /// Reply to one specific job, rather than to whatever is in flight.

@@ -2,7 +2,7 @@
 
 use crossterm::event::KeyCode;
 
-use crate::tui::ShellState;
+use crate::tui::state::ShellState;
 
 fn logs_quit_action(code: KeyCode, ctrl: bool) -> bool {
     matches!(code, KeyCode::Char('q' | 'Q')) || (ctrl && matches!(code, KeyCode::Char('c' | 'C')))

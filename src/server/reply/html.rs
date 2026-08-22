@@ -156,9 +156,15 @@ mod tests {
     fn markup_in_the_answer_is_shown_not_executed() {
         let html = email_html("Reported: <script>alert(1)</script> and <img src=x onerror=y>");
         for tag in ["<script>", "<img src=x"] {
-            assert!(!html.contains(tag), "{tag:?} passed through as markup: {html}");
+            assert!(
+                !html.contains(tag),
+                "{tag:?} passed through as markup: {html}"
+            );
         }
-        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"), "{html}");
+        assert!(
+            html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
+            "{html}"
+        );
         assert!(html.contains("&lt;img src=x onerror=y&gt;"), "{html}");
     }
 
@@ -191,4 +197,3 @@ mod tests {
         assert!(email_html("- [x] done").contains("checkbox"));
     }
 }
-

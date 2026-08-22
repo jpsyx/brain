@@ -4,7 +4,8 @@
 //! hint (`shortcut_for`).
 
 use crate::state::PanelSide;
-use crate::tui::{GlobalAction, PaletteRow};
+use crate::tui::action::GlobalAction;
+use crate::tui::palette::PaletteRow;
 
 use super::labels::{create_pdf_label, delete_label, open_dir_label, open_file_label};
 

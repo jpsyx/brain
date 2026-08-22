@@ -1,6 +1,6 @@
 //! Tests for brain-input soft wrapping (wrap_input).
 
-use crate::tui::*;
+use crate::tui::draw_modals::wrap_input;
 
 // --- wrap_input (brain-input soft wrapping) ---
 

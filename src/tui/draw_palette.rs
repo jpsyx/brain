@@ -1,7 +1,5 @@
 //! Drawing the command-palette / task-actions modal.
 
-use super::*;
-
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -9,6 +7,9 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
+
+use crate::tui::draw::layout::centered_rect;
+use crate::tui::modal_state::TaskPalette;
 
 pub(crate) fn draw_palette(f: &mut Frame, state: &TaskPalette, area: Rect) {
     let visible = state.visible();

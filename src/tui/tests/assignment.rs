@@ -1,9 +1,10 @@
 use crate::tasks::task::{AssignmentUiMode, AssignmentUser};
 use crate::tasks::view::ViewSpec;
-use crate::tui::{
-    AssigneeFilterState, EscapeAction, assignee_filter_line, normal_escape_action,
-    tasks_header_height, tasks_header_lines,
+use crate::tui::draw::tasks_panel::{
+    assignee_filter_line, tasks_header_height, tasks_header_lines,
 };
+use crate::tui::handlers::tasks_view::{EscapeAction, normal_escape_action};
+use crate::tui::modal_state::AssigneeFilterState;
 use crate::users::UserId;
 use clap::Parser;
 

@@ -15,7 +15,8 @@
 //! prompt; `tick_skill_sessions` polls those signals and auto-closes the tab
 //! whose token arrives. See [`crate::skill_session`].
 
-use super::*;
+use crate::tui::App;
+use crate::tui::model::BrainTab;
 
 mod lifecycle;
 

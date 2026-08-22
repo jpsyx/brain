@@ -123,10 +123,10 @@ mod tests {
 
     #[test]
     fn sms_is_stripped_of_markup_a_phone_cannot_render() {
-        let reply = sms("## Today\n\n- **Rent** is due\n- see [the invoice](https://example.test/a)");
+        let reply =
+            sms("## Today\n\n- **Rent** is due\n- see [the invoice](https://example.test/a)");
         assert_eq!(
-            reply.text,
-            "Today\n\n- Rent is due\n- see the invoice (https://example.test/a)",
+            reply.text, "Today\n\n- Rent is due\n- see the invoice (https://example.test/a)",
             "SMS carries no markup, so the markers are wasted characters"
         );
     }

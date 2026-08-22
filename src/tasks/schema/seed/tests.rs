@@ -37,15 +37,12 @@ fn the_canonical_document_declares_the_current_schema() {
         Some(crate::tasks::schema::TASK_SCHEMA_VERSION)
     );
     assert_eq!(schema["merge_key"].as_str(), Some("task_uuid"));
-    assert_eq!(schema["display_identity"]["field"].as_str(), Some("task_id"));
     assert_eq!(
-        schema["display_identity"]["mutable"].as_bool(),
-        Some(true)
+        schema["display_identity"]["field"].as_str(),
+        Some("task_id")
     );
-    assert_eq!(
-        schema["forward_compatible_columns"].as_bool(),
-        Some(true)
-    );
+    assert_eq!(schema["display_identity"]["mutable"].as_bool(), Some(true));
+    assert_eq!(schema["forward_compatible_columns"].as_bool(), Some(true));
 }
 
 /// The `~/brain` schema this replaced documented `assignee` long after the CSVs
@@ -53,7 +50,10 @@ fn the_canonical_document_declares_the_current_schema() {
 /// drifts from the columns Brain actually writes is worse than none.
 #[test]
 fn the_canonical_document_documents_exactly_the_seeded_columns() {
-    assert_eq!(documented_columns("tasks_csv"), header_columns(TASKS_HEADER));
+    assert_eq!(
+        documented_columns("tasks_csv"),
+        header_columns(TASKS_HEADER)
+    );
     assert_eq!(
         documented_columns("habits_csv"),
         header_columns(HABITS_HEADER)
@@ -72,13 +72,7 @@ fn the_canonical_document_documents_exactly_the_seeded_columns() {
 fn the_canonical_document_carries_no_personal_data() {
     let lowercase = CANONICAL_DOCUMENT.to_lowercase();
     for forbidden in [
-        "pablo",
-        "avandar",
-        "~/brain/",
-        "/users/",
-        "ava-",
-        "zotero",
-        "notion",
+        "pablo", "avandar", "~/brain/", "/users/", "ava-", "zotero", "notion",
     ] {
         assert!(
             !lowercase.contains(forbidden),

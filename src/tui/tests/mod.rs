@@ -1,5 +1,5 @@
-//! Unit tests for the tui module, split by area. Items under test are
-//! re-exported into the `tui` root, so `use crate::tui::*` reaches them all.
+//! Unit tests for the TUI module, split by behavior. Each child names the
+//! focused owner APIs and root composition types it exercises.
 
 mod assignment;
 mod brain_keys;

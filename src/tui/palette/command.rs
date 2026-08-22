@@ -1,7 +1,9 @@
 //! The command-palette model: the action enum, the per-command scope/flags,
 //! the direct-key shortcut map, and the ordered command table.
 
-use crate::tui::{LinkKind, TaskPalette};
+use crate::tui::action::GlobalAction;
+use crate::tui::links::LinkKind;
+use crate::tui::modal_state::TaskPalette;
 
 /// A per-command visibility predicate: given the current palette state (a
 /// snapshot of the TUI state relevant to the palette), decide whether the
@@ -84,7 +86,7 @@ pub(super) enum PaletteScope {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum TaskAction {
-    Global(crate::tui::GlobalAction),
+    Global(GlobalAction),
     /// Ask the brain agent to collect a new task, preserving actor assignment
     /// as the default unless the user explicitly selects another member.
     AddTask,
@@ -142,7 +144,7 @@ pub(crate) const fn shortcut_for(action: TaskAction) -> Option<&'static str> {
         TaskAction::Global(action) => {
             // Search exposes ShowTasks as "Open tasks" with ^T; the task/log
             // catalog's contextual "Return to main view" row has no direct key.
-            if matches!(action, crate::tui::GlobalAction::ShowTasks) {
+            if matches!(action, GlobalAction::ShowTasks) {
                 None
             } else {
                 action.shortcut()

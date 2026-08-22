@@ -12,7 +12,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 
-use super::{SyncLogState, centered_rect};
+use super::draw::layout::centered_rect;
+use super::modal_state::SyncLogState;
 
 /// Matches the help modal's accent and dim tones.
 const ACCENT: ratatui::style::Color = ratatui::style::Color::Rgb(187, 154, 247);

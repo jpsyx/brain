@@ -2,7 +2,13 @@
 //! constructors / choices / intents, mouse hit-testing, and the submit countdown.
 
 use crate::session::shell_quote;
-use crate::tui::*;
+use crate::tui::handlers::half_page_step;
+use crate::tui::keymap::panel_at;
+use crate::tui::modal_state::{
+    BrainInputState, ConfirmChoice, ConfirmIntent, ConfirmKind, ConfirmState,
+};
+use crate::tui::model::Panel;
+use ratatui::style::Color;
 
 // --- shell_quote ---
 

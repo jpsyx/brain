@@ -7,7 +7,8 @@ use crate::entry::Entry;
 use crate::main_view::{Dir, MainView};
 use crate::menu::SearchPalette;
 use crate::state::PanelSide;
-use crate::tui::{BrainTab, LogsView, Panel, SessionTabId};
+use crate::tui::logs_view::LogsView;
+use crate::tui::model::{BrainTab, Panel, SessionTabId};
 
 pub(crate) struct ShellState {
     main_view: MainView,
@@ -300,7 +301,8 @@ mod tests {
     use super::{SearchEffect, ShellState, resolve_active_tab, tab_for_slot, tab_order};
     use crate::main_view::{Dir, MainView};
     use crate::state::PanelSide;
-    use crate::tui::{BrainTab, LogKind, LogsView, Panel, SessionTabId};
+    use crate::tui::logs_view::{LogKind, LogsView};
+    use crate::tui::model::{BrainTab, Panel, SessionTabId};
 
     const SESSION: SessionTabId = SessionTabId(7);
     const SECOND_SESSION: SessionTabId = SessionTabId(8);

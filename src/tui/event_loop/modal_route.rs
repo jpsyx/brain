@@ -1,7 +1,13 @@
 //! Modal key routing. The same data-bearing enum used by drawing selects the
 //! captive input handler.
 
-use crate::tui::*;
+use crate::tui::App;
+use crate::tui::handlers::{
+    handle_assignee_filter_key, handle_brain_input_key, handle_confirm_key, handle_help_key,
+    handle_link_picker_key, handle_palette_key, handle_sync_log_key,
+};
+use crate::tui::overlay::{ModalInput, modal_input_target};
+use crate::tui::search_view::{route_search_confirm, route_search_palette};
 
 /// Route a keystroke to the active modal. Returns `true` when an overlay
 /// consumed the key, so the caller skips panel handling.

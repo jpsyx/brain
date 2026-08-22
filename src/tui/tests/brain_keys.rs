@@ -1,7 +1,8 @@
 //! Tests for the brain-open / message-about-task Ctrl+M classifiers and
 //! the Alt+Enter newline rule.
 
-use crate::tui::*;
+use crate::tui::handlers::brain_key_starts_turn;
+use crate::tui::keymap::{ctrl_messages_brain_about_task, ctrl_opens_brain, enter_inserts_newline};
 use crossterm::event::KeyCode;
 
 // --- enter_inserts_newline: multiline compose in the brain-input modal ---

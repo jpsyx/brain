@@ -141,8 +141,8 @@ fn link_text(label: &str, target: &str) -> String {
 
 /// Locate `]` then a directly following `(`…`)`, or report no link at all.
 fn bracket_span(chars: &[char], open: usize) -> Option<BracketSpan> {
-    let label_end = (open + 1..chars.len())
-        .find(|index| chars[*index] == ']' && !escaped(chars, *index))?;
+    let label_end =
+        (open + 1..chars.len()).find(|index| chars[*index] == ']' && !escaped(chars, *index))?;
     if chars.get(label_end + 1) != Some(&'(') {
         return None;
     }
@@ -236,13 +236,7 @@ fn marker_at(chars: &[char], at: usize, marker: char, width: usize) -> bool {
 
 /// An opener is glued to its content, and `_` additionally may not start
 /// inside a word so `snake_case_name` survives.
-fn opens_emphasis(
-    chars: &[char],
-    at: usize,
-    marker: char,
-    width: usize,
-    intraword: bool,
-) -> bool {
+fn opens_emphasis(chars: &[char], at: usize, marker: char, width: usize, intraword: bool) -> bool {
     chars
         .get(at + width)
         .is_some_and(|next| !next.is_whitespace() && *next != marker)

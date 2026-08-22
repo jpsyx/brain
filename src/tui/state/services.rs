@@ -3,7 +3,8 @@ use anyhow::Result;
 use crate::agent::{AgentSession, CompletionStatus, SessionScope, SessionStore};
 use crate::state::{Db, PanelSide};
 use crate::sync::args::Direction;
-use crate::tui::{ReceiverSyncRuntime, ShellRunner};
+use crate::tui::app_sync::ReceiverSyncRuntime;
+use crate::tui::shell::ShellRunner;
 
 pub(crate) struct AppServicesInit {
     pub(crate) agenda_runner: Box<dyn ShellRunner>,
@@ -164,7 +165,8 @@ mod tests {
     use anyhow::Result;
 
     use crate::sync::args::Direction;
-    use crate::tui::{ReceiverSyncRuntime, ShellRunner};
+    use crate::tui::app_sync::ReceiverSyncRuntime;
+    use crate::tui::shell::ShellRunner;
 
     use super::{AppServices, AppServicesInit};
 

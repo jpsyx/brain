@@ -1,7 +1,10 @@
 // Tests for TaskPalette: notes toggle, open-link gating/labels, action
 // order, and numbered rows.
 
-use crate::tui::*;
+use crate::tui::action::GlobalAction;
+use crate::tui::links::LinkKind;
+use crate::tui::modal_state::TaskPalette;
+use crate::tui::palette::{TaskAction, shortcut_for};
 
 // --- TaskPalette: notes toggle ---
 

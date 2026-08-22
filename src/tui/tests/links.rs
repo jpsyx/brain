@@ -1,6 +1,8 @@
 //! Tests for link extraction/classification and the link-picker modal.
 
-use crate::tui::*;
+use crate::tui::links::{Link, extract_urls};
+use crate::tui::modal_state::{FlashKind, LinkPickerState};
+use crate::tui::shell::{ShellRunner, open_url};
 use anyhow::Result;
 use std::sync::Mutex;
 

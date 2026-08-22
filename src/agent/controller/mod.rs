@@ -220,9 +220,7 @@ impl AgentController {
             &bytes[..bytes.len().min(8)],
             &bytes[bytes.len().saturating_sub(8)..],
             bytes.starts_with(b"\x1b[200~"),
-            bytes
-                .windows(6)
-                .any(|window| window == b"\x1b[201~"),
+            bytes.windows(6).any(|window| window == b"\x1b[201~"),
         ));
         self.transport.send(sequence)
     }

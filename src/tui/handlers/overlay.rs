@@ -2,9 +2,13 @@
 //! link-picker, brain-input, and help. Each is a no-op unless its modal is
 //! open; while open the modal is captive (the event loop routes straight here).
 
-use crate::tui::*;
-
 use crossterm::event::{KeyCode, KeyModifiers};
+
+use crate::tui::App;
+use crate::tui::keymap::enter_inserts_newline;
+use crate::tui::modal_state::{ConfirmChoice, ConfirmKind, ConfirmState};
+use crate::tui::overlay::{Overlay, close_overlay};
+use crate::tui::palette::PaletteStep;
 
 pub(crate) fn handle_palette_key(app: &mut App, k: &crossterm::event::KeyEvent, _ctrl: bool) {
     let Some(Overlay::TaskPalette(palette)) = app.overlay.as_mut() else {

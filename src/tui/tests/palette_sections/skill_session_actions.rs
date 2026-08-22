@@ -104,7 +104,7 @@ fn each_offered_skill_session_gets_its_configured_palette_label() {
 fn a_running_skill_session_offers_no_start_row() {
     // The seeded `runnable_skill_sessions` already excludes running sessions
     // (that decision is `skill_session::runnable`), so a session showing a
-    // focus row must show no start row — a user can't launch it twice.
+    // focus row must show no start row because a user can't launch it twice.
     let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false)
         .with_runtime_context(
             false,

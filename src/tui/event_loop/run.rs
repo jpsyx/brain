@@ -9,7 +9,20 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
 
 use crate::main_view::{self, MainView};
-use crate::tui::*;
+use crate::tui::App;
+use crate::tui::handlers::{
+    TaskSearchEffect, handle_brain_key, handle_logs_key, handle_mouse, handle_normal_key,
+    handle_search_key, handle_skill_session_key,
+};
+use crate::tui::keymap::{
+    alt_cycles_brain_tab, alt_scroll_direction, alt_selects_brain_tab_slot,
+    ctrl_messages_brain_about_task, ctrl_opens_brain, ctrl_opens_palette, ctrl_quits,
+    is_count_relevant_key,
+};
+use crate::tui::modal_state::{BrainInputState, HelpState, TaskPalette};
+use crate::tui::model::{BrainTab, Panel};
+use crate::tui::overlay::{Overlay, open_overlay};
+use crate::tui::search_view::{apply_search_view_effect, handle_search_view_key};
 
 use super::modal_route::route_modal_key;
 

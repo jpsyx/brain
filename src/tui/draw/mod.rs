@@ -5,12 +5,8 @@
 //!     modal centering
 
 mod brain_panel;
-mod layout;
-mod tasks_panel;
-
-pub(crate) use brain_panel::*;
-pub(crate) use layout::*;
-pub(crate) use tasks_panel::*;
+pub(crate) mod layout;
+pub(super) mod tasks_panel;
 
 use ratatui::{
     Frame,
@@ -19,7 +15,17 @@ use ratatui::{
 
 use crate::main_view::MainView;
 use crate::state::PanelSide;
-use crate::tui::*;
+use crate::tui::App;
+use crate::tui::draw::brain_panel::{BrainPanelContext, draw_brain};
+use crate::tui::draw::tasks_panel::{TasksPanelContext, draw_tasks};
+use crate::tui::draw_assignee::draw_assignee_filter;
+use crate::tui::draw_help::draw_help;
+use crate::tui::draw_modals::{draw_brain_input, draw_confirm, draw_link_picker};
+use crate::tui::draw_palette::draw_palette;
+use crate::tui::draw_sync_log::draw_sync_log;
+use crate::tui::logs_view::draw_logs;
+use crate::tui::model::Panel;
+use crate::tui::overlay::Overlay;
 
 pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();

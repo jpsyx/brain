@@ -23,8 +23,14 @@ fn a_longer_id_sharing_our_prefix_never_matches() {
 #[test]
 fn an_id_that_is_not_its_own_trailing_segment_never_matches() {
     // The id must follow a `-`, not merely end the stem.
-    assert!(!rollout_matches("rollout-2026-08-11T09-49-49x-abc.jsonl", "x-abc"));
-    assert!(rollout_matches("rollout-2026-08-11T09-49-49-x-abc.jsonl", "x-abc"));
+    assert!(!rollout_matches(
+        "rollout-2026-08-11T09-49-49x-abc.jsonl",
+        "x-abc"
+    ));
+    assert!(rollout_matches(
+        "rollout-2026-08-11T09-49-49-x-abc.jsonl",
+        "x-abc"
+    ));
 }
 
 #[test]

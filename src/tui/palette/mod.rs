@@ -10,5 +10,8 @@ mod state;
 #[cfg(test)]
 mod model_tests;
 
-pub(crate) use command::*;
-pub(crate) use model::*;
+pub(crate) use command::TaskAction;
+pub(crate) use model::{CommandPalette, PaletteControls, PaletteRow, PaletteStep};
+
+#[cfg(test)]
+pub(crate) use command::shortcut_for;

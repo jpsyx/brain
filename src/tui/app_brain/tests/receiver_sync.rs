@@ -38,7 +38,7 @@ impl TestReceiverSyncRuntime {
     }
 }
 
-impl crate::tui::ReceiverSyncRuntime for TestReceiverSyncRuntime {
+impl crate::tui::app_sync::ReceiverSyncRuntime for TestReceiverSyncRuntime {
     fn monotonic_now(&self) -> std::time::Instant {
         self.state.lock().unwrap().monotonic
     }
@@ -248,7 +248,9 @@ fn sync_status_poll_uses_the_injected_clock_and_bounded_interval() {
     assert_eq!(app.status.last_seen_downstream_id(), None);
     let runtime = TestReceiverSyncRuntime::new();
     app.status
-        .set_sync_poll_deadline(crate::tui::ReceiverSyncRuntime::monotonic_now(&runtime));
+        .set_sync_poll_deadline(crate::tui::app_sync::ReceiverSyncRuntime::monotonic_now(
+            &runtime,
+        ));
     app.services
         .replace_receiver_sync_runtime(Box::new(runtime.clone()));
 
@@ -268,7 +270,9 @@ fn a_successful_downstream_sync_reloads_tasks_without_a_manual_refresh() {
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
     let runtime = TestReceiverSyncRuntime::new();
     app.status
-        .set_sync_poll_deadline(crate::tui::ReceiverSyncRuntime::monotonic_now(&runtime));
+        .set_sync_poll_deadline(crate::tui::app_sync::ReceiverSyncRuntime::monotonic_now(
+            &runtime,
+        ));
     app.services
         .replace_receiver_sync_runtime(Box::new(runtime));
     std::fs::write(

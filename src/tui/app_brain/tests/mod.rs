@@ -19,7 +19,10 @@ use crate::tasks::cli::Cli;
 use crate::tasks::selector::Selector;
 use crate::tasks::task::AssignmentContext;
 use crate::tasks::view::{View, build_view};
-use crate::tui::{App, BrainTab, Panel, PanelSide, ZshFunctionRunner, handle_brain_key};
+use crate::tui::handlers::handle_brain_key;
+use crate::tui::model::{BrainTab, Panel};
+use crate::tui::shell::ZshFunctionRunner;
+use crate::tui::{App, PanelSide};
 use crate::workspace::{
     CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
 };

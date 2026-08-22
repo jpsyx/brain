@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use crate::agent::{HookMetadata, LaunchRequest, SessionStore};
 use crate::session::Plan;
-use crate::tui::*;
+use crate::tui::App;
+use crate::tui::modal_state::FlashKind;
 
 use super::brain_transport;
 

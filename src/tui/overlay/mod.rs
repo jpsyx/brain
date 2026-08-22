@@ -2,7 +2,7 @@
 
 use crate::confirm::Confirm;
 use crate::menu::SearchPalette;
-use crate::tui::{
+use crate::tui::modal_state::{
     AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState, SyncLogState,
     TaskPalette,
 };
@@ -77,11 +77,15 @@ mod tests {
     use crate::confirm::Confirm;
     use crate::menu::{SearchPalette, Targets, items};
     use crate::state::PanelSide;
-    use crate::tui::{
-        AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkKind, LinkPickerState,
-        ModalInput, Overlay, SyncLogState, TaskPalette, close_overlay, modal_input_target,
-        open_overlay, replace_overlay,
+    use crate::tui::links::LinkKind;
+    use crate::tui::modal_state::{
+        AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
+        SyncLogState, TaskPalette,
     };
+    use crate::tui::overlay::{
+        ModalInput, Overlay, close_overlay, modal_input_target, open_overlay, replace_overlay,
+    };
+    use crate::tui::palette::PaletteControls;
 
     fn task_palette() -> Overlay {
         Overlay::TaskPalette(TaskPalette::new(
@@ -169,7 +173,7 @@ mod tests {
                     "Command palette",
                     None,
                     items(PanelSide::Right, true, &Targets::default()),
-                    crate::tui::PaletteControls::SEARCH,
+                    PaletteControls::SEARCH,
                 )),
                 ModalInput::SearchPalette,
             ),

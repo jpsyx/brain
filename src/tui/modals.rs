@@ -1,8 +1,12 @@
 //! Confirm + brain-input modal behavior (the state structs live in the
 //! crate root so `draw` can read their fields).
 
-use super::*;
 use crate::tasks::task::AssignmentUser;
+use crate::tui::links::Link;
+use crate::tui::modal_state::{
+    AssigneeFilterState, BrainInputState, ConfirmChoice, ConfirmIntent, ConfirmKind, ConfirmState,
+    LinkPickerState,
+};
 use crate::users::UserId;
 
 impl ConfirmState {

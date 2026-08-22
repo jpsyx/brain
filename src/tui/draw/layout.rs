@@ -9,7 +9,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::tui::*;
+use crate::tui::modal_state::FlashKind;
 
 /// Build the logical→visual row offset table. `heights[i]` is the number of
 /// wrapped rows logical line `i` occupies once the Paragraph wraps it at the

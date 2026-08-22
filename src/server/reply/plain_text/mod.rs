@@ -82,7 +82,10 @@ mod tests {
             strip_markdown("[](https://example.test/a)"),
             "https://example.test/a"
         );
-        assert_eq!(strip_markdown("<https://example.test/a>"), "https://example.test/a");
+        assert_eq!(
+            strip_markdown("<https://example.test/a>"),
+            "https://example.test/a"
+        );
         assert_eq!(
             strip_markdown("Open https://example.test/a now"),
             "Open https://example.test/a now"
@@ -91,7 +94,10 @@ mod tests {
 
     #[test]
     fn images_are_reduced_to_their_alt_text() {
-        assert_eq!(strip_markdown("![a chart](https://x.test/c.png)"), "a chart");
+        assert_eq!(
+            strip_markdown("![a chart](https://x.test/c.png)"),
+            "a chart"
+        );
         assert_eq!(strip_markdown("![](https://x.test/c.png)"), "");
     }
 
@@ -108,10 +114,7 @@ mod tests {
     fn quotes_rules_and_fences_drop_their_scaffolding() {
         assert_eq!(strip_markdown("> quoted line"), "quoted line");
         assert_eq!(strip_markdown("A\n\n---\n\nB"), "A\n\nB");
-        assert_eq!(
-            strip_markdown("```rust\nlet x = 1;\n```"),
-            "let x = 1;"
-        );
+        assert_eq!(strip_markdown("```rust\nlet x = 1;\n```"), "let x = 1;");
     }
 
     #[test]
@@ -124,7 +127,10 @@ mod tests {
 
     #[test]
     fn escaped_punctuation_loses_the_backslash() {
-        assert_eq!(strip_markdown(r"5 \* 4 and a \_name\_"), "5 * 4 and a _name_");
+        assert_eq!(
+            strip_markdown(r"5 \* 4 and a \_name\_"),
+            "5 * 4 and a _name_"
+        );
     }
 
     #[test]

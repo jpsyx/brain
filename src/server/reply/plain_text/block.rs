@@ -72,7 +72,9 @@ fn is_thematic_break(trimmed: &str) -> bool {
         && marks
             .first()
             .is_some_and(|first| matches!(first, '-' | '*' | '_' | '='))
-        && marks.iter().all(|character| Some(character) == marks.first())
+        && marks
+            .iter()
+            .all(|character| Some(character) == marks.first())
 }
 
 fn strip_quote_markers(trimmed: &str) -> String {
@@ -84,7 +86,10 @@ fn strip_quote_markers(trimmed: &str) -> String {
 }
 
 fn heading_text(line: &str) -> Option<String> {
-    let hashes = line.chars().take_while(|character| *character == '#').count();
+    let hashes = line
+        .chars()
+        .take_while(|character| *character == '#')
+        .count();
     if !(1..=6).contains(&hashes) {
         return None;
     }

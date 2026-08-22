@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use crate::menu;
 use crate::open_target;
+use crate::tui::palette::{CommandPalette, PaletteControls};
 
 use super::App;
 
@@ -24,11 +25,11 @@ impl App {
             open_dir: self.selected_dir_reldisplay(),
             delete: self.selected_filename(),
         };
-        crate::tui::CommandPalette::new(
+        CommandPalette::new(
             "Command palette",
             None,
             menu::items(side, include_msg, &targets),
-            crate::tui::PaletteControls::SEARCH,
+            PaletteControls::SEARCH,
         )
     }
 
