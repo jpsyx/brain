@@ -1,7 +1,7 @@
 ---
 id: BR-12
 title: Model durable receiver jobs and conversations
-status: in-progress
+status: done
 priority: high
 assignee: jpsyx
 labels: [enhancement, server, tech-debt]
@@ -35,25 +35,25 @@ session ID plus a continuously maintained Brain-owned transcript for recovery.
 
 ## Acceptance criteria
 
-- [ ] Accepted jobs survive orderly and crashed TUI or shared-server restarts.
-- [ ] A job remains durable while queued, claimed, launching, accepted,
+- [x] Accepted jobs survive orderly and crashed TUI or shared-server restarts.
+- [x] A job remains durable while queued, claimed, launching, accepted,
       processing, answer-ready, delivering, retrying, failed, or done.
-- [ ] Claims name their owner and expire so a crashed consumer cannot strand a
+- [x] Claims name their owner and expire so a crashed consumer cannot strand a
       queue head.
-- [ ] Job and conversation identifiers are immutable and workspace-scoped;
+- [x] Job and conversation identifiers are immutable and workspace-scoped;
       provider delivery IDs remain available for ingress deduplication.
-- [ ] There is no global Email session or SMS session. Conversation identity
+- [x] There is no global Email session or SMS session. Conversation identity
       includes workspace, portable user, channel, and the channel-specific
       conversation key.
-- [ ] SMS maps to one stable conversation per workspace-user-channel tuple.
-- [ ] Email resolves verified thread lineage; uncertain lineage creates a new
+- [x] SMS maps to one stable conversation per workspace-user-channel tuple.
+- [x] Email resolves verified thread lineage; uncertain lineage creates a new
       conversation and never merges from subject text alone.
-- [ ] A conversation stores the current frontend/native session binding and a
+- [x] A conversation stores the current frontend/native session binding and a
       portable Brain transcript. A frontend change starts fresh from that
       transcript rather than resuming another frontend's opaque session.
-- [ ] The schema has automatic `up` and `down` migrations and restart-safe
+- [x] The schema has automatic `up` and `down` migrations and restart-safe
       reconciliation tests written red before production code.
-- [ ] Applicable data-model, architecture, integration, feature, decision, and
+- [x] Applicable data-model, architecture, integration, feature, decision, and
       testing documentation describes the durable contracts.
 
 ## Notes
@@ -98,3 +98,7 @@ session ID plus a continuously maintained Brain-owned transcript for recovery.
 - 2026-08-23 narrowed into the durable model foundation for PROJ-1 after the
   queue, conversation, session, transcript, and recovery contracts were
   confirmed.
+- 2026-08-23 completed in `f4d6280` and released as Brain 0.72.0. SQLite schema
+  v6 now owns typed receiver conversations, durable job lifecycles, expiring
+  non-destructive claims, retries, transcript updates, and frontend-native
+  session bindings. The full release suite and release Clippy passed.

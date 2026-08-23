@@ -1,7 +1,7 @@
 ---
 id: PROJ-1
 name: Rearchitect receiver processing
-status: planned
+status: in-progress
 health: on-track
 lead: jpsyx
 members: []
@@ -110,3 +110,7 @@ Out of scope:
   umbrella task has been split into seven ordered implementation tasks. BR-10
   is superseded; its useful acceptance, progress, and recovery requirements are
   carried by BR-15 and BR-16.
+- **2026-08-23: on-track**: BR-12 shipped in Brain 0.72.0. Workspace-scoped
+  receiver conversations, complete durable job states, expiring claims,
+  transcript recovery, native session bindings, and automatic schema v6
+  migrations are now established. BR-13 is the next ingress cutover step.
