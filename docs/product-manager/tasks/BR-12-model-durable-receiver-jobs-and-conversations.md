@@ -1,7 +1,7 @@
 ---
 id: BR-12
 title: Model durable receiver jobs and conversations
-status: backlog
+status: in-progress
 priority: high
 assignee: jpsyx
 labels: [enhancement, server, tech-debt]
@@ -69,11 +69,27 @@ session ID plus a continuously maintained Brain-owned transcript for recovery.
 - `src/server/receiver/job.rs` defines the immutable accepted job frame. Evolve
   the persisted representation without weakening workspace, actor, provider,
   attachment, or reply identity.
-- `src/state/` and `src/agent/session.rs` show Brain's existing SQLite and
-  frontend-neutral session patterns. Reuse their transaction and scoped
-  identity conventions where they fit.
+- `src/state/{mod,database,session_store}.rs` owns the existing workspace-scoped
+  SQLite database and schema version. Add the durable receiver model behind a
+  focused state submodule while preserving session-store behavior.
 - `src/startup_migration/` and `docs/decisions.md` define the required automatic
-  up/down migration and durable design record.
+  up/down migration and durable design record. The startup migration must
+  reconcile existing workspace databases, while ordinary database open must
+  initialize a newly attached workspace.
+
+### Plan (2026-08-23)
+
+1. Characterize receiver identity, lifecycle, and binding decisions with pure
+   red tests, then add typed job and conversation domain values.
+2. Characterize durable acceptance, deduplication, claims, transitions,
+   transcript/session binding, and restart persistence with SQLite red tests,
+   then add the smallest transactional store that satisfies them.
+3. Add red tests for automatic receiver-schema upgrade, reconciliation, and
+   downgrade, then wire the schema through workspace database open and the
+   startup migration lifecycle.
+4. Update the durable data-model, architecture, integration, feature,
+   decision, and testing contracts; bump the crate version and run the full
+   formatting, release-test, and lint gates.
 
 ### Log
 

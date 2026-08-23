@@ -1,6 +1,7 @@
 //! Automatic, version-directed machine migrations.
 
 mod lifecycle;
+mod receiver_model;
 mod version;
 
 use std::io::Write;
@@ -11,6 +12,7 @@ use anyhow::{Context, Result};
 use version::Version;
 
 const LIFECYCLE_VERSION: Version = Version::new(0, 71, 0);
+const RECEIVER_MODEL_VERSION: Version = Version::new(0, 72, 0);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -19,11 +21,18 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 1] = [Migration {
-    introduced: LIFECYCLE_VERSION,
-    up: lifecycle::up,
-    down: lifecycle::down,
-}];
+const MIGRATIONS: [Migration; 2] = [
+    Migration {
+        introduced: LIFECYCLE_VERSION,
+        up: lifecycle::up,
+        down: lifecycle::down,
+    },
+    Migration {
+        introduced: RECEIVER_MODEL_VERSION,
+        up: receiver_model::up,
+        down: receiver_model::down,
+    },
+];
 
 /// Reconcile every migration owned by this binary before ordinary dispatch.
 pub fn run_current() -> Result<()> {

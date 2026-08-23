@@ -178,8 +178,11 @@ first move is a failing test that reproduces it, *then* the fix.
   Codex, and OpenCode; installs all three workspace integrations into every
   existing configured root; proves every legacy workspace hook path forwards
   to the new start or stop hook for already-running frontends; self-heals a
-  deleted managed hook; leaves help and version byte-idle; and restores the
-  previous lifecycle layout through the down migration.
+  deleted managed hook; reconciles receiver schema v6 in every registered
+  workspace that already has a state DB while leaving absent DBs for first
+  `Db::open`; removes that receiver schema through the down migration; leaves
+  help and version byte-idle; and restores the previous lifecycle layout
+  through the down migration.
   `tests/install_script.rs` drives the real installer around fake versioned
   binaries to pin upgrade-after-replace and downgrade-before-replace ordering.
   `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
@@ -238,7 +241,7 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Filesystem collection** (integration). `entry::collect` against real
   temp trees: bucket tagging, `~/brain/...` rewriting, hidden-file
   skipping, root-skipping, tolerance of a missing bucket.
-- **The session store** (`state.rs`, in-memory SQLite). Scoped resume
+- **The session store** (`state/`, in-memory SQLite). Scoped resume
   ordering, exact composite-scope `claim` win/lose, registration + `release`
   round-trip, `completed` to `active` reactivation for every frontend, exact
   composite-scope `reap_dead_locks` with an injected pid-liveness predicate,
@@ -394,6 +397,18 @@ first move is a failing test that reproduces it, *then* the fix.
   the tab whose token arrives closes, and its start row returns), a declared
   required output holds a tab open until it exists, and neither a stale signal from
   a dead shell nor a signal for another tab closes a freshly-opened one.
+- **Durable receiver state.** Focused tests under `state/receiver/tests/`
+  exercise stable SMS and verified/fresh email identity, frontend-specific
+  native resume versus transcript fallback, durable acceptance and reopen,
+  provider deduplication scope, FIFO selection, owner-checked transitions and
+  renewals, every persisted lifecycle state, retry overflow, millisecond
+  timestamps, foreign keys, transcript/binding replacement, and schema
+  reconciliation. Recovery tests prove every nonterminal expired lease is
+  reclaimable, terminal rows are not, progressed reclaim preserves state and
+  retry evidence while replacing its owner and expiry, and a due delivery retry
+  stays retrying until its new live owner resumes delivery. The state test
+  wrapper and store are split along identity, acceptance, claim, conversation,
+  recovery, and schema seams rather than collected in one oversized file.
 - **Receiver dispatch state.** `tui/receiver/decision_tests.rs` proves that an
   idle open panel switches to queued receiver work, an active submitted turn
   waits, a same-channel warm panel is reused, a different channel replaces it,
@@ -801,6 +816,8 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `receiver/policy.rs` owns pure timeout, probe, retry, and input-lock policy beneath the thin facade. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
 | `tests/tui_receiver_queue_architecture.rs` + `tests/tui_receiver_queue_architecture/` | Queue ownership seam: a dev-only `syn` AST walk rejects source-declared persistent item types and initializers that mention raw `InboundJob` or a resolved import/type alias outside `receiver/queue.rs`, including declarations in function-local and nested block scopes. It canonicalizes raw identifiers and rejects visible renamed re-exports of resolved job aliases at their declaration, while preserving private same-scope alias resolution. Full declaration, alias, literal, comment, Unicode, cfg, macro-token, attribute, transient-`let`, and semantic queue-API fixtures pin the boundary without collection, field, or mutator vocabulary. Item macros, opaque item syntax, and unsupported attribute macros are rejected. The only persistent exception is the exact canonical-path one-shot payload shape in the non-generic top-level `ReceiverEffect` item at the exact real source path; procedural expansion and type-erased runtime contents remain manual-review limits. |
+| `state::receiver::tests` | Durable job/conversation identity, lifecycle, FIFO, deduplication, claims, retries, recovery evidence, transcript/native binding, scope checks, numeric safety, foreign keys, and reopen persistence through focused behavior modules. |
+| `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schema v6 across every registered workspace that already has a state DB; absent DBs remain absent until first `Db::open`, and help/version remain side-effect free. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

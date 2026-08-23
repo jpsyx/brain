@@ -2475,6 +2475,40 @@ token and makes the job dispatchable. The server therefore treats the failed
 handoff as unavailable and never commits an ID for work the TUI did not
 acknowledge.
 
+## Why receiver conversations keep both native history and a Brain transcript
+
+The durable conversation is not a rule to start a new agent session for every
+message. One logical receiver conversation owns its current frontend and
+native session ID, so normal continuity is a same-frontend native resume. The
+identity is specific to workspace, portable user, channel, and channel lineage;
+there is no machine-global Email session or SMS session. SMS has one stable
+lineage for that tuple. Email reuses only a verified provider thread and never
+guesses from its subject.
+
+Native history alone is insufficient durable authority. Its storage and resume
+rules belong to Claude, Codex, or OpenCode, it may be deleted independently of
+Brain, and another frontend cannot safely resume it. Email reply quotes are not
+a substitute either: a sender may delete them, providers can truncate them,
+and they mix presentation with conversation state. Brain therefore maintains a
+portable markdown transcript alongside the native binding. If the requested
+frontend changes or its native evidence is unavailable, the next session starts
+fresh from that transcript. The transcript is recovery input, not a reason to
+discard a healthy same-frontend session.
+
+The same durability principle applies to jobs. A claim records expiring owner
+authority on the row instead of popping it. On crash, queued work becomes
+claimed. Due-retry work keeps `retrying` while its consumed schedule clears, so
+the new live owner can resume either launching or delivering. Work already
+launching, accepted, processing, answer-ready, or delivering keeps that
+progressed state as its lease changes owners. Erasing those states to claimed
+would prevent the later recovery policy from knowing whether a same-session
+recovery attempt is appropriate. Failed and done remain terminal.
+
+BR-12 intentionally stops at this model boundary. It neither decides when a
+live TUI should inject input nor replaces ingress, agent execution, completion,
+or delivery. Those consumers will adopt the durable conversation, state, and
+lease evidence in later PROJ-1 tasks.
+
 ## Why the receiver tick uses ordered decisions and effects, not one lifecycle enum
 
 A receiver tick observes several independent dimensions: an interactive turn,

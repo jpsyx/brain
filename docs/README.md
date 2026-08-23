@@ -62,7 +62,7 @@ src/
   tui/           : persistent shell (tasks, search, and logs views + agent panel)
   pty_pane.rs    — PTY-backed brain panel (portable-pty + vt100)
   session.rs     : compatibility re-exports over the frontend-neutral agent layer
-  state.rs       : UUID-scoped SQLite sessions, completion, and metadata
+  state/         : UUID-scoped SQLite sessions, durable receiver state, and metadata
   sync/          : UUID-scoped runtime, remote identity, triggers, and CSV merge
   picker/        — ratatui fuzzy picker (matching, grouping, navigation)
   menu/          — ratatui command palette (Ctrl-p overlay)

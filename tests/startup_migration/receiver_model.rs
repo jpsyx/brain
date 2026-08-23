@@ -1,0 +1,158 @@
+impl Fixture {
+    fn state_db(&self, workspace_id: &str) -> PathBuf {
+        self.home
+            .join(".cache/brain/workspaces")
+            .join(workspace_id)
+            .join("state.db")
+    }
+
+    fn seed_pre_receiver_state(&self) {
+        for workspace_id in [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        ] {
+            let path = self.state_db(workspace_id);
+            std::fs::create_dir_all(path.parent().expect("state parent")).expect("state directory");
+            let connection = rusqlite::Connection::open(path).expect("pre-receiver state");
+            connection
+                .pragma_update(None, "user_version", 5)
+                .expect("pre-receiver state version");
+        }
+    }
+}
+
+fn table_exists(path: &Path, table: &str) -> bool {
+    let connection = rusqlite::Connection::open(path).expect("state database");
+    connection
+        .query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1
+             )",
+            [table],
+            |row| row.get(0),
+        )
+        .expect("table existence")
+}
+
+fn state_schema_version(path: &Path) -> i64 {
+    rusqlite::Connection::open(path)
+        .expect("state database")
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("state schema version")
+}
+
+#[test]
+fn receiver_migration_defers_until_legacy_registry_bootstrap_finishes() {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.xdg_config.join("brain/env.json"),
+        serde_json::to_vec_pretty(&json!({"root": fixture.family}))
+            .expect("legacy flat environment"),
+    )
+    .expect("write legacy flat environment");
+
+    let output = fixture.run(&[
+        "workspace",
+        "repair",
+        "--manifest",
+        "--local-user-id",
+        "test-user",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn receiver_migration_reconciles_only_existing_workspace_state_databases() {
+    let fixture = Fixture::new();
+    let state_paths = [
+        fixture.state_db("11111111-1111-4111-8111-111111111111"),
+        fixture.state_db("22222222-2222-4222-8222-222222222222"),
+    ];
+    assert!(state_paths.iter().all(|path| !path.exists()));
+
+    let output = fixture.run(&["server", "status"]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(state_paths.iter().all(|path| !path.exists()));
+}
+
+#[test]
+fn ordinary_startup_upgrades_and_reconciles_receiver_state_for_every_workspace() {
+    let fixture = Fixture::new();
+    fixture.seed_pre_receiver_state();
+
+    let first = fixture.run(&["server", "status"]);
+
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    for workspace_id in [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+    ] {
+        let path = fixture.state_db(workspace_id);
+        assert!(table_exists(&path, "receiver_conversations"));
+        assert!(table_exists(&path, "receiver_jobs"));
+        assert_eq!(state_schema_version(&path), 6);
+    }
+
+    let family = fixture.state_db("11111111-1111-4111-8111-111111111111");
+    rusqlite::Connection::open(&family)
+        .expect("family state")
+        .execute("DROP TABLE receiver_jobs", [])
+        .expect("remove managed receiver table");
+    let second = fixture.run(&["server", "status"]);
+
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(table_exists(&family, "receiver_jobs"));
+}
+
+#[test]
+fn explicit_down_migration_removes_receiver_schema_from_every_workspace() {
+    let fixture = Fixture::new();
+    fixture.seed_pre_receiver_state();
+    let up = fixture.run(&["server", "status"]);
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+
+    let down = fixture.run(&[
+        "__migrate",
+        "--from-version",
+        env!("CARGO_PKG_VERSION"),
+        "--to-version",
+        "0.71.38",
+    ]);
+
+    assert!(
+        down.status.success(),
+        "{}",
+        String::from_utf8_lossy(&down.stderr)
+    );
+    for workspace_id in [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+    ] {
+        let path = fixture.state_db(workspace_id);
+        assert!(!table_exists(&path, "receiver_jobs"));
+        assert!(!table_exists(&path, "receiver_conversations"));
+        assert_eq!(state_schema_version(&path), 5);
+    }
+}

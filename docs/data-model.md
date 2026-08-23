@@ -909,12 +909,12 @@ absolute and `~/` paths. It does not resolve symlinks or aliases and does not
 attempt prompt-injection detection. Paraphrasing and indirect requests can
 bypass it.
 
-## Persistent state (`state.rs`, `<workspace-cache>/state.db`)
+## Persistent state (`state/`, `<workspace-cache>/state.db`)
 
 The persistent shell tracks frontend-scoped actor sessions and the layout
 preference in SQLite (WAL). Receiver completion uses the same generic lifecycle
 bridge for all registered frontends.
-Two tables:
+The state schema has four tables:
 
 ```sql
 brain_sessions(
@@ -935,7 +935,84 @@ meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)
   -- 'panel_side'            = 'left' | 'right'
   -- 'skills_synced_version' = brain version that last rendered this workspace's
   --                           skills (the startup auto-resync stamp)
+
+receiver_conversations(
+  conversation_id      TEXT PRIMARY KEY,
+  workspace_id         TEXT NOT NULL,
+  user_id              TEXT NOT NULL,
+  channel              TEXT NOT NULL,  -- sms | email
+  conversation_key     TEXT NOT NULL,
+  transcript_markdown  TEXT NOT NULL,
+  agent_kind           TEXT,           -- paired with agent_session_id
+  agent_session_id     TEXT,
+  created_at_unix_ms   INTEGER NOT NULL,
+  updated_at_unix_ms   INTEGER NOT NULL,
+  UNIQUE(workspace_id, user_id, channel, conversation_key)
+)
+
+receiver_jobs(
+  job_id                    TEXT PRIMARY KEY,
+  workspace_id              TEXT NOT NULL,
+  conversation_id           TEXT NOT NULL REFERENCES receiver_conversations,
+  channel                   TEXT NOT NULL,  -- sms | email
+  provider_id               TEXT,
+  inbound_json              TEXT NOT NULL,
+  state                     TEXT NOT NULL,
+  received_at_unix_ms       INTEGER NOT NULL,
+  updated_at_unix_ms        INTEGER NOT NULL,
+  claim_owner               TEXT,
+  claim_expires_at_unix_ms  INTEGER,
+  retry_count               INTEGER NOT NULL,
+  retry_at_unix_ms          INTEGER,
+  last_error                TEXT,
+  UNIQUE(workspace_id, channel, provider_id)
+)
 ```
+
+**Durable receiver identity.** `ReceiverJobId` and `ReceiverConversationId`
+are immutable UUID-backed values. The database handle itself is pinned to one
+workspace UUID and rejects an inbound job or conversation identity from any
+other workspace. A conversation identity is the composite
+`(workspace_id, user_id, channel, conversation_key)`, never a global SMS or
+email bucket. SMS uses the stable key `sms`. Verified email provider lineage
+uses `thread:<provider-thread-id>`. Uncertain email lineage mints a unique
+`fresh:<uuid>` key, so subject text alone can never merge conversations.
+
+**Durable receiver jobs.** Acceptance inserts the conversation when needed and
+the complete immutable `InboundJob` in one transaction before provider
+acknowledgement can depend on it. A non-null provider ID deduplicates only
+inside its exact workspace and channel. A null provider ID does not create an
+accidental shared deduplication key. FIFO claim order is
+`received_at_unix_ms, job_id`.
+
+The stored lifecycle is `queued`, `claimed`, `launching`, `accepted`,
+`processing`, `answer-ready`, `delivering`, `retrying`, `failed`, or `done`.
+A claim stores a non-blank owner and millisecond expiry without deleting its
+job. Only the live exact owner may renew or transition it. After expiry,
+queued work becomes claimed by the new owner. A due retry keeps `retrying`,
+clears its consumed retry schedule, and lets the live owner transition to the
+phase being retried. A progressed launching through delivering job keeps its
+state, retry count, retry schedule, and last error while only the lease is
+replaced. This preserves the evidence a later recovery policy needs. Failed
+and done rows are terminal and cannot be reclaimed. Retry counters are checked
+against `u32::MAX` before SQLite can increment them, and every `u64`
+millisecond value is range-checked before it is stored as an SQLite integer.
+
+**Conversation continuity.** Each conversation stores the continuously
+maintained Brain-owned markdown transcript plus an optional paired
+`(agent_kind, agent_session_id)` binding. A same-frontend request may resume
+the opaque native session ID. A frontend change must start a fresh native
+session from the markdown transcript, because native IDs and histories are not
+portable between Claude, Codex, and OpenCode. The transcript and binding are
+replaced atomically with an explicit observed-at millisecond timestamp.
+
+State schema v6 creates both receiver tables and their ready-work index in one
+transaction. Every DB open reconciles the tables for new or partially repaired
+workspaces. The automatic 0.72.0 machine migration applies that reconciliation
+to every existing registered workspace state DB without creating an otherwise
+unused DB. A newly attached workspace receives v6 on its first ordinary DB
+open. The down operation transactionally removes the receiver schema and
+returns a v6 DB to v5.
 
 The `meta` table is a generic key/value store, so a new key like
 `skills_synced_version` needs no schema migration. It records the
@@ -1000,7 +1077,7 @@ without a manual `brain skills sync`.
 The invariant: at most one live shell holds a given session (no tangled
 threads), and exactly one session per instance is current (the session-start
 bridge frees the instance's others on every start, handling `/new`). The
-`PanelSide` enum (`Left` / `Right`, default `Right`) lives in `state.rs`
+`PanelSide` enum (`Left` / `Right`, default `Right`) lives in `state/`
 because it's the persisted layout value.
 
 **Skill-session tabs are deliberately *absent* from this table.** Each ephemeral

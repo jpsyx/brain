@@ -672,7 +672,7 @@ the tab.
 ## Agent sessions: lifecycle bridges and state DB
 
 Which session to run is decided by the **lock + recency** model in
-`state.rs` (DB at `<workspace-cache>/state.db`, WAL):
+`state/` (DB at `<workspace-cache>/state.db`, WAL):
 
 1. At ordinary command bootstrap brain resolves the local actor once. TUI
    startup first acquires the workspace singleton, then refreshes every
@@ -791,6 +791,28 @@ Which session to run is decided by the **lock + recency** model in
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
 
+**Durable receiver conversations are separate from interactive session
+selection.** `state::receiver` persists one logical conversation for the exact
+workspace/user/channel/channel-key tuple. Its optional frontend/native-session
+binding says which adapter may attempt an opaque native resume. A same-frontend
+request returns that native ID; a different frontend receives a fresh-session
+plan seeded from the Brain-owned markdown transcript. Brain never asks Claude,
+Codex, or OpenCode to interpret another frontend's native history.
+
+Receiver jobs use the same UUID-scoped database but a separate leased queue
+contract. Acceptance stores the immutable inbound frame before a later ingress
+ack can depend on it. Polling claims the oldest ready row without deleting it,
+and every renewal, transition, or retry mutation requires the exact live owner.
+An expired progressed lease changes ownership without erasing its lifecycle or
+retry evidence. This lets a later runtime decide whether to resume the bound
+native session, start from the transcript, retry delivery, or fail the job.
+
+BR-12 does not connect these APIs to provider ingress or the TUI executor. The
+existing live socket, in-memory queue, prompt submission, completion bridge,
+and delivery paths remain active until their dedicated PROJ-1 tasks cut over.
+The durable store therefore defines the integration boundary without creating
+a second runtime consumer.
+
 Claude and Codex register the same generic bridge scripts. Claude stores
 root-anchored `SessionStart` and `Stop` entries in
 `<brain-root>/.claude/settings.json`; Codex stores them in
@@ -876,6 +898,12 @@ retains workspace-local forwarding shims for the legacy script paths that an
 already-running frontend may have cached in memory. Those shims execute the new
 generic workspace hook and are not referenced by current Claude, Codex, or
 OpenCode configuration.
+The automatic 0.72.0 migration reconciles receiver schema v6 in every
+registered workspace that already has a state DB. It does not create an unused
+DB merely because the workspace is registered. Its down operation removes only
+the receiver tables/index and returns an existing DB to v5. Freshly attached
+workspaces receive the same schema on their first `Db::open`, so no manual
+migration command is part of receiver setup.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root

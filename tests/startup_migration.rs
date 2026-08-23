@@ -372,3 +372,9 @@ fn ordinary_startup_recreates_missing_workspace_artifacts_after_migration() {
     );
     assert!(missing.is_file());
 }
+
+mod receiver_model {
+    use super::*;
+
+    include!("startup_migration/receiver_model.rs");
+}

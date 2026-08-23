@@ -1484,6 +1484,28 @@ the receiver retries after a short backoff instead of leaving a phantom
 "processing" job. Twilio and Resend reply delivery runs on a bounded background
 worker so provider latency never blocks TUI input or `Ctrl+Q`.
 
+### Durable receiver model foundation
+
+Every workspace state database has a durable receiver job and conversation
+model ready for the receiver cutover. It preserves immutable accepted inputs,
+provider delivery IDs, explicit queued through terminal lifecycle states,
+bounded retry metadata, and expiring claim ownership across Brain or machine
+restarts. Claims never pop a job from storage. If a consumer crashes, another
+owner can replace the expired lease; progressed jobs keep the state and retry
+evidence needed to decide whether to recover their native session.
+
+A logical conversation belongs to one workspace, portable user, channel, and
+channel-specific key. SMS uses one stable key for that tuple. Email reuses only
+verified provider thread lineage; missing or ambiguous lineage creates a fresh
+conversation, and subject text is never a merge key. Each conversation stores
+Brain-owned markdown and, when available, its frontend plus opaque native
+session ID. Brain may resume that ID only with the same frontend. Selecting a
+different frontend starts a fresh native session from the portable transcript.
+
+BR-12 establishes storage and decisions only. The current provider routes and
+TUI still use the live in-memory queue until the later PROJ-1 ingress and
+runtime tasks move admission, execution, and delivery onto the durable model.
+
 ### Steering the receiver from SMS or email
 
 Two messages are read as instructions to brain rather than questions for the

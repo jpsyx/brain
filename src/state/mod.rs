@@ -6,7 +6,7 @@
 //! clobbering or busy-waiting. Mirrors the `tasks` sibling project's state
 //! layer, scoped to what brain needs.
 //!
-//! Two tables:
+//! Four tables:
 //! - `brain_sessions` stores frontend sessions with immutable workspace,
 //!   actor, and channel attribution. `locked_pid` is the PID of the live brain shell currently
 //!   driving that session (NULL when free). The session-resume model is
@@ -14,8 +14,12 @@
 //!   session and lock it; on exit we release the lock; stale locks (dead
 //!   PIDs) are reaped on the next startup. This keeps two terminals off the
 //!   same conversation thread while still resuming your latest work.
-//! - `meta` — small key/value store; today just the `panel_side` layout
+//! - `meta` is a small key/value store; today just the `panel_side` layout
 //!   preference (which side the brain panel sits on).
+//! - `receiver_conversations` stores one logical workspace/user/channel
+//!   lineage with its portable transcript and current native session binding.
+//! - `receiver_jobs` stores immutable accepted inputs, explicit lifecycle and
+//!   retry state, plus expiring non-destructive claim ownership.
 //!
 //! The SessionStart hook requires the selected workspace/actor variables
 //! plus `BRAIN_INSTANCE_ID` and the selected UUID-scoped `BRAIN_STATE_DB`.
@@ -101,11 +105,19 @@ impl PanelSide {
 
 pub struct Db {
     conn: Connection,
+    workspace_id: String,
     clock: Clock,
     pid_alive: PidAlive,
 }
 
 mod database;
+mod receiver;
 mod session_store;
+pub(crate) use receiver::schema::down_path as receiver_schema_down;
+pub use receiver::{
+    EmailLineage, EmailLineageError, ReceiverAcceptance, ReceiverClaim, ReceiverConversation,
+    ReceiverConversationId, ReceiverConversationIdentity, ReceiverJob, ReceiverJobId,
+    ReceiverJobState, ReceiverSessionBinding, ReceiverSessionBindingError, ReceiverSessionPlan,
+};
 #[cfg(test)]
 mod tests;

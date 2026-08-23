@@ -175,6 +175,7 @@ rule applies across the large runtime families:
 | Receiver installation | `command/server/receiver/{hooks,setup}.rs` | `hooks/{artifact,json}.rs` own confined artifacts and atomic JSON; `setup/validation.rs` owns pure input validation |
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
+| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v6 schema; `store.rs` owns acceptance, reads, and transcript/session binding; `store/claim.rs` owns leases, transitions, and retry state |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` coordinates recurring feature boundaries; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
 | Live receiver runtime | `tui/receiver/{decision,effect,runtime}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
@@ -199,6 +200,21 @@ boundaries:
 | Machine registry | `$XDG_CONFIG_HOME/brain/env.json` (fallback `~/.config/brain/env.json`) | Schema-v2 default plus each canonical record's UUID, root, aliases, local user, receiver switch, and siloed env object |
 | Workspace runtime | `~/.cache/brain/workspaces/<workspace-uuid>/` | State DB, TUI/task/user locks, inbox, responses, capability artifacts, migration journal/backups, and sync lock/journal/current state/workdir/baselines |
 | Shared infrastructure | `~/.cache/brain/server/` | Generation-tagged process coordination and an infrastructure-only log, never a default workspace payload path |
+
+Each workspace state DB now contains the durable receiver foundation. An
+authenticated `InboundJob` can be inserted with its logical conversation in
+one transaction, then claimed in FIFO order with an expiring owner lease
+without deleting the row. Explicit state and retry metadata survive database
+reopen. Conversation rows store Brain-owned markdown plus the current
+frontend/native-session binding. Native resume is valid only for that same
+frontend; another frontend starts fresh from the portable transcript.
+
+This foundation does not yet replace the live receiver path. Provider ingress,
+TUI queue consumption, agent launch, completion, and delivery continue through
+the existing runtime until the later PROJ-1 cutover tasks wire them to this
+store. Keeping schema authority separate from runtime integration lets those
+tasks adopt one durable contract without expanding BR-12 into ingress or
+execution behavior.
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
 Env, config, personalization, state, TUI, tasks, reindex, sync, and child
@@ -1443,7 +1459,7 @@ ephemeral session per prompt, in its own brain-panel tab (see
 - `editor.rs` — the `brain env set skill_sessions` walkthrough (pure list
   arithmetic + a thin prompt shell).
 
-### `state.rs`
+### `state/`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
 `brain_sessions` tracks Claude, Codex, and OpenCode sessions by a composite agent-kind,
 session-ID, workspace-UUID, actor-ID, and channel key with a `locked_pid` lock
@@ -1454,7 +1470,10 @@ workspace's skills, read by `skills::resync_on_version_change`). The resume
 model is scoped lock + recency behind `agent::session::SessionStore`
 (`reap_dead_locks`, `sessions_by_recency`, `claim`, `register`, `release`,
 `mark_active`, `mark_completed`, `completion_status`). The `PanelSide` enum lives here since
-it's the persisted value. Mirrors `tasks/src/state`. See
+it's the persisted value. `receiver/` separately owns durable logical
+conversations, immutable inbound jobs, explicit lifecycle and retry state,
+expiring owner leases, transcript/native-session bindings, and schema v6.
+See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
 ### `server/`

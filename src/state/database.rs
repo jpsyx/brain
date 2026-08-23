@@ -29,6 +29,7 @@ impl Db {
         Self::configure(&conn)?;
         let db = Self {
             conn,
+            workspace_id: workspace_id.to_owned(),
             clock: system_clock,
             pid_alive: system_pid_alive,
         };
@@ -44,6 +45,7 @@ impl Db {
         Self::configure(&conn)?;
         let db = Self {
             conn,
+            workspace_id: "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b".to_owned(),
             clock: || 1_000_000,
             pid_alive: |_| true,
         };
@@ -60,6 +62,7 @@ impl Db {
 
     fn configure(conn: &Connection) -> Result<()> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "foreign_keys", true)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(())
     }
@@ -171,6 +174,7 @@ impl Db {
                  PRAGMA user_version = 5;",
             )?;
         }
+        super::receiver::schema::up(&self.conn, version < 6)?;
         Ok(())
     }
 
@@ -384,8 +388,33 @@ impl Db {
         Ok(())
     }
 }
+
 #[cfg(test)]
 use super::PidAlive;
 use super::{
     Connection, Context, Db, PanelSide, Path, Result, SessionScope, system_clock, system_pid_alive,
 };
+
+#[cfg(test)]
+mod configuration_tests {
+    use super::Db;
+
+    #[test]
+    fn configure_explicitly_enables_foreign_keys() {
+        let connection = rusqlite::Connection::open_in_memory().expect("in-memory database");
+        connection
+            .pragma_update(None, "foreign_keys", false)
+            .expect("disable foreign keys for characterization");
+        let before: i64 = connection
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .expect("foreign key setting before configuration");
+
+        Db::configure(&connection).expect("configure state database");
+
+        let after: i64 = connection
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .expect("foreign key setting after configuration");
+        assert_eq!(before, 0);
+        assert_eq!(after, 1);
+    }
+}
