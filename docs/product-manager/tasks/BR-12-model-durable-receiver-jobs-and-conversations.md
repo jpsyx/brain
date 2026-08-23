@@ -1,0 +1,84 @@
+---
+id: BR-12
+title: Model durable receiver jobs and conversations
+status: backlog
+priority: high
+assignee: jpsyx
+labels: [enhancement, server, tech-debt]
+estimate: 13
+project: PROJ-1
+milestone: MS-1
+cycle:
+parent:
+github:
+blocked_by: []
+created: 2026-08-15
+updated: 2026-08-23
+---
+
+# BR-12: Model durable receiver jobs and conversations
+
+## Description
+
+Replace the live TUI's in-memory queue as the source of truth with a durable,
+workspace-scoped receiver model. The model must retain accepted jobs across
+Brain and machine restarts, claim work without destructive pops, and represent
+the processing, completion, delivery, retry, and terminal states needed by the
+rest of PROJ-1.
+
+Model logical conversations separately from jobs. A conversation belongs to a
+workspace, portable user, channel, and conversation key. SMS uses one stable
+conversation for the workspace-user-channel tuple. Email uses verified thread
+lineage and starts a new conversation when lineage is unavailable or
+ambiguous. Each conversation retains its current frontend and resumable native
+session ID plus a continuously maintained Brain-owned transcript for recovery.
+
+## Acceptance criteria
+
+- [ ] Accepted jobs survive orderly and crashed TUI or shared-server restarts.
+- [ ] A job remains durable while queued, claimed, launching, accepted,
+      processing, answer-ready, delivering, retrying, failed, or done.
+- [ ] Claims name their owner and expire so a crashed consumer cannot strand a
+      queue head.
+- [ ] Job and conversation identifiers are immutable and workspace-scoped;
+      provider delivery IDs remain available for ingress deduplication.
+- [ ] There is no global Email session or SMS session. Conversation identity
+      includes workspace, portable user, channel, and the channel-specific
+      conversation key.
+- [ ] SMS maps to one stable conversation per workspace-user-channel tuple.
+- [ ] Email resolves verified thread lineage; uncertain lineage creates a new
+      conversation and never merges from subject text alone.
+- [ ] A conversation stores the current frontend/native session binding and a
+      portable Brain transcript. A frontend change starts fresh from that
+      transcript rather than resuming another frontend's opaque session.
+- [ ] The schema has automatic `up` and `down` migrations and restart-safe
+      reconciliation tests written red before production code.
+- [ ] Applicable data-model, architecture, integration, feature, decision, and
+      testing documentation describes the durable contracts.
+
+## Notes
+
+### Pointers (as of 2026-08-23)
+
+- `src/tui/receiver/queue.rs` currently owns the live 64-entry `VecDeque`,
+  staged socket admission, and destructive head commit. Use it to preserve FIFO
+  and admission invariants while moving authority into durable state.
+- `src/tui/receiver/runtime.rs` owns receiver-local queue, lease, session,
+  retry, and sync facts. Separate durable domain facts from live TUI
+  observations instead of serializing this runtime wholesale.
+- `src/server/receiver/job.rs` defines the immutable accepted job frame. Evolve
+  the persisted representation without weakening workspace, actor, provider,
+  attachment, or reply identity.
+- `src/state/` and `src/agent/session.rs` show Brain's existing SQLite and
+  frontend-neutral session patterns. Reuse their transaction and scoped
+  identity conventions where they fit.
+- `src/startup_migration/` and `docs/decisions.md` define the required automatic
+  up/down migration and durable design record.
+
+### Log
+
+- 2026-08-15 created as the umbrella proposal to replace receiver injection
+  with queued per-message sessions.
+- 2026-08-23 narrowed into the durable model foundation for PROJ-1 after the
+  queue, conversation, session, transcript, and recovery contracts were
+  confirmed.
