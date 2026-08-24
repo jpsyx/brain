@@ -38,43 +38,98 @@ pub(crate) struct Targets {
     pub(crate) tasks_dir: PathBuf,
 }
 
+/// Where the agenda lives when nothing is configured.
+///
+/// `/tmp` is a **machine-shared** path that `HOME` and `XDG_CONFIG_HOME`
+/// isolation does not redirect, so a unit test that reached it would rewrite
+/// the developer's own agenda for today from its fixture CSVs — which is
+/// exactly the corruption this module exists to prevent. Under `cfg(test)` the
+/// fallback is therefore a path that cannot exist; any test that needs a real
+/// agenda injects [`Targets`] directly.
+#[cfg(not(test))]
+fn default_markdown_dir() -> PathBuf {
+    PathBuf::from("/tmp")
+}
+
+#[cfg(test)]
+pub(crate) fn default_markdown_dir() -> PathBuf {
+    PathBuf::from("/nonexistent/brain-unit-test-agenda")
+}
+
 /// The agenda markdown for `date`, inside the configured directory.
 pub(crate) fn markdown_path(directory: &Path, date: NaiveDate) -> PathBuf {
     directory.join(format!("{date}.md"))
 }
 
-/// Resolve the day's targets from the selected workspace's configuration.
+/// Resolve the day's targets from a registry store plus the selected workspace.
+///
+/// Deliberately keyed on `(store, workspace)` rather than a `CommandContext`:
+/// every mutation path must be able to sync, including the HTTP habits route,
+/// which holds a verified workspace and its registry but no command context.
 pub(crate) fn resolve_targets(
-    command: &crate::workspace::CommandContext,
+    store: &crate::workspace::RegistryStore,
+    workspace: &crate::workspace::WorkspaceContext,
     date: NaiveDate,
 ) -> Targets {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default();
-    let agenda_dir = crate::settings::resolve_one(&command.workspace, "agenda_dir").map_or_else(
+    let agenda_dir = crate::settings::resolve_one(workspace, "agenda_dir").map_or_else(
         || home.join("Downloads"),
         |raw| crate::paths::expand_tilde_with_home(&raw, &home),
     );
-    let markdown_dir = crate::env::resolve_one(command, "agenda_markdown_dir").map_or_else(
-        || PathBuf::from("/tmp"),
-        |raw| crate::paths::expand_tilde_with_home(&raw, &home),
-    );
+    // Deliberately the *raw* value, not the schema-resolved one: the schema
+    // default is `/tmp` for `brain env list` to display, but the fallback that
+    // actually runs has to be [`default_markdown_dir`], which unit tests
+    // redirect away from the machine's shared `/tmp`.
+    let markdown_dir = crate::env::get_for(store, workspace, "agenda_markdown_dir")
+        .map(|raw| raw.trim().to_owned())
+        .filter(|raw| !raw.is_empty())
+        .map_or_else(default_markdown_dir, |raw| {
+            crate::paths::expand_tilde_with_home(&raw, &home)
+        });
     Targets {
         markdown: markdown_path(&markdown_dir, date),
         pdf: agenda_dir.join(format!("agenda-{date}.pdf")),
-        renderer: crate::settings::markdown_to_pdf_command(command).ok(),
-        tasks_dir: command.workspace.root().join("tasks"),
+        renderer: crate::settings::markdown_to_pdf_command_from(store).ok(),
+        tasks_dir: workspace.root().join("tasks"),
     }
 }
 
 /// Sync the day's agenda after a mutation to `task_id`.
+///
+/// **Every** path that writes `tasks.csv` or `habits.csv` should end with this
+/// call. The agenda is a snapshot of those files, so a mutation that skips it
+/// leaves the snapshot lying — which is the whole defect class BR-19 covered.
 pub(crate) fn sync_after_mutation(
+    store: &crate::workspace::RegistryStore,
+    workspace: &crate::workspace::WorkspaceContext,
+    task_id: &str,
+    action: Action,
+    today: NaiveDate,
+) -> Outcome {
+    sync_targets(
+        &resolve_targets(store, workspace, today),
+        task_id,
+        action,
+        today,
+    )
+}
+
+/// [`sync_after_mutation`] for a caller that holds a `CommandContext`.
+pub(crate) fn sync_after_command_mutation(
     command: &crate::workspace::CommandContext,
     task_id: &str,
     action: Action,
     today: NaiveDate,
 ) -> Outcome {
-    sync_targets(&resolve_targets(command, today), task_id, action, today)
+    sync_after_mutation(
+        &command.registry_store,
+        &command.workspace,
+        task_id,
+        action,
+        today,
+    )
 }
 
 /// Read, sync, write, and (only when a printable already exists) regenerate.

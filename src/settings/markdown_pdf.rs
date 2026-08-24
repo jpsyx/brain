@@ -97,7 +97,19 @@ pub fn discover_markdown_to_pdf() -> Option<PathBuf> {
 /// so a config edited mid-session still errors cleanly rather than spawning a
 /// bogus path.
 pub fn markdown_to_pdf_command(command: &crate::workspace::CommandContext) -> Result<PathBuf> {
-    match crate::env::get(command, "markdown_to_pdf_path") {
+    markdown_to_pdf_command_from(&command.registry_store)
+}
+
+/// [`markdown_to_pdf_command`] from an explicit registry store.
+///
+/// The path is machine-global, so the store is the whole input — no workspace
+/// selection is involved.
+///
+/// # Errors
+///
+/// Returns an error when no usable command is configured.
+pub fn markdown_to_pdf_command_from(store: &crate::workspace::RegistryStore) -> Result<PathBuf> {
+    match crate::env::get_global(store, "markdown_to_pdf_path") {
         Some(p) if is_executable_file(Path::new(&p)) => Ok(PathBuf::from(p)),
         _ => Err(anyhow!(
             "markdown-to-pdf is not configured; run `brain env set markdown_to_pdf_path=<path>`"

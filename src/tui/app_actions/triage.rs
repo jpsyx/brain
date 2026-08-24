@@ -76,6 +76,7 @@ impl App {
     pub(crate) fn skip_triage(&mut self) {
         let today = self.tasks.daily_triage_date();
         let outcome = crate::tasks::triage_habits::complete_managed_triage(
+            &self.context.command().registry_store,
             self.context.workspace(),
             crate::tasks::triage_habits::ManagedTriageKind::Daily,
             self.context.triage_habits_enabled(),

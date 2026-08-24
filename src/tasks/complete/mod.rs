@@ -108,7 +108,8 @@ pub(crate) fn complete_and_sync_agenda(
     raw_id: &str,
     today: NaiveDate,
 ) -> Result<(CompletionResult, crate::tasks::agenda::Outcome)> {
-    let targets = crate::tasks::agenda::resolve_targets(command, today);
+    let targets =
+        crate::tasks::agenda::resolve_targets(&command.registry_store, &command.workspace, today);
     let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&command.workspace)?;
     complete_and_sync_in_root(
         command.workspace.root(),

@@ -30,7 +30,9 @@ mod store;
 mod vars;
 
 pub(crate) use markdown_pdf::configured_markdown_to_pdf_ready;
-pub use markdown_pdf::{ensure_markdown_to_pdf, markdown_to_pdf_command};
+pub use markdown_pdf::{
+    ensure_markdown_to_pdf, markdown_to_pdf_command, markdown_to_pdf_command_from,
+};
 pub(crate) use portable::source_note;
 pub use render::{render_list, set_confirmation};
 pub use schema::Resolved;

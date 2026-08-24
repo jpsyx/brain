@@ -104,17 +104,31 @@ impl CreateResult {
 }
 
 pub fn create_in_workspace(
+    store: &crate::workspace::RegistryStore,
     workspace: &crate::workspace::WorkspaceContext,
     actor: &ActorContext,
     request: &CreateRequest,
 ) -> Result<CreateResult> {
     let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
-    create_in_root_for_actor_with_today(
-        workspace.root(),
-        actor,
-        request,
-        chrono::Local::now().date_naive(),
-    )
+    let today = chrono::Local::now().date_naive();
+    let targets = crate::tasks::agenda::resolve_targets(store, workspace, today);
+    Ok(create_in_root_and_sync(workspace.root(), &targets, actor, request, today)?.0)
+}
+
+/// Create, then re-sync the agenda. A new row can land on today (a habit due
+/// today joins Today's habits), so the CSV-derived snapshots are refreshed;
+/// the authored plan is nobody's to write but the agenda's author.
+pub(crate) fn create_in_root_and_sync(
+    root: &Path,
+    targets: &crate::tasks::agenda::Targets,
+    actor: &ActorContext,
+    request: &CreateRequest,
+    today: NaiveDate,
+) -> Result<(CreateResult, crate::tasks::agenda::Outcome)> {
+    let result = create_in_root_for_actor_with_today(root, actor, request, today)?;
+    let outcome =
+        crate::tasks::agenda::sync_targets(targets, "", crate::tasks::agenda::Action::Touch, today);
+    Ok((result, outcome))
 }
 
 pub fn create_in_root_for_actor_with_today(

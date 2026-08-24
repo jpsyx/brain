@@ -1,7 +1,10 @@
+mod defaults;
 mod defer_and_touch;
 mod derived_sections;
 mod document;
 mod done;
+mod fixture;
+mod mutation_paths;
 mod shell;
 
 use chrono::NaiveDate;

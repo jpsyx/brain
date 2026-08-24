@@ -23,8 +23,12 @@ pub(super) fn run(context: &crate::workspace::CommandContext, args: &SyncAgendaA
         .map(crate::tasks::complete::normalize_id)
         .transpose()?;
     let action = action_for(args.action, id.is_some());
-    let outcome =
-        agenda::sync_after_mutation(context, id.as_deref().unwrap_or_default(), action, date);
+    let outcome = agenda::sync_after_command_mutation(
+        context,
+        id.as_deref().unwrap_or_default(),
+        action,
+        date,
+    );
     eprintln!("{}", report(outcome, date, Theme::active()));
     Ok(())
 }

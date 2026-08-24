@@ -37,6 +37,15 @@ fn empty_workspace() -> (tempfile::TempDir, brain::workspace::WorkspaceContext) 
     (temporary, context)
 }
 
+/// A registry store bound inside the test's own tree.
+///
+/// Both call sites below expect their mutation to be *refused*, so no agenda
+/// sync ever runs — but a store that can never resolve the developer's real
+/// machine env is the safe default for anything that reaches env at all.
+fn test_store(root: &std::path::Path) -> brain::workspace::RegistryStore {
+    brain::workspace::RegistryStore::from_path(root.join("registry-env.json"))
+}
+
 fn actor(workspace: &brain::workspace::WorkspaceContext) -> brain::actor::ActorContext {
     brain::actor::local_actor(workspace).unwrap()
 }

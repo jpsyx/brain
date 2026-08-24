@@ -1753,10 +1753,10 @@ The rule:
 - **`--until YYYY-MM-DD`** (either cadence) → `due_date` is deferred to that day,
   never marked done. Must be strictly after today.
 
-Skip mutates the CSV natively and does not touch the agenda file itself; run
-`brain tasks sync-agenda <id> --action defer` (or let the next agenda build
-re-derive habit state from the CSV) if today's agenda is already written.
-Completion is the exception: `brain tasks complete` syncs the agenda itself.
+Like every other native mutation, skip keeps the day's agenda in step: a daily
+skip is a completion, so the habit leaves the plan and joins Completed today;
+any other cadence is a one-day defer, which only drops it from the plan. See
+[Keeping the day's agenda in sync](#keeping-the-days-agenda-in-sync).
 
 `brain habits complete-managed-triage <daily|weekly>` completes Brain's managed
 triage occurrence **without needing its id**: it marks today's occurrence done
@@ -1779,14 +1779,27 @@ reads (and prints) all day. It is a **snapshot of the CSVs**, not a second
 source of truth: the CSVs decide, the agenda reports. So the moment a mutation
 lands in a CSV, the snapshot is out of date.
 
-Brain closes that gap itself. **Native completion syncs the agenda**:
-`brain tasks complete <id>` and the tasks view's mark-complete both run the
-sync in-process, right after the CSV write. `brain tasks sync-agenda` exposes
-the same code to every other mutator, and the bundled `/todo` mutator scripts
-(`defer_task.py`, `defer_habit.py`, `touch_task.py`, `backlog_task.py`) shell
-out to it rather than carrying a second copy. Nobody has to remember to
-rewrite the agenda by hand, and a freehand rewrite is exactly how sections used
-to get dropped.
+Brain closes that gap itself. **Every native path that writes `tasks.csv` or
+`habits.csv` runs the sync**, in-process, right after the write:
+
+| Mutation | What it tells the agenda |
+| --- | --- |
+| `brain tasks complete`, the tasks view's mark-complete | Completed: drop it from the plan, hand a chunked task's slot to its next chunk |
+| The habits browser page's done button | Completed |
+| `brain habits skip` on a **daily** habit | Completed (a daily skip marks done and respawns) |
+| `brain habits skip` on any other cadence, or with `--until` | Deferred: drop it from the plan |
+| `brain habits complete-managed-triage`, the daily-triage nudge's **Skip** | Completed |
+| `brain tasks set --status done` | Completed |
+| `brain tasks set --due <another day>` | Deferred |
+| `brain tasks set` on any other field | Refresh the snapshots only — renaming a task is not a statement that it left today |
+| `brain tasks add` | Refresh the snapshots only (a new habit due today joins Today's habits) |
+| `brain habits revive` | Refresh the snapshots only, which is provably a no-op: the occurrence it spawns is dated strictly after today |
+
+`brain tasks sync-agenda` exposes the same code to every other mutator, and the
+bundled `/todo` mutator scripts (`defer_task.py`, `defer_habit.py`,
+`touch_task.py`, `backlog_task.py`) shell out to it rather than carrying a
+second copy. Nobody has to remember to rewrite the agenda by hand, and a
+freehand rewrite is exactly how sections used to get dropped.
 
 One sync does three things, and nothing else:
 

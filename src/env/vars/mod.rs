@@ -27,10 +27,32 @@ pub(super) fn value_to_string(v: &Value) -> Option<String> {
 /// every workspace on this machine sees the same answer.
 #[must_use]
 pub fn get(command: &CommandContext, name: &str) -> Option<String> {
+    get_for(&command.registry_store, &command.workspace, name)
+}
+
+/// A machine-global variable's raw value from an explicit registry store.
+///
+/// Machine-global values describe the machine, so there is no workspace to
+/// select — the store is the whole input.
+#[must_use]
+pub fn get_global(store: &crate::workspace::RegistryStore, name: &str) -> Option<String> {
+    super::store::load_global_map_from(store)
+        .get(name)
+        .and_then(value_to_string)
+}
+
+/// [`get`] from an explicit store and workspace, for callers that hold a
+/// registry and a workspace but no `CommandContext` (the HTTP routes).
+#[must_use]
+pub fn get_for(
+    store: &crate::workspace::RegistryStore,
+    workspace: &crate::workspace::WorkspaceContext,
+    name: &str,
+) -> Option<String> {
     let map = if is_machine_global(name) {
-        load_global_map(command)
+        super::store::load_global_map_from(store)
     } else {
-        load_map(command)
+        super::store::load_map_for(store, workspace)
     };
     if !name.contains('.') {
         return map.get(name).and_then(value_to_string);
@@ -61,19 +83,29 @@ pub fn get_raw(command: &CommandContext, name: &str) -> Option<Value> {
 /// matches what brain actually uses (including the legacy-pointer fallback).
 #[must_use]
 pub fn resolve_one(command: &CommandContext, name: &str) -> Option<String> {
+    resolve_one_for(&command.registry_store, &command.workspace, name)
+}
+
+/// [`resolve_one`] from an explicit store and workspace.
+#[must_use]
+pub fn resolve_one_for(
+    store: &crate::workspace::RegistryStore,
+    workspace: &crate::workspace::WorkspaceContext,
+    name: &str,
+) -> Option<String> {
     if name == "root" {
-        return Some(command.workspace.root().display().to_string());
+        return Some(workspace.root().display().to_string());
     }
     if name.contains('.') {
-        return get(command, name);
+        return get_for(store, workspace, name);
     }
     if !is_known(name) {
         return None;
     }
     let spec = VARS.iter().find(|spec| spec.name == name)?;
-    let value = get(command, name).or_else(|| {
+    let value = get_for(store, workspace, name).or_else(|| {
         spec.legacy_config_fallback
-            .then(|| legacy_config_value(command.workspace.root(), name))
+            .then(|| legacy_config_value(workspace.root(), name))
             .flatten()
     });
     match (value, spec.default) {

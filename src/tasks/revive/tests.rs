@@ -4,6 +4,7 @@ use super::*;
 fn command_runner_requires_explicit_workspace_and_actor_contexts() {
     fn accepts_runner(
         _: fn(
+            &crate::workspace::RegistryStore,
             &crate::workspace::WorkspaceContext,
             &str,
             &crate::actor::ActorContext,

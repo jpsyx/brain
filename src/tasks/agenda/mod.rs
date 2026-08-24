@@ -21,14 +21,14 @@
 
 mod derive;
 mod doc;
-mod io;
+pub(crate) mod io;
 mod lines;
 mod sync;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use io::{Outcome, Targets, resolve_targets, sync_after_mutation, sync_targets};
+pub(crate) use io::{Outcome, Targets, resolve_targets, sync_after_command_mutation, sync_targets};
 pub(crate) use sync::{Action, Snapshot, sync_markdown};
 
 /// Section heading prefixes. Matched by prefix rather than exact text so the
