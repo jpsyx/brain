@@ -267,15 +267,19 @@ ingress capacity; progressed, retrying, failed, and done evidence remains
 durable without blocking a new slot. Zero live TUIs still means zero server and
 no Brain response because routing requires a live enabled lease. The shared
 process owns no execution cursor or headless agent. The live TUI consumes these
-accepted rows through one durable receiver tick. The legacy memory queue and
-its `/restart` representation remain runtime-local until BR-18, but are neither
-the provider acceptance boundary nor a production execution consumer.
+accepted rows through one durable receiver tick. The legacy memory queue remains
+runtime-local for BR-18 compatibility, but is neither the provider acceptance
+boundary nor a production execution consumer.
 
-Session retirement has no model of its own. `/new` records nothing durable:
-`ReceiverRuntime` consumes the queued control job, remembers its channel, and
-turns that channel into a one-shot force-fresh session-selection request at the
-next launch. The retired session's row is left exactly as it was and simply
-stops being the most recent one for its (frontend, workspace, actor) scope.
+Receiver controls are durable jobs. An exact claimed `/new` atomically retires
+only its logical conversation key, creates an empty unbound conversation under
+the same provider identity, moves later unclaimed work for that conversation to
+the fresh row, and finishes the command. `/restart` finds the oldest queued
+restart, atomically fails only older unclaimed queued or pre-acceptance retry
+rows, rolls the command's exact conversation, and preserves the active owned
+run plus later work. Retired conversation rows, transcripts, and bindings remain
+stored; unrelated actor, channel, conversation, and workspace tuples are never
+changed.
 
 After the process-wide startup migration boundary, status uses a separate
 `ReadOnlyWorkspace` bootstrap policy. It reads an
@@ -988,7 +992,7 @@ receiver_session_registrations(
   actor_id               TEXT NOT NULL,
   channel                TEXT NOT NULL,  -- sms | email
   brain_instance_id      TEXT NOT NULL,
-  registered_session_id  TEXT NOT NULL,  -- fresh placeholder or resumed native ID
+  registered_session_id  TEXT NOT NULL,  -- Brain-supplied fresh ID or resumed native ID
   actual_session_id      TEXT,
   PRIMARY KEY(workspace_id, brain_instance_id)
 )
@@ -1039,9 +1043,11 @@ and done rows are terminal and cannot be reclaimed. Retry counters are checked
 against `u32::MAX` before SQLite can increment them, and every `u64`
 millisecond value is range-checked before it is stored as an SQLite integer.
 
-The TUI keeps at most one durable receiver run locally. It renews the exact
-claim while freshness is pending and while the matching tab is active. Later
-arrivals remain `queued` and unclaimed until that run closes; the next tick
+The TUI keeps at most one durable receiver run locally. Disabling receiver
+intent prevents only a new claim while the local run is idle. It still renews
+and manages an exact pending or active claim through completion, child exit, or
+cleanup, including across a later re-enable. Later arrivals remain `queued` and
+unclaimed until that run closes; the next tick
 again selects by `received_at_unix_ms, job_id`. A valid completion currently
 moves `launching` directly to `done` because BR-15 has not yet added accepted or
 processing proof. Losing exact ownership forbids every durable lifecycle,
@@ -1055,13 +1061,15 @@ the opaque native session ID. A frontend change must start a fresh native
 session from the markdown transcript, because native IDs and histories are not
 portable between Claude, Codex, and OpenCode. The transcript and binding are
 replaced atomically with an explicit observed-at millisecond timestamp. After a
-fresh Codex or OpenCode launch, a separate binding-only mutation reads the
-exact locked remote instance. It verifies the durable registration's workspace,
-logical conversation, frontend, actor, channel, instance, and original
-placeholder. It rejects the placeholder, records the actual native ID installed
-by the lifecycle bridge in the same registration, and writes only that actual
-ID to the conversation binding, leaving the portable transcript bytes
-untouched.
+fresh launch, a separate binding-only mutation reads the exact locked remote
+instance. It verifies the durable registration's workspace, logical
+conversation, frontend, actor, channel, instance, and original registered ID.
+Claude may report that Brain-supplied ID as its native session ID, so equality
+is accepted only for Claude with the exact locked lifecycle evidence. Codex and
+OpenCode must rotate their placeholder to a distinct lifecycle-reported native
+ID. Placeholders without that frontend-specific proof are rejected. The update
+writes only the native ID to the conversation binding and leaves the portable
+transcript bytes untouched.
 The BR-14 launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh
@@ -1116,9 +1124,10 @@ without a manual `brain skills sync`.
   when no exact rollout remains.
 - `SessionStore::claim` → lock a free session in the exact composite scope to this
   shell's PID (loses cleanly if another shell grabbed that scoped row first).
-- `SessionStore::register` inserts a fresh placeholder for any registered frontend with
-  complete immutable attribution and `active` status. The session-start bridge records the
-  actual frontend session ID only when the exact tuple is registered or
+- `SessionStore::register` inserts a Brain-supplied fresh ID for any registered
+  frontend with complete immutable attribution and `active` status. The
+  session-start bridge records the actual frontend session ID only when the
+  exact tuple is registered or
   the ID rotates an already registered active shell lineage; every other event
   is rejected. The authorization reads and accepted rotation mutation
   share one `BEGIN IMMEDIATE` transaction, so concurrent target claims are

@@ -5,7 +5,6 @@ pub(crate) mod planning;
 pub(crate) mod policy;
 mod queue;
 mod run;
-#[allow(dead_code)]
 mod runtime;
 mod session;
 

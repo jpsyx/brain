@@ -113,6 +113,24 @@ impl AppServices {
             .claim_next_receiver_run(owner, now_unix_ms, expires_at_unix_ms)
     }
 
+    pub(crate) fn complete_receiver_new_session(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        owner: &str,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .complete_receiver_new_session(job_id, owner, observed_at_unix_ms)
+    }
+
+    pub(crate) fn apply_next_receiver_restart(
+        &self,
+        observed_at_unix_ms: u64,
+    ) -> Result<Option<crate::server::receiver::RestartPlan<crate::server::receiver::InboundJob>>>
+    {
+        self.db.apply_next_receiver_restart(observed_at_unix_ms)
+    }
+
     pub(crate) fn prepare_receiver_launch(
         &self,
         job_id: crate::state::ReceiverJobId,

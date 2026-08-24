@@ -98,6 +98,28 @@ pub(super) fn accept_email_job_with_id(
         .expect("accept durable receiver job")
 }
 
+pub(super) fn accept_email_job_in_thread(
+    app: &App,
+    db: &Db,
+    thread: &str,
+    prompt: &str,
+    received_at_unix_ms: u64,
+) -> ReceiverAcceptance {
+    let mut inbound = receiver_job(app, email_actor(), Channel::Email, prompt);
+    inbound.job_id = uuid::Uuid::new_v4();
+    inbound.received_at_unix_ms = received_at_unix_ms;
+    inbound.provider_id = Some(format!("provider-{}", inbound.job_id));
+    inbound.authenticated_sender = "member@example.test".to_owned();
+    inbound.thread_participants = vec!["member@example.test".to_owned()];
+    let identity = ReceiverConversationIdentity::email(
+        app.context.workspace().id(),
+        inbound.actor.user_id().clone(),
+        EmailLineage::verified(thread).expect("verified lineage"),
+    );
+    db.accept_receiver_job(&inbound, &identity)
+        .expect("accept durable thread job")
+}
+
 pub(super) fn publish_valid_completion(app: &App, message: &str) -> std::path::PathBuf {
     let active = app
         .receiver

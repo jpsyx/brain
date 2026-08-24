@@ -1,4 +1,6 @@
-use super::receiver_durable_support::{ReceiverClock, accept_email_job, publish_valid_completion};
+use super::receiver_durable_support::{
+    ReceiverClock, accept_email_job, accept_email_job_in_thread, publish_valid_completion,
+};
 use super::*;
 
 use crate::main_view::MainView;
@@ -198,4 +200,110 @@ fn lost_claim_stops_local_child_without_mutating_session_or_job_lifecycle() {
             .is_some(),
         "lost ownership must not release exact lifecycle state"
     );
+}
+
+#[test]
+fn active_receiver_remains_owned_and_completes_across_disable_and_reenable() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.receiver.record_intent(true);
+    let clock = ReceiverClock::new();
+    app.services
+        .replace_receiver_sync_runtime(Box::new(clock.clone()));
+    let db = Db::open(app.context.workspace()).expect("state DB");
+    let accepted = accept_email_job(&app, &db, "finish despite disable", 100);
+    let transport = TransportRecording::default();
+    app.brain.replace_receiver_transport(transport.transport());
+    app.tick_receiver();
+
+    clock.advance(std::time::Duration::from_secs(20));
+    app.receiver.record_intent(false);
+    app.tick_receiver();
+    clock.advance(std::time::Duration::from_secs(15));
+    let now = clock.unix_ms();
+
+    assert!(
+        db.claim_next_receiver_run("competing-owner", now, now + 30_000)
+            .expect("competing claim")
+            .is_none(),
+        "disabling intent must not abandon an already active claim"
+    );
+    assert_eq!(app.brain.receiver_run_observations().len(), 1);
+    assert_eq!(transport.shutdowns(), 0);
+
+    app.receiver.record_intent(true);
+    publish_valid_completion(&app, "Finished after re-enable");
+    app.tick_receiver();
+
+    assert!(app.brain.receiver_run_observations().is_empty());
+    assert_eq!(transport.shutdowns(), 1);
+    assert_eq!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
+        ReceiverJobState::Done
+    );
+}
+
+#[test]
+fn fresh_claude_completion_persists_its_native_id_and_the_next_message_resumes_it() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.receiver.record_intent(true);
+    let db = Db::open(app.context.workspace()).expect("state DB");
+    let first = accept_email_job_in_thread(&app, &db, "claude-thread", "first message", 100);
+    assert!(
+        db.update_receiver_conversation(
+            first.conversation_id(),
+            "# Portable transcript\n\nPrior durable context",
+            None,
+            50,
+        )
+        .expect("seed portable transcript")
+    );
+    let first_transport = TransportRecording::default();
+    app.brain
+        .replace_receiver_transport(first_transport.transport());
+    app.tick_receiver();
+    let active = app
+        .receiver
+        .active_durable_run()
+        .expect("fresh Claude receiver");
+    let native_id = active.attribution.registered_session().clone();
+    let _transcript = ClaudeTranscript::create(app.context.workspace().root(), native_id.as_str());
+    publish_valid_completion(&app, "first answer");
+
+    app.tick_receiver();
+
+    let conversation = db
+        .receiver_conversation(first.conversation_id())
+        .unwrap()
+        .expect("durable conversation");
+    assert_eq!(
+        conversation
+            .binding()
+            .map(|binding| (binding.frontend(), binding.native_session_id().to_owned(),)),
+        Some((AgentKind::Claude, native_id.as_str().to_owned()))
+    );
+    assert_eq!(
+        conversation.transcript_markdown(),
+        "# Portable transcript\n\nPrior durable context"
+    );
+    let second = accept_email_job_in_thread(&app, &db, "claude-thread", "second message", 200);
+    let second_transport = TransportRecording::default();
+    app.brain
+        .replace_receiver_transport(second_transport.transport());
+
+    app.tick_receiver();
+
+    assert_eq!(
+        app.brain.receiver_run_observations()[0].job_id,
+        second.job_id()
+    );
+    let specs = second_transport.launch_specs();
+    assert_eq!(specs.len(), 1);
+    assert!(specs[0].command.contains("--resume"));
+    assert!(specs[0].command.contains(native_id.as_str()));
+    assert!(specs[0].command.contains("second message"));
+    assert!(!specs[0].command.contains("Prior durable context"));
 }

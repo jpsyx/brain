@@ -72,10 +72,12 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy receiver-to-main restoration.
     pub(crate) fn interactive_agent_session_to_resume(&self) -> Option<&str> {
         self.interactive_agent_session_id.as_deref()
     }
 
+    #[allow(dead_code)] // BR-18 removes legacy receiver-to-main restoration.
     pub(crate) fn prepare_interactive_restore(&mut self, can_resume: bool) {
         self.resume_session = can_resume
             .then(|| self.interactive_agent_session_id.take())

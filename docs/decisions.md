@@ -2688,13 +2688,14 @@ widening the planner.
 
 Receiver launch ownership is isolated from the interactive shell. Every remote
 run gets a unique instance ID and either claims the exact validated resume
-session or registers a fresh placeholder before process launch. The existing
-lifecycle bridge is the authority that rotates a Codex/OpenCode placeholder to
-the actual native ID; Brain refuses to persist the placeholder and performs a
-binding-only conversation update so portable transcript history cannot be
-lost. Binding requires the complete durable workspace, logical conversation,
-frontend, actor, channel, remote instance, and registered-placeholder tuple;
-the lifecycle-reported actual ID is retained alongside it. An armed
+session or registers a Brain-supplied fresh ID before process launch. The
+existing lifecycle bridge is the authority: Claude may confirm that registered
+ID as its native session, while Codex and OpenCode must rotate it to a distinct
+native ID. Brain rejects an unproved placeholder and performs a binding-only
+conversation update so portable transcript history cannot be lost. Binding
+requires the complete durable workspace, logical conversation, frontend,
+actor, channel, remote instance, and registered-ID tuple; the lifecycle-reported
+actual ID is retained alongside it. An armed
 registration guard releases the exact remote owner on early return without
 touching the main instance. Rollback invokes that cleanup explicitly so a
 release failure is reportable, while `Drop` remains a best-effort fallback.
@@ -4016,9 +4017,9 @@ until you ask what each is *for*.
 
 `/restart` is a rescue. Its entire value is immediacy: the sender is stuck
 behind a backlog and wants out. Queueing it behind the very backlog it clears
-would make it a no-op, so it is applied the moment it is polled off the socket,
-before any panel-availability gate. It still does not interrupt the answer in
-flight — that message is being worked on, not stuck — and it keeps anything
+would make it a no-op, so the durable coordinator finds and applies it before
+any new dispatch gate. It still does not interrupt the answer in
+flight (that message is being worked on, not stuck), and it keeps anything
 sent after it, because that is work nobody asked to abandon. The cut is through
 the queue, not a wipe of it.
 
@@ -4027,13 +4028,14 @@ waits its turn and is applied only between messages. Applied immediately it
 would cut mid-answer, discarding a reply someone is already waiting for and
 placing the boundary somewhere the sender did not choose.
 
-Retiring a session needs no archive step. Session selection already resumes the
-most recent claimable session for the (frontend, workspace, actor) scope, and
-the actor carries the channel — so `/new` only has to make the *next* launch
-refuse to resume. The fresh session it creates then becomes the most recent one
-and is what later messages pick up. The old conversation is not deleted, just
-never selected again, which is also what makes the command safe: nothing is
-destroyed by a sender who typed it by mistake.
+The commands are represented as durable jobs, not runtime-only intentions.
+`/new` atomically retires only the exact logical conversation key, creates an
+empty unbound replacement, and moves later unclaimed work in that conversation
+onto it. `/restart` atomically fails only older unclaimed queued or
+pre-acceptance retry rows, then establishes the same fresh boundary. The active
+owned run, later arrivals, and every unrelated actor, channel, conversation,
+and workspace remain unchanged. Retired conversation rows, transcripts, and
+bindings are not deleted, so a mistaken command does not destroy history.
 
 ## Email markdown is rendered by a parser we did not write
 

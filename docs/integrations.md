@@ -238,15 +238,17 @@ transcript, attachment, sender, recipient, and credential contents never enter
 planning diagnostics. Claude, Codex, and OpenCode translate both semantic
 plans with the non-blank initial prompt through their existing launch command.
 The adjacent ownership seam gives every run a unique remote
-`BRAIN_INSTANCE_ID`, registers a fresh placeholder before spawn or claims the
-exact validated resume session, and never reuses the main TUI instance. Codex
-and OpenCode session-start integrations rotate that remote placeholder to the
-actual native ID. Only an exact locked remote instance whose ID differs from
-the placeholder and whose complete durable registration tuple matches the
-workspace, logical conversation, frontend, actor, channel, instance, and
-registered placeholder may replace the durable binding. The lifecycle-reported
-native ID is retained in that registration, and the binding-only update does
-not rewrite the portable transcript. Pre-launch rollback stops the controller,
+`BRAIN_INSTANCE_ID`, registers a fresh Brain-supplied ID before spawn or claims
+the exact validated resume session, and never reuses the main TUI instance.
+Claude may use that registered ID directly as its native session ID; Codex and
+OpenCode session-start integrations must rotate it to a distinct native ID.
+Only an exact locked remote instance whose complete durable registration tuple
+matches the workspace, logical conversation, frontend, actor, channel,
+instance, and registered ID may replace the durable binding. Equality is valid
+only for Claude with that exact lifecycle evidence; unproved placeholders and
+equality for Codex or OpenCode are rejected. The lifecycle-reported native ID
+is retained in that registration, and the binding-only update does not rewrite
+the portable transcript. Pre-launch rollback stops the controller,
 uses a fallible exact-registration cleanup, and still records its bounded
 durable retry before surfacing any shutdown or cleanup diagnostic; `Drop` is
 only a best-effort fallback.
@@ -1105,12 +1107,15 @@ An inbound message whose entire body is `/new` or `/restart` (case- and
 whitespace-insensitive) is a control command, read in
 `server/receiver/control.rs` and applied in
 `tui/app_brain/receiver/control.rs` rather than sent to the agent. `/restart`
-is applied as soon as it is polled, ahead of every dispatch gate;
-`/new` waits for a free panel and records a runtime-owned fresh-session intent
-for its channel, which the next launch consumes to skip session resumption.
+is applied from durable queued state ahead of every new dispatch gate. It
+atomically drops only older unclaimed backlog, keeps an active run and later
+arrivals, and rolls only the command's exact logical conversation. `/new` waits
+its FIFO turn, then atomically retires its exact conversation, moves later
+unclaimed work onto a fresh empty conversation, and finishes without launching
+an agent. Neither command enters a PTY or the main panel.
 Both acknowledge their own sender through `reply_to_job`,
 which addresses the job's own recipients rather than whatever reply state is
-live — a dropped job is not the message currently in flight.
+live. A dropped job is not the message currently in flight.
 
 Every outbound email carries both parts of the Resend payload: `text` is the
 agent's markdown verbatim, and `html` is that markdown rendered by

@@ -1549,20 +1549,20 @@ cannot otherwise tell an obeyed command from an ignored one.
 
 | Command | Effect |
 | --- | --- |
-| `/new` | Retires the conversation for **the channel it arrived on** and starts a fresh one. The next message from that channel opens a new session instead of resuming; the old conversation is simply never picked up again. SMS and email are retired independently. |
-| `/restart` | Drops everything queued **ahead of it** and tells each of those senders their message could not be processed and should be resent. |
+| `/new` | Waits its durable FIFO turn, retires only that logical conversation, and starts a fresh boundary. Later messages in that same conversation use a new agent session; other conversations, channels, and workspaces are unchanged. The literal command never reaches an agent. |
+| `/restart` | Durably drops everything unclaimed **ahead of it** and tells each of those senders their message could not be processed and should be resent. The active answer, later arrivals, and unrelated conversations remain intact. The literal command never reaches an agent. |
 
 The two are applied at deliberately different moments. `/restart` takes effect
-the moment it is polled, without waiting for a free panel: a sender restarts
+from durable queued state without waiting for a free panel: a sender restarts
 *because* they are stuck behind something, so making the command queue behind
 the backlog it clears would leave it useless. It does not interrupt the answer
 already in flight, and anything sent *after* the restart is kept, since that is
 new work nobody asked to abandon. `/new`, by contrast, waits its turn and is
 applied only between messages, because its whole value is *where* the boundary
-falls — running it mid-turn would cut the conversation in the wrong place and
-kill an answer someone is already waiting on. A `/new` for a channel whose panel
-is currently warm retires that panel immediately so the next message cannot
-reuse the conversation the sender just left.
+falls. Running it mid-turn would cut the conversation in the wrong place and
+kill an answer someone is already waiting on. Its durable transaction preserves
+the retired transcript and binding while moving only later unclaimed work in
+that exact logical conversation onto the fresh boundary.
 
 Every outbound SMS is shaped for a medium with no renderer. Brain converts the
 agent's answer to plain text before it is posted: headings, emphasis,

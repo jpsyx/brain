@@ -17,8 +17,10 @@ mod sync;
 
 pub(crate) use sync::{SyncGateObservation, SyncGatePoll};
 
+#[allow(dead_code)] // Retained until BR-18 removes legacy warm-panel receiver state.
 const INACTIVITY_LEASE: Duration = Duration::from_secs(180);
 
+#[allow(dead_code)] // Retained until BR-18 removes legacy warm-panel receiver state.
 #[derive(Debug, Clone, Copy)]
 struct Lease {
     channel: Channel,
@@ -33,6 +35,7 @@ struct ReceiverSyncGate {
     attempts: u8,
 }
 
+#[allow(dead_code)] // Retained until BR-18 removes legacy warm-panel receiver state.
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveRemoteTurn<'a> {
     pub(crate) response_id: &'a str,
@@ -40,6 +43,7 @@ pub(crate) struct ActiveRemoteTurn<'a> {
     pub(crate) sender: &'a str,
 }
 
+#[allow(dead_code)] // Retained until BR-18 removes legacy warm-panel receiver state.
 #[derive(Debug, Clone)]
 pub(crate) struct RemoteCompletionTarget {
     pub(crate) response_id: String,
@@ -47,12 +51,14 @@ pub(crate) struct RemoteCompletionTarget {
     pub(crate) sender: String,
 }
 
+#[allow(dead_code)] // Retained until BR-18 removes legacy warm-panel receiver state.
 #[derive(Debug, Clone)]
 pub(crate) struct DeliveryTarget {
     pub(crate) channel: Channel,
     pub(crate) sender: String,
 }
 
+#[allow(dead_code)] // Retained until BR-18 removes legacy warm-panel receiver state.
 #[derive(Debug, Clone)]
 pub(crate) struct EmailReplyTarget {
     pub(crate) response_email: Option<String>,
@@ -60,6 +66,7 @@ pub(crate) struct EmailReplyTarget {
     pub(crate) reply: Option<EmailReplyContext>,
 }
 
+#[allow(dead_code)] // Retained until BR-18 removes legacy warm-panel receiver state.
 #[derive(Debug, Clone)]
 pub(crate) struct ReceiverProbe {
     pub(crate) elapsed_seconds: u64,
@@ -69,25 +76,37 @@ pub(crate) struct ReceiverProbe {
 pub(crate) struct ReceiverRuntime {
     socket: Option<crate::tui::singleton::JobSocket>,
     enabled: bool,
+    #[allow(dead_code)] // BR-18 removes the disconnected socket queue.
     queue: InboundQueue,
+    #[allow(dead_code)] // BR-18 removes runtime-local session controls.
     new_session_channels: HashSet<Channel>,
     force_fresh: bool,
     requested_actor: Option<ActorContext>,
     lease: Option<Lease>,
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel delivery state.
     generation: u64,
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel delivery state.
     sender: Option<String>,
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel delivery state.
     recipients: Vec<String>,
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel delivery state.
     response_email: Option<String>,
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel delivery state.
     email_reply: Option<EmailReplyContext>,
     receiver_response_id: Option<String>,
     interactive_response_id: Option<String>,
     interactive_agent_session_id: Option<String>,
     resume_session: Option<String>,
     started: Option<Instant>,
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel timing state.
     delay_sent: bool,
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel timing state.
     probe: Option<(Instant, usize)>,
+    #[allow(dead_code)] // BR-18 removes legacy screen-activity inference.
     panel_activity: Option<(u64, Instant)>,
+    #[allow(dead_code)] // BR-18 removes legacy screen-activity inference.
     panel_sampled_at: Option<Instant>,
+    #[allow(dead_code)] // BR-18 removes the runtime-local launch retry.
     retry_at: Option<Instant>,
     sync_gate: Option<ReceiverSyncGate>,
     durable_run: DurableReceiverRun,
@@ -144,6 +163,7 @@ impl ReceiverRuntime {
         self.socket = Some(socket);
     }
 
+    #[allow(dead_code)] // BR-18 removes the disconnected socket consumer.
     pub(crate) fn poll_jobs(&mut self, workspace_id: crate::workspace::WorkspaceId) {
         if let Some(socket) = self.socket.as_ref() {
             socket.poll_jobs(workspace_id, &mut self.queue);
@@ -160,16 +180,19 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes the disconnected socket queue.
     pub(crate) fn has_pending_work(&self) -> bool {
         !self.queue.is_empty()
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes the disconnected socket queue.
     pub(crate) fn pending_count(&self) -> usize {
         self.queue.len()
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes the disconnected socket queue.
     pub(crate) fn next_job(&self) -> Option<&InboundJob> {
         self.queue.head()
     }
@@ -180,16 +203,19 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel timing.
     pub(crate) const fn remote_started_at(&self) -> Option<Instant> {
         self.started
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel reuse.
     pub(crate) const fn receiver_panel_is_warm(&self) -> bool {
         self.receiver_response_id.is_some() && self.started.is_none()
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy shared response identity.
     pub(crate) fn interactive_response_id(&self) -> Option<&str> {
         self.interactive_response_id.as_deref()
     }
@@ -213,10 +239,12 @@ impl ReceiverRuntime {
         Ok(())
     }
 
+    #[allow(dead_code)] // BR-18 removes main-panel receiver launch state.
     pub(crate) fn request_receiver_launch(&mut self, actor: ActorContext) {
         self.requested_actor = Some(actor);
     }
 
+    #[allow(dead_code)] // BR-18 removes main-panel receiver launch state.
     pub(crate) fn cancel_receiver_launch(&mut self) {
         self.requested_actor = None;
     }
@@ -227,6 +255,7 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes the disconnected queue consumer.
     pub(crate) fn finish_dispatch(
         &mut self,
         launched: bool,
@@ -254,6 +283,7 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel completion.
     pub(crate) fn active_remote_turn(&self) -> Option<ActiveRemoteTurn<'_>> {
         Some(ActiveRemoteTurn {
             response_id: self.receiver_response_id.as_deref()?,
@@ -262,6 +292,7 @@ impl ReceiverRuntime {
         })
     }
 
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel completion.
     pub(crate) fn finish_remote_response(&mut self, now: Instant) {
         let Some(channel) = self.active_channel() else {
             return;
@@ -272,21 +303,25 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel channel state.
     pub(crate) fn active_channel(&self) -> Option<Channel> {
         self.lease.map(|lease| lease.channel)
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy shared response identity.
     pub(crate) fn receiver_response_id(&self) -> Option<&str> {
         self.receiver_response_id.as_deref()
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel reuse.
     pub(crate) fn has_receiver_session(&self) -> bool {
         self.receiver_response_id.is_some()
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel delivery.
     pub(crate) fn active_delivery_target(&self) -> Option<DeliveryTarget> {
         Some(DeliveryTarget {
             channel: self.active_channel()?,
@@ -295,6 +330,7 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel delivery.
     pub(crate) fn email_reply_target(&self) -> EmailReplyTarget {
         EmailReplyTarget {
             response_email: self.response_email.clone(),
@@ -304,6 +340,7 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel delay notices.
     pub(crate) fn claim_processing_delay(&mut self, now: Instant) -> Option<DeliveryTarget> {
         if self.delay_sent
             || self.started.is_none_or(|started| {
@@ -317,6 +354,7 @@ impl ReceiverRuntime {
         Some(target)
     }
 
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel state.
     pub(crate) fn clear_receiver_panel_state(&mut self) {
         self.clear_delivery_turn();
         self.receiver_response_id = None;
@@ -325,6 +363,7 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel leases.
     pub(crate) fn warm_lease_expired(&self, now: Instant) -> Option<Channel> {
         let lease = self.lease?;
         (lease.deadline <= now
@@ -334,11 +373,13 @@ impl ReceiverRuntime {
         .then_some(lease.channel)
     }
 
+    #[allow(dead_code)] // BR-18 removes runtime-local session controls.
     pub(crate) fn prepare_channel_launch(&mut self, channel: Channel) {
         self.force_fresh = self.new_session_channels.remove(&channel);
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes the disconnected in-memory control.
     pub(crate) fn take_restart(
         &mut self,
     ) -> Option<crate::server::receiver::RestartPlan<InboundJob>> {
@@ -346,18 +387,14 @@ impl ReceiverRuntime {
     }
 
     #[must_use]
+    #[allow(dead_code)] // BR-18 removes the disconnected in-memory control.
     pub(crate) fn take_new_session(&mut self) -> Option<InboundJob> {
         let job = self.queue.take_new_session()?;
         self.new_session_channels.insert(job.channel);
         Some(job)
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn has_pending_channel_reset(&self) -> bool {
-        !self.new_session_channels.is_empty() || self.force_fresh
-    }
-
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel leases.
     fn renew_lease(&mut self, channel: Channel, now: Instant) {
         self.lease = Some(Lease {
             channel,
@@ -366,6 +403,7 @@ impl ReceiverRuntime {
         });
     }
 
+    #[allow(dead_code)] // BR-18 removes legacy warm-panel delivery.
     fn clear_delivery_turn(&mut self) {
         self.sender = None;
         self.recipients.clear();

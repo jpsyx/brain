@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use super::{ReceiverProbe, ReceiverRuntime};
 use crate::tui::receiver::policy;
 
+#[allow(dead_code)] // This focused module exists only for BR-18 legacy cleanup.
 impl ReceiverRuntime {
     pub(crate) fn note_panel_sample(&mut self, now: Instant, digest: Option<u64>) {
         if !self.remote_turn_in_flight() {

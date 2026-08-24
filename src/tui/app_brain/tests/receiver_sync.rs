@@ -1,4 +1,4 @@
-use super::receiver_durable_support::publish_valid_completion;
+use super::receiver_durable_support::{accept_email_job, publish_valid_completion};
 use super::*;
 
 use crate::state::{ReceiverConversationIdentity, ReceiverJobState};
@@ -211,6 +211,51 @@ fn durable_receiver_claim_stays_owned_while_workspace_freshness_is_pending() {
         accepted.job_id()
     );
     assert_eq!(receiver_recording.launch_specs().len(), 1);
+}
+
+#[test]
+fn pending_freshness_claim_remains_managed_after_receiver_intent_is_disabled() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.receiver.record_intent(true);
+    configure_receiver_sync(&app);
+    let runtime = TestReceiverSyncRuntime::new();
+    app.services
+        .replace_receiver_sync_runtime(Box::new(runtime.clone()));
+    let db = Db::open(app.context.workspace()).expect("state DB");
+    let accepted = accept_email_job(&app, &db, "finish freshness despite disable", 100);
+    let transport = TransportRecording::default();
+    app.brain.replace_receiver_transport(transport.transport());
+
+    app.tick_receiver();
+    assert_eq!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
+        ReceiverJobState::Claimed
+    );
+
+    app.receiver.record_intent(false);
+    runtime.advance(std::time::Duration::from_secs(20));
+    app.tick_receiver();
+    runtime.advance(std::time::Duration::from_secs(15));
+    let now = runtime.unix_ms();
+    assert!(
+        db.claim_next_receiver_run("competing-owner", now, now + 30_000)
+            .expect("competing claim")
+            .is_none(),
+        "disabling intent must not abandon a claim waiting on freshness"
+    );
+
+    runtime.state.lock().unwrap().journal_id = Some(5);
+    runtime.advance(std::time::Duration::from_millis(250));
+    app.tick_receiver();
+
+    assert_eq!(app.brain.receiver_run_observations().len(), 1);
+    assert_eq!(
+        app.brain.receiver_run_observations()[0].job_id,
+        accepted.job_id()
+    );
+    assert_eq!(transport.launch_specs().len(), 1);
 }
 
 #[test]

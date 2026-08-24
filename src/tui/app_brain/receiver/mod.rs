@@ -2,6 +2,7 @@
 
 mod active;
 mod artifact;
+mod control;
 #[cfg(test)]
 mod diagnostics;
 mod dispatch;

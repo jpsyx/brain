@@ -213,10 +213,11 @@ Conversation rows store Brain-owned markdown plus the current
 frontend/native-session binding. Native resume is valid only for that same
 frontend; another frontend starts fresh from the portable transcript.
 Receiver-session registration rows preserve the exact workspace, logical
-conversation, actor, channel, frontend, remote instance, registered
-placeholder, and lifecycle-reported actual native ID. Registration and session
-ownership are created in one transaction, and binding replacement must match
-that complete durable tuple.
+conversation, actor, channel, frontend, remote instance, registered fresh ID,
+and lifecycle-reported actual native ID. Claude may use the registered ID as
+its native ID; Codex and OpenCode must report a distinct rotated ID.
+Registration and session ownership are created in one transaction, and binding
+replacement must match that complete durable tuple.
 `tui::receiver::planning` treats that binding only as a candidate. It asks the
 selected `AgentController` to validate the native history, requires the
 injected exact-session claim to succeed, and otherwise returns a fresh plan
@@ -1727,12 +1728,15 @@ again after commit before provider success. Provider and database IO never run
 while the control mutex is held.
 
 Queued inbound work never interrupts the interactive main panel or another
-receiver run. The one recurring receiver tick runs only while persisted intent
-is enabled and no receiver tab is active. It renews an already claimed job
-before honoring the sync-freshness gate, then claims the oldest ready durable
-row by `(received_at_unix_ms, job_id)`, plans through `AgentController`, and
-launches a new background receiver tab. Later arrivals remain durable and
-unclaimed until the active run reaches a terminal outcome. Receiver insertion,
+receiver run. The one recurring receiver tick claims new work only while
+persisted intent is enabled and its local run is idle. Disabling intent does not
+abandon a pending or active claim: the same tick continues renewal, freshness,
+completion, child-exit, and cleanup management until that run is terminal. It
+renews an already claimed job before honoring the sync-freshness gate, then
+claims the oldest ready durable row by `(received_at_unix_ms, job_id)`, plans
+through `AgentController`, and launches a new background receiver tab. Later
+arrivals remain durable and unclaimed until the active run reaches a terminal
+outcome. Receiver insertion,
 completion, and removal preserve the active main view, tab, panel visibility,
 and keyboard focus. `tui/receiver/policy.rs` retains pure retry and input-lock
 policy below the receiver facade.

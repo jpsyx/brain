@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 /// turn is eligible to be abandoned. Short enough that a wedged turn does not
 /// strand the messages queued behind it; a turn that is still visibly working
 /// is never abandoned on this deadline alone.
+#[allow(dead_code)] // Retained until BR-18 removes the legacy warm-panel runtime.
 pub const REMOTE_TURN_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// How long the panel must sit completely unchanged before the turn behind it
@@ -16,6 +17,7 @@ pub const REMOTE_TURN_TIMEOUT: Duration = Duration::from_secs(300);
 /// is waiting on a person, not on a model. Deliberately generous: the cost of
 /// calling a working turn stalled is killing a good answer, while the cost of
 /// waiting another minute on a truly wedged one is only that minute.
+#[allow(dead_code)] // Retained until BR-18 removes the legacy warm-panel runtime.
 pub const ACTIVE_WORK_IDLE: Duration = Duration::from_secs(90);
 
 #[must_use]
@@ -29,6 +31,7 @@ pub fn retry_ready(deadline: Option<Instant>, now: Instant) -> bool {
 /// Spread so the samples answer different questions: whether the prompt was
 /// accepted at all, whether a turn actually started, and what the screen looked
 /// like once it plainly should have finished.
+#[allow(dead_code)] // Retained until BR-18 removes the legacy warm-panel runtime.
 pub const PROBE_DELAYS: [Duration; 3] = [
     Duration::from_secs(5),
     Duration::from_secs(20),
@@ -37,6 +40,7 @@ pub const PROBE_DELAYS: [Duration; 3] = [
 
 /// Deadline for the probe after `fired` of them, or `None` once sampling ends.
 #[must_use]
+#[allow(dead_code)] // Retained until BR-18 removes the legacy warm-panel runtime.
 pub fn next_probe(fired: usize, dispatched_at: Instant) -> Option<Instant> {
     PROBE_DELAYS.get(fired).map(|delay| dispatched_at + *delay)
 }
@@ -53,6 +57,7 @@ pub fn next_probe(fired: usize, dispatched_at: Instant) -> Option<Instant> {
 /// activity means nothing has been observed working, so only the deadline
 /// applies.
 #[must_use]
+#[allow(dead_code)] // Retained until BR-18 removes the legacy warm-panel runtime.
 pub fn abandons_stalled_turn(
     started: Option<Instant>,
     last_panel_change: Option<Instant>,

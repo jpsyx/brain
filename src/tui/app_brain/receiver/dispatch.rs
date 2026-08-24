@@ -29,17 +29,19 @@ fn receiver_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
 impl App {
     /// Advance the single durable receiver consumer by one non-blocking step.
     pub(crate) fn tick_receiver(&mut self) {
-        if !self.receiver.is_enabled() {
-            return;
+        let receiver_enabled = self.receiver.is_enabled();
+        if receiver_enabled {
+            self.apply_receiver_restarts();
         }
         match self.receiver.take_durable_run() {
             DurableReceiverRun::Active(active) => self.tick_active_receiver_run(active),
             DurableReceiverRun::Claimed(claimed) => self.continue_claimed_receiver_run(claimed),
-            DurableReceiverRun::Idle => self.claim_receiver_run(),
+            DurableReceiverRun::Idle if receiver_enabled => self.claim_receiver_run(),
+            DurableReceiverRun::Idle => {}
         }
     }
 
-    fn claim_receiver_run(&mut self) {
+    pub(super) fn claim_receiver_run(&mut self) {
         if !self.brain.receiver_run_observations().is_empty() {
             return;
         }
@@ -80,6 +82,12 @@ impl App {
         {
             self.receiver
                 .store_durable_run(DurableReceiverRun::Claimed(claimed));
+            return;
+        }
+        if crate::server::receiver::parse_control_command(&claimed.claim.job().inbound().prompt)
+            == Some(crate::server::receiver::ControlCommand::NewSession)
+        {
+            self.complete_receiver_new_session(claimed);
             return;
         }
         self.launch_claimed_receiver_run(claimed);

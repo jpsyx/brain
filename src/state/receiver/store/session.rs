@@ -211,7 +211,9 @@ impl Db {
         let Some(native_session) = native_session else {
             return Ok(false);
         };
-        if native_session == registration.registered_session().as_str() {
+        if native_session == registration.registered_session().as_str()
+            && scope.agent_kind() != crate::agent::AgentKind::Claude
+        {
             return Ok(false);
         }
         let native_session = AgentSession::new(native_session)?;

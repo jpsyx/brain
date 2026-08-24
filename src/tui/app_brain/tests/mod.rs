@@ -77,6 +77,7 @@ mod opencode_launch;
 mod opencode_receiver;
 mod overlay_draw;
 mod receiver;
+mod receiver_durable_controls;
 mod receiver_durable_launch;
 mod receiver_durable_lifecycle;
 mod receiver_durable_support;
