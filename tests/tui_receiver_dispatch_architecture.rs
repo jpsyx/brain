@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 #[path = "tui_receiver_dispatch_architecture/analysis.rs"]
 mod analysis;
+#[path = "tui_receiver_dispatch_architecture/round_two_mutations.rs"]
+mod round_two_mutations;
 #[path = "tui_receiver_dispatch_architecture/source.rs"]
 mod source;
 

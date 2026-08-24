@@ -11,6 +11,7 @@ enum Ownership {
 pub(super) struct ProductionSource {
     pub(super) path: PathBuf,
     pub(super) module: Vec<String>,
+    pub(super) audited_orphan: bool,
 }
 
 pub(super) fn production_source_paths(root: &Path) -> Vec<PathBuf> {
@@ -37,6 +38,7 @@ pub(super) fn production_sources(root: &Path) -> Vec<ProductionSource> {
             graph.production.insert(ProductionSource {
                 module: inferred_module(&src, &path),
                 path,
+                audited_orphan: true,
             });
         }
     }
@@ -72,6 +74,7 @@ fn production_roots(src: &Path, inventory: &[PathBuf]) -> Vec<ProductionSource> 
         .map(|path| ProductionSource {
             module: root_module(path),
             path: path.clone(),
+            audited_orphan: false,
         })
         .collect()
 }
@@ -175,6 +178,7 @@ impl SourceGraph {
                 self.production.insert(ProductionSource {
                     path: path.to_path_buf(),
                     module: module.to_vec(),
+                    audited_orphan: false,
                 });
             }
             Ownership::Test => {

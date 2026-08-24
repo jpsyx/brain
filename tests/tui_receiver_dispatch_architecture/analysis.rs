@@ -21,7 +21,6 @@ pub(super) struct TypeFact {
 
 #[derive(Clone, Debug)]
 pub(super) struct RawCall {
-    pub(super) name: String,
     pub(super) exact_target: Option<String>,
 }
 
@@ -41,7 +40,6 @@ pub(super) struct Program {
 
 pub(super) fn receiver_violations(root: &Path) -> Vec<String> {
     let program = collect_program(root);
-    let by_name = function_names(&program);
     let mut reachable = HashSet::new();
     let mut pending = program
         .functions
@@ -58,7 +56,7 @@ pub(super) fn receiver_violations(root: &Path) -> Vec<String> {
             continue;
         };
         for call in &function.calls {
-            if let Some(target) = resolve_call(call, &program, &by_name)
+            if let Some(target) = resolve_call(call, &program)
                 && !reachable.contains(&target)
             {
                 pending.push_back(target);
@@ -85,27 +83,13 @@ pub(super) fn receiver_tick_call_count(root: &Path) -> usize {
     collect_program(root).receiver_tick_calls
 }
 
-fn function_names(program: &Program) -> HashMap<&str, Vec<&str>> {
-    let mut names = HashMap::<&str, Vec<&str>>::new();
-    for id in program.functions.keys() {
-        let name = id.rsplit("::").next().expect("function ID has a name");
-        names.entry(name).or_default().push(id);
-    }
-    names
-}
-
-fn resolve_call(
-    call: &RawCall,
-    program: &Program,
-    by_name: &HashMap<&str, Vec<&str>>,
-) -> Option<String> {
+fn resolve_call(call: &RawCall, program: &Program) -> Option<String> {
     if let Some(exact) = &call.exact_target
         && program.functions.contains_key(exact)
     {
         return Some(exact.clone());
     }
-    let candidates = by_name.get(call.name.as_str())?;
-    (candidates.len() == 1).then(|| (*candidates[0]).to_owned())
+    None
 }
 
 pub(super) fn receiver_owned_module(module: &[String]) -> bool {
@@ -140,10 +124,7 @@ pub(super) fn classify_operation(owner: &TypeFact, method: &str) -> Option<&'sta
     if owner.unix_listener && method == "accept" {
         return Some("UnixListener accept");
     }
-    if owner.unix_stream
-        && owner.inbound_job
-        && matches!(method, "read" | "read_exact" | "read_to_end" | "read_line")
-    {
+    if owner.unix_stream && matches!(method, "read" | "read_exact" | "read_to_end" | "read_line") {
         return Some("Unix socket read");
     }
     if owner.channel_receiver
