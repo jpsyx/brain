@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::dedupe::dedupe_habit_occurrences;
 use super::reconcile::{maximum_display_number, reconcile};
 use super::relationships::{emit_final_references, resolve_side_references};
 use super::{SchemaStatus, Table};
@@ -15,14 +16,14 @@ pub struct Report {
     pub soft_conflicts: Vec<String>,
 }
 
-struct Cols {
+pub(super) struct Cols {
     status: Option<usize>,
     completed: Option<usize>,
     last_touched: Option<usize>,
 }
 
 impl Cols {
-    fn from_header(header: &[String]) -> Self {
+    pub(super) fn from_header(header: &[String]) -> Self {
         let find = |name: &str| header.iter().position(|column| column == name);
         Self {
             status: find("status"),
@@ -99,7 +100,7 @@ fn resolve_conflict(
     )
 }
 
-fn field_merge(
+pub(super) fn field_merge(
     base: Option<&[String]>,
     ours: &[String],
     theirs: &[String],
@@ -209,6 +210,9 @@ pub fn merge(base: &Table, ours: &Table, theirs: &Table) -> (Table, Report) {
         rows,
         schema_status: ours.schema_status,
     };
+    let (deduped, dedupe_notes) = dedupe_habit_occurrences(&mut merged);
+    report.deleted += deduped;
+    report.soft_conflicts.extend(dedupe_notes);
     reconcile(&mut merged, allocation_floor);
     (emit_final_references(&merged), report)
 }

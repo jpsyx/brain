@@ -1401,7 +1401,11 @@ brain-root lookup.
   orders all known fields canonically and declared forward-compatible fields
   lexically. The
   inactive task-schema helper is never called by sync; see
-  [data-model.md](data-model.md) for the rules. Distinct UUIDs that claim one
+  [data-model.md](data-model.md) for the rules. Habit rows also dedup by
+  `(task_name, due_date)` right after the row union, so a habit occurrence
+  spawned independently on two machines before they sync collapses to one
+  instead of leaving a duplicate row behind; see
+  [data-model.md](data-model.md) for the fold rules. Distinct UUIDs that claim one
   display ID are renumbered deterministically, side-specific `blocked_by` and
   bounded task references in free-text `see_also` are resolved through UUIDs;
   URL spans and non-reference text remain byte-preserved. Final project reverse links are

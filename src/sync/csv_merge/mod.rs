@@ -1,5 +1,6 @@
 //! Pure UUID-aware three-way merge for task and habit CSVs.
 
+mod dedupe;
 mod merge;
 mod reconcile;
 mod relationships;

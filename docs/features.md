@@ -1156,7 +1156,16 @@ marks a task `status=done` always wins that row's status and completed date;
 a same-field disagreement otherwise resolves by whichever side's
 `last_touched` is more recent. Both `tasks.csv` and `habits.csv` carry that
 column; legacy rows without a parseable timestamp fall back to a deterministic
-tiebreak, journalled as a soft conflict. Legacy tables remain keyed by
+tiebreak, journalled as a soft conflict. After the id-keyed merge, habit rows
+get one more guarantee: a recurring habit's next occurrence is a brand-new
+row, so if the same occurrence is spawned independently on two machines
+before they sync, the two spawns carry different `task_uuid`s and merge as
+two unrelated "added" rows — the id-keyed merge has no way to see they're the
+same occurrence. A dedup pass collapses any rows sharing the same habit name
+and due date back down to one, folding their fields through the same
+done-wins and last-touched rules described above, so a sync never leaves
+duplicate habit occurrences behind. This never fires on `tasks.csv`, whose
+schema carries no recurrence columns. Legacy tables remain keyed by
 `task_id`; schema-v2 tables are aligned by column name and keyed by immutable
 `task_uuid`. Before reading or merging either remote CSV, Brain fetches and
 validates the remote `tasks/SCHEMA.json`. A missing marker or the recognized

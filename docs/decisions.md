@@ -1387,6 +1387,36 @@ For a contested label, the lexicographically smaller UUID retains it; loser
 UUIDs are sorted and assigned above the maximum number visible in base, local,
 or remote. This side-independent rule makes mirror-order merges byte-identical.
 
+**Why habit occurrences dedup by `(task_name, due_date)` instead of staying
+UUID-distinct.** The rule directly above — UUID-distinct rows both survive —
+is correct for genuinely independent rows, but a recurring habit's next
+occurrence breaks that assumption: it's a *new* row (a fresh `task_uuid`,
+minted by `spawn_next_occurrence`/`reconcile_enabled`) representing something
+that isn't actually new — the next date of the same recurring commitment. If
+that occurrence gets spawned on two machines before they sync (complete the
+same habit on your phone and your laptop before either syncs, say), the two
+spawns are UUID-distinct by construction, so the id-keyed merge has no way to
+recognize them as the same occurrence and both survive as ordinary "added"
+rows. That produced real duplicate habit rows in practice. Two options were
+considered: (a) prevent the race at spawn time (e.g. a deterministic UUID
+derived from `task_name` + `due_date`, so both machines would mint the *same*
+UUID and the id-keyed merge would collapse them for free), or (b) detect and
+collapse the duplicate after the fact. (a) was rejected: it would change the
+UUID scheme's meaning everywhere else (every other row's UUID is opaque
+identity, never derived from mutable content) for a benefit narrow to one
+race window, and a content-derived UUID stops being stable the moment
+`task_name` is edited. (b) — a dedup pass keyed on `(task_name, due_date)`,
+scoped to habit-shaped tables only, running after the row union and before
+display-ID reconciliation — fixes the actual failure mode without touching
+UUID semantics anywhere else. Folding duplicates through the existing
+`field_merge` rules (completion wins first, then last-touched) rather than
+picking one wholesale means a `done` duplicate is never silently discarded in
+favor of a `not_started` one, whichever side produced which. The survivor's
+UUID is the lexicographically smallest in the group — the same
+side-independent tiebreak used for display-ID collisions above — so this
+stays convergent and idempotent by construction: a table with no duplicate
+occurrences, or an already-deduped one, is unaffected.
+
 **Why relationships resolve before display reconciliation.** A remote child's
 `blocked_by=T10` means the remote `T10`, not whichever UUID later wins that
 label globally. Each side therefore resolves `blocked_by` labels and bounded

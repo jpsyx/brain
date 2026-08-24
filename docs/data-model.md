@@ -1653,7 +1653,34 @@ malformed, incompatible, newer, or local/remote status mismatch is a refusal.
 Any rejection occurs before
 either CSV, baseline, metadata file, remote object, or counter changes.
 
-After row merge, `reconcile.rs` groups equal display IDs. The
+**Habit occurrence dedup (`dedupe.rs`).** The id-keyed rules above see
+identity only through `task_uuid`, which is correct for edits to an existing
+row but not for a recurring habit's next occurrence: completing (or reviving,
+or skipping) a habit spawns a brand-new row with a fresh `task_uuid`
+(`tasks::complete::complete_ops::spawn_next_occurrence`,
+`tasks::triage_habits::reconcile::reconcile_enabled`). If that same
+occurrence is spawned independently on both machines before they sync, each
+spawn mints its own UUID (and, since each machine's `.habits_next_id` counter
+is independent until synced, almost always its own display ID too); neither
+side's table contains a duplicate on its own, so the id-keyed union has no
+way to see the two rows as the same occurrence — both merge in as unrelated
+"added" rows. `dedupe_habit_occurrences` runs immediately after the row union
+and immediately before display-ID reconciliation, and closes that gap: it
+groups the merged rows by `(task_name, due_date)`, and for any group with
+more than one row, folds them into a single survivor through the same
+`field_merge` rules used for a same-`task_uuid` conflict — completion wins
+first, at the row level, then every other column merges independently — so a
+`done` occurrence always beats a duplicate that isn't, and remaining ties
+break on `last_touched` exactly as any other field conflict does. The
+surviving `task_uuid` is the lexicographically smallest in the group, a pure
+function of the group's content so it never depends on which side is `ours`
+vs. `theirs` (required for convergence). It only runs against schema-v2,
+`task_uuid`-keyed tables that have a `recur_interval` column — i.e. exactly
+`habits.csv`'s shape — so it never touches `tasks.csv`, which has no
+recurrence columns and cannot exhibit this race. Each collapse is journalled
+as a soft conflict and counted in the `Report`'s `deleted` total.
+
+After row merge and habit dedup, `reconcile.rs` groups equal display IDs. The
 lexicographically smallest UUID retains each contested label; loser UUIDs are
 ordered deterministically and assigned numbers after the maximum display
 number across all three inputs. `relationships.rs` first resolves each side's
