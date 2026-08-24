@@ -188,44 +188,41 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    or any time the user asks for "the agenda for X"), write the
    rendered markdown to `/tmp/<TARGET_DATE>.md` where
    `<TARGET_DATE>` is the agenda's date in `YYYY-MM-DD`. Overwrite
-   if the file exists. When the user reworks an existing agenda —
-   or completes/defers/drops tasks that appear on it — update the
-   same file so it stays current. The user opens these files via
+   if the file exists. When the user *reworks* an existing agenda,
+   update the same file so it stays current; task **mutations** keep
+   it current on their own (next paragraph). The user opens these files via
    the `agenda` zsh function (`agenda today`, `agenda tomorrow`,
    `agenda 2026-06-09`, or bare `agenda` for the latest).
 
-   **Task-mutation auto-update — handled by the mutator paths.**
-   `defer_task.py`, `defer_habit.py`, and `touch_task.py` each invoke
-   [scripts/update_agenda_on_mutation.py](scripts/update_agenda_on_mutation.py)
-   at the end of a successful mutation. That script performs the
-   full checklist programmatically: drops the task from MIT
-   callout / Suggested order / Cut order (with chunked-task
-   next-sibling swap on `done`), re-derives Today's habits and
-   Completed today from the CSVs, and regens
-   `$AGENDA_DIR/agenda-<today>.pdf` only if a PDF already exists
-   on disk (no PDF → no regen, per the carve-out below). Idempotent
-   — safe to re-run, no-op when there's nothing to do.
+   **Task-mutation auto-update — brain does it, not you.**
+   Every task/habit mutation keeps `/tmp/<today>.md` current on its
+   own. There is one implementation, in the `brain` binary:
 
-   Completion is native in the `brain` binary: use
-   `brain tasks complete <id>` for tasks and habits. If the completed
-   item appears on an already-written agenda, update that agenda as
-   part of the same workflow.
+   - **Completion is native and self-syncing.** `brain tasks complete
+     <id>` (tasks and habits) mutates the CSV *and* syncs the agenda in
+     the same command. So does the tasks view's mark-complete.
+   - **The mutator scripts delegate to the same code.**
+     `defer_task.py`, `defer_habit.py`, `touch_task.py`, and
+     `backlog_task.py` each call
+     [scripts/update_agenda_on_mutation.py](scripts/update_agenda_on_mutation.py)
+     at the end of a successful mutation, which shells out to
+     `brain tasks sync-agenda`.
+   - **Anything else you mutate by hand:** run
+     `brain tasks sync-agenda <ID> --action done|defer|touch`
+     yourself. Bare `brain tasks sync-agenda` (no id) just refreshes
+     the CSV-derived snapshot sections.
 
-   **You do NOT need to run any of that yourself after invoking a
-   mutator script.** Don't grep the agenda, don't rewrite the
-   markdown, don't regen the PDF — the scripts already did it.
-   Trust the side effect and move on. The only time you should
-   touch `/tmp/<today>.md` directly is when the user explicitly
-   asks for an agenda change that isn't a mutation (e.g. "redo the
-   Suggested order", "swap T48 and T54", "rebuild from scratch"),
-   when you complete a task/habit via `brain tasks complete`, or
-   when you read-modify-write a CSV row by hand instead of via
-   a script (which you shouldn't — see operating principle 1).
+   **So do NOT rewrite the agenda after a mutation.** Don't grep it,
+   don't re-emit the markdown, don't regen the PDF. A freehand rewrite
+   is how agendas lose their title, load line, MITs, and suggested
+   order — the sync below preserves every section you don't own, and
+   you cannot. The only time you touch `/tmp/<today>.md` directly is a
+   **non-mutation** change the user asked for: "redo the Suggested
+   order", "swap T48 and T54", "rebuild from scratch".
 
-   The script's behavior, for reference (you don't need to
-   reproduce it):
+   What the sync does, for reference (you don't need to reproduce it):
 
-   1. Stop if `/tmp/<today>.md` doesn't exist.
+   1. Stop if the agenda file doesn't exist. Nothing to sync.
    2. Surgical edits to MIT callout / Suggested order / Cut order:
       drop lines referencing the mutated `T###`/`H###`, renumber
       Suggested + Cut. On `done` for a chunk with an unfinished
@@ -234,12 +231,19 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
       has exactly one actionable chunk visible).
    3. Re-derive Today's habits and Completed today from the CSVs
       every run — catches habits flipped to done outside this
-      session (other Claude runs, /triage, manual edits).
-   4. Regen `$AGENDA_DIR/agenda-<today>.pdf` only if it already
+      session (other agent runs, /triage, manual edits).
+   4. Reassemble every other section byte-for-byte: the title,
+      `**Load:**`, `**Bottom line:**`, an appended appendix, anything
+      brain doesn't recognize.
+   5. Regen `$AGENDA_DIR/agenda-<today>.pdf` only if it already
       exists. No PDF on disk → skip (a CSV mutation isn't a
       request for a fresh printout; if the user wants one they'll
       ask). This is the one carve-out to the "After every agenda
       write…" rule below.
+
+   It is idempotent and best-effort: re-running it changes nothing,
+   and a failure is logged rather than failing the mutation that
+   already landed.
 
    **After every agenda write (initial OR update), also generate
    a printable PDF in `$AGENDA_DIR/` — except for the

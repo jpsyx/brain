@@ -216,3 +216,53 @@ T1,Ship fix,code,done,,p1,,false,,me,,,,,,,,'',2026-07-01,,2026-07-01,\n",
         "selected-root task row was not repaired:\n{updated}"
     );
 }
+
+/// The `/todo` mutators no longer carry their own copy of the agenda-sync
+/// logic: they hand the mutated id to `brain tasks sync-agenda`, the same
+/// implementation brain's native completion runs in-process. `BRAIN_BIN`
+/// records the invocation instead of running the real binary.
+#[test]
+fn mutator_scripts_delegate_the_agenda_sync_to_the_brain_binary() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("brain");
+    let tasks_dir = root.join("tasks");
+    std::fs::create_dir_all(&tasks_dir).unwrap();
+    std::fs::write(
+        tasks_dir.join("tasks.csv"),
+        "task_id,task_name,status,priority,due_date,created_date,last_touched\n\
+T1,Ship fix,not_started,p1,2026-07-20,2026-07-01,2026-07-01\n",
+    )
+    .unwrap();
+
+    let recorded = home.path().join("argv.txt");
+    let fake_brain = home.path().join("fake-brain");
+    std::fs::write(
+        &fake_brain,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\n",
+            recorded.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake_brain, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let output = script_command("touch_task.py", home.path(), &root)
+        .env("BRAIN_BIN", &fake_brain)
+        .arg("T1")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let argv = std::fs::read_to_string(&recorded).unwrap_or_default();
+    assert_eq!(
+        argv.trim(),
+        "-b test tasks sync-agenda T1 --action touch",
+        "the mutator must delegate to the binary, naming the mutated workspace"
+    );
+}

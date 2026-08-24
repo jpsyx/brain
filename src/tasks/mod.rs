@@ -9,6 +9,7 @@
 //! main-view / sub-view / brain-panel vocabulary.
 
 pub mod add;
+pub(crate) mod agenda;
 pub mod cli;
 pub mod complete;
 pub mod doctor;

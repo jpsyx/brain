@@ -785,6 +785,26 @@ first move is a failing test that reproduces it, *then* the fix.
   spawn a tiny real PTY running `seq`; this is the one place we let a child
   process in because it is deterministic and sub-second.
 
+- **The agenda sync** (`tasks/agenda/tests/`, `tests/agenda_sync_cli.rs`). The
+  decision is pure — `sync_markdown` over agenda text, CSV rows, and a fixed
+  date — so the section-preservation guarantee is asserted as whole-document
+  equality, not substring probes. The filesystem shell is tested against a
+  `Targets` struct built from a `tempfile::tempdir()`, including PDF regen
+  through a stub `markdown-to-pdf` that copies its input to `--out` so the test
+  can read exactly what the renderer was fed. `tests/agenda_sync_cli.rs` drives
+  the real binary end-to-end.
+
+  **Isolate `agenda_markdown_dir` in any test that runs a mutating tasks command
+  through the binary.** It defaults to the machine's real `/tmp`, which `HOME`
+  and `XDG_CONFIG_HOME` do not redirect, so a test that skips this rewrites the
+  developer's own agenda for today from its fixture CSVs. Do it with the binary
+  (`brain env set agenda_markdown_dir=<tempdir>`) after the workspace is ready;
+  `tests/verbose_cli.rs::isolate_agenda_dir` is the pattern.
+- **The `/todo` mutator → binary delegation**
+  (`tests/todo_script_mutators.rs`). `BRAIN_BIN` points at a shell script that
+  records its argv, so the seam is asserted (`-b <workspace> tasks sync-agenda
+  <id> --action <action>`) without running a real sync.
+
 ## What we deliberately don't test
 
 - **The interactive event loop.** `TuiRuntime` opens `/dev/tty`, toggles raw

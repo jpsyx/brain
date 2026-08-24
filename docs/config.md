@@ -58,6 +58,7 @@ Worked examples:
 | --- | --- | --- |
 | `root`, `sync.*` | env | Q1: needed before the workspace exists locally. |
 | `claude_cmd`, `codex_cmd`, `opencode_cmd` | env (workspace record) | Q2: an absolute path/command that is only correct on the machine that has that binary. Q2a: a workspace may legitimately launch its frontend differently. |
+| `agenda_markdown_dir` vs. `agenda_dir` | env (workspace record) vs. config | Q2: `/tmp` is a detail of one filesystem, so the markdown's directory is env. Where the printable is filed is a preference that should follow you between machines, so `agenda_dir` is portable config. Same feature, opposite answers — the question is always "could two machines legitimately disagree?" |
 | `markdown_to_pdf_path` | env (machine-global) | Q2: a machine-specific binary path. Q2a: one machine, one binary — every workspace on it must resolve the same one. |
 | `default_agent_frontend` | workspace record | env | Q2: which frontend you drive is a per-machine preference; a laptop with only Claude installed must not be forced onto Codex by another machine. |
 | `twilio_*`, `resend_*` | env (workspace record) | Q2: exactly one machine serves receiver ingress for a workspace at a time, so the provider credentials belong to that machine, not to every machine. Q2a: each workspace answers on its own number and address, which is also what routes an inbound message to it. |
@@ -306,6 +307,7 @@ workspace.
 | Variable | Scope | Default | Meaning |
 | --- | --- | --- | --- |
 | `markdown_to_pdf_path` | machine-global | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**, shared by every workspace registered here. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
+| `agenda_markdown_dir` | workspace record | `/tmp` | Directory the day's agenda markdown (`<YYYY-MM-DD>.md`) lives in on **this machine**, tilde-expanded. Machine-local because it is a path on one filesystem, and per-workspace so two workspaces can keep separate agendas if they want. `/tmp` by default: the agenda is a disposable daily snapshot of the CSVs, so it must not land inside (and sync out of) a workspace root. Read by the agenda sync — see [features.md](features.md). |
 | `claude_cmd` | workspace record | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
 | `codex_cmd` | workspace record | `codex` | Base command that launches the brain panel's Codex frontend on **this machine**. Brain appends `--dangerously-bypass-hook-trust` for its vetted workspace lifecycle hooks. It uses `resume <id>` when the exact session rollout remains on disk and starts fresh when that rollout is missing. Blank falls back to `codex`. |
 | `opencode_cmd` | workspace record | `opencode` | Command used to launch OpenCode on **this machine**. Blank falls back to `opencode`; Brain appends `--agent brain`, optional validated `--session <id>`, and optional `--prompt <text>`. The command must pass Brain's isolated supported-feature probes. |
@@ -764,13 +766,16 @@ the `name=value` form.
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
 | `enable_daily_triage_check` | `true` | Portable startup-nudge policy. `false` means no shell launched against this workspace ever opens the daily-triage modal; the post-sync refresh gate still runs. Accepts exactly `true` or `false`. The command palette's Disable/Enable daily triage alert row flips the same state for one running session without writing config. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
+| `agenda_dir` | `~/Downloads` | Directory the generated daily-agenda **PDF** is written to (`agenda-<YYYY-MM-DD>.pdf`), tilde-expanded. Portable, unlike the markdown's `agenda_markdown_dir`: where you file a printable is a preference that should follow you between machines, while `/tmp` is a filesystem detail of one. |
+| `calendar_id` | *(unset)* | Calendar the agenda build pulls busy blocks from (e.g. a Google Calendar id/email). Empty disables calendar-aware scheduling; core agenda ordering is calendar-optional. |
 | `skills_auto_sync` | `true` | When `true`, the bundled skills are auto-rendered into the selected workspace's `.agents/skills` directory on two triggers: a `config`/`personalize` mutation (`skills::resync_skills`), and the first ready-workspace invocation after the brain binary's version changes (`skills::resync_on_version_change`). Default `true`; set `false` to manage workspace skills only via explicit `brain skills sync`. Read by `src/skills/`. |
 
-`markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, and `opencode_cmd` are **not** in this table
+`markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, `opencode_cmd`, and
+`agenda_markdown_dir` are **not** in this table
 — they live in [brain env](#brain-env-configbrainenvjson)
 (`brain env set markdown_to_pdf_path=…`,
 `brain env set claude_cmd=…`, `brain env set codex_cmd=…`,
-`brain env set opencode_cmd=…`), since they are
+`brain env set opencode_cmd=…`, `brain env set agenda_markdown_dir=…`), since they are
 machine-specific values.
 
 Every variable is optional; a missing file or missing field falls back to the

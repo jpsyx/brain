@@ -1106,6 +1106,35 @@ wrapper, since a child process can't call a shell function. The output path is
 - **Best-effort.** A converter failure is swallowed (like a failed file-open)
   so a broken toolchain can't tear the shell down.
 
+## Handoff: the bundled `/todo` mutators → `brain tasks sync-agenda`
+
+The bundled `/todo` mutator scripts (`defer_task.py`, `defer_habit.py`,
+`touch_task.py`, `backlog_task.py`) each end a successful CSV mutation by
+calling `scripts/update_agenda_on_mutation.py`, which is now a **thin
+delegator**: it shells back out to the brain binary.
+
+    <brain> [-b $BRAIN_WORKSPACE] tasks sync-agenda <ID> --action <done|defer|touch>
+
+The binary is `$BRAIN_BIN` when set, else `brain` on `PATH`; with neither, the
+script logs and skips. `BRAIN_WORKSPACE` names the workspace whose CSVs were
+mutated (these scripts only ever run inside a Brain-launched session, so it is
+set), which keeps a sync from landing on a different workspace's agenda. The
+caller-side actions `backlog` and `restore` map onto `defer` and `touch`.
+
+The delegation exists so the section-preserving sync has exactly **one**
+implementation. It used to live in Python, where only the script mutators
+reached it — brain's own native completion had no path to it at all and simply
+left the agenda stale, which is what made a freehand agent rewrite the only
+recourse (and dropped whole sections when that rewrite went wrong). The logic
+now lives in `src/tasks/agenda/`, completion runs it in-process, and the
+scripts run the same code through the CLI.
+
+The handoff is best-effort in both directions: the child is run with a 60s
+timeout, a non-zero exit is logged to stderr, and the mutator script always
+exits 0. Python retains only `_render_ready_markdown`, which the agenda-*build*
+flow (not the mutation path) uses to strip HTML comments before rendering a
+fresh printable.
+
 ## Handoff: `osascript` → Finder trash (the "Delete" command)
 
 The "Delete" command (palette row / `Ctrl-D` on any entry) moves the

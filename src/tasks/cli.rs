@@ -80,6 +80,13 @@ pub enum Command {
     /// `tasks search lamaze classes` ≡ `tasks lamaze classes`.
     Search(SearchArgs),
 
+    /// Re-sync the day's agenda markdown after a task/habit mutation: drop the
+    /// id from the MIT callout / Suggested order / Cut order and re-derive
+    /// Today's habits + Completed today from the CSVs, leaving every other
+    /// section byte-for-byte. Idempotent; a no-op when the date has no agenda.
+    #[command(name = "sync-agenda")]
+    SyncAgenda(SyncAgendaArgs),
+
     /// Validate selected-workspace requirements, session DB, and Claude/Codex
     /// hooks. Exits 0 when required agent-session checks pass.
     Doctor,
@@ -193,6 +200,35 @@ pub struct SetArgs {
 pub struct CompleteArgs {
     /// Task or habit ID: t123, T123, 123 (assumed task), h43, H43.
     pub id: String,
+}
+
+/// What happened to the mutated row, which decides whether the actionable
+/// sections are edited at all.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AgendaAction {
+    /// Completed: drop it, handing a chunked task's slot to its next chunk.
+    Done,
+    /// Moved off today: drop it.
+    Defer,
+    /// Still on today's plan: refresh only the CSV-derived snapshots.
+    #[default]
+    Touch,
+}
+
+#[derive(Args, Debug)]
+pub struct SyncAgendaArgs {
+    /// Task or habit ID the mutation touched: t123, T123, 123, h43, H43.
+    /// Omit it to only re-derive the snapshot sections from the CSVs.
+    pub id: Option<String>,
+
+    /// What happened to that row. Defaults to `touch`, which never edits the
+    /// plan — so a caller that forgets it can't drop a line by accident.
+    #[arg(long, value_enum, default_value_t = AgendaAction::Touch)]
+    pub action: AgendaAction,
+
+    /// The agenda's date. Defaults to today.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub date: Option<String>,
 }
 
 #[derive(Args, Debug)]

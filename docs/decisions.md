@@ -4470,3 +4470,82 @@ not render is unmarked, so the worst outcome of a lost marker is a leftover that
 stays, never a user's skill that is deleted. The same asymmetry rules the
 frontend sweep, which removes only symlinks that point into `.agents/skills` at
 a target that no longer exists.
+
+## Why native completion syncs the agenda instead of leaving it stale
+
+The day's agenda markdown is a snapshot of the CSVs. Every *script* mutator
+(`defer_task.py`, `touch_task.py`, …) had always re-synced it; brain's own
+native completion never did. Nothing in `brain tasks complete` or the tasks
+view's mark-complete touched the file, so the only documented way for a
+completion to reach the agenda was `/todo`'s operating principle 7 telling an
+agent to notice and rewrite `/tmp/<today>.md` by hand — a freehand rewrite of a
+file whose other sections the agent had no reason to reproduce exactly. That is
+how a live agenda lost its title, load line, MIT callout, and suggested order
+in one edit.
+
+The alternative was to make the staleness *official*: let a native completion
+change nothing and wait for the next agenda build to re-derive everything. It
+is simpler, and it is what `brain habits skip` still does. It was rejected
+because the agenda is not a report you regenerate on demand — the user works
+off it, and prints it, for the whole day. A completion that visibly leaves a
+done task sitting in "Suggested order" trains the user to distrust the file,
+and "the next build will fix it" can be hours away.
+
+So completion syncs, under three constraints that make the sync safe to run on
+every mutation:
+
+- **It only rewrites what it owns.** The MIT callout, Suggested order, Cut
+  order, Today's habits, and Completed today. The document is parsed into a
+  preamble plus `## ` sections and reassembled; anything else, including
+  sections brain has never heard of, comes back byte-for-byte. This is the
+  property the freehand rewrite could not offer.
+- **It is best-effort, never a gate.** The CSVs are already written when the
+  sync runs. A missing agenda, an unreadable file, or a broken PDF renderer is
+  logged and swallowed. A mutation that succeeded must not be reported as
+  failed because a downstream snapshot could not be refreshed.
+- **It is idempotent, and silent when there is nothing to do.** Re-running on
+  an accurate agenda writes nothing and regenerates nothing, so callers can
+  fire it after every mutation without thinking about it.
+
+## Why the agenda sync moved into the binary and Python delegates to it
+
+The task-mutation sync existed in Python and needed to exist in Rust. Keeping
+both was the obvious cheap answer and the wrong one: two implementations of
+"which lines may I delete from a file the user is reading" drift, and the
+drift is invisible until it eats a section.
+
+The logic moved to Rust (`src/tasks/agenda/`) rather than Rust shelling out to
+the Python, because the sync is now on brain's own completion path. Depending on
+a bundled skill script being installed, and on a `python3`, for a guarantee the
+binary makes about its own mutation, inverts the dependency: the skill is
+brain's output, not its runtime. In Rust the decision is also a pure function
+over parsed markdown and CSV rows, which is where this repo tests things.
+
+`brain tasks sync-agenda` then exposes it, and
+`update_agenda_on_mutation.py` became a thin delegator that calls it. The
+scripts keep their existing best-effort contract (60s timeout, log and exit 0),
+and they gain the configured `agenda_markdown_dir` instead of a hardcoded
+`/tmp`. The script's caller-side `backlog` / `restore` actions — which the old
+argparse rejected outright, so `backlog_task.py`'s agenda updates had silently
+never run — map onto `defer` and `touch`.
+
+## Why the agenda markdown's directory is a declared env variable
+
+`/tmp/<date>.md` is where the agenda lives, and hardcoding it seemed harmless
+until a test proved otherwise: an integration test that runs the real binary
+against a temporary workspace, with `HOME` and `XDG_CONFIG_HOME` isolated,
+still resolved the *machine's* `/tmp` — and rewrote the developer's real agenda
+for today from the fixture's two-row CSV. That is the exact corruption this work
+was fixing, reproduced by the fix.
+
+`agenda_markdown_dir` (brain env, default `/tmp`) makes the location declarable,
+so a test can point it at a temporary directory and an end-to-end test can prove
+the wiring without touching anything real. It is env rather than portable config
+for the usual reason (see config.md): `/tmp` is a fact about one filesystem. Its
+sibling `agenda_dir`, which holds the printable, stays portable config, because
+where you file something you print is a preference that should follow you
+between machines.
+
+The trap it removes is worth stating plainly for whoever writes the next test:
+**any test that runs a mutating tasks command through the binary must isolate
+`agenda_markdown_dir` first.** `HOME` and `XDG_CONFIG_HOME` do not cover it.
