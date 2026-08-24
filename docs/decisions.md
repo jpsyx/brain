@@ -2468,6 +2468,15 @@ whole attempt and the event loop retains the active run for another tick.
 Replies, session release, and tab cleanup begin only after that transaction
 commits. This does not add BR-15 phase proof or BR-16/BR-17 recovery policy.
 
+The registered ID has two meanings that the durable conversation distinguishes.
+A fresh run registers Brain's launch ID: Claude may use it directly, while
+Codex and OpenCode must replace their placeholder. A resumed run registers the
+same native ID that the exact conversation already binds, so equality confirms
+resume for every frontend. Terminal completion also carries the session ID
+validated against the artifact into the immediate transaction. That transaction
+requires the same lifecycle row to remain locked and `completed`; a concurrent
+SessionStart rotation cannot bind its new active session to the old artifact.
+
 The same durability principle applies to jobs. A claim records expiring owner
 authority on the row instead of popping it. On crash, queued work becomes
 claimed. Due-retry work keeps `retrying` while its consumed schedule clears, so

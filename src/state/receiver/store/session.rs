@@ -181,6 +181,7 @@ impl Db {
             &transaction,
             &self.workspace_id,
             registration,
+            ReceiverBindingTarget::Current,
             observed_at_unix_ms,
         )? {
             return Ok(false);
@@ -220,16 +221,29 @@ impl Db {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum ReceiverBindingTarget<'session> {
+    Current,
+    ExactCompleted(&'session AgentSession),
+}
+
 pub(super) fn replace_receiver_binding_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     workspace_id: &str,
     registration: &ReceiverSessionAttribution,
+    target: ReceiverBindingTarget<'_>,
     observed_at_unix_ms: u64,
 ) -> Result<bool> {
     let scope = registration.scope();
+    let exact_completed_session = match target {
+        ReceiverBindingTarget::Current => None,
+        ReceiverBindingTarget::ExactCompleted(session) => Some(session.as_str()),
+    };
     let native_session = transaction
         .query_row(
-            "SELECT active.agent_session_id
+            "SELECT active.agent_session_id,
+                    COALESCE(conversation.agent_kind = registration.agent_kind
+                      AND conversation.agent_session_id = active.agent_session_id, FALSE)
                  FROM receiver_session_registrations AS registration
                  JOIN brain_sessions AS active
                    ON active.brain_instance_id = registration.brain_instance_id
@@ -238,13 +252,22 @@ pub(super) fn replace_receiver_binding_in_transaction(
                   AND active.actor_id = registration.actor_id
                   AND active.channel = registration.channel
                   AND active.locked_pid IS NOT NULL
+                 JOIN receiver_conversations AS conversation
+                   ON conversation.workspace_id = registration.workspace_id
+                  AND conversation.conversation_id = registration.conversation_id
+                  AND conversation.user_id = registration.actor_id
+                  AND conversation.channel = registration.channel
                  WHERE registration.workspace_id = ?1
                    AND registration.conversation_id = ?2
                    AND registration.agent_kind = ?3
                    AND registration.actor_id = ?4
                    AND registration.channel = ?5
                    AND registration.brain_instance_id = ?6
-                   AND registration.registered_session_id = ?7",
+                   AND registration.registered_session_id = ?7
+                   AND (?8 IS NULL OR (
+                     active.agent_session_id = ?8
+                     AND active.completion_status = 'completed'
+                   ))",
             rusqlite::params![
                 workspace_id,
                 registration.conversation_id().to_string(),
@@ -253,15 +276,17 @@ pub(super) fn replace_receiver_binding_in_transaction(
                 scope.actor().channel().as_str(),
                 registration.instance(),
                 registration.registered_session().as_str(),
+                exact_completed_session,
             ],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
         )
         .optional()?;
-    let Some(native_session) = native_session else {
+    let Some((native_session, confirms_resume)) = native_session else {
         return Ok(false);
     };
     if native_session == registration.registered_session().as_str()
         && scope.agent_kind() != crate::agent::AgentKind::Claude
+        && !confirms_resume
     {
         return Ok(false);
     }

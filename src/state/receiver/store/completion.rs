@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use super::{to_i64, validated_owner};
+use crate::agent::AgentSession;
 use crate::state::{Db, ReceiverJobId, ReceiverSessionAttribution};
 
 impl Db {
@@ -10,6 +11,7 @@ impl Db {
         job_id: ReceiverJobId,
         owner: &str,
         registration: &ReceiverSessionAttribution,
+        completed_session: &AgentSession,
         observed_at_unix_ms: u64,
     ) -> Result<bool> {
         let owner = validated_owner(owner)?;
@@ -26,6 +28,7 @@ impl Db {
             &transaction,
             &self.workspace_id,
             registration,
+            super::session::ReceiverBindingTarget::ExactCompleted(completed_session),
             observed_at_unix_ms,
         )? {
             return Ok(false);

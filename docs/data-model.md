@@ -1053,9 +1053,12 @@ again selects by `received_at_unix_ms, job_id`. A valid completion currently
 moves `launching` directly to `done` because BR-15 has not yet added accepted or
 processing proof. That terminal compare-and-swap shares one immediate
 transaction with exact lifecycle-native binding proof and persistence. A
-binding mismatch or storage error rolls the whole attempt back, so the run
-remains `launching` with its claim, registration, tab, and completion artifact
-available for another tick. Losing exact ownership forbids every durable
+binding mismatch, concurrent lifecycle rotation, or storage error rolls the
+whole attempt back, so the run remains `launching` with its claim,
+registration, tab, and completion artifact available for another tick. The
+transaction accepts only the exact artifact-validated session while that same
+row remains locked and `completed`; a newly active session for the remote
+instance cannot replace it. Losing exact ownership forbids every durable
 lifecycle, reply, session, and job mutation. A reclaimed progressed state is
 left unchanged for BR-16 rather than launched again.
 The background tab collection independently rejects a second simultaneous
@@ -1080,12 +1083,14 @@ mutation share one immediate transaction that reads the exact locked remote
 instance. It verifies the durable registration's workspace, logical
 conversation, frontend, actor, channel, instance, and original registered ID.
 Claude may report that Brain-supplied ID as its native session ID, so equality
-is accepted only for Claude with the exact locked lifecycle evidence. Codex and
-OpenCode must rotate their placeholder to a distinct lifecycle-reported native
-ID. Placeholders without that frontend-specific proof are rejected. The
-transaction writes only the native ID to the conversation binding, leaves the
-portable transcript bytes untouched, and makes `done` visible only after both
-writes can commit.
+is accepted for a fresh Claude launch with exact locked lifecycle evidence.
+Fresh Codex and OpenCode launches must rotate their placeholder to a distinct
+lifecycle-reported native ID. A resumed launch is different: its registered ID
+already equals the exact same-frontend durable conversation binding, so that
+equality confirms resume for Claude, Codex, and OpenCode. Unbound placeholders
+remain rejected. The transaction writes only the native ID to the conversation
+binding, leaves the portable transcript bytes untouched, and makes `done`
+visible only after both writes can commit.
 The BR-14 launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh

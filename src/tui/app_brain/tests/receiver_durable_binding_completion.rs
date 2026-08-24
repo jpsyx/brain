@@ -1,4 +1,6 @@
-use super::receiver_durable_support::{accept_email_job, publish_valid_completion};
+use super::receiver_durable_support::{
+    accept_email_job, publish_valid_completion, publish_valid_rotated_completion,
+};
 use super::*;
 
 use crate::state::ReceiverJobState;
@@ -145,6 +147,102 @@ fn native_binding_write_error_keeps_exact_completion_retryable() {
             .binding()
             .is_some()
     );
+}
+
+#[test]
+fn lifecycle_rotation_after_validation_cannot_finalize_the_old_completion() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Codex);
+    app.receiver.record_intent(true);
+    let db = Db::open(app.context.workspace()).expect("state DB");
+    let accepted = accept_email_job(&app, &db, "complete across lifecycle race", 100);
+    let transport = TransportRecording::default();
+    app.brain.replace_receiver_transport(transport.transport());
+    app.tick_receiver();
+    let attribution = app
+        .receiver
+        .active_durable_run()
+        .expect("active receiver")
+        .attribution
+        .clone();
+    let old_native = AgentSession::new("old-completed-native").expect("old native session");
+    let completion_path =
+        publish_valid_rotated_completion(&app, old_native.as_str(), "old completed response");
+    let validation_reached = Arc::new(std::sync::Barrier::new(2));
+    let lifecycle_validation_reached = Arc::clone(&validation_reached);
+    let state_path = app.context.state_db_path().to_path_buf();
+    let instance = attribution.instance().to_owned();
+    let old_native_id = old_native.as_str().to_owned();
+    let (rotation_result_tx, rotation_result_rx) = std::sync::mpsc::sync_channel(1);
+    let lifecycle = std::thread::spawn(move || {
+        lifecycle_validation_reached.wait();
+        let result =
+            rotate_receiver_lifecycle(&state_path, &instance, &old_native_id, "new-active-native")
+                .map_err(|error| error.to_string());
+        rotation_result_tx
+            .send(result)
+            .expect("publish lifecycle result");
+    });
+    app.receiver
+        .install_after_completion_validation_hook(Box::new(move || {
+            validation_reached.wait();
+            rotation_result_rx
+                .recv()
+                .expect("lifecycle result")
+                .expect("rotate lifecycle after validation");
+        }));
+
+    app.tick_receiver();
+    lifecycle.join().expect("lifecycle thread");
+
+    assert_eq!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
+        ReceiverJobState::Launching,
+        "a different lifecycle session must not finalize the validated artifact"
+    );
+    assert!(completion_path.exists());
+    assert_eq!(transport.shutdowns(), 0);
+    assert_eq!(app.brain.receiver_run_observations().len(), 1);
+    assert!(
+        db.receiver_conversation(accepted.conversation_id())
+            .unwrap()
+            .unwrap()
+            .binding()
+            .is_none(),
+        "the new active session is not proof for the old completion artifact"
+    );
+}
+
+fn rotate_receiver_lifecycle(
+    state_path: &std::path::Path,
+    instance: &str,
+    old_native_id: &str,
+    new_native_id: &str,
+) -> rusqlite::Result<()> {
+    let connection = rusqlite::Connection::open(state_path)?;
+    connection.execute_batch("BEGIN IMMEDIATE")?;
+    let inserted = connection.execute(
+        "INSERT INTO brain_sessions
+           (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+            workspace_id, actor_id, channel, created_at, last_active_at, completion_status)
+         SELECT agent_kind, ?1, brain_instance_id, locked_pid, 'startup',
+                workspace_id, actor_id, channel, created_at, last_active_at, 'active'
+         FROM brain_sessions
+         WHERE brain_instance_id = ?2 AND agent_session_id = ?3
+           AND locked_pid IS NOT NULL",
+        rusqlite::params![new_native_id, instance, old_native_id],
+    )?;
+    if inserted != 1 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+    connection.execute(
+        "UPDATE brain_sessions SET locked_pid = NULL
+         WHERE brain_instance_id = ?1 AND agent_session_id = ?2",
+        rusqlite::params![instance, old_native_id],
+    )?;
+    connection.execute_batch("COMMIT")?;
+    Ok(())
 }
 
 fn write_completion(

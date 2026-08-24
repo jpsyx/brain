@@ -213,9 +213,12 @@ Conversation rows store Brain-owned markdown plus the current
 frontend/native-session binding. Native resume is valid only for that same
 frontend; another frontend starts fresh from the portable transcript.
 Receiver-session registration rows preserve the exact workspace, logical
-conversation, actor, channel, frontend, remote instance, registered fresh ID,
-and lifecycle-reported actual native ID. Claude may use the registered ID as
-its native ID; Codex and OpenCode must report a distinct rotated ID.
+conversation, actor, channel, frontend, remote instance, registered launch ID,
+and lifecycle-reported actual native ID. A fresh Claude run may use its
+registered ID as the native ID; fresh Codex and OpenCode runs must rotate their
+placeholder. A resumed run instead registers the conversation's already-bound
+native ID, so every frontend may confirm that same ID when the exact durable
+conversation binding proves the resume lineage.
 Registration and session ownership are created in one transaction, and binding
 replacement must match that complete durable tuple.
 `tui::receiver::planning` treats that binding only as a candidate. It asks the
@@ -1032,11 +1035,12 @@ The sole receiver tick first applies every durable `/restart` control. It then
 continues the one claimed or active run, or claims at most one FIFO job when
 idle; a claimed job passes the sync-freshness gate, and `/new` completes before
 any agent launch. A terminal artifact becomes durable only when one immediate
-state transaction proves the locked lifecycle-native registration, persists
-the exact binding, and moves the live owner's launch to `done`; a mismatch or
-database error rolls back and leaves the run and artifact available for the
-next tick. There is no second process-local cursor, interactive-panel
-handoff, activity sample, or socket poll.
+state transaction proves that the exact session validated from the artifact is
+still the locked `completed` lifecycle-native registration, persists the exact
+binding, and moves the live owner's launch to `done`. A mismatch, concurrent
+SessionStart rotation, or database error rolls back and leaves the run and
+artifact available for the next tick. There is no second process-local cursor,
+interactive-panel handoff, activity sample, or socket poll.
 `tui/app_sync.rs` passes freshness observations into the runtime and owns the
 cross-feature sync launch, task reload, footer, and warning effects at the exact queued-job
 consumption boundary. It

@@ -1,5 +1,7 @@
 //! Exact, content-redacting validation for one receiver completion artifact.
 
+use crate::agent::AgentSession;
+
 pub(super) struct CompletionExpectation<'a> {
     pub(super) session_id: &'a str,
     pub(super) response_id: &'a str,
@@ -10,6 +12,7 @@ pub(super) struct CompletionExpectation<'a> {
 }
 
 pub(super) struct ReceiverCompletion {
+    pub(super) session: AgentSession,
     pub(super) message: String,
 }
 
@@ -38,6 +41,7 @@ pub(super) fn read_exact_completion(
         return None;
     }
     Some(ReceiverCompletion {
+        session: AgentSession::new(expected.session_id).ok()?,
         message: message.to_owned(),
     })
 }

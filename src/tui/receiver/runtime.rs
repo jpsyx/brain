@@ -23,6 +23,8 @@ pub(crate) struct ReceiverRuntime {
     durable_run: DurableReceiverRun,
     #[cfg(test)]
     after_restart_scan_hook: Option<Box<dyn FnOnce()>>,
+    #[cfg(test)]
+    after_completion_validation_hook: Option<Box<dyn FnOnce()>>,
 }
 
 impl ReceiverRuntime {
@@ -35,6 +37,8 @@ impl ReceiverRuntime {
             durable_run: DurableReceiverRun::Idle,
             #[cfg(test)]
             after_restart_scan_hook: None,
+            #[cfg(test)]
+            after_completion_validation_hook: None,
         }
     }
 
@@ -46,6 +50,18 @@ impl ReceiverRuntime {
     #[cfg(test)]
     pub(crate) fn run_after_restart_scan_hook(&mut self) {
         if let Some(hook) = self.after_restart_scan_hook.take() {
+            hook();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_after_completion_validation_hook(&mut self, hook: Box<dyn FnOnce()>) {
+        self.after_completion_validation_hook = Some(hook);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_after_completion_validation_hook(&mut self) {
+        if let Some(hook) = self.after_completion_validation_hook.take() {
             hook();
         }
     }

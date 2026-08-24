@@ -174,10 +174,16 @@ impl AppServices {
         job_id: crate::state::ReceiverJobId,
         owner: &str,
         registration: &crate::state::ReceiverSessionAttribution,
+        completed_session: &crate::agent::AgentSession,
         observed_at_unix_ms: u64,
     ) -> Result<bool> {
-        self.db
-            .complete_receiver_job_with_binding(job_id, owner, registration, observed_at_unix_ms)
+        self.db.complete_receiver_job_with_binding(
+            job_id,
+            owner,
+            registration,
+            completed_session,
+            observed_at_unix_ms,
+        )
     }
 
     #[must_use]

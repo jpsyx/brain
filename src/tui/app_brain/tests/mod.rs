@@ -67,6 +67,7 @@ mod receiver_durable_control_sync;
 mod receiver_durable_controls;
 mod receiver_durable_launch;
 mod receiver_durable_lifecycle;
+mod receiver_durable_resume_completion;
 mod receiver_durable_support;
 mod receiver_sync;
 mod receiver_tab;

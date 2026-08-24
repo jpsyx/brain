@@ -46,7 +46,15 @@ impl App {
 
         let path = self.receiver_completion_path(active.attribution.instance());
         if let Some(completion) = self.exact_receiver_completion(&active, &path) {
-            self.finish_completed_receiver_run(active, &completion.message, &path, now);
+            #[cfg(test)]
+            self.receiver.run_after_completion_validation_hook();
+            self.finish_completed_receiver_run(
+                active,
+                &completion.session,
+                &completion.message,
+                &path,
+                now,
+            );
         } else if observation.exited {
             self.retry_exited_receiver_run(&active, &path, now);
         } else {
@@ -87,6 +95,7 @@ impl App {
     fn finish_completed_receiver_run(
         &mut self,
         active: ActiveReceiverRun,
+        completed_session: &AgentSession,
         message: &str,
         path: &std::path::Path,
         now: u64,
@@ -95,6 +104,7 @@ impl App {
             active.claim.job().id(),
             active.claim.claim().owner(),
             &active.attribution,
+            completed_session,
             now,
         );
         match completed {

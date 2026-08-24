@@ -838,7 +838,11 @@ Which session to run is decided by the **lock + recency** model in
    interactive turn accepts only its launched session context.
    An active receiver run additionally requires the exact durable job, remote
    instance, response ID, frontend, actor, channel, and locked session in
-   `completed` state. Process spawn and screen activity are never acceptance or
+   `completed` state. After artifact validation, Brain carries that validated
+   session ID into the immediate terminal transaction and atomically proves it
+   is still the exact locked completed lifecycle row. A SessionStart rotation
+   cannot substitute its new active session; the old artifact and run remain
+   retryable instead. Process spawn and screen activity are never acceptance or
    completion evidence. On a valid terminal completion, Brain sends the
    channel-specific reply, moves the exact launch directly to `done`, releases
    that remote session owner, shuts down its controller once, removes only its
@@ -861,6 +865,10 @@ binding says which adapter may attempt an opaque native resume. A same-frontend
 request returns that native ID; a different frontend receives a fresh-session
 plan seeded from the Brain-owned markdown transcript. Brain never asks Claude,
 Codex, or OpenCode to interpret another frontend's native history.
+For a fresh launch, Claude may confirm the registered ID while Codex and
+OpenCode must replace their registered placeholders. For a resumed launch, the
+registered ID is already the exact durable conversation binding, so equality
+is a valid resume confirmation for all three frontends.
 
 Receiver jobs use the same UUID-scoped database but a separate leased queue
 contract. Acceptance stores the immutable inbound frame before a later ingress
@@ -1061,13 +1069,16 @@ controller before insertion, without moving the user.
 The active tick renews only its exact claim. A second arrival stays durable and
 unclaimed until the active run closes, then the next tick applies the same FIFO
 order. Completion requires the exact artifact and exact locked remote session;
-neither process spawn nor screen activity is completion evidence. Terminal
-cleanup releases that session owner, shuts down the controller once, closes only
-the matching receiver tab, preserves the immutable provider reply context,
-reloads tasks, and starts the sync push without changing the active view or
-focus. Spawn failure and child exit without valid completion perform explicit
-registration cleanup and durable pre-acceptance retry. Lost claim ownership
-permits local tab cleanup only. Progressed stale states are not rerun before
+the immediate binding/terminal transaction rechecks that the artifact's
+validated session is still that locked row and still `completed`. A concurrent
+lifecycle rotation leaves the old completion retryable instead of binding the
+new active session. Neither process spawn nor screen activity is completion
+evidence. Terminal cleanup releases that session owner, shuts down the
+controller once, closes only the matching receiver tab, preserves the immutable
+provider reply context, reloads tasks, and starts the sync push without changing
+the active view or focus. Spawn failure and child exit without valid completion
+perform explicit registration cleanup and durable pre-acceptance retry. Lost
+claim ownership permits local tab cleanup only. Progressed stale states are not rerun before
 BR-16 defines their recovery policy.
 BR-15 still owns exact accepted/progress observations, and BR-17 still owns
 atomic answer persistence plus delivery-only retry. BR-18 retains final
@@ -1581,8 +1592,9 @@ brain-root lookup.
   authenticated actor resolution, durable job admission, TUI durable dispatch,
   and response delivery are now active. Receiver completion proves and stores
   its exact lifecycle-native binding in the same immediate transaction that
-  moves the live launch to `done`; rollback retains the active run and artifact
-  for a later tick, and cleanup begins only after that transaction commits.
+  proves the artifact-validated session remains locked and completed and moves
+  the live launch to `done`; rollback retains the active run and artifact for a
+  later tick, and cleanup begins only after that transaction commits.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.
