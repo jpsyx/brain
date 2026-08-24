@@ -18,18 +18,6 @@ fn screen_digest(screen: &str) -> u64 {
 }
 
 impl App {
-    /// The last non-blank `lines` rows the panel is showing, flattened for the log.
-    pub(crate) fn panel_tail(&self, lines: usize) -> Option<String> {
-        let screen = self.brain.main_controller()?.snapshot().ok()?;
-        let tail = screen
-            .lines()
-            .map(str::trim_end)
-            .filter(|line| !line.trim().is_empty())
-            .collect::<Vec<_>>();
-        let start = tail.len().saturating_sub(lines);
-        Some(tail[start..].join(" ⏎ "))
-    }
-
     /// Note whether the panel is still rendering work.
     ///
     /// This is the frontend-neutral "is it busy" signal: Claude, Codex, and
@@ -50,17 +38,5 @@ impl App {
     /// When the panel last rendered something different, if it is being watched.
     pub(crate) fn last_panel_change(&self) -> Option<std::time::Instant> {
         self.receiver.last_panel_change()
-    }
-
-    /// Log the panel once each scheduled sample comes due.
-    pub(super) fn log_receiver_activity_probe(&self, probe: &crate::tui::receiver::ReceiverProbe) {
-        crate::logging::log(format!(
-            "receiver probe {}s after dispatch: turn_active={} awaiting_response_for={:?} panel={}",
-            probe.elapsed_seconds,
-            self.brain.turn_active(),
-            probe.response_id.as_deref().unwrap_or("<none>"),
-            self.panel_tail(14)
-                .unwrap_or_else(|| "<no panel>".to_owned())
-        ));
     }
 }

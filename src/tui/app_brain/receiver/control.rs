@@ -11,54 +11,6 @@ use crate::server::receiver::InboundJob;
 use crate::tui::App;
 
 impl App {
-    /// Reply to one specific job, rather than to whatever is in flight.
-    ///
-    /// The receiver's usual reply path answers the message currently being
-    /// worked on, using the sender and thread recorded on `App`. A dropped or
-    /// refused job is not that message, so its own recipients and thread come
-    /// off the job itself; using the live ones would send someone else's
-    /// message to the wrong person.
-    pub(in crate::tui::app_brain) fn reply_to_job(
-        &self,
-        job: &InboundJob,
-        action: &'static str,
-        message: &str,
-    ) {
-        match job.channel {
-            crate::server::receiver::Channel::Sms => {
-                crate::server::delivery::send_sms_background(
-                    self.context.command().clone(),
-                    action,
-                    job.authenticated_sender.clone(),
-                    crate::server::reply::sms(message).text,
-                );
-            }
-            crate::server::receiver::Channel::Email => {
-                let recipients = crate::server::delivery::trusted_response_recipients(
-                    job.response_email.as_deref(),
-                    &job.allowed_response_recipients,
-                );
-                if recipients.is_empty() {
-                    crate::logging::log(format!(
-                        "receiver control reply dropped action={action} reason=no trusted recipient"
-                    ));
-                    return;
-                }
-                let reply = crate::server::reply::email(message);
-                let html = crate::server::reply::email_html(&reply.text);
-                crate::server::delivery::send_email_background(
-                    self.context.command().clone(),
-                    action,
-                    recipients,
-                    crate::server::delivery::reply_subject(job.email_reply.as_ref()),
-                    reply.text,
-                    html,
-                    job.email_reply.clone(),
-                );
-            }
-        }
-    }
-
     /// Apply a queued `/restart` the moment it is seen.
     ///
     /// Deliberately not gated on the panel being free. A sender restarts

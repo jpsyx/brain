@@ -1,6 +1,7 @@
 //! Provider delivery decisions and narrow recipient authorization.
 
 /// Immutable data captured from a completed remote controller before teardown.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CompletionDelivery {
     snapshot: String,
@@ -8,6 +9,7 @@ pub(crate) struct CompletionDelivery {
     channel: crate::server::receiver::Channel,
 }
 
+#[cfg(test)]
 impl CompletionDelivery {
     /// Capture the transport output and initiating identity from one controller.
     #[must_use]
@@ -74,6 +76,19 @@ fn dispatch_background(
         .map_err(|error| anyhow::anyhow!("queuing provider delivery: {error}"))?;
     crate::logging::log(format!("receiver delivery queued action={action}"));
     Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn wait_for_background_delivery() {
+    let (sent, received) = std::sync::mpsc::sync_channel(0);
+    dispatch_background("test delivery barrier", move || {
+        sent.send(())
+            .map_err(|error| anyhow::anyhow!("signaling delivery barrier: {error}"))
+    })
+    .expect("queue delivery barrier");
+    received
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("background delivery completed before test deadline");
 }
 
 pub fn send_sms_background(

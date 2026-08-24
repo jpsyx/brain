@@ -225,8 +225,8 @@ free session as claimed. If the later transport launch fails, Brain releases
 the instance claim and clears the response identity for the attempted
 interactive or receiver launch.
 
-The isolated receiver-run path now has a frontend-neutral planning seam before
-its later tab/coordinator wiring. A matching durable conversation binding is
+The isolated receiver-run path uses a frontend-neutral planning seam. A
+matching durable conversation binding is
 offered only to the selected `AgentController`; `Resume(session_id)` is chosen
 only when the adapter confirms that native history and an injected exact-session
 claim succeeds. Missing history, a frontend change, a probe error, or a failed
@@ -250,11 +250,11 @@ not rewrite the portable transcript. Pre-launch rollback stops the controller,
 uses a fallible exact-registration cleanup, and still records its bounded
 durable retry before surfacing any shutdown or cleanup diagnostic; `Drop` is
 only a best-effort fallback.
-Controller shutdown always reaches
-the transport even when frontend availability diagnostics fail, while still
-returning that diagnostic to orderly shell teardown. The seam does not yet
-consume the durable queue or create a tab; the next BR-14 task owns those
-effects.
+Controller shutdown always reaches the transport even when frontend
+availability diagnostics fail, while still returning that diagnostic to
+orderly shell teardown. The sole receiver tick consumes the durable queue,
+passes the result through this seam, and gives every launched run its own
+background tab and controller.
 
 The TUI owns an `AgentController` for each live main or triage panel and calls
 semantic type, immediate submit, busy-turn follow-up, new-session, snapshot,
@@ -420,13 +420,11 @@ OpenCode submitted either way. Every frontend is paced regardless, and the
 adapter contract test asserts it for all of them.
 
 The TUI separately tracks whether a prompt has actually been submitted.
-Opening the panel is therefore not itself considered active work. This lets an
-inbound SMS or email replace an idle startup panel immediately, even if the
-daily-triage modal is still covering it, while a real local Claude, Codex, or OpenCode
-turn still finishes before receiver work switches sessions. The Stop response
-file clears that active-turn state even while a receiver lease is warm. A
-failed receiver-session launch leaves the message in the queue for a backoff
-retry.
+Opening the interactive panel is therefore not itself considered active work.
+Receiver work no longer consumes or replaces that panel: every SMS or email job
+gets a separate background controller and PTY. The main-panel Stop response
+still clears only its own active-turn state. A failed receiver launch releases
+its exact remote registration and records a durable pre-acceptance retry.
 
 Receiver behavior is frontend-neutral after authentication. An SMS or email
 job carries the same immutable workspace, actor, channel, response email, and
@@ -509,9 +507,9 @@ access, and removal without touching `ShellState`; therefore background
 operations preserve the current main view, effective tab, panel visibility, and
 keyboard focus.
 Receiver-only storage does not reveal a hidden panel. Durable FIFO claiming,
-launch registration, and rollback now exist behind narrow `AppServices`
-operations, but the next BR-14 task still owns their tick-to-tab coordinator
-wiring.
+launch registration, rollback, renewal, and exact terminal cleanup remain
+behind narrow `AppServices` operations. Background launch and close never
+select a tab, reveal the panel, switch the main view, or move keyboard focus.
 
 ## Shared-server process lifecycle
 
@@ -830,20 +828,23 @@ Which session to run is decided by the **lock + recency** model in
    SessionStart rotation serializes at the transaction boundary, so a stale
    Stop event cannot complete the prior lineage. The stable response ID is
    independent of the frontend session ID, which gives Codex turns the
-   same completion path as Claude and OpenCode. The artifact includes frontend, workspace,
-   session, response, actor, channel, and completion status. The
-   TUI discards it unless both match the launched session context.
-   For an interactive turn, the TUI consumes it as the completion signal that
-   allows queued receiver work to switch sessions. For an active SMS/email
-   job, it sends the channel-specific final response, marks remote work idle,
-   and renews the three-minute channel lease. The PTY stays visible and can be
-   reused by another message on the same channel. A different channel or local
-   input switches only after active work has finished.
-   If the agent process exits during remote work before the artifact is
-   consumed, `App::close_brain` captures the transport snapshot plus the
-   controller's immutable initiating actor/channel before shutdown and hands
-   that captured value to the fallback delivery path. Mutable lease or local
-   actor state cannot retarget the completion.
+   same completion path as Claude and OpenCode. The artifact includes frontend,
+   workspace, session, response, actor, channel, and completion status. An
+   interactive turn accepts only its launched session context.
+   An active receiver run additionally requires the exact durable job, remote
+   instance, response ID, frontend, actor, channel, and locked session in
+   `completed` state. Process spawn and screen activity are never acceptance or
+   completion evidence. On a valid terminal completion, Brain sends the
+   channel-specific reply, moves the exact launch directly to `done`, releases
+   that remote session owner, shuts down its controller once, removes only its
+   tab, reloads tasks, and starts an immediate sync push. Direct
+   `launching`-to-`done` is temporary until BR-15 supplies accepted and
+   processing proof.
+   If the receiver child exits without that exact artifact, Brain releases the
+   registration, shuts down and removes only that tab, and records a durable
+   pre-acceptance retry. If claim renewal loses ownership, it performs only
+   local controller and tab cleanup; it does not mutate lifecycle, reply,
+   session, or job state owned by the winner.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -861,16 +862,16 @@ contract. Acceptance stores the immutable inbound frame before a later ingress
 ack can depend on it. Polling claims the oldest ready row without deleting it,
 and every renewal, transition, or retry mutation requires the exact live owner.
 An expired progressed lease changes ownership without erasing its lifecycle or
-retry evidence. This lets a later runtime decide whether to resume the bound
-native session, start from the transcript, retry delivery, or fail the job.
+retry evidence. The current receiver consumer deliberately does not rerun a
+reclaimed progressed state. It cleans up the tentative registration and leaves
+that evidence intact for BR-16 recovery policy.
 
 BR-13 connects provider ingress to these APIs. The authenticated pipeline
 constructs SMS's stable workspace/user/channel identity or an uncertain fresh
 Email lineage, then commits or durably deduplicates before provider success.
-The existing TUI in-memory queue is no longer the ingress acceptance boundary,
-but prompt submission, completion, delivery, and durable queue consumption do
-not move into the shared server; BR-14 and later PROJ-1 tasks own those runtime
-cutovers.
+The existing TUI in-memory queue is no longer the ingress acceptance boundary
+or an execution consumer. Prompt submission, completion, delivery, and durable
+queue consumption remain in the live TUI and never move into the shared server.
 
 Claude and Codex register the same generic bridge scripts. Claude stores
 root-anchored `SessionStart` and `Stop` entries in
@@ -1036,31 +1037,31 @@ the ordinary five-second lock wait. Provider and exact-job deduplication run
 before the atomic 64-row `queued` capacity check. Provider success follows only
 the commit or an existing durable match. The mode-`0600`
 `<workspace-cache>/jobs.sock` remains part of live-lease validation and the
-pre-BR-14 TUI runtime, but provider ingress no longer appends to its private
-memory queue.
-One private `ReceiverRuntime` owns that queue together with the job socket,
-persisted-intent view, channel reset controls, sender and recipient context,
-interactive and remote session identity, lease and generation, activity and
-retry timing, and freshness-gate state. TUI callers use semantic operations for
-admission polling, dispatch commit, session launch, completion, warm-session
-expiry, diagnostics, and sync-gate polling. The App mediator continues to
-coordinate agent controllers, response files, provider delivery, task reloads,
-and sync child launches across their feature boundaries.
-The tick coordinator walks these ordered stages: remote completion,
-interactive completion, processing delay, panel activity, activity probe,
-turn timeout, warm-lease expiry, socket polling, `/restart`, retry readiness,
-sync freshness, `/new`, idle-panel selection, and dispatch. Pure decisions use
-independent receiver facts instead of a cross-product lifecycle state.
-`ReceiverRuntime` re-snapshots those facts and materializes a typed effect at
-each stage; App executes it and feeds completion, dispatch, diagnostic, or sync
-results back through semantic runtime methods. This preserves the historical
-ordering while ensuring controller, filesystem, provider, process, task, and
-sync effects never move into the runtime.
-The production executor also returns a semantic effect outcome. The pure tick
-coordinator maps it to advance, stop, or repeat-current-stage control: a pending
-freshness pull stops the tick, a consumed `/new` rechecks only `/new`, and a
-completed `/restart` advances so the same tick can see a post-command queue
-survivor. No raw sync boolean or effect-variant inspection carries this policy.
+legacy TUI representation, but provider ingress no longer appends to its
+private memory queue and no production coordinator consumes it.
+One private `ReceiverRuntime` owns persisted intent, the sync-freshness gate,
+and a `DurableReceiverRun` handle. The one `App::tick_receiver` call is the sole
+production consumer. It runs only while receiver intent is enabled, renews an
+already claimed job before a pending freshness pull, and otherwise does no work
+while a receiver tab is active. When ready, it claims the oldest durable job by
+`(received_at_unix_ms, job_id)`, loads the immutable job and conversation,
+plans through the selected `AgentController`, prepares launch through the exact
+claim, registers a unique remote instance, and spawns a new controller and PTY
+for Claude, Codex, or OpenCode. The new receiver tab is inserted in the
+background without selecting it or changing view, visibility, or focus. No
+receiver path types into, submits through, or otherwise injects the main panel.
+
+The active tick renews only its exact claim. A second arrival stays durable and
+unclaimed until the active run closes, then the next tick applies the same FIFO
+order. Completion requires the exact artifact and exact locked remote session;
+neither process spawn nor screen activity is completion evidence. Terminal
+cleanup releases that session owner, shuts down the controller once, closes only
+the matching receiver tab, preserves the immutable provider reply context,
+reloads tasks, and starts the sync push without changing the active view or
+focus. Spawn failure and child exit without valid completion perform explicit
+registration cleanup and durable pre-acceptance retry. Lost claim ownership
+permits local tab cleanup only. Progressed stale states are not rerun before
+BR-16 defines their recovery policy.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 bounded provider-ID coordinator keyed by workspace, channel, and provider ID.

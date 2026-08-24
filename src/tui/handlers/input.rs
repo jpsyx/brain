@@ -105,7 +105,6 @@ pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, ct
     let Some(bytes) = key_to_bytes(k) else {
         return false;
     };
-    app.leave_warm_receiver_for_interactive_input();
     alive = app
         .brain
         .main_controller()

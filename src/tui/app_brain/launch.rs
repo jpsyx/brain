@@ -146,12 +146,6 @@ impl App {
         if trimmed.is_empty() {
             return;
         }
-        if self.receiver_panel_is_warm() {
-            crate::logging::log(
-                "local brain prompt leaving warm receiver session for interactive session",
-            );
-            self.close_receiver_panel(true);
-        }
         self.open_or_focus_brain(Some(trimmed));
     }
 }

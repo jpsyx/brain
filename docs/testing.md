@@ -418,15 +418,17 @@ first move is a failing test that reproduces it, *then* the fix.
   stays retrying until its new live owner resumes delivery. The state test
   wrapper and store are split along identity, acceptance, claim, conversation,
   recovery, and schema seams rather than collected in one oversized file.
-- **Receiver dispatch state.** `tui/receiver/decision_tests.rs` proves that an
-  idle open panel switches to queued receiver work, an active submitted turn
-  waits, a same-channel warm panel is reused, a different channel replaces it,
-  and a warm receiver lease never hides interactive bridge completion.
-  `tui/receiver/runtime_tests.rs` constructs the single receiver owner and
-  exercises dispatch commit, delivery context, completion, warm-lease expiry,
-  and force-fresh consumption at session selection. Focused
-  `tui/receiver/policy.rs` tests cover timeout, activity-probe, retry, and
-  keystroke-lock helpers. `tests/tui_receiver_runtime_architecture.rs` rejects
+- **Receiver dispatch state.** Composed `tui::app_brain::tests` drive the one
+  production durable tick with an injected clock and event barriers. They prove
+  that a busy main panel is untouched; equal timestamps use job-ID FIFO order;
+  later arrivals stay durable and unclaimed during an active run, then launch on
+  the next tick; Claude, Codex, and OpenCode each receive a new isolated
+  controller and PTY; and launch, close, and the next launch preserve view, tab,
+  visibility, and focus. Exact-completion tests cover crossed artifacts, claim
+  renewal, ownership loss, progressed stale-state refusal, child exit, spawn
+  failure, reply delivery, task reload, and sync push. Focused
+  `tui/receiver/policy.rs` tests cover retry and input-lock helpers.
+  `tests/tui_receiver_runtime_architecture.rs` rejects
   the former receiver field bag on `App`, direct representation access outside
   `tui/receiver/`, and cross-feature refresher/sync adapters or IO inside the
   runtime. It also pins the intent refresher behind the semantic `AppServices`
@@ -653,19 +655,13 @@ first move is a failing test that reproduces it, *then* the fix.
   separately proves the
   prepared/commit/stage/accepted/finalize transaction and failed-final-ack
   rollback.
-  Table-driven pure tests in `tui/receiver/decision_tests.rs` characterize each
-  receiver lifecycle decision, including symmetric SMS/email warm-panel reuse
-  and replacement plus completion, timeout, lease, control, retry, sync, and
-  dispatch transitions. Separate tests call the production tick coordinator
-  and pin the complete 14-stage traversal, repeat-current-stage behavior, the
-  stop cut before every later stage, and the semantic effect-outcome mapping.
-  An App-level restart test exercises the real queue and coordinator together:
-  work before `/restart` is dropped while a post-command survivor is dispatched
-  in the same tick. Receiver launch integration covers SMS and email through
-  `AgentController` for Claude, Codex, and OpenCode. Runtime tests verify
-  semantic dispatch, completion, lease, and sync-gate feedback without giving
-  the runtime a controller, filesystem, provider, process, task, or sync
-  adapter.
+  `tests/tui_receiver_dispatch_architecture.rs` rejects main-panel injection
+  APIs and production compilation of legacy receiver-panel modules, and counts
+  exactly one live `.tick_receiver()` consumer. The composed durable tests use
+  the real state store and App coordinator together rather than relying only on
+  store unit tests. They explicitly cover freshness-first renewal, exact
+  registration and binding, durable rollback, FIFO tie-breaks, active-run
+  exclusion, terminal correlation, and no-focus behavior without fixed sleeps.
   Exact status tests distinguish a
   live disabled lease from an accepting lease. Actual parsed CLI start/stop and
   startup `--with-receiver -b` paths, plus keyboard-driven tasks and search
@@ -845,7 +841,8 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
-| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `receiver/policy.rs` owns pure timeout, probe, retry, and input-lock policy beneath the thin facade. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
+| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the representation directly. `receiver/policy.rs` owns pure retry and input-lock policy beneath the thin facade. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
+| `tests/tui_receiver_dispatch_architecture.rs` | Durable dispatch seam: current receiver modules contain no main-panel injection calls, legacy receiver-panel modules are absent or test-only, and the TUI source contains exactly one live receiver-consumer tick. |
 | `tests/tui_receiver_queue_architecture.rs` + `tests/tui_receiver_queue_architecture/` | Queue ownership seam: a dev-only `syn` AST walk rejects source-declared persistent item types and initializers that mention raw `InboundJob` or a resolved import/type alias outside `receiver/queue.rs`, including declarations in function-local and nested block scopes. It canonicalizes raw identifiers and rejects visible renamed re-exports of resolved job aliases at their declaration, while preserving private same-scope alias resolution. Full declaration, alias, literal, comment, Unicode, cfg, macro-token, attribute, transient-`let`, and semantic queue-API fixtures pin the boundary without collection, field, or mutator vocabulary. Item macros, opaque item syntax, and unsupported attribute macros are rejected. The only persistent exception is the exact canonical-path one-shot payload shape in the non-generic top-level `ReceiverEffect` item at the exact real source path; procedural expansion and type-erased runtime contents remain manual-review limits. |
 | `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, lifecycle, non-destructive FIFO claim bundles, one live workspace claim, exact-owner launch CAS, generic-transition rejection of progressed retry origins, bounded pre-acceptance retry, conservative progressed recovery, complete receiver-registration tuple attribution, crossed-placeholder and crossed-conversation rejection, lifecycle-reported binding-only replacement, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, transcript preservation, scope checks, numeric safety, foreign keys, reopen persistence, and receiver-specific pre-migration SQLite lock budgeting. |
 | `tui::receiver::planning_tests` + `agent::adapter_tests::contract` | Table-driven Claude/Codex/OpenCode receiver launch planning: validated matching resume, missing history, frontend change, probe failure, rejected/failed claim, empty transcript, UTF-8-safe newest-context truncation, attachment references, and both fresh/resume command translations with a non-blank initial prompt. |
@@ -876,7 +873,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/multi_workspace_acceptance.rs` + `tests/multi_workspace_acceptance/` | One hermetic personal-plus-family scenario covering selector/default policy, UUID caches and locks, one shared server, authenticated wife assignment through the real task script, deterministic display-ID reconciliation, disabled family triage, registered-frontend advisory capability parity, family unavailability, personal continuity, and final server shutdown. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `agent::codex::sessions` + `agent::codex::frontend_tests` | Codex resume validation against a temporary rollout tree: an exact trailing-segment id match, refusal of prefix collisions and of ids not following a `-`, unrelated filenames, a missing sessions directory, day-tree search including older days, and no descent past the day level. The frontend half proves the interactive and response-channel predicates agree, that no resolvable home means nothing is resumable, and that a validated id becomes `codex resume '<id>'`. |
-| `tui::receiver::decision_tests` ordered tick policy | Direct decision tables cover every receiver lifecycle condition and symmetric SMS/email warm-panel reuse/replacement. Production-coordinator tests pin the complete 14-stage traversal plus typed advance/stop/repeat control. The App restart test proves the real queue cut preserves and dispatches a post-command survivor; receiver launch integration covers both channels through `AgentController` for Claude, Codex, and OpenCode. |
+| `tui::app_brain::tests::{receiver_durable_launch,receiver_durable_lifecycle}` | Composed production-tick coverage for disabled/busy gating, freshness-first exact renewal, timestamp/job-ID FIFO, an arrival waiting unclaimed behind an active run, isolated all-frontend controller launch, exact artifact correlation, lost ownership, progressed stale-state refusal, spawn and child-exit retry, reply/task/sync terminal effects, and unchanged view, tab, visibility, and focus at launch, close, and next launch. Tests use injected clocks and event barriers rather than fixed sleeps. |
 | `workspace::templates` tests | The seeded `AGENTS.md` / `README.md`: written when absent, never overwriting an edited copy, idempotent, cross-referencing each other, carrying nothing instance-specific (no `~/brain`, absolute paths, private skills directory, or personal names), and naming only skills Brain actually bundles — checked in passages that discuss skills, so an example project slug is not mistaken for one. |
 | `tests/empty_workspace_initialization.rs` | First-run scaffolding through the compiled binary: an empty workspace still counts as empty after automatic lifecycle installation, then gets PARA + CSVs + counters + a schema document declaring v2/`task_uuid`; a sync subcommand seeds the document it needs (sync dispatches before the workspace gate); and **a first sync that fails still leaves the whole task store in place**, since seeding it afterwards left a joining machine merging as `Legacy` against a `Current` remote with an empty `tasks/`. |
 | `sync::csv_merge::remote_csvs` + `sync::csv_sync::tests_sections::remote_schema_publication` + `sync::setup` schema_preflight | Remote task-schema generation decided by CSV *content*: absent/current/legacy classification (header-only current CSVs are current, whitespace proves nothing, one legacy CSV makes the remote legacy), a remote missing only its schema document is healed by publishing it, a failed publication is surfaced rather than assumed healed, and genuinely legacy remote rows still refuse while naming `brain workspace migrate`. Setup's guard refuses on legacy rows instead of on mere CSV existence. |

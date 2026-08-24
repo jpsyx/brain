@@ -19,6 +19,7 @@ pub const REMOTE_TURN_TIMEOUT: Duration = Duration::from_secs(300);
 pub const ACTIVE_WORK_IDLE: Duration = Duration::from_secs(90);
 
 #[must_use]
+#[cfg(test)]
 pub fn retry_ready(deadline: Option<Instant>, now: Instant) -> bool {
     deadline.is_none_or(|deadline| now >= deadline)
 }

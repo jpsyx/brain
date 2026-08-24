@@ -129,6 +129,7 @@ pub(crate) const BRAIN_FIELDS: &[&str] = &[
     "brain_transport_override",
     "session_done_url_override",
     "session_transport_override",
+    "receiver_transport_override",
 ];
 
 pub(crate) const SERVICE_FIELDS: &[&str] = &[

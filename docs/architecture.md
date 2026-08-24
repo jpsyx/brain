@@ -177,8 +177,8 @@ rule applies across the large runtime families:
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v8 schema; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/claim.rs` owns FIFO leases, launch CAS, transitions, and bounded retry state; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
-| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` coordinates recurring feature boundaries; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{decision,effect,planning,runtime,session,failure}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `planning.rs` turns one durable job/conversation into a conservative frontend-neutral launch plan; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim rollback; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
+| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure}.rs` and `tui/app_brain/receiver/` | `planning.rs` creates a conservative frontend-neutral launch plan; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim rollback; `run.rs` owns durable local-run state; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, planning, registration, launch, and background tab insertion; `active.rs` owns exact-claim renewal and terminal cleanup; `artifact.rs` owns content-free exact completion correlation; `reply.rs` preserves immutable provider delivery. The legacy memory queue remains representation-only until BR-18 and is not a production consumer. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -220,9 +220,13 @@ that complete durable tuple.
 `tui::receiver::planning` treats that binding only as a candidate. It asks the
 selected `AgentController` to validate the native history, requires the
 injected exact-session claim to succeed, and otherwise returns a fresh plan
-with a UTF-8-safe recovery prompt capped at 64 KiB. The durable consumer and
-isolated-tab coordinator have not adopted these launch operations yet; the
-next BR-14 task owns that runtime wiring.
+with a UTF-8-safe recovery prompt capped at 64 KiB. The isolated-tab coordinator
+uses these operations from the one recurring `App::tick_receiver` call.
+`app_brain/receiver/dispatch.rs` owns claim, freshness, planning, registration,
+launch, and background insertion; `active.rs` owns exact-claim renewal and
+terminal cleanup; `artifact.rs` owns content-free exact completion correlation;
+and `reply.rs` preserves immutable provider delivery. No receiver branch injects
+the main panel.
 
 Authenticated provider ingress now uses this foundation as its acceptance
 boundary. After final workspace and lease authority revalidation, the shared
@@ -230,8 +234,8 @@ server opens the addressed workspace DB with the remaining HTTP handoff budget
 and atomically inserts or deduplicates the exact job and conversation. Provider
 success follows that transaction, so process or TUI restart cannot erase
 accepted work. The shared process still requires a live enabled lease for
-routing and remains ingress-only: BR-14 will replace TUI queue consumption,
-while agent launch, completion, and delivery remain outside the server.
+routing and remains ingress-only. The live TUI alone claims durable work and
+owns agent launch, completion, and delivery.
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
 Env, config, personalization, state, TUI, tasks, reindex, sync, and child
@@ -1722,16 +1726,16 @@ rebinds the remainder before acceptance lock waiting. The deadline is checked
 again after commit before provider success. Provider and database IO never run
 while the control mutex is held.
 
-Queued inbound work is never allowed to interrupt an active agent turn.
-`tui/receiver/decision.rs` orders the pure dispatch stages, and
-`tui/receiver/runtime.rs` combines those decisions with the queue, active-turn,
-and warm-lease facts. Together they distinguish a submitted turn from an idle
-open PTY, so an idle startup panel can switch to the receiver session even when
-a modal is on screen. They also distinguish active receiver work from a
-three-minute warm channel lease: interactive lifecycle completions are still
-polled, a same-channel message reuses the warm PTY, and another channel replaces
-it only after work finishes. `tui/receiver/policy.rs` owns the pure timeout,
-activity-probe, retry, and keystroke-lock policy beneath the receiver facade.
+Queued inbound work never interrupts the interactive main panel or another
+receiver run. The one recurring receiver tick runs only while persisted intent
+is enabled and no receiver tab is active. It renews an already claimed job
+before honoring the sync-freshness gate, then claims the oldest ready durable
+row by `(received_at_unix_ms, job_id)`, plans through `AgentController`, and
+launches a new background receiver tab. Later arrivals remain durable and
+unclaimed until the active run reaches a terminal outcome. Receiver insertion,
+completion, and removal preserve the active main view, tab, panel visibility,
+and keyboard focus. `tui/receiver/policy.rs` retains pure retry and input-lock
+policy below the receiver facade.
 The queue architecture guard canonicalizes raw identifiers before resolving
 `InboundJob` names and aliases. Its files are scanned independently, so the
 declared-item/export invariant rejects every visible renamed re-export of a
@@ -1743,7 +1747,8 @@ more than two hours old and exposes current sync state to the footer and
 palette. The common receiver prompt classifies task-capture requests as task
 creation instead of immediate execution, unless the sender explicitly asks for
 both. A verified completion launches an immediate push. Failed PTY launches
-retain the message for a backoff retry. Every
+release the exact registration and claim, shut down the new controller once,
+and record a durable pre-acceptance retry without changing the main panel. Every
 channel's final body is shaped by `server/reply/`, whose `plain_text/`
 submodules (`block.rs` for line-level scaffolding, `inline.rs` for spans) are a
 pure markdown-to-plain-text pass applied to SMS before the length decision;

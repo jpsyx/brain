@@ -12,9 +12,28 @@ impl App {
     /// a brain action whose effect landed right before the close shows up
     /// immediately.
     pub(crate) fn close_brain(&mut self) {
-        self.close_brain_with(Self::deliver_completed_remote_turn);
+        if let Some(mut controller) = self.brain.take_main() {
+            let _ = controller.shutdown();
+        }
+        let scope = crate::agent::SessionScope::new(
+            self.context.agent_kind(),
+            self.context.workspace().id(),
+            crate::actor::ActorContext::follow_up(self.brain.interactive_actor()),
+        );
+        if let Some(session_id) = self
+            .services
+            .locked_session_for_instance(self.brain.instance(), &scope)
+        {
+            self.receiver.record_interactive_agent_session(session_id);
+        }
+        self.brain.clear_session();
+        self.status.clear_alert();
+        self.shell.focus_tasks();
+        let _ = SessionStore::release(&self.services, self.brain.instance());
+        self.reload_after_brain();
     }
 
+    #[cfg(test)]
     pub(super) fn close_brain_with(
         &mut self,
         deliver: impl FnOnce(&mut Self, crate::server::delivery::CompletionDelivery),
@@ -57,30 +76,6 @@ impl App {
             self.clear_receiver_panel_state();
         }
         self.reload_after_brain();
-    }
-
-    fn deliver_completed_remote_turn(
-        &mut self,
-        completion: crate::server::delivery::CompletionDelivery,
-    ) {
-        let (snapshot, _actor, channel) = completion.into_parts();
-        let Some(target) = self.receiver.active_delivery_target() else {
-            return;
-        };
-        match channel {
-            crate::server::receiver::Channel::Sms => {
-                let reply = crate::server::reply::sms(&snapshot);
-                crate::server::delivery::send_sms_background(
-                    self.context.command().clone(),
-                    "fallback final SMS response",
-                    target.sender,
-                    reply.text,
-                );
-            }
-            crate::server::receiver::Channel::Email => {
-                self.send_email_reply("fallback final email response", &snapshot);
-            }
-        }
     }
 
     pub(crate) fn close_exited_brain_panel(&mut self) -> bool {

@@ -5,16 +5,6 @@ use crate::tui::App;
 use crate::agent::SessionStore;
 
 impl App {
-    pub(super) fn close_idle_panel_for_receiver_dispatch(&mut self, receiver_panel: bool) {
-        if receiver_panel {
-            crate::logging::log("receiver dispatch switching from a warm receiver channel");
-            self.close_receiver_panel(false);
-        } else {
-            crate::logging::log("receiver dispatch replacing idle interactive brain panel");
-            self.close_brain();
-        }
-    }
-
     pub(in crate::tui::app_brain) fn close_receiver_panel(&mut self, restore_interactive: bool) {
         let resume_session = self
             .receiver
@@ -40,19 +30,6 @@ impl App {
             self.receiver.prepare_interactive_restore(can_resume);
             self.open_or_focus_brain(None);
         }
-    }
-
-    pub(crate) fn leave_warm_receiver_for_interactive_input(&mut self) {
-        if self.receiver_panel_is_warm() {
-            crate::logging::log(
-                "keyboard input leaving warm receiver session for interactive session",
-            );
-            self.close_receiver_panel(true);
-        }
-    }
-
-    pub(in crate::tui::app_brain) fn receiver_panel_is_warm(&self) -> bool {
-        self.receiver.receiver_panel_is_warm()
     }
 
     pub(in crate::tui::app_brain) fn clear_receiver_panel_state(&mut self) {

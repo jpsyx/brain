@@ -274,6 +274,7 @@ impl EphemeralTabs {
             .map(|tab| &mut tab.controller)
     }
 
+    #[cfg(test)]
     pub(super) fn receiver_run_controller(&self, id: SessionTabId) -> Option<&AgentController> {
         self.tabs.iter().find_map(|tab| match &tab.metadata {
             EphemeralTabMetadata::ReceiverRun(_) if tab.id == id => Some(&tab.controller),

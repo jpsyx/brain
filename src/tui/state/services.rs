@@ -72,7 +72,6 @@ impl AppServices {
         SessionStore::release(&self.db, instance)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn register_receiver_session(
         &self,
         conversation_id: crate::state::ReceiverConversationId,
@@ -85,7 +84,6 @@ impl AppServices {
             .register_receiver_session(conversation_id, session, instance, pid, scope)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn claim_receiver_session(
         &self,
         conversation_id: crate::state::ReceiverConversationId,
@@ -98,7 +96,6 @@ impl AppServices {
             .claim_receiver_session(conversation_id, session, instance, pid, scope)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn release_receiver_session(
         &self,
         registration: &crate::state::ReceiverSessionAttribution,
@@ -106,7 +103,6 @@ impl AppServices {
         self.db.release_receiver_session(registration)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn claim_receiver_run(
         &self,
         owner: &str,
@@ -117,7 +113,6 @@ impl AppServices {
             .claim_next_receiver_run(owner, now_unix_ms, expires_at_unix_ms)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn prepare_receiver_launch(
         &self,
         job_id: crate::state::ReceiverJobId,
@@ -128,7 +123,17 @@ impl AppServices {
             .prepare_receiver_job_launch(job_id, owner, observed_at_unix_ms)
     }
 
-    #[allow(dead_code)]
+    pub(crate) fn renew_receiver_claim(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        owner: &str,
+        now_unix_ms: u64,
+        expires_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .renew_receiver_claim(job_id, owner, now_unix_ms, expires_at_unix_ms)
+    }
+
     pub(crate) fn record_receiver_launch_retry(
         &self,
         job_id: crate::state::ReceiverJobId,
@@ -146,7 +151,18 @@ impl AppServices {
         )
     }
 
-    #[allow(dead_code)]
+    pub(crate) fn transition_receiver_job(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        owner: &str,
+        expected: crate::state::ReceiverJobState,
+        next: crate::state::ReceiverJobState,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .transition_receiver_job(job_id, owner, expected, next, observed_at_unix_ms)
+    }
+
     pub(crate) fn replace_receiver_binding_from_instance(
         &self,
         registration: &crate::state::ReceiverSessionAttribution,

@@ -1,197 +1,315 @@
-//! Ordered receiver decisions and application-owned effect execution.
+//! Durable receiver-run coordination from the application event loop.
 
-use crate::server::receiver::InboundJob;
+use std::sync::Arc;
+
+use crate::agent::{HookMetadata, LaunchRequest, SessionPlan};
+use crate::pty_pane::PtyPane;
+use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
+use crate::tui::receiver::{
+    ClaimedReceiverRun, DurableReceiverRun, ReceiverRemoteSession, ReceiverSessionRegistration,
+    rollback_receiver_launch,
+};
+
+pub(super) const CLAIM_LIFETIME_MS: u64 = 30_000;
+pub(super) const RETRY_DELAY_MS: u64 = 5_000;
+
+#[cfg(not(test))]
+fn receiver_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
+    Box::new(PtyPane::new(24, 80))
+}
+
+#[cfg(test)]
+fn receiver_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
+    app.brain
+        .take_receiver_transport()
+        .unwrap_or_else(|| Box::new(PtyPane::new(24, 80)))
+}
 
 impl App {
-    /// Plan and execute one pass over the receiver's ordered lifecycle stages.
+    /// Advance the single durable receiver consumer by one non-blocking step.
     pub(crate) fn tick_receiver(&mut self) {
-        crate::tui::receiver::run_receiver_tick(|stage| self.execute_receiver_tick_stage(stage));
+        if !self.receiver.is_enabled() {
+            return;
+        }
+        match self.receiver.take_durable_run() {
+            DurableReceiverRun::Active(active) => self.tick_active_receiver_run(active),
+            DurableReceiverRun::Claimed(claimed) => self.continue_claimed_receiver_run(claimed),
+            DurableReceiverRun::Idle => self.claim_receiver_run(),
+        }
     }
 
-    fn execute_receiver_tick_stage(
-        &mut self,
-        stage: crate::tui::receiver::TickStage,
-    ) -> crate::tui::receiver::ReceiverTickControl {
-        let context = self.receiver_tick_context();
-        match self
-            .receiver
-            .plan_tick_stage(stage, context, std::time::Instant::now())
+    fn claim_receiver_run(&mut self) {
+        if !self.brain.receiver_run_observations().is_empty() {
+            return;
+        }
+        let remote = ReceiverRemoteSession::new(self.brain.instance());
+        let now = self.receiver_now_unix_ms();
+        match self.services.claim_receiver_run(
+            remote.instance(),
+            now,
+            now.saturating_add(CLAIM_LIFETIME_MS),
+        ) {
+            Ok(Some(claim)) => {
+                self.continue_claimed_receiver_run(ClaimedReceiverRun { claim, remote });
+            }
+            Ok(None) => {}
+            Err(error) => crate::logging::log(format!("durable receiver claim failed: {error:#}")),
+        }
+    }
+
+    fn continue_claimed_receiver_run(&mut self, claimed: ClaimedReceiverRun) {
+        let now = self.receiver_now_unix_ms();
+        match self.services.renew_receiver_claim(
+            claimed.claim.job().id(),
+            claimed.claim.claim().owner(),
+            now,
+            now.saturating_add(CLAIM_LIFETIME_MS),
+        ) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                crate::logging::log(format!("receiver pending claim renewal failed: {error:#}"));
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                return;
+            }
+        }
+        if self.execute_receiver_sync_freshness_effect()
+            == crate::tui::receiver::ReceiverEffectOutcome::FreshnessPending
         {
-            crate::tui::receiver::ReceiverDecision::Continue => {
-                crate::tui::receiver::ReceiverTickControl::AdvanceStage
-            }
-            crate::tui::receiver::ReceiverDecision::Stop => {
-                crate::tui::receiver::ReceiverTickControl::StopTick
-            }
-            crate::tui::receiver::ReceiverDecision::Effect(effect) => {
-                crate::tui::receiver::control_after_effect(self.execute_receiver_effect(effect))
-            }
+            self.receiver
+                .store_durable_run(DurableReceiverRun::Claimed(claimed));
+            return;
         }
+        self.launch_claimed_receiver_run(claimed);
     }
 
-    fn receiver_tick_context(&self) -> crate::tui::receiver::ReceiverTickContext {
-        let queued_actor_matches_session = self
-            .receiver
-            .next_job()
-            .is_some_and(|job| self.brain.session_actor() == Some(&job.actor));
-        crate::tui::receiver::ReceiverTickContext {
-            brain_turn_active: self.brain.turn_active(),
-            panel_open: self.brain.main_controller().is_some(),
-            queued_actor_matches_session,
-        }
-    }
-
-    fn execute_receiver_effect(
-        &mut self,
-        effect: crate::tui::receiver::ReceiverEffect,
-    ) -> crate::tui::receiver::ReceiverEffectOutcome {
-        match effect {
-            crate::tui::receiver::ReceiverEffect::PollRemoteCompletion(target) => {
-                self.poll_completed_remote_response(target);
-            }
-            crate::tui::receiver::ReceiverEffect::PollInteractiveCompletion { response_id } => {
-                self.poll_completed_interactive_turn(&response_id);
-            }
-            crate::tui::receiver::ReceiverEffect::DeliverProcessingDelay(target) => {
-                self.send_processing_delay(target);
-            }
-            crate::tui::receiver::ReceiverEffect::SamplePanelActivity { sampled_at } => {
-                self.sample_panel_activity(sampled_at);
-            }
-            crate::tui::receiver::ReceiverEffect::LogActivityProbe(probe) => {
-                self.log_receiver_activity_probe(&probe);
-            }
-            crate::tui::receiver::ReceiverEffect::AbandonTimedOutTurn => {
-                self.abandon_timed_out_remote_turn();
-            }
-            crate::tui::receiver::ReceiverEffect::ExpireWarmLease { channel } => {
+    fn launch_claimed_receiver_run(&mut self, claimed: ClaimedReceiverRun) {
+        let now = self.receiver_now_unix_ms();
+        let retry_at = now.saturating_add(RETRY_DELAY_MS);
+        let capability_plan = match self.launch_capability_plan() {
+            Ok(plan) => plan,
+            Err(error) => {
                 crate::logging::log(format!(
-                    "receiver session lease expired channel={channel:?}; restoring interactive session"
+                    "receiver launch capability planning failed: {error:#}"
                 ));
-                self.close_receiver_panel(true);
+                self.retry_unregistered_receiver(&claimed, ReceiverLaunchFailure::Planning, now);
+                return;
             }
-            crate::tui::receiver::ReceiverEffect::PollInboundJobs => {
-                self.receiver.poll_jobs(self.context.workspace().id());
+        };
+        let transport = receiver_transport(self);
+        let actor = claimed.claim.job().inbound().actor.clone();
+        let mut controller = self.controller_for_transport(actor.clone(), transport);
+        if let Err(error) = controller.ensure_available() {
+            crate::logging::log(format!("receiver frontend unavailable: {error}"));
+            let _ = rollback_receiver_launch(
+                &self.services,
+                &claimed.claim,
+                None::<ReceiverSessionRegistration<'_, crate::tui::state::AppServices>>,
+                &mut controller,
+                ReceiverLaunchFailure::Planning,
+                now,
+                retry_at,
+            );
+            return;
+        }
+
+        let pid = i32::try_from(std::process::id()).unwrap_or(0);
+        let scope = crate::agent::SessionScope::new(
+            self.context.agent_kind(),
+            self.context.workspace().id(),
+            actor.clone(),
+        );
+        let mut resume_registration = None;
+        let plan = crate::tui::receiver::planning::plan_receiver_launch(
+            &controller,
+            claimed.claim.job(),
+            claimed.claim.conversation(),
+            claimed.remote.placeholder().clone(),
+            |session| {
+                let registration = ReceiverSessionRegistration::claim_resume(
+                    &self.services,
+                    claimed.claim.job().conversation_id(),
+                    &claimed.remote,
+                    session,
+                    pid,
+                    &scope,
+                )?;
+                let was_claimed = registration.is_some();
+                resume_registration = registration;
+                Ok(was_claimed)
+            },
+        );
+        let registration = if matches!(plan.session_plan(), SessionPlan::Fresh(_)) {
+            match ReceiverSessionRegistration::register_fresh(
+                &self.services,
+                claimed.claim.job().conversation_id(),
+                &claimed.remote,
+                pid,
+                &scope,
+            ) {
+                Ok(registration) => registration,
+                Err(error) => {
+                    crate::logging::log(format!("receiver session registration failed: {error:#}"));
+                    let _ = rollback_receiver_launch(
+                        &self.services,
+                        &claimed.claim,
+                        None::<ReceiverSessionRegistration<'_, crate::tui::state::AppServices>>,
+                        &mut controller,
+                        ReceiverLaunchFailure::Registration,
+                        now,
+                        retry_at,
+                    );
+                    return;
+                }
             }
-            crate::tui::receiver::ReceiverEffect::ApplyRestart(plan) => {
-                self.apply_receiver_restart(&plan);
+        } else {
+            let Some(registration) = resume_registration else {
+                let _ = rollback_receiver_launch(
+                    &self.services,
+                    &claimed.claim,
+                    None::<ReceiverSessionRegistration<'_, crate::tui::state::AppServices>>,
+                    &mut controller,
+                    ReceiverLaunchFailure::Registration,
+                    now,
+                    retry_at,
+                );
+                return;
+            };
+            registration
+        };
+
+        match self.services.prepare_receiver_launch(
+            claimed.claim.job().id(),
+            claimed.claim.claim().owner(),
+            now,
+        ) {
+            Ok(true) => {}
+            Ok(false) => {
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                return;
             }
-            crate::tui::receiver::ReceiverEffect::CheckSyncFreshness => {
-                return self.execute_receiver_sync_freshness_effect();
-            }
-            crate::tui::receiver::ReceiverEffect::ApplyNewSession(job) => {
-                self.apply_receiver_new_session(&job);
-                return crate::tui::receiver::ReceiverEffectOutcome::NewSessionApplied;
-            }
-            crate::tui::receiver::ReceiverEffect::CloseIdlePanel { receiver_panel } => {
-                self.close_idle_panel_for_receiver_dispatch(receiver_panel);
-            }
-            crate::tui::receiver::ReceiverEffect::Dispatch(message) => {
-                self.dispatch_receiver_message(&message);
+            Err(error) => {
+                crate::logging::log(format!("receiver launch preparation failed: {error:#}"));
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                return;
             }
         }
-        crate::tui::receiver::ReceiverEffectOutcome::Completed
+
+        let hooks = self.receiver_hook_metadata(&claimed, pid);
+        let mut request = LaunchRequest::from_trusted_context(
+            Arc::clone(&self.context.command().workspace),
+            actor,
+            plan.session_plan().clone(),
+            Some(plan.initial_prompt().to_owned()),
+            self.context.access_mode(),
+        );
+        if let Some(capability_plan) = capability_plan {
+            request = request.with_capability_plan(capability_plan);
+        }
+        request = request.with_hook_metadata(hooks);
+        if let Err(error) = controller.launch(&request) {
+            crate::logging::log(format!("receiver process spawn failed: {error}"));
+            let _ = rollback_receiver_launch(
+                &self.services,
+                &claimed.claim,
+                Some(registration),
+                &mut controller,
+                ReceiverLaunchFailure::Spawn,
+                now,
+                retry_at,
+            );
+            return;
+        }
+
+        let title = format!(
+            "Receiver · {}",
+            match claimed.claim.job().inbound().channel {
+                crate::server::receiver::Channel::Sms => "SMS",
+                crate::server::receiver::Channel::Email => "Email",
+            }
+        );
+        let tab_id = match self.brain.add_receiver_run(
+            claimed.claim.job().id(),
+            title,
+            claimed.remote.instance().to_owned(),
+            controller,
+        ) {
+            Ok(tab_id) => tab_id,
+            Err(error) => {
+                crate::logging::log(format!("receiver tab allocation failed: {error}"));
+                let _ = registration.cleanup();
+                let _ = self.services.record_receiver_launch_retry(
+                    claimed.claim.job().id(),
+                    claimed.claim.claim().owner(),
+                    now,
+                    retry_at,
+                    ReceiverLaunchFailure::Allocation,
+                );
+                return;
+            }
+        };
+        let attribution = registration.commit();
+        self.receiver.store_durable_run(DurableReceiverRun::Active(
+            crate::tui::receiver::ActiveReceiverRun {
+                claim: claimed.claim,
+                attribution,
+                tab_id,
+            },
+        ));
     }
 
-    fn dispatch_receiver_message(&mut self, message: &InboundJob) {
-        let label = match message.channel {
-            crate::server::receiver::Channel::Sms => "SMS",
-            crate::server::receiver::Channel::Email => "email",
-        };
-        let _delivery_shape = match message.channel {
-            crate::server::receiver::Channel::Sms => crate::server::reply::sms(&message.prompt),
-            crate::server::receiver::Channel::Email => {
-                let _ = crate::server::reply::email_html(&message.prompt);
-                crate::server::reply::email(&message.prompt)
-            }
-        };
-        let _ = crate::server::reply::processing_notice(label);
-        let staged = crate::server::receiver::stage_attachments(
-            self.context.workspace(),
-            self.context.command(),
-            message,
+    fn retry_unregistered_receiver(
+        &mut self,
+        claimed: &ClaimedReceiverRun,
+        failure: ReceiverLaunchFailure,
+        now: u64,
+    ) {
+        let actor = claimed.claim.job().inbound().actor.clone();
+        let transport = receiver_transport(self);
+        let mut controller = self.controller_for_transport(actor, transport);
+        let _ = rollback_receiver_launch(
+            &self.services,
+            &claimed.claim,
+            None::<ReceiverSessionRegistration<'_, crate::tui::state::AppServices>>,
+            &mut controller,
+            failure,
+            now,
+            now.saturating_add(RETRY_DELAY_MS),
         );
-        let mut attachments = String::new();
-        for attachment in staged {
-            use std::fmt::Write as _;
-            let _ = write!(
-                attachments,
-                "\nAttachment: {}",
-                attachment.path.map_or_else(
-                    || format!(
-                        "{} (unreadable: {})",
-                        attachment.source,
-                        attachment
-                            .error
-                            .unwrap_or_else(|| "unknown error".to_owned())
-                    ),
-                    |path| path.display().to_string(),
-                )
-            );
-        }
-        let prompt = format!(
-            "This is an authenticated {label} message from {} (actor {}). Respond as the user's brain. If the message asks to add, create, capture, remember, or track a task, create it in Brain's task system; do not perform the task now unless the sender explicitly asks you to.\n\n{}",
-            message.actor.display_name(),
-            message.actor.user_id(),
-            message.prompt
-        );
-        // A `/new` on this channel makes the launch that follows it refuse to
-        // resume, which is what retires the old conversation.
-        self.receiver.prepare_channel_launch(message.channel);
-        let reusing_receiver_panel =
-            self.receiver.has_receiver_session() && self.brain.main_controller().is_some();
-        if reusing_receiver_panel {
-            if let Some(session_id) = self.receiver.receiver_response_id() {
-                let response_path = self
-                    .context
+    }
+
+    fn receiver_hook_metadata(&self, claimed: &ClaimedReceiverRun, pid: i32) -> HookMetadata {
+        HookMetadata::new(vec![
+            (
+                "BRAIN_INSTANCE_ID".to_owned(),
+                claimed.remote.instance().to_owned(),
+            ),
+            ("BRAIN_PID".to_owned(), pid.to_string()),
+            (
+                "BRAIN_STATE_DB".to_owned(),
+                self.context.state_db_path().display().to_string(),
+            ),
+            (
+                "BRAIN_RESPONSE_ID".to_owned(),
+                claimed.remote.instance().to_owned(),
+            ),
+            (
+                "BRAIN_RESPONSE_DIR".to_owned(),
+                self.context
                     .workspace()
                     .paths()
                     .responses_dir()
-                    .join(format!("{session_id}.json"));
-                let _ = std::fs::remove_file(response_path);
-            }
-        } else {
-            self.receiver.request_receiver_launch(message.actor.clone());
-        }
-        // A fresh launch passes the prompt as a command argument; warm reuse
-        // types it into the live composer. The distinction is essential when
-        // diagnosing a message that reached the panel but never submitted.
-        crate::logging::log(format!(
-            "receiver dispatch delivering channel={:?} via {}",
-            message.channel,
-            if reusing_receiver_panel {
-                "warm-panel injection"
-            } else {
-                "fresh launch argument"
-            }
-        ));
-        if reusing_receiver_panel {
-            // Existing composer contents explain a prompt that lands beside
-            // leftover text or behind something waiting on a keypress.
-            crate::logging::log(format!(
-                "receiver panel before injection: {}",
-                self.panel_tail(14)
-                    .unwrap_or_else(|| "<no panel>".to_owned())
-            ));
-        }
-        let launched = self.open_or_focus_brain(Some(&(prompt + &attachments)));
-        let dispatched_at = std::time::Instant::now();
-        let _ = self
-            .receiver
-            .finish_dispatch(launched, message, dispatched_at);
-        if launched {
-            crate::logging::log(format!(
-                "receiver dispatch started channel={:?} queue_depth={}",
-                message.channel,
-                self.receiver.pending_count()
-            ));
-        } else {
-            crate::logging::log(format!(
-                "receiver dispatch launch failed; message retained channel={:?} queue_depth={}",
-                message.channel,
-                self.receiver.pending_count()
-            ));
-        }
+                    .display()
+                    .to_string(),
+            ),
+        ])
+    }
+
+    pub(super) fn receiver_now_unix_ms(&self) -> u64 {
+        u64::try_from(self.services.utc_now().timestamp_millis()).unwrap_or(0)
     }
 }

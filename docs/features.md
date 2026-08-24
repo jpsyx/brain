@@ -117,10 +117,14 @@ dependable paths.)
 
 The same strip and slot order can hold a distinct background receiver-run tab.
 Receiver insertion never selects that tab, reveals a hidden panel, changes the
-main view, or moves keyboard focus. Durable FIFO claim, isolated native-session
-ownership, and bounded pre-acceptance rollback are also defined. The next BR-14
-coordinator task is still responsible for joining those seams to create
-production receiver runs and close them at terminal outcomes.
+main view, or moves keyboard focus. When receiver intent is enabled, the single
+event-loop consumer preserves the sync-freshness gate, claims the oldest ready
+durable job, and launches a new PTY and frontend-neutral `AgentController` in
+that background tab even while the main panel is busy. Later arrivals remain
+durable until the active run reaches a valid exact completion. Terminal close
+shuts down only that controller, reloads tasks, preserves provider reply
+behavior, and leaves the active view, tab, and focus unchanged. A child exit
+without exact completion returns the job through bounded pre-acceptance retry.
 
 Every skill session is **ephemeral**: never recorded in the session DB, never
 resumed. Because a run can involve back-and-forth with you, "the agent stopped

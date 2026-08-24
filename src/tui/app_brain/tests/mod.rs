@@ -44,16 +44,6 @@ fn begin_receiver_turn(
     assert!(app.receiver.finish_dispatch(true, job, started));
 }
 
-fn warm_receiver_session(
-    app: &mut App,
-    job: &InboundJob,
-    response_id: &str,
-    now: std::time::Instant,
-) {
-    begin_receiver_turn(app, job, response_id, now);
-    app.receiver.finish_remote_response(now);
-}
-
 fn receiver_job(
     app: &App,
     actor: crate::actor::ActorContext,
@@ -87,6 +77,9 @@ mod opencode_launch;
 mod opencode_receiver;
 mod overlay_draw;
 mod receiver;
+mod receiver_durable_launch;
+mod receiver_durable_lifecycle;
+mod receiver_durable_support;
 mod receiver_sync;
 mod receiver_tab;
 mod skill_session;

@@ -266,9 +266,10 @@ concurrent ingress cannot overbook a workspace. Only `queued` rows consume this
 ingress capacity; progressed, retrying, failed, and done evidence remains
 durable without blocking a new slot. Zero live TUIs still means zero server and
 no Brain response because routing requires a live enabled lease. The shared
-process owns no execution cursor or headless agent, and BR-14 owns consumption
-of these accepted rows. The pre-BR-14 TUI memory queue and its `/restart` cut
-remain runtime-local but are no longer the provider acceptance boundary.
+process owns no execution cursor or headless agent. The live TUI consumes these
+accepted rows through one durable receiver tick. The legacy memory queue and
+its `/restart` representation remain runtime-local until BR-18, but are neither
+the provider acceptance boundary nor a production execution consumer.
 
 Session retirement has no model of its own. `/new` records nothing durable:
 `ReceiverRuntime` consumes the queued control job, remembers its channel, and
@@ -1038,6 +1039,15 @@ and done rows are terminal and cannot be reclaimed. Retry counters are checked
 against `u32::MAX` before SQLite can increment them, and every `u64`
 millisecond value is range-checked before it is stored as an SQLite integer.
 
+The TUI keeps at most one durable receiver run locally. It renews the exact
+claim while freshness is pending and while the matching tab is active. Later
+arrivals remain `queued` and unclaimed until that run closes; the next tick
+again selects by `received_at_unix_ms, job_id`. A valid completion currently
+moves `launching` directly to `done` because BR-15 has not yet added accepted or
+processing proof. Losing exact ownership forbids every durable lifecycle,
+reply, session, and job mutation. A reclaimed progressed state is left unchanged
+for BR-16 rather than launched again.
+
 **Conversation continuity.** Each conversation stores the continuously
 maintained Brain-owned markdown transcript plus an optional paired
 `(agent_kind, agent_session_id)` binding. A same-frontend request may resume
@@ -1122,11 +1132,10 @@ without a manual `brain skills sync`.
   for the selected workspace and its machine-local user; existing locks,
   source, and timestamps are preserved. Schema v5 adds
   `completion_status`, defaulting every existing row to `active`.
-- Receiver runtime state distinguishes an active remote job
-  (`receiver_started` is set) from a warm channel panel (`receiver_session_id`
-  plus a three-minute `receiver_lease`). A warm lease never counts as active
-  LLM work. This lets bridge completion release queued work while keeping
-  the completed SMS/email conversation visible and reusable.
+- Receiver runtime state holds one `DurableReceiverRun`: idle, claimed while
+  freshness completes, or active with the exact claim, tab, remote instance,
+  registered session, frontend, actor, channel, response, and provider reply
+  context. It never aliases the interactive main-panel session.
 - `SessionStore::release` → when the panel closes (the agent exits) or the shell quits, clear
   this instance's locks and stamp `last_active` (floats it to the top of the
   next resume — so re-opening with "Message brain" picks it back up, and a
@@ -1165,8 +1174,10 @@ not raw PTYs.
 Their shared semantic API owns launch, input, session, completion, terminal,
 and shutdown behavior; only frontend adapters translate those operations.
 Whole-shell teardown explicitly shuts down every controller before releasing
-the session-store lock. The in-memory receiver tab and durable launch seams are
-not yet joined by the tick coordinator in this task.
+the session-store lock. The durable tick joins receiver state to this shared tab
+collection. It inserts and removes receiver tabs in the background, so the
+active main view, effective tab, panel visibility, and keyboard focus do not
+change at launch or terminal close.
 
 ## Skill sessions (`skill_session/`, `skill_sessions` env)
 

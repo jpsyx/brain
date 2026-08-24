@@ -2683,7 +2683,8 @@ transcript suffix because recent turns are the most useful recovery context;
 the current authenticated message and attachment references remain in a
 separate section. Resume omits the transcript entirely. The plan contains no
 tab, durable claim, or binding mutation, which keeps frontend translation
-behind `AgentController` and leaves later BR-14 runtime effects to their owners.
+behind `AgentController`; the durable coordinator owns those effects without
+widening the planner.
 
 Receiver launch ownership is isolated from the interactive shell. Every remote
 run gets a unique instance ID and either claims the exact validated resume
@@ -2709,12 +2710,27 @@ failure marks the job failed without deleting it. Reclaimed `accepted`,
 `processing`, answer, and delivery work stays unlaunched until BR-16 defines
 its recovery policy.
 
-An open agent PTY is not proof that work is active: brain opens an idle panel
-before the startup daily-triage modal. The receiver therefore tracks submitted
-turns separately and lets the session-stop bridge clear that state. Queued receiver work
-can replace an idle panel immediately, but never interrupts a submitted local
-turn. A receiver launch is committed only after PTY creation succeeds; failure
-keeps the durable message and applies the bounded pre-acceptance retry policy.
+**Why one durable consumer and no main-panel reuse.** Receiver work must not
+compete with a second in-memory execution cursor or inherit interactive panel
+state. One recurring App tick therefore owns durable FIFO claim through
+terminal close. Every frontend receives a new `AgentController` and PTY under a
+unique remote instance, even when the main panel is hidden or idle. Background
+tab insertion and removal preserve the user's current view and focus, and no
+receiver path types into or submits through the main panel.
+
+**Why freshness and ownership precede progress.** A claimed job is renewed
+before a pending freshness pull so a slow sync cannot let another owner launch
+the same work. While one receiver tab is active, later arrivals stay durable and
+unclaimed. Losing exact ownership permits local controller and tab cleanup only;
+mutating the job, session, lifecycle, or reply would race the new owner.
+
+**Why terminal completion requires exact lifecycle evidence.** Process spawn
+and screen activity do not prove acceptance or completion. Brain requires the
+exact completion artifact and exact locked remote session for the launched run.
+A valid completion currently moves `launching` directly to `done`, because
+BR-15 owns accepted and processing proof. Child exit without that evidence is a
+pre-acceptance retry. Reclaimed progressed states remain unchanged until BR-16
+defines their phase-specific recovery.
 
 SMS allowlist comparison uses the provider's exact E.164 sender form. Brain
 preserves the leading `+` as string data instead of interpreting it as a JSON
@@ -2816,8 +2832,9 @@ identical, so the collection stores a kind enum: skill metadata owns its
 definition key and completion token, while receiver metadata owns its durable
 job and remote instance identities. Receiver insertion only mutates this
 collection. It never invokes the shell selection path, and receiver-only state
-does not reveal a hidden panel. The durable receiver coordinator remains a
-later BR-14 task.
+does not reveal a hidden panel. The durable receiver coordinator uses that
+narrow insertion and removal surface, so background work cannot select a tab or
+change the main view, panel visibility, or keyboard focus.
 
 **Why the session is untracked.** A skill-session tab is ephemeral by
 construction. `App::open_skill_session` builds an `AgentController` from a
@@ -4194,6 +4211,10 @@ resolves through.
 
 ## Injected prompts are pasted, not typed
 
+This remains the ordinary interactive `AgentController` input contract.
+Receiver runs no longer inject an existing panel; they pass the initial prompt
+to a new isolated launch.
+
 A prompt Brain injects into an open panel used to be typed character by
 character, with each newline encoded as `ESC CR` — the "insert a literal
 newline, don't submit" chord all three frontends accept. That works only while
@@ -4229,6 +4250,9 @@ delivered through a channel that cannot reinterpret it as control.** Typing is
 that channel's opposite.
 
 ## The submit key needs its own write, after the paste has landed
+
+This remains the ordinary interactive follow-up contract. Receiver runs no
+longer reuse a warm panel or submit a typed follow-up.
 
 Pasting fixed the vim-mode corruption but not the whole bug. A prompt injected
 into a warm panel still went unsubmitted, now with the composer holding the
@@ -4266,6 +4290,10 @@ that depend on each other and let the earlier one take effect first.
 
 ## A dispatched turn that never answers must not strand the queue behind it
 
+This warm-panel timeout policy is retained as historical rationale. Isolated
+receiver runs now treat child exit without exact completion as a durable
+pre-acceptance retry, while a live run is governed by its exact claim.
+
 The bug above exposed a second, independent one. Nothing released an in-flight
 receiver turn except a completion signal. The inactivity lease looks like a
 timeout but is not one: `expired` only fires once `receiver_started` is `None`,
@@ -4286,6 +4314,10 @@ The check runs *after* the completion polls, so an answer that lands just past
 the deadline still wins.
 
 ## The panel belongs to the sender while it is answering them
+
+This main-panel input lock is retained as historical rationale. Receiver work
+now owns a background tab, so local input remains routed to the user's selected
+tab and never enters the receiver PTY.
 
 Receiver dispatch focuses the brain panel, and a panel with a message in flight
 is not "warm", so `leave_warm_receiver_for_interactive_input` did not fire and

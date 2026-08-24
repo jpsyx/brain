@@ -6,7 +6,6 @@ use crate::skill_session::SkillSessionKey;
 use crate::state::ReceiverJobId;
 use crate::tui::model::{BrainTab, SessionTabId};
 
-#[allow(dead_code)]
 mod ephemeral;
 #[cfg(test)]
 pub(super) mod exhausted_tab_ids;
@@ -37,6 +36,8 @@ pub(crate) struct BrainPanelState {
     session_done_url_override: Option<String>,
     #[cfg(test)]
     session_transport_override: Option<Box<dyn AgentTransport>>,
+    #[cfg(test)]
+    receiver_transport_override: Option<Box<dyn AgentTransport>>,
 }
 
 impl BrainPanelState {
@@ -55,6 +56,8 @@ impl BrainPanelState {
             session_done_url_override: None,
             #[cfg(test)]
             session_transport_override: None,
+            #[cfg(test)]
+            receiver_transport_override: None,
         }
     }
 
@@ -89,10 +92,6 @@ impl BrainPanelState {
         self.brain_turn_active = true;
     }
 
-    pub(crate) const fn clear_turn(&mut self) {
-        self.brain_turn_active = false;
-    }
-
     #[must_use]
     pub(crate) fn instance(&self) -> &str {
         &self.instance
@@ -104,6 +103,7 @@ impl BrainPanelState {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(crate) const fn session_actor(&self) -> Option<&ActorContext> {
         self.session_actor.as_ref()
     }
@@ -264,6 +264,16 @@ impl BrainPanelState {
     }
 
     #[cfg(test)]
+    pub(crate) fn replace_receiver_transport(&mut self, transport: Box<dyn AgentTransport>) {
+        self.receiver_transport_override = Some(transport);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_receiver_transport(&mut self) -> Option<Box<dyn AgentTransport>> {
+        self.receiver_transport_override.take()
+    }
+
+    #[cfg(test)]
     pub(crate) fn replace_session_done_url(&mut self, url: String) {
         self.session_done_url_override = Some(url);
     }
@@ -274,7 +284,6 @@ impl BrainPanelState {
     }
 }
 
-#[allow(dead_code)]
 impl BrainPanelState {
     #[must_use]
     pub(crate) fn receiver_run_observations(&self) -> Vec<ReceiverRunObservation> {
@@ -297,6 +306,7 @@ impl BrainPanelState {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn receiver_run_controller(&self, id: SessionTabId) -> Option<&AgentController> {
         self.ephemeral_tabs.receiver_run_controller(id)
     }

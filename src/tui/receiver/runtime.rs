@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use crate::actor::ActorContext;
 use crate::server::receiver::{Channel, EmailReplyContext, InboundJob};
 
-use super::{InboundQueue, policy};
+use super::{DurableReceiverRun, InboundQueue, policy};
 
 #[cfg(test)]
 use super::StageError;
@@ -14,7 +14,6 @@ use super::StageError;
 mod diagnostics;
 mod session;
 mod sync;
-mod tick;
 
 pub(crate) use sync::{SyncGateObservation, SyncGatePoll};
 
@@ -91,6 +90,7 @@ pub(crate) struct ReceiverRuntime {
     panel_sampled_at: Option<Instant>,
     retry_at: Option<Instant>,
     sync_gate: Option<ReceiverSyncGate>,
+    durable_run: DurableReceiverRun,
 }
 
 impl ReceiverRuntime {
@@ -120,6 +120,23 @@ impl ReceiverRuntime {
             panel_sampled_at: None,
             retry_at: None,
             sync_gate: None,
+            durable_run: DurableReceiverRun::Idle,
+        }
+    }
+
+    pub(crate) fn take_durable_run(&mut self) -> DurableReceiverRun {
+        std::mem::replace(&mut self.durable_run, DurableReceiverRun::Idle)
+    }
+
+    pub(crate) fn store_durable_run(&mut self, run: DurableReceiverRun) {
+        self.durable_run = run;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_durable_run(&self) -> Option<&super::ActiveReceiverRun> {
+        match &self.durable_run {
+            DurableReceiverRun::Active(active) => Some(active),
+            DurableReceiverRun::Idle | DurableReceiverRun::Claimed(_) => None,
         }
     }
 

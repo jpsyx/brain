@@ -1,4 +1,7 @@
+use super::receiver_durable_support::publish_valid_completion;
 use super::*;
+
+use crate::state::{ReceiverConversationIdentity, ReceiverJobState};
 
 const DELIVERY_CHILD: &str = "BRAIN_OPENCODE_RECEIVER_DELIVERY_CHILD";
 
@@ -52,72 +55,49 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
     let cli = Cli::parse_from(["tasks"]);
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
+    app.receiver.record_intent(true);
     configure_fake_twilio(&app);
     let recording = TransportRecording::default();
-    app.brain.replace_brain_transport(recording.transport());
+    app.brain.replace_receiver_transport(recording.transport());
     let actor = sms_actor();
-    let workspace_id = app.context.workspace().id();
-    enqueue_receiver_job(
-        &mut app,
-        InboundJob {
-            job_id: uuid::Uuid::new_v4(),
-            workspace_id,
-            actor: actor.clone(),
-            channel: Channel::Sms,
-            prompt: "authenticated request".to_owned(),
-            authenticated_sender: "+15551234567".to_owned(),
-            attachments: Vec::new(),
-            received_at_unix_ms: 1,
-            provider_id: Some("provider-message-1".to_owned()),
-            thread_participants: vec!["+15551234567".to_owned()],
-            response_email: None,
-            allowed_response_recipients: Vec::new(),
-            email_reply: None,
-        },
-    );
+    let inbound = InboundJob {
+        job_id: uuid::Uuid::new_v4(),
+        workspace_id: app.context.workspace().id(),
+        actor: actor.clone(),
+        channel: Channel::Sms,
+        prompt: "authenticated request".to_owned(),
+        authenticated_sender: "+15551234567".to_owned(),
+        attachments: Vec::new(),
+        received_at_unix_ms: 1,
+        provider_id: Some("provider-message-1".to_owned()),
+        thread_participants: vec!["+15551234567".to_owned()],
+        response_email: None,
+        allowed_response_recipients: Vec::new(),
+        email_reply: None,
+    };
+    let identity =
+        ReceiverConversationIdentity::sms(app.context.workspace().id(), actor.user_id().clone());
+    let db = Db::open(app.context.workspace()).expect("state DB");
+    let accepted = db
+        .accept_receiver_job(&inbound, &identity)
+        .expect("accept durable receiver job");
 
     app.tick_receiver();
-    let response_id = app
-        .receiver
-        .receiver_response_id()
-        .map(str::to_owned)
-        .expect("receiver response id");
-    let response_path = app
-        .context
-        .workspace()
-        .paths()
-        .responses_dir()
-        .join(format!("{response_id}.json"));
-    std::fs::create_dir_all(response_path.parent().expect("response directory"))
-        .expect("create response directory");
-    std::fs::write(
-        &response_path,
-        serde_json::json!({
-            "actor_id": actor.user_id().as_str(),
-            "channel": "sms",
-            "message": "provider boundary response"
-        })
-        .to_string(),
-    )
-    .expect("completion artifact");
+    let response_path = publish_valid_completion(&app, "provider boundary response");
 
     app.tick_receiver();
+    crate::server::delivery::wait_for_background_delivery();
 
     assert!(
         !response_path.exists(),
         "completion artifact must be consumed"
     );
-    assert!(!app.receiver.remote_turn_in_flight());
-    assert!(app.receiver.active_delivery_target().is_none());
-    assert!(
-        app.brain.main_controller().is_some(),
-        "completed receiver panel stays warm"
+    assert!(app.brain.receiver_run_observations().is_empty());
+    assert_eq!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
+        ReceiverJobState::Done
     );
     let log = PathBuf::from(std::env::var_os("BRAIN_FAKE_CURL_LOG").expect("fake curl log"));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while !log.exists() && std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
     assert!(log.exists(), "provider boundary was not invoked");
 }
 
