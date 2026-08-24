@@ -20,6 +20,8 @@ mod atomic;
 mod contracts;
 #[path = "hook_integration/installer.rs"]
 mod installer;
+#[path = "hook_integration/receiver_lifecycle.rs"]
+mod receiver_lifecycle;
 
 /// Locate the hook script relative to the Cargo manifest.
 fn hook_script() -> PathBuf {

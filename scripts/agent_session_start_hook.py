@@ -32,7 +32,9 @@ hook rather than this SessionStart hook.
 
 The hook updates an exact registered tuple or rotates an already registered
 live lineage to the frontend-reported id, then frees any other session this
-instance held. Ambient or forged workspace/session tuples are ignored.
+instance held. Receiver tuples additionally require their exact durable
+registration and live lock. Ambient, forged, or released workspace/session
+tuples are ignored.
 
 Failure modes are deliberately silent — the hook MUST NOT raise. A crash
 inside claude is loud and would distract from the session. We swallow
@@ -96,9 +98,24 @@ def main() -> None:
         )
         exact = conn.execute(
             """
-            SELECT 1 FROM brain_sessions
-            WHERE agent_kind = ? AND agent_session_id = ? AND workspace_id = ?
-              AND actor_id = ? AND channel = ? AND brain_instance_id = ?
+            SELECT 1 FROM brain_sessions AS session
+            WHERE session.agent_kind = ? AND session.agent_session_id = ?
+              AND session.workspace_id = ? AND session.actor_id = ?
+              AND session.channel = ? AND session.brain_instance_id = ?
+              AND (
+                session.channel = 'interactive'
+                OR (
+                  session.locked_pid IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1 FROM receiver_session_registrations AS registration
+                    WHERE registration.workspace_id = session.workspace_id
+                      AND registration.agent_kind = session.agent_kind
+                      AND registration.actor_id = session.actor_id
+                      AND registration.channel = session.channel
+                      AND registration.brain_instance_id = session.brain_instance_id
+                  )
+                )
+              )
             """,
             (scope[0], session_id, scope[1], scope[2], scope[3], instance),
         ).fetchone()

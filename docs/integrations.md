@@ -802,9 +802,14 @@ Which session to run is decided by the **lock + recency** model in
    every session start / resume / `/clear` / compact. Reading those env
    vars, it accepts only an exact registered frontend/workspace/session/actor/
    channel tuple or a new frontend ID rotating an already registered active
-   shell lineage. Unregistered events are ignored. An accepted event records
-   the actual frontend session ID plus immutable attribution (locked to
-   `BRAIN_PID`), resets completion status to `active`, and frees
+   shell lineage. A receiver exact-ID event additionally requires the same
+   instance's durable receiver registration and live session lock in that
+   transaction. Once terminal or retry cleanup releases the registration and
+   lock, a late same-ID event is ignored whether it arrives before or after
+   controller removal. Interactive exact-session events retain their ordinary
+   lock/recency behavior. Unregistered events are ignored. An accepted event
+   records the actual frontend session ID plus immutable attribution (locked
+   to `BRAIN_PID`), resets completion status to `active`, and frees
    the instance's other sessions, so a `/new` mid-run becomes the session
    brain resumes next time and the prior conversation stays resumable. With
    any common workspace identity or required session attribution variable
