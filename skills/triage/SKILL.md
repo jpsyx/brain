@@ -431,8 +431,11 @@ After the daily triage process completes (user has either resolved every past-du
    completion commands for a managed row.
 2. If managed triage habits are disabled, skip all habit lookup and mutation.
    The manual triage pass is still complete.
-   If the habit appears on an already-written agenda, update that agenda as
-   part of the same workflow; see /todo SKILL.md operating principle 7.
+   The by-`system_key` helper doesn't sync the agenda, so if one is already
+   written for today, run `brain tasks sync-agenda` (no id — it re-derives
+   Today's habits and Completed today from the CSVs) as part of the same
+   workflow. Never rewrite the agenda markdown by hand; see /todo SKILL.md
+   operating principle 7.
 
 **Why marking it matters — the brain tasks view depends on it.** The brain
 tasks view shows a startup "Today's triage isn't done. Run it now?" modal
@@ -567,8 +570,9 @@ After **all** in-baskets are empty:
    The helper resolves `system_key=brain.triage.weekly`; visible names are not identity.
 2. If managed triage habits are disabled, skip habit lookup and mutation. The
    weekly workflow remains complete once its in-baskets are empty.
-   If the habit appears on an already-written agenda, update that agenda as
-   part of the same workflow; see
+   The by-`system_key` helper doesn't sync the agenda, so if one is already
+   written for today, run `brain tasks sync-agenda` (no id) as part of the same
+   workflow. Never rewrite the agenda markdown by hand; see
    [Daily triage Step 9](#step-9--mark-morning-triage-habit-done).
 
 ## Step 4 — Offer to chain into daily triage

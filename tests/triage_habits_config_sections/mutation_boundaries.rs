@@ -15,7 +15,15 @@ fn managed_triage_rows_can_be_completed_by_hand() {
         .unwrap();
     let actor = actor(&workspace);
 
-    brain::tasks::complete::run(&workspace, &daily.id, &actor).unwrap();
+    // The CSV-only entry point: this test is about the managed chain, not the
+    // agenda the ordinary native path also syncs.
+    brain::tasks::complete::complete_in_workspace_without_agenda_sync(
+        &workspace,
+        &daily.id,
+        chrono::Local::now().date_naive(),
+        &actor,
+    )
+    .unwrap();
 
     let managed: Vec<_> = load_habits(&habits_path)
         .unwrap()

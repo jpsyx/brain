@@ -372,7 +372,7 @@ pub(super) fn migrate_mit_to_next_chunk(
     ))
 }
 
-pub(super) fn parse_chunk_name(name: &str) -> Option<(String, u32, u32)> {
+pub(crate) fn parse_chunk_name(name: &str) -> Option<(String, u32, u32)> {
     let trimmed = name.trim();
     let (base, suffix) = trimmed.rsplit_once(" (")?;
     let fraction = suffix.strip_suffix(')')?;

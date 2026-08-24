@@ -102,7 +102,9 @@ argv
            └─→ settings::ensure_markdown_to_pdf (tasks/TUI prerequisite gate)
            ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
            └─ Cmd::Tasks(rest)       ─→ TasksCli::parse_from(rest) → tasks_launch:
-                                          complete → complete::run (native CSV completion)
+                                          complete → complete::run (native CSV completion,
+                                                       then tasks::agenda re-syncs the day's agenda)
+                                          sync-agenda → command::tasks::sync_agenda (agenda sync alone)
                                           add      → add::create_in_workspace
                                           set      → set::set_in_workspace (pure set::plan decides)
                                           doctor   → doctor::run_doctor
@@ -1107,7 +1109,8 @@ transaction/recovery modules), `task` (CSV model, legacy-compatible load, and pu
 assignment defaults/membership/UI visibility), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
 markdown), `shortcuts` (the help/footer catalogue), `complete` (native
-task/habit completion), `triage_habits` (stable managed definitions,
+task/habit completion), `agenda` (the section-preserving agenda-markdown sync
+that every completion runs), `triage_habits` (stable managed definitions,
 marker-based mutation policy, complete purge, and durable grouped
 replacement/recovery split into orchestration, artifact, and journal modules),
 `doctor` (health check), `plain` (`--no-tui` printer),
@@ -1145,6 +1148,22 @@ Its publication result distinguishes local filesystem failures from remote
 transport failures so command diagnostics identify the failing boundary.
 `counters` consumes display-ID floors from the reconciled tables only after
 that operation succeeds. Ordinary sync never activates the migration helper.
+
+`agenda/` follows the crate's pure/impure split. The decision is pure and
+filesystem-free: `doc` splits an agenda into a preamble plus `## ` sections and
+reassembles it byte-for-byte, `lines` edits one section body (drop-by-id,
+renumber, chunk swap), `derive` rebuilds the CSV-derived snapshot sections, and
+`sync` composes them into one `sync_markdown(text, id, action, snapshot, today)`.
+`io` is the thin shell: it resolves the day's targets from `agenda_markdown_dir`,
+`agenda_dir`, and `markdown_to_pdf_path`, reads and writes the file, and
+regenerates the printable only when one already exists. Every failure there is
+logged and swallowed — the CSVs are committed before the sync runs, so the
+agenda can never fail a completion. `complete::complete_and_sync_agenda` is the
+one native entry point (CLI and tasks view alike);
+`complete::complete_in_workspace_without_agenda_sync` exists only for callers
+that own agenda handling themselves. `brain tasks sync-agenda` exposes the same
+code to external mutators, so the bundled `/todo` scripts shell out to it
+instead of carrying a second implementation.
 
 App construction reconciles managed triage state before loading its final task
 and habit vectors. Task reindex does the same before generic Python rules and

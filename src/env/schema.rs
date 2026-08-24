@@ -35,7 +35,7 @@ pub(super) use crate::agent::{
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 16] = [
+pub(super) const VARS: [VarSpec; 17] = [
     VarSpec {
         name: "root",
         description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",
@@ -46,6 +46,12 @@ pub(super) const VARS: [VarSpec; 16] = [
         name: "markdown_to_pdf_path",
         description: "Path to the markdown-to-pdf command on THIS machine. Machine-global: every registered workspace shares one value. Auto-discovered on first run; required for the Create-PDF action.",
         default: None,
+        legacy_config_fallback: false,
+    },
+    VarSpec {
+        name: "agenda_markdown_dir",
+        description: "Directory the day's agenda markdown (`<YYYY-MM-DD>.md`) lives in on THIS machine. Tilde-expanded. Defaults to /tmp: the agenda is a disposable daily snapshot of the CSVs, so it must not land inside (and sync out of) a workspace root.",
+        default: Some("/tmp"),
         legacy_config_fallback: false,
     },
     VarSpec {

@@ -281,7 +281,8 @@ management and reporting commands stay outside the persistent shell.
 | `brain --workspace <workspace>` / `brain -w <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--workspace=<workspace>` is equivalent; `--` ends option extraction. |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--claude` / `-cl`, `--codex` / `-cx`, or `--open-code` / `-oc` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
-| `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
+| `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. Also re-syncs the day's agenda markdown the completion just invalidated (see [Keeping the day's agenda in sync](#keeping-the-days-agenda-in-sync)). |
+| `brain tasks sync-agenda [<id>] [--action done\|defer\|touch] [--date YYYY-MM-DD]` | Re-sync the day's agenda after any task/habit mutation, without mutating anything itself. This is the one implementation of that sync; native completion runs the same code in-process and the bundled `/todo` mutator scripts shell out to it. Omitting the id refreshes only the CSV-derived snapshot sections; `--action` defaults to `touch`, which never edits the plan. |
 | `brain tasks add --name <name> --type <type> --priority <p0..p4> [OPTIONS]` | Create a task or habit through native Brain logic, preserving assignment, project/Linear metadata, chunking, validation, and CSV behavior. `--habit` (with `--interval`/`--unit`) creates a recurring habit and accepts `--ideal-time "6:45 AM"` to place it in the habits views' Morning/Afternoon/Evening grouping; `--ideal-time` is rejected for a plain task. Use `--json` for automation; plain output prints each created ID. |
 | `brain tasks set <id> [--name\|--due\|--priority\|--status\|--notes\|--project\|--linear-issue\|--duration\|--ideal-time]` | Edit fields on one existing task or habit by absolute value (aliases: `edit`, `update`). Accepts `t123`/`H43`/a unique fuzzy name; `--due` takes `YYYY-MM-DD`, `today`, `tomorrow`, or empty to clear. Deliberately never touches `defer_count` — this is the surface an external tracker mirrors onto, and someone else's reschedule is not the user's slip. A habit row requires `--habit`. Reports each `before → after`; `--json` for automation, and a no-op edit writes nothing. Omitting every field drops a human into an interactive field picker. |
 | `brain tasks all --no-tui --linear-issue <ID>` | Find the local task mirroring an issue-tracker identifier (case-insensitive exact match on `linear_issue`). `--linear-issue` is a global filter, so it composes with any view and with `--include-done` / `--include-deferred` to reach closed or parked mirrors. |
@@ -1752,8 +1753,10 @@ The rule:
 - **`--until YYYY-MM-DD`** (either cadence) → `due_date` is deferred to that day,
   never marked done. Must be strictly after today.
 
-Like `brain tasks complete`, skip mutates the CSV natively and does not touch the
-agenda file; the next agenda build re-derives habit state from the CSV.
+Skip mutates the CSV natively and does not touch the agenda file itself; run
+`brain tasks sync-agenda <id> --action defer` (or let the next agenda build
+re-derive habit state from the CSV) if today's agenda is already written.
+Completion is the exception: `brain tasks complete` syncs the agenda itself.
 
 `brain habits complete-managed-triage <daily|weekly>` completes Brain's managed
 triage occurrence **without needing its id**: it marks today's occurrence done
@@ -1767,6 +1770,59 @@ now exposed as a first-class CLI so an agent (or you) can do it non-interactivel
 It **respects `enable_triage_habits`**: with the feature off it is a pure no-op
 that mutates nothing (the day is acknowledged handled), so a fork with the
 feature disabled behaves identically.
+
+## Keeping the day's agenda in sync
+
+The day's agenda is a markdown file — `<agenda_markdown_dir>/<YYYY-MM-DD>.md`,
+`/tmp` by default — that whoever builds the agenda writes, and that the user
+reads (and prints) all day. It is a **snapshot of the CSVs**, not a second
+source of truth: the CSVs decide, the agenda reports. So the moment a mutation
+lands in a CSV, the snapshot is out of date.
+
+Brain closes that gap itself. **Native completion syncs the agenda**:
+`brain tasks complete <id>` and the tasks view's mark-complete both run the
+sync in-process, right after the CSV write. `brain tasks sync-agenda` exposes
+the same code to every other mutator, and the bundled `/todo` mutator scripts
+(`defer_task.py`, `defer_habit.py`, `touch_task.py`, `backlog_task.py`) shell
+out to it rather than carrying a second copy. Nobody has to remember to
+rewrite the agenda by hand, and a freehand rewrite is exactly how sections used
+to get dropped.
+
+One sync does three things, and nothing else:
+
+1. **The actionable sections lose the mutated id.** The MIT callout, `Suggested
+   order`, and `Cut order` drop every line naming it, and the numbered lists are
+   resequenced from 1. Sections are matched by heading prefix (`## ❗`,
+   `## Suggested order`, `## Cut order`), so the author's exact wording is free.
+   On a completed **chunked** task whose next chunk is unfinished and not yet on
+   the agenda, that chunk inherits the vacated callout line and suggested-order
+   slot (keeping its number and time), so exactly one actionable chunk stays
+   visible.
+2. **The snapshot sections are re-derived from the CSVs.** `🔁 Today's habits`
+   (pending habits with no due date or one on/before today, then today's
+   completions, ordered by ideal time, duration, then name) and
+   `✅ Completed today` (habits, then tasks, completed on that date) are rebuilt
+   from scratch every run — which is what catches a habit flipped to done
+   outside this process. A section with nothing to show is removed; a missing
+   one is inserted before any appended optional content, never after it.
+3. **The printable is regenerated, but only if one already exists.** A CSV
+   mutation is not a request for a fresh printout, so no PDF on disk means no
+   PDF. When `<agenda_dir>/agenda-<date>.pdf` does exist it must stay current,
+   so it is re-rendered from a comment-stripped copy of the markdown (the
+   renderer has no concept of HTML, so an unstripped comment would print as
+   visible text; the marker stays in the source, where the appendix baker greps
+   for it).
+
+**Everything else is reassembled byte-for-byte** — the title, `**Load:**`,
+`**Bottom line:**`, and any section Brain has never heard of. The sync is
+idempotent: re-running it on an already-accurate agenda writes nothing and
+regenerates nothing.
+
+It is also strictly best-effort. The CSVs are already written and committed by
+the time the sync runs, so a missing agenda, an unreadable file, or a broken PDF
+renderer is logged and swallowed — never a reason to fail a completion that
+already succeeded. No agenda for the date at all is the ordinary case, and it
+is a clean no-op.
 
 ### Prerequisite: `markdown-to-pdf`
 

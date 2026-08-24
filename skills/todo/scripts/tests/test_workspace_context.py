@@ -694,31 +694,6 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertIn("## Appendix", rendered)
         self.assertIn("Body text", rendered)
 
-    def test_agenda_mutation_inserts_core_sections_before_generic_optional_content(self):
-        program = (
-            "from update_agenda_on_mutation import "
-            "H_APPENDIX_PREFIX, _replace_or_set_section, _split_sections\n"
-            "_, sections = _split_sections("
-            "'## Suggested order\\n\\n1. Work\\n\\n' + H_APPENDIX_PREFIX + '\\n\\nOptional\\n')\n"
-            "_replace_or_set_section(sections, '## ✅', ['## ✅ Completed today', ['', 'Done']])\n"
-            "print('\\n'.join(section[0] for section in sections))\n"
-        )
-
-        result = subprocess.run(
-            [sys.executable, "-c", program],
-            cwd=SCRIPTS,
-            env=self.env(),
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            result.stdout.splitlines(),
-            ["## Suggested order", "## ✅ Completed today", "## Appendix <!-- brain:optional-content -->"],
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

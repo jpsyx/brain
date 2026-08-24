@@ -20,7 +20,7 @@ pub fn launch(
     let today = Local::now().date_naive();
     let initial = match cli.command.take() {
         Some(TasksCommand::Complete(args)) => {
-            return crate::tasks::complete::run(&context.workspace, &args.id, &context.actor);
+            return crate::tasks::complete::run(context, &args.id);
         }
         Some(TasksCommand::Add(args)) => {
             let request = crate::tasks::add::CreateRequest {
@@ -55,6 +55,9 @@ pub fn launch(
         }
         Some(TasksCommand::Set(args)) => {
             return set::run(&context.workspace, *args);
+        }
+        Some(TasksCommand::SyncAgenda(args)) => {
+            return sync_agenda::run(context, &args);
         }
         Some(TasksCommand::Search(args)) => browse::Initial::CustomSearch(args.query.join(" ")),
         Some(TasksCommand::Doctor) => {
@@ -171,6 +174,8 @@ fn format_add_result(result: &crate::tasks::add::CreateResult, json: bool) -> Re
 }
 
 mod set;
+
+mod sync_agenda;
 
 mod browse;
 

@@ -130,14 +130,14 @@ assistant first.
   then MIT, then by priority, fitting durations into a typical
   workday. Markdown output.
   **Persistence:** every time you build or rework an agenda,
-  **write it to `/tmp/<TARGET_DATE>.md`** (overwriting). When
-  tasks on a persisted agenda are deferred or touched via the
-  mutator scripts (`defer_task.py`, `defer_habit.py`, `touch_task.py`),
-  those scripts auto-update the file via
+  **write it to `/tmp/<TARGET_DATE>.md`** (overwriting). Every task
+  mutation keeps that file current on its own: `brain tasks complete`
+  syncs it in-process, and the mutator scripts (`defer_task.py`,
+  `defer_habit.py`, `touch_task.py`, `backlog_task.py`) hand it to
+  `brain tasks sync-agenda` via
   [scripts/update_agenda_on_mutation.py](../scripts/update_agenda_on_mutation.py)
-  — see SKILL.md operating principle 7. For completions
-  (`brain tasks complete <id>`) and non-mutation reworks (drops, swaps,
-  manual reorderings), rewrite the file yourself.
+  — see SKILL.md operating principle 7. Only **non-mutation** reworks
+  (drops, swaps, manual reorderings) are yours to write.
   The user reads these files via the `agenda` zsh helper
   (`agenda today` / `agenda tomorrow` / `agenda YYYY-MM-DD` /
   bare `agenda` for the latest). Source:
