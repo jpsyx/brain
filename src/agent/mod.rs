@@ -36,6 +36,8 @@ pub(crate) use claude::DEFAULT_COMMAND as DEFAULT_CLAUDE_COMMAND;
 pub(crate) use claude::project_dir_name as claude_project_dir_name;
 pub(crate) use codex::CodexFrontend;
 pub(crate) use codex::DEFAULT_COMMAND as DEFAULT_CODEX_COMMAND;
+#[cfg(test)]
+pub(crate) use codex::override_sessions_dir_for_test as override_codex_sessions_dir_for_test;
 pub(crate) use frontend::{AgentAction, AgentFrontend};
 pub(crate) use opencode::DEFAULT_COMMAND as DEFAULT_OPENCODE_COMMAND;
 pub(crate) use opencode::OpenCodeFrontend;

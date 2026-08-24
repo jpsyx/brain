@@ -24,7 +24,15 @@ fn resumed_codex_run_with_the_bound_native_id_completes() {
         db.receiver_job(first.job_id()).unwrap().unwrap().state(),
         ReceiverJobState::Done
     );
-    let _rollout = CodexRollout::create(&native_id);
+    let sessions_dir = temporary.path().join("codex-sessions");
+    let rollout = CodexRollout::create(&sessions_dir, &native_id);
+    assert_eq!(
+        rollout.path(),
+        sessions_dir
+            .join("9999/12/31")
+            .join(format!("rollout-9999-12-31T00-00-00-{native_id}.jsonl"))
+    );
+    let sessions_override = crate::agent::override_codex_sessions_dir_for_test(&sessions_dir);
     let second = accept_email_job_in_thread(&app, &db, "codex-resume", "second", 200);
     let second_transport = TransportRecording::default();
     app.brain
@@ -53,6 +61,9 @@ fn resumed_codex_run_with_the_bound_native_id_completes() {
     assert!(app.brain.receiver_run_observations().is_empty());
     assert_eq!(second_transport.shutdowns(), 1);
     assert!(!completion_path.exists());
+    drop(sessions_override);
+    rollout.close();
+    assert!(!sessions_dir.exists());
 }
 
 #[test]
@@ -106,29 +117,39 @@ fn resumed_opencode_run_with_the_bound_native_id_completes() {
 
 struct CodexRollout {
     path: PathBuf,
-    root: PathBuf,
+    sessions_dir: PathBuf,
 }
 
 impl CodexRollout {
-    fn create(session_id: &str) -> Self {
-        let root = PathBuf::from(std::env::var_os("HOME").expect("test home directory"))
-            .join(".codex/sessions")
-            .join(format!("brain-test-{session_id}"));
-        let path = root
-            .join("12/31")
+    fn create(sessions_dir: &Path, session_id: &str) -> Self {
+        assert!(
+            !sessions_dir.exists(),
+            "isolated Codex sessions directory must start absent"
+        );
+        std::fs::create_dir(sessions_dir).expect("create isolated Codex sessions directory");
+        std::fs::create_dir(sessions_dir.join("9999")).expect("create Codex rollout year");
+        std::fs::create_dir(sessions_dir.join("9999/12")).expect("create Codex rollout month");
+        std::fs::create_dir(sessions_dir.join("9999/12/31")).expect("create Codex rollout day");
+        let path = sessions_dir
+            .join("9999/12/31")
             .join(format!("rollout-9999-12-31T00-00-00-{session_id}.jsonl"));
-        std::fs::create_dir_all(path.parent().expect("rollout day directory"))
-            .expect("create rollout directory");
         std::fs::write(&path, "{}\n").expect("write Codex rollout");
-        Self { path, root }
+        Self {
+            path,
+            sessions_dir: sessions_dir.to_path_buf(),
+        }
     }
-}
 
-impl Drop for CodexRollout {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-        let _ = std::fs::remove_dir(self.root.join("12/31"));
-        let _ = std::fs::remove_dir(self.root.join("12"));
-        let _ = std::fs::remove_dir(&self.root);
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn close(self) {
+        std::fs::remove_file(self.path).expect("remove Codex rollout");
+        std::fs::remove_dir(self.sessions_dir.join("9999/12/31"))
+            .expect("remove Codex rollout day");
+        std::fs::remove_dir(self.sessions_dir.join("9999/12")).expect("remove Codex rollout month");
+        std::fs::remove_dir(self.sessions_dir.join("9999")).expect("remove Codex rollout year");
+        std::fs::remove_dir(self.sessions_dir).expect("remove isolated Codex sessions directory");
     }
 }

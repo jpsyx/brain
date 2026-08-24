@@ -2,6 +2,9 @@
 
 use std::path::PathBuf;
 
+#[cfg(test)]
+use std::cell::RefCell;
+
 use crate::agent::{
     AgentError, AgentFrontend, AgentKind, AgentSession, CompletionStrategy, HookMetadata,
     InputSequence, LaunchRequest, LaunchSpec, SessionPlan,
@@ -184,9 +187,39 @@ impl AgentFrontend for CodexFrontend {
 
 /// `~/.codex/sessions`, Codex's own rollout location.
 fn default_sessions_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(sessions_dir) = TEST_SESSIONS_DIR.with(|current| current.borrow().clone()) {
+        return Some(sessions_dir);
+    }
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .map(|home| home.join(".codex").join("sessions"))
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_SESSIONS_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn override_sessions_dir_for_test(sessions_dir: &std::path::Path) -> impl Drop {
+    let previous =
+        TEST_SESSIONS_DIR.with(|current| current.replace(Some(sessions_dir.to_path_buf())));
+    TestSessionsDirOverride { previous }
+}
+
+#[cfg(test)]
+struct TestSessionsDirOverride {
+    previous: Option<PathBuf>,
+}
+
+#[cfg(test)]
+impl Drop for TestSessionsDirOverride {
+    fn drop(&mut self) {
+        TEST_SESSIONS_DIR.with(|current| {
+            current.replace(self.previous.take());
+        });
+    }
 }
 
 #[cfg(test)]
