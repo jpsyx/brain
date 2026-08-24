@@ -71,13 +71,17 @@ impl Symbols {
         let Some(owner) = self.canonical_type(module, &item_impl.self_ty) else {
             return;
         };
+        let trait_name = item_impl
+            .trait_
+            .as_ref()
+            .map(|(_, path, _)| self.resolve_path(module, path));
         for item in &item_impl.items {
             let syn::ImplItem::Fn(method) = item else {
                 continue;
             };
             if !is_exact_cfg_test(&method.attrs) {
                 self.collect_return(
-                    format!("{owner}::{}", method.sig.ident),
+                    method_target(&owner, trait_name.as_deref(), &method.sig.ident.to_string()),
                     module,
                     &method.sig.output,
                 );
@@ -125,6 +129,21 @@ impl Symbols {
                 .collect::<Vec<_>>(),
         )
         .join("::")
+    }
+
+    pub(super) fn qself_trait(
+        &self,
+        module: &[String],
+        path: &syn::Path,
+        position: usize,
+    ) -> Option<String> {
+        let segments = path
+            .segments
+            .iter()
+            .take(position)
+            .map(|segment| segment.ident.to_string())
+            .collect::<Vec<_>>();
+        (!segments.is_empty()).then(|| self.resolve_segments(module, &segments).join("::"))
     }
 
     fn resolve_segments(&self, module: &[String], raw: &[String]) -> Vec<String> {
@@ -232,6 +251,13 @@ impl Symbols {
         };
         Some(self.resolve_path(module, &path.path))
     }
+}
+
+pub(super) fn method_target(owner: &str, trait_name: Option<&str>, method: &str) -> String {
+    trait_name.map_or_else(
+        || format!("{owner}::{method}"),
+        |trait_name| format!("<{owner} as {trait_name}>::{method}"),
+    )
 }
 
 pub(super) fn item_is_test(item: &syn::Item) -> bool {

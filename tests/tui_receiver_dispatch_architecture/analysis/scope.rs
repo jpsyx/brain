@@ -1,5 +1,5 @@
 use super::super::TypeFact;
-use super::symbols::Symbols;
+use super::symbols::{Symbols, method_target};
 
 pub(super) struct Scope<'symbols> {
     pub(super) module: Vec<String>,
@@ -19,7 +19,10 @@ impl<'symbols> Scope<'symbols> {
         if let Some(qself) = &expression.qself {
             let owner = self.type_fact(&qself.ty).canonical?;
             let operation = expression.path.segments.last()?.ident.to_string();
-            return Some(format!("{owner}::{operation}"));
+            let trait_name =
+                self.symbols
+                    .qself_trait(&self.module, &expression.path, qself.position);
+            return Some(method_target(&owner, trait_name.as_deref(), &operation));
         }
         Some(self.resolve_path(&expression.path))
     }

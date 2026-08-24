@@ -11,7 +11,7 @@ mod symbols;
 use super::{FunctionNode, Program, RawCall, TypeFact, classify_operation, receiver_owned_module};
 use crate::source::{ProductionSource, is_exact_cfg_test, production_sources};
 use scope::Scope;
-use symbols::{Symbols, item_is_test};
+use symbols::{Symbols, item_is_test, method_target};
 
 struct ParsedSource {
     production: ProductionSource,
@@ -97,6 +97,10 @@ fn collect_impl(
             .clone()
             .unwrap_or_else(|| scope.type_display(&item_impl.self_ty)),
         self_fact,
+        item_impl
+            .trait_
+            .as_ref()
+            .map(|(_, path, _)| scope.resolve_path(path)),
     );
     for item in &item_impl.items {
         let syn::ImplItem::Fn(method) = item else {
@@ -120,7 +124,7 @@ fn collect_impl(
 fn collect_function(
     name: &syn::Ident,
     inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>,
-    self_type: Option<&(String, TypeFact)>,
+    self_type: Option<&(String, TypeFact, Option<String>)>,
     block: &syn::Block,
     scope: &Scope,
     audited_orphan: bool,
@@ -128,10 +132,10 @@ fn collect_function(
 ) {
     let id = self_type.as_ref().map_or_else(
         || format!("{}::{name}", scope.module.join("::")),
-        |(owner, _)| format!("{owner}::{name}"),
+        |(owner, _, trait_name)| method_target(owner, trait_name.as_deref(), &name.to_string()),
     );
     let mut variables = HashMap::new();
-    if let Some((_, fact)) = &self_type {
+    if let Some((_, fact, _)) = &self_type {
         variables.insert("self".to_owned(), fact.clone());
     }
     for input in inputs {
