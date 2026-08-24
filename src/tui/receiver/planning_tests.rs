@@ -184,6 +184,15 @@ fn durable_fixture(
     binding_kind: BindingKind,
     transcript: &str,
 ) -> (ReceiverJob, ReceiverConversation) {
+    durable_fixture_with_prompt(kind, binding_kind, transcript, CURRENT_PROMPT)
+}
+
+fn durable_fixture_with_prompt(
+    kind: AgentKind,
+    binding_kind: BindingKind,
+    transcript: &str,
+    prompt: &str,
+) -> (ReceiverJob, ReceiverConversation) {
     let db = Db::open_in_memory().expect("receiver state");
     let actor = receiver_actor();
     let inbound = InboundJob {
@@ -192,7 +201,7 @@ fn durable_fixture(
         actor,
         channel: Channel::Sms,
         authenticated_sender: "+12125550100".to_owned(),
-        prompt: CURRENT_PROMPT.to_owned(),
+        prompt: prompt.to_owned(),
         attachments: vec![AttachmentRef {
             url: "https://attachments.example.test/photo".to_owned(),
             provider_id: Some("media-1".to_owned()),
@@ -387,5 +396,36 @@ fn receiver_launch_recovery_prompt_is_utf8_safe_bounded_and_keeps_newest_context
         assert!(prompt.contains("newest-context-📌"));
         assert!(prompt.contains("## Current authenticated message\n"));
         assert!(prompt.contains(RESUME_PROMPT));
+    }
+}
+
+#[test]
+fn receiver_launch_recovery_prompt_preserves_attachments_when_message_is_oversized() {
+    let oversized_message = "oversized-message-🙂".repeat(RECOVERY_PROMPT_BUDGET_BYTES);
+
+    for kind in AgentKind::ALL {
+        let controller = controller(kind, ProbeOutcome::Missing);
+        let (job, conversation) = durable_fixture_with_prompt(
+            kind,
+            BindingKind::Absent,
+            "portable context",
+            &oversized_message,
+        );
+        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
+            Ok(true)
+        });
+        let prompt = plan.initial_prompt();
+
+        assert!(
+            prompt.len() <= RECOVERY_PROMPT_BUDGET_BYTES,
+            "{}",
+            kind.label()
+        );
+        assert!(prompt.contains("[Current authenticated message truncated]"));
+        assert!(prompt.contains("\n\nAttachment references:\n"));
+        assert!(prompt.contains("source=\"https://attachments.example.test/photo\""));
+        assert!(prompt.contains("provider_id=\"media-1\""));
+        assert!(prompt.contains("content_type=\"image/png\""));
+        assert!(prompt.contains("filename=\"photo.png\""));
     }
 }

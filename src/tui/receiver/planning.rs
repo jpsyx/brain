@@ -36,7 +36,7 @@ pub(crate) fn plan_receiver_launch(
     fresh_session: AgentSession,
     claim_resume: impl FnOnce(&AgentSession) -> anyhow::Result<bool>,
 ) -> ReceiverLaunchPlan {
-    let current_message = current_message_prompt(job);
+    let (message_body, attachment_references) = current_message_parts(job);
     let resume_session = conversation
         .binding()
         .filter(|binding| binding.frontend() == controller.kind())
@@ -49,26 +49,30 @@ pub(crate) fn plan_receiver_launch(
     if let Some(session) = resume_session {
         return ReceiverLaunchPlan {
             session_plan: SessionPlan::resume(session),
-            initial_prompt: current_message,
+            initial_prompt: format!("{message_body}{attachment_references}"),
         };
     }
 
     ReceiverLaunchPlan {
         session_plan: SessionPlan::fresh(fresh_session),
-        initial_prompt: recovery_prompt(conversation.transcript_markdown(), &current_message),
+        initial_prompt: recovery_prompt(
+            conversation.transcript_markdown(),
+            message_body,
+            &attachment_references,
+        ),
     }
 }
 
-fn current_message_prompt(job: &ReceiverJob) -> String {
+fn current_message_parts(job: &ReceiverJob) -> (&str, String) {
     let inbound = job.inbound();
-    let mut prompt = inbound.prompt.clone();
+    let mut attachment_references = String::new();
     if inbound.attachments.is_empty() {
-        return prompt;
+        return (&inbound.prompt, attachment_references);
     }
-    prompt.push_str("\n\nAttachment references:");
+    attachment_references.push_str("\n\nAttachment references:");
     for attachment in &inbound.attachments {
         let _ = write!(
-            prompt,
+            attachment_references,
             "\n- source={}, provider_id={}, content_type={}, filename={}",
             json_string(Some(&attachment.url)),
             json_string(attachment.provider_id.as_deref()),
@@ -76,7 +80,7 @@ fn current_message_prompt(job: &ReceiverJob) -> String {
             json_string(attachment.filename.as_deref()),
         );
     }
-    prompt
+    (&inbound.prompt, attachment_references)
 }
 
 fn json_string(value: Option<&str>) -> String {
@@ -89,9 +93,11 @@ fn json_string(value: Option<&str>) -> String {
     )
 }
 
-fn recovery_prompt(transcript: &str, current_message: &str) -> String {
-    let fixed_bytes =
-        RECOVERY_INTRO.len() + TRANSCRIPT_HEADING.len() + CURRENT_MESSAGE_HEADING.len();
+fn recovery_prompt(transcript: &str, message_body: &str, attachment_references: &str) -> String {
+    let fixed_bytes = RECOVERY_INTRO.len()
+        + TRANSCRIPT_HEADING.len()
+        + CURRENT_MESSAGE_HEADING.len()
+        + attachment_references.len();
     let content_budget = RECOVERY_PROMPT_BUDGET_BYTES.saturating_sub(fixed_bytes);
     let transcript_reserve = if transcript.is_empty() {
         EMPTY_TRANSCRIPT.len()
@@ -99,15 +105,15 @@ fn recovery_prompt(transcript: &str, current_message: &str) -> String {
         1
     };
     let current_budget = content_budget.saturating_sub(transcript_reserve);
-    let current_message = bounded_prefix(current_message, current_budget, TRUNCATED_MESSAGE);
-    let transcript_budget = content_budget.saturating_sub(current_message.len());
+    let message_body = bounded_prefix(message_body, current_budget, TRUNCATED_MESSAGE);
+    let transcript_budget = content_budget.saturating_sub(message_body.len());
     let transcript = if transcript.is_empty() {
         bounded_prefix(EMPTY_TRANSCRIPT, transcript_budget, "")
     } else {
         bounded_suffix(transcript, transcript_budget, OMITTED_TRANSCRIPT)
     };
     format!(
-        "{RECOVERY_INTRO}{TRANSCRIPT_HEADING}{transcript}{CURRENT_MESSAGE_HEADING}{current_message}"
+        "{RECOVERY_INTRO}{TRANSCRIPT_HEADING}{transcript}{CURRENT_MESSAGE_HEADING}{message_body}{attachment_references}"
     )
 }
 
